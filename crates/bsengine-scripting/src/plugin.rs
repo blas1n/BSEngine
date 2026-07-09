@@ -322,13416 +322,7 @@ fn run_scripts(world: &mut World) {
         }
     }
 
-    let transform_snapshot: HashMap<String, (Vec3, Quat, Vec3)> = {
-        let mut q = world.query::<(&Name, &Transform)>();
-        q.iter(world)
-            .map(|(n, t)| (n.0.clone(), (t.translation, t.rotation, t.scale)))
-            .collect()
-    };
-
-    let world_transform_snapshot: HashMap<String, (Vec3, Quat, Vec3)> = {
-        let mut q = world.query::<(&Name, &GlobalTransform)>();
-        q.iter(world)
-            .map(|(n, gt)| {
-                let (scale, rot, pos) = gt.0.to_scale_rotation_translation();
-                (n.0.clone(), (pos, rot, scale))
-            })
-            .collect()
-    };
-
-    let visible_snapshot: HashMap<String, bool> = {
-        let mut q = world.query::<(&Name, &Visible)>();
-        q.iter(world)
-            .map(|(n, v)| (n.0.clone(), v.is_visible))
-            .collect()
-    };
-
-    let material_color_snapshot: HashMap<String, [f32; 3]> = {
-        let mut q = world.query::<(&Name, &Material)>();
-        q.iter(world)
-            .map(|(n, m)| (n.0.clone(), m.base_color.to_array()))
-            .collect()
-    };
-
-    let material_emissive_snapshot: HashMap<String, [f32; 3]> = {
-        let mut q = world.query::<(&Name, &Material)>();
-        q.iter(world)
-            .map(|(n, m)| (n.0.clone(), m.emissive.to_array()))
-            .collect()
-    };
-
-    let material_metallic_snapshot: HashMap<String, f32> = {
-        let mut q = world.query::<(&Name, &Material)>();
-        q.iter(world)
-            .map(|(n, m)| (n.0.clone(), m.metallic))
-            .collect()
-    };
-
-    let material_roughness_snapshot: HashMap<String, f32> = {
-        let mut q = world.query::<(&Name, &Material)>();
-        q.iter(world)
-            .map(|(n, m)| (n.0.clone(), m.roughness))
-            .collect()
-    };
-
-    let (key_snapshot, key_just_pressed, key_just_released): (
-        HashSet<String>,
-        HashSet<String>,
-        HashSet<String>,
-    ) = if let Some(input) = world.get_resource::<Input<KeyCode>>() {
-        let pressed = KEY_MAPPINGS
-            .iter()
-            .filter(|(code, _)| input.is_pressed(code))
-            .map(|(_, name)| name.to_string())
-            .collect();
-        let just_pressed = KEY_MAPPINGS
-            .iter()
-            .filter(|(code, _)| input.just_pressed(code))
-            .map(|(_, name)| name.to_string())
-            .collect();
-        let just_released = KEY_MAPPINGS
-            .iter()
-            .filter(|(code, _)| input.just_released(code))
-            .map(|(_, name)| name.to_string())
-            .collect();
-        (pressed, just_pressed, just_released)
-    } else {
-        (HashSet::new(), HashSet::new(), HashSet::new())
-    };
-
-    let (mb_pressed, mb_just_pressed, mb_just_released): (u8, u8, u8) =
-        if let Some(buttons) = world.get_resource::<Input<MouseButton>>() {
-            let mut p = 0u8;
-            let mut jp = 0u8;
-            let mut jr = 0u8;
-            if buttons.is_pressed(&MouseButton::Left) {
-                p |= 1;
-            }
-            if buttons.is_pressed(&MouseButton::Right) {
-                p |= 2;
-            }
-            if buttons.is_pressed(&MouseButton::Middle) {
-                p |= 4;
-            }
-            if buttons.just_pressed(&MouseButton::Left) {
-                jp |= 1;
-            }
-            if buttons.just_pressed(&MouseButton::Right) {
-                jp |= 2;
-            }
-            if buttons.just_pressed(&MouseButton::Middle) {
-                jp |= 4;
-            }
-            if buttons.just_released(&MouseButton::Left) {
-                jr |= 1;
-            }
-            if buttons.just_released(&MouseButton::Right) {
-                jr |= 2;
-            }
-            if buttons.just_released(&MouseButton::Middle) {
-                jr |= 4;
-            }
-            (p, jp, jr)
-        } else {
-            (0, 0, 0)
-        };
-
-    let (mouse_pos, mouse_delta) = world
-        .get_resource::<MouseState>()
-        .map(|ms| (ms.position, ms.delta))
-        .unwrap_or(((0.0, 0.0), (0.0, 0.0)));
-
-    const GAMEPAD_MAPPINGS: &[(GamepadButton, u32)] = &[
-        (GamepadButton::South, 0),
-        (GamepadButton::East, 1),
-        (GamepadButton::West, 2),
-        (GamepadButton::North, 3),
-        (GamepadButton::LB, 4),
-        (GamepadButton::RB, 5),
-        (GamepadButton::LT, 6),
-        (GamepadButton::RT, 7),
-        (GamepadButton::Select, 8),
-        (GamepadButton::Start, 9),
-        (GamepadButton::LeftStick, 10),
-        (GamepadButton::RightStick, 11),
-        (GamepadButton::DPadUp, 12),
-        (GamepadButton::DPadDown, 13),
-        (GamepadButton::DPadLeft, 14),
-        (GamepadButton::DPadRight, 15),
-    ];
-
-    let (gpad_pressed, gpad_just_pressed, gpad_just_released): (u16, u16, u16) =
-        if let Some(gpad) = world.get_resource::<Input<GamepadButton>>() {
-            let mut p = 0u16;
-            let mut jp = 0u16;
-            let mut jr = 0u16;
-            for &(btn, bit) in GAMEPAD_MAPPINGS {
-                let mask = 1u16 << bit;
-                if gpad.is_pressed(&btn) {
-                    p |= mask;
-                }
-                if gpad.just_pressed(&btn) {
-                    jp |= mask;
-                }
-                if gpad.just_released(&btn) {
-                    jr |= mask;
-                }
-            }
-            (p, jp, jr)
-        } else {
-            (0, 0, 0)
-        };
-
-    let gamepad_sticks = world
-        .get_resource::<GamepadSticks>()
-        .map(|s| {
-            (
-                s.left.0,
-                s.left.1,
-                s.right.0,
-                s.right.1,
-                s.left_trigger,
-                s.right_trigger,
-            )
-        })
-        .unwrap_or((0.0, 0.0, 0.0, 0.0, 0.0, 0.0));
-
-    let physics_ptr = world
-        .get_resource::<PhysicsWorld>()
-        .map(|pw| pw as *const PhysicsWorld)
-        .unwrap_or(std::ptr::null());
-
-    let entity_name_map: HashMap<u64, String> = {
-        let mut q = world.query::<(Entity, &Name)>();
-        q.iter(world)
-            .map(|(e, n)| (e.to_bits(), n.0.clone()))
-            .collect()
-    };
-
-    let velocity_snapshot: HashMap<String, Vec3> = world
-        .get_resource::<PhysicsWorld>()
-        .map(|pw| {
-            entity_name_map
-                .iter()
-                .filter_map(|(&bits, name)| {
-                    let entity = bevy_ecs::prelude::Entity::from_bits(bits);
-                    pw.get_linvel(entity).map(|v| (name.clone(), v))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
-    let angular_velocity_snapshot: HashMap<String, Vec3> = world
-        .get_resource::<PhysicsWorld>()
-        .map(|pw| {
-            entity_name_map
-                .iter()
-                .filter_map(|(&bits, name)| {
-                    let entity = bevy_ecs::prelude::Entity::from_bits(bits);
-                    pw.get_angvel(entity).map(|v| (name.clone(), v))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
-    let parent_map: HashMap<String, String> = {
-        let mut q = world.query::<(Entity, &Name, &Parent)>();
-        q.iter(world)
-            .filter_map(|(_, n, p)| {
-                entity_name_map
-                    .get(&p.0.to_bits())
-                    .map(|pn| (n.0.clone(), pn.clone()))
-            })
-            .collect()
-    };
-    let children_map: HashMap<String, Vec<String>> = {
-        let mut map: HashMap<String, Vec<String>> = HashMap::new();
-        for (child, parent) in &parent_map {
-            map.entry(parent.clone()).or_default().push(child.clone());
-        }
-        map
-    };
-
-    let scripted: Vec<(String, String)> = {
-        let mut q = world.query::<(Entity, &Name, &Script)>();
-        q.iter(world)
-            .map(|(e, n, _)| (e.to_bits().to_string(), n.0.clone()))
-            .collect()
-    };
-
-    let all_names: Vec<String> = {
-        let mut q = world.query::<&Name>();
-        q.iter(world).map(|n| n.0.clone()).collect()
-    };
-
-    let collision_json = COLLISION_SNAPSHOT.with(|s| {
-        let evs = s.borrow();
-        serde_json::to_string(
-            &evs.iter()
-                .map(|(a, b, started)| {
-                    serde_json::json!({"nameA": a, "nameB": b, "started": started})
-                })
-                .collect::<Vec<_>>(),
-        )
-        .unwrap_or_else(|_| "[]".to_string())
-    });
-
-    TRANSFORM_SNAPSHOT.with(|s| *s.borrow_mut() = transform_snapshot);
-    WORLD_TRANSFORM_SNAPSHOT.with(|s| *s.borrow_mut() = world_transform_snapshot);
-    VISIBLE_SNAPSHOT.with(|s| *s.borrow_mut() = visible_snapshot);
-    MATERIAL_COLOR_SNAPSHOT.with(|s| *s.borrow_mut() = material_color_snapshot);
-    MATERIAL_EMISSIVE_SNAPSHOT.with(|s| *s.borrow_mut() = material_emissive_snapshot);
-    MATERIAL_METALLIC_SNAPSHOT.with(|s| *s.borrow_mut() = material_metallic_snapshot);
-    MATERIAL_ROUGHNESS_SNAPSHOT.with(|s| *s.borrow_mut() = material_roughness_snapshot);
-
-    let (elapsed_secs, delta_secs) =
-        if let Some(mut timing) = world.get_resource_mut::<ScriptTimingState>() {
-            let now = std::time::Instant::now();
-            let elapsed = now.duration_since(timing.startup).as_secs_f32();
-            let delta = now.duration_since(timing.last_frame).as_secs_f32();
-            timing.last_frame = now;
-            (elapsed, delta)
-        } else {
-            (0.0, 0.0)
-        };
-    TIME_ELAPSED_SNAPSHOT.with(|s| *s.borrow_mut() = elapsed_secs);
-    TIME_DELTA_SNAPSHOT.with(|s| *s.borrow_mut() = delta_secs);
-    if let Some(ss) = world.get_resource::<ScreenSize>() {
-        SCREEN_SIZE_SNAPSHOT.with(|s| *s.borrow_mut() = (ss.width, ss.height));
-    }
-    KEY_SNAPSHOT.with(|k| *k.borrow_mut() = key_snapshot);
-    KEY_JUST_PRESSED_SNAPSHOT.with(|k| *k.borrow_mut() = key_just_pressed);
-    KEY_JUST_RELEASED_SNAPSHOT.with(|k| *k.borrow_mut() = key_just_released);
-    ENTITY_NAMES_SNAPSHOT.with(|s| *s.borrow_mut() = all_names);
-    MOUSE_PRESSED_SNAPSHOT.with(|s| *s.borrow_mut() = mb_pressed);
-    MOUSE_JUST_PRESSED_SNAPSHOT.with(|s| *s.borrow_mut() = mb_just_pressed);
-    MOUSE_JUST_RELEASED_SNAPSHOT.with(|s| *s.borrow_mut() = mb_just_released);
-    MOUSE_POS_SNAPSHOT.with(|s| *s.borrow_mut() = mouse_pos);
-    MOUSE_DELTA_SNAPSHOT.with(|s| *s.borrow_mut() = mouse_delta);
-    let ui_clicked: Vec<String> = world
-        .get_resource::<UiState>()
-        .map(|ui| ui.clicked.iter().cloned().collect())
-        .unwrap_or_default();
-    UI_CLICKED_SNAPSHOT.with(|s| *s.borrow_mut() = ui_clicked);
-    let mass_snapshot: HashMap<String, f32> = world
-        .get_resource::<PhysicsWorld>()
-        .map(|pw| {
-            entity_name_map
-                .iter()
-                .filter_map(|(&bits, name)| {
-                    let entity = bevy_ecs::prelude::Entity::from_bits(bits);
-                    pw.get_mass(entity).map(|m| (name.clone(), m))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    let gravity_scale_snapshot: HashMap<String, f32> = world
-        .get_resource::<PhysicsWorld>()
-        .map(|pw| {
-            entity_name_map
-                .iter()
-                .filter_map(|(&bits, name)| {
-                    let entity = bevy_ecs::prelude::Entity::from_bits(bits);
-                    pw.get_gravity_scale(entity).map(|s| (name.clone(), s))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    let body_type_snapshot: HashMap<String, bool> = world
-        .get_resource::<PhysicsWorld>()
-        .map(|pw| {
-            entity_name_map
-                .iter()
-                .filter_map(|(&bits, name)| {
-                    let entity = bevy_ecs::prelude::Entity::from_bits(bits);
-                    pw.is_kinematic(entity).map(|k| (name.clone(), k))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    let collider_sensor_snapshot: HashMap<String, bool> = world
-        .get_resource::<PhysicsWorld>()
-        .map(|pw| {
-            entity_name_map
-                .iter()
-                .filter_map(|(&bits, name)| {
-                    let entity = bevy_ecs::prelude::Entity::from_bits(bits);
-                    pw.is_collider_sensor(entity).map(|s| (name.clone(), s))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    let linear_damping_snapshot: HashMap<String, f32> = world
-        .get_resource::<PhysicsWorld>()
-        .map(|pw| {
-            entity_name_map
-                .iter()
-                .filter_map(|(&bits, name)| {
-                    let entity = bevy_ecs::prelude::Entity::from_bits(bits);
-                    pw.get_linear_damping(entity).map(|d| (name.clone(), d))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    let angular_damping_snapshot: HashMap<String, f32> = world
-        .get_resource::<PhysicsWorld>()
-        .map(|pw| {
-            entity_name_map
-                .iter()
-                .filter_map(|(&bits, name)| {
-                    let entity = bevy_ecs::prelude::Entity::from_bits(bits);
-                    pw.get_angular_damping(entity).map(|d| (name.clone(), d))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    let restitution_snapshot: HashMap<String, f32> = world
-        .get_resource::<PhysicsWorld>()
-        .map(|pw| {
-            entity_name_map
-                .iter()
-                .filter_map(|(&bits, name)| {
-                    let entity = bevy_ecs::prelude::Entity::from_bits(bits);
-                    pw.get_restitution(entity).map(|v| (name.clone(), v))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    let friction_snapshot: HashMap<String, f32> = world
-        .get_resource::<PhysicsWorld>()
-        .map(|pw| {
-            entity_name_map
-                .iter()
-                .filter_map(|(&bits, name)| {
-                    let entity = bevy_ecs::prelude::Entity::from_bits(bits);
-                    pw.get_friction(entity).map(|v| (name.clone(), v))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    let sleep_snapshot: HashMap<String, bool> = world
-        .get_resource::<PhysicsWorld>()
-        .map(|pw| {
-            entity_name_map
-                .iter()
-                .filter_map(|(&bits, name)| {
-                    let entity = bevy_ecs::prelude::Entity::from_bits(bits);
-                    pw.is_sleeping(entity).map(|v| (name.clone(), v))
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    let (tag_snapshot, entity_tags_snapshot): (
-        HashMap<String, Vec<String>>,
-        HashMap<String, Vec<String>>,
-    ) = {
-        let mut by_label: HashMap<String, Vec<String>> = HashMap::new();
-        let mut by_name: HashMap<String, Vec<String>> = HashMap::new();
-        let mut q = world.query::<(&Name, &Tag)>();
-        for (name, tag) in q.iter(world) {
-            for label in tag.iter() {
-                by_label
-                    .entry(label.to_string())
-                    .or_default()
-                    .push(name.0.clone());
-                by_name
-                    .entry(name.0.clone())
-                    .or_default()
-                    .push(label.to_string());
-            }
-        }
-        (by_label, by_name)
-    };
-    ENTITY_NAME_MAP.with(|m| *m.borrow_mut() = entity_name_map);
-    PARENT_SNAPSHOT.with(|s| *s.borrow_mut() = parent_map);
-    CHILDREN_SNAPSHOT.with(|s| *s.borrow_mut() = children_map);
-    TAG_SNAPSHOT.with(|s| *s.borrow_mut() = tag_snapshot);
-    ENTITY_TAGS_SNAPSHOT.with(|s| *s.borrow_mut() = entity_tags_snapshot);
-    VELOCITY_SNAPSHOT.with(|s| *s.borrow_mut() = velocity_snapshot);
-    ANGULAR_VELOCITY_SNAPSHOT.with(|s| *s.borrow_mut() = angular_velocity_snapshot);
-    MASS_SNAPSHOT.with(|s| *s.borrow_mut() = mass_snapshot);
-    GRAVITY_SCALE_SNAPSHOT.with(|s| *s.borrow_mut() = gravity_scale_snapshot);
-    BODY_TYPE_SNAPSHOT.with(|s| *s.borrow_mut() = body_type_snapshot);
-    COLLIDER_SENSOR_SNAPSHOT.with(|s| *s.borrow_mut() = collider_sensor_snapshot);
-    LINEAR_DAMPING_SNAPSHOT.with(|s| *s.borrow_mut() = linear_damping_snapshot);
-    ANGULAR_DAMPING_SNAPSHOT.with(|s| *s.borrow_mut() = angular_damping_snapshot);
-    RESTITUTION_SNAPSHOT.with(|s| *s.borrow_mut() = restitution_snapshot);
-    FRICTION_SNAPSHOT.with(|s| *s.borrow_mut() = friction_snapshot);
-    SLEEP_SNAPSHOT.with(|s| *s.borrow_mut() = sleep_snapshot);
-    let gravity = world
-        .get_resource::<PhysicsWorld>()
-        .map(|pw| pw.gravity())
-        .unwrap_or(9.81);
-    GRAVITY_SNAPSHOT.with(|s| *s.borrow_mut() = gravity);
-    PHYSICS_WORLD_PTR.with(|p| *p.borrow_mut() = physics_ptr);
-    GAMEPAD_BUTTON_SNAPSHOT.with(|s| *s.borrow_mut() = gpad_pressed);
-    GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT.with(|s| *s.borrow_mut() = gpad_just_pressed);
-    GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT.with(|s| *s.borrow_mut() = gpad_just_released);
-    GAMEPAD_STICKS_SNAPSHOT.with(|s| *s.borrow_mut() = gamepad_sticks);
-    if let Some(handles) = world.get_resource::<SoundHandles>() {
-        use kira::sound::PlaybackState;
-        let mut states = std::collections::HashMap::new();
-        let mut positions = std::collections::HashMap::new();
-        for (id, handle) in &handles.0 {
-            let state = match handle.state() {
-                PlaybackState::Playing => "playing",
-                PlaybackState::Pausing => "pausing",
-                PlaybackState::Paused => "paused",
-                PlaybackState::WaitingToResume => "waiting_to_resume",
-                PlaybackState::Resuming => "resuming",
-                PlaybackState::Stopping => "stopping",
-                PlaybackState::Stopped => "stopped",
-            };
-            states.insert(*id, state.to_string());
-            positions.insert(*id, handle.position());
-        }
-        SOUND_STATE_SNAPSHOT.with(|s| *s.borrow_mut() = states);
-        SOUND_POSITION_SNAPSHOT.with(|s| *s.borrow_mut() = positions);
-    }
-    {
-        use bsengine_core::Health;
-        let mut health_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Health)>();
-        for (name, health) in q.iter(world) {
-            health_map.insert(name.0.clone(), (health.current, health.max));
-        }
-        HEALTH_SNAPSHOT.with(|s| *s.borrow_mut() = health_map);
-    }
-    {
-        use bsengine_core::AnimationPlayer;
-        let mut anim_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &AnimationPlayer)>();
-        for (name, ap) in q.iter(world) {
-            anim_map.insert(
-                name.0.clone(),
-                (ap.clip.clone(), ap.time, ap.speed, ap.looping, ap.playing),
-            );
-        }
-        ANIMATION_SNAPSHOT.with(|s| *s.borrow_mut() = anim_map);
-    }
-    {
-        use bsengine_core::AnimationStateMachine;
-        let mut asm_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &AnimationStateMachine)>();
-        for (name, asm) in q.iter(world) {
-            asm_map.insert(name.0.clone(), asm.current_state.clone());
-        }
-        ASM_STATE_SNAPSHOT.with(|s| *s.borrow_mut() = asm_map);
-    }
-    {
-        use bsengine_core::Lifetime;
-        let mut lifetime_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Lifetime)>();
-        for (name, lt) in q.iter(world) {
-            lifetime_map.insert(name.0.clone(), lt.remaining);
-        }
-        LIFETIME_SNAPSHOT.with(|s| *s.borrow_mut() = lifetime_map);
-    }
-    {
-        use bsengine_core::Stamina;
-        let mut stamina_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Stamina)>();
-        for (name, st) in q.iter(world) {
-            stamina_map.insert(name.0.clone(), (st.current, st.max, st.exhausted));
-        }
-        STAMINA_SNAPSHOT.with(|s| *s.borrow_mut() = stamina_map);
-    }
-    {
-        use bsengine_core::Mana;
-        let mut mana_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Mana)>();
-        for (name, mn) in q.iter(world) {
-            mana_map.insert(name.0.clone(), (mn.current, mn.max));
-        }
-        MANA_SNAPSHOT.with(|s| *s.borrow_mut() = mana_map);
-    }
-    {
-        use bsengine_core::MoveSpeed;
-        let mut ms_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &MoveSpeed)>();
-        for (name, ms) in q.iter(world) {
-            ms_map.insert(name.0.clone(), (ms.base, ms.effective()));
-        }
-        MOVE_SPEED_SNAPSHOT.with(|s| *s.borrow_mut() = ms_map);
-    }
-    {
-        use bsengine_core::Scald;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Scald)>();
-        for (name, sc) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sc.heat_stacks,
-                    sc.max_stacks,
-                    sc.amplify_per_stack,
-                    sc.stack_duration,
-                    sc.just_scalded,
-                    sc.just_cooled,
-                    sc.enabled,
-                ),
-            );
-        }
-        SCALD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Scan;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Scan)>();
-        for (name, sc) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (sc.radius, sc.interval, sc.timer, sc.just_pulsed, sc.enabled),
-            );
-        }
-        SCAN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Scar;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Scar)>();
-        for (name, sc) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sc.scars,
-                    sc.max_scars,
-                    sc.regen_penalty_per_scar,
-                    sc.just_scarred,
-                    sc.just_cleansed,
-                    sc.enabled,
-                ),
-            );
-        }
-        SCAR_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Scatter;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Scatter)>();
-        for (name, sc) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sc.duration,
-                    sc.timer,
-                    sc.spread_multiplier,
-                    sc.extra_pellets,
-                    sc.just_scattered,
-                    sc.just_cleared,
-                    sc.enabled,
-                ),
-            );
-        }
-        SCATTER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Scope;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Scope)>();
-        for (name, sc) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sc.active,
-                    sc.accuracy_bonus,
-                    sc.range_bonus,
-                    sc.move_speed_penalty,
-                    sc.just_scoped,
-                    sc.just_unscoped,
-                    sc.enabled,
-                ),
-            );
-        }
-        SCOPE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Scorch;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Scorch)>();
-        for (name, sc) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sc.duration,
-                    sc.timer,
-                    sc.fire_amplify,
-                    sc.dot_rate,
-                    sc.just_scorched,
-                    sc.just_healed,
-                    sc.enabled,
-                ),
-            );
-        }
-        SCORCH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Shear;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Shear)>();
-        for (name, sh) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (sh.armor_penetration, sh.flat_penetration, sh.enabled),
-            );
-        }
-        SHEAR_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Shock;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Shock)>();
-        for (name, sh) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sh.duration,
-                    sh.timer,
-                    sh.damage_per_second,
-                    sh.interrupt_chance,
-                    sh.just_shocked,
-                    sh.just_discharged,
-                    sh.enabled,
-                ),
-            );
-        }
-        SHOCK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Shrivel;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Shrivel)>();
-        for (name, sh) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sh.shrivel_fraction,
-                    sh.shrivel_rate,
-                    sh.recovery_rate,
-                    sh.shrivel_factor,
-                    sh.shriveled,
-                    sh.just_afflicted,
-                    sh.just_recovered,
-                    sh.enabled,
-                ),
-            );
-        }
-        SHRIVEL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Shroud;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Shroud)>();
-        for (name, sh) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sh.charges,
-                    sh.save_health_fraction,
-                    sh.cooldown,
-                    sh.cooldown_timer,
-                    sh.just_saved,
-                    sh.just_exhausted,
-                    sh.enabled,
-                ),
-            );
-        }
-        SHROUD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Shunt;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Shunt)>();
-        for (name, sh) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sh.shunt_resistance,
-                    sh.last_shunt_magnitude,
-                    sh.shunts_received,
-                    sh.cooldown_timer,
-                    sh.cooldown,
-                    sh.just_shunted,
-                    sh.enabled,
-                ),
-            );
-        }
-        SHUNT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Silence;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Silence)>();
-        for (name, si) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    si.duration,
-                    si.timer,
-                    si.just_silenced,
-                    si.just_unsilenced,
-                    si.enabled,
-                ),
-            );
-        }
-        SILENCE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Siphon;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Siphon)>();
-        for (name, si) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    si.duration,
-                    si.timer,
-                    si.drain_per_second,
-                    si.return_fraction,
-                    si.just_started,
-                    si.just_ended,
-                    si.enabled,
-                ),
-            );
-        }
-        SIPHON_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Slam;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Slam)>();
-        for (name, sl) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sl.phase as u32,
-                    sl.slam_speed,
-                    sl.impact_radius,
-                    sl.impact_force,
-                    sl.min_height,
-                    sl.launch_height,
-                    sl.recovery_time,
-                    sl.recovery_timer,
-                    sl.cooldown,
-                    sl.cooldown_timer,
-                    sl.wants_slam,
-                    sl.enabled,
-                ),
-            );
-        }
-        SLAM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Slay;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Slay)>();
-        for (name, sl) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sl.kill_count,
-                    sl.threshold,
-                    sl.trigger_count,
-                    sl.just_triggered,
-                    sl.enabled,
-                ),
-            );
-        }
-        SLAY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Slide;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Slide)>();
-        for (name, sl) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sl.phase as u32,
-                    sl.direction.x,
-                    sl.direction.y,
-                    sl.direction.z,
-                    sl.duration,
-                    sl.brake_start,
-                    sl.elapsed,
-                    sl.slide_speed,
-                    sl.wants_slide,
-                    sl.crouch_scale,
-                    sl.enabled,
-                ),
-            );
-        }
-        SLIDE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Slime;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Slime)>();
-        for (name, sl) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sl.slime_timer,
-                    sl.slow_factor,
-                    sl.slimed,
-                    sl.just_slimed,
-                    sl.just_cleansed,
-                    sl.enabled,
-                ),
-            );
-        }
-        SLIME_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Slink;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Slink)>();
-        for (name, sl) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sl.active,
-                    sl.speed_reduction,
-                    sl.noise_reduction,
-                    sl.just_engaged,
-                    sl.just_disengaged,
-                    sl.enabled,
-                ),
-            );
-        }
-        SLINK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::SlowMo;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &SlowMo)>();
-        for (name, sm) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sm.target_scale,
-                    sm.current_scale,
-                    sm.blend_speed,
-                    sm.max_duration.unwrap_or(0.0),
-                    sm.elapsed,
-                    sm.charge,
-                    sm.drain_rate,
-                    sm.source as u32,
-                    sm.enabled,
-                ),
-            );
-        }
-        SLOW_MO_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Smoke;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Smoke)>();
-        for (name, sm) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sm.style as u32,
-                    sm.rate,
-                    sm.color[0],
-                    sm.color[1],
-                    sm.color[2],
-                    sm.color[3],
-                    sm.particle_speed,
-                    sm.spread_rate,
-                    sm.particle_lifetime,
-                    sm.offset.x,
-                    sm.offset.y,
-                    sm.offset.z,
-                    sm.burst_duration.unwrap_or(0.0),
-                    sm.elapsed,
-                    sm.enabled,
-                ),
-            );
-        }
-        SMOKE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Snare;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Snare)>();
-        for (name, sn) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sn.duration,
-                    sn.timer,
-                    sn.slow_fraction,
-                    sn.escape_chance,
-                    sn.just_snared,
-                    sn.just_escaped,
-                    sn.enabled,
-                ),
-            );
-        }
-        SNARE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Soak;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Soak)>();
-        for (name, so) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    so.soak_level,
-                    so.decay_rate,
-                    so.fire_resistance,
-                    so.lightning_amplify,
-                    so.just_soaked,
-                    so.just_dried,
-                    so.enabled,
-                ),
-            );
-        }
-        SOAK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Spike;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Spike)>();
-        for (name, sp) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sp.duration,
-                    sp.timer,
-                    sp.damage,
-                    sp.push_force,
-                    sp.just_extended,
-                    sp.just_retracted,
-                    sp.enabled,
-                ),
-            );
-        }
-        SPIKE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Splinter;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Splinter)>();
-        for (name, sp) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sp.threshold,
-                    sp.radius,
-                    sp.damage_fraction,
-                    sp.cooldown,
-                    sp.cooldown_timer,
-                    sp.just_splintered,
-                    sp.enabled,
-                ),
-            );
-        }
-        SPLINTER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Stagger;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Stagger)>();
-        for (name, sg) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sg.phase as u32,
-                    sg.stagger_threshold,
-                    sg.stagger_duration,
-                    sg.stagger_timer,
-                    sg.recovery_duration,
-                    sg.recovery_timer,
-                    sg.stagger_count,
-                    sg.resist,
-                    sg.just_staggered,
-                    sg.enabled,
-                ),
-            );
-        }
-        STAGGER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Stake;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Stake)>();
-        for (name, sk) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sk.active,
-                    sk.hold_timer,
-                    sk.min_hold,
-                    sk.damage_bonus,
-                    sk.just_staked,
-                    sk.just_broke,
-                    sk.enabled,
-                ),
-            );
-        }
-        STAKE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Stalk;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Stalk)>();
-        for (name, st) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    st.active,
-                    st.damage_multiplier,
-                    st.just_began,
-                    st.just_consumed,
-                    st.enabled,
-                ),
-            );
-        }
-        STALK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Stance;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Stance)>();
-        for (name, sa) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sa.current.clone() as u32,
-                    sa.offense_bonus,
-                    sa.defense_reduction,
-                    sa.just_changed,
-                    sa.enabled,
-                ),
-            );
-        }
-        STANCE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Stat;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Stat)>();
-        for (name, ss) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    ss.base,
-                    ss.bonus,
-                    ss.multiplier,
-                    ss.min.unwrap_or(0.0),
-                    ss.max.unwrap_or(0.0),
-                ),
-            );
-        }
-        STAT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Stealth;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Stealth)>();
-        for (name, se) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    se.base_visibility,
-                    se.visibility_modifier,
-                    se.noise_level,
-                    se.noise_decay_rate,
-                    se.sneaking,
-                    se.sneak_visibility_scale,
-                    se.enabled,
-                ),
-            );
-        }
-        STEALTH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Stomp;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Stomp)>();
-        for (name, sm) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sm.magnitude,
-                    sm.impact_radius,
-                    sm.damage_per_unit,
-                    sm.just_stomped,
-                    sm.enabled,
-                ),
-            );
-        }
-        STOMP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Stride;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Stride)>();
-        for (name, sd) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sd.stride_count,
-                    sd.max_strides,
-                    sd.speed_bonus,
-                    sd.just_peaked,
-                    sd.just_broke,
-                    sd.enabled,
-                ),
-            );
-        }
-        STRIDE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Strife;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Strife)>();
-        for (name, sf) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sf.strife,
-                    sf.max_strife,
-                    sf.gain_per_hit,
-                    sf.decay_rate,
-                    sf.just_peaked,
-                    sf.enabled,
-                ),
-            );
-        }
-        STRIFE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Stumble;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Stumble)>();
-        for (name, su) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    su.stumble_timer,
-                    su.stumble_duration,
-                    su.vulnerability_factor,
-                    su.move_penalty,
-                    su.stumble_count,
-                    su.stumbling,
-                    su.just_stumbled,
-                    su.just_recovered,
-                    su.enabled,
-                ),
-            );
-        }
-        STUMBLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Sulk;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Sulk)>();
-        for (name, sl) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sl.sulk_depth,
-                    sl.sulk_rate,
-                    sl.recovery_rate,
-                    sl.support_penalty,
-                    sl.sulking,
-                    sl.just_sulked,
-                    sl.just_snapped_out,
-                    sl.enabled,
-                ),
-            );
-        }
-        SULK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Sunder;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Sunder)>();
-        for (name, sd) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sd.shards,
-                    sd.max_shards,
-                    sd.damage_reduction_per_shard,
-                    sd.just_sundered,
-                    sd.enabled,
-                ),
-            );
-        }
-        SUNDER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Suppress;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Suppress)>();
-        for (name, sp) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sp.duration,
-                    sp.timer,
-                    sp.potency_fraction,
-                    sp.blocks_ultimates,
-                    sp.just_suppressed,
-                    sp.just_lifted,
-                    sp.enabled,
-                ),
-            );
-        }
-        SUPPRESS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Surge;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Surge)>();
-        for (name, sg) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sg.duration,
-                    sg.timer,
-                    sg.multiplier,
-                    sg.just_surged,
-                    sg.just_expired,
-                    sg.enabled,
-                ),
-            );
-        }
-        SURGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Surround;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Surround)>();
-        for (name, sr) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sr.adjacent_count,
-                    sr.encircle_threshold,
-                    sr.defense_bonus,
-                    sr.just_encircled,
-                    sr.just_cleared,
-                    sr.enabled,
-                ),
-            );
-        }
-        SURROUND_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Survive;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Survive)>();
-        for (name, sv) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (sv.charges, sv.max_charges, sv.just_survived, sv.enabled),
-            );
-        }
-        SURVIVE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Swim;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Swim)>();
-        for (name, sw) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    sw.state as u32,
-                    sw.swim_speed,
-                    sw.dive_speed,
-                    sw.ascent_speed,
-                    sw.breath_remaining,
-                    sw.max_breath,
-                    sw.breath_drain_rate,
-                    sw.breath_regen_rate,
-                    sw.depth,
-                    sw.submerge_depth,
-                    sw.wants_dive,
-                    sw.wants_surface,
-                    sw.enabled,
-                ),
-            );
-        }
-        SWIM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Taint;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Taint)>();
-        for (name, ta) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    ta.duration,
-                    ta.timer,
-                    ta.healing_reduction,
-                    ta.just_tainted,
-                    ta.just_cleansed,
-                    ta.enabled,
-                ),
-            );
-        }
-        TAINT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Tally;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Tally)>();
-        for (name, tl) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    tl.count,
-                    tl.goal,
-                    tl.just_incremented,
-                    tl.just_completed,
-                    tl.just_reset,
-                    tl.enabled,
-                ),
-            );
-        }
-        TALLY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Talon;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Talon)>();
-        for (name, tn) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    tn.active,
-                    tn.grip_bonus,
-                    tn.slip_resistance,
-                    tn.just_gripped,
-                    tn.just_released,
-                    tn.enabled,
-                ),
-            );
-        }
-        TALON_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Taper;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Taper)>();
-        for (name, tp) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    tp.elapsed_time,
-                    tp.max_reduction_time,
-                    tp.damage_reduction,
-                    tp.in_combat,
-                    tp.just_peaked,
-                    tp.enabled,
-                ),
-            );
-        }
-        TAPER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Taunt;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Taunt)>();
-        for (name, tt) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    tt.is_active,
-                    tt.radius,
-                    tt.threat_boost,
-                    tt.duration,
-                    tt.timer,
-                    tt.just_activated,
-                    tt.just_expired,
-                    tt.enabled,
-                ),
-            );
-        }
-        TAUNT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Thaw;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Thaw)>();
-        for (name, th) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    th.thaw_fraction,
-                    th.thaw_rate,
-                    th.freeze_penalty,
-                    th.just_thawed,
-                    th.just_frozen,
-                    th.enabled,
-                ),
-            );
-        }
-        THAW_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Trample;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Trample)>();
-        for (name, tr) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    tr.duration,
-                    tr.timer,
-                    tr.damage,
-                    tr.push_force,
-                    tr.radius,
-                    tr.just_started,
-                    tr.just_ended,
-                    tr.enabled,
-                ),
-            );
-        }
-        TRAMPLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Trance;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Trance)>();
-        for (name, tr) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    tr.duration,
-                    tr.timer,
-                    tr.regen_multiplier,
-                    tr.just_entered,
-                    tr.just_exited,
-                    tr.enabled,
-                ),
-            );
-        }
-        TRANCE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Tranquil;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Tranquil)>();
-        for (name, tq) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    tq.duration,
-                    tq.timer,
-                    tq.regen_multiplier,
-                    tq.just_entered,
-                    tq.just_exited,
-                    tq.enabled,
-                ),
-            );
-        }
-        TRANQUIL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Transfix;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Transfix)>();
-        for (name, tf) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    tf.active,
-                    tf.timer,
-                    tf.lock_range,
-                    tf.just_locked,
-                    tf.just_broken,
-                    tf.enabled,
-                ),
-            );
-        }
-        TRANSFIX_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Tremble;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Tremble)>();
-        for (name, tb) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    tb.duration,
-                    tb.timer,
-                    tb.intensity,
-                    tb.just_trembling,
-                    tb.just_stopped,
-                    tb.enabled,
-                ),
-            );
-        }
-        TREMBLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Tremor;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Tremor)>();
-        for (name, tm) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    tm.pulse_interval,
-                    tm.pulse_timer,
-                    tm.radius,
-                    tm.stagger_strength,
-                    tm.active,
-                    tm.just_pulsed,
-                    tm.enabled,
-                ),
-            );
-        }
-        TREMOR_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Trove;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Trove)>();
-        for (name, tv) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    tv.trove_value,
-                    tv.threshold,
-                    tv.reward_multiplier,
-                    tv.trove_count,
-                    tv.just_activated,
-                    tv.enabled,
-                ),
-            );
-        }
-        TROVE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Tusk;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Tusk)>();
-        for (name, tk) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    tk.current_charge,
-                    tk.full_charge_dist,
-                    tk.max_bonus,
-                    tk.just_hit,
-                    tk.enabled,
-                ),
-            );
-        }
-        TUSK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Unrest;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Unrest)>();
-        for (name, ur) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    ur.unrest_level,
-                    ur.max_unrest,
-                    ur.threshold,
-                    ur.decay_rate,
-                    ur.penalty,
-                    ur.just_became_restless,
-                    ur.just_calmed,
-                    ur.enabled,
-                ),
-            );
-        }
-        UNREST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Upkeep;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Upkeep)>();
-        for (name, up) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    up.deficit,
-                    up.max_deficit,
-                    up.cost_per_second,
-                    up.penalty,
-                    up.just_defaulted,
-                    up.just_cleared,
-                    up.enabled,
-                ),
-            );
-        }
-        UPKEEP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Urge;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Urge)>();
-        for (name, ug) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    ug.urge_level,
-                    ug.max_urge,
-                    ug.build_rate,
-                    ug.decay_rate,
-                    ug.drive_bonus,
-                    ug.urged,
-                    ug.just_peaked,
-                    ug.enabled,
-                ),
-            );
-        }
-        URGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Venom;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Venom)>();
-        for (name, vn) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    vn.damage_per_stack,
-                    vn.stacks,
-                    vn.max_stacks,
-                    vn.duration,
-                    vn.timer,
-                    vn.just_applied,
-                    vn.just_expired,
-                    vn.enabled,
-                ),
-            );
-        }
-        VENOM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Vex;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Vex)>();
-        for (name, vx) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    vx.stacks,
-                    vx.max_stacks,
-                    vx.cc_duration_amplify_per_stack,
-                    vx.just_vexed,
-                    vx.just_cleared,
-                    vx.enabled,
-                ),
-            );
-        }
-        VEX_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Vigor;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Vigor)>();
-        for (name, vg) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    vg.duration,
-                    vg.timer,
-                    vg.health_regen_per_second,
-                    vg.max_health_bonus,
-                    vg.just_invigorated,
-                    vg.just_faded,
-                    vg.enabled,
-                ),
-            );
-        }
-        VIGOR_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Vile;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Vile)>();
-        for (name, vi) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    vi.duration,
-                    vi.timer,
-                    vi.heal_reduction,
-                    vi.just_applied,
-                    vi.just_cleared,
-                    vi.enabled,
-                ),
-            );
-        }
-        VILE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Void;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Void)>();
-        for (name, vo) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    vo.void_charge,
-                    vo.max_charge,
-                    vo.drain_fraction,
-                    vo.just_peaked,
-                    vo.enabled,
-                ),
-            );
-        }
-        VOID_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Venture;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Venture)>();
-        for (name, vt) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    vt.venture_level,
-                    vt.max_venture,
-                    vt.venture_rate,
-                    vt.recovery_rate,
-                    vt.damage_bonus,
-                    vt.in_venture,
-                    vt.just_peaked,
-                    vt.enabled,
-                ),
-            );
-        }
-        VENTURE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Verge;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Verge)>();
-        for (name, vg) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (vg.charge, vg.charge_rate, vg.just_peaked, vg.enabled),
-            );
-        }
-        VERGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Verify;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Verify)>();
-        for (name, vy) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    vy.confidence,
-                    vy.max_confidence,
-                    vy.probe_rate,
-                    vy.just_verified,
-                    vy.just_refuted,
-                    vy.enabled,
-                ),
-            );
-        }
-        VERIFY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Verily;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Verily)>();
-        for (name, vl) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    vl.conviction,
-                    vl.max_conviction,
-                    vl.oath_rate,
-                    vl.just_sworn,
-                    vl.just_recanted,
-                    vl.enabled,
-                ),
-            );
-        }
-        VERILY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Vermin;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Vermin)>();
-        for (name, vm) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    vm.infestation,
-                    vm.max_infestation,
-                    vm.swarm_rate,
-                    vm.just_swarmed,
-                    vm.just_exterminated,
-                    vm.enabled,
-                ),
-            );
-        }
-        VERMIN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Vernal;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Vernal)>();
-        for (name, vn) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    vn.bloom,
-                    vn.max_bloom,
-                    vn.thaw_rate,
-                    vn.just_bloomed,
-                    vn.just_dormant,
-                    vn.enabled,
-                ),
-            );
-        }
-        VERNAL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Verse;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Verse)>();
-        for (name, vs) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    vs.meter,
-                    vs.max_meter,
-                    vs.cadence_rate,
-                    vs.just_composed,
-                    vs.just_silenced,
-                    vs.enabled,
-                ),
-            );
-        }
-        VERSE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Vertex;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Vertex)>();
-        for (name, vx) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    vx.apex,
-                    vx.max_apex,
-                    vx.ascent_rate,
-                    vx.just_peaked,
-                    vx.just_grounded,
-                    vx.enabled,
-                ),
-            );
-        }
-        VERTEX_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Verve;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Verve)>();
-        for (name, vv) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    vv.verve_level,
-                    vv.max_verve,
-                    vv.gain_per_action,
-                    vv.decay_rate,
-                    vv.action_bonus,
-                    vv.just_peaked,
-                    vv.enabled,
-                ),
-            );
-        }
-        VERVE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Vest;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Vest)>();
-        for (name, vst) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    vst.absorption_per_hit,
-                    vst.hits_absorbed,
-                    vst.last_absorbed,
-                    vst.just_absorbed,
-                    vst.enabled,
-                ),
-            );
-        }
-        VEST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Vice;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Vice)>();
-        for (name, vc) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    vc.corruption,
-                    vc.max_corruption,
-                    vc.temptation_rate,
-                    vc.just_corrupted,
-                    vc.just_purified,
-                    vc.enabled,
-                ),
-            );
-        }
-        VICE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Vim;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Vim)>();
-        for (name, vm) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    vm.drive,
-                    vm.max_drive,
-                    vm.vigor_rate,
-                    vm.just_energized,
-                    vm.just_sapped,
-                    vm.enabled,
-                ),
-            );
-        }
-        VIM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Viper;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Viper)>();
-        for (name, vp) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    vp.venom,
-                    vp.max_venom,
-                    vp.toxin_rate,
-                    vp.just_envenomed,
-                    vp.just_drained,
-                    vp.enabled,
-                ),
-            );
-        }
-        VIPER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Viral;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Viral)>();
-        for (name, vrl) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    vrl.contagion,
-                    vrl.max_contagion,
-                    vrl.spread_rate,
-                    vrl.just_spread,
-                    vrl.just_contained,
-                    vrl.enabled,
-                ),
-            );
-        }
-        VIRAL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Visit;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Visit)>();
-        for (name, vi) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    vi.exposure,
-                    vi.max_exposure,
-                    vi.presence_rate,
-                    vi.just_visited,
-                    vi.just_departed,
-                    vi.enabled,
-                ),
-            );
-        }
-        VISIT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Vista;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Vista)>();
-        for (name, vta) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    vta.clarity,
-                    vta.max_clarity,
-                    vta.reveal_rate,
-                    vta.just_revealed,
-                    vta.just_dimmed,
-                    vta.enabled,
-                ),
-            );
-        }
-        VISTA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Vibrate;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Vibrate)>();
-        for (name, vib) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    vib.amplitude,
-                    vib.frequency,
-                    vib.duration,
-                    vib.elapsed,
-                    vib.decay_rate,
-                    vib.just_started,
-                    vib.just_stopped,
-                    vib.enabled,
-                ),
-            );
-        }
-        VIBRATE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Viewport;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Viewport)>();
-        for (name, vp) in q.iter(world) {
-            map.insert(name.0.clone(), (vp.x, vp.y, vp.width, vp.height));
-        }
-        VIEWPORT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Vision;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Vision)>();
-        for (name, vis) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    vis.range,
-                    vis.fov_half_angle,
-                    vis.detection_mask,
-                    vis.in_view_duration,
-                    vis.detection_delay,
-                    vis.los_blocked,
-                    vis.last_seen.is_some(),
-                    vis.enabled,
-                ),
-            );
-        }
-        VISION_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::VolumetricLight;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &VolumetricLight)>();
-        for (name, vl) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    vl.scattering,
-                    vl.absorption,
-                    vl.anisotropy,
-                    vl.step_count,
-                    vl.max_distance,
-                    vl.enabled,
-                ),
-            );
-        }
-        VOLUMETRIC_LIGHT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Volley;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Volley)>();
-        for (name, vol) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    vol.charge,
-                    vol.max_charge,
-                    vol.draw_rate,
-                    vol.just_vollied,
-                    vol.just_spent,
-                    vol.enabled,
-                ),
-            );
-        }
-        VOLLEY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Vortex;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Vortex)>();
-        for (name, vtx) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    vtx.spin,
-                    vtx.max_spin,
-                    vtx.spiral_rate,
-                    vtx.just_formed,
-                    vtx.just_calm,
-                    vtx.enabled,
-                ),
-            );
-        }
-        VORTEX_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Vow;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Vow)>();
-        for (name, vow) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    vow.pledge,
-                    vow.max_pledge,
-                    vow.devotion_rate,
-                    vow.just_bound,
-                    vow.just_broken,
-                    vow.enabled,
-                ),
-            );
-        }
-        VOW_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Vulnerable;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Vulnerable)>();
-        for (name, vul) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    vul.exposure,
-                    vul.max_exposure,
-                    vul.breach_rate,
-                    vul.just_exposed,
-                    vul.just_hardened,
-                    vul.enabled,
-                ),
-            );
-        }
-        VULNERABLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Vulture;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Vulture)>();
-        for (name, vul) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    vul.patience,
-                    vul.max_patience,
-                    vul.wait_rate,
-                    vul.just_descended,
-                    vul.just_scattered,
-                    vul.enabled,
-                ),
-            );
-        }
-        VULTURE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wage;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wage)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.earnings,
-                    w.max_earnings,
-                    w.income_rate,
-                    w.just_paid,
-                    w.just_broke,
-                    w.enabled,
-                ),
-            );
-        }
-        WAGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wager;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wager)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.stake,
-                    w.max_stake,
-                    w.risk_rate,
-                    w.just_won,
-                    w.just_lost,
-                    w.enabled,
-                ),
-            );
-        }
-        WAGER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wail;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wail)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.grief,
-                    w.max_grief,
-                    w.keen_rate,
-                    w.just_wailed,
-                    w.just_calmed,
-                    w.enabled,
-                ),
-            );
-        }
-        WAIL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wake;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wake)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.arousal,
-                    w.max_arousal,
-                    w.alert_rate,
-                    w.just_woken,
-                    w.just_slept,
-                    w.enabled,
-                ),
-            );
-        }
-        WAKE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Walk;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Walk)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.stride,
-                    w.max_stride,
-                    w.pace_rate,
-                    w.just_striding,
-                    w.just_halted,
-                    w.enabled,
-                ),
-            );
-        }
-        WALK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::{Wall, WallState};
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wall)>();
-        for (name, w) in q.iter(world) {
-            let state_u32 = match w.state {
-                WallState::None => 0u32,
-                WallState::Running => 1u32,
-                WallState::Sliding => 2u32,
-                WallState::Jumping => 3u32,
-            };
-            map.insert(
-                name.0.clone(),
-                (
-                    state_u32,
-                    w.run_speed,
-                    w.slide_speed,
-                    w.gravity_scale,
-                    w.run_timer,
-                    w.wall_jump_force,
-                    w.enabled,
-                ),
-            );
-        }
-        WALL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Waltz;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Waltz)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.rhythm,
-                    w.max_rhythm,
-                    w.grace_rate,
-                    w.just_dancing,
-                    w.just_still,
-                    w.enabled,
-                ),
-            );
-        }
-        WALTZ_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wand;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wand)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.charge,
-                    w.max_charge,
-                    w.channel_rate,
-                    w.just_charged,
-                    w.just_spent,
-                    w.enabled,
-                ),
-            );
-        }
-        WAND_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wane;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wane)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.duration,
-                    w.timer,
-                    w.min_potency,
-                    w.just_waning,
-                    w.just_expired,
-                    w.enabled,
-                ),
-            );
-        }
-        WANE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wangle;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wangle)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.scheme,
-                    w.max_scheme,
-                    w.maneuver_rate,
-                    w.just_schemed,
-                    w.just_foiled,
-                    w.enabled,
-                ),
-            );
-        }
-        WANGLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Want;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Want)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.desire,
-                    w.max_desire,
-                    w.craving_rate,
-                    w.just_wanted,
-                    w.just_sated,
-                    w.enabled,
-                ),
-            );
-        }
-        WANT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wanton;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wanton)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.excess,
-                    w.max_excess,
-                    w.indulge_rate,
-                    w.just_reckless,
-                    w.just_restrained,
-                    w.enabled,
-                ),
-            );
-        }
-        WANTON_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Ward;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Ward)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.ward_hp,
-                    w.max_ward_hp,
-                    w.just_broke,
-                    w.just_reinforced,
-                    w.enabled,
-                ),
-            );
-        }
-        WARD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Warm;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Warm)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.heat,
-                    w.max_heat,
-                    w.kindle_rate,
-                    w.just_warm,
-                    w.just_cold,
-                    w.enabled,
-                ),
-            );
-        }
-        WARM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Warp;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Warp)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.phase as u32,
-                    w.max_range,
-                    w.charge_duration,
-                    w.cooldown_duration,
-                    w.just_warped,
-                    w.enabled,
-                ),
-            );
-        }
-        WARP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Warn;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Warn)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.hp_threshold,
-                    w.cooldown,
-                    w.cooldown_timer,
-                    w.just_triggered,
-                    w.enabled,
-                ),
-            );
-        }
-        WARN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wary;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wary)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.wary_level,
-                    w.max_wary,
-                    w.threshold,
-                    w.just_alerted,
-                    w.just_calmed,
-                    w.enabled,
-                ),
-            );
-        }
-        WARY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wash;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wash)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.grime,
-                    w.max_grime,
-                    w.soil_rate,
-                    w.just_clean,
-                    w.just_grimy,
-                    w.enabled,
-                ),
-            );
-        }
-        WASH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wasp;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wasp)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.sting,
-                    w.max_sting,
-                    w.venom_rate,
-                    w.just_venomous,
-                    w.just_spent,
-                    w.enabled,
-                ),
-            );
-        }
-        WASP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Waste;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Waste)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (w.accumulated, w.decay_rate, w.just_peaked, w.enabled),
-            );
-        }
-        WASTE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::WaterBody;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &WaterBody)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.wave_height,
-                    w.wave_speed,
-                    w.roughness,
-                    w.ssr_intensity,
-                    w.enabled,
-                ),
-            );
-        }
-        WATER_BODY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wave;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wave)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.radius,
-                    w.max_radius,
-                    w.expansion_rate,
-                    w.damage,
-                    w.just_emitted,
-                    w.just_dissipated,
-                    w.enabled,
-                ),
-            );
-        }
-        WAVE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Waver;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Waver)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.doubt,
-                    w.max_doubt,
-                    w.waver_rate,
-                    w.just_wavered,
-                    w.just_resolved,
-                    w.enabled,
-                ),
-            );
-        }
-        WAVER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wax;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wax)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.wax_level,
-                    w.max_wax,
-                    w.just_applied,
-                    w.just_stripped,
-                    w.enabled,
-                ),
-            );
-        }
-        WAX_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Way;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Way)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.progress,
-                    w.max_progress,
-                    w.traverse_rate,
-                    w.just_arrived,
-                    w.just_turned,
-                    w.enabled,
-                ),
-            );
-        }
-        WAY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Weal;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Weal)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.weal_level,
-                    w.max_weal,
-                    w.regen_rate,
-                    w.just_flourished,
-                    w.just_diminished,
-                    w.enabled,
-                ),
-            );
-        }
-        WEAL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Weary;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Weary)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.fatigue,
-                    w.max_fatigue,
-                    w.drain_rate,
-                    w.just_exhausted,
-                    w.just_refreshed,
-                    w.enabled,
-                ),
-            );
-        }
-        WEARY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Weather;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Weather)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.cloud_cover,
-                    w.precipitation_intensity,
-                    w.temperature,
-                    w.fog_density,
-                    w.lightning_probability,
-                    w.enabled,
-                ),
-            );
-        }
-        WEATHER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Weave;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Weave)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.weave_level,
-                    w.max_weave,
-                    w.buildup_rate,
-                    w.weaving,
-                    w.just_peaked,
-                    w.just_broken,
-                    w.enabled,
-                ),
-            );
-        }
-        WEAVE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Weasel;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Weasel)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.weasel_level,
-                    w.max_weasel,
-                    w.regen_rate,
-                    w.just_slipped,
-                    w.enabled,
-                ),
-            );
-        }
-        WEASEL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Web;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Web)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.web_strength,
-                    w.max_strength,
-                    w.movement_penalty,
-                    w.just_caught,
-                    w.just_broken,
-                    w.enabled,
-                ),
-            );
-        }
-        WEB_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wed;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wed)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.bond,
-                    w.max_bond,
-                    w.bind_rate,
-                    w.just_wedded,
-                    w.just_sundered,
-                    w.enabled,
-                ),
-            );
-        }
-        WED_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wedge;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wedge)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.drive,
-                    w.max_drive,
-                    w.split_rate,
-                    w.just_driven,
-                    w.just_loose,
-                    w.enabled,
-                ),
-            );
-        }
-        WEDGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wee;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wee)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.glee,
-                    w.max_glee,
-                    w.cheer_rate,
-                    w.just_gleeful,
-                    w.just_subdued,
-                    w.enabled,
-                ),
-            );
-        }
-        WEE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Weed;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Weed)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.weed_level,
-                    w.max_weed,
-                    w.grow_rate,
-                    w.just_overgrown,
-                    w.just_cleared,
-                    w.enabled,
-                ),
-            );
-        }
-        WEED_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Weedy;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Weedy)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.overgrowth,
-                    w.max_overgrowth,
-                    w.spread_rate,
-                    w.just_overrun,
-                    w.just_cleared,
-                    w.enabled,
-                ),
-            );
-        }
-        WEEDY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Weep;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Weep)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.grief,
-                    w.max_grief,
-                    w.sorrow_rate,
-                    w.just_weeping,
-                    w.just_consoled,
-                    w.enabled,
-                ),
-            );
-        }
-        WEEP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Weft;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Weft)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.weft_density,
-                    w.max_density,
-                    w.weave_rate,
-                    w.fraying,
-                    w.just_rent,
-                    w.just_mended,
-                    w.enabled,
-                ),
-            );
-        }
-        WEFT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Weigh;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Weigh)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.burden,
-                    w.max_burden,
-                    w.load_rate,
-                    w.just_laden,
-                    w.just_light,
-                    w.enabled,
-                ),
-            );
-        }
-        WEIGH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Weight;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Weight)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.mass,
-                    w.max_mass,
-                    w.accrue_rate,
-                    w.just_heavy,
-                    w.just_weightless,
-                    w.enabled,
-                ),
-            );
-        }
-        WEIGHT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Weird;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Weird)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.strangeness,
-                    w.max_strangeness,
-                    w.warp_rate,
-                    w.just_bizarre,
-                    w.just_mundane,
-                    w.enabled,
-                ),
-            );
-        }
-        WEIRD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Weld;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Weld)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.strength,
-                    w.max_strength,
-                    w.welding,
-                    w.just_bonded,
-                    w.just_fractured,
-                    w.enabled,
-                ),
-            );
-        }
-        WELD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Welder;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Welder)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.bond_strength,
-                    w.max_bond_strength,
-                    w.fuse_rate,
-                    w.just_fused,
-                    w.just_fractured,
-                    w.enabled,
-                ),
-            );
-        }
-        WELDER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Welkin;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Welkin)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.expanse,
-                    w.max_expanse,
-                    w.vault_rate,
-                    w.just_heavens,
-                    w.just_zenith,
-                    w.enabled,
-                ),
-            );
-        }
-        WELKIN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Well;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Well)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.reserve,
-                    w.max_reserve,
-                    w.seep_rate,
-                    w.just_full,
-                    w.just_dry,
-                    w.enabled,
-                ),
-            );
-        }
-        WELL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Welly;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Welly)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.stride,
-                    w.max_stride,
-                    w.plod_rate,
-                    w.just_marched,
-                    w.just_halted,
-                    w.enabled,
-                ),
-            );
-        }
-        WELLY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Welp;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Welp)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.distress,
-                    w.max_distress,
-                    w.panic_rate,
-                    w.just_overwhelmed,
-                    w.just_calm,
-                    w.enabled,
-                ),
-            );
-        }
-        WELP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Welt;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Welt)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.marks,
-                    w.max_marks,
-                    w.bruise_rate,
-                    w.just_welted,
-                    w.just_healed,
-                    w.enabled,
-                ),
-            );
-        }
-        WELT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wend;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wend)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.journey,
-                    w.max_journey,
-                    w.travel_rate,
-                    w.just_arrived,
-                    w.just_lost,
-                    w.enabled,
-                ),
-            );
-        }
-        WEND_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Whiff;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Whiff)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.scent,
-                    w.max_scent,
-                    w.drift_rate,
-                    w.just_pungent,
-                    w.just_faded,
-                    w.enabled,
-                ),
-            );
-        }
-        WHIFF_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Whim;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Whim)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.impulse,
-                    w.max_impulse,
-                    w.whim_rate,
-                    w.just_whimsy,
-                    w.just_grounded,
-                    w.enabled,
-                ),
-            );
-        }
-        WHIM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Whip;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Whip)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.lash,
-                    w.max_lash,
-                    w.crack_rate,
-                    w.just_cracking,
-                    w.just_slack,
-                    w.enabled,
-                ),
-            );
-        }
-        WHIP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Whirl;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Whirl)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.angle,
-                    w.spin_speed,
-                    w.revolutions,
-                    w.active,
-                    w.just_lapped,
-                    w.enabled,
-                ),
-            );
-        }
-        WHIRL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Whisk;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Whisk)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.agitation,
-                    w.max_agitation,
-                    w.beat_rate,
-                    w.just_frothy,
-                    w.just_settled,
-                    w.enabled,
-                ),
-            );
-        }
-        WHISK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wick;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wick)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.fuel,
-                    w.max_fuel,
-                    w.draw_rate,
-                    w.just_lit,
-                    w.just_dry,
-                    w.enabled,
-                ),
-            );
-        }
-        WICK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wicker;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wicker)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.weave,
-                    w.max_weave,
-                    w.plait_rate,
-                    w.just_plaited,
-                    w.just_unraveled,
-                    w.enabled,
-                ),
-            );
-        }
-        WICKER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wig;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wig)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.coverage,
-                    w.max_coverage,
-                    w.style_rate,
-                    w.just_coiffed,
-                    w.just_bare,
-                    w.enabled,
-                ),
-            );
-        }
-        WIG_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wild;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wild)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.feral,
-                    w.max_feral,
-                    w.instinct_rate,
-                    w.just_wild,
-                    w.just_tame,
-                    w.enabled,
-                ),
-            );
-        }
-        WILD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wilder;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wilder)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.frenzy,
-                    w.max_frenzy,
-                    w.ramp_rate,
-                    w.just_frenzied,
-                    w.just_calmed,
-                    w.enabled,
-                ),
-            );
-        }
-        WILDER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wile;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wile)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.cunning,
-                    w.max_cunning,
-                    w.scheme_rate,
-                    w.just_crafty,
-                    w.just_naive,
-                    w.enabled,
-                ),
-            );
-        }
-        WILE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wiles;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wiles)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.guile,
-                    w.max_guile,
-                    w.scheme_rate,
-                    w.just_cunning,
-                    w.just_guileless,
-                    w.enabled,
-                ),
-            );
-        }
-        WILES_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Will;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Will)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.resolve,
-                    w.max_resolve,
-                    w.resolve_rate,
-                    w.just_resolved,
-                    w.just_broken,
-                    w.enabled,
-                ),
-            );
-        }
-        WILL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Willow;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Willow)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.sway,
-                    w.max_sway,
-                    w.bend_rate,
-                    w.just_swaying,
-                    w.just_still,
-                    w.enabled,
-                ),
-            );
-        }
-        WILLOW_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wilt;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wilt)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.wilt_level,
-                    w.max_wilt,
-                    w.strain_rate,
-                    w.just_wilted,
-                    w.just_recovered,
-                    w.enabled,
-                ),
-            );
-        }
-        WILT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wily;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wily)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.cunning,
-                    w.max_cunning,
-                    w.plot_rate,
-                    w.just_sly,
-                    w.just_naive,
-                    w.enabled,
-                ),
-            );
-        }
-        WILY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wimp;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wimp)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.wimp_level,
-                    w.max_wimp,
-                    w.recover_rate,
-                    w.just_flinched,
-                    w.just_overcame,
-                    w.enabled,
-                ),
-            );
-        }
-        WIMP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wimple;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wimple)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.folds,
-                    w.max_folds,
-                    w.drape_rate,
-                    w.just_draped,
-                    w.just_plain,
-                    w.enabled,
-                ),
-            );
-        }
-        WIMPLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Win;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Win)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.score,
-                    w.max_score,
-                    w.win_rate,
-                    w.just_won,
-                    w.just_lost,
-                    w.enabled,
-                ),
-            );
-        }
-        WIN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wince;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wince)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.wince_level,
-                    w.max_wince,
-                    w.decay_rate,
-                    w.just_winced,
-                    w.just_recovered,
-                    w.enabled,
-                ),
-            );
-        }
-        WINCE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Winch;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Winch)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.tension,
-                    w.max_tension,
-                    w.crank_rate,
-                    w.just_taut,
-                    w.just_slack,
-                    w.enabled,
-                ),
-            );
-        }
-        WINCH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Winder;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Winder)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.tension,
-                    w.max_tension,
-                    w.crank_rate,
-                    w.just_taut,
-                    w.just_slack,
-                    w.enabled,
-                ),
-            );
-        }
-        WINDER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Windfall;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Windfall)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.fortune,
-                    w.max_fortune,
-                    w.accrue_rate,
-                    w.just_fortunate,
-                    w.just_penniless,
-                    w.enabled,
-                ),
-            );
-        }
-        WINDFALL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Windup;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Windup)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.duration,
-                    w.timer,
-                    w.damage_multiplier,
-                    w.just_started,
-                    w.just_released,
-                    w.enabled,
-                ),
-            );
-        }
-        WINDUP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wine;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wine)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.wine_age,
-                    w.peak_vintage,
-                    w.age_rate,
-                    w.just_peaked,
-                    w.just_spoiled,
-                    w.enabled,
-                ),
-            );
-        }
-        WINE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wing;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wing)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.lift,
-                    w.max_lift,
-                    w.glide_rate,
-                    w.just_airborne,
-                    w.just_grounded,
-                    w.enabled,
-                ),
-            );
-        }
-        WING_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wink;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wink)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.wink_timer,
-                    w.wink_duration,
-                    w.wink_power,
-                    w.active,
-                    w.just_closed,
-                    w.enabled,
-                ),
-            );
-        }
-        WINK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wino;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wino)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.indulgence,
-                    w.max_indulgence,
-                    w.tipple_rate,
-                    w.just_tipsy,
-                    w.just_sober,
-                    w.enabled,
-                ),
-            );
-        }
-        WINO_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Winsome;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Winsome)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.charm,
-                    w.max_charm,
-                    w.delight_rate,
-                    w.just_delightful,
-                    w.just_dull,
-                    w.enabled,
-                ),
-            );
-        }
-        WINSOME_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wintry;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wintry)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.cold,
-                    w.max_cold,
-                    w.chill_rate,
-                    w.just_frozen,
-                    w.just_thawed,
-                    w.enabled,
-                ),
-            );
-        }
-        WINTRY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wire;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wire)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.wire_count as f32,
-                    w.max_wires as f32,
-                    w.wire_fraction(),
-                    w.just_connected,
-                    w.just_severed,
-                    w.enabled,
-                ),
-            );
-        }
-        WIRE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wise;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wise)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.insight,
-                    w.max_insight,
-                    w.discern_rate,
-                    w.just_wise,
-                    w.just_clouded,
-                    w.enabled,
-                ),
-            );
-        }
-        WISE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wish;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wish)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.longing,
-                    w.max_longing,
-                    w.yearn_rate,
-                    w.just_yearning,
-                    w.just_content,
-                    w.enabled,
-                ),
-            );
-        }
-        WISH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wisp;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wisp)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.orbit_timer,
-                    w.orbit_period,
-                    w.heal_per_pulse,
-                    w.active,
-                    w.just_pulsed,
-                    w.enabled,
-                ),
-            );
-        }
-        WISP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wispy;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wispy)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.ethereal,
-                    w.max_ethereal,
-                    w.drift_rate,
-                    w.just_vaporous,
-                    w.just_solid,
-                    w.enabled,
-                ),
-            );
-        }
-        WISPY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wist;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wist)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.wist_level,
-                    w.max_wist,
-                    w.wist_fraction(),
-                    w.just_yearned,
-                    w.just_peaked,
-                    w.enabled,
-                ),
-            );
-        }
-        WIST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wistful;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wistful)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.longing,
-                    w.max_longing,
-                    w.pine_rate,
-                    w.just_pining,
-                    w.just_content,
-                    w.enabled,
-                ),
-            );
-        }
-        WISTFUL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wit;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wit)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.acuity,
-                    w.max_acuity,
-                    w.quick_rate,
-                    w.just_sharp,
-                    w.just_dulled,
-                    w.enabled,
-                ),
-            );
-        }
-        WIT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Witch;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Witch)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.charge_count as f32,
-                    w.max_charges as f32,
-                    w.charge_fraction(),
-                    w.just_charged,
-                    w.just_exhausted,
-                    w.enabled,
-                ),
-            );
-        }
-        WITCH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Witless;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Witless)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.folly,
-                    w.max_folly,
-                    w.blunder_rate,
-                    w.just_addled,
-                    w.just_lucid,
-                    w.enabled,
-                ),
-            );
-        }
-        WITLESS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Witty;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Witty)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.wit,
-                    w.max_wit,
-                    w.quip_rate,
-                    w.just_sharp,
-                    w.just_dull,
-                    w.enabled,
-                ),
-            );
-        }
-        WITTY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wiz;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wiz)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.wiz_level,
-                    w.max_wiz,
-                    w.grow_rate,
-                    w.just_practiced,
-                    w.just_mastered,
-                    w.enabled,
-                ),
-            );
-        }
-        WIZ_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Woe;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Woe)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.woe_level,
-                    w.max_woe,
-                    w.decay_rate,
-                    w.just_afflicted,
-                    w.just_overcome,
-                    w.enabled,
-                ),
-            );
-        }
-        WOE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Woeful;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Woeful)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.sorrow,
-                    w.max_sorrow,
-                    w.grieve_rate,
-                    w.just_grieving,
-                    w.just_eased,
-                    w.enabled,
-                ),
-            );
-        }
-        WOEFUL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wok;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wok)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.heat_level,
-                    w.max_heat,
-                    w.cool_rate,
-                    w.just_seared,
-                    w.just_cooled,
-                    w.enabled,
-                ),
-            );
-        }
-        WOK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Woke;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Woke)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.awareness,
-                    w.max_awareness,
-                    w.rouse_rate,
-                    w.just_roused,
-                    w.just_dormant,
-                    w.enabled,
-                ),
-            );
-        }
-        WOKE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Woken;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Woken)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.alertness,
-                    w.max_alertness,
-                    w.rouse_rate,
-                    w.just_roused,
-                    w.just_drowsy,
-                    w.enabled,
-                ),
-            );
-        }
-        WOKEN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wold;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wold)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.expanse,
-                    w.max_expanse,
-                    w.roam_rate,
-                    w.just_vast,
-                    w.just_barren,
-                    w.enabled,
-                ),
-            );
-        }
-        WOLD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wolf;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wolf)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.hunt_level,
-                    w.max_hunt,
-                    w.hunt_fraction(),
-                    w.just_locked,
-                    w.just_broken,
-                    w.enabled,
-                ),
-            );
-        }
-        WOLF_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Womb;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Womb)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.gestation,
-                    w.max_gestation,
-                    w.grow_rate,
-                    w.just_born,
-                    w.just_lost,
-                    w.enabled,
-                ),
-            );
-        }
-        WOMB_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wombat;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wombat)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.burrow,
-                    w.max_burrow,
-                    w.dig_rate,
-                    w.just_tunneled,
-                    w.just_surfaced,
-                    w.enabled,
-                ),
-            );
-        }
-        WOMBAT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Women;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Women)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.solidarity,
-                    w.max_solidarity,
-                    w.bond_rate,
-                    w.just_bonded,
-                    w.just_severed,
-                    w.enabled,
-                ),
-            );
-        }
-        WOMEN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Won;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Won)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.victories,
-                    w.max_victories,
-                    w.streak_rate,
-                    w.just_won,
-                    w.just_lost,
-                    w.enabled,
-                ),
-            );
-        }
-        WON_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wonder;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wonder)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.awe,
-                    w.max_awe,
-                    w.marvel_rate,
-                    w.just_awed,
-                    w.just_jaded,
-                    w.enabled,
-                ),
-            );
-        }
-        WONDER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wondrous;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wondrous)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.marvel,
-                    w.max_marvel,
-                    w.awe_rate,
-                    w.just_astounded,
-                    w.just_mundane,
-                    w.enabled,
-                ),
-            );
-        }
-        WONDROUS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wonk;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wonk)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.expertise,
-                    w.max_expertise,
-                    w.study_rate,
-                    w.just_mastered,
-                    w.just_lapsed,
-                    w.enabled,
-                ),
-            );
-        }
-        WONK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wonky;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wonky)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.instability,
-                    w.max_instability,
-                    w.wobble_rate,
-                    w.just_toppled,
-                    w.just_steadied,
-                    w.enabled,
-                ),
-            );
-        }
-        WONKY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wont;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wont)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.habit,
-                    w.max_habit,
-                    w.routine_rate,
-                    w.just_ingrained,
-                    w.just_broken,
-                    w.enabled,
-                ),
-            );
-        }
-        WONT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Woo;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Woo)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.woo_level,
-                    w.max_woo,
-                    w.woo_fraction(),
-                    w.just_charmed,
-                    w.just_smitten,
-                    w.enabled,
-                ),
-            );
-        }
-        WOO_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wood;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wood)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.stock,
-                    w.max_stock,
-                    w.grow_rate,
-                    w.just_stocked,
-                    w.just_bare,
-                    w.enabled,
-                ),
-            );
-        }
-        WOOD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Woodsy;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Woodsy)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.rusticity,
-                    w.max_rusticity,
-                    w.wild_rate,
-                    w.just_feral,
-                    w.just_tamed,
-                    w.enabled,
-                ),
-            );
-        }
-        WOODSY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wooer;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wooer)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.appeal,
-                    w.max_appeal,
-                    w.charm_rate,
-                    w.just_smitten,
-                    w.just_spurned,
-                    w.enabled,
-                ),
-            );
-        }
-        WOOER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Woof;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Woof)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.bark,
-                    w.max_bark,
-                    w.howl_rate,
-                    w.just_howling,
-                    w.just_quiet,
-                    w.enabled,
-                ),
-            );
-        }
-        WOOF_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wool;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wool)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.warmth,
-                    w.max_warmth,
-                    w.insulate_rate,
-                    w.just_warm,
-                    w.just_cold,
-                    w.enabled,
-                ),
-            );
-        }
-        WOOL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Woolly;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Woolly)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.fleece,
-                    w.max_fleece,
-                    w.grow_rate,
-                    w.just_shaggy,
-                    w.just_shorn,
-                    w.enabled,
-                ),
-            );
-        }
-        WOOLLY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Woozy;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Woozy)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.dizziness,
-                    w.max_dizziness,
-                    w.spin_rate,
-                    w.just_reeling,
-                    w.just_clear,
-                    w.enabled,
-                ),
-            );
-        }
-        WOOZY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wordy;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wordy)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.verbosity,
-                    w.max_verbosity,
-                    w.ramble_rate,
-                    w.just_verbose,
-                    w.just_terse,
-                    w.enabled,
-                ),
-            );
-        }
-        WORDY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wore;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wore)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.wear,
-                    w.max_wear,
-                    w.abrade_rate,
-                    w.just_worn,
-                    w.just_fresh,
-                    w.enabled,
-                ),
-            );
-        }
-        WORE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Worm;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Worm)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.worm_depth,
-                    w.max_depth,
-                    w.burrow_rate,
-                    w.just_burrowed,
-                    w.just_expelled,
-                    w.enabled,
-                ),
-            );
-        }
-        WORM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Worn;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Worn)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.worn_level,
-                    w.max_worn,
-                    w.wear_rate,
-                    w.just_wore,
-                    w.just_broke,
-                    w.enabled,
-                ),
-            );
-        }
-        WORN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Worry;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Worry)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.anxiety,
-                    w.max_anxiety,
-                    w.fret_rate,
-                    w.just_anxious,
-                    w.just_calm,
-                    w.enabled,
-                ),
-            );
-        }
-        WORRY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Worse;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Worse)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.deterioration,
-                    w.max_deterioration,
-                    w.decline_rate,
-                    w.just_ruined,
-                    w.just_restored,
-                    w.enabled,
-                ),
-            );
-        }
-        WORSE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Worst;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Worst)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.extremity,
-                    w.max_extremity,
-                    w.worsen_rate,
-                    w.just_peaked,
-                    w.just_eased,
-                    w.enabled,
-                ),
-            );
-        }
-        WORST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wort;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wort)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.brew,
-                    w.max_brew,
-                    w.ferment_rate,
-                    w.just_brewed,
-                    w.just_dry,
-                    w.enabled,
-                ),
-            );
-        }
-        WORT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Worthy;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Worthy)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.merit,
-                    w.max_merit,
-                    w.earn_rate,
-                    w.just_deserving,
-                    w.just_unworthy,
-                    w.enabled,
-                ),
-            );
-        }
-        WORTHY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wound;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wound)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.count as f32,
-                    w.max_count as f32,
-                    w.bleed_per_wound,
-                    w.just_wounded,
-                    w.just_healed,
-                    w.enabled,
-                ),
-            );
-        }
-        WOUND_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wraith;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wraith)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.wraith_timer,
-                    w.wraith_duration,
-                    w.damage_reduction,
-                    w.just_entered,
-                    w.just_exited,
-                    w.enabled,
-                ),
-            );
-        }
-        WRAITH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wrangle;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wrangle)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.dispute,
-                    w.max_dispute,
-                    w.quarrel_rate,
-                    w.just_embroiled,
-                    w.just_resolved,
-                    w.enabled,
-                ),
-            );
-        }
-        WRANGLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wrap;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wrap)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.wrap_level,
-                    w.max_wrap,
-                    w.tighten_rate,
-                    w.just_gripped,
-                    w.just_freed,
-                    w.enabled,
-                ),
-            );
-        }
-        WRAP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wrath;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wrath)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.timer,
-                    w.damage_multiplier,
-                    w.defense_penalty,
-                    w.just_entered,
-                    w.just_exited,
-                    w.enabled,
-                ),
-            );
-        }
-        WRATH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wrathful;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wrathful)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.fury,
-                    w.max_fury,
-                    w.rage_rate,
-                    w.just_enraged,
-                    w.just_calmed,
-                    w.enabled,
-                ),
-            );
-        }
-        WRATHFUL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wreck;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wreck)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.wreck_level,
-                    w.max_wreck,
-                    w.decay_rate,
-                    w.just_wrecked,
-                    w.just_restored,
-                    w.enabled,
-                ),
-            );
-        }
-        WRECK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wrecker;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wrecker)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.destruction,
-                    w.max_destruction,
-                    w.demolish_rate,
-                    w.just_ruined,
-                    w.just_intact,
-                    w.enabled,
-                ),
-            );
-        }
-        WRECKER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wren;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wren)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.wren_level,
-                    w.max_wren,
-                    w.cache_rate,
-                    w.just_stocked,
-                    w.just_yielded,
-                    w.enabled,
-                ),
-            );
-        }
-        WREN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wrench;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wrench)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.torque,
-                    w.max_torque,
-                    w.twist_rate,
-                    w.just_tightened,
-                    w.just_loose,
-                    w.enabled,
-                ),
-            );
-        }
-        WRENCH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wrest;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wrest)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.wrest_level,
-                    w.max_wrest,
-                    w.strain_rate,
-                    w.just_seized,
-                    w.just_released,
-                    w.enabled,
-                ),
-            );
-        }
-        WREST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wrestle;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wrestle)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.grapple,
-                    w.max_grapple,
-                    w.clinch_rate,
-                    w.just_pinned,
-                    w.just_released,
-                    w.enabled,
-                ),
-            );
-        }
-        WRESTLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wretch;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wretch)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.misery,
-                    w.max_misery,
-                    w.suffer_rate,
-                    w.just_wretched,
-                    w.just_relieved,
-                    w.enabled,
-                ),
-            );
-        }
-        WRETCH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wretched;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wretched)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.misery,
-                    w.max_misery,
-                    w.suffer_rate,
-                    w.just_abject,
-                    w.just_unburdened,
-                    w.enabled,
-                ),
-            );
-        }
-        WRETCHED_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wriggle;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wriggle)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.squirm,
-                    w.max_squirm,
-                    w.writhe_rate,
-                    w.just_contorted,
-                    w.just_stilled,
-                    w.enabled,
-                ),
-            );
-        }
-        WRIGGLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wring;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wring)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.pressure,
-                    w.max_pressure,
-                    w.press_rate,
-                    w.just_wrung,
-                    w.just_released,
-                    w.enabled,
-                ),
-            );
-        }
-        WRING_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wrinkle;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wrinkle)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.crease,
-                    w.max_crease,
-                    w.age_rate,
-                    w.just_creased,
-                    w.just_smooth,
-                    w.enabled,
-                ),
-            );
-        }
-        WRINKLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wrist;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wrist)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.flex,
-                    w.max_flex,
-                    w.rotate_rate,
-                    w.just_flexible,
-                    w.just_locked,
-                    w.enabled,
-                ),
-            );
-        }
-        WRIST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Write;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Write)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.inscription,
-                    w.max_inscription,
-                    w.scribe_rate,
-                    w.just_written,
-                    w.just_blank,
-                    w.enabled,
-                ),
-            );
-        }
-        WRITE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Writhe;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Writhe)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.contortion,
-                    w.max_contortion,
-                    w.squirm_rate,
-                    w.just_contorted,
-                    w.just_still,
-                    w.enabled,
-                ),
-            );
-        }
-        WRITHE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wrong;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wrong)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.faults,
-                    w.max_faults,
-                    w.err_rate,
-                    w.just_wrong,
-                    w.just_right,
-                    w.enabled,
-                ),
-            );
-        }
-        WRONG_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wrongly;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wrongly)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.error,
-                    w.max_error,
-                    w.deviate_rate,
-                    w.just_mistaken,
-                    w.just_corrected,
-                    w.enabled,
-                ),
-            );
-        }
-        WRONGLY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wrote;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wrote)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.legacy,
-                    w.max_legacy,
-                    w.prose_rate,
-                    w.just_authored,
-                    w.just_erased,
-                    w.enabled,
-                ),
-            );
-        }
-        WROTE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wroth;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wroth)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.wrath,
-                    w.max_wrath,
-                    w.fury_rate,
-                    w.just_wroth,
-                    w.just_calm,
-                    w.enabled,
-                ),
-            );
-        }
-        WROTH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wrung;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wrung)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.tension,
-                    w.max_tension,
-                    w.twist_rate,
-                    w.just_wrung,
-                    w.just_slack,
-                    w.enabled,
-                ),
-            );
-        }
-        WRUNG_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Wry;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wry)>();
-        for (name, w) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    w.irony,
-                    w.max_irony,
-                    w.twist_rate,
-                    w.just_wry,
-                    w.just_earnest,
-                    w.enabled,
-                ),
-            );
-        }
-        WRY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Xray;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Xray)>();
-        for (name, x) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    x.xray_range,
-                    x.pulse_bonus,
-                    x.pulse_timer,
-                    x.pulse_duration,
-                    x.just_pulsed,
-                    x.enabled,
-                ),
-            );
-        }
-        XRAY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yak;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yak)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.yak_interval,
-                    y.elapsed,
-                    y.silence_remaining,
-                    y.just_yakked,
-                    y.just_silenced,
-                    y.enabled,
-                ),
-            );
-        }
-        YAK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yam;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yam)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.yield_stored,
-                    y.yield_cap,
-                    y.yield_rate,
-                    y.just_capped,
-                    y.enabled,
-                ),
-            );
-        }
-        YAM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yang;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yang)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (y.charge, y.threshold, y.polarity, y.just_flipped, y.enabled),
-            );
-        }
-        YANG_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yank;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yank)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (y.impulse, y.peak, y.just_yanked, y.enabled),
-            );
-        }
-        YANK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yap;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yap)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.yap_interval,
-                    y.cooldown_remaining,
-                    y.just_yapped,
-                    y.enabled,
-                ),
-            );
-        }
-        YAP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yard;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yard)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.range,
-                    y.intruder_count as f32,
-                    y.just_breached,
-                    y.just_cleared,
-                    y.enabled,
-                ),
-            );
-        }
-        YARD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yare;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yare)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.readiness,
-                    y.max_readiness,
-                    y.recovery_rate,
-                    y.just_primed,
-                    y.just_exhausted,
-                    y.enabled,
-                ),
-            );
-        }
-        YARE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yarn;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yarn)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.length,
-                    y.max_length,
-                    y.just_snagged,
-                    y.just_rewound,
-                    y.enabled,
-                ),
-            );
-        }
-        YARN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yaw;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yaw)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (y.heading, y.turn_rate, y.just_rotated, y.enabled),
-            );
-        }
-        YAW_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yawl;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yawl)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.phase,
-                    y.cycle_count as f32,
-                    y.just_toggled,
-                    y.just_cycled,
-                    y.enabled,
-                ),
-            );
-        }
-        YAWL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yawn;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yawn)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.yawn_threshold,
-                    y.idle_time,
-                    y.just_yawned,
-                    y.is_drowsy,
-                    y.enabled,
-                ),
-            );
-        }
-        YAWN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yawp;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yawp)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.volume,
-                    y.max_volume,
-                    y.decay_rate,
-                    y.just_shrieked,
-                    y.just_silenced,
-                    y.enabled,
-                ),
-            );
-        }
-        YAWP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yay;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yay)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.elation,
-                    y.max_elation,
-                    y.decay_rate,
-                    y.just_peaked,
-                    y.just_faded,
-                    y.enabled,
-                ),
-            );
-        }
-        YAY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yea;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yea)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.count as f32,
-                    y.required as f32,
-                    y.just_passed,
-                    y.just_revoked,
-                    y.enabled,
-                ),
-            );
-        }
-        YEA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Year;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Year)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.elapsed,
-                    y.period,
-                    y.just_cycled,
-                    y.just_new_season,
-                    y.enabled,
-                ),
-            );
-        }
-        YEAR_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yearn;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yearn)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.longing,
-                    y.max_longing,
-                    y.accumulation_rate,
-                    y.just_fulfilled,
-                    y.just_suppressed,
-                    y.enabled,
-                ),
-            );
-        }
-        YEARN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yeast;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yeast)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.quantity,
-                    y.max_quantity,
-                    y.growth_rate,
-                    y.just_peaked,
-                    y.just_dormant,
-                    y.enabled,
-                ),
-            );
-        }
-        YEAST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yell;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yell)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.charge_level,
-                    y.max_charge,
-                    y.charge_rate,
-                    y.power_bonus,
-                    y.charging,
-                    y.just_shouted,
-                    y.enabled,
-                ),
-            );
-        }
-        YELL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yelp;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yelp)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.yelps as f32,
-                    y.max_yelps as f32,
-                    y.decay_timer,
-                    y.decay_interval,
-                    y.just_yelped,
-                    y.just_peaked,
-                    y.just_calmed,
-                    y.enabled,
-                ),
-            );
-        }
-        YELP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yen;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yen)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.yen_level,
-                    y.max_yen,
-                    y.yen_rate,
-                    y.just_yearned,
-                    y.just_satisfied,
-                    y.enabled,
-                ),
-            );
-        }
-        YEN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yenta;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yenta)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.gossip,
-                    y.max_gossip,
-                    y.fade_rate,
-                    y.just_notorious,
-                    y.just_forgotten,
-                    y.enabled,
-                ),
-            );
-        }
-        YENTA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yeoman;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yeoman)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.reliability,
-                    y.max_reliability,
-                    y.falter_rate,
-                    y.served,
-                    y.just_trusted,
-                    y.just_failed,
-                    y.enabled,
-                ),
-            );
-        }
-        YEOMAN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yep;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yep)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.consent,
-                    y.max_consent,
-                    y.doubt_rate,
-                    y.just_agreed,
-                    y.just_withdrew,
-                    y.enabled,
-                ),
-            );
-        }
-        YEP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yes;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yes)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.yes_count as f32,
-                    y.yes_threshold as f32,
-                    y.just_reached,
-                    y.just_reset,
-                    y.enabled,
-                ),
-            );
-        }
-        YES_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yeti;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yeti)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.tension,
-                    y.max_tension,
-                    y.fade_rate,
-                    y.just_manifested,
-                    y.just_fled,
-                    y.enabled,
-                ),
-            );
-        }
-        YETI_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yew;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yew)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (y.exposure, y.max_exposure, y.just_saturated, y.enabled),
-            );
-        }
-        YEW_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yield;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yield)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.yield_duration,
-                    y.yield_remaining,
-                    y.is_yielding,
-                    y.just_started_yielding,
-                    y.just_finished_yielding,
-                    y.enabled,
-                ),
-            );
-        }
-        YIELD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yikes;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yikes)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.fright,
-                    y.max_fright,
-                    y.calm_rate,
-                    y.just_startled,
-                    y.just_calmed,
-                    y.enabled,
-                ),
-            );
-        }
-        YIKES_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yin;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yin)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (y.balance, y.just_darkened, y.just_lightened, y.enabled),
-            );
-        }
-        YIN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yip;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yip)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.burst_limit as f32,
-                    y.burst_count as f32,
-                    y.cooldown,
-                    y.cooldown_remaining,
-                    y.just_yipped,
-                    y.just_burst_out,
-                    y.enabled,
-                ),
-            );
-        }
-        YIP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yips;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yips)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.pressure,
-                    y.max_pressure,
-                    y.just_seized,
-                    y.just_composed,
-                    y.enabled,
-                ),
-            );
-        }
-        YIPS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yodel;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yodel)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.echo_delay,
-                    y.echo_remaining,
-                    y.awaiting_echo,
-                    y.just_yodeled,
-                    y.just_echoed,
-                    y.enabled,
-                ),
-            );
-        }
-        YODEL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yoga;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yoga)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.flexibility,
-                    y.max_flexibility,
-                    y.recovery_rate,
-                    y.just_centered,
-                    y.just_broken,
-                    y.enabled,
-                ),
-            );
-        }
-        YOGA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yogi;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yogi)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.depth,
-                    y.max_depth,
-                    y.focus_rate,
-                    y.drift_rate,
-                    y.meditating,
-                    y.just_transcended,
-                    y.just_scattered,
-                    y.enabled,
-                ),
-            );
-        }
-        YOGI_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yoke;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yoke)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.yoke_weight,
-                    y.max_weight,
-                    y.recovery_rate,
-                    y.speed_penalty,
-                    y.just_burdened,
-                    y.just_freed,
-                    y.enabled,
-                ),
-            );
-        }
-        YOKE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yokel;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yokel)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.credulity,
-                    y.max_credulity,
-                    y.wisdom_rate,
-                    y.just_fooled,
-                    y.just_savvy,
-                    y.enabled,
-                ),
-            );
-        }
-        YOKEL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yolk;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yolk)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.fragility,
-                    y.max_fragility,
-                    y.damage_multiplier,
-                    y.just_cracked,
-                    y.enabled,
-                ),
-            );
-        }
-        YOLK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yonder;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yonder)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    y.distance,
-                    y.max_range,
-                    y.just_acquired,
-                    y.just_arrived,
-                    y.enabled,
-                ),
-            );
-        }
-        YONDER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yore;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yore)>();
-        for (name, y) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (y.current_value, y.peak_value, y.just_peaked, y.enabled),
-            );
-        }
-        YORE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-        use bsengine_core::Yule;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yule)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.warmth,
-                    c.max_warmth,
-                    c.heat_rate,
-                    c.cool_rate,
-                    c.is_heating,
-                    c.just_peaked,
-                    c.just_frosted,
-                    c.enabled,
-                ),
-            );
-        }
-        YULE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yum;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yum)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.fullness,
-                    c.max_fullness,
-                    c.hunger_rate,
-                    c.just_sated,
-                    c.just_starved,
-                    c.enabled,
-                ),
-            );
-        }
-        YUM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yummy;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yummy)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.appeal,
-                    c.max_appeal,
-                    c.spoil_rate,
-                    c.just_irresistible,
-                    c.just_spoiled,
-                    c.enabled,
-                ),
-            );
-        }
-        YUMMY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yup;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yup)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.streak as f32,
-                    c.max_streak as f32,
-                    c.responded,
-                    c.just_peaked,
-                    c.just_broke,
-                    c.enabled,
-                ),
-            );
-        }
-        YUP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Yurt;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Yurt)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.durability,
-                    c.max_durability,
-                    c.deployed,
-                    c.just_deployed,
-                    c.just_collapsed,
-                    c.enabled,
-                ),
-            );
-        }
-        YURT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zafu;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zafu)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.support,
-                    c.max_support,
-                    c.recovery_rate,
-                    c.just_supported,
-                    c.just_exhausted,
-                    c.enabled,
-                ),
-            );
-        }
-        ZAFU_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zag;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zag)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.offset,
-                    c.max_offset,
-                    c.drift_rate,
-                    c.just_peaked,
-                    c.just_bottomed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZAG_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zaibatsu;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zaibatsu)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.reach,
-                    c.max_reach,
-                    c.consolidate_rate,
-                    c.just_dominant,
-                    c.just_dissolved,
-                    c.enabled,
-                ),
-            );
-        }
-        ZAIBATSU_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zakat;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zakat)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.tithe,
-                    c.max_tithe,
-                    c.accrue_rate,
-                    c.just_fulfilled,
-                    c.just_discharged,
-                    c.enabled,
-                ),
-            );
-        }
-        ZAKAT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zamia;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zamia)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.frond,
-                    c.max_frond,
-                    c.grow_rate,
-                    c.just_spread,
-                    c.just_crozier,
-                    c.enabled,
-                ),
-            );
-        }
-        ZAMIA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zanily;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zanily)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.verve,
-                    c.max_verve,
-                    c.jest_rate,
-                    c.just_capered,
-                    c.just_deadpan,
-                    c.enabled,
-                ),
-            );
-        }
-        ZANILY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zaniness;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zaniness)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.mirth,
-                    c.max_mirth,
-                    c.caprice_rate,
-                    c.just_clowned,
-                    c.just_sobered,
-                    c.enabled,
-                ),
-            );
-        }
-        ZANINESS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zany;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zany)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.whimsy,
-                    c.max_whimsy,
-                    c.fade_rate,
-                    c.just_unhinged,
-                    c.just_sane,
-                    c.enabled,
-                ),
-            );
-        }
-        ZANY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zap;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zap)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.zap_power,
-                    c.zap_range,
-                    c.cooldown_duration,
-                    c.cooldown_timer,
-                    c.just_zapped,
-                    c.enabled,
-                ),
-            );
-        }
-        ZAP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zapper;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zapper)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.charge,
-                    c.max_charge,
-                    c.charge_rate,
-                    c.just_zapped,
-                    c.just_discharged,
-                    c.enabled,
-                ),
-            );
-        }
-        ZAPPER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zappy;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zappy)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.vitality,
-                    c.max_vitality,
-                    c.spark_rate,
-                    c.just_sparked,
-                    c.just_fizzled,
-                    c.enabled,
-                ),
-            );
-        }
-        ZAPPY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zeal;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zeal)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.zeal_level,
-                    c.max_zeal,
-                    c.threshold,
-                    c.decay_rate,
-                    c.just_devoted,
-                    c.just_lapsed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZEAL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zealot;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zealot)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.fervor,
-                    c.max_fervor,
-                    c.zeal_rate,
-                    c.just_zealous,
-                    c.just_lapsed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZEALOT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zealotry;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zealotry)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.fervor,
-                    c.max_fervor,
-                    c.dogma_rate,
-                    c.just_fanatical,
-                    c.just_lapsed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZEALOTRY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zealous;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zealous)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.conviction,
-                    c.max_conviction,
-                    c.devote_rate,
-                    c.just_zealous,
-                    c.just_wavered,
-                    c.enabled,
-                ),
-            );
-        }
-        ZEALOUS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zeatin;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zeatin)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.division,
-                    c.max_division,
-                    c.proliferate_rate,
-                    c.just_proliferating,
-                    c.just_arrested,
-                    c.enabled,
-                ),
-            );
-        }
-        ZEATIN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zeaxanthin;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zeaxanthin)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.pigment,
-                    c.max_pigment,
-                    c.absorb_rate,
-                    c.just_saturated,
-                    c.just_depleted,
-                    c.enabled,
-                ),
-            );
-        }
-        ZEAXANTHIN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zebec;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zebec)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.bearing,
-                    c.max_bearing,
-                    c.drift_rate,
-                    c.just_on_course,
-                    c.just_adrift,
-                    c.enabled,
-                ),
-            );
-        }
-        ZEBEC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zebra;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zebra)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.phase,
-                    c.stripe_width,
-                    c.speed,
-                    c.dark_stripe,
-                    c.just_switched,
-                    c.enabled,
-                ),
-            );
-        }
-        ZEBRA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zebrafish;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zebrafish)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.transparency,
-                    c.max_transparency,
-                    c.develop_rate,
-                    c.just_transparent,
-                    c.just_opaque,
-                    c.enabled,
-                ),
-            );
-        }
-        ZEBRAFISH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zebrine;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zebrine)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.striping,
-                    c.max_striping,
-                    c.pattern_rate,
-                    c.just_banded,
-                    c.just_blank,
-                    c.enabled,
-                ),
-            );
-        }
-        ZEBRINE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zebroid;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zebroid)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.hybridization,
-                    c.max_hybridization,
-                    c.blend_rate,
-                    c.just_hybrid,
-                    c.just_pure,
-                    c.enabled,
-                ),
-            );
-        }
-        ZEBROID_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zebu;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zebu)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.burden,
-                    c.max_burden,
-                    c.strain_rate,
-                    c.just_overwhelmed,
-                    c.just_unburdened,
-                    c.enabled,
-                ),
-            );
-        }
-        ZEBU_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zechin;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zechin)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.gold,
-                    c.max_gold,
-                    c.earn_rate,
-                    c.just_wealthy,
-                    c.just_bankrupt,
-                    c.enabled,
-                ),
-            );
-        }
-        ZECHIN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zed;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zed)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.fatigue,
-                    c.max_fatigue,
-                    c.wind_down_rate,
-                    c.just_spent,
-                    c.just_rallied,
-                    c.enabled,
-                ),
-            );
-        }
-        ZED_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zeekoe;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zeekoe)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.territory,
-                    c.max_territory,
-                    c.wallow_rate,
-                    c.just_dominant,
-                    c.just_displaced,
-                    c.enabled,
-                ),
-            );
-        }
-        ZEEKOE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zein;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zein)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.protein,
-                    c.max_protein,
-                    c.store_rate,
-                    c.just_loaded,
-                    c.just_depleted,
-                    c.enabled,
-                ),
-            );
-        }
-        ZEIN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zeitgeber;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zeitgeber)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.entrainment,
-                    c.max_entrainment,
-                    c.cue_rate,
-                    c.just_entrained,
-                    c.just_drifted,
-                    c.enabled,
-                ),
-            );
-        }
-        ZEITGEBER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zeitgeist;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zeitgeist)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.momentum,
-                    c.max_momentum,
-                    c.fade_rate,
-                    c.just_surged,
-                    c.just_faded,
-                    c.enabled,
-                ),
-            );
-        }
-        ZEITGEIST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zek;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zek)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.output,
-                    c.max_output,
-                    c.toil_rate,
-                    c.just_fulfilled,
-                    c.just_exhausted,
-                    c.enabled,
-                ),
-            );
-        }
-        ZEK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zelkova;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zelkova)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.canopy,
-                    c.max_canopy,
-                    c.grow_rate,
-                    c.just_canopied,
-                    c.just_bare,
-                    c.enabled,
-                ),
-            );
-        }
-        ZELKOVA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zemstvo;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zemstvo)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.authority,
-                    c.max_authority,
-                    c.mandate_rate,
-                    c.just_empowered,
-                    c.just_abolished,
-                    c.enabled,
-                ),
-            );
-        }
-        ZEMSTVO_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zen;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zen)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.zen_level,
-                    c.max_zen,
-                    c.restore_rate,
-                    c.just_achieved,
-                    c.just_broken,
-                    c.enabled,
-                ),
-            );
-        }
-        ZEN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zenana;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zenana)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.solace,
-                    c.max_solace,
-                    c.shelter_rate,
-                    c.just_secluded,
-                    c.just_disturbed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZENANA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zendo;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zendo)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.harmony,
-                    c.max_harmony,
-                    c.attune_rate,
-                    c.just_harmonized,
-                    c.just_discordant,
-                    c.enabled,
-                ),
-            );
-        }
-        ZENDO_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zener;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zener)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.voltage,
-                    c.max_voltage,
-                    c.charge_rate,
-                    c.just_critical,
-                    c.just_depleted,
-                    c.enabled,
-                ),
-            );
-        }
-        ZENER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zenith;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zenith)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.altitude,
-                    c.max_altitude,
-                    c.descent_rate,
-                    c.just_peaked,
-                    c.just_grounded,
-                    c.enabled,
-                ),
-            );
-        }
-        ZENITH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zenithal;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zenithal)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.elevation,
-                    c.max_elevation,
-                    c.rise_rate,
-                    c.just_peaked,
-                    c.just_nadir,
-                    c.enabled,
-                ),
-            );
-        }
-        ZENITHAL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zeolite;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zeolite)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.purity,
-                    c.max_purity,
-                    c.cleanse_rate,
-                    c.just_cleansed,
-                    c.just_fouled,
-                    c.enabled,
-                ),
-            );
-        }
-        ZEOLITE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zeolitic;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zeolitic)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.microporosity,
-                    c.max_microporosity,
-                    c.sieve_rate,
-                    c.just_ordered,
-                    c.just_amorphous,
-                    c.enabled,
-                ),
-            );
-        }
-        ZEOLITIC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zephyr;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zephyr)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.gust,
-                    c.max_gust,
-                    c.calm_rate,
-                    c.just_surged,
-                    c.just_stilled,
-                    c.enabled,
-                ),
-            );
-        }
-        ZEPHYR_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zeppelin;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zeppelin)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.lift,
-                    c.max_lift,
-                    c.leak_rate,
-                    c.just_aloft,
-                    c.just_grounded,
-                    c.enabled,
-                ),
-            );
-        }
-        ZEPPELIN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zerk;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zerk)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.lubrication,
-                    c.max_lubrication,
-                    c.flow_rate,
-                    c.just_serviced,
-                    c.just_seized,
-                    c.enabled,
-                ),
-            );
-        }
-        ZERK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zeroth;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zeroth)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.deviation,
-                    c.max_deviation,
-                    c.drift_rate,
-                    c.just_saturated,
-                    c.just_grounded,
-                    c.enabled,
-                ),
-            );
-        }
-        ZEROTH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zester;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zester)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.scraped,
-                    c.max_scraped,
-                    c.grate_rate,
-                    c.just_zested,
-                    c.just_depleted,
-                    c.enabled,
-                ),
-            );
-        }
-        ZESTER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zestful;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zestful)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.energy,
-                    c.max_energy,
-                    c.invigorate_rate,
-                    c.just_zestful,
-                    c.just_listless,
-                    c.enabled,
-                ),
-            );
-        }
-        ZESTFUL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zeta;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zeta)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.potential,
-                    c.max_potential,
-                    c.flux_rate,
-                    c.just_critical,
-                    c.just_neutral,
-                    c.enabled,
-                ),
-            );
-        }
-        ZETA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zetetic;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zetetic)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.inquiry,
-                    c.max_inquiry,
-                    c.probe_rate,
-                    c.just_resolved,
-                    c.just_abandoned,
-                    c.enabled,
-                ),
-            );
-        }
-        ZETETIC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zeugen;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zeugen)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.prominence,
-                    c.max_prominence,
-                    c.denude_rate,
-                    c.just_prominent,
-                    c.just_eroded,
-                    c.enabled,
-                ),
-            );
-        }
-        ZEUGEN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zeugma;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zeugma)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.tension,
-                    c.max_tension,
-                    c.tighten_rate,
-                    c.just_yoked,
-                    c.just_severed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZEUGMA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zho;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zho)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.vigor,
-                    c.max_vigor,
-                    c.cross_rate,
-                    c.just_thriving,
-                    c.just_exhausted,
-                    c.enabled,
-                ),
-            );
-        }
-        ZHO_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zibet;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zibet)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.scent,
-                    c.max_scent,
-                    c.mark_rate,
-                    c.just_marked,
-                    c.just_faded,
-                    c.enabled,
-                ),
-            );
-        }
-        ZIBET_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zidovudine;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zidovudine)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.dose,
-                    c.max_dose,
-                    c.infusion_rate,
-                    c.just_suppressed,
-                    c.just_cleared,
-                    c.enabled,
-                ),
-            );
-        }
-        ZIDOVUDINE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Ziggurat;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Ziggurat)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.tier,
-                    c.max_tier,
-                    c.rise_rate,
-                    c.just_crowned,
-                    c.just_razed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZIGGURAT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zigzag;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zigzag)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.phase,
-                    c.period,
-                    c.speed,
-                    c.rising,
-                    c.just_reversed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZIGZAG_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zikr;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zikr)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.resonance,
-                    c.max_resonance,
-                    c.hum_rate,
-                    c.just_resonant,
-                    c.just_hushed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZIKR_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zilch;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zilch)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.deprivation,
-                    c.max_deprivation,
-                    c.replenish_rate,
-                    c.just_exhausted,
-                    c.just_sated,
-                    c.enabled,
-                ),
-            );
-        }
-        ZILCH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zileuton;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zileuton)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.coverage,
-                    c.max_coverage,
-                    c.absorption_rate,
-                    c.just_covered,
-                    c.just_lapsed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZILEUTON_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zill;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zill)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.ring,
-                    c.max_ring,
-                    c.sustain_rate,
-                    c.just_ringing,
-                    c.just_damped,
-                    c.enabled,
-                ),
-            );
-        }
-        ZILL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zillion;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zillion)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.count,
-                    c.max_count,
-                    c.tally_rate,
-                    c.just_astronomical,
-                    c.just_zeroed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZILLION_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zimb;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zimb)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.swarm,
-                    c.max_swarm,
-                    c.swarm_rate,
-                    c.just_swarming,
-                    c.just_dispersed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZIMB_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zinc;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zinc)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.mineral,
-                    c.max_mineral,
-                    c.metabolic_rate,
-                    c.just_optimal,
-                    c.just_deficient,
-                    c.enabled,
-                ),
-            );
-        }
-        ZINC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zincate;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zincate)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.concentration,
-                    c.max_concentration,
-                    c.deposit_rate,
-                    c.just_saturated,
-                    c.just_depleted,
-                    c.enabled,
-                ),
-            );
-        }
-        ZINCATE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zincite;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zincite)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.saturation,
-                    c.max_saturation,
-                    c.deposit_rate,
-                    c.just_crystallized,
-                    c.just_depleted,
-                    c.enabled,
-                ),
-            );
-        }
-        ZINCITE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zine;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zine)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.content,
-                    c.max_content,
-                    c.draft_rate,
-                    c.just_published,
-                    c.just_blank,
-                    c.enabled,
-                ),
-            );
-        }
-        ZINE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zineb;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zineb)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.residue,
-                    c.max_residue,
-                    c.spray_rate,
-                    c.just_protected,
-                    c.just_exposed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZINEB_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zinfandel;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zinfandel)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.ferment,
-                    c.max_ferment,
-                    c.mature_rate,
-                    c.just_matured,
-                    c.just_racked,
-                    c.enabled,
-                ),
-            );
-        }
-        ZINFANDEL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zing;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zing)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.zing_charge,
-                    c.zing_threshold,
-                    c.zing_count as f32,
-                    c.just_zinged,
-                    false,
-                    c.enabled,
-                ),
-            );
-        }
-        ZING_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zinger;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zinger)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.sting,
-                    c.max_sting,
-                    c.sharpen_rate,
-                    c.just_stinging,
-                    c.just_soothed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZINGER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zink;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zink)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.breath,
-                    c.max_breath,
-                    c.breath_rate,
-                    c.just_resonant,
-                    c.just_breathless,
-                    c.enabled,
-                ),
-            );
-        }
-        ZINK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zinnia;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zinnia)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.petals,
-                    c.max_petals,
-                    c.bloom_rate,
-                    c.just_blooming,
-                    c.just_wilted,
-                    c.enabled,
-                ),
-            );
-        }
-        ZINNIA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zip;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zip)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.zip_charge,
-                    c.max_charge,
-                    c.drain_rate,
-                    c.just_activated,
-                    c.just_exhausted,
-                    c.enabled,
-                ),
-            );
-        }
-        ZIP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zipper;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zipper)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.closure,
-                    c.max_closure,
-                    c.slide_rate,
-                    c.just_sealed,
-                    c.just_open,
-                    c.enabled,
-                ),
-            );
-        }
-        ZIPPER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zippier;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zippier)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.pace,
-                    c.max_pace,
-                    c.sprint_rate,
-                    c.just_fastest,
-                    c.just_stalled,
-                    c.enabled,
-                ),
-            );
-        }
-        ZIPPIER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zippy;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zippy)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.pep,
-                    c.max_pep,
-                    c.perk_rate,
-                    c.just_peppy,
-                    c.just_tired,
-                    c.enabled,
-                ),
-            );
-        }
-        ZIPPY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zircon;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zircon)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.hardness,
-                    c.max_hardness,
-                    c.harden_rate,
-                    c.just_flawless,
-                    c.just_fractured,
-                    c.enabled,
-                ),
-            );
-        }
-        ZIRCON_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zirconia;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zirconia)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.hardness,
-                    c.max_hardness,
-                    c.sinter_rate,
-                    c.just_sintered,
-                    c.just_cracked,
-                    c.enabled,
-                ),
-            );
-        }
-        ZIRCONIA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zirconium;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zirconium)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.purity,
-                    c.max_purity,
-                    c.refine_rate,
-                    c.just_refined,
-                    c.just_tarnished,
-                    c.enabled,
-                ),
-            );
-        }
-        ZIRCONIUM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zit;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zit)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.zit_count as f32,
-                    c.max_zits as f32,
-                    0.0_f32,
-                    c.just_inflamed,
-                    c.just_cleared,
-                    c.enabled,
-                ),
-            );
-        }
-        ZIT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zither;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zither)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.resonance,
-                    c.max_resonance,
-                    c.decay_rate,
-                    c.just_harmonized,
-                    c.just_silenced,
-                    c.enabled,
-                ),
-            );
-        }
-        ZITHER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Ziti;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Ziti)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.heat_level,
-                    c.max_heat,
-                    c.simmer_rate,
-                    c.just_scorching,
-                    c.just_raw,
-                    c.enabled,
-                ),
-            );
-        }
-        ZITI_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoanthropy;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoanthropy)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.delusion,
-                    c.max_delusion,
-                    c.inhabit_rate,
-                    c.just_feral,
-                    c.just_lucid,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOANTHROPY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zodiac;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zodiac)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.alignment,
-                    c.max_alignment,
-                    c.transit_rate,
-                    c.just_aligned,
-                    c.just_voided,
-                    c.enabled,
-                ),
-            );
-        }
-        ZODIAC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zodiacal;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zodiacal)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.alignment,
-                    c.max_alignment,
-                    c.aspect_rate,
-                    c.just_aligned,
-                    c.just_discordant,
-                    c.enabled,
-                ),
-            );
-        }
-        ZODIACAL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoea;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoea)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.molt,
-                    c.max_molt,
-                    c.grow_rate,
-                    c.just_metamorphosed,
-                    c.just_shed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOEA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoecium;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoecium)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.colony,
-                    c.max_colony,
-                    c.encrust_rate,
-                    c.just_established,
-                    c.just_dispersed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOECIUM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoetic;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoetic)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.vitality,
-                    c.max_vitality,
-                    c.quicken_rate,
-                    c.just_vital,
-                    c.just_dormant,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOETIC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoetrope;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoetrope)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.frame,
-                    c.max_frame,
-                    c.spin_rate,
-                    c.just_cycling,
-                    c.just_stalled,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOETROPE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoic;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoic)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.vitality,
-                    c.max_vitality,
-                    c.fauna_rate,
-                    c.just_teeming,
-                    c.just_barren,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOIC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zokor;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zokor)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.burrow,
-                    c.max_burrow,
-                    c.tunnel_rate,
-                    c.just_entrenched,
-                    c.just_collapsed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOKOR_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zombie;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zombie)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.shamble,
-                    c.max_shamble,
-                    c.rot_rate,
-                    c.just_risen,
-                    c.just_decayed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOMBIE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zombify;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zombify)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.taint,
-                    c.max_taint,
-                    c.spread_rate,
-                    c.just_zombified,
-                    c.just_purified,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOMBIFY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zonal;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zonal)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.coverage,
-                    c.max_coverage,
-                    c.zone_rate,
-                    c.just_zoned,
-                    c.just_unzoned,
-                    c.enabled,
-                ),
-            );
-        }
-        ZONAL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zonate;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zonate)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.zonation,
-                    c.max_zonation,
-                    c.band_rate,
-                    c.just_banded,
-                    c.just_dispersed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZONATE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zonation;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zonation)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.distribution,
-                    c.max_distribution,
-                    c.layer_rate,
-                    c.just_stratified,
-                    c.just_collapsed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZONATION_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zone;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zone)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.zone_control,
-                    c.max_zone,
-                    c.advance_rate,
-                    c.just_captured,
-                    c.just_lost,
-                    c.enabled,
-                ),
-            );
-        }
-        ZONE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoner;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoner)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.control,
-                    c.max_control,
-                    c.expand_rate,
-                    c.just_dominant,
-                    c.just_yielded,
-                    c.enabled,
-                ),
-            );
-        }
-        ZONER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoning;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoning)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.influence,
-                    c.max_influence,
-                    c.spread_rate,
-                    c.just_dominant,
-                    c.just_neutral,
-                    c.enabled,
-                ),
-            );
-        }
-        ZONING_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zonk;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zonk)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.daze,
-                    c.max_daze,
-                    c.bonk_rate,
-                    c.just_knocked_out,
-                    c.just_cleared,
-                    c.enabled,
-                ),
-            );
-        }
-        ZONK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoo;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoo)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.population,
-                    c.max_population,
-                    c.breed_rate,
-                    c.just_full,
-                    c.just_empty,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOO_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoogenous;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoogenous)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.genesis,
-                    c.max_genesis,
-                    c.origin_rate,
-                    c.just_emerged,
-                    c.just_inert,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOGENOUS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoogeography;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoogeography)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.range,
-                    c.max_range,
-                    c.survey_rate,
-                    c.just_mapped,
-                    c.just_uncharted,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOGEOGRAPHY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zooglea;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zooglea)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.biofilm,
-                    c.max_biofilm,
-                    c.culture_rate,
-                    c.just_encrusted,
-                    c.just_dispersed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOGLEA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoography;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoography)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.survey,
-                    c.max_survey,
-                    c.map_rate,
-                    c.just_mapped,
-                    c.just_void,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOGRAPHY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zooid;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zooid)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.integration,
-                    c.max_integration,
-                    c.bud_rate,
-                    c.just_integrated,
-                    c.just_isolated,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOID_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zookeeper;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zookeeper)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.care,
-                    c.max_care,
-                    c.tend_rate,
-                    c.just_thriving,
-                    c.just_neglected,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOKEEPER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoolatry;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoolatry)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.devotion,
-                    c.max_devotion,
-                    c.revere_rate,
-                    c.just_revered,
-                    c.just_profaned,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOLATRY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoological;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoological)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.catalogue,
-                    c.max_catalogue,
-                    c.accession_rate,
-                    c.just_complete,
-                    c.just_depleted,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOLOGICAL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoologist;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoologist)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.expertise,
-                    c.max_expertise,
-                    c.study_rate,
-                    c.just_mastered,
-                    c.just_lapsed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOLOGIST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoology;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoology)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.specimens,
-                    c.max_specimens,
-                    c.catalog_rate,
-                    c.just_cataloged,
-                    c.just_extinct,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOLOGY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoom;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoom)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.zoom_steps as f32,
-                    c.max_steps as f32,
-                    0.0f32,
-                    c.just_stepped_in,
-                    c.just_maxed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoometry;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoometry)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.measurement,
-                    c.max_measurement,
-                    c.calibrate_rate,
-                    c.just_calibrated,
-                    c.just_uncalibrated,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOMETRY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoomorph;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoomorph)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.morph,
-                    c.max_morph,
-                    c.flux_rate,
-                    c.just_shifted,
-                    c.just_reverted,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOMORPH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoomorphic;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoomorphic)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.iconography,
-                    c.max_iconography,
-                    c.depict_rate,
-                    c.just_engraved,
-                    c.just_eroded,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOMORPHIC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoomorphism;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoomorphism)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.expression,
-                    c.max_expression,
-                    c.channel_rate,
-                    c.just_manifested,
-                    c.just_lapsed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOMORPHISM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoonosis;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoonosis)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.contagion,
-                    c.max_contagion,
-                    c.transmit_rate,
-                    c.just_spread,
-                    c.just_contained,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOONOSIS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoonotic;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoonotic)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.spillover,
-                    c.max_spillover,
-                    c.transmit_rate,
-                    c.just_emerged,
-                    c.just_contained,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOONOTIC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoophagous;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoophagous)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.feeding,
-                    c.max_feeding,
-                    c.prey_rate,
-                    c.just_satiated,
-                    c.just_famished,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOPHAGOUS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoophile;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoophile)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.affection,
-                    c.max_affection,
-                    c.empathy_rate,
-                    c.just_bonded,
-                    c.just_estranged,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOPHILE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoophilia;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoophilia)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.affinity,
-                    c.max_affinity,
-                    c.bond_rate,
-                    c.just_bonded,
-                    c.just_estranged,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOPHILIA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoophilous;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoophilous)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.affinity,
-                    c.max_affinity,
-                    c.attract_rate,
-                    c.just_adapted,
-                    c.just_repelled,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOPHILOUS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoophily;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoophily)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.pollination,
-                    c.max_pollination,
-                    c.visit_rate,
-                    c.just_fertilized,
-                    c.just_barren,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOPHILY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoophyte;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoophyte)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.vitality,
-                    c.max_vitality,
-                    c.polyp_rate,
-                    c.just_flourished,
-                    c.just_withered,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOPHYTE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zooplankton;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zooplankton)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.drift,
-                    c.max_drift,
-                    c.bloom_rate,
-                    c.just_bloomed,
-                    c.just_clear,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOPLANKTON_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoosphere;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoosphere)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.fauna,
-                    c.max_fauna,
-                    c.colonize_rate,
-                    c.just_saturated,
-                    c.just_empty,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOSPHERE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoosperm;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoosperm)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.motility,
-                    c.max_motility,
-                    c.swim_rate,
-                    c.just_fertile,
-                    c.just_sterile,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOSPERM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoospore;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoospore)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.motility,
-                    c.max_motility,
-                    c.swim_rate,
-                    c.just_dispersed,
-                    c.just_settled,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOSPORE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zootechnics;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zootechnics)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.husbandry,
-                    c.max_husbandry,
-                    c.tend_rate,
-                    c.just_thriving,
-                    c.just_declining,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOTECHNICS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zootomy;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zootomy)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.dissection,
-                    c.max_dissection,
-                    c.study_rate,
-                    c.just_complete,
-                    c.just_spoiled,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOTOMY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zooxanthella;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zooxanthella)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.symbiosis,
-                    c.max_symbiosis,
-                    c.photosynthesize_rate,
-                    c.just_thriving,
-                    c.just_bleached,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOXANTHELLA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoogamy;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoogamy)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.gamete,
-                    c.max_gamete,
-                    c.mate_rate,
-                    c.just_mated,
-                    c.just_sterile,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOGAMY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoogenesis;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoogenesis)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.genesis,
-                    c.max_genesis,
-                    c.emerge_rate,
-                    c.just_emerged,
-                    c.just_extinct,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOGENESIS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoognomy;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoognomy)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.lore,
-                    c.max_lore,
-                    c.study_rate,
-                    c.just_learned,
-                    c.just_forgotten,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOGNOMY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoopathology;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoopathology)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.lesion,
-                    c.max_lesion,
-                    c.infect_rate,
-                    c.just_afflicted,
-                    c.just_cured,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOPATHOLOGY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoophobia;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoophobia)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.dread,
-                    c.max_dread,
-                    c.fear_rate,
-                    c.just_panicked,
-                    c.just_calmed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOPHOBIA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zooscopy;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zooscopy)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.omen,
-                    c.max_omen,
-                    c.divine_rate,
-                    c.just_revealed,
-                    c.just_obscured,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOSCOPY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zootherapy;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zootherapy)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.relief,
-                    c.max_relief,
-                    c.heal_rate,
-                    c.just_healed,
-                    c.just_relapsed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOTHERAPY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoochemistry;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoochemistry)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.compound,
-                    c.max_compound,
-                    c.brew_rate,
-                    c.just_brewed,
-                    c.just_neutralized,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOCHEMISTRY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoochory;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoochory)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.seed,
-                    c.max_seed,
-                    c.disperse_rate,
-                    c.just_dispersed,
-                    c.just_contained,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOCHORY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoocide;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoocide)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.toll,
-                    c.max_toll,
-                    c.kill_rate,
-                    c.just_exterminated,
-                    c.just_replenished,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOCIDE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zooecium;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zooecium)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.shell,
-                    c.max_shell,
-                    c.encase_rate,
-                    c.just_encased,
-                    c.just_exposed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOECIUM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zooflagellate;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zooflagellate)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.thrust,
-                    c.max_thrust,
-                    c.propel_rate,
-                    c.just_propelled,
-                    c.just_stalled,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOFLAGELLATE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoogenic;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoogenic)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.vitality,
-                    c.max_vitality,
-                    c.generate_rate,
-                    c.just_generated,
-                    c.just_suppressed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOGENIC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoohygric;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoohygric)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.moisture,
-                    c.max_moisture,
-                    c.hydrate_rate,
-                    c.just_hydrated,
-                    c.just_desiccated,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOHYGRIC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zooculture;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zooculture)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.breed,
-                    c.max_breed,
-                    c.cultivate_rate,
-                    c.just_cultivated,
-                    c.just_abandoned,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOCULTURE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoolite;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoolite)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.fossil,
-                    c.max_fossil,
-                    c.petrify_rate,
-                    c.just_petrified,
-                    c.just_eroded,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOLITE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoonomy;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoonomy)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.norm,
-                    c.max_norm,
-                    c.regulate_rate,
-                    c.just_regulated,
-                    c.just_disrupted,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOONOMY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoopery;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoopery)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.trial,
-                    c.max_trial,
-                    c.probe_rate,
-                    c.just_probed,
-                    c.just_halted,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOPERY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoophysics;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoophysics)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.force,
-                    c.max_force,
-                    c.channel_rate,
-                    c.just_channeled,
-                    c.just_scattered,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOPHYSICS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoosemiotics;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoosemiotics)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.signal,
-                    c.max_signal,
-                    c.transmit_rate,
-                    c.just_transmitted,
-                    c.just_silenced,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOSEMIOTICS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zootrophy;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zootrophy)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.nutrient,
-                    c.max_nutrient,
-                    c.feed_rate,
-                    c.just_fed,
-                    c.just_starved,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOTROPHY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zooarchaeology;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zooarchaeology)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.artifact,
-                    c.max_artifact,
-                    c.excavate_rate,
-                    c.just_excavated,
-                    c.just_buried,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOARCHAEOLOGY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoobiotic;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoobiotic)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.parasite,
-                    c.max_parasite,
-                    c.infest_rate,
-                    c.just_infested,
-                    c.just_cleansed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOBIOTIC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoodynamics;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoodynamics)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.momentum,
-                    c.max_momentum,
-                    c.drive_rate,
-                    c.just_driven,
-                    c.just_braked,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOODYNAMICS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoognosis;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoognosis)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.insight,
-                    c.max_insight,
-                    c.diagnose_rate,
-                    c.just_diagnosed,
-                    c.just_misled,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOGNOSIS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zookinesis;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zookinesis)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.motion,
-                    c.max_motion,
-                    c.mobilize_rate,
-                    c.just_mobilized,
-                    c.just_immobilized,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOKINESIS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoomorphosis;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoomorphosis)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.form,
-                    c.max_form,
-                    c.morph_rate,
-                    c.just_morphed,
-                    c.just_reverted,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOMORPHOSIS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoopsia;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoopsia)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.vision,
-                    c.max_vision,
-                    c.perceive_rate,
-                    c.just_perceived,
-                    c.just_blinded,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOPSIA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoocoenosis;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoocoenosis)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.colony,
-                    c.max_colony,
-                    c.assemble_rate,
-                    c.just_assembled,
-                    c.just_dissolved,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOCOENOSIS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoodendrium;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoodendrium)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.branch,
-                    c.max_branch,
-                    c.extend_rate,
-                    c.just_extended,
-                    c.just_pruned,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOODENDRIUM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoomancy;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoomancy)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.portent,
-                    c.max_portent,
-                    c.augur_rate,
-                    c.just_augured,
-                    c.just_dispelled,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOMANCY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zooparasite;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zooparasite)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.host,
-                    c.max_host,
-                    c.latch_rate,
-                    c.just_latched,
-                    c.just_expelled,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOPARASITE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoopathia;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoopathia)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.malady,
-                    c.max_malady,
-                    c.ail_rate,
-                    c.just_ailed,
-                    c.just_recovered,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOPATHIA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zooplasty;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zooplasty)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.graft,
-                    c.max_graft,
-                    c.fuse_rate,
-                    c.just_fused,
-                    c.just_rejected,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOPLASTY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoosporangia;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoosporangia)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.spore,
-                    c.max_spore,
-                    c.sporulate_rate,
-                    c.just_sporulated,
-                    c.just_depleted,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOSPORANGIA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zooblast;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zooblast)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.blast,
-                    c.max_blast,
-                    c.proliferate_rate,
-                    c.just_proliferated,
-                    c.just_lysed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOBLAST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoocarp;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoocarp)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.propagule,
-                    c.max_propagule,
-                    c.release_rate,
-                    c.just_released,
-                    c.just_aborted,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOCARP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoodeme;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoodeme)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.population,
-                    c.max_population,
-                    c.aggregate_rate,
-                    c.just_aggregated,
-                    c.just_dispersed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOODEME_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoomass;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoomass)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.biomass,
-                    c.max_biomass,
-                    c.accumulate_rate,
-                    c.just_accumulated,
-                    c.just_decomposed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOMASS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoophagy;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoophagy)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.prey,
-                    c.max_prey,
-                    c.hunt_rate,
-                    c.just_hunted,
-                    c.just_fled,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOPHAGY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoosterol;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoosterol)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.sterol,
-                    c.max_sterol,
-                    c.synthesize_rate,
-                    c.just_synthesized,
-                    c.just_catabolized,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOSTEROL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zootoxin;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zootoxin)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.toxin,
-                    c.max_toxin,
-                    c.secrete_rate,
-                    c.just_secreted,
-                    c.just_neutralized,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOTOXIN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoochromy;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoochromy)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.pigment,
-                    c.max_pigment,
-                    c.tint_rate,
-                    c.just_tinted,
-                    c.just_faded,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOCHROMY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zooecology;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zooecology)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.habitat,
-                    c.max_habitat,
-                    c.settle_rate,
-                    c.just_settled,
-                    c.just_displaced,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOECOLOGY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoomorphology;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoomorphology)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.form,
-                    c.max_form,
-                    c.develop_rate,
-                    c.just_developed,
-                    c.just_regressed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOMORPHOLOGY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoopsychology;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoopsychology)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.instinct,
-                    c.max_instinct,
-                    c.imprint_rate,
-                    c.just_imprinted,
-                    c.just_unlearned,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOPSYCHOLOGY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoosociology;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoosociology)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.bond,
-                    c.max_bond,
-                    c.affiliate_rate,
-                    c.just_affiliated,
-                    c.just_severed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOSOCIOLOGY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zootaxy;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zootaxy)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.rank,
-                    c.max_rank,
-                    c.promote_rate,
-                    c.just_promoted,
-                    c.just_demoted,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOTAXY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zootheism;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zootheism)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.devotion,
-                    c.max_devotion,
-                    c.consecrate_rate,
-                    c.just_consecrated,
-                    c.just_desecrated,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOTHEISM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zooanthropy;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zooanthropy)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.delusion,
-                    c.max_delusion,
-                    c.impart_rate,
-                    c.just_imparted,
-                    c.just_dispelled,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOANTHROPY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoogonium;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoogonium)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.spore,
-                    c.max_spore,
-                    c.produce_rate,
-                    c.just_produced,
-                    c.just_consumed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOGONIUM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoolemma;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoolemma)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.integrity,
-                    c.max_integrity,
-                    c.repair_rate,
-                    c.just_repaired,
-                    c.just_breached,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOLEMMA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoopharmacology;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoopharmacology)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.potency,
-                    c.max_potency,
-                    c.dose_rate,
-                    c.just_dosed,
-                    c.just_purged,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOPHARMACOLOGY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zooplasma;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zooplasma)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.density,
-                    c.max_density,
-                    c.condense_rate,
-                    c.just_condensed,
-                    c.just_dispersed,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOPLASMA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoospermia;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoospermia)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.motility,
-                    c.max_motility,
-                    c.energize_rate,
-                    c.just_energized,
-                    c.just_depleted,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOSPERMIA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Zoosymbiont;
-        let mut map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Zoosymbiont)>();
-        for (name, c) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    c.harmony,
-                    c.max_harmony,
-                    c.mutualize_rate,
-                    c.just_mutualized,
-                    c.just_expelled,
-                    c.enabled,
-                ),
-            );
-        }
-        ZOOSYMBIONT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Shield;
-        let mut shield_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Shield)>();
-        for (name, sh) in q.iter(world) {
-            shield_map.insert(name.0.clone(), (sh.current, sh.max));
-        }
-        SHIELD_SNAPSHOT.with(|s| *s.borrow_mut() = shield_map);
-    }
-    {
-        use bsengine_core::Experience;
-        let mut xp_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Experience)>();
-        for (name, xp) in q.iter(world) {
-            xp_map.insert(
-                name.0.clone(),
-                (
-                    xp.level as f32,
-                    xp.current_xp,
-                    xp.progress(),
-                    xp.is_max_level(),
-                ),
-            );
-        }
-        EXPERIENCE_SNAPSHOT.with(|s| *s.borrow_mut() = xp_map);
-    }
-    {
-        use bsengine_core::Level;
-        let mut lvl_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Level)>();
-        for (name, lvl) in q.iter(world) {
-            lvl_map.insert(
-                name.0.clone(),
-                (
-                    lvl.current as f32,
-                    lvl.max as f32,
-                    lvl.prestige_level as f32,
-                    lvl.is_max_level(),
-                    lvl.progress_fraction(),
-                ),
-            );
-        }
-        LEVEL_SNAPSHOT.with(|s| *s.borrow_mut() = lvl_map);
-    }
-    {
-        use bsengine_core::Cooldown;
-        let mut cd_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Cooldown)>();
-        for (name, cd) in q.iter(world) {
-            cd_map.insert(name.0.clone(), (cd.remaining, cd.progress(), cd.is_ready()));
-        }
-        COOLDOWN_SNAPSHOT.with(|s| *s.borrow_mut() = cd_map);
-    }
-    {
-        use bsengine_core::Timer;
-        let mut timer_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Timer)>();
-        for (name, t) in q.iter(world) {
-            timer_map.insert(
-                name.0.clone(),
-                (
-                    t.elapsed(),
-                    t.duration(),
-                    t.fraction(),
-                    t.is_finished(),
-                    t.just_finished(),
-                ),
-            );
-        }
-        TIMER_SNAPSHOT.with(|s| *s.borrow_mut() = timer_map);
-    }
-    {
-        use bsengine_core::Ammo;
-        let mut ammo_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Ammo)>();
-        for (name, a) in q.iter(world) {
-            ammo_map.insert(
-                name.0.clone(),
-                (
-                    a.current,
-                    a.max_capacity,
-                    a.reserve,
-                    a.reserve_max,
-                    a.just_emptied,
-                    a.just_reloaded,
-                    a.enabled,
-                ),
-            );
-        }
-        AMMO_SNAPSHOT.with(|s| *s.borrow_mut() = ammo_map);
-    }
-    {
-        use bsengine_core::Regen;
-        let mut regen_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Regen)>();
-        for (name, r) in q.iter(world) {
-            regen_map.insert(
-                name.0.clone(),
-                (r.rate, r.delay_after_damage, r.delay_timer, r.enabled),
-            );
-        }
-        REGEN_SNAPSHOT.with(|s| *s.borrow_mut() = regen_map);
-    }
-    {
-        use bsengine_core::Fuel;
-        let mut fuel_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Fuel)>();
-        for (name, f) in q.iter(world) {
-            fuel_map.insert(
-                name.0.clone(),
-                (
-                    f.fuel,
-                    f.max_fuel,
-                    f.low_threshold,
-                    f.just_emptied,
-                    f.is_low(),
-                    f.enabled,
-                ),
-            );
-        }
-        FUEL_SNAPSHOT.with(|s| *s.borrow_mut() = fuel_map);
-    }
-    {
-        use bsengine_core::Charge;
-        let mut charge_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Charge)>();
-        for (name, c) in q.iter(world) {
-            charge_map.insert(
-                name.0.clone(),
-                (
-                    c.current,
-                    c.max_charge,
-                    c.is_charging(),
-                    c.is_fully_charged(),
-                    c.enabled,
-                ),
-            );
-        }
-        CHARGE_SNAPSHOT.with(|s| *s.borrow_mut() = charge_map);
-    }
-    {
-        use bsengine_core::Armor;
-        let mut armor_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Armor)>();
-        for (name, a) in q.iter(world) {
-            armor_map.insert(
-                name.0.clone(),
-                (
-                    a.flat_reduction,
-                    a.percent_reduction,
-                    a.durability,
-                    a.max_durability,
-                    a.enabled,
-                ),
-            );
-        }
-        ARMOR_SNAPSHOT.with(|s| *s.borrow_mut() = armor_map);
-    }
-    {
-        use bsengine_core::Jump;
-        let mut jump_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Jump)>();
-        for (name, j) in q.iter(world) {
-            jump_map.insert(
-                name.0.clone(),
-                (
-                    j.impulse,
-                    j.max_jumps,
-                    j.jumps_remaining,
-                    j.wants_jump,
-                    j.enabled,
-                ),
-            );
-        }
-        JUMP_SNAPSHOT.with(|s| *s.borrow_mut() = jump_map);
-    }
-    {
-        use bsengine_core::Sprint;
-        let mut sprint_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Sprint)>();
-        for (name, sp) in q.iter(world) {
-            sprint_map.insert(
-                name.0.clone(),
-                (
-                    sp.speed_multiplier,
-                    sp.is_sprinting(),
-                    sp.is_exhausted(),
-                    sp.just_started,
-                    sp.just_stopped,
-                    sp.enabled,
-                ),
-            );
-        }
-        SPRINT_SNAPSHOT.with(|s| *s.borrow_mut() = sprint_map);
-    }
-    {
-        use bsengine_core::Dash;
-        let mut dash_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Dash)>();
-        for (name, d) in q.iter(world) {
-            dash_map.insert(
-                name.0.clone(),
-                (
-                    d.speed,
-                    d.duration,
-                    d.cooldown,
-                    d.cooldown_timer,
-                    d.max_charges,
-                    d.charges,
-                    d.is_active(),
-                    d.is_invincible(),
-                    d.can_dash(),
-                    d.enabled,
-                ),
-            );
-        }
-        DASH_SNAPSHOT.with(|s| *s.borrow_mut() = dash_map);
-    }
-    {
-        use bsengine_core::{NavAgentState, NavMeshAgent};
-        let mut nav_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &NavMeshAgent)>();
-        for (name, a) in q.iter(world) {
-            let state_u8 = match a.state {
-                NavAgentState::Idle => 0u8,
-                NavAgentState::Moving => 1u8,
-                NavAgentState::Arrived => 2u8,
-                NavAgentState::NoPath => 3u8,
-            };
-            nav_map.insert(
-                name.0.clone(),
-                (
-                    a.speed,
-                    a.angular_speed,
-                    a.stopping_distance,
-                    state_u8,
-                    a.enabled,
-                ),
-            );
-        }
-        NAV_SNAPSHOT.with(|s| *s.borrow_mut() = nav_map);
-    }
-    {
-        use bsengine_core::Knockback;
-        let mut kb_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Knockback)>();
-        for (name, k) in q.iter(world) {
-            kb_map.insert(
-                name.0.clone(),
-                (
-                    k.force,
-                    k.vertical_boost,
-                    k.hits_remaining,
-                    k.blocks_new,
-                    k.enabled,
-                ),
-            );
-        }
-        KNOCKBACK_SNAPSHOT.with(|s| *s.borrow_mut() = kb_map);
-    }
-    {
-        use bsengine_core::Projectile;
-        let mut proj_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Projectile)>();
-        for (name, p) in q.iter(world) {
-            proj_map.insert(
-                name.0.clone(),
-                (
-                    p.speed,
-                    p.gravity_scale,
-                    p.piercing,
-                    p.range,
-                    p.distance_traveled,
-                ),
-            );
-        }
-        PROJECTILE_SNAPSHOT.with(|s| *s.borrow_mut() = proj_map);
-    }
-    {
-        use bsengine_core::{Grapple, GrappleState};
-        let mut grapple_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Grapple)>();
-        for (name, g) in q.iter(world) {
-            let state_u8 = match g.state {
-                GrappleState::Idle => 0u8,
-                GrappleState::InFlight => 1u8,
-                GrappleState::Attached => 2u8,
-                GrappleState::Retracting => 3u8,
-            };
-            grapple_map.insert(
-                name.0.clone(),
-                (
-                    state_u8,
-                    g.anchor_point.x,
-                    g.anchor_point.y,
-                    g.anchor_point.z,
-                    g.max_range,
-                    g.hook_speed,
-                    g.pull_force,
-                    g.rope_length,
-                    g.enabled,
-                ),
-            );
-        }
-        GRAPPLE_SNAPSHOT.with(|s| *s.borrow_mut() = grapple_map);
-    }
-    {
-        use bsengine_core::{InteractTrigger, Interactable};
-        let mut ia_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Interactable)>();
-        for (name, i) in q.iter(world) {
-            let trigger_u8 = match i.trigger {
-                InteractTrigger::OnPress => 0u8,
-                InteractTrigger::OnRelease => 1u8,
-                InteractTrigger::OnHold => 2u8,
-            };
-            ia_map.insert(
-                name.0.clone(),
-                (
-                    i.range,
-                    i.prompt.clone(),
-                    trigger_u8,
-                    i.hold_duration,
-                    i.enabled,
-                ),
-            );
-        }
-        INTERACTABLE_SNAPSHOT.with(|s| *s.borrow_mut() = ia_map);
-    }
-    {
-        use bsengine_core::ScreenShake;
-        let mut ss_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &ScreenShake)>();
-        for (name, ss) in q.iter(world) {
-            ss_map.insert(
-                name.0.clone(),
-                (ss.trauma, ss.amplitude, ss.decay_rate, ss.frequency),
-            );
-        }
-        SCREEN_SHAKE_SNAPSHOT.with(|s| *s.borrow_mut() = ss_map);
-    }
-    {
-        use bsengine_core::{Footstep, SurfaceKind};
-        let mut fs_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Footstep)>();
-        for (name, f) in q.iter(world) {
-            let surface_u8 = match &f.surface {
-                SurfaceKind::Concrete => 0u8,
-                SurfaceKind::Grass => 1u8,
-                SurfaceKind::Wood => 2u8,
-                SurfaceKind::Metal => 3u8,
-                SurfaceKind::Sand => 4u8,
-                SurfaceKind::Water => 5u8,
-                SurfaceKind::Gravel => 6u8,
-                SurfaceKind::Custom(_) => 7u8,
-            };
-            fs_map.insert(
-                name.0.clone(),
-                (
-                    f.step_interval,
-                    f.distance_accumulated,
-                    f.volume,
-                    f.audio_prefix.clone(),
-                    surface_u8,
-                    f.min_speed,
-                    f.enabled,
-                ),
-            );
-        }
-        FOOTSTEP_SNAPSHOT.with(|s| *s.borrow_mut() = fs_map);
-    }
-    {
-        use bsengine_core::Wind;
-        let mut wind_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Wind)>();
-        for (name, w) in q.iter(world) {
-            wind_map.insert(
-                name.0.clone(),
-                (
-                    w.velocity.x,
-                    w.velocity.y,
-                    w.velocity.z,
-                    w.turbulence,
-                    w.turbulence_frequency,
-                    w.radius,
-                ),
-            );
-        }
-        WIND_SNAPSHOT.with(|s| *s.borrow_mut() = wind_map);
-    }
-    {
-        use bsengine_core::Dialogue;
-        let mut dlg_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Dialogue)>();
-        for (name, d) in q.iter(world) {
-            let (speaker, text) = d
-                .current_line()
-                .map(|l| (l.speaker.clone(), l.text.clone()))
-                .unwrap_or_default();
-            dlg_map.insert(
-                name.0.clone(),
-                (
-                    d.current_index as u32,
-                    d.lines.len() as u32,
-                    d.looping,
-                    d.enabled,
-                    d.is_finished(),
-                    speaker,
-                    text,
-                ),
-            );
-        }
-        DIALOGUE_SNAPSHOT.with(|s| *s.borrow_mut() = dlg_map);
-    }
-    {
-        use bsengine_core::Dissolve;
-        let mut diss_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Dissolve)>();
-        for (name, d) in q.iter(world) {
-            diss_map.insert(
-                name.0.clone(),
-                (
-                    d.progress,
-                    d.edge_width,
-                    d.edge_color[0],
-                    d.edge_color[1],
-                    d.edge_color[2],
-                    d.edge_color[3],
-                    d.noise_scale,
-                    d.enabled,
-                ),
-            );
-        }
-        DISSOLVE_SNAPSHOT.with(|s| *s.borrow_mut() = diss_map);
-    }
-    {
-        use bsengine_core::Emissive;
-        let mut em_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Emissive)>();
-        for (name, e) in q.iter(world) {
-            em_map.insert(
-                name.0.clone(),
-                (
-                    e.color[0],
-                    e.color[1],
-                    e.color[2],
-                    e.color[3],
-                    e.intensity,
-                    e.contributes_to_bloom,
-                    e.enabled,
-                ),
-            );
-        }
-        EMISSIVE_SNAPSHOT.with(|s| *s.borrow_mut() = em_map);
-    }
-    {
-        use bsengine_core::GridSnap;
-        let mut gs_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &GridSnap)>();
-        for (name, g) in q.iter(world) {
-            gs_map.insert(
-                name.0.clone(),
-                (
-                    g.cell_size.x,
-                    g.cell_size.y,
-                    g.cell_size.z,
-                    g.offset.x,
-                    g.offset.y,
-                    g.offset.z,
-                    g.enabled,
-                ),
-            );
-        }
-        GRID_SNAP_SNAPSHOT.with(|s| *s.borrow_mut() = gs_map);
-    }
-    {
-        use bsengine_core::{Crosshair, CrosshairStyle};
-        let mut ch_map = std::collections::HashMap::new();
-        let mut q = world.query::<(&Name, &Crosshair)>();
-        for (name, c) in q.iter(world) {
-            let style_u8 = match c.style {
-                CrosshairStyle::Cross => 0u8,
-                CrosshairStyle::Circle => 1u8,
-                CrosshairStyle::CrossCircle => 2u8,
-                CrosshairStyle::Dot => 3u8,
-            };
-            ch_map.insert(
-                name.0.clone(),
-                (
-                    style_u8,
-                    c.color[0],
-                    c.color[1],
-                    c.color[2],
-                    c.color[3],
-                    c.size,
-                    c.thickness,
-                    c.gap,
-                    c.spread,
-                    c.max_spread,
-                    c.spread_decay,
-                    c.enabled,
-                ),
-            );
-        }
-        CROSSHAIR_SNAPSHOT.with(|s| *s.borrow_mut() = ch_map);
-    }
-    {
-        use bsengine_core::Bloom;
-        let mut bl_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Bloom)>();
-        for (_, name, b) in q.iter(world) {
-            bl_map.insert(
-                name.0.clone(),
-                (b.intensity, b.threshold, b.radius, b.softness, b.enabled),
-            );
-        }
-        BLOOM_SNAPSHOT.with(|s| *s.borrow_mut() = bl_map);
-    }
-    {
-        use bsengine_core::{Tint, TintMode};
-        let mut tint_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Tint)>();
-        for (_, name, t) in q.iter(world) {
-            let mode_u32 = match t.mode {
-                TintMode::Constant => 0u32,
-                TintMode::Fading => 1u32,
-                TintMode::Pulsing => 2u32,
-            };
-            tint_map.insert(
-                name.0.clone(),
-                (
-                    t.color.x,
-                    t.color.y,
-                    t.color.z,
-                    t.intensity,
-                    mode_u32,
-                    t.fade_rate,
-                    t.pulse_speed,
-                    t.pulse_phase,
-                    t.peak_intensity,
-                    t.enabled,
-                ),
-            );
-        }
-        TINT_SNAPSHOT.with(|s| *s.borrow_mut() = tint_map);
-    }
-    {
-        use bsengine_core::ChromaticAberration;
-        let mut ca_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &ChromaticAberration)>();
-        for (_, name, ca) in q.iter(world) {
-            ca_map.insert(name.0.clone(), (ca.intensity, ca.enabled));
-        }
-        CHROM_AB_SNAPSHOT.with(|s| *s.borrow_mut() = ca_map);
-    }
-    {
-        use bsengine_core::ColorGrading;
-        let mut cg_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &ColorGrading)>();
-        for (_, name, cg) in q.iter(world) {
-            cg_map.insert(
-                name.0.clone(),
-                (
-                    cg.lut_path.clone().unwrap_or_default(),
-                    cg.exposure,
-                    cg.contrast,
-                    cg.saturation,
-                    cg.hue_shift,
-                    cg.brightness,
-                    cg.enabled,
-                ),
-            );
-        }
-        COLOR_GRADING_SNAPSHOT.with(|s| *s.borrow_mut() = cg_map);
-    }
-    {
-        use bsengine_core::Absorption;
-        let mut ab_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Absorption)>();
-        for (_, name, ab) in q.iter(world) {
-            ab_map.insert(
-                name.0.clone(),
-                (
-                    ab.fraction,
-                    ab.pool,
-                    ab.max_pool,
-                    ab.absorbed_total,
-                    ab.just_depleted,
-                    ab.enabled,
-                ),
-            );
-        }
-        ABSORPTION_SNAPSHOT.with(|s| *s.borrow_mut() = ab_map);
-    }
-    {
-        use bsengine_core::AmbientOcclusion;
-        let mut ao_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &AmbientOcclusion)>();
-        for (_, name, ao) in q.iter(world) {
-            ao_map.insert(
-                name.0.clone(),
-                (
-                    ao.radius,
-                    ao.bias,
-                    ao.intensity,
-                    ao.sample_count,
-                    ao.enabled,
-                ),
-            );
-        }
-        AMBIENT_OCCLUSION_SNAPSHOT.with(|s| *s.borrow_mut() = ao_map);
-    }
-    {
-        use bsengine_core::DepthOfField;
-        let mut dof_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &DepthOfField)>();
-        for (_, name, dof) in q.iter(world) {
-            dof_map.insert(
-                name.0.clone(),
-                (
-                    dof.focal_distance,
-                    dof.focal_range,
-                    dof.max_blur,
-                    dof.bokeh_scale,
-                    dof.enabled,
-                ),
-            );
-        }
-        DEPTH_OF_FIELD_SNAPSHOT.with(|s| *s.borrow_mut() = dof_map);
-    }
-    {
-        use bsengine_core::MotionBlur;
-        let mut mb_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &MotionBlur)>();
-        for (_, name, mb) in q.iter(world) {
-            mb_map.insert(
-                name.0.clone(),
-                (mb.shutter_angle, mb.sample_count, mb.enabled),
-            );
-        }
-        MOTION_BLUR_SNAPSHOT.with(|s| *s.borrow_mut() = mb_map);
-    }
-    {
-        use bsengine_core::{ToneMap, ToneMappingMode};
-        let mut tm_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &ToneMap)>();
-        for (_, name, tm) in q.iter(world) {
-            let mode_u32 = match tm.mode {
-                ToneMappingMode::None => 0u32,
-                ToneMappingMode::Reinhard => 1,
-                ToneMappingMode::ReinhardLuminance => 2,
-                ToneMappingMode::Aces => 3,
-                ToneMappingMode::Filmic => 4,
-            };
-            tm_map.insert(name.0.clone(), (mode_u32, tm.exposure, tm.enabled));
-        }
-        TONE_MAP_SNAPSHOT.with(|s| *s.borrow_mut() = tm_map);
-    }
-    {
-        use bsengine_core::Vignette;
-        let mut vg_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Vignette)>();
-        for (_, name, vg) in q.iter(world) {
-            vg_map.insert(
-                name.0.clone(),
-                (
-                    vg.intensity,
-                    vg.smoothness,
-                    vg.color[0],
-                    vg.color[1],
-                    vg.color[2],
-                    vg.enabled,
-                ),
-            );
-        }
-        VIGNETTE_SNAPSHOT.with(|s| *s.borrow_mut() = vg_map);
-    }
-    {
-        use bsengine_core::{Fog, FogMode};
-        let mut fog_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Fog)>();
-        for (_, name, fog) in q.iter(world) {
-            let mode_u32 = match fog.mode {
-                FogMode::Linear => 0u32,
-                FogMode::Exponential => 1u32,
-                FogMode::ExponentialSquared => 2u32,
-            };
-            fog_map.insert(
-                name.0.clone(),
-                (
-                    fog.color.r,
-                    fog.color.g,
-                    fog.color.b,
-                    fog.color.a,
-                    fog.density,
-                    fog.start_distance,
-                    fog.end_distance,
-                    mode_u32,
-                    fog.enabled,
-                ),
-            );
-        }
-        FOG_SNAPSHOT.with(|s| *s.borrow_mut() = fog_map);
-    }
-    {
-        use bsengine_core::Spring;
-        let mut sp_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Spring)>();
-        for (_, name, sp) in q.iter(world) {
-            let target_name = ENTITY_NAME_MAP.with(|m| {
-                m.borrow()
-                    .get(&sp.target.to_bits())
-                    .cloned()
-                    .unwrap_or_default()
-            });
-            let break_ext = sp.break_extension.unwrap_or(-1.0);
-            sp_map.insert(
-                name.0.clone(),
-                (
-                    target_name,
-                    sp.rest_length,
-                    sp.stiffness,
-                    sp.damping,
-                    break_ext,
-                    sp.enabled,
-                ),
-            );
-        }
-        SPRING_SNAPSHOT.with(|s| *s.borrow_mut() = sp_map);
-    }
-    {
-        use bsengine_core::{EasingFn, RepeatMode, Tween, TweenTarget};
-        let mut tw_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Tween)>();
-        for (_, name, tw) in q.iter(world) {
-            let target_type = match tw.target {
-                TweenTarget::Translation { .. } => 0u32,
-                TweenTarget::Rotation { .. } => 1u32,
-                TweenTarget::Scale { .. } => 2u32,
-            };
-            let easing_u32 = match tw.easing {
-                EasingFn::Linear => 0u32,
-                EasingFn::EaseInQuad => 1u32,
-                EasingFn::EaseOutQuad => 2u32,
-                EasingFn::EaseInOutQuad => 3u32,
-            };
-            let repeat_u32 = match tw.repeat {
-                RepeatMode::Once => 0u32,
-                RepeatMode::Loop => 1u32,
-                RepeatMode::PingPong => 2u32,
-            };
-            tw_map.insert(
-                name.0.clone(),
-                (
-                    target_type,
-                    tw.duration,
-                    easing_u32,
-                    repeat_u32,
-                    tw.elapsed,
-                    tw.finished,
-                    tw.reversed,
-                ),
-            );
-        }
-        TWEEN_SNAPSHOT.with(|s| *s.borrow_mut() = tw_map);
-    }
-    {
-        use bsengine_core::Buoyancy;
-        let mut b_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Buoyancy)>();
-        for (_, name, b) in q.iter(world) {
-            b_map.insert(
-                name.0.clone(),
-                (
-                    b.fluid_density,
-                    b.volume,
-                    b.linear_drag,
-                    b.angular_drag,
-                    b.surface_y,
-                ),
-            );
-        }
-        BUOYANCY_SNAPSHOT.with(|s| *s.borrow_mut() = b_map);
-    }
-    {
-        use bsengine_core::Follow;
-        let mut f_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Follow)>();
-        for (_, name, f) in q.iter(world) {
-            let target_name = ENTITY_NAME_MAP.with(|m| {
-                m.borrow()
-                    .get(&f.target.to_bits())
-                    .cloned()
-                    .unwrap_or_default()
-            });
-            f_map.insert(
-                name.0.clone(),
-                (target_name, f.offset.x, f.offset.y, f.offset.z, f.speed),
-            );
-        }
-        FOLLOW_SNAPSHOT.with(|s| *s.borrow_mut() = f_map);
-    }
-    {
-        use bsengine_core::LookAt;
-        let mut la_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &LookAt)>();
-        for (_, name, la) in q.iter(world) {
-            let target_name = ENTITY_NAME_MAP.with(|m| {
-                m.borrow()
-                    .get(&la.target.to_bits())
-                    .cloned()
-                    .unwrap_or_default()
-            });
-            la_map.insert(name.0.clone(), (target_name, la.up.x, la.up.y, la.up.z));
-        }
-        LOOK_AT_SNAPSHOT.with(|s| *s.borrow_mut() = la_map);
-    }
-    {
-        use bsengine_core::{Billboard, BillboardMode};
-        let mut bb_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Billboard)>();
-        for (_, name, bb) in q.iter(world) {
-            let mode = match bb.mode {
-                BillboardMode::Full => 0u32,
-                BillboardMode::Vertical => 1u32,
-            };
-            bb_map.insert(name.0.clone(), mode);
-        }
-        BILLBOARD_SNAPSHOT.with(|s| *s.borrow_mut() = bb_map);
-    }
-    {
-        use bsengine_core::{Outline, OutlineMode};
-        let mut ol_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Outline)>();
-        for (_, name, ol) in q.iter(world) {
-            let mode = match ol.mode {
-                OutlineMode::Outer => 0u32,
-                OutlineMode::Inner => 1u32,
-                OutlineMode::Center => 2u32,
-            };
-            ol_map.insert(
-                name.0.clone(),
-                (
-                    ol.color.r, ol.color.g, ol.color.b, ol.color.a, ol.width, mode, ol.visible,
-                ),
-            );
-        }
-        OUTLINE_SNAPSHOT.with(|s| *s.borrow_mut() = ol_map);
-    }
-    {
-        use bsengine_core::ZIndex;
-        let mut zi_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &ZIndex)>();
-        for (_, name, zi) in q.iter(world) {
-            zi_map.insert(name.0.clone(), zi.value());
-        }
-        Z_INDEX_SNAPSHOT.with(|s| *s.borrow_mut() = zi_map);
-    }
-    {
-        use bsengine_core::Layer;
-        let mut l_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Layer)>();
-        for (_, name, l) in q.iter(world) {
-            l_map.insert(name.0.clone(), l.bits());
-        }
-        LAYER_SNAPSHOT.with(|s| *s.borrow_mut() = l_map);
-    }
-    {
-        use bsengine_core::{Anchor, AnchorPreset};
-        let mut a_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Anchor)>();
-        for (_, name, a) in q.iter(world) {
-            let (preset_u32, norm_x, norm_y) = match a.preset {
-                AnchorPreset::Center => (0u32, 0.5f32, 0.5f32),
-                AnchorPreset::TopLeft => (1, 0.0, 1.0),
-                AnchorPreset::TopCenter => (2, 0.5, 1.0),
-                AnchorPreset::TopRight => (3, 1.0, 1.0),
-                AnchorPreset::MiddleLeft => (4, 0.0, 0.5),
-                AnchorPreset::MiddleRight => (5, 1.0, 0.5),
-                AnchorPreset::BottomLeft => (6, 0.0, 0.0),
-                AnchorPreset::BottomCenter => (7, 0.5, 0.0),
-                AnchorPreset::BottomRight => (8, 1.0, 0.0),
-                AnchorPreset::Custom(v) => (9, v.x, v.y),
-            };
-            a_map.insert(
-                name.0.clone(),
-                (preset_u32, norm_x, norm_y, a.offset.x, a.offset.y),
-            );
-        }
-        ANCHOR_SNAPSHOT.with(|s| *s.borrow_mut() = a_map);
-    }
-    {
-        use bsengine_core::Trigger;
-        let mut t_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Trigger)>();
-        for (_, name, t) in q.iter(world) {
-            t_map.insert(name.0.clone(), (t.layer_mask, t.enabled));
-        }
-        TRIGGER_SNAPSHOT.with(|s| *s.borrow_mut() = t_map);
-    }
-    {
-        use bsengine_core::{Damage, DamageType};
-        let mut d_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Damage)>();
-        for (_, name, d) in q.iter(world) {
-            let (type_u32, custom_id) = match d.damage_type {
-                DamageType::Physical => (0u32, 0u32),
-                DamageType::Fire => (1, 0),
-                DamageType::Ice => (2, 0),
-                DamageType::Lightning => (3, 0),
-                DamageType::Poison => (4, 0),
-                DamageType::Custom(id) => (5, id),
-            };
-            d_map.insert(
-                name.0.clone(),
-                (d.amount, type_u32, custom_id, d.multiplier, d.piercing),
-            );
-        }
-        DAMAGE_SNAPSHOT.with(|s| *s.borrow_mut() = d_map);
-    }
-    {
-        use bsengine_core::SpawnPoint;
-        let mut sp_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &SpawnPoint)>();
-        for (_, name, sp) in q.iter(world) {
-            let team_u32 = sp.team.unwrap_or(u32::MAX);
-            sp_map.insert(name.0.clone(), (sp.tag.clone(), team_u32, sp.enabled));
-        }
-        SPAWN_POINT_SNAPSHOT.with(|s| *s.borrow_mut() = sp_map);
-    }
-    {
-        use bsengine_core::{EffectKind, StatusEffect};
-        let mut se_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &StatusEffect)>();
-        for (_, name, se) in q.iter(world) {
-            let (kind_u32, custom_id) = match se.kind {
-                EffectKind::StatMultiplier => (0u32, 0u32),
-                EffectKind::DamageOverTime => (1, 0),
-                EffectKind::Immobilize => (2, 0),
-                EffectKind::Silence => (3, 0),
-                EffectKind::Custom(id) => (4, id),
-            };
-            se_map.insert(
-                name.0.clone(),
-                (
-                    se.id.clone(),
-                    kind_u32,
-                    custom_id,
-                    se.value,
-                    se.duration,
-                    se.ticks_every_frame,
-                    se.enabled,
-                ),
-            );
-        }
-        STATUS_EFFECT_SNAPSHOT.with(|s| *s.borrow_mut() = se_map);
-    }
-    {
-        use bsengine_core::Ability;
-        let mut ab_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Ability)>();
-        for (_, name, ab) in q.iter(world) {
-            ab_map.insert(
-                name.0.clone(),
-                (
-                    ab.name.clone(),
-                    ab.cooldown,
-                    ab.cooldown_remaining,
-                    ab.max_charges,
-                    ab.charges,
-                    ab.charge_regen_time,
-                    ab.charge_regen_accumulated,
-                    ab.enabled,
-                ),
-            );
-        }
-        ABILITY_SNAPSHOT.with(|s| *s.borrow_mut() = ab_map);
-    }
-    {
-        use bsengine_core::Alarm;
-        let mut al_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Alarm)>();
-        for (_, name, al) in q.iter(world) {
-            al_map.insert(
-                name.0.clone(),
-                (
-                    al.alert_duration,
-                    al.timer,
-                    al.detection_radius,
-                    al.just_triggered,
-                    al.just_calmed,
-                    al.enabled,
-                ),
-            );
-        }
-        ALARM_SNAPSHOT.with(|s| *s.borrow_mut() = al_map);
-    }
-    {
-        use bsengine_core::Amplify;
-        let mut amp_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Amplify)>();
-        for (_, name, amp) in q.iter(world) {
-            amp_map.insert(
-                name.0.clone(),
-                (
-                    amp.duration,
-                    amp.timer,
-                    amp.power_multiplier,
-                    amp.just_amplified,
-                    amp.just_faded,
-                    amp.enabled,
-                ),
-            );
-        }
-        AMPLIFY_SNAPSHOT.with(|s| *s.borrow_mut() = amp_map);
-    }
-    {
-        use bsengine_core::Barrier;
-        let mut bar_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Barrier)>();
-        for (_, name, bar) in q.iter(world) {
-            bar_map.insert(
-                name.0.clone(),
-                (
-                    bar.capacity,
-                    bar.current,
-                    bar.regen_rate,
-                    bar.regen_delay,
-                    bar.regen_timer,
-                    bar.just_broken,
-                    bar.just_restored,
-                    bar.enabled,
-                ),
-            );
-        }
-        BARRIER_SNAPSHOT.with(|s| *s.borrow_mut() = bar_map);
-    }
-    {
-        use bsengine_core::Beacon;
-        let mut bec_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Beacon)>();
-        for (_, name, bec) in q.iter(world) {
-            bec_map.insert(
-                name.0.clone(),
-                (
-                    bec.priority,
-                    bec.broadcast_radius,
-                    bec.duration,
-                    bec.timer,
-                    bec.lit,
-                    bec.just_lit,
-                    bec.just_extinguished,
-                    bec.enabled,
-                ),
-            );
-        }
-        BEACON_SNAPSHOT.with(|s| *s.borrow_mut() = bec_map);
-    }
-    {
-        use bsengine_core::ShieldBreak;
-        let mut sb_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &ShieldBreak)>();
-        for (_, name, sb) in q.iter(world) {
-            sb_map.insert(
-                name.0.clone(),
-                (
-                    sb.duration,
-                    sb.timer,
-                    sb.reduction_fraction,
-                    sb.just_broken,
-                    sb.just_recovered,
-                    sb.enabled,
-                ),
-            );
-        }
-        SHIELD_BREAK_SNAPSHOT.with(|s| *s.borrow_mut() = sb_map);
-    }
-    {
-        use bsengine_core::Root;
-        let mut root_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Root)>();
-        for (_, name, root) in q.iter(world) {
-            root_map.insert(
-                name.0.clone(),
-                (
-                    root.duration,
-                    root.timer,
-                    root.allows_rotation,
-                    root.allows_attack,
-                    root.just_rooted,
-                    root.just_freed,
-                    root.enabled,
-                ),
-            );
-        }
-        ROOT_SNAPSHOT.with(|s| *s.borrow_mut() = root_map);
-    }
-    {
-        use bsengine_core::Slow;
-        let mut sl_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Slow)>();
-        for (_, name, sl) in q.iter(world) {
-            sl_map.insert(
-                name.0.clone(),
-                (
-                    sl.reduction,
-                    sl.duration,
-                    sl.timer,
-                    sl.just_slowed,
-                    sl.just_recovered,
-                    sl.enabled,
-                ),
-            );
-        }
-        SLOW_SNAPSHOT.with(|s| *s.borrow_mut() = sl_map);
-    }
-    {
-        use bsengine_core::{Stun, StunSeverity};
-        let mut st_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Stun)>();
-        for (_, name, st) in q.iter(world) {
-            let sev = match st.severity {
-                StunSeverity::Light => 0u32,
-                StunSeverity::Heavy => 1u32,
-                StunSeverity::Knockdown => 2u32,
-            };
-            st_map.insert(
-                name.0.clone(),
-                (
-                    sev,
-                    st.timer,
-                    st.just_stunned,
-                    st.just_recovered,
-                    st.enabled,
-                ),
-            );
-        }
-        STUN_SNAPSHOT.with(|s| *s.borrow_mut() = st_map);
-    }
-    {
-        use bsengine_core::Burn;
-        let mut bn_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Burn)>();
-        for (_, name, bn) in q.iter(world) {
-            bn_map.insert(
-                name.0.clone(),
-                (
-                    bn.burn_rate,
-                    bn.stacks,
-                    bn.max_stacks,
-                    bn.remaining,
-                    bn.duration,
-                    bn.intensity,
-                    bn.just_ignited,
-                    bn.just_extinguished,
-                    bn.ignitable,
-                    bn.enabled,
-                ),
-            );
-        }
-        BURN_SNAPSHOT.with(|s| *s.borrow_mut() = bn_map);
-    }
-    {
-        use bsengine_core::Bleed;
-        let mut bl_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Bleed)>();
-        for (_, name, bl) in q.iter(world) {
-            bl_map.insert(
-                name.0.clone(),
-                (
-                    bl.stacks,
-                    bl.max_stacks,
-                    bl.damage_per_stack_per_tick,
-                    bl.tick_interval,
-                    bl.tick_timer,
-                    bl.duration,
-                    bl.duration_timer,
-                    bl.heal_reduction,
-                    bl.just_applied,
-                    bl.just_cleared,
-                    bl.enabled,
-                ),
-            );
-        }
-        BLEED_SNAPSHOT.with(|s| *s.borrow_mut() = bl_map);
-    }
-    {
-        use bsengine_core::Poison;
-        let mut po_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Poison)>();
-        for (_, name, po) in q.iter(world) {
-            po_map.insert(
-                name.0.clone(),
-                (
-                    po.stacks,
-                    po.max_stacks,
-                    po.damage_per_stack_per_tick,
-                    po.base_tick_interval,
-                    po.min_tick_interval,
-                    po.tick_timer,
-                    po.duration,
-                    po.duration_timer,
-                    po.virulent,
-                    po.just_poisoned,
-                    po.just_cured,
-                    po.enabled,
-                ),
-            );
-        }
-        POISON_SNAPSHOT.with(|s| *s.borrow_mut() = po_map);
-    }
-    {
-        use bsengine_core::{Freeze, FreezeState};
-        let mut fr_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Freeze)>();
-        for (_, name, fr) in q.iter(world) {
-            let state_u32 = match fr.state {
-                FreezeState::Normal => 0u32,
-                FreezeState::Chilled => 1u32,
-                FreezeState::Frozen => 2u32,
-            };
-            fr_map.insert(
-                name.0.clone(),
-                (
-                    state_u32,
-                    fr.cold_buildup,
-                    fr.chill_threshold,
-                    fr.freeze_threshold,
-                    fr.cold_decay_rate,
-                    fr.chill_slow,
-                    fr.frozen_duration,
-                    fr.frozen_timer,
-                    fr.just_frozen,
-                    fr.just_thawed,
-                    fr.immune,
-                    fr.enabled,
-                ),
-            );
-        }
-        FREEZE_SNAPSHOT.with(|s| *s.borrow_mut() = fr_map);
-    }
-    {
-        use bsengine_core::Blind;
-        let mut bl_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Blind)>();
-        for (_, name, bl) in q.iter(world) {
-            bl_map.insert(
-                name.0.clone(),
-                (
-                    bl.duration,
-                    bl.timer,
-                    bl.range_limit,
-                    bl.aim_deviation_rad,
-                    bl.just_blinded,
-                    bl.just_unblinded,
-                    bl.enabled,
-                ),
-            );
-        }
-        BLIND_SNAPSHOT.with(|s| *s.borrow_mut() = bl_map);
-    }
-    {
-        use bsengine_core::Charm;
-        let mut ch_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Charm)>();
-        for (_, name, ch) in q.iter(world) {
-            ch_map.insert(
-                name.0.clone(),
-                (
-                    ch.duration,
-                    ch.timer,
-                    ch.just_charmed,
-                    ch.just_uncharmed,
-                    ch.enabled,
-                ),
-            );
-        }
-        CHARM_SNAPSHOT.with(|s| *s.borrow_mut() = ch_map);
-    }
-    {
-        use bsengine_core::Confuse;
-        let mut co_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Confuse)>();
-        for (_, name, co) in q.iter(world) {
-            co_map.insert(
-                name.0.clone(),
-                (
-                    co.duration,
-                    co.timer,
-                    co.chance,
-                    co.just_confused,
-                    co.just_unconfused,
-                    co.enabled,
-                ),
-            );
-        }
-        CONFUSE_SNAPSHOT.with(|s| *s.borrow_mut() = co_map);
-    }
-    {
-        use bsengine_core::Cripple;
-        let mut cr_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Cripple)>();
-        for (_, name, cr) in q.iter(world) {
-            cr_map.insert(
-                name.0.clone(),
-                (
-                    cr.duration,
-                    cr.timer,
-                    cr.speed_fraction,
-                    cr.prevents_jump,
-                    cr.just_crippled,
-                    cr.just_recovered,
-                    cr.enabled,
-                ),
-            );
-        }
-        CRIPPLE_SNAPSHOT.with(|s| *s.borrow_mut() = cr_map);
-    }
-    {
-        use bsengine_core::Daze;
-        let mut dz_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Daze)>();
-        for (_, name, dz) in q.iter(world) {
-            dz_map.insert(
-                name.0.clone(),
-                (
-                    dz.duration,
-                    dz.timer,
-                    dz.slow_fraction,
-                    dz.aim_deviation_rad,
-                    dz.just_dazed,
-                    dz.just_undazed,
-                    dz.enabled,
-                ),
-            );
-        }
-        DAZE_SNAPSHOT.with(|s| *s.borrow_mut() = dz_map);
-    }
-    {
-        use bsengine_core::Disarm;
-        let mut di_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Disarm)>();
-        for (_, name, di) in q.iter(world) {
-            di_map.insert(
-                name.0.clone(),
-                (
-                    di.duration,
-                    di.timer,
-                    di.just_disarmed,
-                    di.just_rearmed,
-                    di.enabled,
-                ),
-            );
-        }
-        DISARM_SNAPSHOT.with(|s| *s.borrow_mut() = di_map);
-    }
-    {
-        use bsengine_core::Concuss;
-        let mut cn_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Concuss)>();
-        for (_, name, cn) in q.iter(world) {
-            cn_map.insert(
-                name.0.clone(),
-                (
-                    cn.duration,
-                    cn.timer,
-                    cn.aim_deviation_rad,
-                    cn.ability_suppress_chance,
-                    cn.just_concussed,
-                    cn.just_cleared,
-                    cn.enabled,
-                ),
-            );
-        }
-        CONCUSS_SNAPSHOT.with(|s| *s.borrow_mut() = cn_map);
-    }
-    {
-        use bsengine_core::Corrosion;
-        let mut co_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Corrosion)>();
-        for (_, name, co) in q.iter(world) {
-            co_map.insert(
-                name.0.clone(),
-                (
-                    co.stacks,
-                    co.max_stacks,
-                    co.decay_rate,
-                    co.armor_reduction_per_stack,
-                    co.just_corroded,
-                    co.just_cleared,
-                    co.enabled,
-                ),
-            );
-        }
-        CORROSION_SNAPSHOT.with(|s| *s.borrow_mut() = co_map);
-    }
-    {
-        use bsengine_core::Curse;
-        let mut cu_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Curse)>();
-        for (_, name, cu) in q.iter(world) {
-            cu_map.insert(
-                name.0.clone(),
-                (
-                    cu.kind as u32,
-                    cu.strength,
-                    cu.duration,
-                    cu.timer,
-                    cu.just_cursed,
-                    cu.just_lifted,
-                    cu.enabled,
-                ),
-            );
-        }
-        CURSE_SNAPSHOT.with(|s| *s.borrow_mut() = cu_map);
-    }
-    {
-        use bsengine_core::Dread;
-        let mut dr_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Dread)>();
-        for (_, name, dr) in q.iter(world) {
-            dr_map.insert(
-                name.0.clone(),
-                (
-                    dr.radius,
-                    dr.pulse_interval,
-                    dr.pulse_timer,
-                    dr.buildup_per_pulse,
-                    dr.just_pulsed,
-                    dr.enabled,
-                ),
-            );
-        }
-        DREAD_SNAPSHOT.with(|s| *s.borrow_mut() = dr_map);
-    }
-    {
-        use bsengine_core::Doom;
-        let mut dm_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Doom)>();
-        for (_, name, dm) in q.iter(world) {
-            dm_map.insert(
-                name.0.clone(),
-                (
-                    dm.active,
-                    dm.countdown,
-                    dm.max_countdown,
-                    dm.just_doomed,
-                    dm.just_expired,
-                    dm.enabled,
-                ),
-            );
-        }
-        DOOM_SNAPSHOT.with(|s| *s.borrow_mut() = dm_map);
-    }
-    {
-        use bsengine_core::Demoralize;
-        let mut de_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Demoralize)>();
-        for (_, name, de) in q.iter(world) {
-            de_map.insert(
-                name.0.clone(),
-                (
-                    de.duration,
-                    de.timer,
-                    de.damage_fraction,
-                    de.flee_chance,
-                    de.just_demoralized,
-                    de.just_recovered,
-                    de.enabled,
-                ),
-            );
-        }
-        DEMORALIZE_SNAPSHOT.with(|s| *s.borrow_mut() = de_map);
-    }
-    {
-        use bsengine_core::{Dodge, DodgePhase};
-        let mut dg_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Dodge)>();
-        for (_, name, dg) in q.iter(world) {
-            let phase_u32 = match dg.phase {
-                DodgePhase::Idle => 0u32,
-                DodgePhase::Rolling => 1u32,
-                DodgePhase::Cooldown => 2u32,
-            };
-            dg_map.insert(
-                name.0.clone(),
-                (
-                    phase_u32,
-                    dg.direction.x,
-                    dg.direction.y,
-                    dg.direction.z,
-                    dg.speed,
-                    dg.duration,
-                    dg.timer,
-                    dg.invincible,
-                    dg.cooldown,
-                    dg.wants_dodge,
-                    dg.allow_airborne,
-                    dg.chain_count,
-                    dg.max_chain,
-                    dg.enabled,
-                ),
-            );
-        }
-        DODGE_SNAPSHOT.with(|s| *s.borrow_mut() = dg_map);
-    }
-    {
-        use bsengine_core::Drain;
-        let mut dr_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Drain)>();
-        for (_, name, dr) in q.iter(world) {
-            dr_map.insert(
-                name.0.clone(),
-                (
-                    dr.rate,
-                    dr.duration,
-                    dr.timer,
-                    dr.just_drained,
-                    dr.just_expired,
-                    dr.enabled,
-                ),
-            );
-        }
-        DRAIN_SNAPSHOT.with(|s| *s.borrow_mut() = dr_map);
-    }
-    {
-        use bsengine_core::Empower;
-        let mut em_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Empower)>();
-        for (_, name, em) in q.iter(world) {
-            em_map.insert(
-                name.0.clone(),
-                (
-                    em.duration,
-                    em.timer,
-                    em.potency_multiplier,
-                    em.just_empowered,
-                    em.just_faded,
-                    em.enabled,
-                ),
-            );
-        }
-        EMPOWER_SNAPSHOT.with(|s| *s.borrow_mut() = em_map);
-    }
-    {
-        use bsengine_core::Enervate;
-        let mut en_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Enervate)>();
-        for (_, name, en) in q.iter(world) {
-            en_map.insert(
-                name.0.clone(),
-                (
-                    en.duration,
-                    en.timer,
-                    en.regen_fraction,
-                    en.max_pool_fraction,
-                    en.just_enervated,
-                    en.just_restored,
-                    en.enabled,
-                ),
-            );
-        }
-        ENERVATE_SNAPSHOT.with(|s| *s.borrow_mut() = en_map);
-    }
-    {
-        use bsengine_core::Entangle;
-        let mut et_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Entangle)>();
-        for (_, name, et) in q.iter(world) {
-            et_map.insert(
-                name.0.clone(),
-                (
-                    et.duration,
-                    et.timer,
-                    et.just_entangled,
-                    et.just_unentangled,
-                    et.enabled,
-                ),
-            );
-        }
-        ENTANGLE_SNAPSHOT.with(|s| *s.borrow_mut() = et_map);
-    }
-    {
-        use bsengine_core::Expose;
-        let mut ex_map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Expose)>();
-        for (_, name, ex) in q.iter(world) {
-            ex_map.insert(
-                name.0.clone(),
-                (
-                    ex.duration,
-                    ex.timer,
-                    ex.damage_multiplier,
-                    ex.just_exposed,
-                    ex.just_recovered,
-                    ex.enabled,
-                ),
-            );
-        }
-        EXPOSE_SNAPSHOT.with(|s| *s.borrow_mut() = ex_map);
-    }
-    {
-        use bsengine_core::Exhaustion;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Exhaustion)>();
-        for (_, name, ex) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    ex.level,
-                    ex.recovery_rate,
-                    ex.threshold,
-                    ex.penalty_speed,
-                    ex.penalty_regen,
-                    ex.just_exhausted,
-                    ex.just_recovered,
-                    ex.enabled,
-                ),
-            );
-        }
-        EXHAUSTION_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::{Fear, FearState};
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Fear)>();
-        for (_, name, fe) in q.iter(world) {
-            let state_u32 = match fe.state {
-                FearState::Calm => 0u32,
-                FearState::Frightened => 1u32,
-                FearState::Fleeing => 2u32,
-            };
-            map.insert(
-                name.0.clone(),
-                (
-                    state_u32,
-                    fe.duration,
-                    fe.timer,
-                    fe.flee_speed_multiplier,
-                    fe.just_feared,
-                    fe.just_calmed,
-                    fe.enabled,
-                ),
-            );
-        }
-        FEAR_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Fracture;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Fracture)>();
-        for (_, name, fr) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    fr.duration,
-                    fr.timer,
-                    fr.damage_amplification,
-                    fr.move_speed_penalty,
-                    fr.just_fractured,
-                    fr.just_healed,
-                    fr.enabled,
-                ),
-            );
-        }
-        FRACTURE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Frostbite;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Frostbite)>();
-        for (_, name, fb) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    fb.duration,
-                    fb.timer,
-                    fb.cold_damage_per_second,
-                    fb.action_speed_fraction,
-                    fb.just_frostbitten,
-                    fb.just_thawed,
-                    fb.enabled,
-                ),
-            );
-        }
-        FROSTBITE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Fury;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Fury)>();
-        for (_, name, fu) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    fu.fury_factor,
-                    fu.max_speed_bonus,
-                    fu.just_peaked,
-                    fu.enabled,
-                ),
-            );
-        }
-        FURY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Galvanize;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Galvanize)>();
-        for (_, name, gv) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    gv.duration,
-                    gv.timer,
-                    gv.speed_multiplier,
-                    gv.just_galvanized,
-                    gv.just_worn_off,
-                    gv.enabled,
-                ),
-            );
-        }
-        GALVANIZE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Haste;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Haste)>();
-        for (_, name, hs) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    hs.effective_multiplier(),
-                    hs.stack_count() as u32,
-                    hs.max_stacks as u32,
-                    hs.enabled,
-                ),
-            );
-        }
-        HASTE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Havoc;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Havoc)>();
-        for (_, name, hv) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    hv.duration,
-                    hv.timer,
-                    hv.stray_chance,
-                    hv.damage_multiplier,
-                    hv.just_entered,
-                    hv.just_exited,
-                    hv.enabled,
-                ),
-            );
-        }
-        HAVOC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Haze;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Haze)>();
-        for (_, name, hz) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    hz.duration,
-                    hz.timer,
-                    hz.detection_range_fraction,
-                    hz.just_hazed,
-                    hz.just_cleared,
-                    hz.enabled,
-                ),
-            );
-        }
-        HAZE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::{Heat, ThermalState};
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Heat)>();
-        for (_, name, ht) in q.iter(world) {
-            let state_u32 = match ht.state {
-                ThermalState::Normal => 0u32,
-                ThermalState::Overheated => 1u32,
-                ThermalState::Frozen => 2u32,
-            };
-            map.insert(
-                name.0.clone(),
-                (
-                    ht.temperature,
-                    ht.resting_temp,
-                    ht.heat_threshold,
-                    ht.cold_threshold,
-                    ht.decay_rate,
-                    ht.resistance,
-                    state_u32,
-                    ht.enabled,
-                ),
-            );
-        }
-        HEAT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Hex;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Hex)>();
-        for (_, name, hx) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    hx.stacks,
-                    hx.max_stacks,
-                    hx.duration,
-                    hx.timer,
-                    hx.reduction_per_stack,
-                    hx.just_applied,
-                    hx.just_expired,
-                    hx.enabled,
-                ),
-            );
-        }
-        HEX_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Hobble;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Hobble)>();
-        for (_, name, ho) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    ho.duration,
-                    ho.timer,
-                    ho.speed_fraction,
-                    ho.prevents_dash,
-                    ho.just_hobbled,
-                    ho.just_recovered,
-                    ho.enabled,
-                ),
-            );
-        }
-        HOBBLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Ignite;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Ignite)>();
-        for (_, name, ig) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    ig.stacks,
-                    ig.threshold,
-                    ig.decay_rate,
-                    ig.just_ignited,
-                    ig.just_extinguished,
-                    ig.enabled,
-                ),
-            );
-        }
-        IGNITE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Imbue;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Imbue)>();
-        for (_, name, im) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    im.charged,
-                    im.bonus_damage,
-                    im.just_charged,
-                    im.just_consumed,
-                    im.enabled,
-                ),
-            );
-        }
-        IMBUE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Immune;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Immune)>();
-        for (_, name, im) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (im.damage_type_mask, im.effect_type_mask, im.enabled),
-            );
-        }
-        IMMUNE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Impact;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Impact)>();
-        for (_, name, ip) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    ip.force,
-                    ip.just_impacted,
-                    ip.impact_count,
-                    ip.normal.x,
-                    ip.normal.y,
-                    ip.normal.z,
-                    ip.enabled,
-                ),
-            );
-        }
-        IMPACT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Intercept;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Intercept)>();
-        for (_, name, ic) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    ic.duration,
-                    ic.timer,
-                    ic.radius,
-                    ic.damage_reduction,
-                    ic.just_activated,
-                    ic.just_deactivated,
-                    ic.enabled,
-                ),
-            );
-        }
-        INTERCEPT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Interrupt;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Interrupt)>();
-        for (_, name, ir) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    ir.threshold,
-                    ir.resistance,
-                    ir.just_interrupted,
-                    ir.interrupt_count,
-                    ir.enabled,
-                ),
-            );
-        }
-        INTERRUPT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Invincible;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Invincible)>();
-        for (_, name, inv) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    inv.stacks,
-                    inv.timer,
-                    inv.flash_interval,
-                    inv.flash_visible,
-                    inv.just_became_invincible,
-                    inv.just_lost_invincibility,
-                    inv.enabled,
-                ),
-            );
-        }
-        INVINCIBLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Isolate;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Isolate)>();
-        for (_, name, iso) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    iso.duration,
-                    iso.timer,
-                    iso.buff_reduction,
-                    iso.debuff_reduction,
-                    iso.just_began,
-                    iso.just_ended,
-                    iso.enabled,
-                ),
-            );
-        }
-        ISOLATE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Jeer;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Jeer)>();
-        for (_, name, jr) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    jr.duration,
-                    jr.timer,
-                    jr.aim_penalty_rad,
-                    jr.damage_fraction,
-                    jr.just_jeered,
-                    jr.just_rallied,
-                    jr.enabled,
-                ),
-            );
-        }
-        JEER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::{Jetpack, JetpackState};
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Jetpack)>();
-        for (_, name, jp) in q.iter(world) {
-            let state_u32 = match jp.state {
-                JetpackState::Idle => 0u32,
-                JetpackState::Thrusting => 1u32,
-                JetpackState::Depleted => 2u32,
-            };
-            map.insert(
-                name.0.clone(),
-                (
-                    state_u32,
-                    jp.thrust_direction.x,
-                    jp.thrust_direction.y,
-                    jp.thrust_direction.z,
-                    jp.thrust_force,
-                    jp.fuel,
-                    jp.max_fuel,
-                    jp.fuel_drain_rate,
-                    jp.fuel_regen_rate,
-                    jp.wants_thrust,
-                    jp.regen_in_air,
-                    jp.enabled,
-                ),
-            );
-        }
-        JETPACK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Jolt;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Jolt)>();
-        for (_, name, jt) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    jt.duration,
-                    jt.timer,
-                    jt.chain_chance,
-                    jt.chain_fraction,
-                    jt.just_jolted,
-                    jt.just_expired,
-                    jt.enabled,
-                ),
-            );
-        }
-        JOLT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Jostle;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Jostle)>();
-        for (_, name, jo) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    jo.accumulated,
-                    jo.threshold,
-                    jo.decay_rate,
-                    jo.just_destabilized,
-                    jo.enabled,
-                ),
-            );
-        }
-        JOSTLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Juke;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Juke)>();
-        for (_, name, jk) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (jk.charges, jk.max_charges, jk.just_juked, jk.enabled),
-            );
-        }
-        JUKE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Kneel;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Kneel)>();
-        for (_, name, kn) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    kn.duration,
-                    kn.timer,
-                    kn.speed_fraction,
-                    kn.just_kneeled,
-                    kn.just_risen,
-                    kn.enabled,
-                ),
-            );
-        }
-        KNEEL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Knit;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Knit)>();
-        for (_, name, kt) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    kt.duration,
-                    kt.timer,
-                    kt.heal_rate,
-                    kt.interruption_threshold,
-                    kt.just_began,
-                    kt.just_completed,
-                    kt.just_interrupted,
-                    kt.enabled,
-                ),
-            );
-        }
-        KNIT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Lacerate;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Lacerate)>();
-        for (_, name, lc) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    lc.stacks,
-                    lc.max_stacks,
-                    lc.damage_per_stack_per_second,
-                    lc.duration,
-                    lc.timer,
-                    lc.just_lacerated,
-                    lc.just_closed,
-                    lc.enabled,
-                ),
-            );
-        }
-        LACERATE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Laden;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Laden)>();
-        for (_, name, ld) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (ld.current_load, ld.max_load, ld.speed_penalty, ld.enabled),
-            );
-        }
-        LADEN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Lament;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Lament)>();
-        for (_, name, lm) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    lm.intensity,
-                    lm.decay_rate,
-                    lm.damage_penalty,
-                    lm.speed_penalty,
-                    lm.just_lamented,
-                    lm.just_recovered,
-                    lm.enabled,
-                ),
-            );
-        }
-        LAMENT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Lance;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Lance)>();
-        for (_, name, la) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    la.duration,
-                    la.timer,
-                    la.base_damage,
-                    la.speed_scale,
-                    la.speed_threshold,
-                    la.just_struck,
-                    la.just_ended,
-                    la.enabled,
-                ),
-            );
-        }
-        LANCE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Lapse;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Lapse)>();
-        for (_, name, lp) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    lp.lapsing,
-                    lp.interval_timer,
-                    lp.duration_timer,
-                    lp.interval,
-                    lp.lapse_duration,
-                    lp.just_lapsed,
-                    lp.just_focused,
-                    lp.enabled,
-                ),
-            );
-        }
-        LAPSE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Lash;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Lash)>();
-        for (_, name, la) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    la.pull_force,
-                    la.damage,
-                    la.duration,
-                    la.timer,
-                    la.just_connected,
-                    la.just_released,
-                    la.enabled,
-                ),
-            );
-        }
-        LASH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Latch;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Latch)>();
-        for (_, name, la) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    la.active,
-                    la.timer,
-                    la.damage_per_second,
-                    la.just_latched,
-                    la.just_released,
-                    la.enabled,
-                ),
-            );
-        }
-        LATCH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Ledge;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Ledge)>();
-        for (_, name, le) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    le.phase as u32,
-                    le.hang_position.x,
-                    le.hang_position.y,
-                    le.hang_position.z,
-                    le.climb_duration,
-                    le.climb_timer,
-                    le.detection_range,
-                    le.can_grab,
-                    le.enabled,
-                ),
-            );
-        }
-        LEDGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Leech;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Leech)>();
-        for (_, name, le) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    le.fraction,
-                    le.flat,
-                    le.last_leeched,
-                    le.total_leeched,
-                    le.just_leeched,
-                    le.enabled,
-                ),
-            );
-        }
-        LEECH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Lunge;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Lunge)>();
-        for (_, name, lu) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    lu.phase as u32,
-                    lu.direction.x,
-                    lu.direction.y,
-                    lu.direction.z,
-                    lu.target_point.x,
-                    lu.target_point.y,
-                    lu.target_point.z,
-                    lu.speed,
-                    lu.range,
-                    lu.traveled,
-                    lu.recovery_time,
-                    lu.recovery_timer,
-                    lu.cooldown,
-                    lu.cooldown_timer,
-                    lu.ground_only,
-                    lu.just_lunged,
-                    lu.hit_registered,
-                    lu.enabled,
-                ),
-            );
-        }
-        LUNGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Lure;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Lure)>();
-        for (_, name, lu) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    lu.state as u32,
-                    lu.position.x,
-                    lu.position.y,
-                    lu.position.z,
-                    lu.radius,
-                    lu.strength,
-                    lu.duration,
-                    lu.timer,
-                    lu.just_activated,
-                    lu.just_expired,
-                    lu.enabled,
-                ),
-            );
-        }
-        LURE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Lurk;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Lurk)>();
-        for (_, name, lu) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    lu.detection_range_fraction,
-                    lu.ambush_multiplier,
-                    lu.lurking,
-                    lu.just_lurked,
-                    lu.just_struck,
-                    lu.enabled,
-                ),
-            );
-        }
-        LURK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Magnet;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Magnet)>();
-        for (_, name, mg) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    mg.mode as u32,
-                    mg.radius,
-                    mg.strength,
-                    mg.falloff,
-                    mg.affects_projectiles,
-                    mg.affects_entities,
-                    mg.enabled,
-                ),
-            );
-        }
-        MAGNET_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Maim;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Maim)>();
-        for (_, name, ma) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    ma.stacks,
-                    ma.max_stacks,
-                    ma.speed_fraction_per_stack,
-                    ma.bleed_per_stack_per_second,
-                    ma.just_maimed,
-                    ma.just_healed,
-                    ma.enabled,
-                ),
-            );
-        }
-        MAIM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Malice;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Malice)>();
-        for (_, name, ml) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    ml.stacks,
-                    ml.max_stacks,
-                    ml.damage_amplify_per_stack,
-                    ml.decay_interval,
-                    ml.decay_timer,
-                    ml.just_stacked,
-                    ml.just_cleared,
-                    ml.enabled,
-                ),
-            );
-        }
-        MALICE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Mark;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Mark)>();
-        for (_, name, mk) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    mk.marks.len() as u32,
-                    mk.total_damage_bonus(),
-                    mk.just_marked,
-                    mk.just_unmarked,
-                    mk.enabled,
-                ),
-            );
-        }
-        MARK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Melee;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Melee)>();
-        for (_, name, me) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    me.phase as u32,
-                    me.attack_direction.x,
-                    me.attack_direction.y,
-                    me.attack_direction.z,
-                    me.reach,
-                    me.arc_angle,
-                    me.windup_time,
-                    me.active_time,
-                    me.recovery_time,
-                    me.timer,
-                    me.hit_count,
-                    me.max_hits,
-                    me.combo_step,
-                    me.combo_buffered,
-                    me.can_cancel_recovery,
-                    me.enabled,
-                ),
-            );
-        }
-        MELEE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Mend;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Mend)>();
-        for (_, name, mn) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (mn.mend_pool, mn.rate, mn.just_depleted, mn.enabled),
-            );
-        }
-        MEND_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Merge;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Merge)>();
-        for (_, name, mg) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    mg.can_merge,
-                    mg.merge_weight,
-                    mg.max_weight,
-                    mg.just_merged,
-                    mg.enabled,
-                ),
-            );
-        }
-        MERGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Mesh;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Mesh)>();
-        for (_, name, me) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    me.path.clone(),
-                    me.submesh_index as u32,
-                    me.cast_shadow,
-                    me.receive_shadow,
-                ),
-            );
-        }
-        MESH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Minimap;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Minimap)>();
-        for (_, name, mm) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    mm.icon.clone(),
-                    mm.color[0],
-                    mm.color[1],
-                    mm.color[2],
-                    mm.color[3],
-                    mm.size,
-                    mm.category.clone(),
-                    mm.rotate_with_entity,
-                    mm.clamp_to_edge,
-                    mm.enabled,
-                ),
-            );
-        }
-        MINIMAP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Mirage;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Mirage)>();
-        for (_, name, mi) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    mi.duration,
-                    mi.timer,
-                    mi.misdirect_chance,
-                    mi.just_created,
-                    mi.just_faded,
-                    mi.enabled,
-                ),
-            );
-        }
-        MIRAGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Momentum;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Momentum)>();
-        for (_, name, mo) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    mo.current.x,
-                    mo.current.y,
-                    mo.current.z,
-                    mo.damping,
-                    mo.max_speed,
-                    mo.enabled,
-                ),
-            );
-        }
-        MOMENTUM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Morale;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Morale)>();
-        for (_, name, mo) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    mo.morale,
-                    mo.decay_rate,
-                    mo.damage_bonus,
-                    mo.speed_bonus,
-                    mo.just_peaked,
-                    mo.just_broke,
-                    mo.enabled,
-                ),
-            );
-        }
-        MORALE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Morph;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Morph)>();
-        for (_, name, mo) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    mo.form,
-                    mo.target_form,
-                    mo.morph_time,
-                    mo.morph_timer,
-                    mo.is_morphing,
-                    mo.just_started,
-                    mo.just_finished,
-                    mo.enabled,
-                ),
-            );
-        }
-        MORPH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Mount;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Mount)>();
-        for (_, name, mt) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    mt.rider_count() as u32,
-                    mt.max_riders as u32,
-                    mt.speed_scale,
-                    mt.forced_dismount_damage.unwrap_or(-1.0),
-                    mt.enabled,
-                ),
-            );
-        }
-        MOUNT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Muffle;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Muffle)>();
-        for (_, name, mu) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    mu.duration,
-                    mu.timer,
-                    mu.sound_radius_fraction,
-                    mu.just_muffled,
-                    mu.just_unmuffled,
-                    mu.enabled,
-                ),
-            );
-        }
-        MUFFLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::{NetworkAuthority, NetworkId};
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &NetworkId)>();
-        for (_, name, nid) in q.iter(world) {
-            let (auth_kind, peer_id_str) = match nid.authority {
-                NetworkAuthority::Server => (0u32, String::new()),
-                NetworkAuthority::Client { peer_id } => (1u32, peer_id.to_string()),
-                NetworkAuthority::Local => (2u32, String::new()),
-            };
-            map.insert(name.0.clone(), (nid.id.to_string(), auth_kind, peer_id_str));
-        }
-        NETWORK_ID_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        let (is_server, is_connected, my_peer_id, peer_count) =
-            if let Some(session) = world.get_resource::<NetworkSession>() {
-                (
-                    session.is_server(),
-                    session.connected,
-                    session.my_peer_id,
-                    session.peer_count(),
-                )
-            } else {
-                (false, false, 0, 0)
-            };
-        NETWORK_STATE_SNAPSHOT.with(|s| {
-            *s.borrow_mut() = (is_server, is_connected, my_peer_id, peer_count);
-        });
-    }
-    {
-        use bsengine_core::Nimble;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Nimble)>();
-        for (_, name, ni) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    ni.duration,
-                    ni.timer,
-                    ni.dodge_chance,
-                    ni.speed_bonus_fraction,
-                    ni.just_quickened,
-                    ni.just_faded,
-                    ni.enabled,
-                ),
-            );
-        }
-        NIMBLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::{Notice, NoticeState};
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Notice)>();
-        for (_, name, no) in q.iter(world) {
-            let state_u32 = match no.state {
-                NoticeState::Unaware => 0u32,
-                NoticeState::Alert => 1u32,
-                NoticeState::Alarmed => 2u32,
-                NoticeState::Searching => 3u32,
-            };
-            map.insert(
-                name.0.clone(),
-                (
-                    state_u32,
-                    no.suspicion,
-                    no.suspicion_decay_rate,
-                    no.alert_threshold,
-                    no.alarm_threshold,
-                    no.last_known_position.x,
-                    no.last_known_position.y,
-                    no.last_known_position.z,
-                    no.investigate_timer,
-                    no.max_investigate_time,
-                    no.has_last_known,
-                    no.enabled,
-                ),
-            );
-        }
-        NOTICE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Nourish;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Nourish)>();
-        for (_, name, no) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    no.satiety,
-                    no.decay_rate,
-                    no.regen_scale,
-                    no.just_starved,
-                    no.enabled,
-                ),
-            );
-        }
-        NOURISH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Nova;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Nova)>();
-        for (_, name, nv) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    nv.charge_time,
-                    nv.charge_timer,
-                    nv.radius,
-                    nv.damage,
-                    nv.just_primed,
-                    nv.just_discharged,
-                    nv.enabled,
-                ),
-            );
-        }
-        NOVA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::{Npc, NpcRole, NpcState};
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Npc)>();
-        for (_, name, np) in q.iter(world) {
-            let role_u32 = match np.role {
-                NpcRole::Civilian => 0u32,
-                NpcRole::Guard => 1u32,
-                NpcRole::Creature => 2u32,
-                NpcRole::Vendor => 3u32,
-                NpcRole::Scripted => 4u32,
-            };
-            let state_u32 = match np.state {
-                NpcState::Idle => 0u32,
-                NpcState::Patrolling => 1u32,
-                NpcState::Investigating => 2u32,
-                NpcState::Alerted => 3u32,
-                NpcState::Engaging => 4u32,
-                NpcState::Fleeing => 5u32,
-                NpcState::Interacting => 6u32,
-                NpcState::Dead => 7u32,
-            };
-            let template_id = np.template_id.clone().unwrap_or_default();
-            map.insert(
-                name.0.clone(),
-                (
-                    role_u32,
-                    state_u32,
-                    np.display_name.clone(),
-                    template_id,
-                    np.faction_id,
-                    np.alert,
-                    np.alert_decay,
-                    np.enabled,
-                ),
-            );
-        }
-        NPC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Nullify;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Nullify)>();
-        for (_, name, nu) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    nu.duration,
-                    nu.timer,
-                    nu.blocks_buffs,
-                    nu.blocks_debuffs,
-                    nu.just_activated,
-                    nu.just_expired,
-                    nu.enabled,
-                ),
-            );
-        }
-        NULLIFY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Numb;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Numb)>();
-        for (_, name, nu) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    nu.duration,
-                    nu.timer,
-                    nu.damage_fraction,
-                    nu.just_numbed,
-                    nu.just_worn_off,
-                    nu.enabled,
-                ),
-            );
-        }
-        NUMB_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::{Obstacle, ObstacleShape};
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Obstacle)>();
-        for (_, name, ob) in q.iter(world) {
-            let (kind, p1, p2, p3) = match &ob.shape {
-                ObstacleShape::Circle { radius } => (0u32, *radius, 0.0f32, 0.0f32),
-                ObstacleShape::Box { half_x, half_z } => (1u32, *half_x, *half_z, 0.0f32),
-                ObstacleShape::Capsule { radius, height } => (2u32, *radius, *height, 0.0f32),
-            };
-            let bounding = ob.bounding_radius();
-            map.insert(
-                name.0.clone(),
-                (
-                    kind,
-                    p1,
-                    p2,
-                    p3,
-                    ob.dynamic,
-                    ob.carve_depth,
-                    bounding,
-                    ob.enabled,
-                ),
-            );
-        }
-        OBSTACLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Omen;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Omen)>();
-        for (_, name, om) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    om.stacks,
-                    om.max_stacks,
-                    om.damage_multiplier_per_stack,
-                    om.just_stacked,
-                    om.just_consumed,
-                    om.enabled,
-                ),
-            );
-        }
-        OMEN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Orbit;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Orbit)>();
-        for (_, name, or) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    or.radius,
-                    or.speed,
-                    or.angle,
-                    or.axis.x,
-                    or.axis.y,
-                    or.axis.z,
-                    or.altitude,
-                    or.enabled,
-                ),
-            );
-        }
-        ORBIT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Ordeal;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Ordeal)>();
-        for (_, name, od) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    od.duration,
-                    od.timer,
-                    od.just_began,
-                    od.just_endured,
-                    od.just_failed,
-                    od.enabled,
-                ),
-            );
-        }
-        ORDEAL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::{Oscillate, OscillateAxis};
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Oscillate)>();
-        for (_, name, os) in q.iter(world) {
-            let axis_kind = match os.axis {
-                OscillateAxis::Translation => 0u32,
-                OscillateAxis::Rotation => 1u32,
-            };
-            let scalar_offset = if os.enabled {
-                (os.phase + os.phase_offset).sin() * os.amplitude
-            } else {
-                0.0
-            };
-            map.insert(
-                name.0.clone(),
-                (
-                    axis_kind,
-                    os.direction.x,
-                    os.direction.y,
-                    os.direction.z,
-                    os.amplitude,
-                    os.frequency,
-                    os.phase,
-                    os.phase_offset,
-                    scalar_offset,
-                    os.enabled,
-                ),
-            );
-        }
-        OSCILLATE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Outlast;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Outlast)>();
-        for (_, name, ol) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    ol.combat_time,
-                    ol.max_bonus_time,
-                    ol.defense_bonus,
-                    ol.in_combat,
-                    ol.just_peaked,
-                    ol.enabled,
-                ),
-            );
-        }
-        OUTLAST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Overflow;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Overflow)>();
-        for (_, name, of) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    of.current,
-                    of.max_pool,
-                    of.decay_rate,
-                    of.just_gained,
-                    of.just_depleted,
-                    of.enabled,
-                ),
-            );
-        }
-        OVERFLOW_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::{Overheat, OverheatState};
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Overheat)>();
-        for (_, name, oh) in q.iter(world) {
-            let state_u32 = match oh.state {
-                OverheatState::Normal => 0u32,
-                OverheatState::Warning => 1u32,
-                OverheatState::Overheated => 2u32,
-                OverheatState::Cooling => 3u32,
-            };
-            map.insert(
-                name.0.clone(),
-                (
-                    state_u32,
-                    oh.heat,
-                    oh.max_heat,
-                    oh.warn_threshold,
-                    oh.cool_threshold,
-                    oh.cool_rate,
-                    oh.forced_cool_rate,
-                    oh.just_overheated,
-                    oh.just_cooled,
-                    oh.enabled,
-                ),
-            );
-        }
-        OVERHEAT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Overload;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Overload)>();
-        for (_, name, ol) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    ol.duration,
-                    ol.timer,
-                    ol.cost_multiplier,
-                    ol.just_overloaded,
-                    ol.just_recovered,
-                    ol.enabled,
-                ),
-            );
-        }
-        OVERLOAD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Overpower;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Overpower)>();
-        for (_, name, op) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    op.duration,
-                    op.timer,
-                    op.armor_penetration,
-                    op.just_overpowered,
-                    op.just_faded,
-                    op.enabled,
-                ),
-            );
-        }
-        OVERPOWER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Overshield;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Overshield)>();
-        for (_, name, os) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    os.current,
-                    os.max_overshield,
-                    os.decay_rate,
-                    os.just_granted,
-                    os.just_depleted,
-                    os.enabled,
-                ),
-            );
-        }
-        OVERSHIELD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::{Parry, ParryState};
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Parry)>();
-        for (_, name, pa) in q.iter(world) {
-            let state_kind: u32 = match pa.state {
-                ParryState::Idle => 0,
-                ParryState::Active => 1,
-                ParryState::Success => 2,
-                ParryState::Missed => 3,
-            };
-            map.insert(
-                name.0.clone(),
-                (
-                    state_kind,
-                    pa.startup_duration,
-                    pa.active_duration,
-                    pa.recovery_duration,
-                    pa.timer,
-                    pa.parry_count,
-                    pa.just_opened,
-                    pa.just_succeeded,
-                    pa.just_missed,
-                    pa.just_finished,
-                    pa.enabled,
-                ),
-            );
-        }
-        PARRY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Patience;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Patience)>();
-        for (_, name, pa) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    pa.patience_level,
-                    pa.max_patience,
-                    pa.patience_bonus,
-                    pa.just_primed,
-                    pa.just_spent,
-                    pa.enabled,
-                ),
-            );
-        }
-        PATIENCE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Petrify;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Petrify)>();
-        for (_, name, pe) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    pe.duration,
-                    pe.timer,
-                    pe.armor_bonus,
-                    pe.just_petrified,
-                    pe.just_unpetrified,
-                    pe.enabled,
-                ),
-            );
-        }
-        PETRIFY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Phase;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Phase)>();
-        for (_, name, ph) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    ph.is_phased,
-                    ph.duration,
-                    ph.timer,
-                    ph.cooldown,
-                    ph.cooldown_timer,
-                    ph.just_phased,
-                    ph.just_unphased,
-                    ph.enabled,
-                ),
-            );
-        }
-        PHASE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Pierce;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Pierce)>();
-        for (_, name, pi) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    pi.max_pierce,
-                    pi.pierce_chance,
-                    pi.pierced_this_attack,
-                    pi.just_pierced,
-                    pi.enabled,
-                ),
-            );
-        }
-        PIERCE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Pin;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Pin)>();
-        for (_, name, pi) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    pi.active,
-                    pi.timer,
-                    pi.duration,
-                    pi.knockback_immune,
-                    pi.just_pinned,
-                    pi.just_freed,
-                    pi.enabled,
-                ),
-            );
-        }
-        PIN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Plea;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Plea)>();
-        for (_, name, pl) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    pl.duration,
-                    pl.timer,
-                    pl.avoidance_chance,
-                    pl.just_began,
-                    pl.just_ended,
-                    pl.enabled,
-                ),
-            );
-        }
-        PLEA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Ploy;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Ploy)>();
-        for (_, name, pl) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    pl.active,
-                    pl.timer,
-                    pl.just_began,
-                    pl.just_ended,
-                    pl.enabled,
-                ),
-            );
-        }
-        PLOY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Pluck;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Pluck)>();
-        for (_, name, pl) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    pl.hp_threshold,
-                    pl.crit_bonus,
-                    pl.pluck_active,
-                    pl.just_triggered,
-                    pl.just_recovered,
-                    pl.enabled,
-                ),
-            );
-        }
-        PLUCK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Poise;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Poise)>();
-        for (_, name, po) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    po.current,
-                    po.max,
-                    po.regen_rate,
-                    po.broken,
-                    po.just_broken,
-                    po.just_restored,
-                    po.enabled,
-                ),
-            );
-        }
-        POISE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Pounce;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Pounce)>();
-        for (_, name, po) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    po.duration,
-                    po.timer,
-                    po.damage,
-                    po.knockdown_duration,
-                    po.min_range,
-                    po.max_range,
-                    po.just_leaped,
-                    po.just_landed,
-                    po.enabled,
-                ),
-            );
-        }
-        POUNCE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Prone;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Prone)>();
-        for (_, name, pr) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    pr.is_prone,
-                    pr.stand_up_duration,
-                    pr.stand_up_timer,
-                    pr.movement_penalty,
-                    pr.attack_penalty,
-                    pr.just_fell_prone,
-                    pr.just_stood_up,
-                    pr.enabled,
-                ),
-            );
-        }
-        PRONE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Protect;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Protect)>();
-        for (_, name, pr) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    pr.duration,
-                    pr.timer,
-                    pr.guard_radius,
-                    pr.redirect_fraction,
-                    pr.just_began,
-                    pr.just_ended,
-                    pr.enabled,
-                ),
-            );
-        }
-        PROTECT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Proud;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Proud)>();
-        for (_, name, pr) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    pr.hp_threshold,
-                    pr.damage_bonus,
-                    pr.prideful,
-                    pr.just_humbled,
-                    pr.just_restored,
-                    pr.enabled,
-                ),
-            );
-        }
-        PROUD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Provoke;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Provoke)>();
-        for (_, name, pr) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    pr.duration,
-                    pr.timer,
-                    pr.aggro_multiplier,
-                    pr.radius,
-                    pr.just_provoked,
-                    pr.just_expired,
-                    pr.enabled,
-                ),
-            );
-        }
-        PROVOKE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Prowl;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Prowl)>();
-        for (_, name, pr) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    pr.duration,
-                    pr.timer,
-                    pr.speed_bonus_fraction,
-                    pr.ambush_damage_multiplier,
-                    pr.ambush_consumed,
-                    pr.just_prowling,
-                    pr.just_faded,
-                    pr.enabled,
-                ),
-            );
-        }
-        PROWL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::{Pulse, PulseMode};
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Pulse)>();
-        for (_, name, pu) in q.iter(world) {
-            let mode_kind: u32 = match pu.mode {
-                PulseMode::Oneshot => 0,
-                PulseMode::Repeating => 1,
-            };
-            map.insert(
-                name.0.clone(),
-                (
-                    mode_kind,
-                    pu.is_active,
-                    pu.radius,
-                    pu.max_radius,
-                    pu.interval,
-                    pu.timer,
-                    pu.falloff,
-                    pu.pulse_count,
-                    pu.just_pulsed,
-                    pu.enabled,
-                ),
-            );
-        }
-        PULSE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::{Quest, QuestState};
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Quest)>();
-        for (_, name, qu) in q.iter(world) {
-            let state: u32 = match qu.state {
-                QuestState::Active => 0,
-                QuestState::ReadyToComplete => 1,
-                QuestState::Completed => 2,
-                QuestState::Abandoned => 3,
-            };
-            map.insert(name.0.clone(), (state, qu.xp_reward, qu.enabled));
-        }
-        QUEST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Radar;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Radar)>();
-        for (_, name, rd) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (rd.range, rd.scan_interval, rd.scan_timer, rd.enabled),
-            );
-        }
-        RADAR_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::{Rage, RagePhase};
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Rage)>();
-        for (_, name, rg) in q.iter(world) {
-            let phase: u32 = match rg.phase {
-                RagePhase::Calm => 0,
-                RagePhase::Building => 1,
-                RagePhase::Raging => 2,
-                RagePhase::Cooling => 3,
-            };
-            map.insert(
-                name.0.clone(),
-                (
-                    phase,
-                    rg.rage,
-                    rg.max_rage,
-                    rg.rage_per_damage,
-                    rg.activation_threshold,
-                    rg.damage_multiplier,
-                    rg.defense_multiplier,
-                    rg.just_entered_rage,
-                    rg.just_left_rage,
-                    rg.enabled,
-                ),
-            );
-        }
-        RAGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Rally;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Rally)>();
-        for (_, name, ra) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    ra.duration,
-                    ra.timer,
-                    ra.aura_radius,
-                    ra.speed_bonus_fraction,
-                    ra.damage_bonus_fraction,
-                    ra.just_rallied,
-                    ra.just_ended,
-                    ra.enabled,
-                ),
-            );
-        }
-        RALLY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Rampage;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Rampage)>();
-        for (_, name, rm) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    rm.stacks,
-                    rm.max_stacks,
-                    rm.damage_per_stack,
-                    rm.speed_per_stack,
-                    rm.decay_interval,
-                    rm.decay_timer,
-                    rm.just_stacked,
-                    rm.just_ended,
-                    rm.enabled,
-                ),
-            );
-        }
-        RAMPAGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Ravage;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Ravage)>();
-        for (_, name, rv) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    rv.active,
-                    rv.timer,
-                    rv.damage_bonus,
-                    rv.attack_speed_bonus,
-                    rv.just_triggered,
-                    rv.just_expired,
-                    rv.enabled,
-                ),
-            );
-        }
-        RAVAGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Reave;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Reave)>();
-        for (_, name, re) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    re.duration,
-                    re.timer,
-                    re.leech_fraction,
-                    re.just_reaving,
-                    re.just_faded,
-                    re.enabled,
-                ),
-            );
-        }
-        REAVE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Rebound;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Rebound)>();
-        for (_, name, rb) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    rb.rebound_coefficient,
-                    rb.min_speed,
-                    rb.last_rebound_speed,
-                    rb.just_rebounded,
-                    rb.enabled,
-                ),
-            );
-        }
-        REBOUND_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Recharge;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Recharge)>();
-        for (_, name, rc) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    rc.current,
-                    rc.max,
-                    rc.rate,
-                    rc.just_recharged,
-                    rc.just_depleted,
-                    rc.enabled,
-                ),
-            );
-        }
-        RECHARGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Reckless;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Reckless)>();
-        for (_, name, rk) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    rk.duration,
-                    rk.timer,
-                    rk.damage_bonus,
-                    rk.defense_penalty,
-                    rk.just_entered,
-                    rk.just_exited,
-                    rk.enabled,
-                ),
-            );
-        }
-        RECKLESS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Recluse;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Recluse)>();
-        for (_, name, rl) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    rl.is_alone,
-                    rl.damage_bonus,
-                    rl.defense_bonus,
-                    rl.just_became_alone,
-                    rl.just_joined_group,
-                    rl.enabled,
-                ),
-            );
-        }
-        RECLUSE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Recoil;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Recoil)>();
-        for (_, name, rc) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    rc.kick_force,
-                    rc.angular_kick,
-                    rc.recovery_speed,
-                    rc.yaw_fraction,
-                    rc.max_position_offset,
-                    rc.max_angular_offset,
-                    rc.enabled,
-                ),
-            );
-        }
-        RECOIL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Reflect;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Reflect)>();
-        for (_, name, rf) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    rf.is_active,
-                    rf.damage_multiplier,
-                    rf.window_duration,
-                    rf.window_timer,
-                    rf.just_activated,
-                    rf.just_reflected,
-                    rf.just_closed,
-                    rf.enabled,
-                ),
-            );
-        }
-        REFLECT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Reflex;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Reflex)>();
-        for (_, name, rf) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    rf.timer,
-                    rf.just_triggered,
-                    rf.just_evaded,
-                    rf.just_missed,
-                    rf.enabled,
-                ),
-            );
-        }
-        REFLEX_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Repel;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Repel)>();
-        for (_, name, rp) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    rp.duration,
-                    rp.timer,
-                    rp.push_force,
-                    rp.radius,
-                    rp.just_activated,
-                    rp.just_deactivated,
-                    rp.enabled,
-                ),
-            );
-        }
-        REPEL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Repose;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Repose)>();
-        for (_, name, rp) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    rp.active,
-                    rp.timer,
-                    rp.regen_multiplier,
-                    rp.just_began,
-                    rp.just_ended,
-                    rp.enabled,
-                ),
-            );
-        }
-        REPOSE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::{Respawn, RespawnState};
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Respawn)>();
-        for (_, name, rs) in q.iter(world) {
-            let state: u32 = match rs.state {
-                RespawnState::Alive => 0,
-                RespawnState::Pending => 1,
-                RespawnState::Ready => 2,
-                RespawnState::Forbidden => 3,
-            };
-            map.insert(
-                name.0.clone(),
-                (
-                    state,
-                    rs.delay,
-                    rs.delay_timer,
-                    rs.respawn_count,
-                    rs.enabled,
-                ),
-            );
-        }
-        RESPAWN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Retaliate;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Retaliate)>();
-        for (_, name, rt) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    rt.multiplier,
-                    rt.max_charges,
-                    rt.charges,
-                    rt.just_charged,
-                    rt.just_consumed,
-                    rt.enabled,
-                ),
-            );
-        }
-        RETALIATE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Revenge;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Revenge)>();
-        for (_, name, rv) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    rv.duration,
-                    rv.timer,
-                    rv.revenge_multiplier,
-                    rv.trigger_fraction,
-                    rv.triggered,
-                    rv.just_triggered,
-                    rv.just_ended,
-                    rv.enabled,
-                ),
-            );
-        }
-        REVENGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Reveal;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Reveal)>();
-        for (_, name, rv) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    rv.duration,
-                    rv.timer,
-                    rv.radius,
-                    rv.just_activated,
-                    rv.just_expired,
-                    rv.enabled,
-                ),
-            );
-        }
-        REVEAL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::{Revive, ReviveState};
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Revive)>();
-        for (_, name, rv) in q.iter(world) {
-            let state: u32 = match rv.state {
-                ReviveState::Alive => 0,
-                ReviveState::Downed => 1,
-                ReviveState::Reviving => 2,
-                ReviveState::Dead => 3,
-            };
-            map.insert(
-                name.0.clone(),
-                (
-                    state,
-                    rv.down_duration,
-                    rv.down_timer,
-                    rv.revive_duration,
-                    rv.revive_progress,
-                    rv.revives_remaining,
-                    rv.just_downed,
-                    rv.just_revived,
-                    rv.just_died,
-                    rv.enabled,
-                ),
-            );
-        }
-        REVIVE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Ricochet;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Ricochet)>();
-        for (_, name, ri) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    ri.max_bounces,
-                    ri.bounces_remaining,
-                    ri.energy_retention,
-                    ri.min_dot,
-                    ri.just_bounced,
-                    ri.enabled,
-                ),
-            );
-        }
-        RICOCHET_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Rifle;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Rifle)>();
-        for (_, name, ri) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    ri.min_range,
-                    ri.peak_range,
-                    ri.damage_bonus,
-                    ri.point_blank_penalty,
-                    ri.enabled,
-                ),
-            );
-        }
-        RIFLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Rot;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Rot)>();
-        for (_, name, ro) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    ro.active,
-                    ro.decay_rate,
-                    ro.total_decayed,
-                    ro.decay_cap,
-                    ro.just_began,
-                    ro.just_capped,
-                    ro.enabled,
-                ),
-            );
-        }
-        ROT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Rout;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Rout)>();
-        for (_, name, ro) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    ro.duration,
-                    ro.timer,
-                    ro.flee_speed_multiplier,
-                    ro.just_routed,
-                    ro.just_recovered,
-                    ro.enabled,
-                ),
-            );
-        }
-        ROUT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    {
-        use bsengine_core::Rupture;
-        let mut map = HashMap::new();
-        let mut q = world.query::<(Entity, &Name, &Rupture)>();
-        for (_, name, ru) in q.iter(world) {
-            map.insert(
-                name.0.clone(),
-                (
-                    ru.stacks,
-                    ru.max_stacks,
-                    ru.damage_per_stack,
-                    ru.just_maxed,
-                    ru.enabled,
-                ),
-            );
-        }
-        RUPTURE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
-    }
-    COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    let (scripted, collision_json) = collect_world_snapshots(world);
 
     if let Some(mut rt) = world.get_non_send_resource_mut::<ScriptRuntimeResource>() {
         // Dispatch collision events to JS before update
@@ -41881,4 +28472,13418 @@ mod tests {
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "42");
     }
+}
+
+fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String) {
+    let transform_snapshot: HashMap<String, (Vec3, Quat, Vec3)> = {
+        let mut q = world.query::<(&Name, &Transform)>();
+        q.iter(world)
+            .map(|(n, t)| (n.0.clone(), (t.translation, t.rotation, t.scale)))
+            .collect()
+    };
+
+    let world_transform_snapshot: HashMap<String, (Vec3, Quat, Vec3)> = {
+        let mut q = world.query::<(&Name, &GlobalTransform)>();
+        q.iter(world)
+            .map(|(n, gt)| {
+                let (scale, rot, pos) = gt.0.to_scale_rotation_translation();
+                (n.0.clone(), (pos, rot, scale))
+            })
+            .collect()
+    };
+
+    let visible_snapshot: HashMap<String, bool> = {
+        let mut q = world.query::<(&Name, &Visible)>();
+        q.iter(world)
+            .map(|(n, v)| (n.0.clone(), v.is_visible))
+            .collect()
+    };
+
+    let material_color_snapshot: HashMap<String, [f32; 3]> = {
+        let mut q = world.query::<(&Name, &Material)>();
+        q.iter(world)
+            .map(|(n, m)| (n.0.clone(), m.base_color.to_array()))
+            .collect()
+    };
+
+    let material_emissive_snapshot: HashMap<String, [f32; 3]> = {
+        let mut q = world.query::<(&Name, &Material)>();
+        q.iter(world)
+            .map(|(n, m)| (n.0.clone(), m.emissive.to_array()))
+            .collect()
+    };
+
+    let material_metallic_snapshot: HashMap<String, f32> = {
+        let mut q = world.query::<(&Name, &Material)>();
+        q.iter(world)
+            .map(|(n, m)| (n.0.clone(), m.metallic))
+            .collect()
+    };
+
+    let material_roughness_snapshot: HashMap<String, f32> = {
+        let mut q = world.query::<(&Name, &Material)>();
+        q.iter(world)
+            .map(|(n, m)| (n.0.clone(), m.roughness))
+            .collect()
+    };
+
+    let (key_snapshot, key_just_pressed, key_just_released): (
+        HashSet<String>,
+        HashSet<String>,
+        HashSet<String>,
+    ) = if let Some(input) = world.get_resource::<Input<KeyCode>>() {
+        let pressed = KEY_MAPPINGS
+            .iter()
+            .filter(|(code, _)| input.is_pressed(code))
+            .map(|(_, name)| name.to_string())
+            .collect();
+        let just_pressed = KEY_MAPPINGS
+            .iter()
+            .filter(|(code, _)| input.just_pressed(code))
+            .map(|(_, name)| name.to_string())
+            .collect();
+        let just_released = KEY_MAPPINGS
+            .iter()
+            .filter(|(code, _)| input.just_released(code))
+            .map(|(_, name)| name.to_string())
+            .collect();
+        (pressed, just_pressed, just_released)
+    } else {
+        (HashSet::new(), HashSet::new(), HashSet::new())
+    };
+
+    let (mb_pressed, mb_just_pressed, mb_just_released): (u8, u8, u8) =
+        if let Some(buttons) = world.get_resource::<Input<MouseButton>>() {
+            let mut p = 0u8;
+            let mut jp = 0u8;
+            let mut jr = 0u8;
+            if buttons.is_pressed(&MouseButton::Left) {
+                p |= 1;
+            }
+            if buttons.is_pressed(&MouseButton::Right) {
+                p |= 2;
+            }
+            if buttons.is_pressed(&MouseButton::Middle) {
+                p |= 4;
+            }
+            if buttons.just_pressed(&MouseButton::Left) {
+                jp |= 1;
+            }
+            if buttons.just_pressed(&MouseButton::Right) {
+                jp |= 2;
+            }
+            if buttons.just_pressed(&MouseButton::Middle) {
+                jp |= 4;
+            }
+            if buttons.just_released(&MouseButton::Left) {
+                jr |= 1;
+            }
+            if buttons.just_released(&MouseButton::Right) {
+                jr |= 2;
+            }
+            if buttons.just_released(&MouseButton::Middle) {
+                jr |= 4;
+            }
+            (p, jp, jr)
+        } else {
+            (0, 0, 0)
+        };
+
+    let (mouse_pos, mouse_delta) = world
+        .get_resource::<MouseState>()
+        .map(|ms| (ms.position, ms.delta))
+        .unwrap_or(((0.0, 0.0), (0.0, 0.0)));
+
+    const GAMEPAD_MAPPINGS: &[(GamepadButton, u32)] = &[
+        (GamepadButton::South, 0),
+        (GamepadButton::East, 1),
+        (GamepadButton::West, 2),
+        (GamepadButton::North, 3),
+        (GamepadButton::LB, 4),
+        (GamepadButton::RB, 5),
+        (GamepadButton::LT, 6),
+        (GamepadButton::RT, 7),
+        (GamepadButton::Select, 8),
+        (GamepadButton::Start, 9),
+        (GamepadButton::LeftStick, 10),
+        (GamepadButton::RightStick, 11),
+        (GamepadButton::DPadUp, 12),
+        (GamepadButton::DPadDown, 13),
+        (GamepadButton::DPadLeft, 14),
+        (GamepadButton::DPadRight, 15),
+    ];
+
+    let (gpad_pressed, gpad_just_pressed, gpad_just_released): (u16, u16, u16) =
+        if let Some(gpad) = world.get_resource::<Input<GamepadButton>>() {
+            let mut p = 0u16;
+            let mut jp = 0u16;
+            let mut jr = 0u16;
+            for &(btn, bit) in GAMEPAD_MAPPINGS {
+                let mask = 1u16 << bit;
+                if gpad.is_pressed(&btn) {
+                    p |= mask;
+                }
+                if gpad.just_pressed(&btn) {
+                    jp |= mask;
+                }
+                if gpad.just_released(&btn) {
+                    jr |= mask;
+                }
+            }
+            (p, jp, jr)
+        } else {
+            (0, 0, 0)
+        };
+
+    let gamepad_sticks = world
+        .get_resource::<GamepadSticks>()
+        .map(|s| {
+            (
+                s.left.0,
+                s.left.1,
+                s.right.0,
+                s.right.1,
+                s.left_trigger,
+                s.right_trigger,
+            )
+        })
+        .unwrap_or((0.0, 0.0, 0.0, 0.0, 0.0, 0.0));
+
+    let physics_ptr = world
+        .get_resource::<PhysicsWorld>()
+        .map(|pw| pw as *const PhysicsWorld)
+        .unwrap_or(std::ptr::null());
+
+    let entity_name_map: HashMap<u64, String> = {
+        let mut q = world.query::<(Entity, &Name)>();
+        q.iter(world)
+            .map(|(e, n)| (e.to_bits(), n.0.clone()))
+            .collect()
+    };
+
+    let velocity_snapshot: HashMap<String, Vec3> = world
+        .get_resource::<PhysicsWorld>()
+        .map(|pw| {
+            entity_name_map
+                .iter()
+                .filter_map(|(&bits, name)| {
+                    let entity = bevy_ecs::prelude::Entity::from_bits(bits);
+                    pw.get_linvel(entity).map(|v| (name.clone(), v))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let angular_velocity_snapshot: HashMap<String, Vec3> = world
+        .get_resource::<PhysicsWorld>()
+        .map(|pw| {
+            entity_name_map
+                .iter()
+                .filter_map(|(&bits, name)| {
+                    let entity = bevy_ecs::prelude::Entity::from_bits(bits);
+                    pw.get_angvel(entity).map(|v| (name.clone(), v))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let parent_map: HashMap<String, String> = {
+        let mut q = world.query::<(Entity, &Name, &Parent)>();
+        q.iter(world)
+            .filter_map(|(_, n, p)| {
+                entity_name_map
+                    .get(&p.0.to_bits())
+                    .map(|pn| (n.0.clone(), pn.clone()))
+            })
+            .collect()
+    };
+    let children_map: HashMap<String, Vec<String>> = {
+        let mut map: HashMap<String, Vec<String>> = HashMap::new();
+        for (child, parent) in &parent_map {
+            map.entry(parent.clone()).or_default().push(child.clone());
+        }
+        map
+    };
+
+    let scripted: Vec<(String, String)> = {
+        let mut q = world.query::<(Entity, &Name, &Script)>();
+        q.iter(world)
+            .map(|(e, n, _)| (e.to_bits().to_string(), n.0.clone()))
+            .collect()
+    };
+
+    let all_names: Vec<String> = {
+        let mut q = world.query::<&Name>();
+        q.iter(world).map(|n| n.0.clone()).collect()
+    };
+
+    let collision_json = COLLISION_SNAPSHOT.with(|s| {
+        let evs = s.borrow();
+        serde_json::to_string(
+            &evs.iter()
+                .map(|(a, b, started)| {
+                    serde_json::json!({"nameA": a, "nameB": b, "started": started})
+                })
+                .collect::<Vec<_>>(),
+        )
+        .unwrap_or_else(|_| "[]".to_string())
+    });
+
+    TRANSFORM_SNAPSHOT.with(|s| *s.borrow_mut() = transform_snapshot);
+    WORLD_TRANSFORM_SNAPSHOT.with(|s| *s.borrow_mut() = world_transform_snapshot);
+    VISIBLE_SNAPSHOT.with(|s| *s.borrow_mut() = visible_snapshot);
+    MATERIAL_COLOR_SNAPSHOT.with(|s| *s.borrow_mut() = material_color_snapshot);
+    MATERIAL_EMISSIVE_SNAPSHOT.with(|s| *s.borrow_mut() = material_emissive_snapshot);
+    MATERIAL_METALLIC_SNAPSHOT.with(|s| *s.borrow_mut() = material_metallic_snapshot);
+    MATERIAL_ROUGHNESS_SNAPSHOT.with(|s| *s.borrow_mut() = material_roughness_snapshot);
+
+    let (elapsed_secs, delta_secs) =
+        if let Some(mut timing) = world.get_resource_mut::<ScriptTimingState>() {
+            let now = std::time::Instant::now();
+            let elapsed = now.duration_since(timing.startup).as_secs_f32();
+            let delta = now.duration_since(timing.last_frame).as_secs_f32();
+            timing.last_frame = now;
+            (elapsed, delta)
+        } else {
+            (0.0, 0.0)
+        };
+    TIME_ELAPSED_SNAPSHOT.with(|s| *s.borrow_mut() = elapsed_secs);
+    TIME_DELTA_SNAPSHOT.with(|s| *s.borrow_mut() = delta_secs);
+    if let Some(ss) = world.get_resource::<ScreenSize>() {
+        SCREEN_SIZE_SNAPSHOT.with(|s| *s.borrow_mut() = (ss.width, ss.height));
+    }
+    KEY_SNAPSHOT.with(|k| *k.borrow_mut() = key_snapshot);
+    KEY_JUST_PRESSED_SNAPSHOT.with(|k| *k.borrow_mut() = key_just_pressed);
+    KEY_JUST_RELEASED_SNAPSHOT.with(|k| *k.borrow_mut() = key_just_released);
+    ENTITY_NAMES_SNAPSHOT.with(|s| *s.borrow_mut() = all_names);
+    MOUSE_PRESSED_SNAPSHOT.with(|s| *s.borrow_mut() = mb_pressed);
+    MOUSE_JUST_PRESSED_SNAPSHOT.with(|s| *s.borrow_mut() = mb_just_pressed);
+    MOUSE_JUST_RELEASED_SNAPSHOT.with(|s| *s.borrow_mut() = mb_just_released);
+    MOUSE_POS_SNAPSHOT.with(|s| *s.borrow_mut() = mouse_pos);
+    MOUSE_DELTA_SNAPSHOT.with(|s| *s.borrow_mut() = mouse_delta);
+    let ui_clicked: Vec<String> = world
+        .get_resource::<UiState>()
+        .map(|ui| ui.clicked.iter().cloned().collect())
+        .unwrap_or_default();
+    UI_CLICKED_SNAPSHOT.with(|s| *s.borrow_mut() = ui_clicked);
+    let mass_snapshot: HashMap<String, f32> = world
+        .get_resource::<PhysicsWorld>()
+        .map(|pw| {
+            entity_name_map
+                .iter()
+                .filter_map(|(&bits, name)| {
+                    let entity = bevy_ecs::prelude::Entity::from_bits(bits);
+                    pw.get_mass(entity).map(|m| (name.clone(), m))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let gravity_scale_snapshot: HashMap<String, f32> = world
+        .get_resource::<PhysicsWorld>()
+        .map(|pw| {
+            entity_name_map
+                .iter()
+                .filter_map(|(&bits, name)| {
+                    let entity = bevy_ecs::prelude::Entity::from_bits(bits);
+                    pw.get_gravity_scale(entity).map(|s| (name.clone(), s))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let body_type_snapshot: HashMap<String, bool> = world
+        .get_resource::<PhysicsWorld>()
+        .map(|pw| {
+            entity_name_map
+                .iter()
+                .filter_map(|(&bits, name)| {
+                    let entity = bevy_ecs::prelude::Entity::from_bits(bits);
+                    pw.is_kinematic(entity).map(|k| (name.clone(), k))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let collider_sensor_snapshot: HashMap<String, bool> = world
+        .get_resource::<PhysicsWorld>()
+        .map(|pw| {
+            entity_name_map
+                .iter()
+                .filter_map(|(&bits, name)| {
+                    let entity = bevy_ecs::prelude::Entity::from_bits(bits);
+                    pw.is_collider_sensor(entity).map(|s| (name.clone(), s))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let linear_damping_snapshot: HashMap<String, f32> = world
+        .get_resource::<PhysicsWorld>()
+        .map(|pw| {
+            entity_name_map
+                .iter()
+                .filter_map(|(&bits, name)| {
+                    let entity = bevy_ecs::prelude::Entity::from_bits(bits);
+                    pw.get_linear_damping(entity).map(|d| (name.clone(), d))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let angular_damping_snapshot: HashMap<String, f32> = world
+        .get_resource::<PhysicsWorld>()
+        .map(|pw| {
+            entity_name_map
+                .iter()
+                .filter_map(|(&bits, name)| {
+                    let entity = bevy_ecs::prelude::Entity::from_bits(bits);
+                    pw.get_angular_damping(entity).map(|d| (name.clone(), d))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let restitution_snapshot: HashMap<String, f32> = world
+        .get_resource::<PhysicsWorld>()
+        .map(|pw| {
+            entity_name_map
+                .iter()
+                .filter_map(|(&bits, name)| {
+                    let entity = bevy_ecs::prelude::Entity::from_bits(bits);
+                    pw.get_restitution(entity).map(|v| (name.clone(), v))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let friction_snapshot: HashMap<String, f32> = world
+        .get_resource::<PhysicsWorld>()
+        .map(|pw| {
+            entity_name_map
+                .iter()
+                .filter_map(|(&bits, name)| {
+                    let entity = bevy_ecs::prelude::Entity::from_bits(bits);
+                    pw.get_friction(entity).map(|v| (name.clone(), v))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let sleep_snapshot: HashMap<String, bool> = world
+        .get_resource::<PhysicsWorld>()
+        .map(|pw| {
+            entity_name_map
+                .iter()
+                .filter_map(|(&bits, name)| {
+                    let entity = bevy_ecs::prelude::Entity::from_bits(bits);
+                    pw.is_sleeping(entity).map(|v| (name.clone(), v))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let (tag_snapshot, entity_tags_snapshot): (
+        HashMap<String, Vec<String>>,
+        HashMap<String, Vec<String>>,
+    ) = {
+        let mut by_label: HashMap<String, Vec<String>> = HashMap::new();
+        let mut by_name: HashMap<String, Vec<String>> = HashMap::new();
+        let mut q = world.query::<(&Name, &Tag)>();
+        for (name, tag) in q.iter(world) {
+            for label in tag.iter() {
+                by_label
+                    .entry(label.to_string())
+                    .or_default()
+                    .push(name.0.clone());
+                by_name
+                    .entry(name.0.clone())
+                    .or_default()
+                    .push(label.to_string());
+            }
+        }
+        (by_label, by_name)
+    };
+    ENTITY_NAME_MAP.with(|m| *m.borrow_mut() = entity_name_map);
+    PARENT_SNAPSHOT.with(|s| *s.borrow_mut() = parent_map);
+    CHILDREN_SNAPSHOT.with(|s| *s.borrow_mut() = children_map);
+    TAG_SNAPSHOT.with(|s| *s.borrow_mut() = tag_snapshot);
+    ENTITY_TAGS_SNAPSHOT.with(|s| *s.borrow_mut() = entity_tags_snapshot);
+    VELOCITY_SNAPSHOT.with(|s| *s.borrow_mut() = velocity_snapshot);
+    ANGULAR_VELOCITY_SNAPSHOT.with(|s| *s.borrow_mut() = angular_velocity_snapshot);
+    MASS_SNAPSHOT.with(|s| *s.borrow_mut() = mass_snapshot);
+    GRAVITY_SCALE_SNAPSHOT.with(|s| *s.borrow_mut() = gravity_scale_snapshot);
+    BODY_TYPE_SNAPSHOT.with(|s| *s.borrow_mut() = body_type_snapshot);
+    COLLIDER_SENSOR_SNAPSHOT.with(|s| *s.borrow_mut() = collider_sensor_snapshot);
+    LINEAR_DAMPING_SNAPSHOT.with(|s| *s.borrow_mut() = linear_damping_snapshot);
+    ANGULAR_DAMPING_SNAPSHOT.with(|s| *s.borrow_mut() = angular_damping_snapshot);
+    RESTITUTION_SNAPSHOT.with(|s| *s.borrow_mut() = restitution_snapshot);
+    FRICTION_SNAPSHOT.with(|s| *s.borrow_mut() = friction_snapshot);
+    SLEEP_SNAPSHOT.with(|s| *s.borrow_mut() = sleep_snapshot);
+    let gravity = world
+        .get_resource::<PhysicsWorld>()
+        .map(|pw| pw.gravity())
+        .unwrap_or(9.81);
+    GRAVITY_SNAPSHOT.with(|s| *s.borrow_mut() = gravity);
+    PHYSICS_WORLD_PTR.with(|p| *p.borrow_mut() = physics_ptr);
+    GAMEPAD_BUTTON_SNAPSHOT.with(|s| *s.borrow_mut() = gpad_pressed);
+    GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT.with(|s| *s.borrow_mut() = gpad_just_pressed);
+    GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT.with(|s| *s.borrow_mut() = gpad_just_released);
+    GAMEPAD_STICKS_SNAPSHOT.with(|s| *s.borrow_mut() = gamepad_sticks);
+    if let Some(handles) = world.get_resource::<SoundHandles>() {
+        use kira::sound::PlaybackState;
+        let mut states = std::collections::HashMap::new();
+        let mut positions = std::collections::HashMap::new();
+        for (id, handle) in &handles.0 {
+            let state = match handle.state() {
+                PlaybackState::Playing => "playing",
+                PlaybackState::Pausing => "pausing",
+                PlaybackState::Paused => "paused",
+                PlaybackState::WaitingToResume => "waiting_to_resume",
+                PlaybackState::Resuming => "resuming",
+                PlaybackState::Stopping => "stopping",
+                PlaybackState::Stopped => "stopped",
+            };
+            states.insert(*id, state.to_string());
+            positions.insert(*id, handle.position());
+        }
+        SOUND_STATE_SNAPSHOT.with(|s| *s.borrow_mut() = states);
+        SOUND_POSITION_SNAPSHOT.with(|s| *s.borrow_mut() = positions);
+    }
+    {
+        use bsengine_core::Health;
+        let mut health_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Health)>();
+        for (name, health) in q.iter(world) {
+            health_map.insert(name.0.clone(), (health.current, health.max));
+        }
+        HEALTH_SNAPSHOT.with(|s| *s.borrow_mut() = health_map);
+    }
+    {
+        use bsengine_core::AnimationPlayer;
+        let mut anim_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &AnimationPlayer)>();
+        for (name, ap) in q.iter(world) {
+            anim_map.insert(
+                name.0.clone(),
+                (ap.clip.clone(), ap.time, ap.speed, ap.looping, ap.playing),
+            );
+        }
+        ANIMATION_SNAPSHOT.with(|s| *s.borrow_mut() = anim_map);
+    }
+    {
+        use bsengine_core::AnimationStateMachine;
+        let mut asm_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &AnimationStateMachine)>();
+        for (name, asm) in q.iter(world) {
+            asm_map.insert(name.0.clone(), asm.current_state.clone());
+        }
+        ASM_STATE_SNAPSHOT.with(|s| *s.borrow_mut() = asm_map);
+    }
+    {
+        use bsengine_core::Lifetime;
+        let mut lifetime_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Lifetime)>();
+        for (name, lt) in q.iter(world) {
+            lifetime_map.insert(name.0.clone(), lt.remaining);
+        }
+        LIFETIME_SNAPSHOT.with(|s| *s.borrow_mut() = lifetime_map);
+    }
+    {
+        use bsengine_core::Stamina;
+        let mut stamina_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Stamina)>();
+        for (name, st) in q.iter(world) {
+            stamina_map.insert(name.0.clone(), (st.current, st.max, st.exhausted));
+        }
+        STAMINA_SNAPSHOT.with(|s| *s.borrow_mut() = stamina_map);
+    }
+    {
+        use bsengine_core::Mana;
+        let mut mana_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Mana)>();
+        for (name, mn) in q.iter(world) {
+            mana_map.insert(name.0.clone(), (mn.current, mn.max));
+        }
+        MANA_SNAPSHOT.with(|s| *s.borrow_mut() = mana_map);
+    }
+    {
+        use bsengine_core::MoveSpeed;
+        let mut ms_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &MoveSpeed)>();
+        for (name, ms) in q.iter(world) {
+            ms_map.insert(name.0.clone(), (ms.base, ms.effective()));
+        }
+        MOVE_SPEED_SNAPSHOT.with(|s| *s.borrow_mut() = ms_map);
+    }
+    {
+        use bsengine_core::Scald;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Scald)>();
+        for (name, sc) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sc.heat_stacks,
+                    sc.max_stacks,
+                    sc.amplify_per_stack,
+                    sc.stack_duration,
+                    sc.just_scalded,
+                    sc.just_cooled,
+                    sc.enabled,
+                ),
+            );
+        }
+        SCALD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Scan;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Scan)>();
+        for (name, sc) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (sc.radius, sc.interval, sc.timer, sc.just_pulsed, sc.enabled),
+            );
+        }
+        SCAN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Scar;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Scar)>();
+        for (name, sc) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sc.scars,
+                    sc.max_scars,
+                    sc.regen_penalty_per_scar,
+                    sc.just_scarred,
+                    sc.just_cleansed,
+                    sc.enabled,
+                ),
+            );
+        }
+        SCAR_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Scatter;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Scatter)>();
+        for (name, sc) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sc.duration,
+                    sc.timer,
+                    sc.spread_multiplier,
+                    sc.extra_pellets,
+                    sc.just_scattered,
+                    sc.just_cleared,
+                    sc.enabled,
+                ),
+            );
+        }
+        SCATTER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Scope;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Scope)>();
+        for (name, sc) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sc.active,
+                    sc.accuracy_bonus,
+                    sc.range_bonus,
+                    sc.move_speed_penalty,
+                    sc.just_scoped,
+                    sc.just_unscoped,
+                    sc.enabled,
+                ),
+            );
+        }
+        SCOPE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Scorch;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Scorch)>();
+        for (name, sc) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sc.duration,
+                    sc.timer,
+                    sc.fire_amplify,
+                    sc.dot_rate,
+                    sc.just_scorched,
+                    sc.just_healed,
+                    sc.enabled,
+                ),
+            );
+        }
+        SCORCH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Shear;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Shear)>();
+        for (name, sh) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (sh.armor_penetration, sh.flat_penetration, sh.enabled),
+            );
+        }
+        SHEAR_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Shock;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Shock)>();
+        for (name, sh) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sh.duration,
+                    sh.timer,
+                    sh.damage_per_second,
+                    sh.interrupt_chance,
+                    sh.just_shocked,
+                    sh.just_discharged,
+                    sh.enabled,
+                ),
+            );
+        }
+        SHOCK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Shrivel;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Shrivel)>();
+        for (name, sh) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sh.shrivel_fraction,
+                    sh.shrivel_rate,
+                    sh.recovery_rate,
+                    sh.shrivel_factor,
+                    sh.shriveled,
+                    sh.just_afflicted,
+                    sh.just_recovered,
+                    sh.enabled,
+                ),
+            );
+        }
+        SHRIVEL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Shroud;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Shroud)>();
+        for (name, sh) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sh.charges,
+                    sh.save_health_fraction,
+                    sh.cooldown,
+                    sh.cooldown_timer,
+                    sh.just_saved,
+                    sh.just_exhausted,
+                    sh.enabled,
+                ),
+            );
+        }
+        SHROUD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Shunt;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Shunt)>();
+        for (name, sh) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sh.shunt_resistance,
+                    sh.last_shunt_magnitude,
+                    sh.shunts_received,
+                    sh.cooldown_timer,
+                    sh.cooldown,
+                    sh.just_shunted,
+                    sh.enabled,
+                ),
+            );
+        }
+        SHUNT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Silence;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Silence)>();
+        for (name, si) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    si.duration,
+                    si.timer,
+                    si.just_silenced,
+                    si.just_unsilenced,
+                    si.enabled,
+                ),
+            );
+        }
+        SILENCE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Siphon;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Siphon)>();
+        for (name, si) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    si.duration,
+                    si.timer,
+                    si.drain_per_second,
+                    si.return_fraction,
+                    si.just_started,
+                    si.just_ended,
+                    si.enabled,
+                ),
+            );
+        }
+        SIPHON_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Slam;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Slam)>();
+        for (name, sl) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sl.phase as u32,
+                    sl.slam_speed,
+                    sl.impact_radius,
+                    sl.impact_force,
+                    sl.min_height,
+                    sl.launch_height,
+                    sl.recovery_time,
+                    sl.recovery_timer,
+                    sl.cooldown,
+                    sl.cooldown_timer,
+                    sl.wants_slam,
+                    sl.enabled,
+                ),
+            );
+        }
+        SLAM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Slay;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Slay)>();
+        for (name, sl) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sl.kill_count,
+                    sl.threshold,
+                    sl.trigger_count,
+                    sl.just_triggered,
+                    sl.enabled,
+                ),
+            );
+        }
+        SLAY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Slide;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Slide)>();
+        for (name, sl) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sl.phase as u32,
+                    sl.direction.x,
+                    sl.direction.y,
+                    sl.direction.z,
+                    sl.duration,
+                    sl.brake_start,
+                    sl.elapsed,
+                    sl.slide_speed,
+                    sl.wants_slide,
+                    sl.crouch_scale,
+                    sl.enabled,
+                ),
+            );
+        }
+        SLIDE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Slime;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Slime)>();
+        for (name, sl) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sl.slime_timer,
+                    sl.slow_factor,
+                    sl.slimed,
+                    sl.just_slimed,
+                    sl.just_cleansed,
+                    sl.enabled,
+                ),
+            );
+        }
+        SLIME_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Slink;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Slink)>();
+        for (name, sl) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sl.active,
+                    sl.speed_reduction,
+                    sl.noise_reduction,
+                    sl.just_engaged,
+                    sl.just_disengaged,
+                    sl.enabled,
+                ),
+            );
+        }
+        SLINK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::SlowMo;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &SlowMo)>();
+        for (name, sm) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sm.target_scale,
+                    sm.current_scale,
+                    sm.blend_speed,
+                    sm.max_duration.unwrap_or(0.0),
+                    sm.elapsed,
+                    sm.charge,
+                    sm.drain_rate,
+                    sm.source as u32,
+                    sm.enabled,
+                ),
+            );
+        }
+        SLOW_MO_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Smoke;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Smoke)>();
+        for (name, sm) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sm.style as u32,
+                    sm.rate,
+                    sm.color[0],
+                    sm.color[1],
+                    sm.color[2],
+                    sm.color[3],
+                    sm.particle_speed,
+                    sm.spread_rate,
+                    sm.particle_lifetime,
+                    sm.offset.x,
+                    sm.offset.y,
+                    sm.offset.z,
+                    sm.burst_duration.unwrap_or(0.0),
+                    sm.elapsed,
+                    sm.enabled,
+                ),
+            );
+        }
+        SMOKE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Snare;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Snare)>();
+        for (name, sn) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sn.duration,
+                    sn.timer,
+                    sn.slow_fraction,
+                    sn.escape_chance,
+                    sn.just_snared,
+                    sn.just_escaped,
+                    sn.enabled,
+                ),
+            );
+        }
+        SNARE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Soak;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Soak)>();
+        for (name, so) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    so.soak_level,
+                    so.decay_rate,
+                    so.fire_resistance,
+                    so.lightning_amplify,
+                    so.just_soaked,
+                    so.just_dried,
+                    so.enabled,
+                ),
+            );
+        }
+        SOAK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Spike;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Spike)>();
+        for (name, sp) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sp.duration,
+                    sp.timer,
+                    sp.damage,
+                    sp.push_force,
+                    sp.just_extended,
+                    sp.just_retracted,
+                    sp.enabled,
+                ),
+            );
+        }
+        SPIKE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Splinter;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Splinter)>();
+        for (name, sp) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sp.threshold,
+                    sp.radius,
+                    sp.damage_fraction,
+                    sp.cooldown,
+                    sp.cooldown_timer,
+                    sp.just_splintered,
+                    sp.enabled,
+                ),
+            );
+        }
+        SPLINTER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Stagger;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Stagger)>();
+        for (name, sg) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sg.phase as u32,
+                    sg.stagger_threshold,
+                    sg.stagger_duration,
+                    sg.stagger_timer,
+                    sg.recovery_duration,
+                    sg.recovery_timer,
+                    sg.stagger_count,
+                    sg.resist,
+                    sg.just_staggered,
+                    sg.enabled,
+                ),
+            );
+        }
+        STAGGER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Stake;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Stake)>();
+        for (name, sk) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sk.active,
+                    sk.hold_timer,
+                    sk.min_hold,
+                    sk.damage_bonus,
+                    sk.just_staked,
+                    sk.just_broke,
+                    sk.enabled,
+                ),
+            );
+        }
+        STAKE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Stalk;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Stalk)>();
+        for (name, st) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    st.active,
+                    st.damage_multiplier,
+                    st.just_began,
+                    st.just_consumed,
+                    st.enabled,
+                ),
+            );
+        }
+        STALK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Stance;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Stance)>();
+        for (name, sa) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sa.current.clone() as u32,
+                    sa.offense_bonus,
+                    sa.defense_reduction,
+                    sa.just_changed,
+                    sa.enabled,
+                ),
+            );
+        }
+        STANCE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Stat;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Stat)>();
+        for (name, ss) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ss.base,
+                    ss.bonus,
+                    ss.multiplier,
+                    ss.min.unwrap_or(0.0),
+                    ss.max.unwrap_or(0.0),
+                ),
+            );
+        }
+        STAT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Stealth;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Stealth)>();
+        for (name, se) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    se.base_visibility,
+                    se.visibility_modifier,
+                    se.noise_level,
+                    se.noise_decay_rate,
+                    se.sneaking,
+                    se.sneak_visibility_scale,
+                    se.enabled,
+                ),
+            );
+        }
+        STEALTH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Stomp;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Stomp)>();
+        for (name, sm) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sm.magnitude,
+                    sm.impact_radius,
+                    sm.damage_per_unit,
+                    sm.just_stomped,
+                    sm.enabled,
+                ),
+            );
+        }
+        STOMP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Stride;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Stride)>();
+        for (name, sd) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sd.stride_count,
+                    sd.max_strides,
+                    sd.speed_bonus,
+                    sd.just_peaked,
+                    sd.just_broke,
+                    sd.enabled,
+                ),
+            );
+        }
+        STRIDE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Strife;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Strife)>();
+        for (name, sf) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sf.strife,
+                    sf.max_strife,
+                    sf.gain_per_hit,
+                    sf.decay_rate,
+                    sf.just_peaked,
+                    sf.enabled,
+                ),
+            );
+        }
+        STRIFE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Stumble;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Stumble)>();
+        for (name, su) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    su.stumble_timer,
+                    su.stumble_duration,
+                    su.vulnerability_factor,
+                    su.move_penalty,
+                    su.stumble_count,
+                    su.stumbling,
+                    su.just_stumbled,
+                    su.just_recovered,
+                    su.enabled,
+                ),
+            );
+        }
+        STUMBLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Sulk;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Sulk)>();
+        for (name, sl) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sl.sulk_depth,
+                    sl.sulk_rate,
+                    sl.recovery_rate,
+                    sl.support_penalty,
+                    sl.sulking,
+                    sl.just_sulked,
+                    sl.just_snapped_out,
+                    sl.enabled,
+                ),
+            );
+        }
+        SULK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Sunder;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Sunder)>();
+        for (name, sd) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sd.shards,
+                    sd.max_shards,
+                    sd.damage_reduction_per_shard,
+                    sd.just_sundered,
+                    sd.enabled,
+                ),
+            );
+        }
+        SUNDER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Suppress;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Suppress)>();
+        for (name, sp) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sp.duration,
+                    sp.timer,
+                    sp.potency_fraction,
+                    sp.blocks_ultimates,
+                    sp.just_suppressed,
+                    sp.just_lifted,
+                    sp.enabled,
+                ),
+            );
+        }
+        SUPPRESS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Surge;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Surge)>();
+        for (name, sg) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sg.duration,
+                    sg.timer,
+                    sg.multiplier,
+                    sg.just_surged,
+                    sg.just_expired,
+                    sg.enabled,
+                ),
+            );
+        }
+        SURGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Surround;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Surround)>();
+        for (name, sr) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sr.adjacent_count,
+                    sr.encircle_threshold,
+                    sr.defense_bonus,
+                    sr.just_encircled,
+                    sr.just_cleared,
+                    sr.enabled,
+                ),
+            );
+        }
+        SURROUND_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Survive;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Survive)>();
+        for (name, sv) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (sv.charges, sv.max_charges, sv.just_survived, sv.enabled),
+            );
+        }
+        SURVIVE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Swim;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Swim)>();
+        for (name, sw) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    sw.state as u32,
+                    sw.swim_speed,
+                    sw.dive_speed,
+                    sw.ascent_speed,
+                    sw.breath_remaining,
+                    sw.max_breath,
+                    sw.breath_drain_rate,
+                    sw.breath_regen_rate,
+                    sw.depth,
+                    sw.submerge_depth,
+                    sw.wants_dive,
+                    sw.wants_surface,
+                    sw.enabled,
+                ),
+            );
+        }
+        SWIM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Taint;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Taint)>();
+        for (name, ta) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ta.duration,
+                    ta.timer,
+                    ta.healing_reduction,
+                    ta.just_tainted,
+                    ta.just_cleansed,
+                    ta.enabled,
+                ),
+            );
+        }
+        TAINT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Tally;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Tally)>();
+        for (name, tl) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    tl.count,
+                    tl.goal,
+                    tl.just_incremented,
+                    tl.just_completed,
+                    tl.just_reset,
+                    tl.enabled,
+                ),
+            );
+        }
+        TALLY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Talon;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Talon)>();
+        for (name, tn) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    tn.active,
+                    tn.grip_bonus,
+                    tn.slip_resistance,
+                    tn.just_gripped,
+                    tn.just_released,
+                    tn.enabled,
+                ),
+            );
+        }
+        TALON_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Taper;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Taper)>();
+        for (name, tp) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    tp.elapsed_time,
+                    tp.max_reduction_time,
+                    tp.damage_reduction,
+                    tp.in_combat,
+                    tp.just_peaked,
+                    tp.enabled,
+                ),
+            );
+        }
+        TAPER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Taunt;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Taunt)>();
+        for (name, tt) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    tt.is_active,
+                    tt.radius,
+                    tt.threat_boost,
+                    tt.duration,
+                    tt.timer,
+                    tt.just_activated,
+                    tt.just_expired,
+                    tt.enabled,
+                ),
+            );
+        }
+        TAUNT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Thaw;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Thaw)>();
+        for (name, th) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    th.thaw_fraction,
+                    th.thaw_rate,
+                    th.freeze_penalty,
+                    th.just_thawed,
+                    th.just_frozen,
+                    th.enabled,
+                ),
+            );
+        }
+        THAW_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Trample;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Trample)>();
+        for (name, tr) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    tr.duration,
+                    tr.timer,
+                    tr.damage,
+                    tr.push_force,
+                    tr.radius,
+                    tr.just_started,
+                    tr.just_ended,
+                    tr.enabled,
+                ),
+            );
+        }
+        TRAMPLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Trance;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Trance)>();
+        for (name, tr) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    tr.duration,
+                    tr.timer,
+                    tr.regen_multiplier,
+                    tr.just_entered,
+                    tr.just_exited,
+                    tr.enabled,
+                ),
+            );
+        }
+        TRANCE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Tranquil;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Tranquil)>();
+        for (name, tq) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    tq.duration,
+                    tq.timer,
+                    tq.regen_multiplier,
+                    tq.just_entered,
+                    tq.just_exited,
+                    tq.enabled,
+                ),
+            );
+        }
+        TRANQUIL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Transfix;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Transfix)>();
+        for (name, tf) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    tf.active,
+                    tf.timer,
+                    tf.lock_range,
+                    tf.just_locked,
+                    tf.just_broken,
+                    tf.enabled,
+                ),
+            );
+        }
+        TRANSFIX_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Tremble;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Tremble)>();
+        for (name, tb) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    tb.duration,
+                    tb.timer,
+                    tb.intensity,
+                    tb.just_trembling,
+                    tb.just_stopped,
+                    tb.enabled,
+                ),
+            );
+        }
+        TREMBLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Tremor;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Tremor)>();
+        for (name, tm) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    tm.pulse_interval,
+                    tm.pulse_timer,
+                    tm.radius,
+                    tm.stagger_strength,
+                    tm.active,
+                    tm.just_pulsed,
+                    tm.enabled,
+                ),
+            );
+        }
+        TREMOR_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Trove;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Trove)>();
+        for (name, tv) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    tv.trove_value,
+                    tv.threshold,
+                    tv.reward_multiplier,
+                    tv.trove_count,
+                    tv.just_activated,
+                    tv.enabled,
+                ),
+            );
+        }
+        TROVE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Tusk;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Tusk)>();
+        for (name, tk) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    tk.current_charge,
+                    tk.full_charge_dist,
+                    tk.max_bonus,
+                    tk.just_hit,
+                    tk.enabled,
+                ),
+            );
+        }
+        TUSK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Unrest;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Unrest)>();
+        for (name, ur) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ur.unrest_level,
+                    ur.max_unrest,
+                    ur.threshold,
+                    ur.decay_rate,
+                    ur.penalty,
+                    ur.just_became_restless,
+                    ur.just_calmed,
+                    ur.enabled,
+                ),
+            );
+        }
+        UNREST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Upkeep;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Upkeep)>();
+        for (name, up) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    up.deficit,
+                    up.max_deficit,
+                    up.cost_per_second,
+                    up.penalty,
+                    up.just_defaulted,
+                    up.just_cleared,
+                    up.enabled,
+                ),
+            );
+        }
+        UPKEEP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Urge;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Urge)>();
+        for (name, ug) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ug.urge_level,
+                    ug.max_urge,
+                    ug.build_rate,
+                    ug.decay_rate,
+                    ug.drive_bonus,
+                    ug.urged,
+                    ug.just_peaked,
+                    ug.enabled,
+                ),
+            );
+        }
+        URGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Venom;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Venom)>();
+        for (name, vn) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vn.damage_per_stack,
+                    vn.stacks,
+                    vn.max_stacks,
+                    vn.duration,
+                    vn.timer,
+                    vn.just_applied,
+                    vn.just_expired,
+                    vn.enabled,
+                ),
+            );
+        }
+        VENOM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Vex;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Vex)>();
+        for (name, vx) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vx.stacks,
+                    vx.max_stacks,
+                    vx.cc_duration_amplify_per_stack,
+                    vx.just_vexed,
+                    vx.just_cleared,
+                    vx.enabled,
+                ),
+            );
+        }
+        VEX_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Vigor;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Vigor)>();
+        for (name, vg) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vg.duration,
+                    vg.timer,
+                    vg.health_regen_per_second,
+                    vg.max_health_bonus,
+                    vg.just_invigorated,
+                    vg.just_faded,
+                    vg.enabled,
+                ),
+            );
+        }
+        VIGOR_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Vile;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Vile)>();
+        for (name, vi) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vi.duration,
+                    vi.timer,
+                    vi.heal_reduction,
+                    vi.just_applied,
+                    vi.just_cleared,
+                    vi.enabled,
+                ),
+            );
+        }
+        VILE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Void;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Void)>();
+        for (name, vo) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vo.void_charge,
+                    vo.max_charge,
+                    vo.drain_fraction,
+                    vo.just_peaked,
+                    vo.enabled,
+                ),
+            );
+        }
+        VOID_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Venture;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Venture)>();
+        for (name, vt) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vt.venture_level,
+                    vt.max_venture,
+                    vt.venture_rate,
+                    vt.recovery_rate,
+                    vt.damage_bonus,
+                    vt.in_venture,
+                    vt.just_peaked,
+                    vt.enabled,
+                ),
+            );
+        }
+        VENTURE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Verge;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Verge)>();
+        for (name, vg) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (vg.charge, vg.charge_rate, vg.just_peaked, vg.enabled),
+            );
+        }
+        VERGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Verify;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Verify)>();
+        for (name, vy) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vy.confidence,
+                    vy.max_confidence,
+                    vy.probe_rate,
+                    vy.just_verified,
+                    vy.just_refuted,
+                    vy.enabled,
+                ),
+            );
+        }
+        VERIFY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Verily;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Verily)>();
+        for (name, vl) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vl.conviction,
+                    vl.max_conviction,
+                    vl.oath_rate,
+                    vl.just_sworn,
+                    vl.just_recanted,
+                    vl.enabled,
+                ),
+            );
+        }
+        VERILY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Vermin;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Vermin)>();
+        for (name, vm) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vm.infestation,
+                    vm.max_infestation,
+                    vm.swarm_rate,
+                    vm.just_swarmed,
+                    vm.just_exterminated,
+                    vm.enabled,
+                ),
+            );
+        }
+        VERMIN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Vernal;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Vernal)>();
+        for (name, vn) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vn.bloom,
+                    vn.max_bloom,
+                    vn.thaw_rate,
+                    vn.just_bloomed,
+                    vn.just_dormant,
+                    vn.enabled,
+                ),
+            );
+        }
+        VERNAL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Verse;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Verse)>();
+        for (name, vs) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vs.meter,
+                    vs.max_meter,
+                    vs.cadence_rate,
+                    vs.just_composed,
+                    vs.just_silenced,
+                    vs.enabled,
+                ),
+            );
+        }
+        VERSE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Vertex;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Vertex)>();
+        for (name, vx) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vx.apex,
+                    vx.max_apex,
+                    vx.ascent_rate,
+                    vx.just_peaked,
+                    vx.just_grounded,
+                    vx.enabled,
+                ),
+            );
+        }
+        VERTEX_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Verve;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Verve)>();
+        for (name, vv) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vv.verve_level,
+                    vv.max_verve,
+                    vv.gain_per_action,
+                    vv.decay_rate,
+                    vv.action_bonus,
+                    vv.just_peaked,
+                    vv.enabled,
+                ),
+            );
+        }
+        VERVE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Vest;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Vest)>();
+        for (name, vst) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vst.absorption_per_hit,
+                    vst.hits_absorbed,
+                    vst.last_absorbed,
+                    vst.just_absorbed,
+                    vst.enabled,
+                ),
+            );
+        }
+        VEST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Vice;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Vice)>();
+        for (name, vc) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vc.corruption,
+                    vc.max_corruption,
+                    vc.temptation_rate,
+                    vc.just_corrupted,
+                    vc.just_purified,
+                    vc.enabled,
+                ),
+            );
+        }
+        VICE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Vim;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Vim)>();
+        for (name, vm) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vm.drive,
+                    vm.max_drive,
+                    vm.vigor_rate,
+                    vm.just_energized,
+                    vm.just_sapped,
+                    vm.enabled,
+                ),
+            );
+        }
+        VIM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Viper;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Viper)>();
+        for (name, vp) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vp.venom,
+                    vp.max_venom,
+                    vp.toxin_rate,
+                    vp.just_envenomed,
+                    vp.just_drained,
+                    vp.enabled,
+                ),
+            );
+        }
+        VIPER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Viral;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Viral)>();
+        for (name, vrl) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vrl.contagion,
+                    vrl.max_contagion,
+                    vrl.spread_rate,
+                    vrl.just_spread,
+                    vrl.just_contained,
+                    vrl.enabled,
+                ),
+            );
+        }
+        VIRAL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Visit;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Visit)>();
+        for (name, vi) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vi.exposure,
+                    vi.max_exposure,
+                    vi.presence_rate,
+                    vi.just_visited,
+                    vi.just_departed,
+                    vi.enabled,
+                ),
+            );
+        }
+        VISIT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Vista;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Vista)>();
+        for (name, vta) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vta.clarity,
+                    vta.max_clarity,
+                    vta.reveal_rate,
+                    vta.just_revealed,
+                    vta.just_dimmed,
+                    vta.enabled,
+                ),
+            );
+        }
+        VISTA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Vibrate;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Vibrate)>();
+        for (name, vib) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vib.amplitude,
+                    vib.frequency,
+                    vib.duration,
+                    vib.elapsed,
+                    vib.decay_rate,
+                    vib.just_started,
+                    vib.just_stopped,
+                    vib.enabled,
+                ),
+            );
+        }
+        VIBRATE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Viewport;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Viewport)>();
+        for (name, vp) in q.iter(world) {
+            map.insert(name.0.clone(), (vp.x, vp.y, vp.width, vp.height));
+        }
+        VIEWPORT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Vision;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Vision)>();
+        for (name, vis) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vis.range,
+                    vis.fov_half_angle,
+                    vis.detection_mask,
+                    vis.in_view_duration,
+                    vis.detection_delay,
+                    vis.los_blocked,
+                    vis.last_seen.is_some(),
+                    vis.enabled,
+                ),
+            );
+        }
+        VISION_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::VolumetricLight;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &VolumetricLight)>();
+        for (name, vl) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vl.scattering,
+                    vl.absorption,
+                    vl.anisotropy,
+                    vl.step_count,
+                    vl.max_distance,
+                    vl.enabled,
+                ),
+            );
+        }
+        VOLUMETRIC_LIGHT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Volley;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Volley)>();
+        for (name, vol) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vol.charge,
+                    vol.max_charge,
+                    vol.draw_rate,
+                    vol.just_vollied,
+                    vol.just_spent,
+                    vol.enabled,
+                ),
+            );
+        }
+        VOLLEY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Vortex;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Vortex)>();
+        for (name, vtx) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vtx.spin,
+                    vtx.max_spin,
+                    vtx.spiral_rate,
+                    vtx.just_formed,
+                    vtx.just_calm,
+                    vtx.enabled,
+                ),
+            );
+        }
+        VORTEX_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Vow;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Vow)>();
+        for (name, vow) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vow.pledge,
+                    vow.max_pledge,
+                    vow.devotion_rate,
+                    vow.just_bound,
+                    vow.just_broken,
+                    vow.enabled,
+                ),
+            );
+        }
+        VOW_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Vulnerable;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Vulnerable)>();
+        for (name, vul) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vul.exposure,
+                    vul.max_exposure,
+                    vul.breach_rate,
+                    vul.just_exposed,
+                    vul.just_hardened,
+                    vul.enabled,
+                ),
+            );
+        }
+        VULNERABLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Vulture;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Vulture)>();
+        for (name, vul) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    vul.patience,
+                    vul.max_patience,
+                    vul.wait_rate,
+                    vul.just_descended,
+                    vul.just_scattered,
+                    vul.enabled,
+                ),
+            );
+        }
+        VULTURE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wage;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wage)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.earnings,
+                    w.max_earnings,
+                    w.income_rate,
+                    w.just_paid,
+                    w.just_broke,
+                    w.enabled,
+                ),
+            );
+        }
+        WAGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wager;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wager)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.stake,
+                    w.max_stake,
+                    w.risk_rate,
+                    w.just_won,
+                    w.just_lost,
+                    w.enabled,
+                ),
+            );
+        }
+        WAGER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wail;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wail)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.grief,
+                    w.max_grief,
+                    w.keen_rate,
+                    w.just_wailed,
+                    w.just_calmed,
+                    w.enabled,
+                ),
+            );
+        }
+        WAIL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wake;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wake)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.arousal,
+                    w.max_arousal,
+                    w.alert_rate,
+                    w.just_woken,
+                    w.just_slept,
+                    w.enabled,
+                ),
+            );
+        }
+        WAKE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Walk;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Walk)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.stride,
+                    w.max_stride,
+                    w.pace_rate,
+                    w.just_striding,
+                    w.just_halted,
+                    w.enabled,
+                ),
+            );
+        }
+        WALK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::{Wall, WallState};
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wall)>();
+        for (name, w) in q.iter(world) {
+            let state_u32 = match w.state {
+                WallState::None => 0u32,
+                WallState::Running => 1u32,
+                WallState::Sliding => 2u32,
+                WallState::Jumping => 3u32,
+            };
+            map.insert(
+                name.0.clone(),
+                (
+                    state_u32,
+                    w.run_speed,
+                    w.slide_speed,
+                    w.gravity_scale,
+                    w.run_timer,
+                    w.wall_jump_force,
+                    w.enabled,
+                ),
+            );
+        }
+        WALL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Waltz;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Waltz)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.rhythm,
+                    w.max_rhythm,
+                    w.grace_rate,
+                    w.just_dancing,
+                    w.just_still,
+                    w.enabled,
+                ),
+            );
+        }
+        WALTZ_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wand;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wand)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.charge,
+                    w.max_charge,
+                    w.channel_rate,
+                    w.just_charged,
+                    w.just_spent,
+                    w.enabled,
+                ),
+            );
+        }
+        WAND_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wane;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wane)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.duration,
+                    w.timer,
+                    w.min_potency,
+                    w.just_waning,
+                    w.just_expired,
+                    w.enabled,
+                ),
+            );
+        }
+        WANE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wangle;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wangle)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.scheme,
+                    w.max_scheme,
+                    w.maneuver_rate,
+                    w.just_schemed,
+                    w.just_foiled,
+                    w.enabled,
+                ),
+            );
+        }
+        WANGLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Want;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Want)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.desire,
+                    w.max_desire,
+                    w.craving_rate,
+                    w.just_wanted,
+                    w.just_sated,
+                    w.enabled,
+                ),
+            );
+        }
+        WANT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wanton;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wanton)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.excess,
+                    w.max_excess,
+                    w.indulge_rate,
+                    w.just_reckless,
+                    w.just_restrained,
+                    w.enabled,
+                ),
+            );
+        }
+        WANTON_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Ward;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Ward)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.ward_hp,
+                    w.max_ward_hp,
+                    w.just_broke,
+                    w.just_reinforced,
+                    w.enabled,
+                ),
+            );
+        }
+        WARD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Warm;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Warm)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.heat,
+                    w.max_heat,
+                    w.kindle_rate,
+                    w.just_warm,
+                    w.just_cold,
+                    w.enabled,
+                ),
+            );
+        }
+        WARM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Warp;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Warp)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.phase as u32,
+                    w.max_range,
+                    w.charge_duration,
+                    w.cooldown_duration,
+                    w.just_warped,
+                    w.enabled,
+                ),
+            );
+        }
+        WARP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Warn;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Warn)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.hp_threshold,
+                    w.cooldown,
+                    w.cooldown_timer,
+                    w.just_triggered,
+                    w.enabled,
+                ),
+            );
+        }
+        WARN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wary;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wary)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.wary_level,
+                    w.max_wary,
+                    w.threshold,
+                    w.just_alerted,
+                    w.just_calmed,
+                    w.enabled,
+                ),
+            );
+        }
+        WARY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wash;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wash)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.grime,
+                    w.max_grime,
+                    w.soil_rate,
+                    w.just_clean,
+                    w.just_grimy,
+                    w.enabled,
+                ),
+            );
+        }
+        WASH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wasp;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wasp)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.sting,
+                    w.max_sting,
+                    w.venom_rate,
+                    w.just_venomous,
+                    w.just_spent,
+                    w.enabled,
+                ),
+            );
+        }
+        WASP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Waste;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Waste)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (w.accumulated, w.decay_rate, w.just_peaked, w.enabled),
+            );
+        }
+        WASTE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::WaterBody;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &WaterBody)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.wave_height,
+                    w.wave_speed,
+                    w.roughness,
+                    w.ssr_intensity,
+                    w.enabled,
+                ),
+            );
+        }
+        WATER_BODY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wave;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wave)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.radius,
+                    w.max_radius,
+                    w.expansion_rate,
+                    w.damage,
+                    w.just_emitted,
+                    w.just_dissipated,
+                    w.enabled,
+                ),
+            );
+        }
+        WAVE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Waver;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Waver)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.doubt,
+                    w.max_doubt,
+                    w.waver_rate,
+                    w.just_wavered,
+                    w.just_resolved,
+                    w.enabled,
+                ),
+            );
+        }
+        WAVER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wax;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wax)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.wax_level,
+                    w.max_wax,
+                    w.just_applied,
+                    w.just_stripped,
+                    w.enabled,
+                ),
+            );
+        }
+        WAX_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Way;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Way)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.progress,
+                    w.max_progress,
+                    w.traverse_rate,
+                    w.just_arrived,
+                    w.just_turned,
+                    w.enabled,
+                ),
+            );
+        }
+        WAY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Weal;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Weal)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.weal_level,
+                    w.max_weal,
+                    w.regen_rate,
+                    w.just_flourished,
+                    w.just_diminished,
+                    w.enabled,
+                ),
+            );
+        }
+        WEAL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Weary;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Weary)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.fatigue,
+                    w.max_fatigue,
+                    w.drain_rate,
+                    w.just_exhausted,
+                    w.just_refreshed,
+                    w.enabled,
+                ),
+            );
+        }
+        WEARY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Weather;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Weather)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.cloud_cover,
+                    w.precipitation_intensity,
+                    w.temperature,
+                    w.fog_density,
+                    w.lightning_probability,
+                    w.enabled,
+                ),
+            );
+        }
+        WEATHER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Weave;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Weave)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.weave_level,
+                    w.max_weave,
+                    w.buildup_rate,
+                    w.weaving,
+                    w.just_peaked,
+                    w.just_broken,
+                    w.enabled,
+                ),
+            );
+        }
+        WEAVE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Weasel;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Weasel)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.weasel_level,
+                    w.max_weasel,
+                    w.regen_rate,
+                    w.just_slipped,
+                    w.enabled,
+                ),
+            );
+        }
+        WEASEL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Web;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Web)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.web_strength,
+                    w.max_strength,
+                    w.movement_penalty,
+                    w.just_caught,
+                    w.just_broken,
+                    w.enabled,
+                ),
+            );
+        }
+        WEB_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wed;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wed)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.bond,
+                    w.max_bond,
+                    w.bind_rate,
+                    w.just_wedded,
+                    w.just_sundered,
+                    w.enabled,
+                ),
+            );
+        }
+        WED_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wedge;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wedge)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.drive,
+                    w.max_drive,
+                    w.split_rate,
+                    w.just_driven,
+                    w.just_loose,
+                    w.enabled,
+                ),
+            );
+        }
+        WEDGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wee;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wee)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.glee,
+                    w.max_glee,
+                    w.cheer_rate,
+                    w.just_gleeful,
+                    w.just_subdued,
+                    w.enabled,
+                ),
+            );
+        }
+        WEE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Weed;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Weed)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.weed_level,
+                    w.max_weed,
+                    w.grow_rate,
+                    w.just_overgrown,
+                    w.just_cleared,
+                    w.enabled,
+                ),
+            );
+        }
+        WEED_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Weedy;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Weedy)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.overgrowth,
+                    w.max_overgrowth,
+                    w.spread_rate,
+                    w.just_overrun,
+                    w.just_cleared,
+                    w.enabled,
+                ),
+            );
+        }
+        WEEDY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Weep;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Weep)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.grief,
+                    w.max_grief,
+                    w.sorrow_rate,
+                    w.just_weeping,
+                    w.just_consoled,
+                    w.enabled,
+                ),
+            );
+        }
+        WEEP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Weft;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Weft)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.weft_density,
+                    w.max_density,
+                    w.weave_rate,
+                    w.fraying,
+                    w.just_rent,
+                    w.just_mended,
+                    w.enabled,
+                ),
+            );
+        }
+        WEFT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Weigh;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Weigh)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.burden,
+                    w.max_burden,
+                    w.load_rate,
+                    w.just_laden,
+                    w.just_light,
+                    w.enabled,
+                ),
+            );
+        }
+        WEIGH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Weight;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Weight)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.mass,
+                    w.max_mass,
+                    w.accrue_rate,
+                    w.just_heavy,
+                    w.just_weightless,
+                    w.enabled,
+                ),
+            );
+        }
+        WEIGHT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Weird;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Weird)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.strangeness,
+                    w.max_strangeness,
+                    w.warp_rate,
+                    w.just_bizarre,
+                    w.just_mundane,
+                    w.enabled,
+                ),
+            );
+        }
+        WEIRD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Weld;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Weld)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.strength,
+                    w.max_strength,
+                    w.welding,
+                    w.just_bonded,
+                    w.just_fractured,
+                    w.enabled,
+                ),
+            );
+        }
+        WELD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Welder;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Welder)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.bond_strength,
+                    w.max_bond_strength,
+                    w.fuse_rate,
+                    w.just_fused,
+                    w.just_fractured,
+                    w.enabled,
+                ),
+            );
+        }
+        WELDER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Welkin;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Welkin)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.expanse,
+                    w.max_expanse,
+                    w.vault_rate,
+                    w.just_heavens,
+                    w.just_zenith,
+                    w.enabled,
+                ),
+            );
+        }
+        WELKIN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Well;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Well)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.reserve,
+                    w.max_reserve,
+                    w.seep_rate,
+                    w.just_full,
+                    w.just_dry,
+                    w.enabled,
+                ),
+            );
+        }
+        WELL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Welly;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Welly)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.stride,
+                    w.max_stride,
+                    w.plod_rate,
+                    w.just_marched,
+                    w.just_halted,
+                    w.enabled,
+                ),
+            );
+        }
+        WELLY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Welp;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Welp)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.distress,
+                    w.max_distress,
+                    w.panic_rate,
+                    w.just_overwhelmed,
+                    w.just_calm,
+                    w.enabled,
+                ),
+            );
+        }
+        WELP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Welt;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Welt)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.marks,
+                    w.max_marks,
+                    w.bruise_rate,
+                    w.just_welted,
+                    w.just_healed,
+                    w.enabled,
+                ),
+            );
+        }
+        WELT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wend;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wend)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.journey,
+                    w.max_journey,
+                    w.travel_rate,
+                    w.just_arrived,
+                    w.just_lost,
+                    w.enabled,
+                ),
+            );
+        }
+        WEND_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Whiff;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Whiff)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.scent,
+                    w.max_scent,
+                    w.drift_rate,
+                    w.just_pungent,
+                    w.just_faded,
+                    w.enabled,
+                ),
+            );
+        }
+        WHIFF_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Whim;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Whim)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.impulse,
+                    w.max_impulse,
+                    w.whim_rate,
+                    w.just_whimsy,
+                    w.just_grounded,
+                    w.enabled,
+                ),
+            );
+        }
+        WHIM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Whip;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Whip)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.lash,
+                    w.max_lash,
+                    w.crack_rate,
+                    w.just_cracking,
+                    w.just_slack,
+                    w.enabled,
+                ),
+            );
+        }
+        WHIP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Whirl;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Whirl)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.angle,
+                    w.spin_speed,
+                    w.revolutions,
+                    w.active,
+                    w.just_lapped,
+                    w.enabled,
+                ),
+            );
+        }
+        WHIRL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Whisk;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Whisk)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.agitation,
+                    w.max_agitation,
+                    w.beat_rate,
+                    w.just_frothy,
+                    w.just_settled,
+                    w.enabled,
+                ),
+            );
+        }
+        WHISK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wick;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wick)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.fuel,
+                    w.max_fuel,
+                    w.draw_rate,
+                    w.just_lit,
+                    w.just_dry,
+                    w.enabled,
+                ),
+            );
+        }
+        WICK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wicker;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wicker)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.weave,
+                    w.max_weave,
+                    w.plait_rate,
+                    w.just_plaited,
+                    w.just_unraveled,
+                    w.enabled,
+                ),
+            );
+        }
+        WICKER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wig;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wig)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.coverage,
+                    w.max_coverage,
+                    w.style_rate,
+                    w.just_coiffed,
+                    w.just_bare,
+                    w.enabled,
+                ),
+            );
+        }
+        WIG_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wild;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wild)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.feral,
+                    w.max_feral,
+                    w.instinct_rate,
+                    w.just_wild,
+                    w.just_tame,
+                    w.enabled,
+                ),
+            );
+        }
+        WILD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wilder;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wilder)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.frenzy,
+                    w.max_frenzy,
+                    w.ramp_rate,
+                    w.just_frenzied,
+                    w.just_calmed,
+                    w.enabled,
+                ),
+            );
+        }
+        WILDER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wile;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wile)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.cunning,
+                    w.max_cunning,
+                    w.scheme_rate,
+                    w.just_crafty,
+                    w.just_naive,
+                    w.enabled,
+                ),
+            );
+        }
+        WILE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wiles;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wiles)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.guile,
+                    w.max_guile,
+                    w.scheme_rate,
+                    w.just_cunning,
+                    w.just_guileless,
+                    w.enabled,
+                ),
+            );
+        }
+        WILES_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Will;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Will)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.resolve,
+                    w.max_resolve,
+                    w.resolve_rate,
+                    w.just_resolved,
+                    w.just_broken,
+                    w.enabled,
+                ),
+            );
+        }
+        WILL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Willow;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Willow)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.sway,
+                    w.max_sway,
+                    w.bend_rate,
+                    w.just_swaying,
+                    w.just_still,
+                    w.enabled,
+                ),
+            );
+        }
+        WILLOW_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wilt;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wilt)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.wilt_level,
+                    w.max_wilt,
+                    w.strain_rate,
+                    w.just_wilted,
+                    w.just_recovered,
+                    w.enabled,
+                ),
+            );
+        }
+        WILT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wily;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wily)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.cunning,
+                    w.max_cunning,
+                    w.plot_rate,
+                    w.just_sly,
+                    w.just_naive,
+                    w.enabled,
+                ),
+            );
+        }
+        WILY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wimp;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wimp)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.wimp_level,
+                    w.max_wimp,
+                    w.recover_rate,
+                    w.just_flinched,
+                    w.just_overcame,
+                    w.enabled,
+                ),
+            );
+        }
+        WIMP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wimple;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wimple)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.folds,
+                    w.max_folds,
+                    w.drape_rate,
+                    w.just_draped,
+                    w.just_plain,
+                    w.enabled,
+                ),
+            );
+        }
+        WIMPLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Win;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Win)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.score,
+                    w.max_score,
+                    w.win_rate,
+                    w.just_won,
+                    w.just_lost,
+                    w.enabled,
+                ),
+            );
+        }
+        WIN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wince;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wince)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.wince_level,
+                    w.max_wince,
+                    w.decay_rate,
+                    w.just_winced,
+                    w.just_recovered,
+                    w.enabled,
+                ),
+            );
+        }
+        WINCE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Winch;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Winch)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.tension,
+                    w.max_tension,
+                    w.crank_rate,
+                    w.just_taut,
+                    w.just_slack,
+                    w.enabled,
+                ),
+            );
+        }
+        WINCH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Winder;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Winder)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.tension,
+                    w.max_tension,
+                    w.crank_rate,
+                    w.just_taut,
+                    w.just_slack,
+                    w.enabled,
+                ),
+            );
+        }
+        WINDER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Windfall;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Windfall)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.fortune,
+                    w.max_fortune,
+                    w.accrue_rate,
+                    w.just_fortunate,
+                    w.just_penniless,
+                    w.enabled,
+                ),
+            );
+        }
+        WINDFALL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Windup;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Windup)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.duration,
+                    w.timer,
+                    w.damage_multiplier,
+                    w.just_started,
+                    w.just_released,
+                    w.enabled,
+                ),
+            );
+        }
+        WINDUP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wine;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wine)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.wine_age,
+                    w.peak_vintage,
+                    w.age_rate,
+                    w.just_peaked,
+                    w.just_spoiled,
+                    w.enabled,
+                ),
+            );
+        }
+        WINE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wing;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wing)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.lift,
+                    w.max_lift,
+                    w.glide_rate,
+                    w.just_airborne,
+                    w.just_grounded,
+                    w.enabled,
+                ),
+            );
+        }
+        WING_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wink;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wink)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.wink_timer,
+                    w.wink_duration,
+                    w.wink_power,
+                    w.active,
+                    w.just_closed,
+                    w.enabled,
+                ),
+            );
+        }
+        WINK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wino;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wino)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.indulgence,
+                    w.max_indulgence,
+                    w.tipple_rate,
+                    w.just_tipsy,
+                    w.just_sober,
+                    w.enabled,
+                ),
+            );
+        }
+        WINO_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Winsome;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Winsome)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.charm,
+                    w.max_charm,
+                    w.delight_rate,
+                    w.just_delightful,
+                    w.just_dull,
+                    w.enabled,
+                ),
+            );
+        }
+        WINSOME_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wintry;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wintry)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.cold,
+                    w.max_cold,
+                    w.chill_rate,
+                    w.just_frozen,
+                    w.just_thawed,
+                    w.enabled,
+                ),
+            );
+        }
+        WINTRY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wire;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wire)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.wire_count as f32,
+                    w.max_wires as f32,
+                    w.wire_fraction(),
+                    w.just_connected,
+                    w.just_severed,
+                    w.enabled,
+                ),
+            );
+        }
+        WIRE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wise;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wise)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.insight,
+                    w.max_insight,
+                    w.discern_rate,
+                    w.just_wise,
+                    w.just_clouded,
+                    w.enabled,
+                ),
+            );
+        }
+        WISE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wish;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wish)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.longing,
+                    w.max_longing,
+                    w.yearn_rate,
+                    w.just_yearning,
+                    w.just_content,
+                    w.enabled,
+                ),
+            );
+        }
+        WISH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wisp;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wisp)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.orbit_timer,
+                    w.orbit_period,
+                    w.heal_per_pulse,
+                    w.active,
+                    w.just_pulsed,
+                    w.enabled,
+                ),
+            );
+        }
+        WISP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wispy;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wispy)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.ethereal,
+                    w.max_ethereal,
+                    w.drift_rate,
+                    w.just_vaporous,
+                    w.just_solid,
+                    w.enabled,
+                ),
+            );
+        }
+        WISPY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wist;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wist)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.wist_level,
+                    w.max_wist,
+                    w.wist_fraction(),
+                    w.just_yearned,
+                    w.just_peaked,
+                    w.enabled,
+                ),
+            );
+        }
+        WIST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wistful;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wistful)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.longing,
+                    w.max_longing,
+                    w.pine_rate,
+                    w.just_pining,
+                    w.just_content,
+                    w.enabled,
+                ),
+            );
+        }
+        WISTFUL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wit;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wit)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.acuity,
+                    w.max_acuity,
+                    w.quick_rate,
+                    w.just_sharp,
+                    w.just_dulled,
+                    w.enabled,
+                ),
+            );
+        }
+        WIT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Witch;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Witch)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.charge_count as f32,
+                    w.max_charges as f32,
+                    w.charge_fraction(),
+                    w.just_charged,
+                    w.just_exhausted,
+                    w.enabled,
+                ),
+            );
+        }
+        WITCH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Witless;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Witless)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.folly,
+                    w.max_folly,
+                    w.blunder_rate,
+                    w.just_addled,
+                    w.just_lucid,
+                    w.enabled,
+                ),
+            );
+        }
+        WITLESS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Witty;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Witty)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.wit,
+                    w.max_wit,
+                    w.quip_rate,
+                    w.just_sharp,
+                    w.just_dull,
+                    w.enabled,
+                ),
+            );
+        }
+        WITTY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wiz;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wiz)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.wiz_level,
+                    w.max_wiz,
+                    w.grow_rate,
+                    w.just_practiced,
+                    w.just_mastered,
+                    w.enabled,
+                ),
+            );
+        }
+        WIZ_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Woe;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Woe)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.woe_level,
+                    w.max_woe,
+                    w.decay_rate,
+                    w.just_afflicted,
+                    w.just_overcome,
+                    w.enabled,
+                ),
+            );
+        }
+        WOE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Woeful;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Woeful)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.sorrow,
+                    w.max_sorrow,
+                    w.grieve_rate,
+                    w.just_grieving,
+                    w.just_eased,
+                    w.enabled,
+                ),
+            );
+        }
+        WOEFUL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wok;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wok)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.heat_level,
+                    w.max_heat,
+                    w.cool_rate,
+                    w.just_seared,
+                    w.just_cooled,
+                    w.enabled,
+                ),
+            );
+        }
+        WOK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Woke;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Woke)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.awareness,
+                    w.max_awareness,
+                    w.rouse_rate,
+                    w.just_roused,
+                    w.just_dormant,
+                    w.enabled,
+                ),
+            );
+        }
+        WOKE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Woken;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Woken)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.alertness,
+                    w.max_alertness,
+                    w.rouse_rate,
+                    w.just_roused,
+                    w.just_drowsy,
+                    w.enabled,
+                ),
+            );
+        }
+        WOKEN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wold;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wold)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.expanse,
+                    w.max_expanse,
+                    w.roam_rate,
+                    w.just_vast,
+                    w.just_barren,
+                    w.enabled,
+                ),
+            );
+        }
+        WOLD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wolf;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wolf)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.hunt_level,
+                    w.max_hunt,
+                    w.hunt_fraction(),
+                    w.just_locked,
+                    w.just_broken,
+                    w.enabled,
+                ),
+            );
+        }
+        WOLF_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Womb;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Womb)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.gestation,
+                    w.max_gestation,
+                    w.grow_rate,
+                    w.just_born,
+                    w.just_lost,
+                    w.enabled,
+                ),
+            );
+        }
+        WOMB_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wombat;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wombat)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.burrow,
+                    w.max_burrow,
+                    w.dig_rate,
+                    w.just_tunneled,
+                    w.just_surfaced,
+                    w.enabled,
+                ),
+            );
+        }
+        WOMBAT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Women;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Women)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.solidarity,
+                    w.max_solidarity,
+                    w.bond_rate,
+                    w.just_bonded,
+                    w.just_severed,
+                    w.enabled,
+                ),
+            );
+        }
+        WOMEN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Won;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Won)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.victories,
+                    w.max_victories,
+                    w.streak_rate,
+                    w.just_won,
+                    w.just_lost,
+                    w.enabled,
+                ),
+            );
+        }
+        WON_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wonder;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wonder)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.awe,
+                    w.max_awe,
+                    w.marvel_rate,
+                    w.just_awed,
+                    w.just_jaded,
+                    w.enabled,
+                ),
+            );
+        }
+        WONDER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wondrous;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wondrous)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.marvel,
+                    w.max_marvel,
+                    w.awe_rate,
+                    w.just_astounded,
+                    w.just_mundane,
+                    w.enabled,
+                ),
+            );
+        }
+        WONDROUS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wonk;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wonk)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.expertise,
+                    w.max_expertise,
+                    w.study_rate,
+                    w.just_mastered,
+                    w.just_lapsed,
+                    w.enabled,
+                ),
+            );
+        }
+        WONK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wonky;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wonky)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.instability,
+                    w.max_instability,
+                    w.wobble_rate,
+                    w.just_toppled,
+                    w.just_steadied,
+                    w.enabled,
+                ),
+            );
+        }
+        WONKY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wont;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wont)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.habit,
+                    w.max_habit,
+                    w.routine_rate,
+                    w.just_ingrained,
+                    w.just_broken,
+                    w.enabled,
+                ),
+            );
+        }
+        WONT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Woo;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Woo)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.woo_level,
+                    w.max_woo,
+                    w.woo_fraction(),
+                    w.just_charmed,
+                    w.just_smitten,
+                    w.enabled,
+                ),
+            );
+        }
+        WOO_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wood;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wood)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.stock,
+                    w.max_stock,
+                    w.grow_rate,
+                    w.just_stocked,
+                    w.just_bare,
+                    w.enabled,
+                ),
+            );
+        }
+        WOOD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Woodsy;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Woodsy)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.rusticity,
+                    w.max_rusticity,
+                    w.wild_rate,
+                    w.just_feral,
+                    w.just_tamed,
+                    w.enabled,
+                ),
+            );
+        }
+        WOODSY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wooer;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wooer)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.appeal,
+                    w.max_appeal,
+                    w.charm_rate,
+                    w.just_smitten,
+                    w.just_spurned,
+                    w.enabled,
+                ),
+            );
+        }
+        WOOER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Woof;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Woof)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.bark,
+                    w.max_bark,
+                    w.howl_rate,
+                    w.just_howling,
+                    w.just_quiet,
+                    w.enabled,
+                ),
+            );
+        }
+        WOOF_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wool;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wool)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.warmth,
+                    w.max_warmth,
+                    w.insulate_rate,
+                    w.just_warm,
+                    w.just_cold,
+                    w.enabled,
+                ),
+            );
+        }
+        WOOL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Woolly;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Woolly)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.fleece,
+                    w.max_fleece,
+                    w.grow_rate,
+                    w.just_shaggy,
+                    w.just_shorn,
+                    w.enabled,
+                ),
+            );
+        }
+        WOOLLY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Woozy;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Woozy)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.dizziness,
+                    w.max_dizziness,
+                    w.spin_rate,
+                    w.just_reeling,
+                    w.just_clear,
+                    w.enabled,
+                ),
+            );
+        }
+        WOOZY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wordy;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wordy)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.verbosity,
+                    w.max_verbosity,
+                    w.ramble_rate,
+                    w.just_verbose,
+                    w.just_terse,
+                    w.enabled,
+                ),
+            );
+        }
+        WORDY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wore;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wore)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.wear,
+                    w.max_wear,
+                    w.abrade_rate,
+                    w.just_worn,
+                    w.just_fresh,
+                    w.enabled,
+                ),
+            );
+        }
+        WORE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Worm;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Worm)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.worm_depth,
+                    w.max_depth,
+                    w.burrow_rate,
+                    w.just_burrowed,
+                    w.just_expelled,
+                    w.enabled,
+                ),
+            );
+        }
+        WORM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Worn;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Worn)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.worn_level,
+                    w.max_worn,
+                    w.wear_rate,
+                    w.just_wore,
+                    w.just_broke,
+                    w.enabled,
+                ),
+            );
+        }
+        WORN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Worry;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Worry)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.anxiety,
+                    w.max_anxiety,
+                    w.fret_rate,
+                    w.just_anxious,
+                    w.just_calm,
+                    w.enabled,
+                ),
+            );
+        }
+        WORRY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Worse;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Worse)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.deterioration,
+                    w.max_deterioration,
+                    w.decline_rate,
+                    w.just_ruined,
+                    w.just_restored,
+                    w.enabled,
+                ),
+            );
+        }
+        WORSE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Worst;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Worst)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.extremity,
+                    w.max_extremity,
+                    w.worsen_rate,
+                    w.just_peaked,
+                    w.just_eased,
+                    w.enabled,
+                ),
+            );
+        }
+        WORST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wort;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wort)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.brew,
+                    w.max_brew,
+                    w.ferment_rate,
+                    w.just_brewed,
+                    w.just_dry,
+                    w.enabled,
+                ),
+            );
+        }
+        WORT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Worthy;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Worthy)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.merit,
+                    w.max_merit,
+                    w.earn_rate,
+                    w.just_deserving,
+                    w.just_unworthy,
+                    w.enabled,
+                ),
+            );
+        }
+        WORTHY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wound;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wound)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.count as f32,
+                    w.max_count as f32,
+                    w.bleed_per_wound,
+                    w.just_wounded,
+                    w.just_healed,
+                    w.enabled,
+                ),
+            );
+        }
+        WOUND_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wraith;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wraith)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.wraith_timer,
+                    w.wraith_duration,
+                    w.damage_reduction,
+                    w.just_entered,
+                    w.just_exited,
+                    w.enabled,
+                ),
+            );
+        }
+        WRAITH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wrangle;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wrangle)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.dispute,
+                    w.max_dispute,
+                    w.quarrel_rate,
+                    w.just_embroiled,
+                    w.just_resolved,
+                    w.enabled,
+                ),
+            );
+        }
+        WRANGLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wrap;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wrap)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.wrap_level,
+                    w.max_wrap,
+                    w.tighten_rate,
+                    w.just_gripped,
+                    w.just_freed,
+                    w.enabled,
+                ),
+            );
+        }
+        WRAP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wrath;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wrath)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.timer,
+                    w.damage_multiplier,
+                    w.defense_penalty,
+                    w.just_entered,
+                    w.just_exited,
+                    w.enabled,
+                ),
+            );
+        }
+        WRATH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wrathful;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wrathful)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.fury,
+                    w.max_fury,
+                    w.rage_rate,
+                    w.just_enraged,
+                    w.just_calmed,
+                    w.enabled,
+                ),
+            );
+        }
+        WRATHFUL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wreck;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wreck)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.wreck_level,
+                    w.max_wreck,
+                    w.decay_rate,
+                    w.just_wrecked,
+                    w.just_restored,
+                    w.enabled,
+                ),
+            );
+        }
+        WRECK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wrecker;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wrecker)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.destruction,
+                    w.max_destruction,
+                    w.demolish_rate,
+                    w.just_ruined,
+                    w.just_intact,
+                    w.enabled,
+                ),
+            );
+        }
+        WRECKER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wren;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wren)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.wren_level,
+                    w.max_wren,
+                    w.cache_rate,
+                    w.just_stocked,
+                    w.just_yielded,
+                    w.enabled,
+                ),
+            );
+        }
+        WREN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wrench;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wrench)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.torque,
+                    w.max_torque,
+                    w.twist_rate,
+                    w.just_tightened,
+                    w.just_loose,
+                    w.enabled,
+                ),
+            );
+        }
+        WRENCH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wrest;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wrest)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.wrest_level,
+                    w.max_wrest,
+                    w.strain_rate,
+                    w.just_seized,
+                    w.just_released,
+                    w.enabled,
+                ),
+            );
+        }
+        WREST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wrestle;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wrestle)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.grapple,
+                    w.max_grapple,
+                    w.clinch_rate,
+                    w.just_pinned,
+                    w.just_released,
+                    w.enabled,
+                ),
+            );
+        }
+        WRESTLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wretch;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wretch)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.misery,
+                    w.max_misery,
+                    w.suffer_rate,
+                    w.just_wretched,
+                    w.just_relieved,
+                    w.enabled,
+                ),
+            );
+        }
+        WRETCH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wretched;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wretched)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.misery,
+                    w.max_misery,
+                    w.suffer_rate,
+                    w.just_abject,
+                    w.just_unburdened,
+                    w.enabled,
+                ),
+            );
+        }
+        WRETCHED_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wriggle;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wriggle)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.squirm,
+                    w.max_squirm,
+                    w.writhe_rate,
+                    w.just_contorted,
+                    w.just_stilled,
+                    w.enabled,
+                ),
+            );
+        }
+        WRIGGLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wring;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wring)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.pressure,
+                    w.max_pressure,
+                    w.press_rate,
+                    w.just_wrung,
+                    w.just_released,
+                    w.enabled,
+                ),
+            );
+        }
+        WRING_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wrinkle;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wrinkle)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.crease,
+                    w.max_crease,
+                    w.age_rate,
+                    w.just_creased,
+                    w.just_smooth,
+                    w.enabled,
+                ),
+            );
+        }
+        WRINKLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wrist;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wrist)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.flex,
+                    w.max_flex,
+                    w.rotate_rate,
+                    w.just_flexible,
+                    w.just_locked,
+                    w.enabled,
+                ),
+            );
+        }
+        WRIST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Write;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Write)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.inscription,
+                    w.max_inscription,
+                    w.scribe_rate,
+                    w.just_written,
+                    w.just_blank,
+                    w.enabled,
+                ),
+            );
+        }
+        WRITE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Writhe;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Writhe)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.contortion,
+                    w.max_contortion,
+                    w.squirm_rate,
+                    w.just_contorted,
+                    w.just_still,
+                    w.enabled,
+                ),
+            );
+        }
+        WRITHE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wrong;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wrong)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.faults,
+                    w.max_faults,
+                    w.err_rate,
+                    w.just_wrong,
+                    w.just_right,
+                    w.enabled,
+                ),
+            );
+        }
+        WRONG_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wrongly;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wrongly)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.error,
+                    w.max_error,
+                    w.deviate_rate,
+                    w.just_mistaken,
+                    w.just_corrected,
+                    w.enabled,
+                ),
+            );
+        }
+        WRONGLY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wrote;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wrote)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.legacy,
+                    w.max_legacy,
+                    w.prose_rate,
+                    w.just_authored,
+                    w.just_erased,
+                    w.enabled,
+                ),
+            );
+        }
+        WROTE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wroth;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wroth)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.wrath,
+                    w.max_wrath,
+                    w.fury_rate,
+                    w.just_wroth,
+                    w.just_calm,
+                    w.enabled,
+                ),
+            );
+        }
+        WROTH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wrung;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wrung)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.tension,
+                    w.max_tension,
+                    w.twist_rate,
+                    w.just_wrung,
+                    w.just_slack,
+                    w.enabled,
+                ),
+            );
+        }
+        WRUNG_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Wry;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wry)>();
+        for (name, w) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    w.irony,
+                    w.max_irony,
+                    w.twist_rate,
+                    w.just_wry,
+                    w.just_earnest,
+                    w.enabled,
+                ),
+            );
+        }
+        WRY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Xray;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Xray)>();
+        for (name, x) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    x.xray_range,
+                    x.pulse_bonus,
+                    x.pulse_timer,
+                    x.pulse_duration,
+                    x.just_pulsed,
+                    x.enabled,
+                ),
+            );
+        }
+        XRAY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yak;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yak)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.yak_interval,
+                    y.elapsed,
+                    y.silence_remaining,
+                    y.just_yakked,
+                    y.just_silenced,
+                    y.enabled,
+                ),
+            );
+        }
+        YAK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yam;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yam)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.yield_stored,
+                    y.yield_cap,
+                    y.yield_rate,
+                    y.just_capped,
+                    y.enabled,
+                ),
+            );
+        }
+        YAM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yang;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yang)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (y.charge, y.threshold, y.polarity, y.just_flipped, y.enabled),
+            );
+        }
+        YANG_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yank;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yank)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (y.impulse, y.peak, y.just_yanked, y.enabled),
+            );
+        }
+        YANK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yap;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yap)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.yap_interval,
+                    y.cooldown_remaining,
+                    y.just_yapped,
+                    y.enabled,
+                ),
+            );
+        }
+        YAP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yard;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yard)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.range,
+                    y.intruder_count as f32,
+                    y.just_breached,
+                    y.just_cleared,
+                    y.enabled,
+                ),
+            );
+        }
+        YARD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yare;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yare)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.readiness,
+                    y.max_readiness,
+                    y.recovery_rate,
+                    y.just_primed,
+                    y.just_exhausted,
+                    y.enabled,
+                ),
+            );
+        }
+        YARE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yarn;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yarn)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.length,
+                    y.max_length,
+                    y.just_snagged,
+                    y.just_rewound,
+                    y.enabled,
+                ),
+            );
+        }
+        YARN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yaw;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yaw)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (y.heading, y.turn_rate, y.just_rotated, y.enabled),
+            );
+        }
+        YAW_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yawl;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yawl)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.phase,
+                    y.cycle_count as f32,
+                    y.just_toggled,
+                    y.just_cycled,
+                    y.enabled,
+                ),
+            );
+        }
+        YAWL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yawn;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yawn)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.yawn_threshold,
+                    y.idle_time,
+                    y.just_yawned,
+                    y.is_drowsy,
+                    y.enabled,
+                ),
+            );
+        }
+        YAWN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yawp;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yawp)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.volume,
+                    y.max_volume,
+                    y.decay_rate,
+                    y.just_shrieked,
+                    y.just_silenced,
+                    y.enabled,
+                ),
+            );
+        }
+        YAWP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yay;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yay)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.elation,
+                    y.max_elation,
+                    y.decay_rate,
+                    y.just_peaked,
+                    y.just_faded,
+                    y.enabled,
+                ),
+            );
+        }
+        YAY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yea;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yea)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.count as f32,
+                    y.required as f32,
+                    y.just_passed,
+                    y.just_revoked,
+                    y.enabled,
+                ),
+            );
+        }
+        YEA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Year;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Year)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.elapsed,
+                    y.period,
+                    y.just_cycled,
+                    y.just_new_season,
+                    y.enabled,
+                ),
+            );
+        }
+        YEAR_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yearn;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yearn)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.longing,
+                    y.max_longing,
+                    y.accumulation_rate,
+                    y.just_fulfilled,
+                    y.just_suppressed,
+                    y.enabled,
+                ),
+            );
+        }
+        YEARN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yeast;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yeast)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.quantity,
+                    y.max_quantity,
+                    y.growth_rate,
+                    y.just_peaked,
+                    y.just_dormant,
+                    y.enabled,
+                ),
+            );
+        }
+        YEAST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yell;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yell)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.charge_level,
+                    y.max_charge,
+                    y.charge_rate,
+                    y.power_bonus,
+                    y.charging,
+                    y.just_shouted,
+                    y.enabled,
+                ),
+            );
+        }
+        YELL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yelp;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yelp)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.yelps as f32,
+                    y.max_yelps as f32,
+                    y.decay_timer,
+                    y.decay_interval,
+                    y.just_yelped,
+                    y.just_peaked,
+                    y.just_calmed,
+                    y.enabled,
+                ),
+            );
+        }
+        YELP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yen;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yen)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.yen_level,
+                    y.max_yen,
+                    y.yen_rate,
+                    y.just_yearned,
+                    y.just_satisfied,
+                    y.enabled,
+                ),
+            );
+        }
+        YEN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yenta;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yenta)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.gossip,
+                    y.max_gossip,
+                    y.fade_rate,
+                    y.just_notorious,
+                    y.just_forgotten,
+                    y.enabled,
+                ),
+            );
+        }
+        YENTA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yeoman;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yeoman)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.reliability,
+                    y.max_reliability,
+                    y.falter_rate,
+                    y.served,
+                    y.just_trusted,
+                    y.just_failed,
+                    y.enabled,
+                ),
+            );
+        }
+        YEOMAN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yep;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yep)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.consent,
+                    y.max_consent,
+                    y.doubt_rate,
+                    y.just_agreed,
+                    y.just_withdrew,
+                    y.enabled,
+                ),
+            );
+        }
+        YEP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yes;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yes)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.yes_count as f32,
+                    y.yes_threshold as f32,
+                    y.just_reached,
+                    y.just_reset,
+                    y.enabled,
+                ),
+            );
+        }
+        YES_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yeti;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yeti)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.tension,
+                    y.max_tension,
+                    y.fade_rate,
+                    y.just_manifested,
+                    y.just_fled,
+                    y.enabled,
+                ),
+            );
+        }
+        YETI_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yew;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yew)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (y.exposure, y.max_exposure, y.just_saturated, y.enabled),
+            );
+        }
+        YEW_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yield;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yield)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.yield_duration,
+                    y.yield_remaining,
+                    y.is_yielding,
+                    y.just_started_yielding,
+                    y.just_finished_yielding,
+                    y.enabled,
+                ),
+            );
+        }
+        YIELD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yikes;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yikes)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.fright,
+                    y.max_fright,
+                    y.calm_rate,
+                    y.just_startled,
+                    y.just_calmed,
+                    y.enabled,
+                ),
+            );
+        }
+        YIKES_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yin;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yin)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (y.balance, y.just_darkened, y.just_lightened, y.enabled),
+            );
+        }
+        YIN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yip;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yip)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.burst_limit as f32,
+                    y.burst_count as f32,
+                    y.cooldown,
+                    y.cooldown_remaining,
+                    y.just_yipped,
+                    y.just_burst_out,
+                    y.enabled,
+                ),
+            );
+        }
+        YIP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yips;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yips)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.pressure,
+                    y.max_pressure,
+                    y.just_seized,
+                    y.just_composed,
+                    y.enabled,
+                ),
+            );
+        }
+        YIPS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yodel;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yodel)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.echo_delay,
+                    y.echo_remaining,
+                    y.awaiting_echo,
+                    y.just_yodeled,
+                    y.just_echoed,
+                    y.enabled,
+                ),
+            );
+        }
+        YODEL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yoga;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yoga)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.flexibility,
+                    y.max_flexibility,
+                    y.recovery_rate,
+                    y.just_centered,
+                    y.just_broken,
+                    y.enabled,
+                ),
+            );
+        }
+        YOGA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yogi;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yogi)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.depth,
+                    y.max_depth,
+                    y.focus_rate,
+                    y.drift_rate,
+                    y.meditating,
+                    y.just_transcended,
+                    y.just_scattered,
+                    y.enabled,
+                ),
+            );
+        }
+        YOGI_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yoke;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yoke)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.yoke_weight,
+                    y.max_weight,
+                    y.recovery_rate,
+                    y.speed_penalty,
+                    y.just_burdened,
+                    y.just_freed,
+                    y.enabled,
+                ),
+            );
+        }
+        YOKE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yokel;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yokel)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.credulity,
+                    y.max_credulity,
+                    y.wisdom_rate,
+                    y.just_fooled,
+                    y.just_savvy,
+                    y.enabled,
+                ),
+            );
+        }
+        YOKEL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yolk;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yolk)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.fragility,
+                    y.max_fragility,
+                    y.damage_multiplier,
+                    y.just_cracked,
+                    y.enabled,
+                ),
+            );
+        }
+        YOLK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yonder;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yonder)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    y.distance,
+                    y.max_range,
+                    y.just_acquired,
+                    y.just_arrived,
+                    y.enabled,
+                ),
+            );
+        }
+        YONDER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yore;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yore)>();
+        for (name, y) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (y.current_value, y.peak_value, y.just_peaked, y.enabled),
+            );
+        }
+        YORE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+        use bsengine_core::Yule;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yule)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.warmth,
+                    c.max_warmth,
+                    c.heat_rate,
+                    c.cool_rate,
+                    c.is_heating,
+                    c.just_peaked,
+                    c.just_frosted,
+                    c.enabled,
+                ),
+            );
+        }
+        YULE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yum;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yum)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.fullness,
+                    c.max_fullness,
+                    c.hunger_rate,
+                    c.just_sated,
+                    c.just_starved,
+                    c.enabled,
+                ),
+            );
+        }
+        YUM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yummy;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yummy)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.appeal,
+                    c.max_appeal,
+                    c.spoil_rate,
+                    c.just_irresistible,
+                    c.just_spoiled,
+                    c.enabled,
+                ),
+            );
+        }
+        YUMMY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yup;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yup)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.streak as f32,
+                    c.max_streak as f32,
+                    c.responded,
+                    c.just_peaked,
+                    c.just_broke,
+                    c.enabled,
+                ),
+            );
+        }
+        YUP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Yurt;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Yurt)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.durability,
+                    c.max_durability,
+                    c.deployed,
+                    c.just_deployed,
+                    c.just_collapsed,
+                    c.enabled,
+                ),
+            );
+        }
+        YURT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zafu;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zafu)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.support,
+                    c.max_support,
+                    c.recovery_rate,
+                    c.just_supported,
+                    c.just_exhausted,
+                    c.enabled,
+                ),
+            );
+        }
+        ZAFU_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zag;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zag)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.offset,
+                    c.max_offset,
+                    c.drift_rate,
+                    c.just_peaked,
+                    c.just_bottomed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZAG_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zaibatsu;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zaibatsu)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.reach,
+                    c.max_reach,
+                    c.consolidate_rate,
+                    c.just_dominant,
+                    c.just_dissolved,
+                    c.enabled,
+                ),
+            );
+        }
+        ZAIBATSU_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zakat;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zakat)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.tithe,
+                    c.max_tithe,
+                    c.accrue_rate,
+                    c.just_fulfilled,
+                    c.just_discharged,
+                    c.enabled,
+                ),
+            );
+        }
+        ZAKAT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zamia;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zamia)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.frond,
+                    c.max_frond,
+                    c.grow_rate,
+                    c.just_spread,
+                    c.just_crozier,
+                    c.enabled,
+                ),
+            );
+        }
+        ZAMIA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zanily;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zanily)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.verve,
+                    c.max_verve,
+                    c.jest_rate,
+                    c.just_capered,
+                    c.just_deadpan,
+                    c.enabled,
+                ),
+            );
+        }
+        ZANILY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zaniness;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zaniness)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.mirth,
+                    c.max_mirth,
+                    c.caprice_rate,
+                    c.just_clowned,
+                    c.just_sobered,
+                    c.enabled,
+                ),
+            );
+        }
+        ZANINESS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zany;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zany)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.whimsy,
+                    c.max_whimsy,
+                    c.fade_rate,
+                    c.just_unhinged,
+                    c.just_sane,
+                    c.enabled,
+                ),
+            );
+        }
+        ZANY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zap;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zap)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.zap_power,
+                    c.zap_range,
+                    c.cooldown_duration,
+                    c.cooldown_timer,
+                    c.just_zapped,
+                    c.enabled,
+                ),
+            );
+        }
+        ZAP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zapper;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zapper)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.charge,
+                    c.max_charge,
+                    c.charge_rate,
+                    c.just_zapped,
+                    c.just_discharged,
+                    c.enabled,
+                ),
+            );
+        }
+        ZAPPER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zappy;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zappy)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.vitality,
+                    c.max_vitality,
+                    c.spark_rate,
+                    c.just_sparked,
+                    c.just_fizzled,
+                    c.enabled,
+                ),
+            );
+        }
+        ZAPPY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zeal;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zeal)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.zeal_level,
+                    c.max_zeal,
+                    c.threshold,
+                    c.decay_rate,
+                    c.just_devoted,
+                    c.just_lapsed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEAL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zealot;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zealot)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.fervor,
+                    c.max_fervor,
+                    c.zeal_rate,
+                    c.just_zealous,
+                    c.just_lapsed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEALOT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zealotry;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zealotry)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.fervor,
+                    c.max_fervor,
+                    c.dogma_rate,
+                    c.just_fanatical,
+                    c.just_lapsed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEALOTRY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zealous;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zealous)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.conviction,
+                    c.max_conviction,
+                    c.devote_rate,
+                    c.just_zealous,
+                    c.just_wavered,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEALOUS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zeatin;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zeatin)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.division,
+                    c.max_division,
+                    c.proliferate_rate,
+                    c.just_proliferating,
+                    c.just_arrested,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEATIN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zeaxanthin;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zeaxanthin)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.pigment,
+                    c.max_pigment,
+                    c.absorb_rate,
+                    c.just_saturated,
+                    c.just_depleted,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEAXANTHIN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zebec;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zebec)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.bearing,
+                    c.max_bearing,
+                    c.drift_rate,
+                    c.just_on_course,
+                    c.just_adrift,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEBEC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zebra;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zebra)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.phase,
+                    c.stripe_width,
+                    c.speed,
+                    c.dark_stripe,
+                    c.just_switched,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEBRA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zebrafish;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zebrafish)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.transparency,
+                    c.max_transparency,
+                    c.develop_rate,
+                    c.just_transparent,
+                    c.just_opaque,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEBRAFISH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zebrine;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zebrine)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.striping,
+                    c.max_striping,
+                    c.pattern_rate,
+                    c.just_banded,
+                    c.just_blank,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEBRINE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zebroid;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zebroid)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.hybridization,
+                    c.max_hybridization,
+                    c.blend_rate,
+                    c.just_hybrid,
+                    c.just_pure,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEBROID_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zebu;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zebu)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.burden,
+                    c.max_burden,
+                    c.strain_rate,
+                    c.just_overwhelmed,
+                    c.just_unburdened,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEBU_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zechin;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zechin)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.gold,
+                    c.max_gold,
+                    c.earn_rate,
+                    c.just_wealthy,
+                    c.just_bankrupt,
+                    c.enabled,
+                ),
+            );
+        }
+        ZECHIN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zed;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zed)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.fatigue,
+                    c.max_fatigue,
+                    c.wind_down_rate,
+                    c.just_spent,
+                    c.just_rallied,
+                    c.enabled,
+                ),
+            );
+        }
+        ZED_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zeekoe;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zeekoe)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.territory,
+                    c.max_territory,
+                    c.wallow_rate,
+                    c.just_dominant,
+                    c.just_displaced,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEEKOE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zein;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zein)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.protein,
+                    c.max_protein,
+                    c.store_rate,
+                    c.just_loaded,
+                    c.just_depleted,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEIN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zeitgeber;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zeitgeber)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.entrainment,
+                    c.max_entrainment,
+                    c.cue_rate,
+                    c.just_entrained,
+                    c.just_drifted,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEITGEBER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zeitgeist;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zeitgeist)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.momentum,
+                    c.max_momentum,
+                    c.fade_rate,
+                    c.just_surged,
+                    c.just_faded,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEITGEIST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zek;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zek)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.output,
+                    c.max_output,
+                    c.toil_rate,
+                    c.just_fulfilled,
+                    c.just_exhausted,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zelkova;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zelkova)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.canopy,
+                    c.max_canopy,
+                    c.grow_rate,
+                    c.just_canopied,
+                    c.just_bare,
+                    c.enabled,
+                ),
+            );
+        }
+        ZELKOVA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zemstvo;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zemstvo)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.authority,
+                    c.max_authority,
+                    c.mandate_rate,
+                    c.just_empowered,
+                    c.just_abolished,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEMSTVO_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zen;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zen)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.zen_level,
+                    c.max_zen,
+                    c.restore_rate,
+                    c.just_achieved,
+                    c.just_broken,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zenana;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zenana)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.solace,
+                    c.max_solace,
+                    c.shelter_rate,
+                    c.just_secluded,
+                    c.just_disturbed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZENANA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zendo;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zendo)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.harmony,
+                    c.max_harmony,
+                    c.attune_rate,
+                    c.just_harmonized,
+                    c.just_discordant,
+                    c.enabled,
+                ),
+            );
+        }
+        ZENDO_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zener;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zener)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.voltage,
+                    c.max_voltage,
+                    c.charge_rate,
+                    c.just_critical,
+                    c.just_depleted,
+                    c.enabled,
+                ),
+            );
+        }
+        ZENER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zenith;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zenith)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.altitude,
+                    c.max_altitude,
+                    c.descent_rate,
+                    c.just_peaked,
+                    c.just_grounded,
+                    c.enabled,
+                ),
+            );
+        }
+        ZENITH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zenithal;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zenithal)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.elevation,
+                    c.max_elevation,
+                    c.rise_rate,
+                    c.just_peaked,
+                    c.just_nadir,
+                    c.enabled,
+                ),
+            );
+        }
+        ZENITHAL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zeolite;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zeolite)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.purity,
+                    c.max_purity,
+                    c.cleanse_rate,
+                    c.just_cleansed,
+                    c.just_fouled,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEOLITE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zeolitic;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zeolitic)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.microporosity,
+                    c.max_microporosity,
+                    c.sieve_rate,
+                    c.just_ordered,
+                    c.just_amorphous,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEOLITIC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zephyr;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zephyr)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.gust,
+                    c.max_gust,
+                    c.calm_rate,
+                    c.just_surged,
+                    c.just_stilled,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEPHYR_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zeppelin;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zeppelin)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.lift,
+                    c.max_lift,
+                    c.leak_rate,
+                    c.just_aloft,
+                    c.just_grounded,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEPPELIN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zerk;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zerk)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.lubrication,
+                    c.max_lubrication,
+                    c.flow_rate,
+                    c.just_serviced,
+                    c.just_seized,
+                    c.enabled,
+                ),
+            );
+        }
+        ZERK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zeroth;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zeroth)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.deviation,
+                    c.max_deviation,
+                    c.drift_rate,
+                    c.just_saturated,
+                    c.just_grounded,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEROTH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zester;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zester)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.scraped,
+                    c.max_scraped,
+                    c.grate_rate,
+                    c.just_zested,
+                    c.just_depleted,
+                    c.enabled,
+                ),
+            );
+        }
+        ZESTER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zestful;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zestful)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.energy,
+                    c.max_energy,
+                    c.invigorate_rate,
+                    c.just_zestful,
+                    c.just_listless,
+                    c.enabled,
+                ),
+            );
+        }
+        ZESTFUL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zeta;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zeta)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.potential,
+                    c.max_potential,
+                    c.flux_rate,
+                    c.just_critical,
+                    c.just_neutral,
+                    c.enabled,
+                ),
+            );
+        }
+        ZETA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zetetic;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zetetic)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.inquiry,
+                    c.max_inquiry,
+                    c.probe_rate,
+                    c.just_resolved,
+                    c.just_abandoned,
+                    c.enabled,
+                ),
+            );
+        }
+        ZETETIC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zeugen;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zeugen)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.prominence,
+                    c.max_prominence,
+                    c.denude_rate,
+                    c.just_prominent,
+                    c.just_eroded,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEUGEN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zeugma;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zeugma)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.tension,
+                    c.max_tension,
+                    c.tighten_rate,
+                    c.just_yoked,
+                    c.just_severed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZEUGMA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zho;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zho)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.vigor,
+                    c.max_vigor,
+                    c.cross_rate,
+                    c.just_thriving,
+                    c.just_exhausted,
+                    c.enabled,
+                ),
+            );
+        }
+        ZHO_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zibet;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zibet)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.scent,
+                    c.max_scent,
+                    c.mark_rate,
+                    c.just_marked,
+                    c.just_faded,
+                    c.enabled,
+                ),
+            );
+        }
+        ZIBET_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zidovudine;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zidovudine)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.dose,
+                    c.max_dose,
+                    c.infusion_rate,
+                    c.just_suppressed,
+                    c.just_cleared,
+                    c.enabled,
+                ),
+            );
+        }
+        ZIDOVUDINE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Ziggurat;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Ziggurat)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.tier,
+                    c.max_tier,
+                    c.rise_rate,
+                    c.just_crowned,
+                    c.just_razed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZIGGURAT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zigzag;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zigzag)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.phase,
+                    c.period,
+                    c.speed,
+                    c.rising,
+                    c.just_reversed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZIGZAG_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zikr;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zikr)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.resonance,
+                    c.max_resonance,
+                    c.hum_rate,
+                    c.just_resonant,
+                    c.just_hushed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZIKR_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zilch;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zilch)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.deprivation,
+                    c.max_deprivation,
+                    c.replenish_rate,
+                    c.just_exhausted,
+                    c.just_sated,
+                    c.enabled,
+                ),
+            );
+        }
+        ZILCH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zileuton;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zileuton)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.coverage,
+                    c.max_coverage,
+                    c.absorption_rate,
+                    c.just_covered,
+                    c.just_lapsed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZILEUTON_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zill;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zill)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.ring,
+                    c.max_ring,
+                    c.sustain_rate,
+                    c.just_ringing,
+                    c.just_damped,
+                    c.enabled,
+                ),
+            );
+        }
+        ZILL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zillion;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zillion)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.count,
+                    c.max_count,
+                    c.tally_rate,
+                    c.just_astronomical,
+                    c.just_zeroed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZILLION_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zimb;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zimb)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.swarm,
+                    c.max_swarm,
+                    c.swarm_rate,
+                    c.just_swarming,
+                    c.just_dispersed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZIMB_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zinc;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zinc)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.mineral,
+                    c.max_mineral,
+                    c.metabolic_rate,
+                    c.just_optimal,
+                    c.just_deficient,
+                    c.enabled,
+                ),
+            );
+        }
+        ZINC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zincate;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zincate)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.concentration,
+                    c.max_concentration,
+                    c.deposit_rate,
+                    c.just_saturated,
+                    c.just_depleted,
+                    c.enabled,
+                ),
+            );
+        }
+        ZINCATE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zincite;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zincite)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.saturation,
+                    c.max_saturation,
+                    c.deposit_rate,
+                    c.just_crystallized,
+                    c.just_depleted,
+                    c.enabled,
+                ),
+            );
+        }
+        ZINCITE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zine;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zine)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.content,
+                    c.max_content,
+                    c.draft_rate,
+                    c.just_published,
+                    c.just_blank,
+                    c.enabled,
+                ),
+            );
+        }
+        ZINE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zineb;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zineb)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.residue,
+                    c.max_residue,
+                    c.spray_rate,
+                    c.just_protected,
+                    c.just_exposed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZINEB_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zinfandel;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zinfandel)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.ferment,
+                    c.max_ferment,
+                    c.mature_rate,
+                    c.just_matured,
+                    c.just_racked,
+                    c.enabled,
+                ),
+            );
+        }
+        ZINFANDEL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zing;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zing)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.zing_charge,
+                    c.zing_threshold,
+                    c.zing_count as f32,
+                    c.just_zinged,
+                    false,
+                    c.enabled,
+                ),
+            );
+        }
+        ZING_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zinger;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zinger)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.sting,
+                    c.max_sting,
+                    c.sharpen_rate,
+                    c.just_stinging,
+                    c.just_soothed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZINGER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zink;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zink)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.breath,
+                    c.max_breath,
+                    c.breath_rate,
+                    c.just_resonant,
+                    c.just_breathless,
+                    c.enabled,
+                ),
+            );
+        }
+        ZINK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zinnia;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zinnia)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.petals,
+                    c.max_petals,
+                    c.bloom_rate,
+                    c.just_blooming,
+                    c.just_wilted,
+                    c.enabled,
+                ),
+            );
+        }
+        ZINNIA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zip;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zip)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.zip_charge,
+                    c.max_charge,
+                    c.drain_rate,
+                    c.just_activated,
+                    c.just_exhausted,
+                    c.enabled,
+                ),
+            );
+        }
+        ZIP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zipper;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zipper)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.closure,
+                    c.max_closure,
+                    c.slide_rate,
+                    c.just_sealed,
+                    c.just_open,
+                    c.enabled,
+                ),
+            );
+        }
+        ZIPPER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zippier;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zippier)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.pace,
+                    c.max_pace,
+                    c.sprint_rate,
+                    c.just_fastest,
+                    c.just_stalled,
+                    c.enabled,
+                ),
+            );
+        }
+        ZIPPIER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zippy;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zippy)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.pep,
+                    c.max_pep,
+                    c.perk_rate,
+                    c.just_peppy,
+                    c.just_tired,
+                    c.enabled,
+                ),
+            );
+        }
+        ZIPPY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zircon;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zircon)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.hardness,
+                    c.max_hardness,
+                    c.harden_rate,
+                    c.just_flawless,
+                    c.just_fractured,
+                    c.enabled,
+                ),
+            );
+        }
+        ZIRCON_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zirconia;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zirconia)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.hardness,
+                    c.max_hardness,
+                    c.sinter_rate,
+                    c.just_sintered,
+                    c.just_cracked,
+                    c.enabled,
+                ),
+            );
+        }
+        ZIRCONIA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zirconium;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zirconium)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.purity,
+                    c.max_purity,
+                    c.refine_rate,
+                    c.just_refined,
+                    c.just_tarnished,
+                    c.enabled,
+                ),
+            );
+        }
+        ZIRCONIUM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zit;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zit)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.zit_count as f32,
+                    c.max_zits as f32,
+                    0.0_f32,
+                    c.just_inflamed,
+                    c.just_cleared,
+                    c.enabled,
+                ),
+            );
+        }
+        ZIT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zither;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zither)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.resonance,
+                    c.max_resonance,
+                    c.decay_rate,
+                    c.just_harmonized,
+                    c.just_silenced,
+                    c.enabled,
+                ),
+            );
+        }
+        ZITHER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Ziti;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Ziti)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.heat_level,
+                    c.max_heat,
+                    c.simmer_rate,
+                    c.just_scorching,
+                    c.just_raw,
+                    c.enabled,
+                ),
+            );
+        }
+        ZITI_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoanthropy;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoanthropy)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.delusion,
+                    c.max_delusion,
+                    c.inhabit_rate,
+                    c.just_feral,
+                    c.just_lucid,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOANTHROPY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zodiac;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zodiac)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.alignment,
+                    c.max_alignment,
+                    c.transit_rate,
+                    c.just_aligned,
+                    c.just_voided,
+                    c.enabled,
+                ),
+            );
+        }
+        ZODIAC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zodiacal;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zodiacal)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.alignment,
+                    c.max_alignment,
+                    c.aspect_rate,
+                    c.just_aligned,
+                    c.just_discordant,
+                    c.enabled,
+                ),
+            );
+        }
+        ZODIACAL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoea;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoea)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.molt,
+                    c.max_molt,
+                    c.grow_rate,
+                    c.just_metamorphosed,
+                    c.just_shed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOEA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoecium;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoecium)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.colony,
+                    c.max_colony,
+                    c.encrust_rate,
+                    c.just_established,
+                    c.just_dispersed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOECIUM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoetic;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoetic)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.vitality,
+                    c.max_vitality,
+                    c.quicken_rate,
+                    c.just_vital,
+                    c.just_dormant,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOETIC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoetrope;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoetrope)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.frame,
+                    c.max_frame,
+                    c.spin_rate,
+                    c.just_cycling,
+                    c.just_stalled,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOETROPE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoic;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoic)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.vitality,
+                    c.max_vitality,
+                    c.fauna_rate,
+                    c.just_teeming,
+                    c.just_barren,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOIC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zokor;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zokor)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.burrow,
+                    c.max_burrow,
+                    c.tunnel_rate,
+                    c.just_entrenched,
+                    c.just_collapsed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOKOR_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zombie;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zombie)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.shamble,
+                    c.max_shamble,
+                    c.rot_rate,
+                    c.just_risen,
+                    c.just_decayed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOMBIE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zombify;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zombify)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.taint,
+                    c.max_taint,
+                    c.spread_rate,
+                    c.just_zombified,
+                    c.just_purified,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOMBIFY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zonal;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zonal)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.coverage,
+                    c.max_coverage,
+                    c.zone_rate,
+                    c.just_zoned,
+                    c.just_unzoned,
+                    c.enabled,
+                ),
+            );
+        }
+        ZONAL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zonate;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zonate)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.zonation,
+                    c.max_zonation,
+                    c.band_rate,
+                    c.just_banded,
+                    c.just_dispersed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZONATE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zonation;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zonation)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.distribution,
+                    c.max_distribution,
+                    c.layer_rate,
+                    c.just_stratified,
+                    c.just_collapsed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZONATION_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zone;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zone)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.zone_control,
+                    c.max_zone,
+                    c.advance_rate,
+                    c.just_captured,
+                    c.just_lost,
+                    c.enabled,
+                ),
+            );
+        }
+        ZONE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoner;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoner)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.control,
+                    c.max_control,
+                    c.expand_rate,
+                    c.just_dominant,
+                    c.just_yielded,
+                    c.enabled,
+                ),
+            );
+        }
+        ZONER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoning;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoning)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.influence,
+                    c.max_influence,
+                    c.spread_rate,
+                    c.just_dominant,
+                    c.just_neutral,
+                    c.enabled,
+                ),
+            );
+        }
+        ZONING_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zonk;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zonk)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.daze,
+                    c.max_daze,
+                    c.bonk_rate,
+                    c.just_knocked_out,
+                    c.just_cleared,
+                    c.enabled,
+                ),
+            );
+        }
+        ZONK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoo;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoo)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.population,
+                    c.max_population,
+                    c.breed_rate,
+                    c.just_full,
+                    c.just_empty,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOO_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoogenous;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoogenous)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.genesis,
+                    c.max_genesis,
+                    c.origin_rate,
+                    c.just_emerged,
+                    c.just_inert,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOGENOUS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoogeography;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoogeography)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.range,
+                    c.max_range,
+                    c.survey_rate,
+                    c.just_mapped,
+                    c.just_uncharted,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOGEOGRAPHY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zooglea;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zooglea)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.biofilm,
+                    c.max_biofilm,
+                    c.culture_rate,
+                    c.just_encrusted,
+                    c.just_dispersed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOGLEA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoography;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoography)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.survey,
+                    c.max_survey,
+                    c.map_rate,
+                    c.just_mapped,
+                    c.just_void,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOGRAPHY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zooid;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zooid)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.integration,
+                    c.max_integration,
+                    c.bud_rate,
+                    c.just_integrated,
+                    c.just_isolated,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOID_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zookeeper;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zookeeper)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.care,
+                    c.max_care,
+                    c.tend_rate,
+                    c.just_thriving,
+                    c.just_neglected,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOKEEPER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoolatry;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoolatry)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.devotion,
+                    c.max_devotion,
+                    c.revere_rate,
+                    c.just_revered,
+                    c.just_profaned,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOLATRY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoological;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoological)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.catalogue,
+                    c.max_catalogue,
+                    c.accession_rate,
+                    c.just_complete,
+                    c.just_depleted,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOLOGICAL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoologist;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoologist)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.expertise,
+                    c.max_expertise,
+                    c.study_rate,
+                    c.just_mastered,
+                    c.just_lapsed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOLOGIST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoology;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoology)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.specimens,
+                    c.max_specimens,
+                    c.catalog_rate,
+                    c.just_cataloged,
+                    c.just_extinct,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOLOGY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoom;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoom)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.zoom_steps as f32,
+                    c.max_steps as f32,
+                    0.0f32,
+                    c.just_stepped_in,
+                    c.just_maxed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoometry;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoometry)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.measurement,
+                    c.max_measurement,
+                    c.calibrate_rate,
+                    c.just_calibrated,
+                    c.just_uncalibrated,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOMETRY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoomorph;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoomorph)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.morph,
+                    c.max_morph,
+                    c.flux_rate,
+                    c.just_shifted,
+                    c.just_reverted,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOMORPH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoomorphic;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoomorphic)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.iconography,
+                    c.max_iconography,
+                    c.depict_rate,
+                    c.just_engraved,
+                    c.just_eroded,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOMORPHIC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoomorphism;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoomorphism)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.expression,
+                    c.max_expression,
+                    c.channel_rate,
+                    c.just_manifested,
+                    c.just_lapsed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOMORPHISM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoonosis;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoonosis)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.contagion,
+                    c.max_contagion,
+                    c.transmit_rate,
+                    c.just_spread,
+                    c.just_contained,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOONOSIS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoonotic;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoonotic)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.spillover,
+                    c.max_spillover,
+                    c.transmit_rate,
+                    c.just_emerged,
+                    c.just_contained,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOONOTIC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoophagous;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoophagous)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.feeding,
+                    c.max_feeding,
+                    c.prey_rate,
+                    c.just_satiated,
+                    c.just_famished,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOPHAGOUS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoophile;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoophile)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.affection,
+                    c.max_affection,
+                    c.empathy_rate,
+                    c.just_bonded,
+                    c.just_estranged,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOPHILE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoophilia;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoophilia)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.affinity,
+                    c.max_affinity,
+                    c.bond_rate,
+                    c.just_bonded,
+                    c.just_estranged,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOPHILIA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoophilous;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoophilous)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.affinity,
+                    c.max_affinity,
+                    c.attract_rate,
+                    c.just_adapted,
+                    c.just_repelled,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOPHILOUS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoophily;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoophily)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.pollination,
+                    c.max_pollination,
+                    c.visit_rate,
+                    c.just_fertilized,
+                    c.just_barren,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOPHILY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoophyte;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoophyte)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.vitality,
+                    c.max_vitality,
+                    c.polyp_rate,
+                    c.just_flourished,
+                    c.just_withered,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOPHYTE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zooplankton;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zooplankton)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.drift,
+                    c.max_drift,
+                    c.bloom_rate,
+                    c.just_bloomed,
+                    c.just_clear,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOPLANKTON_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoosphere;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoosphere)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.fauna,
+                    c.max_fauna,
+                    c.colonize_rate,
+                    c.just_saturated,
+                    c.just_empty,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOSPHERE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoosperm;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoosperm)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.motility,
+                    c.max_motility,
+                    c.swim_rate,
+                    c.just_fertile,
+                    c.just_sterile,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOSPERM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoospore;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoospore)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.motility,
+                    c.max_motility,
+                    c.swim_rate,
+                    c.just_dispersed,
+                    c.just_settled,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOSPORE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zootechnics;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zootechnics)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.husbandry,
+                    c.max_husbandry,
+                    c.tend_rate,
+                    c.just_thriving,
+                    c.just_declining,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOTECHNICS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zootomy;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zootomy)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.dissection,
+                    c.max_dissection,
+                    c.study_rate,
+                    c.just_complete,
+                    c.just_spoiled,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOTOMY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zooxanthella;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zooxanthella)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.symbiosis,
+                    c.max_symbiosis,
+                    c.photosynthesize_rate,
+                    c.just_thriving,
+                    c.just_bleached,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOXANTHELLA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoogamy;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoogamy)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.gamete,
+                    c.max_gamete,
+                    c.mate_rate,
+                    c.just_mated,
+                    c.just_sterile,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOGAMY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoogenesis;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoogenesis)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.genesis,
+                    c.max_genesis,
+                    c.emerge_rate,
+                    c.just_emerged,
+                    c.just_extinct,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOGENESIS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoognomy;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoognomy)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.lore,
+                    c.max_lore,
+                    c.study_rate,
+                    c.just_learned,
+                    c.just_forgotten,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOGNOMY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoopathology;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoopathology)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.lesion,
+                    c.max_lesion,
+                    c.infect_rate,
+                    c.just_afflicted,
+                    c.just_cured,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOPATHOLOGY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoophobia;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoophobia)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.dread,
+                    c.max_dread,
+                    c.fear_rate,
+                    c.just_panicked,
+                    c.just_calmed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOPHOBIA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zooscopy;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zooscopy)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.omen,
+                    c.max_omen,
+                    c.divine_rate,
+                    c.just_revealed,
+                    c.just_obscured,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOSCOPY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zootherapy;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zootherapy)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.relief,
+                    c.max_relief,
+                    c.heal_rate,
+                    c.just_healed,
+                    c.just_relapsed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOTHERAPY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoochemistry;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoochemistry)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.compound,
+                    c.max_compound,
+                    c.brew_rate,
+                    c.just_brewed,
+                    c.just_neutralized,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOCHEMISTRY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoochory;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoochory)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.seed,
+                    c.max_seed,
+                    c.disperse_rate,
+                    c.just_dispersed,
+                    c.just_contained,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOCHORY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoocide;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoocide)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.toll,
+                    c.max_toll,
+                    c.kill_rate,
+                    c.just_exterminated,
+                    c.just_replenished,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOCIDE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zooecium;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zooecium)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.shell,
+                    c.max_shell,
+                    c.encase_rate,
+                    c.just_encased,
+                    c.just_exposed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOECIUM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zooflagellate;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zooflagellate)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.thrust,
+                    c.max_thrust,
+                    c.propel_rate,
+                    c.just_propelled,
+                    c.just_stalled,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOFLAGELLATE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoogenic;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoogenic)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.vitality,
+                    c.max_vitality,
+                    c.generate_rate,
+                    c.just_generated,
+                    c.just_suppressed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOGENIC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoohygric;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoohygric)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.moisture,
+                    c.max_moisture,
+                    c.hydrate_rate,
+                    c.just_hydrated,
+                    c.just_desiccated,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOHYGRIC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zooculture;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zooculture)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.breed,
+                    c.max_breed,
+                    c.cultivate_rate,
+                    c.just_cultivated,
+                    c.just_abandoned,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOCULTURE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoolite;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoolite)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.fossil,
+                    c.max_fossil,
+                    c.petrify_rate,
+                    c.just_petrified,
+                    c.just_eroded,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOLITE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoonomy;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoonomy)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.norm,
+                    c.max_norm,
+                    c.regulate_rate,
+                    c.just_regulated,
+                    c.just_disrupted,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOONOMY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoopery;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoopery)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.trial,
+                    c.max_trial,
+                    c.probe_rate,
+                    c.just_probed,
+                    c.just_halted,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOPERY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoophysics;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoophysics)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.force,
+                    c.max_force,
+                    c.channel_rate,
+                    c.just_channeled,
+                    c.just_scattered,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOPHYSICS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoosemiotics;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoosemiotics)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.signal,
+                    c.max_signal,
+                    c.transmit_rate,
+                    c.just_transmitted,
+                    c.just_silenced,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOSEMIOTICS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zootrophy;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zootrophy)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.nutrient,
+                    c.max_nutrient,
+                    c.feed_rate,
+                    c.just_fed,
+                    c.just_starved,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOTROPHY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zooarchaeology;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zooarchaeology)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.artifact,
+                    c.max_artifact,
+                    c.excavate_rate,
+                    c.just_excavated,
+                    c.just_buried,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOARCHAEOLOGY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoobiotic;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoobiotic)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.parasite,
+                    c.max_parasite,
+                    c.infest_rate,
+                    c.just_infested,
+                    c.just_cleansed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOBIOTIC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoodynamics;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoodynamics)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.momentum,
+                    c.max_momentum,
+                    c.drive_rate,
+                    c.just_driven,
+                    c.just_braked,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOODYNAMICS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoognosis;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoognosis)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.insight,
+                    c.max_insight,
+                    c.diagnose_rate,
+                    c.just_diagnosed,
+                    c.just_misled,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOGNOSIS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zookinesis;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zookinesis)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.motion,
+                    c.max_motion,
+                    c.mobilize_rate,
+                    c.just_mobilized,
+                    c.just_immobilized,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOKINESIS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoomorphosis;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoomorphosis)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.form,
+                    c.max_form,
+                    c.morph_rate,
+                    c.just_morphed,
+                    c.just_reverted,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOMORPHOSIS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoopsia;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoopsia)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.vision,
+                    c.max_vision,
+                    c.perceive_rate,
+                    c.just_perceived,
+                    c.just_blinded,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOPSIA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoocoenosis;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoocoenosis)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.colony,
+                    c.max_colony,
+                    c.assemble_rate,
+                    c.just_assembled,
+                    c.just_dissolved,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOCOENOSIS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoodendrium;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoodendrium)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.branch,
+                    c.max_branch,
+                    c.extend_rate,
+                    c.just_extended,
+                    c.just_pruned,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOODENDRIUM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoomancy;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoomancy)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.portent,
+                    c.max_portent,
+                    c.augur_rate,
+                    c.just_augured,
+                    c.just_dispelled,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOMANCY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zooparasite;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zooparasite)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.host,
+                    c.max_host,
+                    c.latch_rate,
+                    c.just_latched,
+                    c.just_expelled,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOPARASITE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoopathia;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoopathia)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.malady,
+                    c.max_malady,
+                    c.ail_rate,
+                    c.just_ailed,
+                    c.just_recovered,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOPATHIA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zooplasty;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zooplasty)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.graft,
+                    c.max_graft,
+                    c.fuse_rate,
+                    c.just_fused,
+                    c.just_rejected,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOPLASTY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoosporangia;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoosporangia)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.spore,
+                    c.max_spore,
+                    c.sporulate_rate,
+                    c.just_sporulated,
+                    c.just_depleted,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOSPORANGIA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zooblast;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zooblast)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.blast,
+                    c.max_blast,
+                    c.proliferate_rate,
+                    c.just_proliferated,
+                    c.just_lysed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOBLAST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoocarp;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoocarp)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.propagule,
+                    c.max_propagule,
+                    c.release_rate,
+                    c.just_released,
+                    c.just_aborted,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOCARP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoodeme;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoodeme)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.population,
+                    c.max_population,
+                    c.aggregate_rate,
+                    c.just_aggregated,
+                    c.just_dispersed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOODEME_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoomass;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoomass)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.biomass,
+                    c.max_biomass,
+                    c.accumulate_rate,
+                    c.just_accumulated,
+                    c.just_decomposed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOMASS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoophagy;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoophagy)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.prey,
+                    c.max_prey,
+                    c.hunt_rate,
+                    c.just_hunted,
+                    c.just_fled,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOPHAGY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoosterol;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoosterol)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.sterol,
+                    c.max_sterol,
+                    c.synthesize_rate,
+                    c.just_synthesized,
+                    c.just_catabolized,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOSTEROL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zootoxin;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zootoxin)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.toxin,
+                    c.max_toxin,
+                    c.secrete_rate,
+                    c.just_secreted,
+                    c.just_neutralized,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOTOXIN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoochromy;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoochromy)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.pigment,
+                    c.max_pigment,
+                    c.tint_rate,
+                    c.just_tinted,
+                    c.just_faded,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOCHROMY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zooecology;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zooecology)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.habitat,
+                    c.max_habitat,
+                    c.settle_rate,
+                    c.just_settled,
+                    c.just_displaced,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOECOLOGY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoomorphology;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoomorphology)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.form,
+                    c.max_form,
+                    c.develop_rate,
+                    c.just_developed,
+                    c.just_regressed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOMORPHOLOGY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoopsychology;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoopsychology)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.instinct,
+                    c.max_instinct,
+                    c.imprint_rate,
+                    c.just_imprinted,
+                    c.just_unlearned,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOPSYCHOLOGY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoosociology;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoosociology)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.bond,
+                    c.max_bond,
+                    c.affiliate_rate,
+                    c.just_affiliated,
+                    c.just_severed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOSOCIOLOGY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zootaxy;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zootaxy)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.rank,
+                    c.max_rank,
+                    c.promote_rate,
+                    c.just_promoted,
+                    c.just_demoted,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOTAXY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zootheism;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zootheism)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.devotion,
+                    c.max_devotion,
+                    c.consecrate_rate,
+                    c.just_consecrated,
+                    c.just_desecrated,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOTHEISM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zooanthropy;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zooanthropy)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.delusion,
+                    c.max_delusion,
+                    c.impart_rate,
+                    c.just_imparted,
+                    c.just_dispelled,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOANTHROPY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoogonium;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoogonium)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.spore,
+                    c.max_spore,
+                    c.produce_rate,
+                    c.just_produced,
+                    c.just_consumed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOGONIUM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoolemma;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoolemma)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.integrity,
+                    c.max_integrity,
+                    c.repair_rate,
+                    c.just_repaired,
+                    c.just_breached,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOLEMMA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoopharmacology;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoopharmacology)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.potency,
+                    c.max_potency,
+                    c.dose_rate,
+                    c.just_dosed,
+                    c.just_purged,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOPHARMACOLOGY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zooplasma;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zooplasma)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.density,
+                    c.max_density,
+                    c.condense_rate,
+                    c.just_condensed,
+                    c.just_dispersed,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOPLASMA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoospermia;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoospermia)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.motility,
+                    c.max_motility,
+                    c.energize_rate,
+                    c.just_energized,
+                    c.just_depleted,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOSPERMIA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Zoosymbiont;
+        let mut map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Zoosymbiont)>();
+        for (name, c) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    c.harmony,
+                    c.max_harmony,
+                    c.mutualize_rate,
+                    c.just_mutualized,
+                    c.just_expelled,
+                    c.enabled,
+                ),
+            );
+        }
+        ZOOSYMBIONT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Shield;
+        let mut shield_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Shield)>();
+        for (name, sh) in q.iter(world) {
+            shield_map.insert(name.0.clone(), (sh.current, sh.max));
+        }
+        SHIELD_SNAPSHOT.with(|s| *s.borrow_mut() = shield_map);
+    }
+    {
+        use bsengine_core::Experience;
+        let mut xp_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Experience)>();
+        for (name, xp) in q.iter(world) {
+            xp_map.insert(
+                name.0.clone(),
+                (
+                    xp.level as f32,
+                    xp.current_xp,
+                    xp.progress(),
+                    xp.is_max_level(),
+                ),
+            );
+        }
+        EXPERIENCE_SNAPSHOT.with(|s| *s.borrow_mut() = xp_map);
+    }
+    {
+        use bsengine_core::Level;
+        let mut lvl_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Level)>();
+        for (name, lvl) in q.iter(world) {
+            lvl_map.insert(
+                name.0.clone(),
+                (
+                    lvl.current as f32,
+                    lvl.max as f32,
+                    lvl.prestige_level as f32,
+                    lvl.is_max_level(),
+                    lvl.progress_fraction(),
+                ),
+            );
+        }
+        LEVEL_SNAPSHOT.with(|s| *s.borrow_mut() = lvl_map);
+    }
+    {
+        use bsengine_core::Cooldown;
+        let mut cd_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Cooldown)>();
+        for (name, cd) in q.iter(world) {
+            cd_map.insert(name.0.clone(), (cd.remaining, cd.progress(), cd.is_ready()));
+        }
+        COOLDOWN_SNAPSHOT.with(|s| *s.borrow_mut() = cd_map);
+    }
+    {
+        use bsengine_core::Timer;
+        let mut timer_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Timer)>();
+        for (name, t) in q.iter(world) {
+            timer_map.insert(
+                name.0.clone(),
+                (
+                    t.elapsed(),
+                    t.duration(),
+                    t.fraction(),
+                    t.is_finished(),
+                    t.just_finished(),
+                ),
+            );
+        }
+        TIMER_SNAPSHOT.with(|s| *s.borrow_mut() = timer_map);
+    }
+    {
+        use bsengine_core::Ammo;
+        let mut ammo_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Ammo)>();
+        for (name, a) in q.iter(world) {
+            ammo_map.insert(
+                name.0.clone(),
+                (
+                    a.current,
+                    a.max_capacity,
+                    a.reserve,
+                    a.reserve_max,
+                    a.just_emptied,
+                    a.just_reloaded,
+                    a.enabled,
+                ),
+            );
+        }
+        AMMO_SNAPSHOT.with(|s| *s.borrow_mut() = ammo_map);
+    }
+    {
+        use bsengine_core::Regen;
+        let mut regen_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Regen)>();
+        for (name, r) in q.iter(world) {
+            regen_map.insert(
+                name.0.clone(),
+                (r.rate, r.delay_after_damage, r.delay_timer, r.enabled),
+            );
+        }
+        REGEN_SNAPSHOT.with(|s| *s.borrow_mut() = regen_map);
+    }
+    {
+        use bsengine_core::Fuel;
+        let mut fuel_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Fuel)>();
+        for (name, f) in q.iter(world) {
+            fuel_map.insert(
+                name.0.clone(),
+                (
+                    f.fuel,
+                    f.max_fuel,
+                    f.low_threshold,
+                    f.just_emptied,
+                    f.is_low(),
+                    f.enabled,
+                ),
+            );
+        }
+        FUEL_SNAPSHOT.with(|s| *s.borrow_mut() = fuel_map);
+    }
+    {
+        use bsengine_core::Charge;
+        let mut charge_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Charge)>();
+        for (name, c) in q.iter(world) {
+            charge_map.insert(
+                name.0.clone(),
+                (
+                    c.current,
+                    c.max_charge,
+                    c.is_charging(),
+                    c.is_fully_charged(),
+                    c.enabled,
+                ),
+            );
+        }
+        CHARGE_SNAPSHOT.with(|s| *s.borrow_mut() = charge_map);
+    }
+    {
+        use bsengine_core::Armor;
+        let mut armor_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Armor)>();
+        for (name, a) in q.iter(world) {
+            armor_map.insert(
+                name.0.clone(),
+                (
+                    a.flat_reduction,
+                    a.percent_reduction,
+                    a.durability,
+                    a.max_durability,
+                    a.enabled,
+                ),
+            );
+        }
+        ARMOR_SNAPSHOT.with(|s| *s.borrow_mut() = armor_map);
+    }
+    {
+        use bsengine_core::Jump;
+        let mut jump_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Jump)>();
+        for (name, j) in q.iter(world) {
+            jump_map.insert(
+                name.0.clone(),
+                (
+                    j.impulse,
+                    j.max_jumps,
+                    j.jumps_remaining,
+                    j.wants_jump,
+                    j.enabled,
+                ),
+            );
+        }
+        JUMP_SNAPSHOT.with(|s| *s.borrow_mut() = jump_map);
+    }
+    {
+        use bsengine_core::Sprint;
+        let mut sprint_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Sprint)>();
+        for (name, sp) in q.iter(world) {
+            sprint_map.insert(
+                name.0.clone(),
+                (
+                    sp.speed_multiplier,
+                    sp.is_sprinting(),
+                    sp.is_exhausted(),
+                    sp.just_started,
+                    sp.just_stopped,
+                    sp.enabled,
+                ),
+            );
+        }
+        SPRINT_SNAPSHOT.with(|s| *s.borrow_mut() = sprint_map);
+    }
+    {
+        use bsengine_core::Dash;
+        let mut dash_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Dash)>();
+        for (name, d) in q.iter(world) {
+            dash_map.insert(
+                name.0.clone(),
+                (
+                    d.speed,
+                    d.duration,
+                    d.cooldown,
+                    d.cooldown_timer,
+                    d.max_charges,
+                    d.charges,
+                    d.is_active(),
+                    d.is_invincible(),
+                    d.can_dash(),
+                    d.enabled,
+                ),
+            );
+        }
+        DASH_SNAPSHOT.with(|s| *s.borrow_mut() = dash_map);
+    }
+    {
+        use bsengine_core::{NavAgentState, NavMeshAgent};
+        let mut nav_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &NavMeshAgent)>();
+        for (name, a) in q.iter(world) {
+            let state_u8 = match a.state {
+                NavAgentState::Idle => 0u8,
+                NavAgentState::Moving => 1u8,
+                NavAgentState::Arrived => 2u8,
+                NavAgentState::NoPath => 3u8,
+            };
+            nav_map.insert(
+                name.0.clone(),
+                (
+                    a.speed,
+                    a.angular_speed,
+                    a.stopping_distance,
+                    state_u8,
+                    a.enabled,
+                ),
+            );
+        }
+        NAV_SNAPSHOT.with(|s| *s.borrow_mut() = nav_map);
+    }
+    {
+        use bsengine_core::Knockback;
+        let mut kb_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Knockback)>();
+        for (name, k) in q.iter(world) {
+            kb_map.insert(
+                name.0.clone(),
+                (
+                    k.force,
+                    k.vertical_boost,
+                    k.hits_remaining,
+                    k.blocks_new,
+                    k.enabled,
+                ),
+            );
+        }
+        KNOCKBACK_SNAPSHOT.with(|s| *s.borrow_mut() = kb_map);
+    }
+    {
+        use bsengine_core::Projectile;
+        let mut proj_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Projectile)>();
+        for (name, p) in q.iter(world) {
+            proj_map.insert(
+                name.0.clone(),
+                (
+                    p.speed,
+                    p.gravity_scale,
+                    p.piercing,
+                    p.range,
+                    p.distance_traveled,
+                ),
+            );
+        }
+        PROJECTILE_SNAPSHOT.with(|s| *s.borrow_mut() = proj_map);
+    }
+    {
+        use bsengine_core::{Grapple, GrappleState};
+        let mut grapple_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Grapple)>();
+        for (name, g) in q.iter(world) {
+            let state_u8 = match g.state {
+                GrappleState::Idle => 0u8,
+                GrappleState::InFlight => 1u8,
+                GrappleState::Attached => 2u8,
+                GrappleState::Retracting => 3u8,
+            };
+            grapple_map.insert(
+                name.0.clone(),
+                (
+                    state_u8,
+                    g.anchor_point.x,
+                    g.anchor_point.y,
+                    g.anchor_point.z,
+                    g.max_range,
+                    g.hook_speed,
+                    g.pull_force,
+                    g.rope_length,
+                    g.enabled,
+                ),
+            );
+        }
+        GRAPPLE_SNAPSHOT.with(|s| *s.borrow_mut() = grapple_map);
+    }
+    {
+        use bsengine_core::{InteractTrigger, Interactable};
+        let mut ia_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Interactable)>();
+        for (name, i) in q.iter(world) {
+            let trigger_u8 = match i.trigger {
+                InteractTrigger::OnPress => 0u8,
+                InteractTrigger::OnRelease => 1u8,
+                InteractTrigger::OnHold => 2u8,
+            };
+            ia_map.insert(
+                name.0.clone(),
+                (
+                    i.range,
+                    i.prompt.clone(),
+                    trigger_u8,
+                    i.hold_duration,
+                    i.enabled,
+                ),
+            );
+        }
+        INTERACTABLE_SNAPSHOT.with(|s| *s.borrow_mut() = ia_map);
+    }
+    {
+        use bsengine_core::ScreenShake;
+        let mut ss_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &ScreenShake)>();
+        for (name, ss) in q.iter(world) {
+            ss_map.insert(
+                name.0.clone(),
+                (ss.trauma, ss.amplitude, ss.decay_rate, ss.frequency),
+            );
+        }
+        SCREEN_SHAKE_SNAPSHOT.with(|s| *s.borrow_mut() = ss_map);
+    }
+    {
+        use bsengine_core::{Footstep, SurfaceKind};
+        let mut fs_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Footstep)>();
+        for (name, f) in q.iter(world) {
+            let surface_u8 = match &f.surface {
+                SurfaceKind::Concrete => 0u8,
+                SurfaceKind::Grass => 1u8,
+                SurfaceKind::Wood => 2u8,
+                SurfaceKind::Metal => 3u8,
+                SurfaceKind::Sand => 4u8,
+                SurfaceKind::Water => 5u8,
+                SurfaceKind::Gravel => 6u8,
+                SurfaceKind::Custom(_) => 7u8,
+            };
+            fs_map.insert(
+                name.0.clone(),
+                (
+                    f.step_interval,
+                    f.distance_accumulated,
+                    f.volume,
+                    f.audio_prefix.clone(),
+                    surface_u8,
+                    f.min_speed,
+                    f.enabled,
+                ),
+            );
+        }
+        FOOTSTEP_SNAPSHOT.with(|s| *s.borrow_mut() = fs_map);
+    }
+    {
+        use bsengine_core::Wind;
+        let mut wind_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Wind)>();
+        for (name, w) in q.iter(world) {
+            wind_map.insert(
+                name.0.clone(),
+                (
+                    w.velocity.x,
+                    w.velocity.y,
+                    w.velocity.z,
+                    w.turbulence,
+                    w.turbulence_frequency,
+                    w.radius,
+                ),
+            );
+        }
+        WIND_SNAPSHOT.with(|s| *s.borrow_mut() = wind_map);
+    }
+    {
+        use bsengine_core::Dialogue;
+        let mut dlg_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Dialogue)>();
+        for (name, d) in q.iter(world) {
+            let (speaker, text) = d
+                .current_line()
+                .map(|l| (l.speaker.clone(), l.text.clone()))
+                .unwrap_or_default();
+            dlg_map.insert(
+                name.0.clone(),
+                (
+                    d.current_index as u32,
+                    d.lines.len() as u32,
+                    d.looping,
+                    d.enabled,
+                    d.is_finished(),
+                    speaker,
+                    text,
+                ),
+            );
+        }
+        DIALOGUE_SNAPSHOT.with(|s| *s.borrow_mut() = dlg_map);
+    }
+    {
+        use bsengine_core::Dissolve;
+        let mut diss_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Dissolve)>();
+        for (name, d) in q.iter(world) {
+            diss_map.insert(
+                name.0.clone(),
+                (
+                    d.progress,
+                    d.edge_width,
+                    d.edge_color[0],
+                    d.edge_color[1],
+                    d.edge_color[2],
+                    d.edge_color[3],
+                    d.noise_scale,
+                    d.enabled,
+                ),
+            );
+        }
+        DISSOLVE_SNAPSHOT.with(|s| *s.borrow_mut() = diss_map);
+    }
+    {
+        use bsengine_core::Emissive;
+        let mut em_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Emissive)>();
+        for (name, e) in q.iter(world) {
+            em_map.insert(
+                name.0.clone(),
+                (
+                    e.color[0],
+                    e.color[1],
+                    e.color[2],
+                    e.color[3],
+                    e.intensity,
+                    e.contributes_to_bloom,
+                    e.enabled,
+                ),
+            );
+        }
+        EMISSIVE_SNAPSHOT.with(|s| *s.borrow_mut() = em_map);
+    }
+    {
+        use bsengine_core::GridSnap;
+        let mut gs_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &GridSnap)>();
+        for (name, g) in q.iter(world) {
+            gs_map.insert(
+                name.0.clone(),
+                (
+                    g.cell_size.x,
+                    g.cell_size.y,
+                    g.cell_size.z,
+                    g.offset.x,
+                    g.offset.y,
+                    g.offset.z,
+                    g.enabled,
+                ),
+            );
+        }
+        GRID_SNAP_SNAPSHOT.with(|s| *s.borrow_mut() = gs_map);
+    }
+    {
+        use bsengine_core::{Crosshair, CrosshairStyle};
+        let mut ch_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &Crosshair)>();
+        for (name, c) in q.iter(world) {
+            let style_u8 = match c.style {
+                CrosshairStyle::Cross => 0u8,
+                CrosshairStyle::Circle => 1u8,
+                CrosshairStyle::CrossCircle => 2u8,
+                CrosshairStyle::Dot => 3u8,
+            };
+            ch_map.insert(
+                name.0.clone(),
+                (
+                    style_u8,
+                    c.color[0],
+                    c.color[1],
+                    c.color[2],
+                    c.color[3],
+                    c.size,
+                    c.thickness,
+                    c.gap,
+                    c.spread,
+                    c.max_spread,
+                    c.spread_decay,
+                    c.enabled,
+                ),
+            );
+        }
+        CROSSHAIR_SNAPSHOT.with(|s| *s.borrow_mut() = ch_map);
+    }
+    {
+        use bsengine_core::Bloom;
+        let mut bl_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Bloom)>();
+        for (_, name, b) in q.iter(world) {
+            bl_map.insert(
+                name.0.clone(),
+                (b.intensity, b.threshold, b.radius, b.softness, b.enabled),
+            );
+        }
+        BLOOM_SNAPSHOT.with(|s| *s.borrow_mut() = bl_map);
+    }
+    {
+        use bsengine_core::{Tint, TintMode};
+        let mut tint_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Tint)>();
+        for (_, name, t) in q.iter(world) {
+            let mode_u32 = match t.mode {
+                TintMode::Constant => 0u32,
+                TintMode::Fading => 1u32,
+                TintMode::Pulsing => 2u32,
+            };
+            tint_map.insert(
+                name.0.clone(),
+                (
+                    t.color.x,
+                    t.color.y,
+                    t.color.z,
+                    t.intensity,
+                    mode_u32,
+                    t.fade_rate,
+                    t.pulse_speed,
+                    t.pulse_phase,
+                    t.peak_intensity,
+                    t.enabled,
+                ),
+            );
+        }
+        TINT_SNAPSHOT.with(|s| *s.borrow_mut() = tint_map);
+    }
+    {
+        use bsengine_core::ChromaticAberration;
+        let mut ca_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &ChromaticAberration)>();
+        for (_, name, ca) in q.iter(world) {
+            ca_map.insert(name.0.clone(), (ca.intensity, ca.enabled));
+        }
+        CHROM_AB_SNAPSHOT.with(|s| *s.borrow_mut() = ca_map);
+    }
+    {
+        use bsengine_core::ColorGrading;
+        let mut cg_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &ColorGrading)>();
+        for (_, name, cg) in q.iter(world) {
+            cg_map.insert(
+                name.0.clone(),
+                (
+                    cg.lut_path.clone().unwrap_or_default(),
+                    cg.exposure,
+                    cg.contrast,
+                    cg.saturation,
+                    cg.hue_shift,
+                    cg.brightness,
+                    cg.enabled,
+                ),
+            );
+        }
+        COLOR_GRADING_SNAPSHOT.with(|s| *s.borrow_mut() = cg_map);
+    }
+    {
+        use bsengine_core::Absorption;
+        let mut ab_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Absorption)>();
+        for (_, name, ab) in q.iter(world) {
+            ab_map.insert(
+                name.0.clone(),
+                (
+                    ab.fraction,
+                    ab.pool,
+                    ab.max_pool,
+                    ab.absorbed_total,
+                    ab.just_depleted,
+                    ab.enabled,
+                ),
+            );
+        }
+        ABSORPTION_SNAPSHOT.with(|s| *s.borrow_mut() = ab_map);
+    }
+    {
+        use bsengine_core::AmbientOcclusion;
+        let mut ao_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &AmbientOcclusion)>();
+        for (_, name, ao) in q.iter(world) {
+            ao_map.insert(
+                name.0.clone(),
+                (
+                    ao.radius,
+                    ao.bias,
+                    ao.intensity,
+                    ao.sample_count,
+                    ao.enabled,
+                ),
+            );
+        }
+        AMBIENT_OCCLUSION_SNAPSHOT.with(|s| *s.borrow_mut() = ao_map);
+    }
+    {
+        use bsengine_core::DepthOfField;
+        let mut dof_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &DepthOfField)>();
+        for (_, name, dof) in q.iter(world) {
+            dof_map.insert(
+                name.0.clone(),
+                (
+                    dof.focal_distance,
+                    dof.focal_range,
+                    dof.max_blur,
+                    dof.bokeh_scale,
+                    dof.enabled,
+                ),
+            );
+        }
+        DEPTH_OF_FIELD_SNAPSHOT.with(|s| *s.borrow_mut() = dof_map);
+    }
+    {
+        use bsengine_core::MotionBlur;
+        let mut mb_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &MotionBlur)>();
+        for (_, name, mb) in q.iter(world) {
+            mb_map.insert(
+                name.0.clone(),
+                (mb.shutter_angle, mb.sample_count, mb.enabled),
+            );
+        }
+        MOTION_BLUR_SNAPSHOT.with(|s| *s.borrow_mut() = mb_map);
+    }
+    {
+        use bsengine_core::{ToneMap, ToneMappingMode};
+        let mut tm_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &ToneMap)>();
+        for (_, name, tm) in q.iter(world) {
+            let mode_u32 = match tm.mode {
+                ToneMappingMode::None => 0u32,
+                ToneMappingMode::Reinhard => 1,
+                ToneMappingMode::ReinhardLuminance => 2,
+                ToneMappingMode::Aces => 3,
+                ToneMappingMode::Filmic => 4,
+            };
+            tm_map.insert(name.0.clone(), (mode_u32, tm.exposure, tm.enabled));
+        }
+        TONE_MAP_SNAPSHOT.with(|s| *s.borrow_mut() = tm_map);
+    }
+    {
+        use bsengine_core::Vignette;
+        let mut vg_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Vignette)>();
+        for (_, name, vg) in q.iter(world) {
+            vg_map.insert(
+                name.0.clone(),
+                (
+                    vg.intensity,
+                    vg.smoothness,
+                    vg.color[0],
+                    vg.color[1],
+                    vg.color[2],
+                    vg.enabled,
+                ),
+            );
+        }
+        VIGNETTE_SNAPSHOT.with(|s| *s.borrow_mut() = vg_map);
+    }
+    {
+        use bsengine_core::{Fog, FogMode};
+        let mut fog_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Fog)>();
+        for (_, name, fog) in q.iter(world) {
+            let mode_u32 = match fog.mode {
+                FogMode::Linear => 0u32,
+                FogMode::Exponential => 1u32,
+                FogMode::ExponentialSquared => 2u32,
+            };
+            fog_map.insert(
+                name.0.clone(),
+                (
+                    fog.color.r,
+                    fog.color.g,
+                    fog.color.b,
+                    fog.color.a,
+                    fog.density,
+                    fog.start_distance,
+                    fog.end_distance,
+                    mode_u32,
+                    fog.enabled,
+                ),
+            );
+        }
+        FOG_SNAPSHOT.with(|s| *s.borrow_mut() = fog_map);
+    }
+    {
+        use bsengine_core::Spring;
+        let mut sp_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Spring)>();
+        for (_, name, sp) in q.iter(world) {
+            let target_name = ENTITY_NAME_MAP.with(|m| {
+                m.borrow()
+                    .get(&sp.target.to_bits())
+                    .cloned()
+                    .unwrap_or_default()
+            });
+            let break_ext = sp.break_extension.unwrap_or(-1.0);
+            sp_map.insert(
+                name.0.clone(),
+                (
+                    target_name,
+                    sp.rest_length,
+                    sp.stiffness,
+                    sp.damping,
+                    break_ext,
+                    sp.enabled,
+                ),
+            );
+        }
+        SPRING_SNAPSHOT.with(|s| *s.borrow_mut() = sp_map);
+    }
+    {
+        use bsengine_core::{EasingFn, RepeatMode, Tween, TweenTarget};
+        let mut tw_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Tween)>();
+        for (_, name, tw) in q.iter(world) {
+            let target_type = match tw.target {
+                TweenTarget::Translation { .. } => 0u32,
+                TweenTarget::Rotation { .. } => 1u32,
+                TweenTarget::Scale { .. } => 2u32,
+            };
+            let easing_u32 = match tw.easing {
+                EasingFn::Linear => 0u32,
+                EasingFn::EaseInQuad => 1u32,
+                EasingFn::EaseOutQuad => 2u32,
+                EasingFn::EaseInOutQuad => 3u32,
+            };
+            let repeat_u32 = match tw.repeat {
+                RepeatMode::Once => 0u32,
+                RepeatMode::Loop => 1u32,
+                RepeatMode::PingPong => 2u32,
+            };
+            tw_map.insert(
+                name.0.clone(),
+                (
+                    target_type,
+                    tw.duration,
+                    easing_u32,
+                    repeat_u32,
+                    tw.elapsed,
+                    tw.finished,
+                    tw.reversed,
+                ),
+            );
+        }
+        TWEEN_SNAPSHOT.with(|s| *s.borrow_mut() = tw_map);
+    }
+    {
+        use bsengine_core::Buoyancy;
+        let mut b_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Buoyancy)>();
+        for (_, name, b) in q.iter(world) {
+            b_map.insert(
+                name.0.clone(),
+                (
+                    b.fluid_density,
+                    b.volume,
+                    b.linear_drag,
+                    b.angular_drag,
+                    b.surface_y,
+                ),
+            );
+        }
+        BUOYANCY_SNAPSHOT.with(|s| *s.borrow_mut() = b_map);
+    }
+    {
+        use bsengine_core::Follow;
+        let mut f_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Follow)>();
+        for (_, name, f) in q.iter(world) {
+            let target_name = ENTITY_NAME_MAP.with(|m| {
+                m.borrow()
+                    .get(&f.target.to_bits())
+                    .cloned()
+                    .unwrap_or_default()
+            });
+            f_map.insert(
+                name.0.clone(),
+                (target_name, f.offset.x, f.offset.y, f.offset.z, f.speed),
+            );
+        }
+        FOLLOW_SNAPSHOT.with(|s| *s.borrow_mut() = f_map);
+    }
+    {
+        use bsengine_core::LookAt;
+        let mut la_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &LookAt)>();
+        for (_, name, la) in q.iter(world) {
+            let target_name = ENTITY_NAME_MAP.with(|m| {
+                m.borrow()
+                    .get(&la.target.to_bits())
+                    .cloned()
+                    .unwrap_or_default()
+            });
+            la_map.insert(name.0.clone(), (target_name, la.up.x, la.up.y, la.up.z));
+        }
+        LOOK_AT_SNAPSHOT.with(|s| *s.borrow_mut() = la_map);
+    }
+    {
+        use bsengine_core::{Billboard, BillboardMode};
+        let mut bb_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Billboard)>();
+        for (_, name, bb) in q.iter(world) {
+            let mode = match bb.mode {
+                BillboardMode::Full => 0u32,
+                BillboardMode::Vertical => 1u32,
+            };
+            bb_map.insert(name.0.clone(), mode);
+        }
+        BILLBOARD_SNAPSHOT.with(|s| *s.borrow_mut() = bb_map);
+    }
+    {
+        use bsengine_core::{Outline, OutlineMode};
+        let mut ol_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Outline)>();
+        for (_, name, ol) in q.iter(world) {
+            let mode = match ol.mode {
+                OutlineMode::Outer => 0u32,
+                OutlineMode::Inner => 1u32,
+                OutlineMode::Center => 2u32,
+            };
+            ol_map.insert(
+                name.0.clone(),
+                (
+                    ol.color.r, ol.color.g, ol.color.b, ol.color.a, ol.width, mode, ol.visible,
+                ),
+            );
+        }
+        OUTLINE_SNAPSHOT.with(|s| *s.borrow_mut() = ol_map);
+    }
+    {
+        use bsengine_core::ZIndex;
+        let mut zi_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &ZIndex)>();
+        for (_, name, zi) in q.iter(world) {
+            zi_map.insert(name.0.clone(), zi.value());
+        }
+        Z_INDEX_SNAPSHOT.with(|s| *s.borrow_mut() = zi_map);
+    }
+    {
+        use bsengine_core::Layer;
+        let mut l_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Layer)>();
+        for (_, name, l) in q.iter(world) {
+            l_map.insert(name.0.clone(), l.bits());
+        }
+        LAYER_SNAPSHOT.with(|s| *s.borrow_mut() = l_map);
+    }
+    {
+        use bsengine_core::{Anchor, AnchorPreset};
+        let mut a_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Anchor)>();
+        for (_, name, a) in q.iter(world) {
+            let (preset_u32, norm_x, norm_y) = match a.preset {
+                AnchorPreset::Center => (0u32, 0.5f32, 0.5f32),
+                AnchorPreset::TopLeft => (1, 0.0, 1.0),
+                AnchorPreset::TopCenter => (2, 0.5, 1.0),
+                AnchorPreset::TopRight => (3, 1.0, 1.0),
+                AnchorPreset::MiddleLeft => (4, 0.0, 0.5),
+                AnchorPreset::MiddleRight => (5, 1.0, 0.5),
+                AnchorPreset::BottomLeft => (6, 0.0, 0.0),
+                AnchorPreset::BottomCenter => (7, 0.5, 0.0),
+                AnchorPreset::BottomRight => (8, 1.0, 0.0),
+                AnchorPreset::Custom(v) => (9, v.x, v.y),
+            };
+            a_map.insert(
+                name.0.clone(),
+                (preset_u32, norm_x, norm_y, a.offset.x, a.offset.y),
+            );
+        }
+        ANCHOR_SNAPSHOT.with(|s| *s.borrow_mut() = a_map);
+    }
+    {
+        use bsengine_core::Trigger;
+        let mut t_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Trigger)>();
+        for (_, name, t) in q.iter(world) {
+            t_map.insert(name.0.clone(), (t.layer_mask, t.enabled));
+        }
+        TRIGGER_SNAPSHOT.with(|s| *s.borrow_mut() = t_map);
+    }
+    {
+        use bsengine_core::{Damage, DamageType};
+        let mut d_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Damage)>();
+        for (_, name, d) in q.iter(world) {
+            let (type_u32, custom_id) = match d.damage_type {
+                DamageType::Physical => (0u32, 0u32),
+                DamageType::Fire => (1, 0),
+                DamageType::Ice => (2, 0),
+                DamageType::Lightning => (3, 0),
+                DamageType::Poison => (4, 0),
+                DamageType::Custom(id) => (5, id),
+            };
+            d_map.insert(
+                name.0.clone(),
+                (d.amount, type_u32, custom_id, d.multiplier, d.piercing),
+            );
+        }
+        DAMAGE_SNAPSHOT.with(|s| *s.borrow_mut() = d_map);
+    }
+    {
+        use bsengine_core::SpawnPoint;
+        let mut sp_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &SpawnPoint)>();
+        for (_, name, sp) in q.iter(world) {
+            let team_u32 = sp.team.unwrap_or(u32::MAX);
+            sp_map.insert(name.0.clone(), (sp.tag.clone(), team_u32, sp.enabled));
+        }
+        SPAWN_POINT_SNAPSHOT.with(|s| *s.borrow_mut() = sp_map);
+    }
+    {
+        use bsengine_core::{EffectKind, StatusEffect};
+        let mut se_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &StatusEffect)>();
+        for (_, name, se) in q.iter(world) {
+            let (kind_u32, custom_id) = match se.kind {
+                EffectKind::StatMultiplier => (0u32, 0u32),
+                EffectKind::DamageOverTime => (1, 0),
+                EffectKind::Immobilize => (2, 0),
+                EffectKind::Silence => (3, 0),
+                EffectKind::Custom(id) => (4, id),
+            };
+            se_map.insert(
+                name.0.clone(),
+                (
+                    se.id.clone(),
+                    kind_u32,
+                    custom_id,
+                    se.value,
+                    se.duration,
+                    se.ticks_every_frame,
+                    se.enabled,
+                ),
+            );
+        }
+        STATUS_EFFECT_SNAPSHOT.with(|s| *s.borrow_mut() = se_map);
+    }
+    {
+        use bsengine_core::Ability;
+        let mut ab_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Ability)>();
+        for (_, name, ab) in q.iter(world) {
+            ab_map.insert(
+                name.0.clone(),
+                (
+                    ab.name.clone(),
+                    ab.cooldown,
+                    ab.cooldown_remaining,
+                    ab.max_charges,
+                    ab.charges,
+                    ab.charge_regen_time,
+                    ab.charge_regen_accumulated,
+                    ab.enabled,
+                ),
+            );
+        }
+        ABILITY_SNAPSHOT.with(|s| *s.borrow_mut() = ab_map);
+    }
+    {
+        use bsengine_core::Alarm;
+        let mut al_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Alarm)>();
+        for (_, name, al) in q.iter(world) {
+            al_map.insert(
+                name.0.clone(),
+                (
+                    al.alert_duration,
+                    al.timer,
+                    al.detection_radius,
+                    al.just_triggered,
+                    al.just_calmed,
+                    al.enabled,
+                ),
+            );
+        }
+        ALARM_SNAPSHOT.with(|s| *s.borrow_mut() = al_map);
+    }
+    {
+        use bsengine_core::Amplify;
+        let mut amp_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Amplify)>();
+        for (_, name, amp) in q.iter(world) {
+            amp_map.insert(
+                name.0.clone(),
+                (
+                    amp.duration,
+                    amp.timer,
+                    amp.power_multiplier,
+                    amp.just_amplified,
+                    amp.just_faded,
+                    amp.enabled,
+                ),
+            );
+        }
+        AMPLIFY_SNAPSHOT.with(|s| *s.borrow_mut() = amp_map);
+    }
+    {
+        use bsengine_core::Barrier;
+        let mut bar_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Barrier)>();
+        for (_, name, bar) in q.iter(world) {
+            bar_map.insert(
+                name.0.clone(),
+                (
+                    bar.capacity,
+                    bar.current,
+                    bar.regen_rate,
+                    bar.regen_delay,
+                    bar.regen_timer,
+                    bar.just_broken,
+                    bar.just_restored,
+                    bar.enabled,
+                ),
+            );
+        }
+        BARRIER_SNAPSHOT.with(|s| *s.borrow_mut() = bar_map);
+    }
+    {
+        use bsengine_core::Beacon;
+        let mut bec_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Beacon)>();
+        for (_, name, bec) in q.iter(world) {
+            bec_map.insert(
+                name.0.clone(),
+                (
+                    bec.priority,
+                    bec.broadcast_radius,
+                    bec.duration,
+                    bec.timer,
+                    bec.lit,
+                    bec.just_lit,
+                    bec.just_extinguished,
+                    bec.enabled,
+                ),
+            );
+        }
+        BEACON_SNAPSHOT.with(|s| *s.borrow_mut() = bec_map);
+    }
+    {
+        use bsengine_core::ShieldBreak;
+        let mut sb_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &ShieldBreak)>();
+        for (_, name, sb) in q.iter(world) {
+            sb_map.insert(
+                name.0.clone(),
+                (
+                    sb.duration,
+                    sb.timer,
+                    sb.reduction_fraction,
+                    sb.just_broken,
+                    sb.just_recovered,
+                    sb.enabled,
+                ),
+            );
+        }
+        SHIELD_BREAK_SNAPSHOT.with(|s| *s.borrow_mut() = sb_map);
+    }
+    {
+        use bsengine_core::Root;
+        let mut root_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Root)>();
+        for (_, name, root) in q.iter(world) {
+            root_map.insert(
+                name.0.clone(),
+                (
+                    root.duration,
+                    root.timer,
+                    root.allows_rotation,
+                    root.allows_attack,
+                    root.just_rooted,
+                    root.just_freed,
+                    root.enabled,
+                ),
+            );
+        }
+        ROOT_SNAPSHOT.with(|s| *s.borrow_mut() = root_map);
+    }
+    {
+        use bsengine_core::Slow;
+        let mut sl_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Slow)>();
+        for (_, name, sl) in q.iter(world) {
+            sl_map.insert(
+                name.0.clone(),
+                (
+                    sl.reduction,
+                    sl.duration,
+                    sl.timer,
+                    sl.just_slowed,
+                    sl.just_recovered,
+                    sl.enabled,
+                ),
+            );
+        }
+        SLOW_SNAPSHOT.with(|s| *s.borrow_mut() = sl_map);
+    }
+    {
+        use bsengine_core::{Stun, StunSeverity};
+        let mut st_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Stun)>();
+        for (_, name, st) in q.iter(world) {
+            let sev = match st.severity {
+                StunSeverity::Light => 0u32,
+                StunSeverity::Heavy => 1u32,
+                StunSeverity::Knockdown => 2u32,
+            };
+            st_map.insert(
+                name.0.clone(),
+                (
+                    sev,
+                    st.timer,
+                    st.just_stunned,
+                    st.just_recovered,
+                    st.enabled,
+                ),
+            );
+        }
+        STUN_SNAPSHOT.with(|s| *s.borrow_mut() = st_map);
+    }
+    {
+        use bsengine_core::Burn;
+        let mut bn_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Burn)>();
+        for (_, name, bn) in q.iter(world) {
+            bn_map.insert(
+                name.0.clone(),
+                (
+                    bn.burn_rate,
+                    bn.stacks,
+                    bn.max_stacks,
+                    bn.remaining,
+                    bn.duration,
+                    bn.intensity,
+                    bn.just_ignited,
+                    bn.just_extinguished,
+                    bn.ignitable,
+                    bn.enabled,
+                ),
+            );
+        }
+        BURN_SNAPSHOT.with(|s| *s.borrow_mut() = bn_map);
+    }
+    {
+        use bsengine_core::Bleed;
+        let mut bl_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Bleed)>();
+        for (_, name, bl) in q.iter(world) {
+            bl_map.insert(
+                name.0.clone(),
+                (
+                    bl.stacks,
+                    bl.max_stacks,
+                    bl.damage_per_stack_per_tick,
+                    bl.tick_interval,
+                    bl.tick_timer,
+                    bl.duration,
+                    bl.duration_timer,
+                    bl.heal_reduction,
+                    bl.just_applied,
+                    bl.just_cleared,
+                    bl.enabled,
+                ),
+            );
+        }
+        BLEED_SNAPSHOT.with(|s| *s.borrow_mut() = bl_map);
+    }
+    {
+        use bsengine_core::Poison;
+        let mut po_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Poison)>();
+        for (_, name, po) in q.iter(world) {
+            po_map.insert(
+                name.0.clone(),
+                (
+                    po.stacks,
+                    po.max_stacks,
+                    po.damage_per_stack_per_tick,
+                    po.base_tick_interval,
+                    po.min_tick_interval,
+                    po.tick_timer,
+                    po.duration,
+                    po.duration_timer,
+                    po.virulent,
+                    po.just_poisoned,
+                    po.just_cured,
+                    po.enabled,
+                ),
+            );
+        }
+        POISON_SNAPSHOT.with(|s| *s.borrow_mut() = po_map);
+    }
+    {
+        use bsengine_core::{Freeze, FreezeState};
+        let mut fr_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Freeze)>();
+        for (_, name, fr) in q.iter(world) {
+            let state_u32 = match fr.state {
+                FreezeState::Normal => 0u32,
+                FreezeState::Chilled => 1u32,
+                FreezeState::Frozen => 2u32,
+            };
+            fr_map.insert(
+                name.0.clone(),
+                (
+                    state_u32,
+                    fr.cold_buildup,
+                    fr.chill_threshold,
+                    fr.freeze_threshold,
+                    fr.cold_decay_rate,
+                    fr.chill_slow,
+                    fr.frozen_duration,
+                    fr.frozen_timer,
+                    fr.just_frozen,
+                    fr.just_thawed,
+                    fr.immune,
+                    fr.enabled,
+                ),
+            );
+        }
+        FREEZE_SNAPSHOT.with(|s| *s.borrow_mut() = fr_map);
+    }
+    {
+        use bsengine_core::Blind;
+        let mut bl_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Blind)>();
+        for (_, name, bl) in q.iter(world) {
+            bl_map.insert(
+                name.0.clone(),
+                (
+                    bl.duration,
+                    bl.timer,
+                    bl.range_limit,
+                    bl.aim_deviation_rad,
+                    bl.just_blinded,
+                    bl.just_unblinded,
+                    bl.enabled,
+                ),
+            );
+        }
+        BLIND_SNAPSHOT.with(|s| *s.borrow_mut() = bl_map);
+    }
+    {
+        use bsengine_core::Charm;
+        let mut ch_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Charm)>();
+        for (_, name, ch) in q.iter(world) {
+            ch_map.insert(
+                name.0.clone(),
+                (
+                    ch.duration,
+                    ch.timer,
+                    ch.just_charmed,
+                    ch.just_uncharmed,
+                    ch.enabled,
+                ),
+            );
+        }
+        CHARM_SNAPSHOT.with(|s| *s.borrow_mut() = ch_map);
+    }
+    {
+        use bsengine_core::Confuse;
+        let mut co_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Confuse)>();
+        for (_, name, co) in q.iter(world) {
+            co_map.insert(
+                name.0.clone(),
+                (
+                    co.duration,
+                    co.timer,
+                    co.chance,
+                    co.just_confused,
+                    co.just_unconfused,
+                    co.enabled,
+                ),
+            );
+        }
+        CONFUSE_SNAPSHOT.with(|s| *s.borrow_mut() = co_map);
+    }
+    {
+        use bsengine_core::Cripple;
+        let mut cr_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Cripple)>();
+        for (_, name, cr) in q.iter(world) {
+            cr_map.insert(
+                name.0.clone(),
+                (
+                    cr.duration,
+                    cr.timer,
+                    cr.speed_fraction,
+                    cr.prevents_jump,
+                    cr.just_crippled,
+                    cr.just_recovered,
+                    cr.enabled,
+                ),
+            );
+        }
+        CRIPPLE_SNAPSHOT.with(|s| *s.borrow_mut() = cr_map);
+    }
+    {
+        use bsengine_core::Daze;
+        let mut dz_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Daze)>();
+        for (_, name, dz) in q.iter(world) {
+            dz_map.insert(
+                name.0.clone(),
+                (
+                    dz.duration,
+                    dz.timer,
+                    dz.slow_fraction,
+                    dz.aim_deviation_rad,
+                    dz.just_dazed,
+                    dz.just_undazed,
+                    dz.enabled,
+                ),
+            );
+        }
+        DAZE_SNAPSHOT.with(|s| *s.borrow_mut() = dz_map);
+    }
+    {
+        use bsengine_core::Disarm;
+        let mut di_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Disarm)>();
+        for (_, name, di) in q.iter(world) {
+            di_map.insert(
+                name.0.clone(),
+                (
+                    di.duration,
+                    di.timer,
+                    di.just_disarmed,
+                    di.just_rearmed,
+                    di.enabled,
+                ),
+            );
+        }
+        DISARM_SNAPSHOT.with(|s| *s.borrow_mut() = di_map);
+    }
+    {
+        use bsengine_core::Concuss;
+        let mut cn_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Concuss)>();
+        for (_, name, cn) in q.iter(world) {
+            cn_map.insert(
+                name.0.clone(),
+                (
+                    cn.duration,
+                    cn.timer,
+                    cn.aim_deviation_rad,
+                    cn.ability_suppress_chance,
+                    cn.just_concussed,
+                    cn.just_cleared,
+                    cn.enabled,
+                ),
+            );
+        }
+        CONCUSS_SNAPSHOT.with(|s| *s.borrow_mut() = cn_map);
+    }
+    {
+        use bsengine_core::Corrosion;
+        let mut co_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Corrosion)>();
+        for (_, name, co) in q.iter(world) {
+            co_map.insert(
+                name.0.clone(),
+                (
+                    co.stacks,
+                    co.max_stacks,
+                    co.decay_rate,
+                    co.armor_reduction_per_stack,
+                    co.just_corroded,
+                    co.just_cleared,
+                    co.enabled,
+                ),
+            );
+        }
+        CORROSION_SNAPSHOT.with(|s| *s.borrow_mut() = co_map);
+    }
+    {
+        use bsengine_core::Curse;
+        let mut cu_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Curse)>();
+        for (_, name, cu) in q.iter(world) {
+            cu_map.insert(
+                name.0.clone(),
+                (
+                    cu.kind as u32,
+                    cu.strength,
+                    cu.duration,
+                    cu.timer,
+                    cu.just_cursed,
+                    cu.just_lifted,
+                    cu.enabled,
+                ),
+            );
+        }
+        CURSE_SNAPSHOT.with(|s| *s.borrow_mut() = cu_map);
+    }
+    {
+        use bsengine_core::Dread;
+        let mut dr_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Dread)>();
+        for (_, name, dr) in q.iter(world) {
+            dr_map.insert(
+                name.0.clone(),
+                (
+                    dr.radius,
+                    dr.pulse_interval,
+                    dr.pulse_timer,
+                    dr.buildup_per_pulse,
+                    dr.just_pulsed,
+                    dr.enabled,
+                ),
+            );
+        }
+        DREAD_SNAPSHOT.with(|s| *s.borrow_mut() = dr_map);
+    }
+    {
+        use bsengine_core::Doom;
+        let mut dm_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Doom)>();
+        for (_, name, dm) in q.iter(world) {
+            dm_map.insert(
+                name.0.clone(),
+                (
+                    dm.active,
+                    dm.countdown,
+                    dm.max_countdown,
+                    dm.just_doomed,
+                    dm.just_expired,
+                    dm.enabled,
+                ),
+            );
+        }
+        DOOM_SNAPSHOT.with(|s| *s.borrow_mut() = dm_map);
+    }
+    {
+        use bsengine_core::Demoralize;
+        let mut de_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Demoralize)>();
+        for (_, name, de) in q.iter(world) {
+            de_map.insert(
+                name.0.clone(),
+                (
+                    de.duration,
+                    de.timer,
+                    de.damage_fraction,
+                    de.flee_chance,
+                    de.just_demoralized,
+                    de.just_recovered,
+                    de.enabled,
+                ),
+            );
+        }
+        DEMORALIZE_SNAPSHOT.with(|s| *s.borrow_mut() = de_map);
+    }
+    {
+        use bsengine_core::{Dodge, DodgePhase};
+        let mut dg_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Dodge)>();
+        for (_, name, dg) in q.iter(world) {
+            let phase_u32 = match dg.phase {
+                DodgePhase::Idle => 0u32,
+                DodgePhase::Rolling => 1u32,
+                DodgePhase::Cooldown => 2u32,
+            };
+            dg_map.insert(
+                name.0.clone(),
+                (
+                    phase_u32,
+                    dg.direction.x,
+                    dg.direction.y,
+                    dg.direction.z,
+                    dg.speed,
+                    dg.duration,
+                    dg.timer,
+                    dg.invincible,
+                    dg.cooldown,
+                    dg.wants_dodge,
+                    dg.allow_airborne,
+                    dg.chain_count,
+                    dg.max_chain,
+                    dg.enabled,
+                ),
+            );
+        }
+        DODGE_SNAPSHOT.with(|s| *s.borrow_mut() = dg_map);
+    }
+    {
+        use bsengine_core::Drain;
+        let mut dr_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Drain)>();
+        for (_, name, dr) in q.iter(world) {
+            dr_map.insert(
+                name.0.clone(),
+                (
+                    dr.rate,
+                    dr.duration,
+                    dr.timer,
+                    dr.just_drained,
+                    dr.just_expired,
+                    dr.enabled,
+                ),
+            );
+        }
+        DRAIN_SNAPSHOT.with(|s| *s.borrow_mut() = dr_map);
+    }
+    {
+        use bsengine_core::Empower;
+        let mut em_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Empower)>();
+        for (_, name, em) in q.iter(world) {
+            em_map.insert(
+                name.0.clone(),
+                (
+                    em.duration,
+                    em.timer,
+                    em.potency_multiplier,
+                    em.just_empowered,
+                    em.just_faded,
+                    em.enabled,
+                ),
+            );
+        }
+        EMPOWER_SNAPSHOT.with(|s| *s.borrow_mut() = em_map);
+    }
+    {
+        use bsengine_core::Enervate;
+        let mut en_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Enervate)>();
+        for (_, name, en) in q.iter(world) {
+            en_map.insert(
+                name.0.clone(),
+                (
+                    en.duration,
+                    en.timer,
+                    en.regen_fraction,
+                    en.max_pool_fraction,
+                    en.just_enervated,
+                    en.just_restored,
+                    en.enabled,
+                ),
+            );
+        }
+        ENERVATE_SNAPSHOT.with(|s| *s.borrow_mut() = en_map);
+    }
+    {
+        use bsengine_core::Entangle;
+        let mut et_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Entangle)>();
+        for (_, name, et) in q.iter(world) {
+            et_map.insert(
+                name.0.clone(),
+                (
+                    et.duration,
+                    et.timer,
+                    et.just_entangled,
+                    et.just_unentangled,
+                    et.enabled,
+                ),
+            );
+        }
+        ENTANGLE_SNAPSHOT.with(|s| *s.borrow_mut() = et_map);
+    }
+    {
+        use bsengine_core::Expose;
+        let mut ex_map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Expose)>();
+        for (_, name, ex) in q.iter(world) {
+            ex_map.insert(
+                name.0.clone(),
+                (
+                    ex.duration,
+                    ex.timer,
+                    ex.damage_multiplier,
+                    ex.just_exposed,
+                    ex.just_recovered,
+                    ex.enabled,
+                ),
+            );
+        }
+        EXPOSE_SNAPSHOT.with(|s| *s.borrow_mut() = ex_map);
+    }
+    {
+        use bsengine_core::Exhaustion;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Exhaustion)>();
+        for (_, name, ex) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ex.level,
+                    ex.recovery_rate,
+                    ex.threshold,
+                    ex.penalty_speed,
+                    ex.penalty_regen,
+                    ex.just_exhausted,
+                    ex.just_recovered,
+                    ex.enabled,
+                ),
+            );
+        }
+        EXHAUSTION_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::{Fear, FearState};
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Fear)>();
+        for (_, name, fe) in q.iter(world) {
+            let state_u32 = match fe.state {
+                FearState::Calm => 0u32,
+                FearState::Frightened => 1u32,
+                FearState::Fleeing => 2u32,
+            };
+            map.insert(
+                name.0.clone(),
+                (
+                    state_u32,
+                    fe.duration,
+                    fe.timer,
+                    fe.flee_speed_multiplier,
+                    fe.just_feared,
+                    fe.just_calmed,
+                    fe.enabled,
+                ),
+            );
+        }
+        FEAR_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Fracture;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Fracture)>();
+        for (_, name, fr) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    fr.duration,
+                    fr.timer,
+                    fr.damage_amplification,
+                    fr.move_speed_penalty,
+                    fr.just_fractured,
+                    fr.just_healed,
+                    fr.enabled,
+                ),
+            );
+        }
+        FRACTURE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Frostbite;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Frostbite)>();
+        for (_, name, fb) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    fb.duration,
+                    fb.timer,
+                    fb.cold_damage_per_second,
+                    fb.action_speed_fraction,
+                    fb.just_frostbitten,
+                    fb.just_thawed,
+                    fb.enabled,
+                ),
+            );
+        }
+        FROSTBITE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Fury;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Fury)>();
+        for (_, name, fu) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    fu.fury_factor,
+                    fu.max_speed_bonus,
+                    fu.just_peaked,
+                    fu.enabled,
+                ),
+            );
+        }
+        FURY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Galvanize;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Galvanize)>();
+        for (_, name, gv) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    gv.duration,
+                    gv.timer,
+                    gv.speed_multiplier,
+                    gv.just_galvanized,
+                    gv.just_worn_off,
+                    gv.enabled,
+                ),
+            );
+        }
+        GALVANIZE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Haste;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Haste)>();
+        for (_, name, hs) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    hs.effective_multiplier(),
+                    hs.stack_count() as u32,
+                    hs.max_stacks as u32,
+                    hs.enabled,
+                ),
+            );
+        }
+        HASTE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Havoc;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Havoc)>();
+        for (_, name, hv) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    hv.duration,
+                    hv.timer,
+                    hv.stray_chance,
+                    hv.damage_multiplier,
+                    hv.just_entered,
+                    hv.just_exited,
+                    hv.enabled,
+                ),
+            );
+        }
+        HAVOC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Haze;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Haze)>();
+        for (_, name, hz) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    hz.duration,
+                    hz.timer,
+                    hz.detection_range_fraction,
+                    hz.just_hazed,
+                    hz.just_cleared,
+                    hz.enabled,
+                ),
+            );
+        }
+        HAZE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::{Heat, ThermalState};
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Heat)>();
+        for (_, name, ht) in q.iter(world) {
+            let state_u32 = match ht.state {
+                ThermalState::Normal => 0u32,
+                ThermalState::Overheated => 1u32,
+                ThermalState::Frozen => 2u32,
+            };
+            map.insert(
+                name.0.clone(),
+                (
+                    ht.temperature,
+                    ht.resting_temp,
+                    ht.heat_threshold,
+                    ht.cold_threshold,
+                    ht.decay_rate,
+                    ht.resistance,
+                    state_u32,
+                    ht.enabled,
+                ),
+            );
+        }
+        HEAT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Hex;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Hex)>();
+        for (_, name, hx) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    hx.stacks,
+                    hx.max_stacks,
+                    hx.duration,
+                    hx.timer,
+                    hx.reduction_per_stack,
+                    hx.just_applied,
+                    hx.just_expired,
+                    hx.enabled,
+                ),
+            );
+        }
+        HEX_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Hobble;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Hobble)>();
+        for (_, name, ho) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ho.duration,
+                    ho.timer,
+                    ho.speed_fraction,
+                    ho.prevents_dash,
+                    ho.just_hobbled,
+                    ho.just_recovered,
+                    ho.enabled,
+                ),
+            );
+        }
+        HOBBLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Ignite;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Ignite)>();
+        for (_, name, ig) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ig.stacks,
+                    ig.threshold,
+                    ig.decay_rate,
+                    ig.just_ignited,
+                    ig.just_extinguished,
+                    ig.enabled,
+                ),
+            );
+        }
+        IGNITE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Imbue;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Imbue)>();
+        for (_, name, im) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    im.charged,
+                    im.bonus_damage,
+                    im.just_charged,
+                    im.just_consumed,
+                    im.enabled,
+                ),
+            );
+        }
+        IMBUE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Immune;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Immune)>();
+        for (_, name, im) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (im.damage_type_mask, im.effect_type_mask, im.enabled),
+            );
+        }
+        IMMUNE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Impact;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Impact)>();
+        for (_, name, ip) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ip.force,
+                    ip.just_impacted,
+                    ip.impact_count,
+                    ip.normal.x,
+                    ip.normal.y,
+                    ip.normal.z,
+                    ip.enabled,
+                ),
+            );
+        }
+        IMPACT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Intercept;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Intercept)>();
+        for (_, name, ic) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ic.duration,
+                    ic.timer,
+                    ic.radius,
+                    ic.damage_reduction,
+                    ic.just_activated,
+                    ic.just_deactivated,
+                    ic.enabled,
+                ),
+            );
+        }
+        INTERCEPT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Interrupt;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Interrupt)>();
+        for (_, name, ir) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ir.threshold,
+                    ir.resistance,
+                    ir.just_interrupted,
+                    ir.interrupt_count,
+                    ir.enabled,
+                ),
+            );
+        }
+        INTERRUPT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Invincible;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Invincible)>();
+        for (_, name, inv) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    inv.stacks,
+                    inv.timer,
+                    inv.flash_interval,
+                    inv.flash_visible,
+                    inv.just_became_invincible,
+                    inv.just_lost_invincibility,
+                    inv.enabled,
+                ),
+            );
+        }
+        INVINCIBLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Isolate;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Isolate)>();
+        for (_, name, iso) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    iso.duration,
+                    iso.timer,
+                    iso.buff_reduction,
+                    iso.debuff_reduction,
+                    iso.just_began,
+                    iso.just_ended,
+                    iso.enabled,
+                ),
+            );
+        }
+        ISOLATE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Jeer;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Jeer)>();
+        for (_, name, jr) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    jr.duration,
+                    jr.timer,
+                    jr.aim_penalty_rad,
+                    jr.damage_fraction,
+                    jr.just_jeered,
+                    jr.just_rallied,
+                    jr.enabled,
+                ),
+            );
+        }
+        JEER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::{Jetpack, JetpackState};
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Jetpack)>();
+        for (_, name, jp) in q.iter(world) {
+            let state_u32 = match jp.state {
+                JetpackState::Idle => 0u32,
+                JetpackState::Thrusting => 1u32,
+                JetpackState::Depleted => 2u32,
+            };
+            map.insert(
+                name.0.clone(),
+                (
+                    state_u32,
+                    jp.thrust_direction.x,
+                    jp.thrust_direction.y,
+                    jp.thrust_direction.z,
+                    jp.thrust_force,
+                    jp.fuel,
+                    jp.max_fuel,
+                    jp.fuel_drain_rate,
+                    jp.fuel_regen_rate,
+                    jp.wants_thrust,
+                    jp.regen_in_air,
+                    jp.enabled,
+                ),
+            );
+        }
+        JETPACK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Jolt;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Jolt)>();
+        for (_, name, jt) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    jt.duration,
+                    jt.timer,
+                    jt.chain_chance,
+                    jt.chain_fraction,
+                    jt.just_jolted,
+                    jt.just_expired,
+                    jt.enabled,
+                ),
+            );
+        }
+        JOLT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Jostle;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Jostle)>();
+        for (_, name, jo) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    jo.accumulated,
+                    jo.threshold,
+                    jo.decay_rate,
+                    jo.just_destabilized,
+                    jo.enabled,
+                ),
+            );
+        }
+        JOSTLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Juke;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Juke)>();
+        for (_, name, jk) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (jk.charges, jk.max_charges, jk.just_juked, jk.enabled),
+            );
+        }
+        JUKE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Kneel;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Kneel)>();
+        for (_, name, kn) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    kn.duration,
+                    kn.timer,
+                    kn.speed_fraction,
+                    kn.just_kneeled,
+                    kn.just_risen,
+                    kn.enabled,
+                ),
+            );
+        }
+        KNEEL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Knit;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Knit)>();
+        for (_, name, kt) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    kt.duration,
+                    kt.timer,
+                    kt.heal_rate,
+                    kt.interruption_threshold,
+                    kt.just_began,
+                    kt.just_completed,
+                    kt.just_interrupted,
+                    kt.enabled,
+                ),
+            );
+        }
+        KNIT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Lacerate;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Lacerate)>();
+        for (_, name, lc) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    lc.stacks,
+                    lc.max_stacks,
+                    lc.damage_per_stack_per_second,
+                    lc.duration,
+                    lc.timer,
+                    lc.just_lacerated,
+                    lc.just_closed,
+                    lc.enabled,
+                ),
+            );
+        }
+        LACERATE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Laden;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Laden)>();
+        for (_, name, ld) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (ld.current_load, ld.max_load, ld.speed_penalty, ld.enabled),
+            );
+        }
+        LADEN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Lament;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Lament)>();
+        for (_, name, lm) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    lm.intensity,
+                    lm.decay_rate,
+                    lm.damage_penalty,
+                    lm.speed_penalty,
+                    lm.just_lamented,
+                    lm.just_recovered,
+                    lm.enabled,
+                ),
+            );
+        }
+        LAMENT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Lance;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Lance)>();
+        for (_, name, la) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    la.duration,
+                    la.timer,
+                    la.base_damage,
+                    la.speed_scale,
+                    la.speed_threshold,
+                    la.just_struck,
+                    la.just_ended,
+                    la.enabled,
+                ),
+            );
+        }
+        LANCE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Lapse;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Lapse)>();
+        for (_, name, lp) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    lp.lapsing,
+                    lp.interval_timer,
+                    lp.duration_timer,
+                    lp.interval,
+                    lp.lapse_duration,
+                    lp.just_lapsed,
+                    lp.just_focused,
+                    lp.enabled,
+                ),
+            );
+        }
+        LAPSE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Lash;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Lash)>();
+        for (_, name, la) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    la.pull_force,
+                    la.damage,
+                    la.duration,
+                    la.timer,
+                    la.just_connected,
+                    la.just_released,
+                    la.enabled,
+                ),
+            );
+        }
+        LASH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Latch;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Latch)>();
+        for (_, name, la) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    la.active,
+                    la.timer,
+                    la.damage_per_second,
+                    la.just_latched,
+                    la.just_released,
+                    la.enabled,
+                ),
+            );
+        }
+        LATCH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Ledge;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Ledge)>();
+        for (_, name, le) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    le.phase as u32,
+                    le.hang_position.x,
+                    le.hang_position.y,
+                    le.hang_position.z,
+                    le.climb_duration,
+                    le.climb_timer,
+                    le.detection_range,
+                    le.can_grab,
+                    le.enabled,
+                ),
+            );
+        }
+        LEDGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Leech;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Leech)>();
+        for (_, name, le) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    le.fraction,
+                    le.flat,
+                    le.last_leeched,
+                    le.total_leeched,
+                    le.just_leeched,
+                    le.enabled,
+                ),
+            );
+        }
+        LEECH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Lunge;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Lunge)>();
+        for (_, name, lu) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    lu.phase as u32,
+                    lu.direction.x,
+                    lu.direction.y,
+                    lu.direction.z,
+                    lu.target_point.x,
+                    lu.target_point.y,
+                    lu.target_point.z,
+                    lu.speed,
+                    lu.range,
+                    lu.traveled,
+                    lu.recovery_time,
+                    lu.recovery_timer,
+                    lu.cooldown,
+                    lu.cooldown_timer,
+                    lu.ground_only,
+                    lu.just_lunged,
+                    lu.hit_registered,
+                    lu.enabled,
+                ),
+            );
+        }
+        LUNGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Lure;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Lure)>();
+        for (_, name, lu) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    lu.state as u32,
+                    lu.position.x,
+                    lu.position.y,
+                    lu.position.z,
+                    lu.radius,
+                    lu.strength,
+                    lu.duration,
+                    lu.timer,
+                    lu.just_activated,
+                    lu.just_expired,
+                    lu.enabled,
+                ),
+            );
+        }
+        LURE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Lurk;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Lurk)>();
+        for (_, name, lu) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    lu.detection_range_fraction,
+                    lu.ambush_multiplier,
+                    lu.lurking,
+                    lu.just_lurked,
+                    lu.just_struck,
+                    lu.enabled,
+                ),
+            );
+        }
+        LURK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Magnet;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Magnet)>();
+        for (_, name, mg) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    mg.mode as u32,
+                    mg.radius,
+                    mg.strength,
+                    mg.falloff,
+                    mg.affects_projectiles,
+                    mg.affects_entities,
+                    mg.enabled,
+                ),
+            );
+        }
+        MAGNET_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Maim;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Maim)>();
+        for (_, name, ma) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ma.stacks,
+                    ma.max_stacks,
+                    ma.speed_fraction_per_stack,
+                    ma.bleed_per_stack_per_second,
+                    ma.just_maimed,
+                    ma.just_healed,
+                    ma.enabled,
+                ),
+            );
+        }
+        MAIM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Malice;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Malice)>();
+        for (_, name, ml) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ml.stacks,
+                    ml.max_stacks,
+                    ml.damage_amplify_per_stack,
+                    ml.decay_interval,
+                    ml.decay_timer,
+                    ml.just_stacked,
+                    ml.just_cleared,
+                    ml.enabled,
+                ),
+            );
+        }
+        MALICE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Mark;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Mark)>();
+        for (_, name, mk) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    mk.marks.len() as u32,
+                    mk.total_damage_bonus(),
+                    mk.just_marked,
+                    mk.just_unmarked,
+                    mk.enabled,
+                ),
+            );
+        }
+        MARK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Melee;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Melee)>();
+        for (_, name, me) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    me.phase as u32,
+                    me.attack_direction.x,
+                    me.attack_direction.y,
+                    me.attack_direction.z,
+                    me.reach,
+                    me.arc_angle,
+                    me.windup_time,
+                    me.active_time,
+                    me.recovery_time,
+                    me.timer,
+                    me.hit_count,
+                    me.max_hits,
+                    me.combo_step,
+                    me.combo_buffered,
+                    me.can_cancel_recovery,
+                    me.enabled,
+                ),
+            );
+        }
+        MELEE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Mend;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Mend)>();
+        for (_, name, mn) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (mn.mend_pool, mn.rate, mn.just_depleted, mn.enabled),
+            );
+        }
+        MEND_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Merge;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Merge)>();
+        for (_, name, mg) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    mg.can_merge,
+                    mg.merge_weight,
+                    mg.max_weight,
+                    mg.just_merged,
+                    mg.enabled,
+                ),
+            );
+        }
+        MERGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Mesh;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Mesh)>();
+        for (_, name, me) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    me.path.clone(),
+                    me.submesh_index as u32,
+                    me.cast_shadow,
+                    me.receive_shadow,
+                ),
+            );
+        }
+        MESH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Minimap;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Minimap)>();
+        for (_, name, mm) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    mm.icon.clone(),
+                    mm.color[0],
+                    mm.color[1],
+                    mm.color[2],
+                    mm.color[3],
+                    mm.size,
+                    mm.category.clone(),
+                    mm.rotate_with_entity,
+                    mm.clamp_to_edge,
+                    mm.enabled,
+                ),
+            );
+        }
+        MINIMAP_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Mirage;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Mirage)>();
+        for (_, name, mi) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    mi.duration,
+                    mi.timer,
+                    mi.misdirect_chance,
+                    mi.just_created,
+                    mi.just_faded,
+                    mi.enabled,
+                ),
+            );
+        }
+        MIRAGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Momentum;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Momentum)>();
+        for (_, name, mo) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    mo.current.x,
+                    mo.current.y,
+                    mo.current.z,
+                    mo.damping,
+                    mo.max_speed,
+                    mo.enabled,
+                ),
+            );
+        }
+        MOMENTUM_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Morale;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Morale)>();
+        for (_, name, mo) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    mo.morale,
+                    mo.decay_rate,
+                    mo.damage_bonus,
+                    mo.speed_bonus,
+                    mo.just_peaked,
+                    mo.just_broke,
+                    mo.enabled,
+                ),
+            );
+        }
+        MORALE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Morph;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Morph)>();
+        for (_, name, mo) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    mo.form,
+                    mo.target_form,
+                    mo.morph_time,
+                    mo.morph_timer,
+                    mo.is_morphing,
+                    mo.just_started,
+                    mo.just_finished,
+                    mo.enabled,
+                ),
+            );
+        }
+        MORPH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Mount;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Mount)>();
+        for (_, name, mt) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    mt.rider_count() as u32,
+                    mt.max_riders as u32,
+                    mt.speed_scale,
+                    mt.forced_dismount_damage.unwrap_or(-1.0),
+                    mt.enabled,
+                ),
+            );
+        }
+        MOUNT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Muffle;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Muffle)>();
+        for (_, name, mu) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    mu.duration,
+                    mu.timer,
+                    mu.sound_radius_fraction,
+                    mu.just_muffled,
+                    mu.just_unmuffled,
+                    mu.enabled,
+                ),
+            );
+        }
+        MUFFLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::{NetworkAuthority, NetworkId};
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &NetworkId)>();
+        for (_, name, nid) in q.iter(world) {
+            let (auth_kind, peer_id_str) = match nid.authority {
+                NetworkAuthority::Server => (0u32, String::new()),
+                NetworkAuthority::Client { peer_id } => (1u32, peer_id.to_string()),
+                NetworkAuthority::Local => (2u32, String::new()),
+            };
+            map.insert(name.0.clone(), (nid.id.to_string(), auth_kind, peer_id_str));
+        }
+        NETWORK_ID_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        let (is_server, is_connected, my_peer_id, peer_count) =
+            if let Some(session) = world.get_resource::<NetworkSession>() {
+                (
+                    session.is_server(),
+                    session.connected,
+                    session.my_peer_id,
+                    session.peer_count(),
+                )
+            } else {
+                (false, false, 0, 0)
+            };
+        NETWORK_STATE_SNAPSHOT.with(|s| {
+            *s.borrow_mut() = (is_server, is_connected, my_peer_id, peer_count);
+        });
+    }
+    {
+        use bsengine_core::Nimble;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Nimble)>();
+        for (_, name, ni) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ni.duration,
+                    ni.timer,
+                    ni.dodge_chance,
+                    ni.speed_bonus_fraction,
+                    ni.just_quickened,
+                    ni.just_faded,
+                    ni.enabled,
+                ),
+            );
+        }
+        NIMBLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::{Notice, NoticeState};
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Notice)>();
+        for (_, name, no) in q.iter(world) {
+            let state_u32 = match no.state {
+                NoticeState::Unaware => 0u32,
+                NoticeState::Alert => 1u32,
+                NoticeState::Alarmed => 2u32,
+                NoticeState::Searching => 3u32,
+            };
+            map.insert(
+                name.0.clone(),
+                (
+                    state_u32,
+                    no.suspicion,
+                    no.suspicion_decay_rate,
+                    no.alert_threshold,
+                    no.alarm_threshold,
+                    no.last_known_position.x,
+                    no.last_known_position.y,
+                    no.last_known_position.z,
+                    no.investigate_timer,
+                    no.max_investigate_time,
+                    no.has_last_known,
+                    no.enabled,
+                ),
+            );
+        }
+        NOTICE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Nourish;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Nourish)>();
+        for (_, name, no) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    no.satiety,
+                    no.decay_rate,
+                    no.regen_scale,
+                    no.just_starved,
+                    no.enabled,
+                ),
+            );
+        }
+        NOURISH_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Nova;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Nova)>();
+        for (_, name, nv) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    nv.charge_time,
+                    nv.charge_timer,
+                    nv.radius,
+                    nv.damage,
+                    nv.just_primed,
+                    nv.just_discharged,
+                    nv.enabled,
+                ),
+            );
+        }
+        NOVA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::{Npc, NpcRole, NpcState};
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Npc)>();
+        for (_, name, np) in q.iter(world) {
+            let role_u32 = match np.role {
+                NpcRole::Civilian => 0u32,
+                NpcRole::Guard => 1u32,
+                NpcRole::Creature => 2u32,
+                NpcRole::Vendor => 3u32,
+                NpcRole::Scripted => 4u32,
+            };
+            let state_u32 = match np.state {
+                NpcState::Idle => 0u32,
+                NpcState::Patrolling => 1u32,
+                NpcState::Investigating => 2u32,
+                NpcState::Alerted => 3u32,
+                NpcState::Engaging => 4u32,
+                NpcState::Fleeing => 5u32,
+                NpcState::Interacting => 6u32,
+                NpcState::Dead => 7u32,
+            };
+            let template_id = np.template_id.clone().unwrap_or_default();
+            map.insert(
+                name.0.clone(),
+                (
+                    role_u32,
+                    state_u32,
+                    np.display_name.clone(),
+                    template_id,
+                    np.faction_id,
+                    np.alert,
+                    np.alert_decay,
+                    np.enabled,
+                ),
+            );
+        }
+        NPC_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Nullify;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Nullify)>();
+        for (_, name, nu) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    nu.duration,
+                    nu.timer,
+                    nu.blocks_buffs,
+                    nu.blocks_debuffs,
+                    nu.just_activated,
+                    nu.just_expired,
+                    nu.enabled,
+                ),
+            );
+        }
+        NULLIFY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Numb;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Numb)>();
+        for (_, name, nu) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    nu.duration,
+                    nu.timer,
+                    nu.damage_fraction,
+                    nu.just_numbed,
+                    nu.just_worn_off,
+                    nu.enabled,
+                ),
+            );
+        }
+        NUMB_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::{Obstacle, ObstacleShape};
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Obstacle)>();
+        for (_, name, ob) in q.iter(world) {
+            let (kind, p1, p2, p3) = match &ob.shape {
+                ObstacleShape::Circle { radius } => (0u32, *radius, 0.0f32, 0.0f32),
+                ObstacleShape::Box { half_x, half_z } => (1u32, *half_x, *half_z, 0.0f32),
+                ObstacleShape::Capsule { radius, height } => (2u32, *radius, *height, 0.0f32),
+            };
+            let bounding = ob.bounding_radius();
+            map.insert(
+                name.0.clone(),
+                (
+                    kind,
+                    p1,
+                    p2,
+                    p3,
+                    ob.dynamic,
+                    ob.carve_depth,
+                    bounding,
+                    ob.enabled,
+                ),
+            );
+        }
+        OBSTACLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Omen;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Omen)>();
+        for (_, name, om) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    om.stacks,
+                    om.max_stacks,
+                    om.damage_multiplier_per_stack,
+                    om.just_stacked,
+                    om.just_consumed,
+                    om.enabled,
+                ),
+            );
+        }
+        OMEN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Orbit;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Orbit)>();
+        for (_, name, or) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    or.radius,
+                    or.speed,
+                    or.angle,
+                    or.axis.x,
+                    or.axis.y,
+                    or.axis.z,
+                    or.altitude,
+                    or.enabled,
+                ),
+            );
+        }
+        ORBIT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Ordeal;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Ordeal)>();
+        for (_, name, od) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    od.duration,
+                    od.timer,
+                    od.just_began,
+                    od.just_endured,
+                    od.just_failed,
+                    od.enabled,
+                ),
+            );
+        }
+        ORDEAL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::{Oscillate, OscillateAxis};
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Oscillate)>();
+        for (_, name, os) in q.iter(world) {
+            let axis_kind = match os.axis {
+                OscillateAxis::Translation => 0u32,
+                OscillateAxis::Rotation => 1u32,
+            };
+            let scalar_offset = if os.enabled {
+                (os.phase + os.phase_offset).sin() * os.amplitude
+            } else {
+                0.0
+            };
+            map.insert(
+                name.0.clone(),
+                (
+                    axis_kind,
+                    os.direction.x,
+                    os.direction.y,
+                    os.direction.z,
+                    os.amplitude,
+                    os.frequency,
+                    os.phase,
+                    os.phase_offset,
+                    scalar_offset,
+                    os.enabled,
+                ),
+            );
+        }
+        OSCILLATE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Outlast;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Outlast)>();
+        for (_, name, ol) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ol.combat_time,
+                    ol.max_bonus_time,
+                    ol.defense_bonus,
+                    ol.in_combat,
+                    ol.just_peaked,
+                    ol.enabled,
+                ),
+            );
+        }
+        OUTLAST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Overflow;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Overflow)>();
+        for (_, name, of) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    of.current,
+                    of.max_pool,
+                    of.decay_rate,
+                    of.just_gained,
+                    of.just_depleted,
+                    of.enabled,
+                ),
+            );
+        }
+        OVERFLOW_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::{Overheat, OverheatState};
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Overheat)>();
+        for (_, name, oh) in q.iter(world) {
+            let state_u32 = match oh.state {
+                OverheatState::Normal => 0u32,
+                OverheatState::Warning => 1u32,
+                OverheatState::Overheated => 2u32,
+                OverheatState::Cooling => 3u32,
+            };
+            map.insert(
+                name.0.clone(),
+                (
+                    state_u32,
+                    oh.heat,
+                    oh.max_heat,
+                    oh.warn_threshold,
+                    oh.cool_threshold,
+                    oh.cool_rate,
+                    oh.forced_cool_rate,
+                    oh.just_overheated,
+                    oh.just_cooled,
+                    oh.enabled,
+                ),
+            );
+        }
+        OVERHEAT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Overload;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Overload)>();
+        for (_, name, ol) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ol.duration,
+                    ol.timer,
+                    ol.cost_multiplier,
+                    ol.just_overloaded,
+                    ol.just_recovered,
+                    ol.enabled,
+                ),
+            );
+        }
+        OVERLOAD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Overpower;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Overpower)>();
+        for (_, name, op) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    op.duration,
+                    op.timer,
+                    op.armor_penetration,
+                    op.just_overpowered,
+                    op.just_faded,
+                    op.enabled,
+                ),
+            );
+        }
+        OVERPOWER_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Overshield;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Overshield)>();
+        for (_, name, os) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    os.current,
+                    os.max_overshield,
+                    os.decay_rate,
+                    os.just_granted,
+                    os.just_depleted,
+                    os.enabled,
+                ),
+            );
+        }
+        OVERSHIELD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::{Parry, ParryState};
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Parry)>();
+        for (_, name, pa) in q.iter(world) {
+            let state_kind: u32 = match pa.state {
+                ParryState::Idle => 0,
+                ParryState::Active => 1,
+                ParryState::Success => 2,
+                ParryState::Missed => 3,
+            };
+            map.insert(
+                name.0.clone(),
+                (
+                    state_kind,
+                    pa.startup_duration,
+                    pa.active_duration,
+                    pa.recovery_duration,
+                    pa.timer,
+                    pa.parry_count,
+                    pa.just_opened,
+                    pa.just_succeeded,
+                    pa.just_missed,
+                    pa.just_finished,
+                    pa.enabled,
+                ),
+            );
+        }
+        PARRY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Patience;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Patience)>();
+        for (_, name, pa) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    pa.patience_level,
+                    pa.max_patience,
+                    pa.patience_bonus,
+                    pa.just_primed,
+                    pa.just_spent,
+                    pa.enabled,
+                ),
+            );
+        }
+        PATIENCE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Petrify;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Petrify)>();
+        for (_, name, pe) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    pe.duration,
+                    pe.timer,
+                    pe.armor_bonus,
+                    pe.just_petrified,
+                    pe.just_unpetrified,
+                    pe.enabled,
+                ),
+            );
+        }
+        PETRIFY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Phase;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Phase)>();
+        for (_, name, ph) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ph.is_phased,
+                    ph.duration,
+                    ph.timer,
+                    ph.cooldown,
+                    ph.cooldown_timer,
+                    ph.just_phased,
+                    ph.just_unphased,
+                    ph.enabled,
+                ),
+            );
+        }
+        PHASE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Pierce;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Pierce)>();
+        for (_, name, pi) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    pi.max_pierce,
+                    pi.pierce_chance,
+                    pi.pierced_this_attack,
+                    pi.just_pierced,
+                    pi.enabled,
+                ),
+            );
+        }
+        PIERCE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Pin;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Pin)>();
+        for (_, name, pi) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    pi.active,
+                    pi.timer,
+                    pi.duration,
+                    pi.knockback_immune,
+                    pi.just_pinned,
+                    pi.just_freed,
+                    pi.enabled,
+                ),
+            );
+        }
+        PIN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Plea;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Plea)>();
+        for (_, name, pl) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    pl.duration,
+                    pl.timer,
+                    pl.avoidance_chance,
+                    pl.just_began,
+                    pl.just_ended,
+                    pl.enabled,
+                ),
+            );
+        }
+        PLEA_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Ploy;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Ploy)>();
+        for (_, name, pl) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    pl.active,
+                    pl.timer,
+                    pl.just_began,
+                    pl.just_ended,
+                    pl.enabled,
+                ),
+            );
+        }
+        PLOY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Pluck;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Pluck)>();
+        for (_, name, pl) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    pl.hp_threshold,
+                    pl.crit_bonus,
+                    pl.pluck_active,
+                    pl.just_triggered,
+                    pl.just_recovered,
+                    pl.enabled,
+                ),
+            );
+        }
+        PLUCK_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Poise;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Poise)>();
+        for (_, name, po) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    po.current,
+                    po.max,
+                    po.regen_rate,
+                    po.broken,
+                    po.just_broken,
+                    po.just_restored,
+                    po.enabled,
+                ),
+            );
+        }
+        POISE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Pounce;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Pounce)>();
+        for (_, name, po) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    po.duration,
+                    po.timer,
+                    po.damage,
+                    po.knockdown_duration,
+                    po.min_range,
+                    po.max_range,
+                    po.just_leaped,
+                    po.just_landed,
+                    po.enabled,
+                ),
+            );
+        }
+        POUNCE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Prone;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Prone)>();
+        for (_, name, pr) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    pr.is_prone,
+                    pr.stand_up_duration,
+                    pr.stand_up_timer,
+                    pr.movement_penalty,
+                    pr.attack_penalty,
+                    pr.just_fell_prone,
+                    pr.just_stood_up,
+                    pr.enabled,
+                ),
+            );
+        }
+        PRONE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Protect;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Protect)>();
+        for (_, name, pr) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    pr.duration,
+                    pr.timer,
+                    pr.guard_radius,
+                    pr.redirect_fraction,
+                    pr.just_began,
+                    pr.just_ended,
+                    pr.enabled,
+                ),
+            );
+        }
+        PROTECT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Proud;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Proud)>();
+        for (_, name, pr) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    pr.hp_threshold,
+                    pr.damage_bonus,
+                    pr.prideful,
+                    pr.just_humbled,
+                    pr.just_restored,
+                    pr.enabled,
+                ),
+            );
+        }
+        PROUD_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Provoke;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Provoke)>();
+        for (_, name, pr) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    pr.duration,
+                    pr.timer,
+                    pr.aggro_multiplier,
+                    pr.radius,
+                    pr.just_provoked,
+                    pr.just_expired,
+                    pr.enabled,
+                ),
+            );
+        }
+        PROVOKE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Prowl;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Prowl)>();
+        for (_, name, pr) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    pr.duration,
+                    pr.timer,
+                    pr.speed_bonus_fraction,
+                    pr.ambush_damage_multiplier,
+                    pr.ambush_consumed,
+                    pr.just_prowling,
+                    pr.just_faded,
+                    pr.enabled,
+                ),
+            );
+        }
+        PROWL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::{Pulse, PulseMode};
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Pulse)>();
+        for (_, name, pu) in q.iter(world) {
+            let mode_kind: u32 = match pu.mode {
+                PulseMode::Oneshot => 0,
+                PulseMode::Repeating => 1,
+            };
+            map.insert(
+                name.0.clone(),
+                (
+                    mode_kind,
+                    pu.is_active,
+                    pu.radius,
+                    pu.max_radius,
+                    pu.interval,
+                    pu.timer,
+                    pu.falloff,
+                    pu.pulse_count,
+                    pu.just_pulsed,
+                    pu.enabled,
+                ),
+            );
+        }
+        PULSE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::{Quest, QuestState};
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Quest)>();
+        for (_, name, qu) in q.iter(world) {
+            let state: u32 = match qu.state {
+                QuestState::Active => 0,
+                QuestState::ReadyToComplete => 1,
+                QuestState::Completed => 2,
+                QuestState::Abandoned => 3,
+            };
+            map.insert(name.0.clone(), (state, qu.xp_reward, qu.enabled));
+        }
+        QUEST_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Radar;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Radar)>();
+        for (_, name, rd) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (rd.range, rd.scan_interval, rd.scan_timer, rd.enabled),
+            );
+        }
+        RADAR_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::{Rage, RagePhase};
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Rage)>();
+        for (_, name, rg) in q.iter(world) {
+            let phase: u32 = match rg.phase {
+                RagePhase::Calm => 0,
+                RagePhase::Building => 1,
+                RagePhase::Raging => 2,
+                RagePhase::Cooling => 3,
+            };
+            map.insert(
+                name.0.clone(),
+                (
+                    phase,
+                    rg.rage,
+                    rg.max_rage,
+                    rg.rage_per_damage,
+                    rg.activation_threshold,
+                    rg.damage_multiplier,
+                    rg.defense_multiplier,
+                    rg.just_entered_rage,
+                    rg.just_left_rage,
+                    rg.enabled,
+                ),
+            );
+        }
+        RAGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Rally;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Rally)>();
+        for (_, name, ra) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ra.duration,
+                    ra.timer,
+                    ra.aura_radius,
+                    ra.speed_bonus_fraction,
+                    ra.damage_bonus_fraction,
+                    ra.just_rallied,
+                    ra.just_ended,
+                    ra.enabled,
+                ),
+            );
+        }
+        RALLY_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Rampage;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Rampage)>();
+        for (_, name, rm) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    rm.stacks,
+                    rm.max_stacks,
+                    rm.damage_per_stack,
+                    rm.speed_per_stack,
+                    rm.decay_interval,
+                    rm.decay_timer,
+                    rm.just_stacked,
+                    rm.just_ended,
+                    rm.enabled,
+                ),
+            );
+        }
+        RAMPAGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Ravage;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Ravage)>();
+        for (_, name, rv) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    rv.active,
+                    rv.timer,
+                    rv.damage_bonus,
+                    rv.attack_speed_bonus,
+                    rv.just_triggered,
+                    rv.just_expired,
+                    rv.enabled,
+                ),
+            );
+        }
+        RAVAGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Reave;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Reave)>();
+        for (_, name, re) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    re.duration,
+                    re.timer,
+                    re.leech_fraction,
+                    re.just_reaving,
+                    re.just_faded,
+                    re.enabled,
+                ),
+            );
+        }
+        REAVE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Rebound;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Rebound)>();
+        for (_, name, rb) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    rb.rebound_coefficient,
+                    rb.min_speed,
+                    rb.last_rebound_speed,
+                    rb.just_rebounded,
+                    rb.enabled,
+                ),
+            );
+        }
+        REBOUND_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Recharge;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Recharge)>();
+        for (_, name, rc) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    rc.current,
+                    rc.max,
+                    rc.rate,
+                    rc.just_recharged,
+                    rc.just_depleted,
+                    rc.enabled,
+                ),
+            );
+        }
+        RECHARGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Reckless;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Reckless)>();
+        for (_, name, rk) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    rk.duration,
+                    rk.timer,
+                    rk.damage_bonus,
+                    rk.defense_penalty,
+                    rk.just_entered,
+                    rk.just_exited,
+                    rk.enabled,
+                ),
+            );
+        }
+        RECKLESS_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Recluse;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Recluse)>();
+        for (_, name, rl) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    rl.is_alone,
+                    rl.damage_bonus,
+                    rl.defense_bonus,
+                    rl.just_became_alone,
+                    rl.just_joined_group,
+                    rl.enabled,
+                ),
+            );
+        }
+        RECLUSE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Recoil;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Recoil)>();
+        for (_, name, rc) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    rc.kick_force,
+                    rc.angular_kick,
+                    rc.recovery_speed,
+                    rc.yaw_fraction,
+                    rc.max_position_offset,
+                    rc.max_angular_offset,
+                    rc.enabled,
+                ),
+            );
+        }
+        RECOIL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Reflect;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Reflect)>();
+        for (_, name, rf) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    rf.is_active,
+                    rf.damage_multiplier,
+                    rf.window_duration,
+                    rf.window_timer,
+                    rf.just_activated,
+                    rf.just_reflected,
+                    rf.just_closed,
+                    rf.enabled,
+                ),
+            );
+        }
+        REFLECT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Reflex;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Reflex)>();
+        for (_, name, rf) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    rf.timer,
+                    rf.just_triggered,
+                    rf.just_evaded,
+                    rf.just_missed,
+                    rf.enabled,
+                ),
+            );
+        }
+        REFLEX_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Repel;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Repel)>();
+        for (_, name, rp) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    rp.duration,
+                    rp.timer,
+                    rp.push_force,
+                    rp.radius,
+                    rp.just_activated,
+                    rp.just_deactivated,
+                    rp.enabled,
+                ),
+            );
+        }
+        REPEL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Repose;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Repose)>();
+        for (_, name, rp) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    rp.active,
+                    rp.timer,
+                    rp.regen_multiplier,
+                    rp.just_began,
+                    rp.just_ended,
+                    rp.enabled,
+                ),
+            );
+        }
+        REPOSE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::{Respawn, RespawnState};
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Respawn)>();
+        for (_, name, rs) in q.iter(world) {
+            let state: u32 = match rs.state {
+                RespawnState::Alive => 0,
+                RespawnState::Pending => 1,
+                RespawnState::Ready => 2,
+                RespawnState::Forbidden => 3,
+            };
+            map.insert(
+                name.0.clone(),
+                (
+                    state,
+                    rs.delay,
+                    rs.delay_timer,
+                    rs.respawn_count,
+                    rs.enabled,
+                ),
+            );
+        }
+        RESPAWN_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Retaliate;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Retaliate)>();
+        for (_, name, rt) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    rt.multiplier,
+                    rt.max_charges,
+                    rt.charges,
+                    rt.just_charged,
+                    rt.just_consumed,
+                    rt.enabled,
+                ),
+            );
+        }
+        RETALIATE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Revenge;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Revenge)>();
+        for (_, name, rv) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    rv.duration,
+                    rv.timer,
+                    rv.revenge_multiplier,
+                    rv.trigger_fraction,
+                    rv.triggered,
+                    rv.just_triggered,
+                    rv.just_ended,
+                    rv.enabled,
+                ),
+            );
+        }
+        REVENGE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Reveal;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Reveal)>();
+        for (_, name, rv) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    rv.duration,
+                    rv.timer,
+                    rv.radius,
+                    rv.just_activated,
+                    rv.just_expired,
+                    rv.enabled,
+                ),
+            );
+        }
+        REVEAL_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::{Revive, ReviveState};
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Revive)>();
+        for (_, name, rv) in q.iter(world) {
+            let state: u32 = match rv.state {
+                ReviveState::Alive => 0,
+                ReviveState::Downed => 1,
+                ReviveState::Reviving => 2,
+                ReviveState::Dead => 3,
+            };
+            map.insert(
+                name.0.clone(),
+                (
+                    state,
+                    rv.down_duration,
+                    rv.down_timer,
+                    rv.revive_duration,
+                    rv.revive_progress,
+                    rv.revives_remaining,
+                    rv.just_downed,
+                    rv.just_revived,
+                    rv.just_died,
+                    rv.enabled,
+                ),
+            );
+        }
+        REVIVE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Ricochet;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Ricochet)>();
+        for (_, name, ri) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ri.max_bounces,
+                    ri.bounces_remaining,
+                    ri.energy_retention,
+                    ri.min_dot,
+                    ri.just_bounced,
+                    ri.enabled,
+                ),
+            );
+        }
+        RICOCHET_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Rifle;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Rifle)>();
+        for (_, name, ri) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ri.min_range,
+                    ri.peak_range,
+                    ri.damage_bonus,
+                    ri.point_blank_penalty,
+                    ri.enabled,
+                ),
+            );
+        }
+        RIFLE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Rot;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Rot)>();
+        for (_, name, ro) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ro.active,
+                    ro.decay_rate,
+                    ro.total_decayed,
+                    ro.decay_cap,
+                    ro.just_began,
+                    ro.just_capped,
+                    ro.enabled,
+                ),
+            );
+        }
+        ROT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Rout;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Rout)>();
+        for (_, name, ro) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ro.duration,
+                    ro.timer,
+                    ro.flee_speed_multiplier,
+                    ro.just_routed,
+                    ro.just_recovered,
+                    ro.enabled,
+                ),
+            );
+        }
+        ROUT_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    {
+        use bsengine_core::Rupture;
+        let mut map = HashMap::new();
+        let mut q = world.query::<(Entity, &Name, &Rupture)>();
+        for (_, name, ru) in q.iter(world) {
+            map.insert(
+                name.0.clone(),
+                (
+                    ru.stacks,
+                    ru.max_stacks,
+                    ru.damage_per_stack,
+                    ru.just_maxed,
+                    ru.enabled,
+                ),
+            );
+        }
+        RUPTURE_SNAPSHOT.with(|s| *s.borrow_mut() = map);
+    }
+    COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    (scripted, collision_json)
 }

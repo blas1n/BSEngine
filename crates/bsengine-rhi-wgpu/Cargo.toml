@@ -7,6 +7,7 @@ edition.workspace = true
 [dependencies]
 bsengine-core.workspace = true
 bsengine-ecs.workspace = true
+bsengine-input.workspace = true
 bsengine-rhi.workspace = true
 bsengine-window.workspace = true
 bevy_app.workspace = true

@@ -48,6 +48,19 @@ pub enum KeyCode {
     Key7,
     Key8,
     Key9,
+    Delete,
+    Minus,
+    Equals,
+    Period,
+    Comma,
+    Home,
+    End,
+    ControlLeft,
+    ControlRight,
+    ShiftLeft,
+    ShiftRight,
+    AltLeft,
+    AltRight,
     Unknown,
 }
 
@@ -61,6 +74,11 @@ pub enum ElementState {
 pub struct KeyInput {
     pub key_code: KeyCode,
     pub state: ElementState,
+    /// Text produced by this key press, accounting for shift/keyboard layout
+    /// (e.g. "1", ".", "-"), as reported by the OS/windowing layer. `None`
+    /// for releases and for keys that don't produce text (arrows, Ctrl, etc.
+    /// held combos where the OS suppresses text).
+    pub text: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -139,6 +157,7 @@ mod tests {
         let event = KeyInput {
             key_code: KeyCode::W,
             state: ElementState::Pressed,
+            text: None,
         };
         assert_eq!(event.key_code, KeyCode::W);
         assert_eq!(event.state, ElementState::Pressed);

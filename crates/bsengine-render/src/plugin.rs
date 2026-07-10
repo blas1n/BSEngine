@@ -6,7 +6,7 @@ use bsengine_core::{
     ToneMap, Transform, UiState, Visible,
 };
 use bsengine_ecs::Res;
-use bsengine_input::{Input, MouseButton, MouseState};
+use bsengine_input::{Input, KeyCode, KeyInput, MouseButton, MouseState};
 use bsengine_rhi_wgpu::{
     GpuMeshRegistry, GpuTextureRegistry, LightData, MaterialParams, PointLightEntry,
     SpotLightEntry, WgpuSurfaceResource,
@@ -91,6 +91,8 @@ fn render_frame(
     mut inspector: Option<ResMut<InspectorState>>,
     mouse_state: Option<Res<MouseState>>,
     mouse_buttons: Option<Res<Input<MouseButton>>>,
+    mut key_events: EventReader<KeyInput>,
+    keys: Option<Res<Input<KeyCode>>>,
     camera_query: Query<(
         &Camera,
         &Transform,
@@ -128,6 +130,19 @@ fn render_frame(
     let left_just_released = mouse_buttons
         .as_deref()
         .map(|b| b.just_released(&MouseButton::Left))
+        .unwrap_or(false);
+    let key_events_this_frame: Vec<KeyInput> = key_events.read().cloned().collect();
+    let ctrl_held = keys
+        .as_deref()
+        .map(|k| k.is_pressed(&KeyCode::ControlLeft) || k.is_pressed(&KeyCode::ControlRight))
+        .unwrap_or(false);
+    let shift_held = keys
+        .as_deref()
+        .map(|k| k.is_pressed(&KeyCode::ShiftLeft) || k.is_pressed(&KeyCode::ShiftRight))
+        .unwrap_or(false);
+    let alt_held = keys
+        .as_deref()
+        .map(|k| k.is_pressed(&KeyCode::AltLeft) || k.is_pressed(&KeyCode::AltRight))
         .unwrap_or(false);
 
     // Load or reload skybox when SkyboxPath changes
@@ -314,6 +329,10 @@ fn render_frame(
         tone_map,
         ambient_occlusion,
         inspector.as_deref_mut(),
+        &key_events_this_frame,
+        ctrl_held,
+        shift_held,
+        alt_held,
     ) {
         Ok(clicked) => {
             if let Some(ref mut state) = ui_state {
@@ -338,6 +357,7 @@ impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<UiState>()
             .add_event::<WindowResized>()
+            .add_event::<KeyInput>()
             .add_systems(Update, update_camera_aspect)
             .add_systems(
                 PostUpdate,

@@ -90,12 +90,17 @@ impl ApplicationHandler for BsWinitApp {
                 use bsengine_input::KeyInput;
                 let key_code = convert_key_code(event.physical_key);
                 let state = convert_element_state(event.state);
+                let text = event.text.map(|t| t.to_string());
                 if let Some(mut events) = self
                     .ecs_app
                     .world_mut()
                     .get_resource_mut::<Events<KeyInput>>()
                 {
-                    events.send(KeyInput { key_code, state });
+                    events.send(KeyInput {
+                        key_code,
+                        state,
+                        text,
+                    });
                 }
             }
             WindowEvent::MouseInput { button, state, .. } => {

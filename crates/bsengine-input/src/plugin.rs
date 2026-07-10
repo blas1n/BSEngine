@@ -217,6 +217,7 @@ mod tests {
             .send(KeyInput {
                 key_code: KeyCode::W,
                 state: ElementState::Pressed,
+                text: None,
             });
 
         app.update();
@@ -236,6 +237,7 @@ mod tests {
             .send(KeyInput {
                 key_code: KeyCode::Space,
                 state: ElementState::Pressed,
+                text: None,
             });
 
         app.update();
@@ -256,6 +258,7 @@ mod tests {
             .send(KeyInput {
                 key_code: KeyCode::A,
                 state: ElementState::Pressed,
+                text: None,
             });
         app.update();
 
@@ -264,6 +267,7 @@ mod tests {
             .send(KeyInput {
                 key_code: KeyCode::A,
                 state: ElementState::Released,
+                text: None,
             });
         app.update();
 

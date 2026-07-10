@@ -689,6 +689,7 @@ dependencies = [
  "bsengine-app",
  "bsengine-core",
  "bsengine-ecs",
+ "bsengine-input",
  "bsengine-rhi",
  "bsengine-window",
  "bytemuck",

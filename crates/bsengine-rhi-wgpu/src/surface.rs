@@ -421,6 +421,76 @@ struct SkyboxState {
     _sampler: wgpu::Sampler,
 }
 
+/// Maps our windowing-layer key codes to egui's key enum, for the subset
+/// egui's TextEdit/DragValue widgets actually need (arrows, editing keys,
+/// alphanumerics for shortcuts). Modifier keys (Ctrl/Shift/Alt) are not
+/// mapped here — they're carried on `Modifiers` instead, matching egui's
+/// convention of not treating them as standalone `Event::Key` presses.
+fn map_keycode_to_egui(code: bsengine_input::KeyCode) -> Option<egui::Key> {
+    use bsengine_input::KeyCode as K;
+    Some(match code {
+        K::A => egui::Key::A,
+        K::B => egui::Key::B,
+        K::C => egui::Key::C,
+        K::D => egui::Key::D,
+        K::E => egui::Key::E,
+        K::F => egui::Key::F,
+        K::G => egui::Key::G,
+        K::H => egui::Key::H,
+        K::I => egui::Key::I,
+        K::J => egui::Key::J,
+        K::K => egui::Key::K,
+        K::L => egui::Key::L,
+        K::M => egui::Key::M,
+        K::N => egui::Key::N,
+        K::O => egui::Key::O,
+        K::P => egui::Key::P,
+        K::Q => egui::Key::Q,
+        K::R => egui::Key::R,
+        K::S => egui::Key::S,
+        K::T => egui::Key::T,
+        K::U => egui::Key::U,
+        K::V => egui::Key::V,
+        K::W => egui::Key::W,
+        K::X => egui::Key::X,
+        K::Y => egui::Key::Y,
+        K::Z => egui::Key::Z,
+        K::Space => egui::Key::Space,
+        K::Enter => egui::Key::Enter,
+        K::Escape => egui::Key::Escape,
+        K::Backspace => egui::Key::Backspace,
+        K::Tab => egui::Key::Tab,
+        K::Left => egui::Key::ArrowLeft,
+        K::Right => egui::Key::ArrowRight,
+        K::Up => egui::Key::ArrowUp,
+        K::Down => egui::Key::ArrowDown,
+        K::Key0 => egui::Key::Num0,
+        K::Key1 => egui::Key::Num1,
+        K::Key2 => egui::Key::Num2,
+        K::Key3 => egui::Key::Num3,
+        K::Key4 => egui::Key::Num4,
+        K::Key5 => egui::Key::Num5,
+        K::Key6 => egui::Key::Num6,
+        K::Key7 => egui::Key::Num7,
+        K::Key8 => egui::Key::Num8,
+        K::Key9 => egui::Key::Num9,
+        K::Delete => egui::Key::Delete,
+        K::Minus => egui::Key::Minus,
+        K::Period => egui::Key::Period,
+        K::Comma => egui::Key::Comma,
+        K::Home => egui::Key::Home,
+        K::End => egui::Key::End,
+        K::Equals
+        | K::ControlLeft
+        | K::ControlRight
+        | K::ShiftLeft
+        | K::ShiftRight
+        | K::AltLeft
+        | K::AltRight
+        | K::Unknown => return None,
+    })
+}
+
 pub struct WgpuSurface {
     _window: Arc<winit::window::Window>,
     pub(crate) surface: wgpu::Surface<'static>,
@@ -450,6 +520,7 @@ pub struct WgpuSurface {
     pipeline_layout: wgpu::PipelineLayout,
     custom_pipelines: std::collections::HashMap<String, wgpu::RenderPipeline>,
     post_process: crate::post_process::PostProcessState,
+    start_time: std::time::Instant,
 }
 
 impl WgpuSurface {
@@ -819,6 +890,7 @@ impl WgpuSurface {
             pipeline_layout,
             custom_pipelines: std::collections::HashMap::new(),
             post_process,
+            start_time: std::time::Instant::now(),
         })
     }
 
@@ -1140,6 +1212,10 @@ impl WgpuSurface {
         tone_map: Option<bsengine_core::ToneMap>,
         ambient_occlusion: Option<bsengine_core::AmbientOcclusion>,
         mut inspector: Option<&mut bsengine_core::InspectorState>,
+        key_events: &[bsengine_input::KeyInput],
+        ctrl_held: bool,
+        shift_held: bool,
+        alt_held: bool,
     ) -> Result<std::collections::HashSet<String>, String> {
         let camera_data = CameraUniformData {
             view_proj: view_proj.to_cols_array_2d(),
@@ -1432,6 +1508,13 @@ impl WgpuSurface {
                 egui::Pos2::ZERO,
                 egui::vec2(self.config.width as f32, self.config.height as f32),
             );
+            let modifiers = egui::Modifiers {
+                alt: alt_held,
+                ctrl: ctrl_held,
+                shift: shift_held,
+                mac_cmd: false,
+                command: ctrl_held,
+            };
             let cursor_pos = egui::Pos2::new(cursor_x, cursor_y);
             let mut egui_events = vec![egui::Event::PointerMoved(cursor_pos)];
             if left_just_pressed {
@@ -1439,7 +1522,7 @@ impl WgpuSurface {
                     pos: cursor_pos,
                     button: egui::PointerButton::Primary,
                     pressed: true,
-                    modifiers: Default::default(),
+                    modifiers,
                 });
             }
             if left_just_released {
@@ -1447,12 +1530,33 @@ impl WgpuSurface {
                     pos: cursor_pos,
                     button: egui::PointerButton::Primary,
                     pressed: false,
-                    modifiers: Default::default(),
+                    modifiers,
                 });
+            }
+            for ev in key_events {
+                let pressed = ev.state == bsengine_input::ElementState::Pressed;
+                if pressed {
+                    if let Some(text) = &ev.text {
+                        if !text.is_empty() && !text.chars().any(|c| c.is_control()) {
+                            egui_events.push(egui::Event::Text(text.clone()));
+                        }
+                    }
+                }
+                if let Some(key) = map_keycode_to_egui(ev.key_code) {
+                    egui_events.push(egui::Event::Key {
+                        key,
+                        physical_key: Some(key),
+                        pressed,
+                        repeat: false,
+                        modifiers,
+                    });
+                }
             }
             let raw_input = egui::RawInput {
                 screen_rect: Some(screen_rect),
                 events: egui_events,
+                modifiers,
+                time: Some(self.start_time.elapsed().as_secs_f64()),
                 ..Default::default()
             };
 
@@ -2637,6 +2741,45 @@ mod tests {
     fn mesh_shader_compiles() {
         let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless rhi");
         let _module = WgpuSurface::compile_shader(&rhi.device, MESH_WGSL);
+    }
+
+    #[test]
+    fn map_keycode_to_egui_covers_digits() {
+        use bsengine_input::KeyCode;
+        assert_eq!(map_keycode_to_egui(KeyCode::Key0), Some(egui::Key::Num0));
+        assert_eq!(map_keycode_to_egui(KeyCode::Key9), Some(egui::Key::Num9));
+    }
+
+    #[test]
+    fn map_keycode_to_egui_covers_editing_keys() {
+        use bsengine_input::KeyCode;
+        assert_eq!(
+            map_keycode_to_egui(KeyCode::Backspace),
+            Some(egui::Key::Backspace)
+        );
+        assert_eq!(
+            map_keycode_to_egui(KeyCode::Delete),
+            Some(egui::Key::Delete)
+        );
+        assert_eq!(map_keycode_to_egui(KeyCode::Enter), Some(egui::Key::Enter));
+        assert_eq!(
+            map_keycode_to_egui(KeyCode::Escape),
+            Some(egui::Key::Escape)
+        );
+        assert_eq!(map_keycode_to_egui(KeyCode::Minus), Some(egui::Key::Minus));
+        assert_eq!(
+            map_keycode_to_egui(KeyCode::Period),
+            Some(egui::Key::Period)
+        );
+    }
+
+    #[test]
+    fn map_keycode_to_egui_excludes_modifier_keys() {
+        use bsengine_input::KeyCode;
+        assert_eq!(map_keycode_to_egui(KeyCode::ControlLeft), None);
+        assert_eq!(map_keycode_to_egui(KeyCode::ShiftLeft), None);
+        assert_eq!(map_keycode_to_egui(KeyCode::AltLeft), None);
+        assert_eq!(map_keycode_to_egui(KeyCode::Unknown), None);
     }
 
     #[test]

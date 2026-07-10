@@ -40,8 +40,15 @@ pub struct EntityDescriptor {
     pub gltf: Option<String>,
     #[serde(default)]
     pub camera: bool,
+    /// Camera-only: vertical field of view in degrees. Defaults to 60 if absent.
+    #[serde(default)]
+    pub camera_fov: Option<f32>,
     #[serde(default)]
     pub directional_light: Option<DirectionalLightDescriptor>,
+    #[serde(default)]
+    pub point_light: Option<PointLightDescriptor>,
+    #[serde(default)]
+    pub spot_light: Option<SpotLightDescriptor>,
     #[serde(default)]
     pub primitive: Option<Primitive>,
     #[serde(default)]
@@ -90,6 +97,32 @@ pub struct DirectionalLightDescriptor {
     pub color: [f32; 3],
     #[serde(default = "default_ambient")]
     pub ambient: [f32; 3],
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PointLightDescriptor {
+    #[serde(default = "default_white")]
+    pub color: [f32; 3],
+    #[serde(default = "default_intensity")]
+    pub intensity: f32,
+    #[serde(default = "default_range")]
+    pub range: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpotLightDescriptor {
+    #[serde(default = "default_white")]
+    pub color: [f32; 3],
+    #[serde(default = "default_intensity")]
+    pub intensity: f32,
+    #[serde(default = "default_range")]
+    pub range: f32,
+    /// Inner cone half-angle in degrees — full brightness inside.
+    #[serde(default = "default_spot_inner_angle_degrees")]
+    pub inner_angle_degrees: f32,
+    /// Outer cone half-angle in degrees — zero brightness outside.
+    #[serde(default = "default_spot_outer_angle_degrees")]
+    pub outer_angle_degrees: f32,
 }
 
 /// Rigid body type for physics descriptors in scene files.
@@ -148,6 +181,22 @@ fn default_white() -> [f32; 3] {
 
 fn default_ambient() -> [f32; 3] {
     [0.1, 0.1, 0.1]
+}
+
+fn default_intensity() -> f32 {
+    1.0
+}
+
+fn default_range() -> f32 {
+    10.0
+}
+
+fn default_spot_inner_angle_degrees() -> f32 {
+    22.5
+}
+
+fn default_spot_outer_angle_degrees() -> f32 {
+    30.0
 }
 
 fn default_friction() -> f32 {

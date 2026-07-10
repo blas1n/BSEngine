@@ -81,6 +81,7 @@ pub enum InspectorCmd {
     Duplicate {
         id: u64,
     },
+    SaveScene,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
@@ -155,6 +156,10 @@ pub struct InspectorState {
     // cleared by EditorPlugin's history system the same frame.
     pub request_undo: bool,
     pub request_redo: bool,
+
+    // Path the scene was loaded from / last saved to, used by Ctrl+S / the
+    // Save toolbar button to save in place without prompting for a path.
+    pub current_scene_path: Option<String>,
 }
 
 impl Default for InspectorState {
@@ -196,6 +201,7 @@ impl Default for InspectorState {
             gizmo_rotate_start_angle: 0.0,
             request_undo: false,
             request_redo: false,
+            current_scene_path: None,
         }
     }
 }

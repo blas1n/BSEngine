@@ -4,6 +4,6 @@ pub mod types;
 pub use plugin::{spawn_scene_entities, Name, ScenePlugin};
 pub use types::{
     ColliderDesc, ColliderShapeDesc, DirectionalLightDescriptor, EntityDescriptor,
-    PendingSceneLoad, PhysicsBodyDesc, Primitive, PrimitiveMesh, RigidBodyDesc, SceneDescriptor,
-    ScriptPath, TransformDescriptor,
+    PendingSceneLoad, PhysicsBodyDesc, PointLightDescriptor, Primitive, PrimitiveMesh,
+    RigidBodyDesc, SceneDescriptor, ScriptPath, SpotLightDescriptor, TransformDescriptor,
 };

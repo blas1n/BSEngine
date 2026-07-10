@@ -36,6 +36,9 @@ fn main() {
         .unwrap_or(".")
         .to_string();
 
+    let mut inspector_state = InspectorState::editor();
+    inspector_state.current_scene_path = scene_path.clone();
+
     let mut app = new_app();
     app.add_plugins(WgpuRHIPlugin)
         .add_plugins(WindowPlugin {
@@ -52,7 +55,7 @@ fn main() {
         .add_plugins(EditorPlugin)
         .add_plugins(ScriptingPlugin { project_dir })
         .add_systems(Update, resolve_primitives)
-        .insert_resource(InspectorState::editor());
+        .insert_resource(inspector_state);
 
     match scene_path {
         Some(path) => {

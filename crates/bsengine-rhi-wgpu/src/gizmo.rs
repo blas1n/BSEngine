@@ -196,6 +196,90 @@ pub fn draw_camera_frustum(
     }
 }
 
+const ROTATE_RING_SEGMENTS: usize = 32;
+
+/// World-space points approximating a circle of `radius` centered at `pos`,
+/// lying in the plane perpendicular to the given world axis (so the X-axis
+/// ring lies in the YZ plane, etc.) — this is a world-aligned gizmo, not
+/// relative to the entity's own rotation.
+pub fn ring_points(pos: Vec3, axis: u8, radius: f32) -> [Vec3; ROTATE_RING_SEGMENTS] {
+    let (u, v) = match axis {
+        AXIS_X => (Vec3::Y, Vec3::Z),
+        AXIS_Y => (Vec3::Z, Vec3::X),
+        _ => (Vec3::X, Vec3::Y),
+    };
+    let mut pts = [Vec3::ZERO; ROTATE_RING_SEGMENTS];
+    for (i, p) in pts.iter_mut().enumerate() {
+        let t = i as f32 / ROTATE_RING_SEGMENTS as f32 * std::f32::consts::TAU;
+        *p = pos + (u * t.cos() + v * t.sin()) * radius;
+    }
+    pts
+}
+
+/// Angle (radians) of `p` around `center` in screen space.
+pub fn screen_angle(center: Pos2, p: Pos2) -> f32 {
+    (p.y - center.y).atan2(p.x - center.x)
+}
+
+/// Finds which rotate ring (if any) is under `mouse_pos`, closest first.
+pub fn hit_test_rotate(
+    pos: Vec3,
+    radius: f32,
+    view_proj: &[[f32; 4]; 4],
+    rect: Rect,
+    mouse_pos: Pos2,
+) -> Option<u8> {
+    [AXIS_X, AXIS_Y, AXIS_Z]
+        .into_iter()
+        .filter_map(|axis| {
+            let pts = ring_points(pos, axis, radius);
+            let mut min_d = f32::MAX;
+            for i in 0..ROTATE_RING_SEGMENTS {
+                let j = (i + 1) % ROTATE_RING_SEGMENTS;
+                if let (Some(a), Some(b)) = (
+                    world_to_screen(pts[i], view_proj, rect),
+                    world_to_screen(pts[j], view_proj, rect),
+                ) {
+                    min_d = min_d.min(dist_to_segment(mouse_pos, a, b));
+                }
+            }
+            (min_d <= HANDLE_HIT_RADIUS).then_some((axis, min_d))
+        })
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(axis, _)| axis)
+}
+
+/// Draws the three rotate rings, highlighting `hovered`/`dragging`.
+pub fn draw_rotate_gizmo(
+    painter: &Painter,
+    pos: Vec3,
+    radius: f32,
+    view_proj: &[[f32; 4]; 4],
+    rect: Rect,
+    hovered: Option<u8>,
+    dragging: Option<u8>,
+) {
+    for axis in [AXIS_X, AXIS_Y, AXIS_Z] {
+        let pts = ring_points(pos, axis, radius);
+        let active = dragging == Some(axis) || (dragging.is_none() && hovered == Some(axis));
+        let color = if active {
+            Color32::WHITE
+        } else {
+            axis_color(axis)
+        };
+        let stroke = Stroke::new(if active { 3.0 } else { 2.0 }, color);
+        for i in 0..ROTATE_RING_SEGMENTS {
+            let j = (i + 1) % ROTATE_RING_SEGMENTS;
+            if let (Some(a), Some(b)) = (
+                world_to_screen(pts[i], view_proj, rect),
+                world_to_screen(pts[j], view_proj, rect),
+            ) {
+                painter.line_segment([a, b], stroke);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -330,6 +414,71 @@ mod tests {
         assert!(
             wide_width > narrow_width,
             "wider fov should produce a wider far plane"
+        );
+    }
+
+    #[test]
+    fn ring_points_lie_on_a_circle_of_given_radius() {
+        for axis in [AXIS_X, AXIS_Y, AXIS_Z] {
+            let pts = ring_points(Vec3::ZERO, axis, 2.0);
+            for p in pts {
+                assert!(
+                    (p.length() - 2.0).abs() < 1e-3,
+                    "point {:?} should be at radius 2.0 on axis {}",
+                    p,
+                    axis
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn ring_points_perpendicular_to_axis() {
+        let x_ring = ring_points(Vec3::ZERO, AXIS_X, 1.0);
+        for p in x_ring {
+            assert!(p.x.abs() < 1e-4, "X-axis ring should lie in the YZ plane");
+        }
+        let y_ring = ring_points(Vec3::ZERO, AXIS_Y, 1.0);
+        for p in y_ring {
+            assert!(p.y.abs() < 1e-4, "Y-axis ring should lie in the XZ plane");
+        }
+        let z_ring = ring_points(Vec3::ZERO, AXIS_Z, 1.0);
+        for p in z_ring {
+            assert!(p.z.abs() < 1e-4, "Z-axis ring should lie in the XY plane");
+        }
+    }
+
+    #[test]
+    fn screen_angle_matches_known_directions() {
+        let center = Pos2::new(0.0, 0.0);
+        assert!((screen_angle(center, Pos2::new(1.0, 0.0))).abs() < 1e-4);
+        assert!(
+            (screen_angle(center, Pos2::new(0.0, 1.0)) - std::f32::consts::FRAC_PI_2).abs() < 1e-4
+        );
+    }
+
+    #[test]
+    fn hit_test_rotate_finds_ring_under_cursor() {
+        let vp = test_view_proj();
+        let rect = test_rect();
+        let radius = 1.5;
+        let pts = ring_points(Vec3::ZERO, AXIS_Z, radius);
+        // Pick a point off any axis (rings intersect exactly on the other
+        // two axes, which would make the hit-test result ambiguous).
+        let on_ring = world_to_screen(pts[ROTATE_RING_SEGMENTS / 8], &vp, rect).unwrap();
+        assert_eq!(
+            hit_test_rotate(Vec3::ZERO, radius, &vp, rect, on_ring),
+            Some(AXIS_Z)
+        );
+    }
+
+    #[test]
+    fn hit_test_rotate_misses_far_away_point() {
+        let vp = test_view_proj();
+        let rect = test_rect();
+        assert_eq!(
+            hit_test_rotate(Vec3::ZERO, 1.0, &vp, rect, Pos2::new(-500.0, -500.0)),
+            None
         );
     }
 }

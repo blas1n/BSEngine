@@ -1713,6 +1713,15 @@ impl WgpuSurface {
                                     insp.request_redo = true;
                                 }
                                 ui.separator();
+                                let save_enabled = insp.current_scene_path.is_some();
+                                if ui
+                                    .add_enabled(save_enabled, egui::Button::new("💾 Save"))
+                                    .on_disabled_hover_text("No scene file loaded")
+                                    .clicked()
+                                {
+                                    insp.cmd_queue.push(bsengine_core::InspectorCmd::SaveScene);
+                                }
+                                ui.separator();
                                 if ui
                                     .selectable_label(
                                         insp.gizmo_mode == bsengine_core::GizmoMode::Translate,
@@ -1746,21 +1755,23 @@ impl WgpuSurface {
                         // DragValue or text field) has focus, so Ctrl+Z etc. don't
                         // get stolen from in-progress text editing.
                         if ctx.memory(|m| m.focused()).is_none() {
-                            let (del, dup, undo, redo, move_mode, rotate_mode) = ctx.input(|i| {
-                                (
-                                    i.key_pressed(egui::Key::Delete),
-                                    i.modifiers.ctrl && i.key_pressed(egui::Key::D),
-                                    i.modifiers.ctrl
-                                        && !i.modifiers.shift
-                                        && i.key_pressed(egui::Key::Z),
-                                    (i.modifiers.ctrl
-                                        && i.modifiers.shift
-                                        && i.key_pressed(egui::Key::Z))
-                                        || (i.modifiers.ctrl && i.key_pressed(egui::Key::Y)),
-                                    i.key_pressed(egui::Key::W),
-                                    i.key_pressed(egui::Key::E),
-                                )
-                            });
+                            let (del, dup, undo, redo, save, move_mode, rotate_mode) =
+                                ctx.input(|i| {
+                                    (
+                                        i.key_pressed(egui::Key::Delete),
+                                        i.modifiers.ctrl && i.key_pressed(egui::Key::D),
+                                        i.modifiers.ctrl
+                                            && !i.modifiers.shift
+                                            && i.key_pressed(egui::Key::Z),
+                                        (i.modifiers.ctrl
+                                            && i.modifiers.shift
+                                            && i.key_pressed(egui::Key::Z))
+                                            || (i.modifiers.ctrl && i.key_pressed(egui::Key::Y)),
+                                        i.modifiers.ctrl && i.key_pressed(egui::Key::S),
+                                        i.key_pressed(egui::Key::W),
+                                        i.key_pressed(egui::Key::E),
+                                    )
+                                });
                             if del {
                                 despawn_entity = true;
                             }
@@ -1772,6 +1783,9 @@ impl WgpuSurface {
                             }
                             if redo {
                                 insp.request_redo = true;
+                            }
+                            if save {
+                                insp.cmd_queue.push(bsengine_core::InspectorCmd::SaveScene);
                             }
                             if move_mode {
                                 insp.gizmo_mode = bsengine_core::GizmoMode::Translate;

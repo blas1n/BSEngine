@@ -32,6 +32,10 @@ fn update_editor_snapshot(
         Option<&Tags>,
         Option<&Visible>,
         Option<&Material>,
+        (
+            Option<&PrimitiveMesh>,
+            Option<&bsengine_scene::ScriptPath>,
+        ),
     )>,
 ) {
     let selection = selection_res.0.lock().unwrap().clone();
@@ -39,7 +43,7 @@ fn update_editor_snapshot(
     snapshot.entities = query
         .iter()
         .map(
-            |(e, name, transform, mesh, pt, dir, spot, cam, parent, tags, vis, mat)| {
+            |(e, name, transform, mesh, pt, dir, spot, cam, parent, tags, vis, mat, (prim, script))| {
                 let light_type = if pt.is_some() {
                     Some("point".to_string())
                 } else if dir.is_some() {
@@ -67,10 +71,15 @@ fn update_editor_snapshot(
                     }),
                     scale: transform.map(|t| t.scale.to_array()),
                     mesh_id: mesh.map(|m| m.mesh_id),
+                    primitive: prim.map(|p| p.0.clone()),
+                    script_path: script.map(|s| s.0.clone()),
                     light_type,
                     light_color,
                     light_intensity,
                     light_range,
+                    light_ambient: dir.map(|l| l.ambient.to_array()),
+                    spot_inner_angle: spot.map(|l| l.inner_angle.to_degrees()),
+                    spot_outer_angle: spot.map(|l| l.outer_angle.to_degrees()),
                     camera_fov: cam.map(|c| c.fov_y_radians.to_degrees()),
                     material_base_color: mat.map(|m| m.base_color.to_array()),
                     material_metallic: mat.map(|m| m.metallic),
@@ -92,6 +101,7 @@ fn process_editor_commands(
     queue_res: Res<EditorCommandQueueResource>,
     snapshot_res: Res<EditorSnapshotResource>,
     history_res: Res<EditorHistoryResource>,
+    mut inspector: Option<ResMut<InspectorState>>,
     mut params: ParamSet<(
         Query<Entity>,
         Query<(Entity, &mut Transform)>,
@@ -551,6 +561,9 @@ fn process_editor_commands(
                         continue;
                     }
                 };
+                if let Some(insp) = inspector.as_mut() {
+                    insp.current_scene_path = Some(path.clone());
+                }
                 for entity in scene.entities {
                     let mut eb = commands.spawn(Name(entity.name));
                     if let Some(t) = &entity.transform {
@@ -573,7 +586,14 @@ fn process_editor_commands(
                         eb.insert(PrimitiveMesh(prim.clone()));
                     }
                     if entity.camera {
-                        eb.insert(Camera::default());
+                        match entity.camera_fov {
+                            Some(fov) => {
+                                eb.insert(Camera::perspective(fov, 16.0 / 9.0));
+                            }
+                            None => {
+                                eb.insert(Camera::default());
+                            }
+                        }
                     }
                     if let Some(dl) = &entity.directional_light {
                         eb.insert(DirectionalLight {
@@ -599,6 +619,25 @@ fn process_editor_commands(
                             GlobalTransform::default(),
                         ));
                     }
+                    if let Some(pl) = &entity.point_light {
+                        eb.insert(PointLight {
+                            color: glam::Vec3::from(pl.color),
+                            intensity: pl.intensity,
+                            range: pl.range,
+                        });
+                    }
+                    if let Some(sl) = &entity.spot_light {
+                        eb.insert(SpotLight {
+                            color: glam::Vec3::from(sl.color),
+                            intensity: sl.intensity,
+                            range: sl.range,
+                            inner_angle: sl.inner_angle_degrees.to_radians(),
+                            outer_angle: sl.outer_angle_degrees.to_radians(),
+                        });
+                    }
+                    if let Some(script) = &entity.script {
+                        eb.insert(bsengine_scene::ScriptPath(script.clone()));
+                    }
                     if entity.emissive.is_some() || entity.color.is_some() {
                         eb.insert(Material {
                             emissive: entity
@@ -612,6 +651,24 @@ fn process_editor_commands(
                             ..Default::default()
                         });
                     }
+                }
+            }
+            EditorCommand::SaveScene { path } => {
+                let entities = {
+                    let s = snapshot_res.0.lock().unwrap();
+                    build_entity_descriptors(&s.entities)
+                };
+                let scene = SceneDescriptor { entities, skybox: None };
+                match ron::to_string(&scene) {
+                    Ok(ron_str) => match std::fs::write(&path, &ron_str) {
+                        Ok(()) => {
+                            if let Some(insp) = inspector.as_mut() {
+                                insp.current_scene_path = Some(path.clone());
+                            }
+                        }
+                        Err(e) => tracing::warn!("save_scene: write failed to {path}: {e}"),
+                    },
+                    Err(e) => tracing::warn!("save_scene: serialize failed: {e}"),
                 }
             }
         }
@@ -864,6 +921,89 @@ fn spawn_entity_from_info(world: &mut World, info: &EntityInfo) -> Entity {
     e.id()
 }
 
+/// Builds RON-serializable `EntityDescriptor`s from tracked snapshot entities.
+/// Only named entities are included (unnamed entities aren't addressable in
+/// scene files). GLTF paths and physics rigidbody/collider are not tracked by
+/// `EntityInfo` and are intentionally left `None` here.
+fn build_entity_descriptors(entities: &[EntityInfo]) -> Vec<EntityDescriptor> {
+    entities
+        .iter()
+        .filter_map(|e| {
+            e.name.as_ref().map(|name| {
+                let quat = e.rotation.map(|[rx, ry, rz]| {
+                    glam::Quat::from_euler(
+                        glam::EulerRot::XYZ,
+                        rx.to_radians(),
+                        ry.to_radians(),
+                        rz.to_radians(),
+                    )
+                });
+                let transform = if e.position.is_some() || e.rotation.is_some() || e.scale.is_some()
+                {
+                    let translation = e.position.unwrap_or([0.0, 0.0, 0.0]);
+                    let scale = e.scale.unwrap_or([1.0, 1.0, 1.0]);
+                    let q = quat.unwrap_or(glam::Quat::IDENTITY);
+                    Some(bsengine_scene::TransformDescriptor {
+                        translation,
+                        rotation: [q.x, q.y, q.z, q.w],
+                        scale,
+                    })
+                } else {
+                    None
+                };
+                let directional_light = if e.light_type.as_deref() == Some("directional") {
+                    let dir = quat.unwrap_or(glam::Quat::IDENTITY) * glam::Vec3::NEG_Z;
+                    Some(bsengine_scene::DirectionalLightDescriptor {
+                        direction: dir.to_array(),
+                        color: e.light_color.unwrap_or([1.0, 1.0, 1.0]),
+                        ambient: e.light_ambient.unwrap_or([0.1, 0.1, 0.1]),
+                    })
+                } else {
+                    None
+                };
+                let point_light = if e.light_type.as_deref() == Some("point") {
+                    Some(bsengine_scene::PointLightDescriptor {
+                        color: e.light_color.unwrap_or([1.0, 1.0, 1.0]),
+                        intensity: e.light_intensity.unwrap_or(1.0),
+                        range: e.light_range.unwrap_or(10.0),
+                    })
+                } else {
+                    None
+                };
+                let spot_light = if e.light_type.as_deref() == Some("spot") {
+                    Some(bsengine_scene::SpotLightDescriptor {
+                        color: e.light_color.unwrap_or([1.0, 1.0, 1.0]),
+                        intensity: e.light_intensity.unwrap_or(1.0),
+                        range: e.light_range.unwrap_or(10.0),
+                        inner_angle_degrees: e.spot_inner_angle.unwrap_or(22.5),
+                        outer_angle_degrees: e.spot_outer_angle.unwrap_or(30.0),
+                    })
+                } else {
+                    None
+                };
+                EntityDescriptor {
+                    name: name.clone(),
+                    components: Vec::new(),
+                    transform,
+                    gltf: None,
+                    camera: e.camera_fov.is_some(),
+                    camera_fov: e.camera_fov,
+                    directional_light,
+                    point_light,
+                    spot_light,
+                    primitive: e.primitive.clone(),
+                    script: e.script_path.clone(),
+                    emissive: e.material_emissive,
+                    color: e.material_base_color,
+                    look_at: None,
+                    rigidbody: None,
+                    collider: None,
+                }
+            })
+        })
+        .collect()
+}
+
 fn apply_history_action(world: &mut World) {
     let is_undo = {
         let Some(mut insp) = world.get_resource_mut::<InspectorState>() else {
@@ -1083,6 +1223,13 @@ fn apply_inspector_cmds(
                     emissive,
                 });
             }
+            InspectorCmd::SaveScene => {
+                if let Some(path) = inspector.current_scene_path.clone() {
+                    queue.push(EditorCommand::SaveScene { path });
+                } else {
+                    tracing::warn!("save requested but no scene file is currently loaded");
+                }
+            }
         }
     }
 }
@@ -1273,56 +1420,7 @@ impl Plugin for EditorPlugin {
                         None => return McpToolOutput::error("missing 'path' field"),
                     };
                     let s = snap3.lock().unwrap();
-                    let entities: Vec<EntityDescriptor> = s
-                        .entities
-                        .iter()
-                        .filter_map(|e| {
-                            e.name.as_ref().map(|name| {
-                                let transform =
-                                    if e.position.is_some()
-                                        || e.rotation.is_some()
-                                        || e.scale.is_some()
-                                    {
-                                        let translation =
-                                            e.position.unwrap_or([0.0, 0.0, 0.0]);
-                                        let scale = e.scale.unwrap_or([1.0, 1.0, 1.0]);
-                                        let quat = if let Some([rx, ry, rz]) = e.rotation {
-                                            let q = glam::Quat::from_euler(
-                                                glam::EulerRot::XYZ,
-                                                rx.to_radians(),
-                                                ry.to_radians(),
-                                                rz.to_radians(),
-                                            );
-                                            [q.x, q.y, q.z, q.w]
-                                        } else {
-                                            [0.0, 0.0, 0.0, 1.0]
-                                        };
-                                        Some(bsengine_scene::TransformDescriptor {
-                                            translation,
-                                            rotation: quat,
-                                            scale,
-                                        })
-                                    } else {
-                                        None
-                                    };
-                                EntityDescriptor {
-                                    name: name.clone(),
-                                    components: Vec::new(),
-                                    transform,
-                                    gltf: None,
-                                    camera: false,
-                                    directional_light: None,
-                                    primitive: None,
-                                    script: None,
-                                    emissive: None,
-                                    color: None,
-                                    look_at: None,
-                                    rigidbody: None,
-                                    collider: None,
-                                }
-                            })
-                        })
-                        .collect();
+                    let entities = build_entity_descriptors(&s.entities);
                     let count = entities.len();
                     let scene = SceneDescriptor { entities, skybox: None };
                     match ron::to_string(&scene) {
@@ -89591,6 +89689,132 @@ mod tests {
                 .find(|(name, _)| *name == "Tower")
                 .expect("Tower not found after load");
             assert!((found.1.x - 3.0).abs() < 1e-4, "wrong x: {}", found.1.x);
+        }
+    }
+
+    #[test]
+    fn mcp_save_load_scene_round_trip_preserves_camera_primitive_script_and_lights() {
+        let path = std::env::temp_dir()
+            .join("bsengine_test_roundtrip_full.ron")
+            .to_string_lossy()
+            .to_string();
+
+        // Save: a camera, a primitive+scripted cube, a point light, and a spot light.
+        {
+            let mut app = new_app();
+            app.add_plugins(McpPlugin);
+            app.add_plugins(EditorPlugin);
+            app.world_mut().spawn((
+                Name("MainCam".to_string()),
+                bsengine_core::Camera::perspective(75.0, 16.0 / 9.0),
+                Transform::from_translation(Vec3::new(0.0, 2.0, 5.0)),
+                bsengine_core::GlobalTransform::default(),
+            ));
+            app.world_mut().spawn((
+                Name("Crate".to_string()),
+                bsengine_scene::PrimitiveMesh(bsengine_scene::Primitive::Cube),
+                bsengine_scene::ScriptPath("assets/scripts/crate.js".to_string()),
+                Transform::from_translation(Vec3::new(1.0, 0.0, 0.0)),
+                bsengine_core::GlobalTransform::default(),
+            ));
+            app.world_mut().spawn((
+                Name("Lamp".to_string()),
+                bsengine_core::PointLight {
+                    color: Vec3::new(1.0, 0.5, 0.2),
+                    intensity: 2.5,
+                    range: 15.0,
+                },
+                Transform::from_translation(Vec3::new(0.0, 3.0, 0.0)),
+                bsengine_core::GlobalTransform::default(),
+            ));
+            app.world_mut().spawn((
+                Name("Spot".to_string()),
+                bsengine_core::SpotLight {
+                    color: Vec3::new(0.2, 0.8, 1.0),
+                    intensity: 3.0,
+                    range: 20.0,
+                    inner_angle: 15_f32.to_radians(),
+                    outer_angle: 25_f32.to_radians(),
+                },
+                Transform::from_translation(Vec3::new(2.0, 4.0, 0.0)),
+                bsengine_core::GlobalTransform::default(),
+            ));
+            app.update();
+
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let r = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("save_scene", json!({"path": path}))
+                .unwrap();
+            assert!(r.is_ok(), "{:?}", r.error);
+            assert_eq!(r.content["entity_count"], 4);
+        }
+
+        // Load in a fresh app and verify every component round-tripped.
+        {
+            let mut app = new_app();
+            app.add_plugins(McpPlugin);
+            app.add_plugins(EditorPlugin);
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0
+                    .lock()
+                    .unwrap()
+                    .execute("load_scene", json!({"path": path}))
+                    .expect("load_scene not found");
+            }
+            app.update();
+
+            let mut cam_q = app
+                .world_mut()
+                .query::<(&Name, &bsengine_core::Camera)>();
+            let (_, cam) = cam_q
+                .iter(app.world())
+                .find(|(n, _)| n.0 == "MainCam")
+                .expect("MainCam not found after load");
+            assert!(
+                (cam.fov_y_radians.to_degrees() - 75.0).abs() < 1e-3,
+                "wrong fov: {}",
+                cam.fov_y_radians.to_degrees()
+            );
+
+            let mut prim_q = app.world_mut().query::<(
+                &Name,
+                &bsengine_scene::PrimitiveMesh,
+                &bsengine_scene::ScriptPath,
+            )>();
+            let (_, prim, script) = prim_q
+                .iter(app.world())
+                .find(|(n, _, _)| n.0 == "Crate")
+                .expect("Crate not found after load");
+            assert_eq!(prim.0, bsengine_scene::Primitive::Cube);
+            assert_eq!(script.0, "assets/scripts/crate.js");
+
+            let mut pl_q = app
+                .world_mut()
+                .query::<(&Name, &bsengine_core::PointLight)>();
+            let (_, pl) = pl_q
+                .iter(app.world())
+                .find(|(n, _)| n.0 == "Lamp")
+                .expect("Lamp not found after load");
+            assert!((pl.intensity - 2.5).abs() < 1e-4);
+            assert!((pl.range - 15.0).abs() < 1e-4);
+            assert!((pl.color.x - 1.0).abs() < 1e-4);
+            assert!((pl.color.y - 0.5).abs() < 1e-4);
+
+            let mut sl_q = app
+                .world_mut()
+                .query::<(&Name, &bsengine_core::SpotLight)>();
+            let (_, sl) = sl_q
+                .iter(app.world())
+                .find(|(n, _)| n.0 == "Spot")
+                .expect("Spot not found after load");
+            assert!((sl.intensity - 3.0).abs() < 1e-4);
+            assert!((sl.range - 20.0).abs() < 1e-4);
+            assert!((sl.inner_angle.to_degrees() - 15.0).abs() < 1e-2);
+            assert!((sl.outer_angle.to_degrees() - 25.0).abs() < 1e-2);
         }
     }
 

@@ -1,7 +1,10 @@
 use crate::types::{EntityDescriptor, PhysicsBodyDesc, PrimitiveMesh, SceneDescriptor, ScriptPath};
 use bevy_app::{App, Plugin, Startup};
 use bevy_ecs::prelude::{Component, World};
-use bsengine_core::{Camera, DirectionalLight, GlobalTransform, Material, SkyboxPath, Transform};
+use bsengine_core::{
+    Camera, DirectionalLight, GlobalTransform, Material, PointLight, SkyboxPath, SpotLight,
+    Transform,
+};
 use bsengine_gltf::GltfAsset;
 use glam::{Quat, Vec3};
 
@@ -71,7 +74,14 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
         }
 
         if entity.camera {
-            builder.insert(Camera::default());
+            match entity.camera_fov {
+                Some(fov) => {
+                    builder.insert(Camera::perspective(fov, 16.0 / 9.0));
+                }
+                None => {
+                    builder.insert(Camera::default());
+                }
+            }
         }
 
         if let Some(dl) = &entity.directional_light {
@@ -97,6 +107,24 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
                 },
                 GlobalTransform::default(),
             ));
+        }
+
+        if let Some(pl) = &entity.point_light {
+            builder.insert(PointLight {
+                color: Vec3::from(pl.color),
+                intensity: pl.intensity,
+                range: pl.range,
+            });
+        }
+
+        if let Some(sl) = &entity.spot_light {
+            builder.insert(SpotLight {
+                color: Vec3::from(sl.color),
+                intensity: sl.intensity,
+                range: sl.range,
+                inner_angle: sl.inner_angle_degrees.to_radians(),
+                outer_angle: sl.outer_angle_degrees.to_radians(),
+            });
         }
 
         if let Some(prim) = &entity.primitive {

@@ -26,6 +26,7 @@ pub struct Poise {
     /// Latched true when current hits 0; cleared only when:
     /// - `tick()` regens current back to `max`
     /// - `restore()` brings current above 0
+    ///
     /// Use `is_broken()` — do not inspect this field directly.
     pub broken: bool,
     pub just_broken: bool,

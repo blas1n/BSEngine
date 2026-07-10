@@ -116,11 +116,7 @@ impl Turret {
         if self.fire_cooldown > 0.0 {
             self.fire_cooldown -= dt;
         }
-        if self.fire_cooldown <= 0.0 && self.current_target.is_some() {
-            self.wants_to_fire = true;
-        } else {
-            self.wants_to_fire = false;
-        }
+        self.wants_to_fire = self.fire_cooldown <= 0.0 && self.current_target.is_some();
     }
 
     /// Called by the weapon system after a shot is fired.

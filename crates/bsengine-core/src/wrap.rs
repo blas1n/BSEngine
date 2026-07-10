@@ -15,6 +15,7 @@ use bevy_ecs::prelude::Component;
 ///   at `max_wrap`), firing `just_gripped` on first reach of `max_wrap`;
 /// - when `!wrapping`: decreases `wrap_level` by `loosen_rate * dt` (floored
 ///   0), firing `just_freed` on first reach of 0.0 from positive.
+///
 /// No-op when disabled.
 ///
 /// `is_gripped()` returns `wrap_level > 0.0 && enabled`.

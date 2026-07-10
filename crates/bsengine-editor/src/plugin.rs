@@ -799,7 +799,6 @@ fn spawn_entity_from_info(world: &mut World, info: &EntityInfo) -> Entity {
                 color: glam::Vec3::from(info.light_color.unwrap_or([1.0; 3])),
                 intensity: info.light_intensity.unwrap_or(1.0),
                 range: info.light_range.unwrap_or(10.0),
-                ..PointLight::default()
             });
         }
         Some("directional") => {
@@ -2224,7 +2223,7 @@ impl Plugin for EditorPlugin {
                     let parse = |v: &serde_json::Value| -> Option<[f32; 3]> {
                         let a = v.as_array()?;
                         Some([
-                            a.get(0)?.as_f64()? as f32,
+                            a.first()?.as_f64()? as f32,
                             a.get(1)?.as_f64()? as f32,
                             a.get(2)?.as_f64()? as f32,
                         ])
@@ -3170,7 +3169,7 @@ impl Plugin for EditorPlugin {
                             (e.id, name, len)
                         })
                         .collect();
-                    entries.sort_by(|a, b| b.2.cmp(&a.2));
+                    entries.sort_by_key(|e| std::cmp::Reverse(e.2));
                     let result: Vec<serde_json::Value> = entries.iter()
                         .map(|(id, name, len)| json!({"id": id, "name": name, "name_length": len}))
                         .collect();
@@ -10427,7 +10426,7 @@ impl Plugin for EditorPlugin {
                     let threshold = input["z"].as_f64().unwrap_or(0.0) as f32;
                     let s = snap_debz.lock().unwrap();
                     let to_remove: Vec<u64> = s.entities.iter()
-                        .filter_map(|e| e.position.map(|[_, _, z]| if z < threshold { Some(e.id) } else { None }).flatten())
+                        .filter_map(|e| e.position.and_then(|[_, _, z]| if z < threshold { Some(e.id) } else { None }))
                         .collect();
                     let mut sel = sel_debz.lock().unwrap();
                     let count = to_remove.iter().filter(|id| sel.remove(id)).count() as u64;
@@ -10455,9 +10454,12 @@ impl Plugin for EditorPlugin {
                     let mut min_x = f32::MAX; let mut min_y = f32::MAX; let mut min_z = f32::MAX;
                     let mut max_x = f32::MIN; let mut max_y = f32::MIN; let mut max_z = f32::MIN;
                     for [x, y, z] in &positions {
-                        if *x < min_x { min_x = *x; } if *x > max_x { max_x = *x; }
-                        if *y < min_y { min_y = *y; } if *y > max_y { max_y = *y; }
-                        if *z < min_z { min_z = *z; } if *z > max_z { max_z = *z; }
+                        if *x < min_x { min_x = *x; }
+                        if *x > max_x { max_x = *x; }
+                        if *y < min_y { min_y = *y; }
+                        if *y > max_y { max_y = *y; }
+                        if *z < min_z { min_z = *z; }
+                        if *z > max_z { max_z = *z; }
                     }
                     McpToolOutput::success(json!({"min_x": min_x, "min_y": min_y, "min_z": min_z, "max_x": max_x, "max_y": max_y, "max_z": max_z}))
                 }),
@@ -10478,7 +10480,7 @@ impl Plugin for EditorPlugin {
                     let threshold = input["z"].as_f64().unwrap_or(0.0) as f32;
                     let s = snap_sebz.lock().unwrap();
                     let to_add: Vec<u64> = s.entities.iter()
-                        .filter_map(|e| e.position.map(|[_, _, z]| if z < threshold { Some(e.id) } else { None }).flatten())
+                        .filter_map(|e| e.position.and_then(|[_, _, z]| if z < threshold { Some(e.id) } else { None }))
                         .collect();
                     let count = to_add.len() as u64;
                     let mut sel = sel_sebz.lock().unwrap();
@@ -10502,7 +10504,7 @@ impl Plugin for EditorPlugin {
                     let threshold = input["z"].as_f64().unwrap_or(0.0) as f32;
                     let s = snap_deaz.lock().unwrap();
                     let to_remove: Vec<u64> = s.entities.iter()
-                        .filter_map(|e| e.position.map(|[_, _, z]| if z > threshold { Some(e.id) } else { None }).flatten())
+                        .filter_map(|e| e.position.and_then(|[_, _, z]| if z > threshold { Some(e.id) } else { None }))
                         .collect();
                     let mut sel = sel_deaz.lock().unwrap();
                     let count = to_remove.iter().filter(|id| sel.remove(id)).count() as u64;
@@ -10525,7 +10527,7 @@ impl Plugin for EditorPlugin {
                     let threshold = input["x"].as_f64().unwrap_or(0.0) as f32;
                     let s = snap_debx.lock().unwrap();
                     let to_remove: Vec<u64> = s.entities.iter()
-                        .filter_map(|e| e.position.map(|[x, _, _]| if x < threshold { Some(e.id) } else { None }).flatten())
+                        .filter_map(|e| e.position.and_then(|[x, _, _]| if x < threshold { Some(e.id) } else { None }))
                         .collect();
                     let mut sel = sel_debx.lock().unwrap();
                     let count = to_remove.iter().filter(|id| sel.remove(id)).count() as u64;
@@ -10548,7 +10550,7 @@ impl Plugin for EditorPlugin {
                     let threshold = input["z"].as_f64().unwrap_or(0.0) as f32;
                     let s = snap_seaz.lock().unwrap();
                     let to_add: Vec<u64> = s.entities.iter()
-                        .filter_map(|e| e.position.map(|[_, _, z]| if z > threshold { Some(e.id) } else { None }).flatten())
+                        .filter_map(|e| e.position.and_then(|[_, _, z]| if z > threshold { Some(e.id) } else { None }))
                         .collect();
                     let count = to_add.len() as u64;
                     let mut sel = sel_seaz.lock().unwrap();
@@ -10572,7 +10574,7 @@ impl Plugin for EditorPlugin {
                     let threshold = input["x"].as_f64().unwrap_or(0.0) as f32;
                     let s = snap_sebx.lock().unwrap();
                     let to_add: Vec<u64> = s.entities.iter()
-                        .filter_map(|e| e.position.map(|[x, _, _]| if x < threshold { Some(e.id) } else { None }).flatten())
+                        .filter_map(|e| e.position.and_then(|[x, _, _]| if x < threshold { Some(e.id) } else { None }))
                         .collect();
                     let count = to_add.len() as u64;
                     let mut sel = sel_sebx.lock().unwrap();
@@ -10596,7 +10598,7 @@ impl Plugin for EditorPlugin {
                     let threshold = input["x"].as_f64().unwrap_or(0.0) as f32;
                     let s = snap_deax.lock().unwrap();
                     let to_remove: Vec<u64> = s.entities.iter()
-                        .filter_map(|e| e.position.map(|[x, _, _]| if x > threshold { Some(e.id) } else { None }).flatten())
+                        .filter_map(|e| e.position.and_then(|[x, _, _]| if x > threshold { Some(e.id) } else { None }))
                         .collect();
                     let mut sel = sel_deax.lock().unwrap();
                     let count = to_remove.iter().filter(|id| sel.remove(id)).count() as u64;
@@ -10642,7 +10644,7 @@ impl Plugin for EditorPlugin {
                     let threshold = input["x"].as_f64().unwrap_or(0.0) as f32;
                     let s = snap_seax.lock().unwrap();
                     let to_add: Vec<u64> = s.entities.iter()
-                        .filter_map(|e| e.position.map(|[x, _, _]| if x > threshold { Some(e.id) } else { None }).flatten())
+                        .filter_map(|e| e.position.and_then(|[x, _, _]| if x > threshold { Some(e.id) } else { None }))
                         .collect();
                     let count = to_add.len() as u64;
                     let mut sel = sel_seax.lock().unwrap();
@@ -10754,7 +10756,7 @@ impl Plugin for EditorPlugin {
                     let threshold = input["y"].as_f64().unwrap_or(0.0) as f32;
                     let s = snap_deby.lock().unwrap();
                     let to_remove: Vec<u64> = s.entities.iter()
-                        .filter_map(|e| e.position.map(|[_, y, _]| if y < threshold { Some(e.id) } else { None }).flatten())
+                        .filter_map(|e| e.position.and_then(|[_, y, _]| if y < threshold { Some(e.id) } else { None }))
                         .collect();
                     let mut sel = sel_deby.lock().unwrap();
                     let count = to_remove.iter().filter(|id| sel.remove(id)).count() as u64;
@@ -10819,7 +10821,7 @@ impl Plugin for EditorPlugin {
                     let threshold = input["y"].as_f64().unwrap_or(0.0) as f32;
                     let s = snap_deay.lock().unwrap();
                     let to_remove: Vec<u64> = s.entities.iter()
-                        .filter_map(|e| e.position.map(|[_, y, _]| if y > threshold { Some(e.id) } else { None }).flatten())
+                        .filter_map(|e| e.position.and_then(|[_, y, _]| if y > threshold { Some(e.id) } else { None }))
                         .collect();
                     let mut sel = sel_deay.lock().unwrap();
                     let count = to_remove.iter().filter(|id| sel.remove(id)).count() as u64;
@@ -10905,11 +10907,11 @@ impl Plugin for EditorPlugin {
                     let max_z = input["max_z"].as_f64().unwrap_or(0.0) as f32;
                     let s = snap_seib.lock().unwrap();
                     let to_add: Vec<u64> = s.entities.iter()
-                        .filter_map(|e| e.position.map(|[x, y, z]| {
+                        .filter_map(|e| e.position.and_then(|[x, y, z]| {
                             if x >= min_x && x <= max_x && y >= min_y && y <= max_y && z >= min_z && z <= max_z {
                                 Some(e.id)
                             } else { None }
-                        }).flatten())
+                        }))
                         .collect();
                     let count = to_add.len() as u64;
                     let mut sel = sel_seib.lock().unwrap();
@@ -10941,11 +10943,11 @@ impl Plugin for EditorPlugin {
                     let max_z = input["max_z"].as_f64().unwrap_or(0.0) as f32;
                     let s = snap_deib.lock().unwrap();
                     let to_remove: Vec<u64> = s.entities.iter()
-                        .filter_map(|e| e.position.map(|[x, y, z]| {
+                        .filter_map(|e| e.position.and_then(|[x, y, z]| {
                             if x >= min_x && x <= max_x && y >= min_y && y <= max_y && z >= min_z && z <= max_z {
                                 Some(e.id)
                             } else { None }
-                        }).flatten())
+                        }))
                         .collect();
                     let mut sel = sel_deib.lock().unwrap();
                     let count = to_remove.iter().filter(|id| sel.remove(id)).count() as u64;
@@ -10975,11 +10977,11 @@ impl Plugin for EditorPlugin {
                     let max_z = input["max_z"].as_f64().unwrap_or(0.0) as f32;
                     let s = snap_geib.lock().unwrap();
                     let ids: Vec<u64> = s.entities.iter()
-                        .filter_map(|e| e.position.map(|[x, y, z]| {
+                        .filter_map(|e| e.position.and_then(|[x, y, z]| {
                             if x >= min_x && x <= max_x && y >= min_y && y <= max_y && z >= min_z && z <= max_z {
                                 Some(e.id)
                             } else { None }
-                        }).flatten())
+                        }))
                         .collect();
                     McpToolOutput::success(json!({"entity_ids": ids}))
                 }),
@@ -11069,10 +11071,10 @@ impl Plugin for EditorPlugin {
                     let r2 = r * r;
                     let s = snap_deir.lock().unwrap();
                     let to_remove: Vec<u64> = s.entities.iter()
-                        .filter_map(|e| e.position.map(|[x, y, z]| {
+                        .filter_map(|e| e.position.and_then(|[x, y, z]| {
                             let dx = x - cx; let dy = y - cy; let dz = z - cz;
                             if dx*dx + dy*dy + dz*dz <= r2 { Some(e.id) } else { None }
-                        }).flatten())
+                        }))
                         .collect();
                     let mut sel = sel_deir.lock().unwrap();
                     let count = to_remove.iter().filter(|id| sel.remove(id)).count() as u64;
@@ -15425,11 +15427,7 @@ impl Plugin for EditorPlugin {
                     for entity in &s.entities {
                         let mut depth: u64 = 0;
                         let mut current_id = entity.id;
-                        loop {
-                            let e = match s.entities.iter().find(|e| e.id == current_id) {
-                                Some(e) => e,
-                                None => break,
-                            };
+                        while let Some(e) = s.entities.iter().find(|e| e.id == current_id) {
                             match e.parent_id {
                                 Some(pid) => { depth += 1; current_id = pid; }
                                 None => break,
@@ -15643,11 +15641,7 @@ impl Plugin for EditorPlugin {
                     let s = snap_geai.lock().unwrap();
                     let mut ancestors = Vec::new();
                     let mut current_id = entity_id;
-                    loop {
-                        let entity = match s.entities.iter().find(|e| e.id == current_id) {
-                            Some(e) => e,
-                            None => break,
-                        };
+                    while let Some(entity) = s.entities.iter().find(|e| e.id == current_id) {
                         match entity.parent_id {
                             Some(pid) => { ancestors.push(pid); current_id = pid; }
                             None => break,
@@ -19162,7 +19156,7 @@ impl Plugin for EditorPlugin {
                     let entities: Vec<serde_json::Value> = s
                         .entities
                         .iter()
-                        .filter(|e| e.name.as_ref().map_or(false, |n| n.len() > min_len))
+                        .filter(|e| e.name.as_ref().is_some_and(|n| n.len() > min_len))
                         .map(|e| json!({"id": e.id, "name": e.name}))
                         .collect();
                     McpToolOutput::success(json!({"entities": entities}))
@@ -19179,7 +19173,7 @@ impl Plugin for EditorPlugin {
                 handler: Box::new(move |input| {
                     let min_len = input["min_length"].as_u64().unwrap_or(0) as usize;
                     let s = snap_sewnlt.lock().unwrap();
-                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.name.as_ref().map_or(false, |n| n.len() > min_len)).map(|e| e.id).collect();
+                    let to_add: Vec<u64> = s.entities.iter().filter(|e| e.name.as_ref().is_some_and(|n| n.len() > min_len)).map(|e| e.id).collect();
                     let count = to_add.len() as u64; drop(s);
                     let mut sel = sel_sewnlt.lock().unwrap();
                     for id in &to_add { sel.insert(*id); }
@@ -19197,7 +19191,7 @@ impl Plugin for EditorPlugin {
                 handler: Box::new(move |input| {
                     let min_len = input["min_length"].as_u64().unwrap_or(0) as usize;
                     let s = snap_dewnlt.lock().unwrap();
-                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.name.as_ref().map_or(false, |n| n.len() > min_len)).map(|e| e.id).collect();
+                    let to_remove: Vec<u64> = s.entities.iter().filter(|e| e.name.as_ref().is_some_and(|n| n.len() > min_len)).map(|e| e.id).collect();
                     let count = to_remove.len() as u64; drop(s);
                     let mut sel = sel_dewnlt.lock().unwrap();
                     for id in &to_remove { sel.remove(id); }
@@ -19214,7 +19208,7 @@ impl Plugin for EditorPlugin {
                 handler: Box::new(move |input| {
                     let min_len = input["min_length"].as_u64().unwrap_or(0) as usize;
                     let s = snap_cewnlt.lock().unwrap();
-                    let count = s.entities.iter().filter(|e| e.name.as_ref().map_or(false, |n| n.len() > min_len)).count() as u64;
+                    let count = s.entities.iter().filter(|e| e.name.as_ref().is_some_and(|n| n.len() > min_len)).count() as u64;
                     McpToolOutput::success(json!({"count": count}))
                 }),
             });
@@ -19297,7 +19291,7 @@ impl Plugin for EditorPlugin {
                         .entities
                         .iter()
                         .filter(|e| {
-                            e.position.map_or(false, |p| {
+                            e.position.is_some_and(|p| {
                                 (p[0] * p[0] + p[1] * p[1] + p[2] * p[2]).sqrt() > min_dist
                             })
                         })
@@ -19473,7 +19467,7 @@ impl Plugin for EditorPlugin {
                     let entities: Vec<serde_json::Value> = s
                         .entities
                         .iter()
-                        .filter(|e| e.position.map_or(false, |p| p[1].abs() <= tolerance))
+                        .filter(|e| e.position.is_some_and(|p| p[1].abs() <= tolerance))
                         .map(|e| json!({"id": e.id, "name": e.name, "position": e.position}))
                         .collect();
                     McpToolOutput::success(json!({"entities": entities}))
@@ -19493,7 +19487,7 @@ impl Plugin for EditorPlugin {
                     let current: Vec<u64> = sel.iter().copied().collect();
                     let current_set: std::collections::HashSet<u64> = current.iter().copied().collect();
                     let children: Vec<u64> = s.entities.iter()
-                        .filter(|e| e.parent_id.map_or(false, |p| current_set.contains(&p)) && !current_set.contains(&e.id))
+                        .filter(|e| e.parent_id.is_some_and(|p| current_set.contains(&p)) && !current_set.contains(&e.id))
                         .map(|e| e.id)
                         .collect();
                     let count = children.len() as u64;
@@ -23286,7 +23280,7 @@ impl Plugin for EditorPlugin {
                     let entities: Vec<serde_json::Value> = s
                         .entities
                         .iter()
-                        .filter(|e| e.position.map_or(false, |p| p[0] >= min_x && p[0] <= max_x))
+                        .filter(|e| e.position.is_some_and(|p| p[0] >= min_x && p[0] <= max_x))
                         .map(|e| json!({"id": e.id, "name": e.name, "position": e.position}))
                         .collect();
                     McpToolOutput::success(json!({"entities": entities}))
@@ -23314,7 +23308,7 @@ impl Plugin for EditorPlugin {
                     let entities: Vec<serde_json::Value> = s
                         .entities
                         .iter()
-                        .filter(|e| e.position.map_or(false, |p| p[2] >= min_z && p[2] <= max_z))
+                        .filter(|e| e.position.is_some_and(|p| p[2] >= min_z && p[2] <= max_z))
                         .map(|e| json!({"id": e.id, "name": e.name, "position": e.position}))
                         .collect();
                     McpToolOutput::success(json!({"entities": entities}))
@@ -23943,7 +23937,7 @@ impl Plugin for EditorPlugin {
                 handler: Box::new(move |_input| {
                     let s = snap_gestc.lock().unwrap();
                     let mut ents: Vec<&crate::snapshot::EntityInfo> = s.entities.iter().collect();
-                    ents.sort_by(|a, b| b.tags.len().cmp(&a.tags.len()));
+                    ents.sort_by_key(|e| std::cmp::Reverse(e.tags.len()));
                     let result: Vec<serde_json::Value> = ents
                         .iter()
                         .map(|e| json!({"id": e.id, "name": e.name, "tag_count": e.tags.len()}))
@@ -24175,7 +24169,11 @@ impl Plugin for EditorPlugin {
                     let mut max = positions[0];
                     let mut sum = [0f32; 3];
                     for p in &positions {
-                        for i in 0..3 { if p[i] < min[i] { min[i] = p[i]; } if p[i] > max[i] { max[i] = p[i]; } sum[i] += p[i]; }
+                        for i in 0..3 {
+                            if p[i] < min[i] { min[i] = p[i]; }
+                            if p[i] > max[i] { max[i] = p[i]; }
+                            sum[i] += p[i];
+                        }
                     }
                     let n = positions.len() as f32;
                     let centroid = [sum[0]/n, sum[1]/n, sum[2]/n];
@@ -42894,7 +42892,7 @@ mod tests {
                 .unwrap()["id"]
                 .as_u64()
                 .unwrap();
-            let id_two = entities
+            let _id_two = entities
                 .iter()
                 .find(|e| e["name"].as_str() == Some("Two"))
                 .unwrap()["id"]
@@ -44049,7 +44047,7 @@ mod tests {
         app.update();
 
         let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-        let mut reg = mcp.0.lock().unwrap();
+        let reg = mcp.0.lock().unwrap();
 
         let out = reg
             .execute("get_entities_sharing_name", json!({"name": "Duplicate"}))
@@ -44160,7 +44158,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": a_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": b_id}))
@@ -44170,7 +44168,7 @@ mod tests {
         app.update();
 
         let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-        let mut reg = mcp.0.lock().unwrap();
+        let reg = mcp.0.lock().unwrap();
 
         let out = reg
             .execute("get_tags_used_by_selection", json!({}))
@@ -44250,7 +44248,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": child_id, "parent_id": root_id}),
@@ -44341,7 +44339,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": root_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": child_id}))
@@ -44760,7 +44758,7 @@ mod tests {
         app.update();
 
         let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-        let mut reg = mcp.0.lock().unwrap();
+        let reg = mcp.0.lock().unwrap();
 
         let out0 = reg
             .execute("count_entities_at_depth", json!({"depth": 0}))
@@ -44855,7 +44853,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "batch_spawn",
                 json!({"entities": [
@@ -44905,7 +44903,7 @@ mod tests {
         app.update();
 
         let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-        let mut reg = mcp.0.lock().unwrap();
+        let reg = mcp.0.lock().unwrap();
 
         let out = reg
             .execute("get_mesh_id_of_entity", json!({"entity_id": with_id}))
@@ -44983,7 +44981,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": root_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": child_id}))
@@ -45088,7 +45086,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": c1_id, "parent_id": root_id}),
@@ -45104,7 +45102,7 @@ mod tests {
         app.update();
 
         let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-        let mut reg = mcp.0.lock().unwrap();
+        let reg = mcp.0.lock().unwrap();
 
         let out = reg
             .execute("get_children_of_entity", json!({"entity_id": root_id}))
@@ -45187,7 +45185,7 @@ mod tests {
         app.update();
 
         let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-        let mut reg = mcp.0.lock().unwrap();
+        let reg = mcp.0.lock().unwrap();
 
         let out = reg
             .execute("is_entity_visible", json!({"entity_id": vis_id}))
@@ -45262,7 +45260,7 @@ mod tests {
         app.update();
 
         let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-        let mut reg = mcp.0.lock().unwrap();
+        let reg = mcp.0.lock().unwrap();
 
         let out = reg
             .execute("is_entity_selected", json!({"entity_id": a_id}))
@@ -45699,7 +45697,7 @@ mod tests {
             .unwrap();
 
         let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-        let mut reg = mcp.0.lock().unwrap();
+        let reg = mcp.0.lock().unwrap();
 
         let out = reg
             .execute("get_position_of_entity", json!({"entity_id": placed_id}))
@@ -45935,7 +45933,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("tag_entity", json!({"entity_id": a_id, "tag": "hero"}))
                 .unwrap();
             reg.execute("tag_entity", json!({"entity_id": b_id, "tag": "hero"}))
@@ -45965,7 +45963,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 1.0, "range": 10.0, "position": [0.0, 0.0, 0.0]})).unwrap();
             reg.execute("spawn_point_light", json!({"color": [1.0, 0.0, 0.0], "intensity": 2.0, "range": 5.0, "position": [1.0, 0.0, 0.0]})).unwrap();
             reg.execute("spawn_directional_light", json!({"direction": [0.0, -1.0, 0.0], "color": [1.0, 1.0, 1.0], "ambient": [0.1, 0.1, 0.1]})).unwrap();
@@ -46035,7 +46033,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("tag_entity", json!({"entity_id": a_id, "tag": "hero"}))
                 .unwrap();
             reg.execute("tag_entity", json!({"entity_id": b_id, "tag": "hero"}))
@@ -46073,7 +46071,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 1.0, "range": 10.0, "position": [0.0, 0.0, 0.0]})).unwrap();
             reg.execute("spawn_point_light", json!({"color": [1.0, 0.0, 0.0], "intensity": 2.0, "range": 5.0, "position": [1.0, 0.0, 0.0]})).unwrap();
             reg.execute("spawn_directional_light", json!({"direction": [0.0, -1.0, 0.0], "color": [1.0, 1.0, 1.0], "ambient": [0.1, 0.1, 0.1]})).unwrap();
@@ -46102,7 +46100,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 1.0, "range": 10.0, "position": [0.0, 0.0, 0.0]})).unwrap();
             reg.execute("spawn_directional_light", json!({"direction": [0.0, -1.0, 0.0], "color": [1.0, 1.0, 1.0], "ambient": [0.1, 0.1, 0.1]})).unwrap();
             reg.execute("batch_spawn", json!({"entities": [{"name": "NoLight"}]}))
@@ -46130,7 +46128,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("spawn_spot_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 1.0, "range": 10.0, "inner_angle": 15.0, "outer_angle": 30.0, "position": [0.0, 5.0, 0.0]})).unwrap();
             reg.execute("spawn_spot_light", json!({"color": [0.0, 1.0, 0.0], "intensity": 2.0, "range": 5.0, "inner_angle": 10.0, "outer_angle": 20.0, "position": [1.0, 5.0, 0.0]})).unwrap();
             reg.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 1.0, "range": 10.0, "position": [0.0, 0.0, 0.0]})).unwrap();
@@ -46157,7 +46155,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 1.0, "range": 10.0, "position": [0.0, 0.0, 0.0]})).unwrap();
             reg.execute("spawn_point_light", json!({"color": [1.0, 0.0, 0.0], "intensity": 2.0, "range": 5.0, "position": [1.0, 0.0, 0.0]})).unwrap();
             reg.execute("batch_spawn", json!({"entities": [{"name": "NoLight"}]}))
@@ -46185,7 +46183,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 1.0, "range": 10.0, "position": [0.0, 0.0, 0.0]})).unwrap();
             reg.execute("spawn_point_light", json!({"color": [1.0, 0.0, 0.0], "intensity": 2.0, "range": 5.0, "position": [1.0, 0.0, 0.0]})).unwrap();
             reg.execute("spawn_directional_light", json!({"direction": [0.0, -1.0, 0.0], "color": [1.0, 1.0, 1.0], "ambient": [0.1, 0.1, 0.1]})).unwrap();
@@ -46212,7 +46210,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("spawn_directional_light", json!({"direction": [0.0, -1.0, 0.0], "color": [1.0, 1.0, 1.0], "ambient": [0.1, 0.1, 0.1]})).unwrap();
             reg.execute("spawn_point_light", json!({"color": [1.0, 1.0, 1.0], "intensity": 1.0, "range": 10.0, "position": [0.0, 0.0, 0.0]})).unwrap();
         }
@@ -46312,7 +46310,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "spawn_camera",
                 json!({"fov_y_degrees": 60.0, "position": [0.0, 0.0, 0.0]}),
@@ -46429,7 +46427,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": ca_id, "parent_id": parent_id}),
@@ -47438,7 +47436,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("tag_entity", json!({"entity_id": ta_id, "tag": "hero"}))
                 .unwrap();
             reg.execute("tag_entity", json!({"entity_id": tb_id, "tag": "enemy"}))
@@ -47606,7 +47604,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "spawn_camera",
                 json!({"fov_y_degrees": 60.0, "position": [0.0, 5.0, 10.0]}),
@@ -47642,7 +47640,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": cam_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": plain_id}))
@@ -47708,7 +47706,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("attach_mesh", json!({"entity_id": wm_id, "mesh_id": 42}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": wm_id}))
@@ -47738,7 +47736,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("batch_spawn", json!({"entities": [{"name": "Named"}]}))
                 .unwrap();
             reg.execute("spawn_point_light", json!({"color": [1.0,1.0,1.0], "intensity": 100.0, "range": 10.0, "position": [0.0,5.0,0.0]})).unwrap();
@@ -47766,7 +47764,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("spawn_point_light", json!({"color": [1.0,1.0,1.0], "intensity": 100.0, "range": 10.0, "position": [0.0,5.0,0.0]})).unwrap();
             reg.execute("spawn_point_light", json!({"color": [0.5,0.5,0.5], "intensity": 50.0, "range": 5.0, "position": [1.0,5.0,0.0]})).unwrap();
             reg.execute("batch_spawn", json!({"entities": [{"name": "Plain"}]}))
@@ -47824,7 +47822,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("spawn_point_light", json!({"color": [1.0,1.0,1.0], "intensity": 100.0, "range": 10.0, "position": [0.0,5.0,0.0]})).unwrap();
             reg.execute("spawn_point_light", json!({"color": [1.0,0.0,0.0], "intensity": 50.0, "range": 5.0, "position": [1.0,5.0,0.0]})).unwrap();
             reg.execute("batch_spawn", json!({"entities": [{"name": "Plain"}]}))
@@ -47887,7 +47885,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "batch_spawn",
                 json!({"entities": [
@@ -47924,7 +47922,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("attach_mesh", json!({"entity_id": ma_id, "mesh_id": 100}))
                 .unwrap();
             reg.execute("attach_mesh", json!({"entity_id": mb_id, "mesh_id": 200}))
@@ -48126,7 +48124,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": near_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": far_id}))
@@ -48208,7 +48206,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": a_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": b_id}))
@@ -48353,7 +48351,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": far_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": near_id}))
@@ -48434,7 +48432,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": neg_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": pos_id}))
@@ -48659,7 +48657,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": right_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": left_id}))
@@ -48741,7 +48739,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": a_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": b_id}))
@@ -49059,7 +49057,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": low_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": high_id}))
@@ -49212,7 +49210,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": high_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": low_id}))
@@ -49470,7 +49468,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": in_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": out_id}))
@@ -49708,7 +49706,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": near_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": far_id}))
@@ -49793,7 +49791,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("hide_entity", json!({"entity_id": h1_id}))
                 .unwrap();
             reg.execute("hide_entity", json!({"entity_id": h2_id}))
@@ -49883,7 +49881,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": e1_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": e2_id}))
@@ -49967,7 +49965,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("hide_entity", json!({"entity_id": h_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": v1_id}))
@@ -50057,7 +50055,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("hide_entity", json!({"entity_id": h1_id}))
                 .unwrap();
             reg.execute("hide_entity", json!({"entity_id": h2_id}))
@@ -50209,7 +50207,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": e1_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": e2_id}))
@@ -50284,7 +50282,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": s1_id, "parent_id": parent_id}),
@@ -50388,7 +50386,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": s1_id, "parent_id": parent_id}),
@@ -50499,7 +50497,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": c1_id, "parent_id": parent_id}),
@@ -50599,7 +50597,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": c1_id, "parent_id": root_id}),
@@ -50695,7 +50693,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": child_id, "parent_id": root_id}),
@@ -50808,7 +50806,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": s1_id, "parent_id": parent_id}),
@@ -50921,7 +50919,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": child_id, "parent_id": root_id}),
@@ -51044,7 +51042,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": c1_id, "parent_id": root_id}),
@@ -51225,7 +51223,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": c1_id, "parent_id": root_id}),
@@ -51326,7 +51324,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": c1_id, "parent_id": root_id}),
@@ -51424,7 +51422,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": c1_id, "parent_id": root_id}),
@@ -51532,7 +51530,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": c1_id, "parent_id": root_id}),
@@ -51632,7 +51630,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": c1_id, "parent_id": root_id}),
@@ -51723,7 +51721,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": c1_id, "parent_id": parent_id}),
@@ -51812,7 +51810,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": c1_id, "parent_id": parent_id}),
@@ -51900,7 +51898,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": c1_id, "parent_id": root_id}),
@@ -52007,7 +52005,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": child_id, "parent_id": parent_id}),
@@ -52086,7 +52084,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": child_id, "parent_id": root_id}),
@@ -52193,7 +52191,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": c1_id, "parent_id": root_id}),
@@ -52300,7 +52298,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": child_id, "parent_id": root_id}),
@@ -52408,7 +52406,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": c1_id, "parent_id": root_id}),
@@ -52509,7 +52507,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("set_parent", json!({"entity_id": c1, "parent_id": root_id}))
                 .unwrap();
             reg.execute("set_parent", json!({"entity_id": c2, "parent_id": root_id}))
@@ -52589,7 +52587,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": child_id, "parent_id": root_id}),
@@ -52689,7 +52687,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": ba_id, "parent_id": root_id}),
@@ -52796,7 +52794,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": ca_id, "parent_id": root_id}),
@@ -52897,7 +52895,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": ba_id, "parent_id": root_id}),
@@ -52995,7 +52993,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("set_parent", json!({"entity_id": d1, "parent_id": d0}))
                 .unwrap();
             reg.execute("set_parent", json!({"entity_id": d2, "parent_id": d1}))
@@ -53064,7 +53062,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": mid_id, "parent_id": root_id}),
@@ -53145,7 +53143,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": mid_id, "parent_id": root_id}),
@@ -53226,7 +53224,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": mid_id, "parent_id": root_id}),
@@ -53301,7 +53299,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("set_parent", json!({"entity_id": d1, "parent_id": d0}))
                 .unwrap();
             reg.execute("set_parent", json!({"entity_id": d2, "parent_id": d1}))
@@ -53371,7 +53369,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("set_parent", json!({"entity_id": d1, "parent_id": d0}))
                 .unwrap();
             reg.execute("set_parent", json!({"entity_id": d2, "parent_id": d1}))
@@ -53460,7 +53458,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("set_parent", json!({"entity_id": b, "parent_id": a}))
                 .unwrap();
             reg.execute("set_parent", json!({"entity_id": c, "parent_id": b}))
@@ -53553,7 +53551,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("set_parent", json!({"entity_id": d1, "parent_id": d0}))
                 .unwrap();
             reg.execute("set_parent", json!({"entity_id": d2, "parent_id": d1}))
@@ -53636,7 +53634,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("set_parent", json!({"entity_id": b, "parent_id": a}))
                 .unwrap();
             reg.execute("set_parent", json!({"entity_id": c, "parent_id": b}))
@@ -53710,7 +53708,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": mid_id, "parent_id": root_id}),
@@ -53790,7 +53788,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": mid_id, "parent_id": root_id}),
@@ -53878,7 +53876,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": leaf1_id, "parent_id": parent_id}),
@@ -53974,7 +53972,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": l1_id, "parent_id": parent_id}),
@@ -54053,7 +54051,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": leaf1_id, "parent_id": parent_id}),
@@ -54146,7 +54144,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": la_id, "parent_id": root_id}),
@@ -54220,7 +54218,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": child_id, "parent_id": root1_id}),
@@ -54311,7 +54309,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": child_id, "parent_id": root1_id}),
@@ -54472,7 +54470,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": c1_id, "parent_id": parent_id}),
@@ -54551,7 +54549,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": sib_a, "parent_id": parent_id}),
@@ -54658,7 +54656,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": child_id, "parent_id": root1_id}),
@@ -54750,7 +54748,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": s1_id, "parent_id": parent_id}),
@@ -54845,7 +54843,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("set_parent", json!({"entity_id": p_id, "parent_id": gp_id}))
                 .unwrap();
             reg.execute(
@@ -54884,7 +54882,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("batch_spawn", json!({"entities": [{"name": "Named"}]}))
                 .unwrap();
             // lights have no Name component
@@ -54984,7 +54982,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": s1_id, "parent_id": parent_id}),
@@ -55068,7 +55066,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("set_parent", json!({"entity_id": p_id, "parent_id": gp_id}))
                 .unwrap();
             reg.execute(
@@ -55174,7 +55172,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": s1_id, "parent_id": parent_id}),
@@ -55268,7 +55266,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": child_id, "parent_id": root_id}),
@@ -55367,7 +55365,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": child_id, "parent_id": root_id}),
@@ -55385,7 +55383,7 @@ mod tests {
         // Select all four
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": root_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": child_id}))
@@ -55470,7 +55468,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": child_id, "parent_id": root_id}),
@@ -55559,7 +55557,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": c1_id, "parent_id": root_id}),
@@ -55646,7 +55644,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": child_id, "parent_id": root_id}),
@@ -55734,7 +55732,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("set_parent", json!({"entity_id": p_id, "parent_id": gp_id}))
                 .unwrap();
             reg.execute(
@@ -55958,7 +55956,7 @@ mod tests {
         // Tag A and B; select A and C
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("tag_entity", json!({"entity_id": a_id, "tag": "hero"}))
                 .unwrap();
             reg.execute("tag_entity", json!({"entity_id": b_id, "tag": "hero"}))
@@ -55968,7 +55966,7 @@ mod tests {
         app.update();
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": a_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": c_id}))
@@ -56038,7 +56036,7 @@ mod tests {
         // Set parents
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": c1_id, "parent_id": root_id}),
@@ -56056,7 +56054,7 @@ mod tests {
         // Select all three
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": root_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": c1_id}))
@@ -56153,7 +56151,7 @@ mod tests {
         // Select both
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": mesh_ent_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": plain_id}))
@@ -56233,7 +56231,7 @@ mod tests {
         // Set parents
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": c1_id, "parent_id": root_id}),
@@ -56283,7 +56281,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("spawn_point_light", json!({"color": [1.0,1.0,1.0], "intensity": 800.0, "range": 20.0, "position": [0.0,0.0,0.0]})).unwrap();
             reg.execute("batch_spawn", json!({"entities": [{"name": "Plain"}]}))
                 .unwrap();
@@ -56319,7 +56317,7 @@ mod tests {
         // Select both
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": light_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": plain_id}))
@@ -56359,7 +56357,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "spawn_camera",
                 json!({"fov_y_degrees": 60.0, "position": [0.0,0.0,0.0]}),
@@ -56396,7 +56394,7 @@ mod tests {
         // Select both
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": cam_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": plain_id}))
@@ -56488,7 +56486,7 @@ mod tests {
         // Select all three
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": v1_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": v2_id}))
@@ -56571,7 +56569,7 @@ mod tests {
         // Hide two
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("hide_entity", json!({"entity_id": h1_id}))
                 .unwrap();
             reg.execute("hide_entity", json!({"entity_id": h2_id}))
@@ -56583,7 +56581,7 @@ mod tests {
         // Select all three
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": vis_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": h1_id}))
@@ -56750,7 +56748,7 @@ mod tests {
         // Hide A and B
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("hide_entity", json!({"entity_id": a_id}))
                 .unwrap();
             reg.execute("hide_entity", json!({"entity_id": b_id}))
@@ -56834,7 +56832,7 @@ mod tests {
         // Leaf1 and Leaf2 are children of Root (so Root is not a leaf)
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": l1_id, "parent_id": root_id}),
@@ -56852,7 +56850,7 @@ mod tests {
         // Select all three
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": root_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": l1_id}))
@@ -56935,7 +56933,7 @@ mod tests {
         // Tag A and B with "hero"
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("tag_entity", json!({"entity_id": a_id, "tag": "hero"}))
                 .unwrap();
             reg.execute("tag_entity", json!({"entity_id": b_id, "tag": "hero"}))
@@ -56947,7 +56945,7 @@ mod tests {
         // Select all three
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": a_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": b_id}))
@@ -57036,7 +57034,7 @@ mod tests {
         // Set children
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": c1_id, "parent_id": parent_id}),
@@ -57054,7 +57052,7 @@ mod tests {
         // Select all four
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": parent_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": c1_id}))
@@ -57155,7 +57153,7 @@ mod tests {
         // Select all three
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": r1_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": r2_id}))
@@ -57688,7 +57686,7 @@ mod tests {
         // Hide A and B
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("hide_entity", json!({"entity_id": a_id}))
                 .unwrap();
             reg.execute("hide_entity", json!({"entity_id": b_id}))
@@ -57757,7 +57755,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "spawn_camera",
                 json!({"fov_y_degrees": 30.0, "position": [0.0, 0.0, 0.0]}),
@@ -57833,7 +57831,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "spawn_camera",
                 json!({"fov_y_degrees": 90.0, "position": [0.0, 0.0, 0.0]}),
@@ -57951,7 +57949,7 @@ mod tests {
         // Sib1 and Sib2 share Root as parent; Cousin is a child of Sib2
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": sib1_id, "parent_id": root_id}),
@@ -58304,7 +58302,7 @@ mod tests {
         // Root → Child → Leaf hierarchy
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": child_id, "parent_id": root_id}),
@@ -58398,7 +58396,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_scale",
                 json!({"entity_id": normal_id, "sx": 1.0, "sy": 1.0, "sz": 1.0}),
@@ -58491,7 +58489,7 @@ mod tests {
         // Reparent Child1 and Child2 to Parent
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute(
                 "set_parent",
                 json!({"entity_id": child1_id, "parent_id": parent_id}),
@@ -58675,7 +58673,7 @@ mod tests {
         // Tag all three with "hero"
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             for id in [a_id, b_id, c_id] {
                 reg.execute("tag_entity", json!({"entity_id": id, "tag": "hero"}))
                     .unwrap();
@@ -58687,7 +58685,7 @@ mod tests {
         // Select A and B, then untag them
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": a_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": b_id}))
@@ -58805,7 +58803,7 @@ mod tests {
         // Tag A and B with "prop"
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("tag_entity", json!({"entity_id": a_id, "tag": "prop"}))
                 .unwrap();
             reg.execute("tag_entity", json!({"entity_id": b_id, "tag": "prop"}))
@@ -58975,7 +58973,7 @@ mod tests {
         // Select A and B
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": a_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": b_id}))
@@ -59091,7 +59089,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": a_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": b_id}))
@@ -59184,7 +59182,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": a_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": b_id}))
@@ -59280,7 +59278,7 @@ mod tests {
         // Select A and B only
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": a_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": b_id}))
@@ -59387,7 +59385,7 @@ mod tests {
 
         {
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
-            let mut reg = mcp.0.lock().unwrap();
+            let reg = mcp.0.lock().unwrap();
             reg.execute("select_entity", json!({"entity_id": a_id}))
                 .unwrap();
             reg.execute("select_entity", json!({"entity_id": b_id}))
@@ -61825,7 +61823,7 @@ mod tests {
                 )
                 .unwrap();
             assert!(out.is_ok());
-            assert_eq!(out.content["tagged"].as_bool().unwrap(), true);
+            assert!(out.content["tagged"].as_bool().unwrap());
         }
 
         let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
@@ -61839,7 +61837,7 @@ mod tests {
             )
             .unwrap();
         assert!(out.is_ok());
-        assert_eq!(out.content["tagged"].as_bool().unwrap(), false);
+        assert!(!out.content["tagged"].as_bool().unwrap());
     }
 
     #[test]
@@ -62625,7 +62623,7 @@ mod tests {
                 .execute("are_all_selected_visible", json!({}))
                 .unwrap();
             assert!(out.is_ok());
-            assert_eq!(out.content["all_visible"].as_bool().unwrap(), true);
+            assert!(out.content["all_visible"].as_bool().unwrap());
         }
 
         // Add hidden entity to selection — all_visible should now be false
@@ -62645,7 +62643,7 @@ mod tests {
             .execute("are_all_selected_visible", json!({}))
             .unwrap();
         assert!(out.is_ok());
-        assert_eq!(out.content["all_visible"].as_bool().unwrap(), false);
+        assert!(!out.content["all_visible"].as_bool().unwrap());
     }
 
     #[test]
@@ -63763,8 +63761,8 @@ mod tests {
             let out = mcp.0.lock().unwrap().execute("get_entities_with_light_intensity_below", json!({"threshold": 50.0})).unwrap();
             assert!(out.is_ok());
             let ids: Vec<u64> = out.content["entity_ids"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
-            assert!(ids.iter().any(|id| *id == near_id), "dim(intensity=10) below 50");
-            assert!(!ids.iter().any(|id| *id == far_id), "bright(intensity=100) not below 50");
+            assert!(ids.contains(&near_id), "dim(intensity=10) below 50");
+            assert!(!ids.contains(&far_id), "bright(intensity=100) not below 50");
         }
 
         // get_entities_with_fov_equal(45) → cam45 only
@@ -65511,7 +65509,6 @@ mod tests {
                 {"name": "B", "position": [0.0, 0.0, 0.0]},
                 {"name": "C", "position": [0.0, 0.0, 0.0]},
             ]})).unwrap();
-            drop(mcp);
             app.update(); app.update();
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
             let es = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap().content["entities"].as_array().unwrap().clone();
@@ -65821,7 +65818,6 @@ mod tests {
                 {"name": "B", "position": [0.0, 0.0, 0.0]},
                 {"name": "C", "position": [0.0, 0.0, 0.0]},
             ]})).unwrap();
-            drop(mcp);
             app.update(); app.update();
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
             let es = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap().content["entities"].as_array().unwrap().clone();
@@ -65880,7 +65876,6 @@ mod tests {
                 {"name": "B", "position": [0.0, 0.0, 0.0]},
                 {"name": "C", "position": [0.0, 0.0, 0.0]},
             ]})).unwrap();
-            drop(mcp);
             app.update(); app.update();
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
             let es = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap().content["entities"].as_array().unwrap().clone();
@@ -69558,7 +69553,7 @@ mod tests {
             "hero appears in both A and B"
         );
         assert!(
-            tags.get("other").map_or(true, |v| v.as_u64().unwrap() == 0),
+            tags.get("other").is_none_or(|v| v.as_u64().unwrap() == 0),
             "C is not selected"
         );
     }
@@ -70166,7 +70161,6 @@ mod tests {
                 .unwrap()
                 .execute("tag_entity", json!({"entity_id": b_id, "tag": tag}))
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -70415,7 +70409,6 @@ mod tests {
                     .unwrap()
                     .execute("tag_entity", json!({"entity_id": id, "tag": tag}))
                     .unwrap();
-                drop(mcp);
                 app.update();
                 app.update();
             }
@@ -70503,7 +70496,6 @@ mod tests {
                     json!({"entity_id": child, "parent_id": parent}),
                 )
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -70670,7 +70662,6 @@ mod tests {
                     json!({"entity_id": id, "rx": 0.0, "ry": ry, "rz": 0.0}),
                 )
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -71352,7 +71343,6 @@ mod tests {
                     json!({"entity_id": child, "parent_id": root_id}),
                 )
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -71453,7 +71443,6 @@ mod tests {
                     json!({"entity_id": child, "parent_id": parent}),
                 )
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -71820,7 +71809,6 @@ mod tests {
                     json!({"entity_id": child, "parent_id": root_id}),
                 )
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -71925,7 +71913,6 @@ mod tests {
                     json!({"entity_id": id, "sx": s, "sy": s, "sz": s}),
                 )
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -72493,7 +72480,6 @@ mod tests {
                     json!({"entity_id": leaf, "parent_id": child_id}),
                 )
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -72556,7 +72542,6 @@ mod tests {
                 .unwrap()
                 .execute("tag_entity", json!({"entity_id": id, "tag": "hero"}))
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -72642,7 +72627,6 @@ mod tests {
                 .unwrap()
                 .execute("tag_entity", json!({"entity_id": id, "tag": tag}))
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -72704,7 +72688,6 @@ mod tests {
                 .unwrap()
                 .execute("tag_entity", json!({"entity_id": id, "tag": "hero"}))
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -72826,7 +72809,6 @@ mod tests {
                 .unwrap()
                 .execute("tag_entity", json!({"entity_id": id, "tag": "hero"}))
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -72905,7 +72887,6 @@ mod tests {
                     json!({"entity_id": child, "parent_id": root_id}),
                 )
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -73546,7 +73527,6 @@ mod tests {
                     json!({"entity_id": child, "parent_id": root_id}),
                 )
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -74114,7 +74094,6 @@ mod tests {
                 .unwrap()
                 .execute("tag_entity", json!({"entity_id": id, "tag": "hero"}))
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -74212,7 +74191,6 @@ mod tests {
                 .unwrap()
                 .execute("tag_entity", json!({"entity_id": id_two, "tag": tag}))
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -74300,7 +74278,6 @@ mod tests {
                     json!({"entity_id": child, "parent_id": root_id}),
                 )
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -74444,7 +74421,6 @@ mod tests {
                 .unwrap()
                 .execute("tag_entity", json!({"entity_id": id_two, "tag": tag}))
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -74511,7 +74487,6 @@ mod tests {
                 .unwrap()
                 .execute("tag_entity", json!({"entity_id": id_a, "tag": tag}))
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -74754,7 +74729,6 @@ mod tests {
                 .unwrap()
                 .execute("tag_entity", json!({"entity_id": id_a, "tag": tag}))
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -81025,9 +80999,8 @@ mod tests {
                 .unwrap()
                 .clone();
             for e in &ents {
-                assert_eq!(
-                    e["visible"].as_bool().unwrap_or(true),
-                    false,
+                assert!(
+                    !e["visible"].as_bool().unwrap_or(true),
                     "all should be hidden"
                 );
             }
@@ -81055,9 +81028,8 @@ mod tests {
             .unwrap()
             .clone();
         for e in &ents {
-            assert_eq!(
+            assert!(
                 e["visible"].as_bool().unwrap_or(false),
-                true,
                 "all should be visible"
             );
         }
@@ -82779,14 +82751,12 @@ mod tests {
             .execute("is_entity_selected", json!({"entity_id": id_b}))
             .unwrap();
         assert!(out_a.is_ok());
-        assert_eq!(
+        assert!(
             out_a.content["selected"].as_bool().unwrap(),
-            true,
             "IsSelA should be selected"
         );
-        assert_eq!(
-            out_b.content["selected"].as_bool().unwrap(),
-            false,
+        assert!(
+            !out_b.content["selected"].as_bool().unwrap(),
             "IsSelB should not be selected"
         );
     }
@@ -87998,7 +87968,7 @@ mod tests {
             .unwrap();
         assert!(lights.is_ok());
         assert!(
-            lights.content["entities"].as_array().unwrap().len() >= 1,
+            !lights.content["entities"].as_array().unwrap().is_empty(),
             "at least 1 light"
         );
 
@@ -88007,7 +87977,7 @@ mod tests {
             .unwrap();
         assert!(cameras.is_ok());
         assert!(
-            cameras.content["entities"].as_array().unwrap().len() >= 1,
+            !cameras.content["entities"].as_array().unwrap().is_empty(),
             "at least 1 camera"
         );
 

@@ -24,6 +24,7 @@ use bevy_ecs::prelude::Component;
 ///    `focus_rate * dt` (capped at max). Fires `just_transcended` at max.
 ///  - Otherwise, if `drift_rate > 0`: reduce depth by `drift_rate * dt`
 ///    (floored at 0). Fires `just_scattered` at 0.
+///
 ///  Finally resets `meditating`.
 ///
 /// `is_transcended()` returns `depth >= max_depth && enabled`.

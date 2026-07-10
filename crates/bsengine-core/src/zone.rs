@@ -62,6 +62,7 @@ impl Zone {
     ///   first reach
     /// - if `!is_holding`: decays toward 0; fires `just_lost` on first reach
     ///   from above 0
+    ///
     /// No-op (beyond flag clear) when disabled.
     pub fn tick(&mut self, dt: f32) {
         self.just_captured = false;

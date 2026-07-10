@@ -34,7 +34,7 @@ impl SpawnPoint {
     /// Returns `true` if this spawn point is available to the given team.
     /// Shared points (no team set) are available to all teams.
     pub fn available_for(&self, team: u32) -> bool {
-        self.enabled && self.team.map_or(true, |t| t == team)
+        self.enabled && self.team.is_none_or(|t| t == team)
     }
 }
 

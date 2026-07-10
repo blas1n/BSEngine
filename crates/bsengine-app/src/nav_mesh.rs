@@ -60,7 +60,7 @@ fn navigate_agents(
             .0
             .get(&entity)
             .and_then(|(_, _, for_dest)| *for_dest)
-            .map_or(true, |d| (d - dest).length_squared() > 0.0001);
+            .is_none_or(|d| (d - dest).length_squared() > 0.0001);
 
         if needs_recompute {
             match navmesh.find_path(transform.translation, dest) {
@@ -294,7 +294,6 @@ mod tests {
         // Change destination.
         let mut agent = app.world_mut().get_mut::<NavMeshAgent>(entity).unwrap();
         agent.destination = Some(Vec3::new(-3.0, 0.0, 0.0));
-        drop(agent);
         app.update();
 
         let state = app

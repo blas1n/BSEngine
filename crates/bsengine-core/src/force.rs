@@ -89,8 +89,7 @@ impl Force {
                 *t -= dt;
             }
         }
-        self.entries
-            .retain(|e| e.lifetime.map_or(true, |t| t > 0.0));
+        self.entries.retain(|e| e.lifetime.is_none_or(|t| t > 0.0));
     }
 
     fn sum_by_mode(&self, mode: ForceMode) -> Vec3 {

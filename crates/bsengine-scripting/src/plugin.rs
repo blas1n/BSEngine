@@ -7567,7 +7567,7 @@ fn run_scripts(world: &mut World) {
                 };
                 if let Some(e) = entity {
                     if let Some(mut le) = world.get_mut::<Ledge>(e) {
-                        le.drop();
+                        le.begin_drop();
                     }
                 }
             }
@@ -27655,7 +27655,7 @@ fn run_scripts(world: &mut World) {
                 if let Some(mut handles) = world.get_resource_mut::<SoundHandles>() {
                     if let Some(mut handle) = handles.0.remove(&id) {
                         use kira::Tween;
-                        let _ = handle.stop(Tween::default());
+                        handle.stop(Tween::default());
                     }
                 }
             }
@@ -27663,7 +27663,7 @@ fn run_scripts(world: &mut World) {
                 if let Some(mut handles) = world.get_resource_mut::<SoundHandles>() {
                     if let Some(handle) = handles.0.get_mut(&id) {
                         use kira::Tween;
-                        let _ = handle.pause(Tween::default());
+                        handle.pause(Tween::default());
                     }
                 }
             }
@@ -27671,7 +27671,7 @@ fn run_scripts(world: &mut World) {
                 if let Some(mut handles) = world.get_resource_mut::<SoundHandles>() {
                     if let Some(handle) = handles.0.get_mut(&id) {
                         use kira::Tween;
-                        let _ = handle.resume(Tween::default());
+                        handle.resume(Tween::default());
                     }
                 }
             }
@@ -27679,7 +27679,7 @@ fn run_scripts(world: &mut World) {
                 if let Some(mut handles) = world.get_resource_mut::<SoundHandles>() {
                     if let Some(handle) = handles.0.get_mut(&id) {
                         use kira::{Decibels, Tween};
-                        let _ = handle.set_volume(Decibels(db), Tween::default());
+                        handle.set_volume(Decibels(db), Tween::default());
                     }
                 }
             }
@@ -27687,7 +27687,7 @@ fn run_scripts(world: &mut World) {
                 if let Some(mut handles) = world.get_resource_mut::<SoundHandles>() {
                     if let Some(handle) = handles.0.get_mut(&id) {
                         use kira::{Panning, Tween};
-                        let _ = handle.set_panning(Panning(panning), Tween::default());
+                        handle.set_panning(Panning(panning), Tween::default());
                     }
                 }
             }
@@ -27695,8 +27695,7 @@ fn run_scripts(world: &mut World) {
                 if let Some(mut handles) = world.get_resource_mut::<SoundHandles>() {
                     if let Some(handle) = handles.0.get_mut(&id) {
                         use kira::{PlaybackRate, Tween};
-                        let _ =
-                            handle.set_playback_rate(PlaybackRate(rate as f64), Tween::default());
+                        handle.set_playback_rate(PlaybackRate(rate as f64), Tween::default());
                     }
                 }
             }
@@ -28440,37 +28439,6 @@ fn spawn_entity(world: &mut World, params: SpawnParams) {
 
     if let Some(script) = params.script {
         cmd.insert(ScriptPath(script));
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{ScriptRuntimeResource, ScriptingPlugin};
-    use bsengine_app::new_app;
-
-    #[test]
-    fn scripting_plugin_registers_runtime() {
-        let mut app = new_app();
-        app.add_plugins(ScriptingPlugin::default());
-        assert!(app
-            .world()
-            .get_non_send_resource::<ScriptRuntimeResource>()
-            .is_some());
-    }
-
-    #[test]
-    fn scripting_plugin_runtime_can_eval() {
-        let mut app = new_app();
-        app.add_plugins(ScriptingPlugin::default());
-
-        let result = app
-            .world_mut()
-            .get_non_send_resource_mut::<ScriptRuntimeResource>()
-            .expect("ScriptRuntimeResource not found")
-            .0
-            .eval("40 + 2");
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), "42");
     }
 }
 
@@ -41886,4 +41854,35 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
     }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     (scripted, collision_json)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ScriptRuntimeResource, ScriptingPlugin};
+    use bsengine_app::new_app;
+
+    #[test]
+    fn scripting_plugin_registers_runtime() {
+        let mut app = new_app();
+        app.add_plugins(ScriptingPlugin::default());
+        assert!(app
+            .world()
+            .get_non_send_resource::<ScriptRuntimeResource>()
+            .is_some());
+    }
+
+    #[test]
+    fn scripting_plugin_runtime_can_eval() {
+        let mut app = new_app();
+        app.add_plugins(ScriptingPlugin::default());
+
+        let result = app
+            .world_mut()
+            .get_non_send_resource_mut::<ScriptRuntimeResource>()
+            .expect("ScriptRuntimeResource not found")
+            .0
+            .eval("40 + 2");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "42");
+    }
 }

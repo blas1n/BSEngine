@@ -1,8 +1,10 @@
 #[cfg(test)]
+#[allow(clippy::module_inception)] // this file (tests.rs) is itself the test module
 mod tests {
     use crate::{Component, Resource, Schedule, ScheduleLabel, World};
 
     #[derive(Component)]
+    #[allow(dead_code)] // fields exist to exercise Component derive storage, not read back
     struct Position {
         x: f32,
         y: f32,

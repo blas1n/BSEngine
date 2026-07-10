@@ -85,11 +85,8 @@ impl Barrier {
 
         self.regen_timer += dt;
         if self.regen_timer >= self.regen_delay {
-            let was_depleted = self.current <= 0.0;
             self.current = (self.current + self.regen_rate * dt).min(self.capacity);
-            if self.current >= self.capacity && !was_depleted {
-                self.just_restored = true;
-            } else if self.current >= self.capacity {
+            if self.current >= self.capacity {
                 self.just_restored = true;
             }
         }

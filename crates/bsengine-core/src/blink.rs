@@ -88,10 +88,8 @@ impl Blink {
 
     /// Called by the movement system after the teleport is applied.
     pub fn consume(&mut self) {
-        if let Some(_) = self.charges {
-            if self.charges_remaining > 0 {
-                self.charges_remaining -= 1;
-            }
+        if self.charges.is_some() && self.charges_remaining > 0 {
+            self.charges_remaining -= 1;
         }
         self.cooldown_remaining = self.cooldown;
         self.state = BlinkState::Cooldown;
@@ -108,7 +106,7 @@ impl Blink {
                 }
             }
         }
-        if let Some(_) = self.charges {
+        if self.charges.is_some() {
             if self.charges_remaining < self.charges.unwrap_or(0) {
                 self.charge_regen_accumulated += dt;
                 if self.charge_regen_accumulated >= self.charge_regen_time {

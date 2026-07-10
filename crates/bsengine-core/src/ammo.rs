@@ -43,7 +43,7 @@ impl Ammo {
         Self {
             current: cap,
             max_capacity: cap,
-            reserve: rsv.min(u32::MAX),
+            reserve: rsv,
             reserve_max,
             just_emptied: false,
             just_reloaded: false,

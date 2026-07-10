@@ -81,6 +81,7 @@ fn propagate_children(
     }
 }
 
+#[allow(clippy::too_many_arguments)] // Bevy system params; splitting into a struct is a larger refactor
 fn render_frame(
     surface: Option<ResMut<WgpuSurfaceResource>>,
     registry: Option<Res<GpuMeshRegistry>>,
@@ -371,7 +372,7 @@ mod tests {
     use super::RenderPlugin;
     use crate::components::MeshRenderer;
     use bsengine_app::new_app;
-    use bsengine_core::{Camera, Material, PointLight, SpotLight, Transform};
+    use bsengine_core::{Camera, Material, PointLight, Transform};
     use bsengine_rhi_wgpu::WgpuRHIPlugin;
     use bsengine_window::WindowResized;
     use glam::Vec3;

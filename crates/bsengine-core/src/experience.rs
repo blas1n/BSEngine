@@ -50,7 +50,7 @@ impl Experience {
 
     /// Returns `true` if the entity is at `max_level`.
     pub fn is_max_level(&self) -> bool {
-        self.max_level.map_or(false, |max| self.level >= max)
+        self.max_level.is_some_and(|max| self.level >= max)
     }
 
     /// Add `amount` XP and process level-ups. Returns the number of levels gained.

@@ -91,7 +91,7 @@ impl Carry {
     }
 
     /// Begin releasing the held object.
-    pub fn drop(&mut self) {
+    pub fn begin_drop(&mut self) {
         if self.phase == CarryPhase::Carrying || self.phase == CarryPhase::Lifting {
             self.phase = CarryPhase::Dropping;
             self.drop_timer = self.drop_duration;
@@ -199,7 +199,7 @@ mod tests {
         let mut c = carry();
         c.pickup(10.0);
         c.tick(0.3); // finish lifting
-        c.drop();
+        c.begin_drop();
         c.tick(0.2); // finish dropping
         assert_eq!(c.phase, CarryPhase::None);
         assert!(c.just_dropped);

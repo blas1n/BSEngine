@@ -98,53 +98,53 @@ mod tests {
         assert!(Worst::default().enabled);
     }
     #[test]
-    fn ADD_increases() {
+    fn add_increases() {
         let mut w = inst();
         w.worsen(30.0);
         assert_eq!(w.extremity, 30.0);
     }
     #[test]
-    fn ADD_clamps_at_max() {
+    fn add_clamps_at_max() {
         let mut w = inst();
         w.worsen(200.0);
         assert_eq!(w.extremity, 100.0);
     }
     #[test]
-    fn ADD_no_op_when_disabled() {
+    fn add_no_op_when_disabled() {
         let mut w = inst();
         w.enabled = false;
         w.worsen(50.0);
         assert_eq!(w.extremity, 0.0);
     }
     #[test]
-    fn ADD_sets_just_peaked_at_max() {
+    fn add_sets_just_peaked_at_max() {
         let mut w = inst();
         w.worsen(100.0);
         assert!(w.just_peaked);
     }
     #[test]
-    fn ADD_no_just_peaked_if_already_max() {
+    fn add_no_just_peaked_if_already_max() {
         let mut w = inst();
         w.extremity = 100.0;
         w.worsen(1.0);
         assert!(!w.just_peaked);
     }
     #[test]
-    fn REMOVE_decreases() {
+    fn remove_decreases() {
         let mut w = inst();
         w.extremity = 60.0;
         w.ease(20.0);
         assert_eq!(w.extremity, 40.0);
     }
     #[test]
-    fn REMOVE_clamps_at_zero() {
+    fn remove_clamps_at_zero() {
         let mut w = inst();
         w.extremity = 30.0;
         w.ease(200.0);
         assert_eq!(w.extremity, 0.0);
     }
     #[test]
-    fn REMOVE_no_op_when_disabled() {
+    fn remove_no_op_when_disabled() {
         let mut w = inst();
         w.extremity = 50.0;
         w.enabled = false;
@@ -152,20 +152,20 @@ mod tests {
         assert_eq!(w.extremity, 50.0);
     }
     #[test]
-    fn REMOVE_no_op_when_already_zero() {
+    fn remove_no_op_when_already_zero() {
         let mut w = inst();
         w.ease(10.0);
         assert_eq!(w.extremity, 0.0);
     }
     #[test]
-    fn REMOVE_sets_just_eased_at_zero() {
+    fn remove_sets_just_eased_at_zero() {
         let mut w = inst();
         w.extremity = 10.0;
         w.ease(10.0);
         assert!(w.just_eased);
     }
     #[test]
-    fn REMOVE_no_just_eased_if_already_zero() {
+    fn remove_no_just_eased_if_already_zero() {
         let mut w = inst();
         w.ease(1.0);
         assert!(!w.just_eased);
@@ -268,7 +268,7 @@ mod tests {
         assert_eq!(w.effective_severity(10.0), 0.0);
     }
     #[test]
-    fn just_peaked_cleared_on_next_ADD() {
+    fn just_peaked_cleared_on_next_add() {
         let mut w = inst();
         w.worsen(100.0);
         assert!(w.just_peaked);
@@ -276,7 +276,7 @@ mod tests {
         assert!(!w.just_peaked);
     }
     #[test]
-    fn just_eased_cleared_on_next_REMOVE() {
+    fn just_eased_cleared_on_next_remove() {
         let mut w = inst();
         w.extremity = 10.0;
         w.ease(10.0);

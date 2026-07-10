@@ -88,7 +88,7 @@ impl InputMap {
         if !self.enabled {
             return false;
         }
-        self.bindings.get(action).map_or(false, |b| b.matches(code))
+        self.bindings.get(action).is_some_and(|b| b.matches(code))
     }
 
     pub fn action_count(&self) -> usize {

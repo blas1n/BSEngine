@@ -84,9 +84,10 @@ impl Trail {
 
         // Emit a new point if far enough from the last one.
         if self.emitting {
-            let should_emit = self.points.last().map_or(true, |last| {
-                last.position.distance(position) >= self.min_distance
-            });
+            let should_emit = self
+                .points
+                .last()
+                .is_none_or(|last| last.position.distance(position) >= self.min_distance);
             if should_emit {
                 self.points.push(TrailPoint { position, age: 0.0 });
                 if self.points.len() > self.max_points {

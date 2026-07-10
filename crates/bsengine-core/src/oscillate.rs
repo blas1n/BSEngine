@@ -95,7 +95,7 @@ impl Oscillate {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::f32::consts::{FRAC_PI_2, TAU};
+    use std::f32::consts::FRAC_PI_2;
 
     #[test]
     fn zero_phase_gives_zero_offset() {

@@ -28904,6 +28904,52 @@ mod tests {
     }
 
     #[test]
+    fn inspector_set_rotation_updates_transform() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let id = app
+            .world_mut()
+            .spawn((
+                Name("Box".to_string()),
+                Transform::from_translation(Vec3::ZERO),
+            ))
+            .id()
+            .index() as u64;
+        app.update();
+
+        app.world_mut()
+            .resource_mut::<InspectorState>()
+            .cmd_queue
+            .push(InspectorCmd::SetRotation {
+                id,
+                rx: 0.0,
+                ry: 90.0,
+                rz: 0.0,
+            });
+        app.update();
+        app.update();
+
+        let snapshot = app
+            .world()
+            .resource::<EditorSnapshotResource>()
+            .0
+            .lock()
+            .unwrap();
+        let rot = snapshot
+            .entities
+            .iter()
+            .find(|e| e.id == id)
+            .and_then(|e| e.rotation)
+            .expect("Box has a rotation");
+        assert!(
+            (rot[1] - 90.0).abs() < 1e-3,
+            "expected y rotation ~90deg, got {:?}",
+            rot
+        );
+    }
+
+    #[test]
     fn mcp_list_entities_tool_registered() {
         let mut app = new_app();
         app.add_plugins(McpPlugin);

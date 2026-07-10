@@ -90,6 +90,13 @@ pub enum EditorPlayState {
     Playing,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+pub enum GizmoMode {
+    #[default]
+    Translate,
+    Rotate,
+}
+
 #[derive(Resource)]
 pub struct InspectorState {
     pub entities: Vec<InspectorEntityInfo>,
@@ -128,11 +135,21 @@ pub struct InspectorState {
     pub editor_proj: [[f32; 4]; 4],
     pub editor_cam_pos: [f32; 3],
 
+    // Which viewport gizmo is active for the selected entity.
+    pub gizmo_mode: GizmoMode,
+
     // Translate-gizmo drag state (viewport panel). `gizmo_drag_axis` is
     // 0=X, 1=Y, 2=Z while a handle is being dragged.
     pub gizmo_drag_axis: Option<u8>,
     pub gizmo_drag_start_world: [f32; 3],
     pub gizmo_drag_start_mouse: [f32; 2],
+
+    // Rotate-gizmo drag state. `gizmo_rotate_axis` is 0=X, 1=Y, 2=Z (world
+    // axis) while a ring is being dragged; the angle fields are radians of
+    // the mouse's angle around the gizmo's screen-space center.
+    pub gizmo_rotate_axis: Option<u8>,
+    pub gizmo_rotate_start_deg: [f32; 3],
+    pub gizmo_rotate_start_angle: f32,
 
     // Set by the toolbar/keyboard to request an undo/redo; consumed and
     // cleared by EditorPlugin's history system the same frame.
@@ -170,9 +187,13 @@ impl Default for InspectorState {
             editor_view_proj: None,
             editor_proj: [[0.0; 4]; 4],
             editor_cam_pos: [0.0; 3],
+            gizmo_mode: GizmoMode::Translate,
             gizmo_drag_axis: None,
             gizmo_drag_start_world: [0.0; 3],
             gizmo_drag_start_mouse: [0.0; 2],
+            gizmo_rotate_axis: None,
+            gizmo_rotate_start_deg: [0.0; 3],
+            gizmo_rotate_start_angle: 0.0,
             request_undo: false,
             request_redo: false,
         }

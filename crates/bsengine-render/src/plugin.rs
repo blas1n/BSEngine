@@ -1,9 +1,9 @@
 use bevy_app::{App, Plugin, PostUpdate, Update};
 use bevy_ecs::prelude::{Entity, EventReader, IntoSystemConfigs, ParamSet, Query, ResMut, Without};
 use bsengine_core::{
-    AmbientOcclusion, Bloom, Camera, CustomShader, DirectionalLight, GlobalTransform, HudTexts,
-    InspectorState, Material, Parent, PointLight, SkyboxPath, SpotLight, ToneMap, Transform,
-    UiState, Visible,
+    AmbientOcclusion, Bloom, Camera, CustomShader, DirectionalLight, EditorPlayState,
+    GlobalTransform, HudTexts, InspectorState, Material, Parent, PointLight, SkyboxPath, SpotLight,
+    ToneMap, Transform, UiState, Visible,
 };
 use bsengine_ecs::Res;
 use bsengine_input::{Input, MouseButton, MouseState};
@@ -163,9 +163,11 @@ fn render_frame(
             })
             .unwrap_or((Mat4::IDENTITY, Vec3::ZERO, Mat4::IDENTITY, None, None, None));
 
-    // In editor mode, override camera matrices from orbit camera computed by EditorPlugin
+    // While editing (not Playing), override camera matrices from the orbit
+    // camera computed by EditorPlugin. Once Play starts, the viewport should
+    // show what the game's own Camera entity sees, same as a build would.
     if let Some(insp) = inspector.as_deref() {
-        if insp.editor_mode {
+        if insp.editor_mode && insp.play_state == EditorPlayState::Stopped {
             if let Some(vp) = insp.editor_view_proj {
                 view_proj = Mat4::from_cols_array_2d(&vp);
             }

@@ -3,7 +3,7 @@
 //! unit-testable without a live wgpu/winit context.
 
 use egui::{Color32, Painter, Pos2, Rect, Stroke, Vec2};
-use glam::{Mat4, Vec3};
+use glam::{Mat4, Quat, Vec3};
 
 pub const AXIS_X: u8 = 0;
 pub const AXIS_Y: u8 = 1;
@@ -11,6 +11,12 @@ pub const AXIS_Z: u8 = 2;
 
 const HANDLE_HIT_RADIUS: f32 = 8.0;
 const HANDLE_LENGTH_FRACTION: f32 = 0.15;
+
+// Camera entities don't carry their real aspect ratio in EntityInfo (only
+// fov_y is tracked), so the frustum gizmo uses a fixed 16:9 stand-in — this
+// is a visual indicator of position/orientation, not a pixel-accurate preview.
+const FRUSTUM_VIZ_DISTANCE: f32 = 1.2;
+const FRUSTUM_DEFAULT_ASPECT: f32 = 16.0 / 9.0;
 
 pub fn axis_dir(axis: u8) -> Vec3 {
     match axis {
@@ -133,6 +139,63 @@ pub fn draw(
     }
 }
 
+/// The 4 far-plane corners of a camera's frustum wireframe, in world space,
+/// for a fixed small visualization distance (not the camera's actual near/far).
+pub fn frustum_far_corners(pos: Vec3, rotation: Quat, fov_y_radians: f32) -> [Vec3; 4] {
+    let forward = rotation * Vec3::NEG_Z;
+    let up = rotation * Vec3::Y;
+    let right = rotation * Vec3::X;
+
+    let half_h = FRUSTUM_VIZ_DISTANCE * (fov_y_radians * 0.5).tan();
+    let half_w = half_h * FRUSTUM_DEFAULT_ASPECT;
+    let center = pos + forward * FRUSTUM_VIZ_DISTANCE;
+
+    [
+        center + up * half_h - right * half_w,
+        center + up * half_h + right * half_w,
+        center - up * half_h + right * half_w,
+        center - up * half_h - right * half_w,
+    ]
+}
+
+/// Draws a camera's frustum as a wireframe pyramid from `pos` (the apex) to
+/// its four far-plane corners, so Camera entities are visible/orientable in
+/// the editor viewport even though they render nothing themselves.
+pub fn draw_camera_frustum(
+    painter: &Painter,
+    pos: Vec3,
+    rotation: Quat,
+    fov_y_radians: f32,
+    view_proj: &[[f32; 4]; 4],
+    rect: Rect,
+    highlighted: bool,
+) {
+    let Some(apex) = world_to_screen(pos, view_proj, rect) else {
+        return;
+    };
+    let corners = frustum_far_corners(pos, rotation, fov_y_radians);
+    let screen: Vec<Option<Pos2>> = corners
+        .iter()
+        .map(|&c| world_to_screen(c, view_proj, rect))
+        .collect();
+
+    let color = if highlighted {
+        Color32::WHITE
+    } else {
+        Color32::from_rgb(230, 200, 90)
+    };
+    let stroke = Stroke::new(1.5, color);
+
+    for sc in screen.iter().flatten() {
+        painter.line_segment([apex, *sc], stroke);
+    }
+    for i in 0..4 {
+        if let (Some(a), Some(b)) = (screen[i], screen[(i + 1) % 4]) {
+            painter.line_segment([a, b], stroke);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -229,6 +292,44 @@ mod tests {
         assert_eq!(
             hit_test(Vec3::ZERO, 2.0, &vp, rect, Pos2::new(10.0, 10.0)),
             None
+        );
+    }
+
+    #[test]
+    fn frustum_far_corners_are_in_front_of_identity_rotation() {
+        let corners = frustum_far_corners(Vec3::ZERO, Quat::IDENTITY, std::f32::consts::FRAC_PI_4);
+        for c in corners {
+            // Identity rotation looks down -Z, so all corners should be
+            // behind the origin along -Z.
+            assert!(c.z < 0.0, "expected corner {:?} to have negative z", c);
+        }
+    }
+
+    #[test]
+    fn frustum_far_corners_are_symmetric_around_center() {
+        let corners = frustum_far_corners(Vec3::ZERO, Quat::IDENTITY, std::f32::consts::FRAC_PI_4);
+        let center: Vec3 = corners.iter().copied().fold(Vec3::ZERO, |a, b| a + b) / 4.0;
+        assert!(
+            center.x.abs() < 1e-4,
+            "center.x should be ~0, got {}",
+            center.x
+        );
+        assert!(
+            center.y.abs() < 1e-4,
+            "center.y should be ~0, got {}",
+            center.y
+        );
+    }
+
+    #[test]
+    fn frustum_far_corners_scale_with_fov() {
+        let narrow = frustum_far_corners(Vec3::ZERO, Quat::IDENTITY, 0.2);
+        let wide = frustum_far_corners(Vec3::ZERO, Quat::IDENTITY, 1.5);
+        let narrow_width = (narrow[1] - narrow[0]).length();
+        let wide_width = (wide[1] - wide[0]).length();
+        assert!(
+            wide_width > narrow_width,
+            "wider fov should produce a wider far plane"
         );
     }
 }

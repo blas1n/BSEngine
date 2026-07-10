@@ -2062,6 +2062,40 @@ impl WgpuSurface {
                                 let response =
                                     ui.allocate_rect(panel_rect, egui::Sense::click_and_drag());
 
+                                // Gizmo overlays only make sense while editing: once Play
+                                // starts, the viewport shows the game's own Camera entity
+                                // feed (see bsengine-render's render_frame), which the
+                                // editor-orbit-relative view_proj no longer matches.
+                                let is_stopped = insp.play_state
+                                    == bsengine_core::EditorPlayState::Stopped;
+
+                                if is_stopped {
+                                    if let Some(view_proj) = insp.editor_view_proj {
+                                        for info in &entities_snapshot {
+                                            if let (Some(fov_deg), Some(pos), Some(rot)) =
+                                                (info.camera_fov, info.position, info.rotation)
+                                            {
+                                                let rotation = glam::Quat::from_euler(
+                                                    glam::EulerRot::XYZ,
+                                                    rot[0].to_radians(),
+                                                    rot[1].to_radians(),
+                                                    rot[2].to_radians(),
+                                                );
+                                                crate::gizmo::draw_camera_frustum(
+                                                    ui.painter(),
+                                                    glam::Vec3::from(pos),
+                                                    rotation,
+                                                    fov_deg.to_radians(),
+                                                    &view_proj,
+                                                    panel_rect,
+                                                    info.selected,
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if is_stopped {
                                 if let (Some(sel_id), Some(view_proj)) =
                                     (insp.selected_id, insp.editor_view_proj)
                                 {
@@ -2145,6 +2179,7 @@ impl WgpuSurface {
                                             insp.gizmo_drag_axis,
                                         );
                                     }
+                                }
                                 }
                             });
                     } else {

@@ -656,14 +656,16 @@ fn run_scripts(world: &mut World) {
                 }
             }
             ScriptCommand::SetDirectionalLightDirection { name, x, y, z } => {
-                use bsengine_core::DirectionalLight;
                 let entity = {
                     let mut q = world.query::<(Entity, &Name)>();
                     q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
                 };
                 if let Some(e) = entity {
-                    if let Some(mut light) = world.get_mut::<DirectionalLight>(e) {
-                        light.direction = glam::Vec3::new(x, y, z).normalize();
+                    // Direction lives on Transform.rotation (rotation * -Z), same as SpotLight.
+                    let dir = glam::Vec3::new(x, y, z).normalize_or(glam::Vec3::NEG_Z);
+                    let rotation = Quat::from_rotation_arc(glam::Vec3::NEG_Z, dir);
+                    if let Some(mut t) = world.get_mut::<Transform>(e) {
+                        t.rotation = rotation;
                     }
                 }
             }

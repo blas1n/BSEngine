@@ -76,10 +76,27 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
 
         if let Some(dl) = &entity.directional_light {
             builder.insert(DirectionalLight {
-                direction: Vec3::from(dl.direction),
                 color: Vec3::from(dl.color),
                 ambient: Vec3::from(dl.ambient),
             });
+            // Direction lives on Transform.rotation (rotation * -Z), same as
+            // SpotLight; reuse any explicit translation/scale from the scene
+            // file's own `transform:` block if one was given.
+            let dir = Vec3::from(dl.direction).normalize_or(Vec3::NEG_Z);
+            let rotation = Quat::from_rotation_arc(Vec3::NEG_Z, dir);
+            let (translation, scale) = entity
+                .transform
+                .as_ref()
+                .map(|t| (Vec3::from(t.translation), Vec3::from(t.scale)))
+                .unwrap_or((Vec3::ZERO, Vec3::ONE));
+            builder.insert((
+                Transform {
+                    translation,
+                    rotation,
+                    scale,
+                },
+                GlobalTransform::default(),
+            ));
         }
 
         if let Some(prim) = &entity.primitive {
@@ -112,6 +129,7 @@ mod tests {
     use super::{Name, ScenePlugin};
     use bsengine_app::new_app;
     use bsengine_core::{Camera, DirectionalLight, GlobalTransform, Transform};
+    use glam::Vec3;
 
     fn write_temp_scene(filename: &str, content: &str) -> String {
         let path = std::env::temp_dir().join(filename);
@@ -212,12 +230,15 @@ mod tests {
         app.add_plugins(ScenePlugin::from_file(&path));
         app.update();
 
-        let mut q = app.world_mut().query::<(&Name, &DirectionalLight)>();
+        let mut q = app
+            .world_mut()
+            .query::<(&Name, &DirectionalLight, &Transform)>();
         let results: Vec<_> = q.iter(app.world()).collect();
         assert_eq!(results.len(), 1);
-        let (name, light) = &results[0];
+        let (name, _light, transform) = &results[0];
         assert_eq!(name.0, "Sun");
-        assert!((light.direction.y - (-1.0)).abs() < 1e-5);
+        let derived_dir = transform.rotation * Vec3::NEG_Z;
+        assert!((derived_dir.y - (-1.0)).abs() < 1e-5);
     }
 
     #[test]

@@ -1,9 +1,14 @@
 use bevy_ecs::prelude::Component;
 use glam::Vec3;
 
+// Direction is intentionally not stored here: it's derived from the
+// entity's Transform.rotation (rotation * -Z), the same way SpotLight
+// already derives its cone direction. This keeps a single source of truth
+// for "which way is this thing facing" across all light/entity types, so
+// the existing move/rotate gizmos, Inspector Rot fields, and undo/redo all
+// work on directional lights for free.
 #[derive(Component, Debug, Clone)]
 pub struct DirectionalLight {
-    pub direction: Vec3,
     pub color: Vec3,
     pub ambient: Vec3,
 }
@@ -11,7 +16,6 @@ pub struct DirectionalLight {
 impl Default for DirectionalLight {
     fn default() -> Self {
         Self {
-            direction: Vec3::new(-0.4, -0.8, -0.4).normalize(),
             color: Vec3::ONE,
             ambient: Vec3::splat(0.15),
         }
@@ -63,9 +67,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_light_direction_is_unit() {
+    fn default_light_has_white_color_and_dim_ambient() {
         let light = DirectionalLight::default();
-        assert!((light.direction.length() - 1.0).abs() < 1e-5);
+        assert_eq!(light.color, Vec3::ONE);
+        assert!(light.ambient.x > 0.0 && light.ambient.x < 1.0);
     }
 
     #[test]

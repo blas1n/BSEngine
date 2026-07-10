@@ -109,7 +109,7 @@ fn render_frame(
         Option<&Visible>,
         Option<&CustomShader>,
     )>,
-    light_query: Query<&DirectionalLight>,
+    light_query: Query<(&DirectionalLight, Option<&GlobalTransform>, &Transform)>,
     point_light_query: Query<(&PointLight, Option<&GlobalTransform>, &Transform)>,
     spot_light_query: Query<(&SpotLight, Option<&GlobalTransform>, &Transform)>,
 ) {
@@ -291,9 +291,12 @@ fn render_frame(
         })
         .collect();
 
-    let light = if let Some(l) = light_query.iter().next() {
+    let light = if let Some((l, gt, t)) = light_query.iter().next() {
+        let direction = gt
+            .map(|g| -glam::Mat3::from_mat4(g.to_matrix()).z_axis)
+            .unwrap_or_else(|| t.rotation * Vec3::NEG_Z);
         LightData {
-            direction: l.direction,
+            direction,
             color: l.color,
             ambient: l.ambient,
             point_lights: collected_point_lights,

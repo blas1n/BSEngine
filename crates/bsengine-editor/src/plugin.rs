@@ -173,11 +173,19 @@ fn process_editor_commands(
                 color,
                 ambient,
             } => {
-                commands.spawn(DirectionalLight {
-                    direction: glam::Vec3::from(direction),
-                    color: glam::Vec3::from(color),
-                    ambient: glam::Vec3::from(ambient),
-                });
+                let dir = glam::Vec3::from(direction).normalize_or(glam::Vec3::NEG_Z);
+                let rotation = glam::Quat::from_rotation_arc(glam::Vec3::NEG_Z, dir);
+                commands.spawn((
+                    DirectionalLight {
+                        color: glam::Vec3::from(color),
+                        ambient: glam::Vec3::from(ambient),
+                    },
+                    Transform {
+                        rotation,
+                        ..Default::default()
+                    },
+                    GlobalTransform::default(),
+                ));
             }
             EditorCommand::RemoveLight { entity_id } => {
                 let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
@@ -218,9 +226,6 @@ fn process_editor_commands(
             } => {
                 for (e, mut light) in params.p3().iter_mut() {
                     if e.index() as u64 == entity_id {
-                        if let Some(d) = direction {
-                            light.direction = glam::Vec3::from(d);
-                        }
                         if let Some(c) = color {
                             light.color = glam::Vec3::from(c);
                         }
@@ -228,6 +233,16 @@ fn process_editor_commands(
                             light.ambient = glam::Vec3::from(a);
                         }
                         break;
+                    }
+                }
+                if let Some(d) = direction {
+                    let dir = glam::Vec3::from(d).normalize_or(glam::Vec3::NEG_Z);
+                    let rotation = glam::Quat::from_rotation_arc(glam::Vec3::NEG_Z, dir);
+                    for (e, mut t) in params.p1().iter_mut() {
+                        if e.index() as u64 == entity_id {
+                            t.rotation = rotation;
+                            break;
+                        }
                     }
                 }
             }
@@ -562,10 +577,27 @@ fn process_editor_commands(
                     }
                     if let Some(dl) = &entity.directional_light {
                         eb.insert(DirectionalLight {
-                            direction: glam::Vec3::from(dl.direction),
                             color: glam::Vec3::from(dl.color),
                             ambient: glam::Vec3::from(dl.ambient),
                         });
+                        // Direction lives on Transform.rotation (rotation * -Z), same
+                        // as SpotLight; reuse translation/scale from the scene file's
+                        // own `transform:` block if one was given.
+                        let dir = glam::Vec3::from(dl.direction).normalize_or(glam::Vec3::NEG_Z);
+                        let rotation = glam::Quat::from_rotation_arc(glam::Vec3::NEG_Z, dir);
+                        let (translation, scale) = entity
+                            .transform
+                            .as_ref()
+                            .map(|t| (glam::Vec3::from(t.translation), glam::Vec3::from(t.scale)))
+                            .unwrap_or((glam::Vec3::ZERO, glam::Vec3::ONE));
+                        eb.insert((
+                            Transform {
+                                translation,
+                                rotation,
+                                scale,
+                            },
+                            GlobalTransform::default(),
+                        ));
                     }
                     if entity.emissive.is_some() || entity.color.is_some() {
                         eb.insert(Material {
@@ -29127,10 +29159,70 @@ mod tests {
         }
         app.update();
 
-        let mut q = app.world_mut().query::<&bsengine_core::DirectionalLight>();
+        let mut q =
+            app.world_mut()
+                .query::<(&bsengine_core::DirectionalLight, &Transform)>();
+        let (_, transform) = q.iter(app.world()).next().expect("no DirectionalLight spawned");
+        // direction lives on Transform.rotation (rotation * -Z), same as SpotLight.
+        let derived_dir = transform.rotation * Vec3::NEG_Z;
         assert!(
-            q.iter(app.world()).next().is_some(),
-            "no DirectionalLight spawned"
+            (derived_dir - Vec3::new(0.0, -1.0, 0.0)).length() < 1e-4,
+            "expected direction (0,-1,0), derived {:?}",
+            derived_dir
+        );
+    }
+
+    #[test]
+    fn mcp_update_directional_light_direction_rotates_transform() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        let eid = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let result = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "spawn_directional_light",
+                    json!({"direction":[0.0,-1.0,0.0],"color":[1.0,1.0,1.0],"ambient":[0.1,0.1,0.1]}),
+                )
+                .expect("spawn_directional_light not found");
+            assert!(result.is_ok(), "{:?}", result.error);
+            app.update();
+            let mut q = app
+                .world_mut()
+                .query::<(bevy_ecs::entity::Entity, &bsengine_core::DirectionalLight)>();
+            q.iter(app.world()).next().unwrap().0.index() as u64
+        };
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let result = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "update_directional_light",
+                    json!({"entity_id": eid, "direction": [1.0, 0.0, 0.0]}),
+                )
+                .expect("update_directional_light not found");
+            assert!(result.is_ok(), "{:?}", result.error);
+        }
+        app.update();
+        app.update();
+
+        let mut q = app.world_mut().query::<&Transform>();
+        let transform = q
+            .iter(app.world())
+            .next()
+            .expect("entity should still have a Transform");
+        let derived_dir = transform.rotation * Vec3::NEG_Z;
+        assert!(
+            (derived_dir - Vec3::new(1.0, 0.0, 0.0)).length() < 1e-4,
+            "expected direction (1,0,0) after update, derived {:?}",
+            derived_dir
         );
     }
 

@@ -2,7 +2,7 @@ use bevy_ecs::prelude::Component;
 
 /// Root-level binding between a mesh entity and its bone hierarchy.
 /// The animation system drives `Bone` entities referenced here each frame.
-#[derive(Component, Debug, Clone, PartialEq)]
+#[derive(Component, Debug, Clone, PartialEq, Default)]
 pub struct Skeleton {
     /// Names of all bones, ordered by bone index.
     /// Must match the joints in the associated `SkinnedMesh` primitive.
@@ -63,16 +63,6 @@ impl Skeleton {
                     None
                 }
             })
-    }
-}
-
-impl Default for Skeleton {
-    fn default() -> Self {
-        Self {
-            bone_names: Vec::new(),
-            parent_indices: Vec::new(),
-            roots: Vec::new(),
-        }
     }
 }
 

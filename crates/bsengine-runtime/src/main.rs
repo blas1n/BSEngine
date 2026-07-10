@@ -199,7 +199,7 @@ fn handle_scene_load(world: &mut World) {
     // Stop all sounds and clear handles
     if let Some(mut handles) = world.get_resource_mut::<SoundHandles>() {
         for (_, mut handle) in handles.0.drain() {
-            let _ = handle.stop(kira::Tween::default());
+            handle.stop(kira::Tween::default());
         }
     }
 

@@ -88,7 +88,7 @@ impl SlowMo {
             self.charge = (self.charge - self.drain_rate * real_dt).max(0.0);
         }
 
-        let expired_duration = self.max_duration.map_or(false, |d| self.elapsed >= d);
+        let expired_duration = self.max_duration.is_some_and(|d| self.elapsed >= d);
         let out_of_charge = self.drain_rate > 0.0 && self.charge <= 0.0;
 
         if expired_duration || out_of_charge {

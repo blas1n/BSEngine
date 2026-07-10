@@ -148,7 +148,7 @@ mod tests {
     #[test]
     fn reserved_pickup_rejects_other_entity() {
         let es = entities(2);
-        let mut p = Pickup::currency(100).with_reserved_for(es[0]);
+        let p = Pickup::currency(100).with_reserved_for(es[0]);
         assert!(!p.can_collect(es[1]));
         assert!(p.can_collect(es[0]));
     }

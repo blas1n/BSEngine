@@ -60,7 +60,7 @@ fn navigate_agents(
             .0
             .get(&entity)
             .and_then(|(_, _, for_dest)| *for_dest)
-            .map_or(true, |d| (d - dest).length_squared() > 0.0001);
+            .is_none_or(|d| (d - dest).length_squared() > 0.0001);
 
         if needs_recompute {
             match navmesh.find_path(transform.translation, dest) {

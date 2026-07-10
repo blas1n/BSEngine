@@ -3,14 +3,8 @@ use bevy_ecs::prelude::Component;
 /// Render draw order for an entity. Higher values are drawn later (on top).
 /// Entities without ZIndex are treated as ZIndex(0).
 /// The render pipeline sorts draw calls by this value before submission.
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct ZIndex(pub i32);
-
-impl Default for ZIndex {
-    fn default() -> Self {
-        Self(0)
-    }
-}
 
 impl ZIndex {
     pub fn new(order: i32) -> Self {

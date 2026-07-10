@@ -28,7 +28,7 @@ fn apply_angular_velocity(mut query: Query<(&AngularVelocity, &mut Transform)>, 
 mod tests {
     use super::*;
     use bsengine_core::{AngularVelocity, Time, Transform};
-    use glam::Vec3;
+
     use std::f32::consts::PI;
 
     fn make_app_with_delta(delta: f32) -> bevy_app::App {

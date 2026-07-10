@@ -288,7 +288,7 @@ mod tests {
     #[test]
     fn effective_cc_duration_base_when_disabled() {
         let f = Faze::new(10.0, 2.0);
-        let mut f = Faze {
+        let f = Faze {
             enabled: false,
             ..f
         };

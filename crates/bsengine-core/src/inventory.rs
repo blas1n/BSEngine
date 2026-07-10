@@ -53,10 +53,10 @@ impl Inventory {
         if !self.enabled {
             return false;
         }
-        let slot_ok = self.free_slots().map_or(true, |f| f > 0);
+        let slot_ok = self.free_slots().is_none_or(|f| f > 0);
         let weight_ok = self
             .max_weight
-            .map_or(true, |max| self.current_weight + weight <= max);
+            .is_none_or(|max| self.current_weight + weight <= max);
         slot_ok && weight_ok
     }
 

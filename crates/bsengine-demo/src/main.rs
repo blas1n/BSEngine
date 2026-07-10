@@ -34,11 +34,18 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>, mut 
         Transform::from_translation(Vec3::new(0.0, 1.5, 3.0)),
     ));
 
-    commands.spawn(DirectionalLight {
-        direction: Vec3::new(-0.5, -1.0, -0.5).normalize(),
-        color: Vec3::ONE,
-        ambient: Vec3::splat(0.15),
-    });
+    let dir = Vec3::new(-0.5, -1.0, -0.5).normalize();
+    commands.spawn((
+        DirectionalLight {
+            color: Vec3::ONE,
+            ambient: Vec3::splat(0.15),
+        },
+        Transform {
+            rotation: Quat::from_rotation_arc(Vec3::NEG_Z, dir),
+            ..Default::default()
+        },
+        GlobalTransform::default(),
+    ));
 
     tracing::info!("Demo scene ready — cube spawned");
     *done = true;

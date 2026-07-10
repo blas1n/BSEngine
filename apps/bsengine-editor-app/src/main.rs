@@ -107,7 +107,14 @@ fn setup_empty_scene(mut commands: Commands, mut registry: Option<ResMut<GpuMesh
         Transform::from_translation(Vec3::new(0.0, 3.0, 10.0)),
     ));
 
-    commands.spawn(DirectionalLight::default());
+    commands.spawn((
+        DirectionalLight::default(),
+        Transform {
+            rotation: Quat::from_rotation_arc(Vec3::NEG_Z, Vec3::new(-0.4, -0.8, -0.4).normalize()),
+            ..Default::default()
+        },
+        GlobalTransform::default(),
+    ));
 
     if let Some(ref mut reg) = registry {
         let (verts, indices) = cube_vertices();

@@ -46,7 +46,14 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
         Transform::from_translation(Vec3::new(0.0, 8.0, 12.0)),
     ));
 
-    commands.spawn(DirectionalLight::default());
+    commands.spawn((
+        DirectionalLight::default(),
+        Transform {
+            rotation: Quat::from_rotation_arc(Vec3::NEG_Z, Vec3::new(-0.4, -0.8, -0.4).normalize()),
+            ..Default::default()
+        },
+        GlobalTransform::default(),
+    ));
 
     let Some(mut reg) = registry else { return };
     let (verts, indices) = cube_vertices();

@@ -12,7 +12,7 @@ use bsengine_rhi_wgpu::{
 };
 use bsengine_scene::{Primitive, PrimitiveMesh};
 use bsengine_window::WindowPlugin;
-use glam::Vec3;
+use glam::{Quat, Vec3};
 
 fn main() {
     new_app()
@@ -93,7 +93,14 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
         Parent(parent),
     ));
 
-    commands.spawn(DirectionalLight::default());
+    commands.spawn((
+        DirectionalLight::default(),
+        Transform {
+            rotation: Quat::from_rotation_arc(Vec3::NEG_Z, Vec3::new(-0.4, -0.8, -0.4).normalize()),
+            ..Default::default()
+        },
+        GlobalTransform::default(),
+    ));
 
     // Orange point light above the scene
     commands.spawn((

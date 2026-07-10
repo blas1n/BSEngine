@@ -40,14 +40,17 @@ fn key_events_received_by_system() {
         events.send(KeyInput {
             key_code: KeyCode::W,
             state: ElementState::Pressed,
+            text: None,
         });
         events.send(KeyInput {
             key_code: KeyCode::W,
             state: ElementState::Pressed,
+            text: None,
         });
         events.send(KeyInput {
             key_code: KeyCode::S,
             state: ElementState::Pressed,
+            text: None,
         }); // ignored
     }
 
@@ -93,6 +96,7 @@ fn events_cleared_between_frames() {
         events.send(KeyInput {
             key_code: KeyCode::W,
             state: ElementState::Pressed,
+            text: None,
         });
     }
     app.update();

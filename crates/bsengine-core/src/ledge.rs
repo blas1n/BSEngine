@@ -86,7 +86,7 @@ impl Ledge {
     }
 
     /// Begin dropping from Hanging.
-    pub fn drop(&mut self) {
+    pub fn begin_drop(&mut self) {
         if self.phase == LedgePhase::Hanging {
             self.phase = LedgePhase::Dropping;
         }
@@ -155,7 +155,7 @@ mod tests {
     fn drop_from_hanging() {
         let mut l = Ledge::new();
         l.grab(Vec3::ZERO, Vec3::Z);
-        l.drop();
+        l.begin_drop();
         assert_eq!(l.phase, LedgePhase::Dropping);
     }
 

@@ -705,7 +705,7 @@ impl WgpuSurface {
             vertex: wgpu::VertexState {
                 module: &shadow_shader,
                 entry_point: "vs_shadow",
-                buffers: &[vertex_buffer_layout.clone()],
+                buffers: std::slice::from_ref(&vertex_buffer_layout),
                 compilation_options: Default::default(),
             },
             fragment: None,
@@ -1119,6 +1119,7 @@ impl WgpuSurface {
         self.loaded_skybox_path.as_deref()
     }
 
+    #[allow(clippy::too_many_arguments)] // one frame's worth of render inputs; splitting into a struct is a larger refactor
     pub fn render_frame(
         &mut self,
         view_proj: Mat4,

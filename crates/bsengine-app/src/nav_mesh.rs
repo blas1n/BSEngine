@@ -294,7 +294,6 @@ mod tests {
         // Change destination.
         let mut agent = app.world_mut().get_mut::<NavMeshAgent>(entity).unwrap();
         agent.destination = Some(Vec3::new(-3.0, 0.0, 0.0));
-        drop(agent);
         app.update();
 
         let state = app

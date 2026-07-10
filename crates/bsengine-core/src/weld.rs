@@ -15,6 +15,7 @@ use bevy_ecs::prelude::Component;
 ///   `max_strength`), firing `just_bonded` on first reach of `max_strength`;
 /// - when `!welding`: decreases `strength` by `fracture_rate * dt` (floored
 ///   0), firing `just_fractured` on first drop to 0 from positive.
+///
 /// No-op when disabled.
 ///
 /// `is_bonded()` returns `strength >= max_strength && enabled`.

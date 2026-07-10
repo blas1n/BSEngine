@@ -15,6 +15,7 @@ use bevy_ecs::prelude::Component;
 ///   at `max_weave`), firing `just_peaked` on first reach of `max_weave`;
 /// - when `!weaving`: decreases `weave_level` by `falloff_rate * dt` (floored
 ///   0), firing `just_broken` on first drop to 0 from positive.
+///
 /// No-op when disabled.
 ///
 /// `is_evading()` returns `weave_level >= max_weave && enabled`.

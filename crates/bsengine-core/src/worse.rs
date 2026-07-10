@@ -98,53 +98,53 @@ mod tests {
         assert!(Worse::default().enabled);
     }
     #[test]
-    fn ADD_increases() {
+    fn add_increases() {
         let mut w = inst();
         w.decline(30.0);
         assert_eq!(w.deterioration, 30.0);
     }
     #[test]
-    fn ADD_clamps_at_max() {
+    fn add_clamps_at_max() {
         let mut w = inst();
         w.decline(200.0);
         assert_eq!(w.deterioration, 100.0);
     }
     #[test]
-    fn ADD_no_op_when_disabled() {
+    fn add_no_op_when_disabled() {
         let mut w = inst();
         w.enabled = false;
         w.decline(50.0);
         assert_eq!(w.deterioration, 0.0);
     }
     #[test]
-    fn ADD_sets_just_ruined_at_max() {
+    fn add_sets_just_ruined_at_max() {
         let mut w = inst();
         w.decline(100.0);
         assert!(w.just_ruined);
     }
     #[test]
-    fn ADD_no_just_ruined_if_already_max() {
+    fn add_no_just_ruined_if_already_max() {
         let mut w = inst();
         w.deterioration = 100.0;
         w.decline(1.0);
         assert!(!w.just_ruined);
     }
     #[test]
-    fn REMOVE_decreases() {
+    fn remove_decreases() {
         let mut w = inst();
         w.deterioration = 60.0;
         w.restore(20.0);
         assert_eq!(w.deterioration, 40.0);
     }
     #[test]
-    fn REMOVE_clamps_at_zero() {
+    fn remove_clamps_at_zero() {
         let mut w = inst();
         w.deterioration = 30.0;
         w.restore(200.0);
         assert_eq!(w.deterioration, 0.0);
     }
     #[test]
-    fn REMOVE_no_op_when_disabled() {
+    fn remove_no_op_when_disabled() {
         let mut w = inst();
         w.deterioration = 50.0;
         w.enabled = false;
@@ -152,20 +152,20 @@ mod tests {
         assert_eq!(w.deterioration, 50.0);
     }
     #[test]
-    fn REMOVE_no_op_when_already_zero() {
+    fn remove_no_op_when_already_zero() {
         let mut w = inst();
         w.restore(10.0);
         assert_eq!(w.deterioration, 0.0);
     }
     #[test]
-    fn REMOVE_sets_just_restored_at_zero() {
+    fn remove_sets_just_restored_at_zero() {
         let mut w = inst();
         w.deterioration = 10.0;
         w.restore(10.0);
         assert!(w.just_restored);
     }
     #[test]
-    fn REMOVE_no_just_restored_if_already_zero() {
+    fn remove_no_just_restored_if_already_zero() {
         let mut w = inst();
         w.restore(1.0);
         assert!(!w.just_restored);
@@ -268,7 +268,7 @@ mod tests {
         assert_eq!(w.effective_decay(10.0), 0.0);
     }
     #[test]
-    fn just_ruined_cleared_on_next_ADD() {
+    fn just_ruined_cleared_on_next_add() {
         let mut w = inst();
         w.decline(100.0);
         assert!(w.just_ruined);
@@ -276,7 +276,7 @@ mod tests {
         assert!(!w.just_ruined);
     }
     #[test]
-    fn just_restored_cleared_on_next_REMOVE() {
+    fn just_restored_cleared_on_next_remove() {
         let mut w = inst();
         w.deterioration = 10.0;
         w.restore(10.0);

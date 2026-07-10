@@ -98,53 +98,53 @@ mod tests {
         assert!(Worry::default().enabled);
     }
     #[test]
-    fn ADD_increases() {
+    fn add_increases() {
         let mut w = inst();
         w.fret(30.0);
         assert_eq!(w.anxiety, 30.0);
     }
     #[test]
-    fn ADD_clamps_at_max() {
+    fn add_clamps_at_max() {
         let mut w = inst();
         w.fret(200.0);
         assert_eq!(w.anxiety, 100.0);
     }
     #[test]
-    fn ADD_no_op_when_disabled() {
+    fn add_no_op_when_disabled() {
         let mut w = inst();
         w.enabled = false;
         w.fret(50.0);
         assert_eq!(w.anxiety, 0.0);
     }
     #[test]
-    fn ADD_sets_just_anxious_at_max() {
+    fn add_sets_just_anxious_at_max() {
         let mut w = inst();
         w.fret(100.0);
         assert!(w.just_anxious);
     }
     #[test]
-    fn ADD_no_just_anxious_if_already_max() {
+    fn add_no_just_anxious_if_already_max() {
         let mut w = inst();
         w.anxiety = 100.0;
         w.fret(1.0);
         assert!(!w.just_anxious);
     }
     #[test]
-    fn REMOVE_decreases() {
+    fn remove_decreases() {
         let mut w = inst();
         w.anxiety = 60.0;
         w.calm(20.0);
         assert_eq!(w.anxiety, 40.0);
     }
     #[test]
-    fn REMOVE_clamps_at_zero() {
+    fn remove_clamps_at_zero() {
         let mut w = inst();
         w.anxiety = 30.0;
         w.calm(200.0);
         assert_eq!(w.anxiety, 0.0);
     }
     #[test]
-    fn REMOVE_no_op_when_disabled() {
+    fn remove_no_op_when_disabled() {
         let mut w = inst();
         w.anxiety = 50.0;
         w.enabled = false;
@@ -152,20 +152,20 @@ mod tests {
         assert_eq!(w.anxiety, 50.0);
     }
     #[test]
-    fn REMOVE_no_op_when_already_zero() {
+    fn remove_no_op_when_already_zero() {
         let mut w = inst();
         w.calm(10.0);
         assert_eq!(w.anxiety, 0.0);
     }
     #[test]
-    fn REMOVE_sets_just_calm_at_zero() {
+    fn remove_sets_just_calm_at_zero() {
         let mut w = inst();
         w.anxiety = 10.0;
         w.calm(10.0);
         assert!(w.just_calm);
     }
     #[test]
-    fn REMOVE_no_just_calm_if_already_zero() {
+    fn remove_no_just_calm_if_already_zero() {
         let mut w = inst();
         w.calm(1.0);
         assert!(!w.just_calm);
@@ -268,7 +268,7 @@ mod tests {
         assert_eq!(w.effective_dread(10.0), 0.0);
     }
     #[test]
-    fn just_anxious_cleared_on_next_ADD() {
+    fn just_anxious_cleared_on_next_add() {
         let mut w = inst();
         w.fret(100.0);
         assert!(w.just_anxious);
@@ -276,7 +276,7 @@ mod tests {
         assert!(!w.just_anxious);
     }
     #[test]
-    fn just_calm_cleared_on_next_REMOVE() {
+    fn just_calm_cleared_on_next_remove() {
         let mut w = inst();
         w.anxiety = 10.0;
         w.calm(10.0);

@@ -1,4 +1,5 @@
 #[cfg(test)]
+#[allow(clippy::module_inception)] // this file (tests.rs) is itself the test module
 mod tests {
     use crate::{new_app, App, BsPlugin};
 

@@ -40,7 +40,7 @@ impl<T> std::fmt::Debug for Handle<T> {
 mod tests {
     use super::*;
 
-    struct DummyAsset(Vec<u8>);
+    struct DummyAsset;
 
     #[test]
     fn handle_has_typed_id() {

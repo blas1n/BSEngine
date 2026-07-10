@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde_json::{json, Value};
 
@@ -198,7 +198,7 @@ fn get_str<'a>(args: &'a Value, key: &str) -> Result<&'a str, McpToolOutput> {
         .ok_or_else(|| McpToolOutput::error(&format!("missing required field: {key}")))
 }
 
-fn game_create(root: &PathBuf, args: Value) -> McpToolOutput {
+fn game_create(root: &Path, args: Value) -> McpToolOutput {
     let name = match get_str(&args, "name") {
         Ok(v) => v.to_string(),
         Err(e) => return e,
@@ -237,7 +237,7 @@ fn game_create(root: &PathBuf, args: Value) -> McpToolOutput {
     }))
 }
 
-fn scene_write(root: &PathBuf, args: Value) -> McpToolOutput {
+fn scene_write(root: &Path, args: Value) -> McpToolOutput {
     let game = match get_str(&args, "game") {
         Ok(v) => v.to_string(),
         Err(e) => return e,
@@ -262,7 +262,7 @@ fn scene_write(root: &PathBuf, args: Value) -> McpToolOutput {
     McpToolOutput::success(json!({ "written": format!("games/{game}/assets/scenes/main.ron") }))
 }
 
-fn script_write(root: &PathBuf, args: Value) -> McpToolOutput {
+fn script_write(root: &Path, args: Value) -> McpToolOutput {
     let game = match get_str(&args, "game") {
         Ok(v) => v.to_string(),
         Err(e) => return e,
@@ -290,7 +290,7 @@ fn script_write(root: &PathBuf, args: Value) -> McpToolOutput {
     McpToolOutput::success(json!({ "written": format!("games/{game}/{rel_path}") }))
 }
 
-fn game_validate(root: &PathBuf, args: Value) -> McpToolOutput {
+fn game_validate(root: &Path, args: Value) -> McpToolOutput {
     let game = match get_str(&args, "game") {
         Ok(v) => v.to_string(),
         Err(e) => return e,

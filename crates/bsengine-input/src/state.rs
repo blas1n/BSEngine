@@ -72,6 +72,7 @@ mod tests {
         assert!(input.is_pressed(&TestKey::A));
         assert!(input.just_pressed(&TestKey::A));
         assert!(!input.just_released(&TestKey::A));
+        assert!(!input.is_pressed(&TestKey::B));
     }
 
     #[test]

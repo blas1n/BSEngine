@@ -799,7 +799,6 @@ fn spawn_entity_from_info(world: &mut World, info: &EntityInfo) -> Entity {
                 color: glam::Vec3::from(info.light_color.unwrap_or([1.0; 3])),
                 intensity: info.light_intensity.unwrap_or(1.0),
                 range: info.light_range.unwrap_or(10.0),
-                ..PointLight::default()
             });
         }
         Some("directional") => {
@@ -3170,7 +3169,7 @@ impl Plugin for EditorPlugin {
                             (e.id, name, len)
                         })
                         .collect();
-                    entries.sort_by(|a, b| b.2.cmp(&a.2));
+                    entries.sort_by_key(|e| std::cmp::Reverse(e.2));
                     let result: Vec<serde_json::Value> = entries.iter()
                         .map(|(id, name, len)| json!({"id": id, "name": name, "name_length": len}))
                         .collect();
@@ -10455,9 +10454,12 @@ impl Plugin for EditorPlugin {
                     let mut min_x = f32::MAX; let mut min_y = f32::MAX; let mut min_z = f32::MAX;
                     let mut max_x = f32::MIN; let mut max_y = f32::MIN; let mut max_z = f32::MIN;
                     for [x, y, z] in &positions {
-                        if *x < min_x { min_x = *x; } if *x > max_x { max_x = *x; }
-                        if *y < min_y { min_y = *y; } if *y > max_y { max_y = *y; }
-                        if *z < min_z { min_z = *z; } if *z > max_z { max_z = *z; }
+                        if *x < min_x { min_x = *x; }
+                        if *x > max_x { max_x = *x; }
+                        if *y < min_y { min_y = *y; }
+                        if *y > max_y { max_y = *y; }
+                        if *z < min_z { min_z = *z; }
+                        if *z > max_z { max_z = *z; }
                     }
                     McpToolOutput::success(json!({"min_x": min_x, "min_y": min_y, "min_z": min_z, "max_x": max_x, "max_y": max_y, "max_z": max_z}))
                 }),
@@ -15425,11 +15427,7 @@ impl Plugin for EditorPlugin {
                     for entity in &s.entities {
                         let mut depth: u64 = 0;
                         let mut current_id = entity.id;
-                        loop {
-                            let e = match s.entities.iter().find(|e| e.id == current_id) {
-                                Some(e) => e,
-                                None => break,
-                            };
+                        while let Some(e) = s.entities.iter().find(|e| e.id == current_id) {
                             match e.parent_id {
                                 Some(pid) => { depth += 1; current_id = pid; }
                                 None => break,
@@ -15643,11 +15641,7 @@ impl Plugin for EditorPlugin {
                     let s = snap_geai.lock().unwrap();
                     let mut ancestors = Vec::new();
                     let mut current_id = entity_id;
-                    loop {
-                        let entity = match s.entities.iter().find(|e| e.id == current_id) {
-                            Some(e) => e,
-                            None => break,
-                        };
+                    while let Some(entity) = s.entities.iter().find(|e| e.id == current_id) {
                         match entity.parent_id {
                             Some(pid) => { ancestors.push(pid); current_id = pid; }
                             None => break,
@@ -23943,7 +23937,7 @@ impl Plugin for EditorPlugin {
                 handler: Box::new(move |_input| {
                     let s = snap_gestc.lock().unwrap();
                     let mut ents: Vec<&crate::snapshot::EntityInfo> = s.entities.iter().collect();
-                    ents.sort_by(|a, b| b.tags.len().cmp(&a.tags.len()));
+                    ents.sort_by_key(|e| std::cmp::Reverse(e.tags.len()));
                     let result: Vec<serde_json::Value> = ents
                         .iter()
                         .map(|e| json!({"id": e.id, "name": e.name, "tag_count": e.tags.len()}))
@@ -24175,7 +24169,11 @@ impl Plugin for EditorPlugin {
                     let mut max = positions[0];
                     let mut sum = [0f32; 3];
                     for p in &positions {
-                        for i in 0..3 { if p[i] < min[i] { min[i] = p[i]; } if p[i] > max[i] { max[i] = p[i]; } sum[i] += p[i]; }
+                        for i in 0..3 {
+                            if p[i] < min[i] { min[i] = p[i]; }
+                            if p[i] > max[i] { max[i] = p[i]; }
+                            sum[i] += p[i];
+                        }
                     }
                     let n = positions.len() as f32;
                     let centroid = [sum[0]/n, sum[1]/n, sum[2]/n];
@@ -65511,7 +65509,6 @@ mod tests {
                 {"name": "B", "position": [0.0, 0.0, 0.0]},
                 {"name": "C", "position": [0.0, 0.0, 0.0]},
             ]})).unwrap();
-            drop(mcp);
             app.update(); app.update();
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
             let es = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap().content["entities"].as_array().unwrap().clone();
@@ -65821,7 +65818,6 @@ mod tests {
                 {"name": "B", "position": [0.0, 0.0, 0.0]},
                 {"name": "C", "position": [0.0, 0.0, 0.0]},
             ]})).unwrap();
-            drop(mcp);
             app.update(); app.update();
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
             let es = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap().content["entities"].as_array().unwrap().clone();
@@ -65880,7 +65876,6 @@ mod tests {
                 {"name": "B", "position": [0.0, 0.0, 0.0]},
                 {"name": "C", "position": [0.0, 0.0, 0.0]},
             ]})).unwrap();
-            drop(mcp);
             app.update(); app.update();
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
             let es = mcp.0.lock().unwrap().execute("list_entities", json!({})).unwrap().content["entities"].as_array().unwrap().clone();
@@ -70166,7 +70161,6 @@ mod tests {
                 .unwrap()
                 .execute("tag_entity", json!({"entity_id": b_id, "tag": tag}))
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -70415,7 +70409,6 @@ mod tests {
                     .unwrap()
                     .execute("tag_entity", json!({"entity_id": id, "tag": tag}))
                     .unwrap();
-                drop(mcp);
                 app.update();
                 app.update();
             }
@@ -70503,7 +70496,6 @@ mod tests {
                     json!({"entity_id": child, "parent_id": parent}),
                 )
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -70670,7 +70662,6 @@ mod tests {
                     json!({"entity_id": id, "rx": 0.0, "ry": ry, "rz": 0.0}),
                 )
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -71352,7 +71343,6 @@ mod tests {
                     json!({"entity_id": child, "parent_id": root_id}),
                 )
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -71453,7 +71443,6 @@ mod tests {
                     json!({"entity_id": child, "parent_id": parent}),
                 )
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -71820,7 +71809,6 @@ mod tests {
                     json!({"entity_id": child, "parent_id": root_id}),
                 )
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -71925,7 +71913,6 @@ mod tests {
                     json!({"entity_id": id, "sx": s, "sy": s, "sz": s}),
                 )
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -72493,7 +72480,6 @@ mod tests {
                     json!({"entity_id": leaf, "parent_id": child_id}),
                 )
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -72556,7 +72542,6 @@ mod tests {
                 .unwrap()
                 .execute("tag_entity", json!({"entity_id": id, "tag": "hero"}))
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -72642,7 +72627,6 @@ mod tests {
                 .unwrap()
                 .execute("tag_entity", json!({"entity_id": id, "tag": tag}))
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -72704,7 +72688,6 @@ mod tests {
                 .unwrap()
                 .execute("tag_entity", json!({"entity_id": id, "tag": "hero"}))
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -72826,7 +72809,6 @@ mod tests {
                 .unwrap()
                 .execute("tag_entity", json!({"entity_id": id, "tag": "hero"}))
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -72905,7 +72887,6 @@ mod tests {
                     json!({"entity_id": child, "parent_id": root_id}),
                 )
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -73546,7 +73527,6 @@ mod tests {
                     json!({"entity_id": child, "parent_id": root_id}),
                 )
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -74114,7 +74094,6 @@ mod tests {
                 .unwrap()
                 .execute("tag_entity", json!({"entity_id": id, "tag": "hero"}))
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -74212,7 +74191,6 @@ mod tests {
                 .unwrap()
                 .execute("tag_entity", json!({"entity_id": id_two, "tag": tag}))
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -74300,7 +74278,6 @@ mod tests {
                     json!({"entity_id": child, "parent_id": root_id}),
                 )
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -74444,7 +74421,6 @@ mod tests {
                 .unwrap()
                 .execute("tag_entity", json!({"entity_id": id_two, "tag": tag}))
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -74511,7 +74487,6 @@ mod tests {
                 .unwrap()
                 .execute("tag_entity", json!({"entity_id": id_a, "tag": tag}))
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }
@@ -74754,7 +74729,6 @@ mod tests {
                 .unwrap()
                 .execute("tag_entity", json!({"entity_id": id_a, "tag": tag}))
                 .unwrap();
-            drop(mcp);
             app.update();
             app.update();
         }

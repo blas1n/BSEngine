@@ -153,5 +153,7 @@ impl Default for PhysicsInput {
 #[derive(Component)]
 pub(crate) struct PhysicsHandles {
     pub body_handle: RigidBodyHandle,
+    // Stored for a future despawn-time collider cleanup pass; not yet read.
+    #[allow(dead_code)]
     pub collider_handle: ColliderHandle,
 }

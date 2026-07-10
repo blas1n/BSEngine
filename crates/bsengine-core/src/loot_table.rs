@@ -67,7 +67,7 @@ impl LootTable {
         self
     }
 
-    pub fn add(mut self, entry: LootEntry) -> Self {
+    pub fn with_entry(mut self, entry: LootEntry) -> Self {
         self.entries.push(entry);
         self
     }
@@ -110,16 +110,16 @@ mod tests {
     #[test]
     fn loot_table_total_weight() {
         let table = LootTable::new()
-            .add(LootEntry::new("gold", 3.0))
-            .add(LootEntry::new("sword", 1.0));
+            .with_entry(LootEntry::new("gold", 3.0))
+            .with_entry(LootEntry::new("sword", 1.0));
         assert!((table.total_weight() - 4.0).abs() < 0.001);
     }
 
     #[test]
     fn loot_table_pick_first() {
         let table = LootTable::new()
-            .add(LootEntry::new("gold", 3.0))
-            .add(LootEntry::new("sword", 1.0));
+            .with_entry(LootEntry::new("gold", 3.0))
+            .with_entry(LootEntry::new("sword", 1.0));
         let entry = table.pick(0.0).unwrap();
         assert_eq!(entry.item_id, "gold");
     }
@@ -127,8 +127,8 @@ mod tests {
     #[test]
     fn loot_table_pick_second() {
         let table = LootTable::new()
-            .add(LootEntry::new("gold", 3.0))
-            .add(LootEntry::new("sword", 1.0));
+            .with_entry(LootEntry::new("gold", 3.0))
+            .with_entry(LootEntry::new("sword", 1.0));
         let entry = table.pick(3.5).unwrap();
         assert_eq!(entry.item_id, "sword");
     }
@@ -137,13 +137,15 @@ mod tests {
     fn luck_modifier_scales_weight() {
         let table = LootTable::new()
             .with_luck(2.0)
-            .add(LootEntry::new("gem", 1.0));
+            .with_entry(LootEntry::new("gem", 1.0));
         assert!((table.total_weight() - 2.0).abs() < 0.001);
     }
 
     #[test]
     fn disabled_table_returns_none() {
-        let table = LootTable::new().add(LootEntry::new("gold", 1.0)).disabled();
+        let table = LootTable::new()
+            .with_entry(LootEntry::new("gold", 1.0))
+            .disabled();
         assert!(table.pick(0.0).is_none());
     }
 }

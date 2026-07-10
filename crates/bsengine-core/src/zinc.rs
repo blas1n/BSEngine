@@ -14,9 +14,9 @@ use bevy_ecs::prelude::Component;
 /// `deplete(amount)` subtracts from `mineral`; fires `just_deficient` when
 /// reaching 0. No-op when disabled or already deficient.
 ///
-/// `tick(dt)` clears both flags, then metabolizes: `mineral -= metabolic_rate
-/// * dt` (floored at 0). Fires `just_deficient` when reaching 0 via
-/// metabolism. No-op metabolism when disabled or rate is 0.
+/// `tick(dt)` clears both flags, then metabolizes: `mineral -= metabolic_rate * dt`
+/// (floored at 0). Fires `just_deficient` when reaching 0 via metabolism.
+/// No-op metabolism when disabled or rate is 0.
 ///
 /// `is_optimal()` returns `mineral >= max_mineral && enabled`.
 ///

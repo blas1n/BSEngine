@@ -7567,7 +7567,7 @@ fn run_scripts(world: &mut World) {
                 };
                 if let Some(e) = entity {
                     if let Some(mut le) = world.get_mut::<Ledge>(e) {
-                        le.drop();
+                        le.begin_drop();
                     }
                 }
             }

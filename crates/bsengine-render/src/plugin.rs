@@ -81,6 +81,7 @@ fn propagate_children(
     }
 }
 
+#[allow(clippy::too_many_arguments)] // Bevy system params; splitting into a struct is a larger refactor
 fn render_frame(
     surface: Option<ResMut<WgpuSurfaceResource>>,
     registry: Option<Res<GpuMeshRegistry>>,

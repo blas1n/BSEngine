@@ -1250,6 +1250,8 @@ impl Plugin for EditorPlugin {
         app.insert_resource(EditorHistoryResource(history.clone()));
         app.insert_resource(InspectorState::editor());
         app.insert_resource(EditorPanelRegistry::default());
+        app.register_type::<bsengine_core::Camera>();
+        app.register_type::<bsengine_core::PointLight>();
         app.add_systems(Update, update_editor_snapshot);
         app.add_systems(Update, update_editor_camera);
         app.add_systems(Update, populate_inspector.after(update_editor_snapshot));
@@ -28670,6 +28672,25 @@ mod tests {
 
         let registry = app.world().resource::<bsengine_core::EditorPanelRegistry>();
         assert!(registry.0.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn editor_plugin_registers_reflected_component_types() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.update();
+
+        let registry = app.world().resource::<bevy_ecs::reflect::AppTypeRegistry>();
+        let registry = registry.read();
+        assert!(
+            registry.get(std::any::TypeId::of::<bsengine_core::Camera>()).is_some(),
+            "Camera not registered in AppTypeRegistry"
+        );
+        assert!(
+            registry.get(std::any::TypeId::of::<bsengine_core::PointLight>()).is_some(),
+            "PointLight not registered in AppTypeRegistry"
+        );
     }
 
     #[test]

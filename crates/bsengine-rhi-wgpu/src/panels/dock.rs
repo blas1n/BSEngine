@@ -1,4 +1,6 @@
-use bsengine_core::{EditorPanel, EditorPanelContext, EditorPanelRegistry, InspectorEntityInfo, InspectorState};
+use bsengine_core::{
+    EditorPanel, EditorPanelContext, EditorPanelRegistry, InspectorEntityInfo, InspectorState,
+};
 use egui_dock::{DockState, Node, NodeIndex, Split, SurfaceIndex};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -100,10 +102,7 @@ impl egui_dock::TabViewer for BseTabViewer<'_> {
                 panel.ui(ui, &mut ctx);
             }
             None => {
-                ui.colored_label(
-                    egui::Color32::YELLOW,
-                    format!("⚠ Panel unavailable: {tab}"),
-                );
+                ui.colored_label(egui::Color32::YELLOW, format!("⚠ Panel unavailable: {tab}"));
             }
         }
     }
@@ -157,7 +156,11 @@ mod tests {
         ids.sort();
         assert_eq!(
             ids,
-            vec![&"hierarchy".to_string(), &"inspector".to_string(), &"viewport".to_string()]
+            vec![
+                &"hierarchy".to_string(),
+                &"inspector".to_string(),
+                &"viewport".to_string()
+            ]
         );
     }
 

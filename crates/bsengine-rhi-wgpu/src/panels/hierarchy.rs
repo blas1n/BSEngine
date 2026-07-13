@@ -46,12 +46,8 @@ impl EditorPanel for HierarchyPanel {
                             .and_then(|id| entities_snapshot.iter().position(|e| e.id == id))
                             .unwrap_or(idx);
                         let (lo, hi) = (anchor_idx.min(idx), anchor_idx.max(idx));
-                        new_selection = Some(
-                            entities_snapshot[lo..=hi]
-                                .iter()
-                                .map(|e| e.id)
-                                .collect(),
-                        );
+                        new_selection =
+                            Some(entities_snapshot[lo..=hi].iter().map(|e| e.id).collect());
                     } else if mods.ctrl {
                         let mut ids: Vec<u64> = entities_snapshot
                             .iter()

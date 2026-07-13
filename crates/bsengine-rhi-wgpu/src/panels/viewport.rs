@@ -18,8 +18,7 @@ impl EditorPanel for ViewportPanel {
 
         let panel_rect = ui.max_rect();
         insp.viewport_size = [panel_rect.width(), panel_rect.height()];
-        insp.viewport_contains_cursor =
-            panel_rect.contains(egui::Pos2::new(cursor_x, cursor_y));
+        insp.viewport_contains_cursor = panel_rect.contains(egui::Pos2::new(cursor_x, cursor_y));
         let response = ui.allocate_rect(panel_rect, egui::Sense::click_and_drag());
 
         // Gizmo overlays only make sense while editing: once Play starts,
@@ -154,10 +153,8 @@ impl EditorPanel for ViewportPanel {
                                         crate::gizmo::world_to_screen(pos, &view_proj, panel_rect),
                                         response.interact_pointer_pos(),
                                     ) {
-                                        let current_angle =
-                                            crate::gizmo::screen_angle(center, mp);
-                                        let delta =
-                                            current_angle - insp.gizmo_rotate_start_angle;
+                                        let current_angle = crate::gizmo::screen_angle(center, mp);
+                                        let delta = current_angle - insp.gizmo_rotate_start_angle;
                                         let deg = insp.gizmo_rotate_start_deg;
                                         let start_rot = glam::Quat::from_euler(
                                             glam::EulerRot::XYZ,

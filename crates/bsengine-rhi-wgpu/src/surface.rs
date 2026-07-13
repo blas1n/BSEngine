@@ -1697,8 +1697,8 @@ impl WgpuSurface {
                         let mut despawn_entity = false;
                         let mut duplicate_selected = false;
                         if ctx.memory(|m| m.focused()).is_none() {
-                            let (del, dup, undo, redo, save, move_mode, rotate_mode) = ctx
-                                .input(|i| {
+                            let (del, dup, undo, redo, save, move_mode, rotate_mode) =
+                                ctx.input(|i| {
                                     (
                                         i.key_pressed(egui::Key::Delete),
                                         i.modifiers.ctrl && i.key_pressed(egui::Key::D),
@@ -1738,13 +1738,15 @@ impl WgpuSurface {
                         }
                         if despawn_entity {
                             if let Some(id) = insp.selected_id {
-                                insp.cmd_queue.push(bsengine_core::InspectorCmd::Despawn { id });
+                                insp.cmd_queue
+                                    .push(bsengine_core::InspectorCmd::Despawn { id });
                                 insp.selected_id = None;
                             }
                         }
                         if duplicate_selected {
                             if let Some(id) = insp.selected_id {
-                                insp.cmd_queue.push(bsengine_core::InspectorCmd::Duplicate { id });
+                                insp.cmd_queue
+                                    .push(bsengine_core::InspectorCmd::Duplicate { id });
                             }
                         }
 
@@ -1826,7 +1828,8 @@ impl WgpuSurface {
                             egui_dock::DockArea::new(&mut dock_state).show(ctx, &mut tab_viewer);
                             drop(panels_guard);
 
-                            let layout_json = serde_json::to_string(&dock_state).unwrap_or_default();
+                            let layout_json =
+                                serde_json::to_string(&dock_state).unwrap_or_default();
                             if self.last_saved_layout_json.as_deref() != Some(layout_json.as_str())
                             {
                                 crate::panels::save_dock_state(

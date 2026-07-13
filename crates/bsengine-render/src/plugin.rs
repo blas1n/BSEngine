@@ -1,9 +1,9 @@
 use bevy_app::{App, Plugin, PostUpdate, Update};
 use bevy_ecs::prelude::{Entity, EventReader, IntoSystemConfigs, ParamSet, Query, ResMut, Without};
 use bsengine_core::{
-    AmbientOcclusion, Bloom, Camera, CustomShader, DirectionalLight, EditorPlayState,
-    GlobalTransform, HudTexts, InspectorState, Material, Parent, PointLight, SkyboxPath, SpotLight,
-    ToneMap, Transform, UiState, Visible,
+    AmbientOcclusion, Bloom, Camera, CustomShader, DirectionalLight, EditorPanelRegistry,
+    EditorPlayState, GlobalTransform, HudTexts, InspectorState, Material, Parent, PointLight,
+    SkyboxPath, SpotLight, ToneMap, Transform, UiState, Visible,
 };
 use bsengine_ecs::Res;
 use bsengine_input::{Input, KeyCode, KeyInput, MouseButton, MouseState};
@@ -94,24 +94,32 @@ fn render_frame(
     mouse_buttons: Option<Res<Input<MouseButton>>>,
     mut key_events: EventReader<KeyInput>,
     keys: Option<Res<Input<KeyCode>>>,
-    camera_query: Query<(
-        &Camera,
-        &Transform,
-        Option<&Bloom>,
-        Option<&ToneMap>,
-        Option<&AmbientOcclusion>,
+    // Bundled into one ParamSet: Bevy 0.14's SystemParamFunction impls only
+    // go up to 16 top-level params, and adding editor_panels as a 17th
+    // plain parameter broke `IntoSystem` resolution for this function
+    // (surfaced as a `.chain()` trait-bound error in RenderPlugin::build).
+    // Folding these five Querys into one param keeps the total at 13.
+    mut render_queries: ParamSet<(
+        Query<(
+            &Camera,
+            &Transform,
+            Option<&Bloom>,
+            Option<&ToneMap>,
+            Option<&AmbientOcclusion>,
+        )>,
+        Query<(
+            &MeshRenderer,
+            &Transform,
+            Option<&GlobalTransform>,
+            Option<&Material>,
+            Option<&Visible>,
+            Option<&CustomShader>,
+        )>,
+        Query<(&DirectionalLight, Option<&GlobalTransform>, &Transform)>,
+        Query<(&PointLight, Option<&GlobalTransform>, &Transform)>,
+        Query<(&SpotLight, Option<&GlobalTransform>, &Transform)>,
     )>,
-    mesh_query: Query<(
-        &MeshRenderer,
-        &Transform,
-        Option<&GlobalTransform>,
-        Option<&Material>,
-        Option<&Visible>,
-        Option<&CustomShader>,
-    )>,
-    light_query: Query<(&DirectionalLight, Option<&GlobalTransform>, &Transform)>,
-    point_light_query: Query<(&PointLight, Option<&GlobalTransform>, &Transform)>,
-    spot_light_query: Query<(&SpotLight, Option<&GlobalTransform>, &Transform)>,
+    editor_panels: Option<Res<EditorPanelRegistry>>,
 ) {
     let (Some(mut surface), Some(registry)) = (surface, registry) else {
         return;
@@ -163,7 +171,8 @@ fn render_frame(
     }
 
     let (mut view_proj, mut cam_pos, mut cam_proj, bloom, tone_map, ambient_occlusion) =
-        camera_query
+        render_queries
+            .p0()
             .iter()
             .next()
             .map(|(cam, t, b, tm, ao)| {
@@ -194,7 +203,7 @@ fn render_frame(
 
     // Rotation-only VP inverse for skybox (no translation → direction-only)
     let sky_vp_inv: Option<Mat4> = if surface.0.has_skybox() {
-        camera_query.iter().next().map(|(cam, t, _, _, _)| {
+        render_queries.p0().iter().next().map(|(cam, t, _, _, _)| {
             let proj = cam.projection_matrix();
             let view = t.view_matrix();
             let view_rot = Mat4::from_cols(view.x_axis, view.y_axis, view.z_axis, Vec4::W);
@@ -205,7 +214,7 @@ fn render_frame(
     };
 
     // Lazy-compile any custom shaders not yet cached in the surface
-    for (_, _, _, _, _, cs) in mesh_query.iter() {
+    for (_, _, _, _, _, cs) in render_queries.p1().iter() {
         if let Some(cs) = cs {
             if !surface.0.has_custom_shader(&cs.path) {
                 match std::fs::read_to_string(&cs.path) {
@@ -216,7 +225,8 @@ fn render_frame(
         }
     }
 
-    let draw_calls: Vec<(u64, Mat4, Option<u64>, MaterialParams, Option<String>)> = mesh_query
+    let draw_calls: Vec<(u64, Mat4, Option<u64>, MaterialParams, Option<String>)> = render_queries
+        .p1()
         .iter()
         .filter_map(|(mr, t, gt, mat, vis, cs)| {
             if !vis.map(|v| v.is_visible).unwrap_or(true) {
@@ -255,7 +265,8 @@ fn render_frame(
         })
         .collect();
 
-    let collected_point_lights: Vec<PointLightEntry> = point_light_query
+    let collected_point_lights: Vec<PointLightEntry> = render_queries
+        .p3()
         .iter()
         .map(|(pl, gt, t)| {
             let pos = gt
@@ -270,7 +281,8 @@ fn render_frame(
         })
         .collect();
 
-    let collected_spot_lights: Vec<SpotLightEntry> = spot_light_query
+    let collected_spot_lights: Vec<SpotLightEntry> = render_queries
+        .p4()
         .iter()
         .map(|(sl, gt, t)| {
             let pos = gt
@@ -291,7 +303,7 @@ fn render_frame(
         })
         .collect();
 
-    let light = if let Some((l, gt, t)) = light_query.iter().next() {
+    let light = if let Some((l, gt, t)) = render_queries.p2().iter().next() {
         let direction = gt
             .map(|g| -glam::Mat3::from_mat4(g.to_matrix()).z_axis)
             .unwrap_or_else(|| t.rotation * Vec3::NEG_Z);
@@ -337,6 +349,7 @@ fn render_frame(
         ctrl_held,
         shift_held,
         alt_held,
+        editor_panels.as_deref(),
     ) {
         Ok(clicked) => {
             if let Some(ref mut state) = ui_state {

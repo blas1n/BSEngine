@@ -6,6 +6,7 @@
 
 pub mod gizmo;
 pub mod mesh;
+pub mod panels;
 pub mod plugin;
 pub mod post_process;
 pub mod rhi;

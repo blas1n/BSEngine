@@ -459,3 +459,6 @@ Scripts/vcpkg
 
 # Brainstorming visual companion scratch files
 .superpowers/
+
+# Git worktrees for isolated subagent-driven development
+.worktrees/

@@ -1,6 +1,7 @@
 pub mod dock;
 pub mod hierarchy;
 pub mod inspector;
+pub mod reflect_ui;
 pub mod viewport;
 
 pub use dock::{
@@ -9,4 +10,5 @@ pub use dock::{
 };
 pub use hierarchy::HierarchyPanel;
 pub use inspector::InspectorPanel;
+pub use reflect_ui::draw_reflect_ui;
 pub use viewport::ViewportPanel;

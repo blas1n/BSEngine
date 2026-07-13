@@ -506,6 +506,7 @@ name = "bsengine-core"
 version = "0.1.0"
 dependencies = [
  "bevy_ecs",
+ "egui",
  "glam 0.29.3",
  "tracing",
  "tracing-subscriber",

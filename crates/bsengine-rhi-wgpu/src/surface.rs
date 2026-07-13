@@ -521,6 +521,8 @@ pub struct WgpuSurface {
     custom_pipelines: std::collections::HashMap<String, wgpu::RenderPipeline>,
     post_process: crate::post_process::PostProcessState,
     start_time: std::time::Instant,
+    dock_state: Option<egui_dock::DockState<String>>,
+    last_saved_layout_json: Option<String>,
 }
 
 impl WgpuSurface {
@@ -891,6 +893,8 @@ impl WgpuSurface {
             custom_pipelines: std::collections::HashMap::new(),
             post_process,
             start_time: std::time::Instant::now(),
+            dock_state: None,
+            last_saved_layout_json: None,
         })
     }
 

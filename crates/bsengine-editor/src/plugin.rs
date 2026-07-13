@@ -1,7 +1,8 @@
 use crate::snapshot::{
     EditorCommand, EditorCommandQueueResource, EditorHistory, EditorHistoryResource,
-    EditorSelectionResource, EditorSnapshot, EditorSnapshotResource, EntityInfo,
-    SharedCommandQueue, SharedHistory, SharedSelection, SharedSnapshot, Tags, Visible,
+    EditorSelectionResource, EditorSnapshot, EditorSnapshotResource, EntityInfo, ReflectCommand,
+    ReflectCommandQueueResource, SharedCommandQueue, SharedHistory, SharedReflectCommandQueue,
+    SharedSelection, SharedSnapshot, Tags, Visible,
 };
 use bevy_app::{App, Plugin, Update};
 use bevy_ecs::prelude::{Commands, Entity, IntoSystemConfigs, ParamSet, Query, ResMut, World};
@@ -1056,6 +1057,67 @@ fn apply_history_action(world: &mut World) {
     }
 }
 
+fn process_reflect_commands(world: &mut World) {
+    let cmds: Vec<ReflectCommand> = {
+        let Some(queue_res) = world.get_resource::<ReflectCommandQueueResource>() else {
+            return;
+        };
+        let mut queue = queue_res.0.lock().unwrap();
+        queue.drain(..).collect()
+    };
+    if cmds.is_empty() {
+        return;
+    }
+
+    let Some(app_registry) = world.get_resource::<bevy_ecs::reflect::AppTypeRegistry>().cloned()
+    else {
+        return;
+    };
+    let registry = app_registry.read();
+
+    for cmd in cmds {
+        match cmd {
+            ReflectCommand::AttachComponentByType { entity_id, type_path } => {
+                let Some(registration) = registry.get_with_type_path(&type_path) else {
+                    tracing::warn!("reflect: unknown type path '{type_path}'");
+                    continue;
+                };
+                let Some(reflect_component) = registration.data::<bevy_ecs::reflect::ReflectComponent>()
+                else {
+                    tracing::warn!("reflect: '{type_path}' is not a registered Component");
+                    continue;
+                };
+                let Some(reflect_default) = registration.data::<bevy_reflect::std_traits::ReflectDefault>()
+                else {
+                    tracing::warn!("reflect: '{type_path}' has no registered Default");
+                    continue;
+                };
+                let default_value = reflect_default.default();
+                let target = world.iter_entities().find(|e| e.id().index() as u64 == entity_id);
+                if let Some(entity) = target.map(|e| e.id()) {
+                    let mut entity_mut = world.entity_mut(entity);
+                    reflect_component.insert(&mut entity_mut, default_value.as_ref(), &registry);
+                }
+            }
+            ReflectCommand::RemoveComponentByType { entity_id, type_path } => {
+                let Some(registration) = registry.get_with_type_path(&type_path) else {
+                    tracing::warn!("reflect: unknown type path '{type_path}'");
+                    continue;
+                };
+                let Some(reflect_component) = registration.data::<bevy_ecs::reflect::ReflectComponent>()
+                else {
+                    continue;
+                };
+                let target = world.iter_entities().find(|e| e.id().index() as u64 == entity_id);
+                if let Some(entity) = target.map(|e| e.id()) {
+                    let mut entity_mut = world.entity_mut(entity);
+                    reflect_component.remove(&mut entity_mut);
+                }
+            }
+        }
+    }
+}
+
 fn update_editor_camera(
     inspector: Option<ResMut<InspectorState>>,
     mouse: Option<bsengine_ecs::Res<bsengine_input::MouseState>>,
@@ -1241,11 +1303,13 @@ impl Plugin for EditorPlugin {
     fn build(&self, app: &mut App) {
         let snapshot: SharedSnapshot = Arc::new(Mutex::new(EditorSnapshot::default()));
         let cmd_queue: SharedCommandQueue = Arc::new(Mutex::new(Vec::new()));
+        let reflect_cmd_queue: SharedReflectCommandQueue = Arc::new(Mutex::new(Vec::new()));
         let selection: SharedSelection = Arc::new(Mutex::new(std::collections::HashSet::new()));
         let history: SharedHistory = Arc::new(Mutex::new(EditorHistory::default()));
 
         app.insert_resource(EditorSnapshotResource(snapshot.clone()));
         app.insert_resource(EditorCommandQueueResource(cmd_queue.clone()));
+        app.insert_resource(ReflectCommandQueueResource(reflect_cmd_queue.clone()));
         app.insert_resource(EditorSelectionResource(selection.clone()));
         app.insert_resource(EditorHistoryResource(history.clone()));
         app.insert_resource(InspectorState::editor());
@@ -1257,6 +1321,7 @@ impl Plugin for EditorPlugin {
         app.add_systems(Update, populate_inspector.after(update_editor_snapshot));
         app.add_systems(Update, apply_inspector_cmds.before(process_editor_commands));
         app.add_systems(Update, process_editor_commands);
+        app.add_systems(Update, process_reflect_commands.after(process_editor_commands));
         app.add_systems(Update, apply_history_action.after(process_editor_commands));
 
         if let Some(mcp) = app.world_mut().get_resource_mut::<McpRegistryResource>() {
@@ -28672,6 +28737,43 @@ mod tests {
 
         let registry = app.world().resource::<bsengine_core::EditorPanelRegistry>();
         assert!(registry.0.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn reflect_command_attaches_and_removes_component_by_type_path() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app.world_mut().spawn(Name("Target".to_string())).id();
+        app.update();
+
+        {
+            let queue = app.world().resource::<crate::snapshot::ReflectCommandQueueResource>();
+            queue.0.lock().unwrap().push(crate::snapshot::ReflectCommand::AttachComponentByType {
+                entity_id: eid.index() as u64,
+                type_path: "bsengine_core::camera::Camera".to_string(),
+            });
+        }
+        app.update();
+
+        assert!(
+            app.world().get::<bsengine_core::Camera>(eid).is_some(),
+            "Camera was not attached via ReflectCommand"
+        );
+
+        {
+            let queue = app.world().resource::<crate::snapshot::ReflectCommandQueueResource>();
+            queue.0.lock().unwrap().push(crate::snapshot::ReflectCommand::RemoveComponentByType {
+                entity_id: eid.index() as u64,
+                type_path: "bsengine_core::camera::Camera".to_string(),
+            });
+        }
+        app.update();
+
+        assert!(
+            app.world().get::<bsengine_core::Camera>(eid).is_none(),
+            "Camera was not removed via ReflectCommand"
+        );
     }
 
     #[test]

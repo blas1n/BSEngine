@@ -203,8 +203,19 @@ pub struct EditorHistory {
     pub redo_stack: Vec<EditorSnapshot>,
 }
 
+/// Attach/remove a component on an entity by its reflected type path (e.g.
+/// "bsengine_core::camera::Camera"), looked up via `AppTypeRegistry`.
+/// Processed by a dedicated exclusive system (`process_reflect_commands`)
+/// because `ReflectComponent::insert`/`remove` need `&mut EntityWorldMut`,
+/// which `process_editor_commands`'s typed system params can't provide.
+pub enum ReflectCommand {
+    AttachComponentByType { entity_id: u64, type_path: String },
+    RemoveComponentByType { entity_id: u64, type_path: String },
+}
+
 pub type SharedSnapshot = Arc<Mutex<EditorSnapshot>>;
 pub type SharedCommandQueue = Arc<Mutex<Vec<EditorCommand>>>;
+pub type SharedReflectCommandQueue = Arc<Mutex<Vec<ReflectCommand>>>;
 pub type SharedSelection = Arc<Mutex<HashSet<u64>>>;
 pub type SharedHistory = Arc<Mutex<EditorHistory>>;
 
@@ -213,6 +224,9 @@ pub struct EditorSnapshotResource(pub SharedSnapshot);
 
 #[derive(Resource)]
 pub struct EditorCommandQueueResource(pub SharedCommandQueue);
+
+#[derive(Resource)]
+pub struct ReflectCommandQueueResource(pub SharedReflectCommandQueue);
 
 #[derive(Resource)]
 pub struct EditorSelectionResource(pub SharedSelection);

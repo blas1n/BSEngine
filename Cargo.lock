@@ -585,6 +585,7 @@ version = "0.1.0"
 dependencies = [
  "bevy_app",
  "bevy_ecs",
+ "bevy_reflect",
  "bsengine-app",
  "bsengine-core",
  "bsengine-ecs",

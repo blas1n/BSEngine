@@ -1213,6 +1213,7 @@ fn populate_inspector(
 fn apply_inspector_cmds(
     inspector: Option<ResMut<InspectorState>>,
     queue_res: Res<EditorCommandQueueResource>,
+    reflect_queue_res: Res<ReflectCommandQueueResource>,
     selection_res: Res<EditorSelectionResource>,
 ) {
     let Some(mut inspector) = inspector else {
@@ -1292,6 +1293,18 @@ fn apply_inspector_cmds(
                 } else {
                     tracing::warn!("save requested but no scene file is currently loaded");
                 }
+            }
+            InspectorCmd::AttachComponentByType { id, type_path } => {
+                reflect_queue_res.0.lock().unwrap().push(ReflectCommand::AttachComponentByType {
+                    entity_id: id,
+                    type_path,
+                });
+            }
+            InspectorCmd::RemoveComponentByType { id, type_path } => {
+                reflect_queue_res.0.lock().unwrap().push(ReflectCommand::RemoveComponentByType {
+                    entity_id: id,
+                    type_path,
+                });
             }
         }
     }
@@ -28773,6 +28786,29 @@ mod tests {
         assert!(
             app.world().get::<bsengine_core::Camera>(eid).is_none(),
             "Camera was not removed via ReflectCommand"
+        );
+    }
+
+    #[test]
+    fn inspector_cmd_attach_component_by_type_reaches_reflect_queue() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app.world_mut().spawn(Name("Target".to_string())).id();
+        app.update();
+
+        {
+            let mut insp = app.world_mut().resource_mut::<InspectorState>();
+            insp.cmd_queue.push(InspectorCmd::AttachComponentByType {
+                id: eid.index() as u64,
+                type_path: "bsengine_core::camera::Camera".to_string(),
+            });
+        }
+        app.update();
+
+        assert!(
+            app.world().get::<bsengine_core::Camera>(eid).is_some(),
+            "Camera was not attached end-to-end via InspectorCmd"
         );
     }
 

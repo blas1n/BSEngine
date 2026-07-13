@@ -171,7 +171,7 @@ fn process_editor_commands(
             } => {
                 commands.spawn((
                     PointLight {
-                        color: glam::Vec3::from(color),
+                        color: glam::Vec3::from(color).into(),
                         intensity,
                         range,
                     },
@@ -217,7 +217,7 @@ fn process_editor_commands(
                 for (e, mut light) in params.p2().iter_mut() {
                     if e.index() as u64 == entity_id {
                         if let Some(c) = color {
-                            light.color = glam::Vec3::from(c);
+                            light.color = glam::Vec3::from(c).into();
                         }
                         if let Some(i) = intensity {
                             light.intensity = i;
@@ -533,7 +533,7 @@ fn process_editor_commands(
                 let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
                 if let Some(entity) = target {
                     commands.entity(entity).insert(PointLight {
-                        color: glam::Vec3::from(color),
+                        color: glam::Vec3::from(color).into(),
                         intensity,
                         range,
                     });
@@ -622,7 +622,7 @@ fn process_editor_commands(
                     }
                     if let Some(pl) = &entity.point_light {
                         eb.insert(PointLight {
-                            color: glam::Vec3::from(pl.color),
+                            color: glam::Vec3::from(pl.color).into(),
                             intensity: pl.intensity,
                             range: pl.range,
                         });
@@ -786,7 +786,7 @@ fn sync_entity_to_info(world: &mut World, entity: Entity, info: &EntityInfo) {
             e.remove::<DirectionalLight>();
             e.remove::<SpotLight>();
             e.insert(PointLight {
-                color: glam::Vec3::from(info.light_color.unwrap_or([1.0; 3])),
+                color: glam::Vec3::from(info.light_color.unwrap_or([1.0; 3])).into(),
                 intensity: info.light_intensity.unwrap_or(1.0),
                 range: info.light_range.unwrap_or(10.0),
             });
@@ -886,7 +886,7 @@ fn spawn_entity_from_info(world: &mut World, info: &EntityInfo) -> Entity {
     match info.light_type.as_deref() {
         Some("point") => {
             e.insert(PointLight {
-                color: glam::Vec3::from(info.light_color.unwrap_or([1.0; 3])),
+                color: glam::Vec3::from(info.light_color.unwrap_or([1.0; 3])).into(),
                 intensity: info.light_intensity.unwrap_or(1.0),
                 range: info.light_range.unwrap_or(10.0),
             });
@@ -89130,7 +89130,7 @@ mod tests {
         app.add_plugins(McpPlugin);
         app.add_plugins(EditorPlugin);
         app.world_mut().spawn(bsengine_core::PointLight {
-            color: glam::Vec3::new(0.5, 0.5, 0.5),
+            color: glam::Vec3::new(0.5, 0.5, 0.5).into(),
             intensity: 3.5,
             range: 12.0,
         });
@@ -89733,7 +89733,7 @@ mod tests {
             app.world_mut().spawn((
                 Name("Lamp".to_string()),
                 bsengine_core::PointLight {
-                    color: Vec3::new(1.0, 0.5, 0.2),
+                    color: Vec3::new(1.0, 0.5, 0.2).into(),
                     intensity: 2.5,
                     range: 15.0,
                 },

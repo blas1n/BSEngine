@@ -1,7 +1,10 @@
-use bevy_ecs::prelude::Component;
+use bevy_ecs::prelude::{Component, ReflectComponent};
+use bevy_reflect::prelude::ReflectDefault;
+use bevy_reflect::Reflect;
 use glam::Mat4;
 
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component, Default)]
 pub struct Camera {
     pub fov_y_radians: f32,
     pub aspect_ratio: f32,
@@ -59,5 +62,16 @@ mod tests {
         let original = cam.aspect_ratio;
         cam.update_aspect_ratio(1920, 0);
         assert_eq!(cam.aspect_ratio, original);
+    }
+
+    #[test]
+    fn camera_is_registered_reflectable() {
+        use bevy_reflect::TypeRegistry;
+        let mut registry = TypeRegistry::default();
+        registry.register::<Camera>();
+        let registration = registry
+            .get(std::any::TypeId::of::<Camera>())
+            .expect("Camera not registered");
+        assert_eq!(registration.type_info().type_path(), "bsengine_core::camera::Camera");
     }
 }

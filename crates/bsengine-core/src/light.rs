@@ -1,4 +1,7 @@
-use bevy_ecs::prelude::Component;
+use crate::reflect_glam::ReflectVec3;
+use bevy_ecs::prelude::{Component, ReflectComponent};
+use bevy_reflect::prelude::ReflectDefault;
+use bevy_reflect::Reflect;
 use glam::Vec3;
 
 // Direction is intentionally not stored here: it's derived from the
@@ -22,9 +25,10 @@ impl Default for DirectionalLight {
     }
 }
 
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component, Default)]
 pub struct PointLight {
-    pub color: Vec3,
+    pub color: ReflectVec3,
     pub intensity: f32,
     pub range: f32,
 }
@@ -32,7 +36,7 @@ pub struct PointLight {
 impl Default for PointLight {
     fn default() -> Self {
         Self {
-            color: Vec3::ONE,
+            color: Vec3::ONE.into(),
             intensity: 1.0,
             range: 10.0,
         }
@@ -76,9 +80,20 @@ mod tests {
     #[test]
     fn point_light_default_values() {
         let pl = PointLight::default();
-        assert_eq!(pl.color, Vec3::ONE);
+        assert_eq!(pl.color, Vec3::ONE.into());
         assert!((pl.intensity - 1.0).abs() < 1e-6);
         assert!((pl.range - 10.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn point_light_is_registered_reflectable() {
+        use bevy_reflect::TypeRegistry;
+        let mut registry = TypeRegistry::default();
+        registry.register::<PointLight>();
+        let registration = registry
+            .get(std::any::TypeId::of::<PointLight>())
+            .expect("PointLight not registered");
+        assert_eq!(registration.type_info().type_path(), "bsengine_core::light::PointLight");
     }
 
     #[test]

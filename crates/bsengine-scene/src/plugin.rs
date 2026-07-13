@@ -111,7 +111,7 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
 
         if let Some(pl) = &entity.point_light {
             builder.insert(PointLight {
-                color: Vec3::from(pl.color),
+                color: Vec3::from(pl.color).into(),
                 intensity: pl.intensity,
                 range: pl.range,
             });

@@ -79,6 +79,7 @@ pub struct BseTabViewer<'a> {
     pub entities_snapshot: &'a [InspectorEntityInfo],
     pub cursor_pos: (f32, f32),
     pub panels: &'a mut HashMap<String, Box<dyn EditorPanel>>,
+    pub type_registry: Option<&'a bevy_reflect::TypeRegistry>,
 }
 
 impl egui_dock::TabViewer for BseTabViewer<'_> {
@@ -98,6 +99,7 @@ impl egui_dock::TabViewer for BseTabViewer<'_> {
                     insp: &mut *self.insp,
                     entities_snapshot: self.entities_snapshot,
                     cursor_pos: self.cursor_pos,
+                    type_registry: self.type_registry,
                 };
                 panel.ui(ui, &mut ctx);
             }

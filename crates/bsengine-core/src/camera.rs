@@ -72,6 +72,9 @@ mod tests {
         let registration = registry
             .get(std::any::TypeId::of::<Camera>())
             .expect("Camera not registered");
-        assert_eq!(registration.type_info().type_path(), "bsengine_core::camera::Camera");
+        assert_eq!(
+            registration.type_info().type_path(),
+            "bsengine_core::camera::Camera"
+        );
     }
 }

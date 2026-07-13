@@ -22,6 +22,7 @@ pub struct EditorPanelContext<'a> {
     pub insp: &'a mut InspectorState,
     pub entities_snapshot: &'a [InspectorEntityInfo],
     pub cursor_pos: (f32, f32),
+    pub type_registry: Option<&'a bevy_reflect::TypeRegistry>,
 }
 
 /// Registry of all panels (built-in and custom) available to dock.

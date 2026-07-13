@@ -93,7 +93,10 @@ mod tests {
         let registration = registry
             .get(std::any::TypeId::of::<PointLight>())
             .expect("PointLight not registered");
-        assert_eq!(registration.type_info().type_path(), "bsengine_core::light::PointLight");
+        assert_eq!(
+            registration.type_info().type_path(),
+            "bsengine_core::light::PointLight"
+        );
     }
 
     #[test]

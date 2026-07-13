@@ -241,5 +241,33 @@ impl EditorPanel for InspectorPanel {
                 insp.cmd_queue.push(InspectorCmd::AddCamera { id: sel_id });
             }
         });
+
+        if let Some(registry) = ctx.type_registry {
+            ui.separator();
+            ui.strong("Add Component (reflected)");
+            let mut to_attach: Option<String> = None;
+            egui::ComboBox::from_id_salt("reflect_add_component")
+                .selected_text("Select type...")
+                .show_ui(ui, |ui| {
+                    for registration in registry.iter() {
+                        if registration
+                            .data::<bevy_ecs::reflect::ReflectComponent>()
+                            .is_none()
+                        {
+                            continue;
+                        }
+                        let type_path = registration.type_info().type_path().to_string();
+                        if ui.selectable_label(false, &type_path).clicked() {
+                            to_attach = Some(type_path);
+                        }
+                    }
+                });
+            if let Some(type_path) = to_attach {
+                insp.cmd_queue.push(InspectorCmd::AttachComponentByType {
+                    id: sel_id,
+                    type_path,
+                });
+            }
+        }
     }
 }

@@ -120,6 +120,7 @@ fn render_frame(
         Query<(&SpotLight, Option<&GlobalTransform>, &Transform)>,
     )>,
     editor_panels: Option<Res<EditorPanelRegistry>>,
+    type_registry: Option<Res<bevy_ecs::reflect::AppTypeRegistry>>,
 ) {
     let (Some(mut surface), Some(registry)) = (surface, registry) else {
         return;
@@ -350,6 +351,7 @@ fn render_frame(
         shift_held,
         alt_held,
         editor_panels.as_deref(),
+        type_registry.as_deref(),
     ) {
         Ok(clicked) => {
             if let Some(ref mut state) = ui_state {

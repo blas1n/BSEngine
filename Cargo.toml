@@ -72,4 +72,5 @@ rapier3d          = { version = "0.33", features = ["default"] }
 kira              = { version = "0.12", default-features = false, features = ["cpal", "wav", "ogg", "mp3", "flac"] }
 egui              = "0.29"
 egui-wgpu         = "0.29"
+egui_dock         = { version = "0.14", features = ["serde"] }
 gilrs             = "0.11"

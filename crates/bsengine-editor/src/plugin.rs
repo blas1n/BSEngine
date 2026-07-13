@@ -6,7 +6,8 @@ use crate::snapshot::{
 use bevy_app::{App, Plugin, Update};
 use bevy_ecs::prelude::{Commands, Entity, IntoSystemConfigs, ParamSet, Query, ResMut, World};
 use bsengine_core::{
-    Camera, DirectionalLight, GlobalTransform, InspectorCmd, InspectorEntityInfo, InspectorState,
+    Camera, DirectionalLight, EditorPanelRegistry, GlobalTransform, InspectorCmd,
+    InspectorEntityInfo, InspectorState,
     Material, Parent, PointLight, SpotLight, Transform,
 };
 use bsengine_ecs::Res;
@@ -1248,6 +1249,7 @@ impl Plugin for EditorPlugin {
         app.insert_resource(EditorSelectionResource(selection.clone()));
         app.insert_resource(EditorHistoryResource(history.clone()));
         app.insert_resource(InspectorState::editor());
+        app.insert_resource(EditorPanelRegistry::default());
         app.add_systems(Update, update_editor_snapshot);
         app.add_systems(Update, update_editor_camera);
         app.add_systems(Update, populate_inspector.after(update_editor_snapshot));
@@ -28657,6 +28659,17 @@ mod tests {
         app.add_plugins(McpPlugin);
         app.add_plugins(EditorPlugin);
         app.update();
+    }
+
+    #[test]
+    fn editor_plugin_inserts_panel_registry() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.update();
+
+        let registry = app.world().resource::<bsengine_core::EditorPanelRegistry>();
+        assert!(registry.0.lock().unwrap().is_empty());
     }
 
     #[test]

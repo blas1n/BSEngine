@@ -1,0 +1,245 @@
+use bsengine_core::{EditorPanel, EditorPanelContext, InspectorCmd};
+
+pub struct InspectorPanel;
+
+impl EditorPanel for InspectorPanel {
+    fn id(&self) -> &str {
+        "inspector"
+    }
+
+    fn title(&self) -> String {
+        "Inspector".to_string()
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, ctx: &mut EditorPanelContext) {
+        let insp = &mut *ctx.insp;
+        let Some(sel_id) = insp.selected_id else {
+            ui.label("No entity selected.");
+            return;
+        };
+        let sel_info = ctx
+            .entities_snapshot
+            .iter()
+            .find(|e| e.id == sel_id)
+            .cloned()
+            .unwrap_or_default();
+        let entity_name = sel_info
+            .name
+            .as_deref()
+            .map(String::from)
+            .unwrap_or_else(|| format!("Entity {sel_id}"));
+        let has_transform = sel_info.position.is_some();
+        let light_type = sel_info.light_type.clone();
+        let has_camera = sel_info.camera_fov.is_some();
+        let has_material = sel_info.material_base_color.is_some();
+
+        ui.heading(&entity_name);
+        ui.separator();
+
+        // Visible toggle
+        if ui.checkbox(&mut insp.edit_visible, "Visible").changed() {
+            insp.cmd_queue.push(InspectorCmd::SetVisible {
+                id: sel_id,
+                visible: insp.edit_visible,
+            });
+        }
+        ui.separator();
+
+        // Transform
+        if has_transform {
+            ui.strong("Transform");
+            let mut pos_changed = false;
+            ui.horizontal(|ui| {
+                ui.label("Pos");
+                pos_changed |= ui
+                    .add(egui::DragValue::new(&mut insp.edit_pos[0]).speed(0.05))
+                    .changed();
+                pos_changed |= ui
+                    .add(egui::DragValue::new(&mut insp.edit_pos[1]).speed(0.05))
+                    .changed();
+                pos_changed |= ui
+                    .add(egui::DragValue::new(&mut insp.edit_pos[2]).speed(0.05))
+                    .changed();
+            });
+            if pos_changed {
+                insp.cmd_queue.push(InspectorCmd::SetPosition {
+                    id: sel_id,
+                    x: insp.edit_pos[0],
+                    y: insp.edit_pos[1],
+                    z: insp.edit_pos[2],
+                });
+            }
+
+            let mut rot_changed = false;
+            ui.horizontal(|ui| {
+                ui.label("Rot°");
+                rot_changed |= ui
+                    .add(egui::DragValue::new(&mut insp.edit_rot[0]).speed(0.5))
+                    .changed();
+                rot_changed |= ui
+                    .add(egui::DragValue::new(&mut insp.edit_rot[1]).speed(0.5))
+                    .changed();
+                rot_changed |= ui
+                    .add(egui::DragValue::new(&mut insp.edit_rot[2]).speed(0.5))
+                    .changed();
+            });
+            if rot_changed {
+                insp.cmd_queue.push(InspectorCmd::SetRotation {
+                    id: sel_id,
+                    rx: insp.edit_rot[0],
+                    ry: insp.edit_rot[1],
+                    rz: insp.edit_rot[2],
+                });
+            }
+
+            let mut scale_changed = false;
+            ui.horizontal(|ui| {
+                ui.label("Scale");
+                scale_changed |= ui
+                    .add(egui::DragValue::new(&mut insp.edit_scale[0]).speed(0.01))
+                    .changed();
+                scale_changed |= ui
+                    .add(egui::DragValue::new(&mut insp.edit_scale[1]).speed(0.01))
+                    .changed();
+                scale_changed |= ui
+                    .add(egui::DragValue::new(&mut insp.edit_scale[2]).speed(0.01))
+                    .changed();
+            });
+            if scale_changed {
+                insp.cmd_queue.push(InspectorCmd::SetScale {
+                    id: sel_id,
+                    sx: insp.edit_scale[0],
+                    sy: insp.edit_scale[1],
+                    sz: insp.edit_scale[2],
+                });
+            }
+            ui.separator();
+        }
+
+        // Light
+        if let Some(lt) = &light_type {
+            ui.strong(format!("Light ({})", lt));
+            let mut light_changed = false;
+            ui.horizontal(|ui| {
+                ui.label("Color");
+                light_changed |= ui
+                    .color_edit_button_rgb(&mut insp.edit_light_color)
+                    .changed();
+            });
+            ui.horizontal(|ui| {
+                ui.label("Intensity");
+                light_changed |= ui
+                    .add(
+                        egui::DragValue::new(&mut insp.edit_light_intensity)
+                            .speed(0.05)
+                            .range(0.0..=f32::MAX),
+                    )
+                    .changed();
+            });
+            if lt != "directional" {
+                ui.horizontal(|ui| {
+                    ui.label("Range");
+                    light_changed |= ui
+                        .add(
+                            egui::DragValue::new(&mut insp.edit_light_range)
+                                .speed(0.1)
+                                .range(0.1..=f32::MAX),
+                        )
+                        .changed();
+                });
+            }
+            if light_changed {
+                insp.cmd_queue.push(InspectorCmd::UpdateLight {
+                    id: sel_id,
+                    color: Some(insp.edit_light_color),
+                    intensity: Some(insp.edit_light_intensity),
+                    range: Some(insp.edit_light_range),
+                });
+            }
+            ui.separator();
+        }
+
+        // Camera
+        if has_camera {
+            ui.strong("Camera");
+            let mut cam_fov_changed = false;
+            ui.horizontal(|ui| {
+                ui.label("FOV°");
+                cam_fov_changed |= ui
+                    .add(
+                        egui::DragValue::new(&mut insp.edit_camera_fov)
+                            .speed(0.5)
+                            .range(10.0..=170.0),
+                    )
+                    .changed();
+            });
+            if cam_fov_changed {
+                insp.cmd_queue.push(InspectorCmd::UpdateCamera {
+                    id: sel_id,
+                    fov_y_degrees: Some(insp.edit_camera_fov),
+                });
+            }
+            ui.separator();
+        }
+
+        // Material
+        if has_material {
+            ui.strong("Material");
+            let mut mat_changed = false;
+            ui.horizontal(|ui| {
+                ui.label("Base Color");
+                mat_changed |= ui
+                    .color_edit_button_rgb(&mut insp.edit_mat_base_color)
+                    .changed();
+            });
+            ui.horizontal(|ui| {
+                ui.label("Metallic");
+                mat_changed |= ui
+                    .add(
+                        egui::DragValue::new(&mut insp.edit_mat_metallic)
+                            .speed(0.01)
+                            .range(0.0..=1.0),
+                    )
+                    .changed();
+            });
+            ui.horizontal(|ui| {
+                ui.label("Roughness");
+                mat_changed |= ui
+                    .add(
+                        egui::DragValue::new(&mut insp.edit_mat_roughness)
+                            .speed(0.01)
+                            .range(0.0..=1.0),
+                    )
+                    .changed();
+            });
+            ui.horizontal(|ui| {
+                ui.label("Emissive");
+                mat_changed |= ui
+                    .color_edit_button_rgb(&mut insp.edit_mat_emissive)
+                    .changed();
+            });
+            if mat_changed {
+                insp.cmd_queue.push(InspectorCmd::UpdateMaterial {
+                    id: sel_id,
+                    base_color: Some(insp.edit_mat_base_color),
+                    metallic: Some(insp.edit_mat_metallic),
+                    roughness: Some(insp.edit_mat_roughness),
+                    emissive: Some(insp.edit_mat_emissive),
+                });
+            }
+            ui.separator();
+        }
+
+        // Add Component
+        ui.strong("Add Component");
+        ui.horizontal(|ui| {
+            if light_type.is_none() && ui.button("Point Light").clicked() {
+                insp.cmd_queue
+                    .push(InspectorCmd::AddPointLight { id: sel_id });
+            }
+            if !has_camera && ui.button("Camera").clicked() {
+                insp.cmd_queue.push(InspectorCmd::AddCamera { id: sel_id });
+            }
+        });
+    }
+}

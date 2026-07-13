@@ -521,6 +521,8 @@ pub struct WgpuSurface {
     custom_pipelines: std::collections::HashMap<String, wgpu::RenderPipeline>,
     post_process: crate::post_process::PostProcessState,
     start_time: std::time::Instant,
+    dock_state: Option<egui_dock::DockState<String>>,
+    last_saved_layout_json: Option<String>,
 }
 
 impl WgpuSurface {
@@ -891,6 +893,8 @@ impl WgpuSurface {
             custom_pipelines: std::collections::HashMap::new(),
             post_process,
             start_time: std::time::Instant::now(),
+            dock_state: None,
+            last_saved_layout_json: None,
         })
     }
 
@@ -1217,6 +1221,7 @@ impl WgpuSurface {
         ctrl_held: bool,
         shift_held: bool,
         alt_held: bool,
+        editor_panels: Option<&bsengine_core::EditorPanelRegistry>,
     ) -> Result<std::collections::HashSet<String>, String> {
         let camera_data = CameraUniformData {
             view_proj: view_proj.to_cols_array_2d(),
@@ -1679,81 +1684,18 @@ impl WgpuSurface {
                 // Runtime inspector panels / full editor layout
                 if let Some(insp) = inspector.as_deref_mut() {
                     if insp.editor_mode {
-                        // ── Full editor layout ──
                         let play_label =
                             if insp.play_state == bsengine_core::EditorPlayState::Playing {
                                 "■  Stop"
                             } else {
                                 "▶  Play"
                             };
-                        egui::TopBottomPanel::top("bse_editor_toolbar").show(ctx, |ui| {
-                            ui.horizontal(|ui| {
-                                if ui.button(play_label).clicked() {
-                                    insp.play_state = if insp.play_state
-                                        == bsengine_core::EditorPlayState::Playing
-                                    {
-                                        bsengine_core::EditorPlayState::Stopped
-                                    } else {
-                                        bsengine_core::EditorPlayState::Playing
-                                    };
-                                }
-                                ui.separator();
-                                let mode_label =
-                                    if insp.play_state == bsengine_core::EditorPlayState::Playing {
-                                        "● Playing"
-                                    } else {
-                                        "◆ Editor"
-                                    };
-                                ui.label(mode_label);
-                                ui.separator();
-                                if ui.button("↩ Undo").clicked() {
-                                    insp.request_undo = true;
-                                }
-                                if ui.button("↪ Redo").clicked() {
-                                    insp.request_redo = true;
-                                }
-                                ui.separator();
-                                let save_enabled = insp.current_scene_path.is_some();
-                                if ui
-                                    .add_enabled(save_enabled, egui::Button::new("💾 Save"))
-                                    .on_disabled_hover_text("No scene file loaded")
-                                    .clicked()
-                                {
-                                    insp.cmd_queue.push(bsengine_core::InspectorCmd::SaveScene);
-                                }
-                                ui.separator();
-                                if ui
-                                    .selectable_label(
-                                        insp.gizmo_mode == bsengine_core::GizmoMode::Translate,
-                                        "Move (W)",
-                                    )
-                                    .clicked()
-                                {
-                                    insp.gizmo_mode = bsengine_core::GizmoMode::Translate;
-                                }
-                                if ui
-                                    .selectable_label(
-                                        insp.gizmo_mode == bsengine_core::GizmoMode::Rotate,
-                                        "Rotate (E)",
-                                    )
-                                    .clicked()
-                                {
-                                    insp.gizmo_mode = bsengine_core::GizmoMode::Rotate;
-                                }
-                            });
-                        });
-
-                        let entities_snapshot = insp.entities.clone();
-                        let current_sel = insp.selected_id;
-                        let mut new_sel = insp.selected_id;
-                        let mut new_selection: Option<Vec<u64>> = None;
-                        let mut spawn_entity = false;
-                        let mut despawn_entity = false;
-                        let mut duplicate_selected = false;
 
                         // Keyboard shortcuts. Ignored while an egui widget (e.g. a
                         // DragValue or text field) has focus, so Ctrl+Z etc. don't
                         // get stolen from in-progress text editing.
+                        let mut despawn_entity = false;
+                        let mut duplicate_selected = false;
                         if ctx.memory(|m| m.focused()).is_none() {
                             let (del, dup, undo, redo, save, move_mode, rotate_mode) =
                                 ctx.input(|i| {
@@ -1794,662 +1736,110 @@ impl WgpuSurface {
                                 insp.gizmo_mode = bsengine_core::GizmoMode::Rotate;
                             }
                         }
-
-                        egui::SidePanel::left("bse_hierarchy")
-                            .default_width(220.0)
-                            .show(ctx, |ui| {
-                                ui.heading("Hierarchy");
-                                ui.separator();
-                                ui.horizontal(|ui| {
-                                    if ui.button("＋").clicked() {
-                                        spawn_entity = true;
-                                    }
-                                    if ui
-                                        .add_enabled(current_sel.is_some(), egui::Button::new("－"))
-                                        .clicked()
-                                    {
-                                        despawn_entity = true;
-                                    }
-                                });
-                                ui.label("Ctrl+click: toggle · Shift+click: range");
-                                ui.separator();
-                                egui::ScrollArea::vertical().show(ui, |ui| {
-                                    for (idx, info) in entities_snapshot.iter().enumerate() {
-                                        let label = info.name.as_deref().unwrap_or("(unnamed)");
-                                        let text = format!("[{}] {}", info.id, label);
-                                        let resp = ui.selectable_label(info.selected, text);
-                                        if resp.clicked() {
-                                            let mods = ui.ctx().input(|i| i.modifiers);
-                                            if mods.shift {
-                                                let anchor_idx = current_sel
-                                                    .and_then(|id| {
-                                                        entities_snapshot
-                                                            .iter()
-                                                            .position(|e| e.id == id)
-                                                    })
-                                                    .unwrap_or(idx);
-                                                let (lo, hi) =
-                                                    (anchor_idx.min(idx), anchor_idx.max(idx));
-                                                new_selection = Some(
-                                                    entities_snapshot[lo..=hi]
-                                                        .iter()
-                                                        .map(|e| e.id)
-                                                        .collect(),
-                                                );
-                                            } else if mods.ctrl {
-                                                let mut ids: Vec<u64> = entities_snapshot
-                                                    .iter()
-                                                    .filter(|e| e.selected)
-                                                    .map(|e| e.id)
-                                                    .collect();
-                                                if let Some(pos) =
-                                                    ids.iter().position(|&id| id == info.id)
-                                                {
-                                                    ids.remove(pos);
-                                                } else {
-                                                    ids.push(info.id);
-                                                }
-                                                new_selection = Some(ids);
-                                            } else {
-                                                new_selection = Some(vec![info.id]);
-                                            }
-                                            new_sel = Some(info.id);
-                                        }
-                                    }
-                                });
-                            });
-                        if spawn_entity {
-                            insp.cmd_queue
-                                .push(bsengine_core::InspectorCmd::SpawnEntity {
-                                    name: format!("Entity {}", entities_snapshot.len()),
-                                });
-                        }
                         if despawn_entity {
-                            let ids: Vec<u64> = entities_snapshot
-                                .iter()
-                                .filter(|e| e.selected)
-                                .map(|e| e.id)
-                                .collect();
-                            let ids: Vec<u64> = if ids.is_empty() {
-                                current_sel.into_iter().collect()
-                            } else {
-                                ids
-                            };
-                            for id in ids {
+                            if let Some(id) = insp.selected_id {
                                 insp.cmd_queue
                                     .push(bsengine_core::InspectorCmd::Despawn { id });
+                                insp.selected_id = None;
                             }
-                            insp.selected_id = None;
-                            insp.cmd_queue
-                                .push(bsengine_core::InspectorCmd::SetSelection { ids: vec![] });
                         }
                         if duplicate_selected {
-                            let ids: Vec<u64> = entities_snapshot
-                                .iter()
-                                .filter(|e| e.selected)
-                                .map(|e| e.id)
-                                .collect();
-                            let ids: Vec<u64> = if ids.is_empty() {
-                                current_sel.into_iter().collect()
-                            } else {
-                                ids
-                            };
-                            for id in ids {
+                            if let Some(id) = insp.selected_id {
                                 insp.cmd_queue
                                     .push(bsengine_core::InspectorCmd::Duplicate { id });
                             }
                         }
-                        if let Some(ids) = new_selection {
-                            insp.cmd_queue
-                                .push(bsengine_core::InspectorCmd::SetSelection { ids });
-                        }
-                        if new_sel != insp.selected_id {
-                            insp.selected_id = new_sel;
-                            insp.sync_selection();
-                        }
 
-                        if let Some(sel_id) = insp.selected_id {
-                            let sel_info = entities_snapshot
-                                .iter()
-                                .find(|e| e.id == sel_id)
-                                .cloned()
-                                .unwrap_or_default();
-                            let entity_name = sel_info
-                                .name
-                                .as_deref()
-                                .map(String::from)
-                                .unwrap_or_else(|| format!("Entity {sel_id}"));
-                            let has_transform = sel_info.position.is_some();
-                            let light_type = sel_info.light_type.clone();
-                            let has_camera = sel_info.camera_fov.is_some();
-                            let has_material = sel_info.material_base_color.is_some();
-
-                            let mut pos_changed = false;
-                            let mut rot_changed = false;
-                            let mut scale_changed = false;
-                            let mut light_changed = false;
-                            let mut cam_fov_changed = false;
-                            let mut mat_changed = false;
-                            let mut visible_changed = false;
-                            let mut add_point_light = false;
-                            let mut add_camera = false;
-
-                            egui::SidePanel::right("bse_inspector")
-                                .default_width(260.0)
-                                .show(ctx, |ui| {
-                                    ui.heading(&entity_name);
-                                    ui.separator();
-
-                                    // Visible toggle
-                                    if ui.checkbox(&mut insp.edit_visible, "Visible").changed() {
-                                        visible_changed = true;
-                                    }
-                                    ui.separator();
-
-                                    // Transform
-                                    if has_transform {
-                                        ui.strong("Transform");
-                                        ui.horizontal(|ui| {
-                                            ui.label("Pos");
-                                            pos_changed |= ui
-                                                .add(
-                                                    egui::DragValue::new(&mut insp.edit_pos[0])
-                                                        .speed(0.05),
-                                                )
-                                                .changed();
-                                            pos_changed |= ui
-                                                .add(
-                                                    egui::DragValue::new(&mut insp.edit_pos[1])
-                                                        .speed(0.05),
-                                                )
-                                                .changed();
-                                            pos_changed |= ui
-                                                .add(
-                                                    egui::DragValue::new(&mut insp.edit_pos[2])
-                                                        .speed(0.05),
-                                                )
-                                                .changed();
-                                        });
-                                        ui.horizontal(|ui| {
-                                            ui.label("Rot°");
-                                            rot_changed |= ui
-                                                .add(
-                                                    egui::DragValue::new(&mut insp.edit_rot[0])
-                                                        .speed(0.5),
-                                                )
-                                                .changed();
-                                            rot_changed |= ui
-                                                .add(
-                                                    egui::DragValue::new(&mut insp.edit_rot[1])
-                                                        .speed(0.5),
-                                                )
-                                                .changed();
-                                            rot_changed |= ui
-                                                .add(
-                                                    egui::DragValue::new(&mut insp.edit_rot[2])
-                                                        .speed(0.5),
-                                                )
-                                                .changed();
-                                        });
-                                        ui.horizontal(|ui| {
-                                            ui.label("Scale");
-                                            scale_changed |= ui
-                                                .add(
-                                                    egui::DragValue::new(&mut insp.edit_scale[0])
-                                                        .speed(0.01),
-                                                )
-                                                .changed();
-                                            scale_changed |= ui
-                                                .add(
-                                                    egui::DragValue::new(&mut insp.edit_scale[1])
-                                                        .speed(0.01),
-                                                )
-                                                .changed();
-                                            scale_changed |= ui
-                                                .add(
-                                                    egui::DragValue::new(&mut insp.edit_scale[2])
-                                                        .speed(0.01),
-                                                )
-                                                .changed();
-                                        });
-                                        ui.separator();
-                                    }
-
-                                    // Light
-                                    if let Some(lt) = &light_type {
-                                        ui.strong(format!("Light ({})", lt));
-                                        ui.horizontal(|ui| {
-                                            ui.label("Color");
-                                            light_changed |= ui
-                                                .color_edit_button_rgb(&mut insp.edit_light_color)
-                                                .changed();
-                                        });
-                                        ui.horizontal(|ui| {
-                                            ui.label("Intensity");
-                                            light_changed |= ui
-                                                .add(
-                                                    egui::DragValue::new(
-                                                        &mut insp.edit_light_intensity,
-                                                    )
-                                                    .speed(0.05)
-                                                    .range(0.0..=f32::MAX),
-                                                )
-                                                .changed();
-                                        });
-                                        if lt != "directional" {
-                                            ui.horizontal(|ui| {
-                                                ui.label("Range");
-                                                light_changed |= ui
-                                                    .add(
-                                                        egui::DragValue::new(
-                                                            &mut insp.edit_light_range,
-                                                        )
-                                                        .speed(0.1)
-                                                        .range(0.1..=f32::MAX),
-                                                    )
-                                                    .changed();
-                                            });
-                                        }
-                                        ui.separator();
-                                    }
-
-                                    // Camera
-                                    if has_camera {
-                                        ui.strong("Camera");
-                                        ui.horizontal(|ui| {
-                                            ui.label("FOV°");
-                                            cam_fov_changed |= ui
-                                                .add(
-                                                    egui::DragValue::new(&mut insp.edit_camera_fov)
-                                                        .speed(0.5)
-                                                        .range(10.0..=170.0),
-                                                )
-                                                .changed();
-                                        });
-                                        ui.separator();
-                                    }
-
-                                    // Material
-                                    if has_material {
-                                        ui.strong("Material");
-                                        ui.horizontal(|ui| {
-                                            ui.label("Base Color");
-                                            mat_changed |= ui
-                                                .color_edit_button_rgb(
-                                                    &mut insp.edit_mat_base_color,
-                                                )
-                                                .changed();
-                                        });
-                                        ui.horizontal(|ui| {
-                                            ui.label("Metallic");
-                                            mat_changed |= ui
-                                                .add(
-                                                    egui::DragValue::new(
-                                                        &mut insp.edit_mat_metallic,
-                                                    )
-                                                    .speed(0.01)
-                                                    .range(0.0..=1.0),
-                                                )
-                                                .changed();
-                                        });
-                                        ui.horizontal(|ui| {
-                                            ui.label("Roughness");
-                                            mat_changed |= ui
-                                                .add(
-                                                    egui::DragValue::new(
-                                                        &mut insp.edit_mat_roughness,
-                                                    )
-                                                    .speed(0.01)
-                                                    .range(0.0..=1.0),
-                                                )
-                                                .changed();
-                                        });
-                                        ui.horizontal(|ui| {
-                                            ui.label("Emissive");
-                                            mat_changed |= ui
-                                                .color_edit_button_rgb(&mut insp.edit_mat_emissive)
-                                                .changed();
-                                        });
-                                        ui.separator();
-                                    }
-
-                                    // Add Component
-                                    ui.strong("Add Component");
-                                    ui.horizontal(|ui| {
-                                        if light_type.is_none()
-                                            && ui.button("Point Light").clicked()
-                                        {
-                                            add_point_light = true;
-                                        }
-                                        if !has_camera && ui.button("Camera").clicked() {
-                                            add_camera = true;
-                                        }
-                                    });
-                                });
-
-                            if pos_changed {
-                                insp.cmd_queue
-                                    .push(bsengine_core::InspectorCmd::SetPosition {
-                                        id: sel_id,
-                                        x: insp.edit_pos[0],
-                                        y: insp.edit_pos[1],
-                                        z: insp.edit_pos[2],
-                                    });
-                            }
-                            if rot_changed {
-                                insp.cmd_queue
-                                    .push(bsengine_core::InspectorCmd::SetRotation {
-                                        id: sel_id,
-                                        rx: insp.edit_rot[0],
-                                        ry: insp.edit_rot[1],
-                                        rz: insp.edit_rot[2],
-                                    });
-                            }
-                            if scale_changed {
-                                insp.cmd_queue.push(bsengine_core::InspectorCmd::SetScale {
-                                    id: sel_id,
-                                    sx: insp.edit_scale[0],
-                                    sy: insp.edit_scale[1],
-                                    sz: insp.edit_scale[2],
-                                });
-                            }
-                            if light_changed {
-                                insp.cmd_queue
-                                    .push(bsengine_core::InspectorCmd::UpdateLight {
-                                        id: sel_id,
-                                        color: Some(insp.edit_light_color),
-                                        intensity: Some(insp.edit_light_intensity),
-                                        range: Some(insp.edit_light_range),
-                                    });
-                            }
-                            if cam_fov_changed {
-                                insp.cmd_queue
-                                    .push(bsengine_core::InspectorCmd::UpdateCamera {
-                                        id: sel_id,
-                                        fov_y_degrees: Some(insp.edit_camera_fov),
-                                    });
-                            }
-                            if mat_changed {
-                                insp.cmd_queue
-                                    .push(bsengine_core::InspectorCmd::UpdateMaterial {
-                                        id: sel_id,
-                                        base_color: Some(insp.edit_mat_base_color),
-                                        metallic: Some(insp.edit_mat_metallic),
-                                        roughness: Some(insp.edit_mat_roughness),
-                                        emissive: Some(insp.edit_mat_emissive),
-                                    });
-                            }
-                            if visible_changed {
-                                insp.cmd_queue
-                                    .push(bsengine_core::InspectorCmd::SetVisible {
-                                        id: sel_id,
-                                        visible: insp.edit_visible,
-                                    });
-                            }
-                            if add_point_light {
-                                insp.cmd_queue
-                                    .push(bsengine_core::InspectorCmd::AddPointLight {
-                                        id: sel_id,
-                                    });
-                            }
-                            if add_camera {
-                                insp.cmd_queue
-                                    .push(bsengine_core::InspectorCmd::AddCamera { id: sel_id });
-                            }
-                        }
-
-                        egui::CentralPanel::default()
-                            .frame(egui::Frame::none())
-                            .show(ctx, |ui| {
-                                let panel_rect = ui.max_rect();
-                                insp.viewport_size = [panel_rect.width(), panel_rect.height()];
-                                insp.viewport_contains_cursor =
-                                    panel_rect.contains(egui::Pos2::new(cursor_x, cursor_y));
-                                let response =
-                                    ui.allocate_rect(panel_rect, egui::Sense::click_and_drag());
-
-                                // Gizmo overlays only make sense while editing: once Play
-                                // starts, the viewport shows the game's own Camera entity
-                                // feed (see bsengine-render's render_frame), which the
-                                // editor-orbit-relative view_proj no longer matches.
-                                let is_stopped =
-                                    insp.play_state == bsengine_core::EditorPlayState::Stopped;
-
-                                if is_stopped {
-                                    if let Some(view_proj) = insp.editor_view_proj {
-                                        for info in &entities_snapshot {
-                                            if let (Some(fov_deg), Some(pos), Some(rot)) =
-                                                (info.camera_fov, info.position, info.rotation)
-                                            {
-                                                let rotation = glam::Quat::from_euler(
-                                                    glam::EulerRot::XYZ,
-                                                    rot[0].to_radians(),
-                                                    rot[1].to_radians(),
-                                                    rot[2].to_radians(),
-                                                );
-                                                crate::gizmo::draw_camera_frustum(
-                                                    ui.painter(),
-                                                    glam::Vec3::from(pos),
-                                                    rotation,
-                                                    fov_deg.to_radians(),
-                                                    &view_proj,
-                                                    panel_rect,
-                                                    info.selected,
-                                                );
-                                            }
-                                        }
-                                    }
-                                }
-
-                                if is_stopped {
-                                    if let (Some(sel_id), Some(view_proj)) =
-                                        (insp.selected_id, insp.editor_view_proj)
-                                    {
-                                        let has_transform = entities_snapshot
-                                            .iter()
-                                            .find(|e| e.id == sel_id)
-                                            .is_some_and(|e| e.position.is_some());
-                                        if has_transform {
-                                            let pos = glam::Vec3::from(insp.edit_pos);
-                                            let cam_pos = glam::Vec3::from(insp.editor_cam_pos);
-                                            let handle_len =
-                                                crate::gizmo::handle_length(pos, cam_pos);
-
-                                            match insp.gizmo_mode {
-                                                bsengine_core::GizmoMode::Translate => {
-                                                    if response.drag_started() {
-                                                        if let Some(mp) =
-                                                            response.interact_pointer_pos()
-                                                        {
-                                                            if let Some(axis) =
-                                                                crate::gizmo::hit_test(
-                                                                    pos, handle_len, &view_proj,
-                                                                    panel_rect, mp,
-                                                                )
-                                                            {
-                                                                insp.gizmo_drag_axis = Some(axis);
-                                                                insp.gizmo_drag_start_world =
-                                                                    insp.edit_pos;
-                                                                insp.gizmo_drag_start_mouse =
-                                                                    [mp.x, mp.y];
-                                                            }
-                                                        }
-                                                    }
-
-                                                    let mut pos_changed = false;
-                                                    if let Some(axis) = insp.gizmo_drag_axis {
-                                                        if response.dragged() {
-                                                            if let (
-                                                            Some((dir2d, px_per_unit)),
-                                                            Some(mp),
-                                                        ) = (
-                                                            crate::gizmo::axis_screen_dir_and_scale(
-                                                                glam::Vec3::from(
-                                                                    insp.gizmo_drag_start_world,
-                                                                ),
-                                                                axis,
-                                                                handle_len.max(0.01),
-                                                                &view_proj,
-                                                                panel_rect,
-                                                            ),
-                                                            response.interact_pointer_pos(),
-                                                        ) {
-                                                            let start = egui::Pos2::new(
-                                                                insp.gizmo_drag_start_mouse[0],
-                                                                insp.gizmo_drag_start_mouse[1],
-                                                            );
-                                                            let screen_delta = mp - start;
-                                                            let world_delta =
-                                                                screen_delta.dot(dir2d)
-                                                                    / px_per_unit;
-                                                            let new_pos = glam::Vec3::from(
-                                                                insp.gizmo_drag_start_world,
-                                                            ) + crate::gizmo::axis_dir(axis)
-                                                                * world_delta;
-                                                            insp.edit_pos = new_pos.to_array();
-                                                            pos_changed = true;
-                                                        }
-                                                        } else if response.drag_stopped() {
-                                                            insp.gizmo_drag_axis = None;
-                                                        }
-                                                    }
-                                                    if pos_changed {
-                                                        insp.cmd_queue.push(
-                                                        bsengine_core::InspectorCmd::SetPosition {
-                                                            id: sel_id,
-                                                            x: insp.edit_pos[0],
-                                                            y: insp.edit_pos[1],
-                                                            z: insp.edit_pos[2],
-                                                        },
-                                                    );
-                                                    }
-
-                                                    let hovered =
-                                                        response.hover_pos().and_then(|mp| {
-                                                            crate::gizmo::hit_test(
-                                                                pos, handle_len, &view_proj,
-                                                                panel_rect, mp,
-                                                            )
-                                                        });
-                                                    crate::gizmo::draw(
-                                                        ui.painter(),
-                                                        pos,
-                                                        handle_len,
-                                                        &view_proj,
-                                                        panel_rect,
-                                                        hovered,
-                                                        insp.gizmo_drag_axis,
-                                                    );
-                                                }
-                                                bsengine_core::GizmoMode::Rotate => {
-                                                    let radius = handle_len;
-
-                                                    if response.drag_started() {
-                                                        if let Some(mp) =
-                                                            response.interact_pointer_pos()
-                                                        {
-                                                            if let Some(axis) =
-                                                                crate::gizmo::hit_test_rotate(
-                                                                    pos, radius, &view_proj,
-                                                                    panel_rect, mp,
-                                                                )
-                                                            {
-                                                                if let Some(center) =
-                                                                    crate::gizmo::world_to_screen(
-                                                                        pos, &view_proj, panel_rect,
-                                                                    )
-                                                                {
-                                                                    insp.gizmo_rotate_axis =
-                                                                        Some(axis);
-                                                                    insp.gizmo_rotate_start_deg =
-                                                                        insp.edit_rot;
-                                                                    insp.gizmo_rotate_start_angle =
-                                                                        crate::gizmo::screen_angle(
-                                                                            center, mp,
-                                                                        );
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-
-                                                    let mut rot_changed = false;
-                                                    if let Some(axis) = insp.gizmo_rotate_axis {
-                                                        if response.dragged() {
-                                                            if let (Some(center), Some(mp)) = (
-                                                                crate::gizmo::world_to_screen(
-                                                                    pos, &view_proj, panel_rect,
-                                                                ),
-                                                                response.interact_pointer_pos(),
-                                                            ) {
-                                                                let current_angle =
-                                                                    crate::gizmo::screen_angle(
-                                                                        center, mp,
-                                                                    );
-                                                                let delta = current_angle
-                                                                    - insp.gizmo_rotate_start_angle;
-                                                                let deg =
-                                                                    insp.gizmo_rotate_start_deg;
-                                                                let start_rot =
-                                                                    glam::Quat::from_euler(
-                                                                        glam::EulerRot::XYZ,
-                                                                        deg[0].to_radians(),
-                                                                        deg[1].to_radians(),
-                                                                        deg[2].to_radians(),
-                                                                    );
-                                                                let delta_rot =
-                                                                    glam::Quat::from_axis_angle(
-                                                                        crate::gizmo::axis_dir(
-                                                                            axis,
-                                                                        ),
-                                                                        delta,
-                                                                    );
-                                                                let (rx, ry, rz) = (delta_rot
-                                                                    * start_rot)
-                                                                    .to_euler(glam::EulerRot::XYZ);
-                                                                insp.edit_rot = [
-                                                                    rx.to_degrees(),
-                                                                    ry.to_degrees(),
-                                                                    rz.to_degrees(),
-                                                                ];
-                                                                rot_changed = true;
-                                                            }
-                                                        } else if response.drag_stopped() {
-                                                            insp.gizmo_rotate_axis = None;
-                                                        }
-                                                    }
-                                                    if rot_changed {
-                                                        insp.cmd_queue.push(
-                                                        bsengine_core::InspectorCmd::SetRotation {
-                                                            id: sel_id,
-                                                            rx: insp.edit_rot[0],
-                                                            ry: insp.edit_rot[1],
-                                                            rz: insp.edit_rot[2],
-                                                        },
-                                                    );
-                                                    }
-
-                                                    let hovered =
-                                                        response.hover_pos().and_then(|mp| {
-                                                            crate::gizmo::hit_test_rotate(
-                                                                pos, radius, &view_proj,
-                                                                panel_rect, mp,
-                                                            )
-                                                        });
-                                                    crate::gizmo::draw_rotate_gizmo(
-                                                        ui.painter(),
-                                                        pos,
-                                                        radius,
-                                                        &view_proj,
-                                                        panel_rect,
-                                                        hovered,
-                                                        insp.gizmo_rotate_axis,
-                                                    );
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                        if let Some(registry) = editor_panels {
+                            crate::panels::ensure_builtin_panels(registry);
+                            let mut dock_state = self.dock_state.take().unwrap_or_else(|| {
+                                crate::panels::load_dock_state(&crate::panels::layout_path())
+                                    .unwrap_or_else(crate::panels::default_dock_state)
                             });
+
+                            egui::TopBottomPanel::top("bse_editor_toolbar").show(ctx, |ui| {
+                                ui.horizontal(|ui| {
+                                    if ui.button(play_label).clicked() {
+                                        insp.play_state = if insp.play_state
+                                            == bsengine_core::EditorPlayState::Playing
+                                        {
+                                            bsengine_core::EditorPlayState::Stopped
+                                        } else {
+                                            bsengine_core::EditorPlayState::Playing
+                                        };
+                                    }
+                                    ui.separator();
+                                    let mode_label = if insp.play_state
+                                        == bsengine_core::EditorPlayState::Playing
+                                    {
+                                        "● Playing"
+                                    } else {
+                                        "◆ Editor"
+                                    };
+                                    ui.label(mode_label);
+                                    ui.separator();
+                                    if ui.button("↩ Undo").clicked() {
+                                        insp.request_undo = true;
+                                    }
+                                    if ui.button("↪ Redo").clicked() {
+                                        insp.request_redo = true;
+                                    }
+                                    ui.separator();
+                                    let save_enabled = insp.current_scene_path.is_some();
+                                    if ui
+                                        .add_enabled(save_enabled, egui::Button::new("💾 Save"))
+                                        .on_disabled_hover_text("No scene file loaded")
+                                        .clicked()
+                                    {
+                                        insp.cmd_queue.push(bsengine_core::InspectorCmd::SaveScene);
+                                    }
+                                    ui.separator();
+                                    if ui
+                                        .selectable_label(
+                                            insp.gizmo_mode == bsengine_core::GizmoMode::Translate,
+                                            "Move (W)",
+                                        )
+                                        .clicked()
+                                    {
+                                        insp.gizmo_mode = bsengine_core::GizmoMode::Translate;
+                                    }
+                                    if ui
+                                        .selectable_label(
+                                            insp.gizmo_mode == bsengine_core::GizmoMode::Rotate,
+                                            "Rotate (E)",
+                                        )
+                                        .clicked()
+                                    {
+                                        insp.gizmo_mode = bsengine_core::GizmoMode::Rotate;
+                                    }
+                                    ui.separator();
+                                    crate::panels::window_menu_ui(ui, &mut dock_state, registry);
+                                });
+                            });
+
+                            let entities_snapshot = insp.entities.clone();
+                            let mut panels_guard = registry.0.lock().unwrap();
+                            let mut tab_viewer = crate::panels::BseTabViewer {
+                                insp,
+                                entities_snapshot: &entities_snapshot,
+                                cursor_pos: (cursor_x, cursor_y),
+                                panels: &mut panels_guard,
+                            };
+                            egui_dock::DockArea::new(&mut dock_state).show(ctx, &mut tab_viewer);
+                            drop(panels_guard);
+
+                            let layout_json =
+                                serde_json::to_string(&dock_state).unwrap_or_default();
+                            if self.last_saved_layout_json.as_deref() != Some(layout_json.as_str())
+                            {
+                                crate::panels::save_dock_state(
+                                    &crate::panels::layout_path(),
+                                    &dock_state,
+                                );
+                                self.last_saved_layout_json = Some(layout_json);
+                            }
+                            self.dock_state = Some(dock_state);
+                        }
                     } else {
                         // Overlay mode: side panels rendered over the running game
                         let entities_snapshot = insp.entities.clone();

@@ -456,3 +456,6 @@ Document/
 
 # vcpkg
 Scripts/vcpkg
+
+# Brainstorming visual companion scratch files
+.superpowers/

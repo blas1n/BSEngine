@@ -224,6 +224,18 @@ impl HierarchyPanel {
                 return;
             }
 
+            // `selectable_label`/`CollapsingHeader` only allocate with
+            // `Sense::click()`, so `row_response.drag_started()` (which
+            // `dnd_set_drag_payload` gates on) would never fire on its own.
+            // Mirror `Ui::dnd_drag_source`'s own internals: union in a
+            // second same-rect interact that senses drags, so the row
+            // becomes an actual DnD source without disturbing its existing
+            // click/double-click behavior (`Response::union` ORs
+            // `clicked`/`double_clicked`/`drag_started`/`dragged`).
+            let drag_id = ui.id().with(("hierarchy_row_drag", info.id));
+            let drag_response = ui.interact(row_response.rect, drag_id, egui::Sense::drag());
+            let row_response = drag_response | row_response;
+
             if row_response.clicked() {
                 let mods = ui.ctx().input(|i| i.modifiers);
                 if mods.shift {

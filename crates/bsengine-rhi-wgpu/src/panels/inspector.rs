@@ -194,7 +194,15 @@ impl EditorPanel for InspectorPanel {
 
         // Camera
         if has_camera {
-            ui.strong("Camera");
+            ui.horizontal(|ui| {
+                ui.strong("Camera");
+                if ui.small_button("✕").clicked() {
+                    insp.cmd_queue.push(InspectorCmd::RemoveComponentByType {
+                        id: sel_id,
+                        type_path: "bsengine_core::camera::Camera".to_string(),
+                    });
+                }
+            });
             let mut cam_fov_changed = false;
             ui.horizontal(|ui| {
                 ui.label("FOV°");
@@ -217,7 +225,15 @@ impl EditorPanel for InspectorPanel {
 
         // Material
         if has_material {
-            ui.strong("Material");
+            ui.horizontal(|ui| {
+                ui.strong("Material");
+                if ui.small_button("✕").clicked() {
+                    insp.cmd_queue.push(InspectorCmd::RemoveComponentByType {
+                        id: sel_id,
+                        type_path: "bsengine_core::material::Material".to_string(),
+                    });
+                }
+            });
             let mut mat_changed = false;
             ui.horizontal(|ui| {
                 ui.label("Base Color");

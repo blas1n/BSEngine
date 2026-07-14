@@ -1365,6 +1365,9 @@ impl Plugin for EditorPlugin {
         app.insert_resource(EditorPanelRegistry::default());
         app.register_type::<bsengine_core::Camera>();
         app.register_type::<bsengine_core::PointLight>();
+        app.register_type::<bsengine_core::DirectionalLight>();
+        app.register_type::<bsengine_core::SpotLight>();
+        app.register_type::<bsengine_core::Material>();
         app.add_systems(Update, update_editor_snapshot);
         app.add_systems(Update, update_editor_camera);
         app.add_systems(Update, populate_inspector.after(update_editor_snapshot));
@@ -28903,6 +28906,35 @@ mod tests {
         assert!(
             registry.get(std::any::TypeId::of::<bsengine_core::PointLight>()).is_some(),
             "PointLight not registered in AppTypeRegistry"
+        );
+    }
+
+    #[test]
+    fn editor_plugin_registers_lights_and_material_reflected_types() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.update();
+
+        let registry = app.world().resource::<bevy_ecs::reflect::AppTypeRegistry>();
+        let registry = registry.read();
+        assert!(
+            registry
+                .get(std::any::TypeId::of::<bsengine_core::DirectionalLight>())
+                .is_some(),
+            "DirectionalLight not registered in AppTypeRegistry"
+        );
+        assert!(
+            registry
+                .get(std::any::TypeId::of::<bsengine_core::SpotLight>())
+                .is_some(),
+            "SpotLight not registered in AppTypeRegistry"
+        );
+        assert!(
+            registry
+                .get(std::any::TypeId::of::<bsengine_core::Material>())
+                .is_some(),
+            "Material not registered in AppTypeRegistry"
         );
     }
 

@@ -226,10 +226,13 @@ impl HierarchyPanel {
 
     /// Entity ids in depth-first rendered order — same traversal `draw_row`
     /// performs (roots in snapshot order, then each subtree's children
-    /// immediately after their parent). A `visited` guard makes this safe
-    /// against a pre-existing cycle in the live snapshot (external data,
-    /// not something the UI's own drag-and-drop can create — see
-    /// `would_create_cycle`), unlike `draw_row`'s own unguarded recursion.
+    /// immediately after their parent). The `visited` guard is defensive
+    /// rather than load-bearing: each entity has exactly one `parent_id`, so
+    /// any cycle in the graph is necessarily a component with no root-reachable
+    /// entity (same reasoning as `would_create_cycle`'s "vanishes from the
+    /// panel" doc comment, not a hang risk for `draw_row` either) — but the
+    /// guard costs nothing and keeps this function correct even if that
+    /// invariant is ever violated by future changes.
     fn dfs_order(all_entities: &[InspectorEntityInfo]) -> Vec<u64> {
         let mut order = Vec::with_capacity(all_entities.len());
         let mut visited = std::collections::HashSet::with_capacity(all_entities.len());
@@ -416,5 +419,63 @@ impl HierarchyPanel {
                 }
             });
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entity(id: u64, parent_id: Option<u64>) -> InspectorEntityInfo {
+        InspectorEntityInfo {
+            id,
+            parent_id,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn dfs_order_matches_draw_rows_traversal() {
+        // Two roots (1, 5); 1 has children 2 and 3 (in that array order); 2
+        // has a grandchild 4. Expected order mirrors exactly what draw_row
+        // would render: root 1, then its subtree depth-first (2, then 2's
+        // child 4, then 3), then root 5.
+        let entities = vec![
+            entity(1, None),
+            entity(2, Some(1)),
+            entity(3, Some(1)),
+            entity(4, Some(2)),
+            entity(5, None),
+        ];
+        assert_eq!(HierarchyPanel::dfs_order(&entities), vec![1, 2, 4, 3, 5]);
+    }
+
+    #[test]
+    fn dfs_order_ignores_entities_unreachable_from_any_root() {
+        // 10 and 11 form a 2-cycle (parent_id points at each other) with no
+        // path to a root — the `parent_id` relation is single-valued per
+        // entity, so a cycle member's parent_id can never simultaneously
+        // match a root-reachable id, meaning cycle members are simply never
+        // visited (consistent with `would_create_cycle`'s "vanishes from the
+        // panel" framing, not a hang risk). Only the genuine root (20)
+        // should appear in the output.
+        let entities = vec![entity(10, Some(11)), entity(11, Some(10)), entity(20, None)];
+        assert_eq!(HierarchyPanel::dfs_order(&entities), vec![20]);
+    }
+
+    #[test]
+    fn dfs_order_visited_guard_prevents_duplicate_output_on_malformed_duplicate_ids() {
+        // Defensive case: two array entries sharing the same id (should
+        // never happen from a real snapshot, but this is UI code reacting
+        // to external data, not the source of truth). Without the
+        // `visited` guard, the second occurrence would be walked again as
+        // its own root, producing a duplicate entry.
+        let entities = vec![entity(1, None), entity(1, None), entity(2, Some(1))];
+        let order = HierarchyPanel::dfs_order(&entities);
+        assert_eq!(
+            order,
+            vec![1, 2],
+            "duplicate id must not appear twice in the output"
+        );
     }
 }

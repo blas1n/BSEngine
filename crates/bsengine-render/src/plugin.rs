@@ -252,8 +252,8 @@ fn render_frame(
                 .map(|m| MaterialParams {
                     metallic: m.metallic,
                     roughness: m.roughness,
-                    emissive: m.emissive,
-                    base_color: m.base_color,
+                    emissive: *m.emissive,
+                    base_color: *m.base_color,
                 })
                 .unwrap_or_default();
             Some((
@@ -295,7 +295,7 @@ fn render_frame(
             SpotLightEntry {
                 position: pos,
                 direction: dir,
-                color: sl.color,
+                color: *sl.color,
                 intensity: sl.intensity,
                 range: sl.range,
                 inner_angle: sl.inner_angle,
@@ -310,8 +310,8 @@ fn render_frame(
             .unwrap_or_else(|| t.rotation * Vec3::NEG_Z);
         LightData {
             direction,
-            color: l.color,
-            ambient: l.ambient,
+            color: *l.color,
+            ambient: *l.ambient,
             point_lights: collected_point_lights,
             spot_lights: collected_spot_lights,
         }
@@ -457,7 +457,7 @@ mod tests {
             Material {
                 metallic: 0.8,
                 roughness: 0.2,
-                emissive: Vec3::new(0.1, 0.0, 0.0),
+                emissive: Vec3::new(0.1, 0.0, 0.0).into(),
                 ..Default::default()
             },
         ));
@@ -472,7 +472,7 @@ mod tests {
         app.add_plugins(RenderPlugin);
         app.world_mut().spawn((
             SpotLight {
-                color: Vec3::new(0.9, 0.9, 1.0),
+                color: Vec3::new(0.9, 0.9, 1.0).into(),
                 intensity: 3.0,
                 range: 12.0,
                 ..Default::default()

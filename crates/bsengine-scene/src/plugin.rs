@@ -86,8 +86,8 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
 
         if let Some(dl) = &entity.directional_light {
             builder.insert(DirectionalLight {
-                color: Vec3::from(dl.color),
-                ambient: Vec3::from(dl.ambient),
+                color: Vec3::from(dl.color).into(),
+                ambient: Vec3::from(dl.ambient).into(),
             });
             // Direction lives on Transform.rotation (rotation * -Z), same as
             // SpotLight; reuse any explicit translation/scale from the scene
@@ -119,7 +119,7 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
 
         if let Some(sl) = &entity.spot_light {
             builder.insert(SpotLight {
-                color: Vec3::from(sl.color),
+                color: Vec3::from(sl.color).into(),
                 intensity: sl.intensity,
                 range: sl.range,
                 inner_angle: sl.inner_angle_degrees.to_radians(),
@@ -137,8 +137,8 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
 
         if entity.emissive.is_some() || entity.color.is_some() {
             builder.insert(Material {
-                emissive: entity.emissive.map(Vec3::from).unwrap_or(Vec3::ZERO),
-                base_color: entity.color.map(Vec3::from).unwrap_or(Vec3::ONE),
+                emissive: entity.emissive.map(Vec3::from).unwrap_or(Vec3::ZERO).into(),
+                base_color: entity.color.map(Vec3::from).unwrap_or(Vec3::ONE).into(),
                 ..Default::default()
             });
         }

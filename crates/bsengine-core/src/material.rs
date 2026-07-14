@@ -1,13 +1,17 @@
-use bevy_ecs::prelude::Component;
+use crate::reflect_glam::ReflectVec3;
+use bevy_ecs::prelude::{Component, ReflectComponent};
+use bevy_reflect::prelude::ReflectDefault;
+use bevy_reflect::Reflect;
 use glam::Vec3;
 
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component, Default)]
 pub struct Material {
     pub texture_id: Option<u64>,
     pub metallic: f32,
     pub roughness: f32,
-    pub emissive: Vec3,
-    pub base_color: Vec3,
+    pub emissive: ReflectVec3,
+    pub base_color: ReflectVec3,
 }
 
 impl Default for Material {
@@ -16,8 +20,8 @@ impl Default for Material {
             texture_id: None,
             metallic: 0.0,
             roughness: 0.5,
-            emissive: Vec3::ZERO,
-            base_color: Vec3::ONE,
+            emissive: Vec3::ZERO.into(),
+            base_color: Vec3::ONE.into(),
         }
     }
 }
@@ -37,6 +41,20 @@ mod tests {
         let m = Material::default();
         assert_eq!(m.metallic, 0.0);
         assert!((m.roughness - 0.5).abs() < 1e-6);
-        assert_eq!(m.emissive, Vec3::ZERO);
+        assert_eq!(m.emissive, Vec3::ZERO.into());
+    }
+
+    #[test]
+    fn material_is_registered_reflectable() {
+        use bevy_reflect::TypeRegistry;
+        let mut registry = TypeRegistry::default();
+        registry.register::<Material>();
+        let registration = registry
+            .get(std::any::TypeId::of::<Material>())
+            .expect("Material not registered");
+        assert_eq!(
+            registration.type_info().type_path(),
+            "bsengine_core::material::Material"
+        );
     }
 }

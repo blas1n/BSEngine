@@ -478,10 +478,10 @@ fn run_scripts(world: &mut World) {
                 };
                 if let Some(e) = entity {
                     if let Some(mut mat) = world.get_mut::<Material>(e) {
-                        mat.emissive = Vec3::new(r, g, b);
+                        mat.emissive = Vec3::new(r, g, b).into();
                     } else {
                         world.entity_mut(e).insert(Material {
-                            emissive: Vec3::new(r, g, b),
+                            emissive: Vec3::new(r, g, b).into(),
                             ..Default::default()
                         });
                     }
@@ -494,10 +494,10 @@ fn run_scripts(world: &mut World) {
                 };
                 if let Some(e) = entity {
                     if let Some(mut mat) = world.get_mut::<Material>(e) {
-                        mat.base_color = Vec3::new(r, g, b);
+                        mat.base_color = Vec3::new(r, g, b).into();
                     } else {
                         world.entity_mut(e).insert(Material {
-                            base_color: Vec3::new(r, g, b),
+                            base_color: Vec3::new(r, g, b).into(),
                             ..Default::default()
                         });
                     }
@@ -579,7 +579,7 @@ fn run_scripts(world: &mut World) {
                 };
                 if let Some(e) = entity {
                     if let Some(mut light) = world.get_mut::<SpotLight>(e) {
-                        light.color = glam::Vec3::new(r, g, b);
+                        light.color = glam::Vec3::new(r, g, b).into();
                     }
                 }
             }
@@ -639,7 +639,7 @@ fn run_scripts(world: &mut World) {
                 };
                 if let Some(e) = entity {
                     if let Some(mut light) = world.get_mut::<DirectionalLight>(e) {
-                        light.color = glam::Vec3::new(r, g, b);
+                        light.color = glam::Vec3::new(r, g, b).into();
                     }
                 }
             }
@@ -651,7 +651,7 @@ fn run_scripts(world: &mut World) {
                 };
                 if let Some(e) = entity {
                     if let Some(mut light) = world.get_mut::<DirectionalLight>(e) {
-                        light.ambient = glam::Vec3::new(r, g, b);
+                        light.ambient = glam::Vec3::new(r, g, b).into();
                     }
                 }
             }
@@ -28433,8 +28433,8 @@ fn spawn_entity(world: &mut World, params: SpawnParams) {
     let has_color = params.color.is_some() || params.emissive.is_some();
     if has_color {
         cmd.insert(Material {
-            base_color: params.color.map(Vec3::from).unwrap_or(Vec3::ONE),
-            emissive: params.emissive.map(Vec3::from).unwrap_or(Vec3::ZERO),
+            base_color: params.color.map(Vec3::from).unwrap_or(Vec3::ONE).into(),
+            emissive: params.emissive.map(Vec3::from).unwrap_or(Vec3::ZERO).into(),
             ..Default::default()
         });
     }

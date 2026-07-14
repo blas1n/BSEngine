@@ -148,12 +148,45 @@ impl EditorPanel for InspectorPanel {
                         .changed();
                 });
             }
+            if lt == "spot" {
+                ui.horizontal(|ui| {
+                    ui.label("Inner Angle°");
+                    light_changed |= ui
+                        .add(
+                            egui::DragValue::new(&mut insp.edit_spot_inner_angle)
+                                .speed(0.5)
+                                .range(0.0..=insp.edit_spot_outer_angle),
+                        )
+                        .changed();
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Outer Angle°");
+                    light_changed |= ui
+                        .add(
+                            egui::DragValue::new(&mut insp.edit_spot_outer_angle)
+                                .speed(0.5)
+                                .range(insp.edit_spot_inner_angle..=89.0),
+                        )
+                        .changed();
+                });
+            }
             if light_changed {
                 insp.cmd_queue.push(InspectorCmd::UpdateLight {
                     id: sel_id,
+                    light_type: lt.clone(),
                     color: Some(insp.edit_light_color),
                     intensity: Some(insp.edit_light_intensity),
                     range: Some(insp.edit_light_range),
+                    inner_angle: if lt == "spot" {
+                        Some(insp.edit_spot_inner_angle.to_radians())
+                    } else {
+                        None
+                    },
+                    outer_angle: if lt == "spot" {
+                        Some(insp.edit_spot_outer_angle.to_radians())
+                    } else {
+                        None
+                    },
                 });
             }
             ui.separator();
@@ -161,7 +194,15 @@ impl EditorPanel for InspectorPanel {
 
         // Camera
         if has_camera {
-            ui.strong("Camera");
+            ui.horizontal(|ui| {
+                ui.strong("Camera");
+                if ui.small_button("✕").clicked() {
+                    insp.cmd_queue.push(InspectorCmd::RemoveComponentByType {
+                        id: sel_id,
+                        type_path: "bsengine_core::camera::Camera".to_string(),
+                    });
+                }
+            });
             let mut cam_fov_changed = false;
             ui.horizontal(|ui| {
                 ui.label("FOV°");
@@ -184,7 +225,15 @@ impl EditorPanel for InspectorPanel {
 
         // Material
         if has_material {
-            ui.strong("Material");
+            ui.horizontal(|ui| {
+                ui.strong("Material");
+                if ui.small_button("✕").clicked() {
+                    insp.cmd_queue.push(InspectorCmd::RemoveComponentByType {
+                        id: sel_id,
+                        type_path: "bsengine_core::material::Material".to_string(),
+                    });
+                }
+            });
             let mut mat_changed = false;
             ui.horizontal(|ui| {
                 ui.label("Base Color");

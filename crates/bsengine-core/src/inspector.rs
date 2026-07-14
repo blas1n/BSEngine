@@ -105,6 +105,25 @@ pub enum InspectorCmd {
         id: u64,
         type_path: String,
     },
+    RenameEntity {
+        id: u64,
+        name: String,
+    },
+    SetParent {
+        id: u64,
+        parent_id: u64,
+    },
+    RemoveParent {
+        id: u64,
+    },
+    TagEntity {
+        id: u64,
+        tag: String,
+    },
+    UntagEntity {
+        id: u64,
+        tag: String,
+    },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]

@@ -1356,6 +1356,24 @@ fn apply_inspector_cmds(
                     type_path,
                 });
             }
+            InspectorCmd::RenameEntity { id, name } => {
+                queue.push(EditorCommand::RenameEntity { entity_id: id, name });
+            }
+            InspectorCmd::SetParent { id, parent_id } => {
+                queue.push(EditorCommand::SetParent {
+                    entity_id: id,
+                    parent_id,
+                });
+            }
+            InspectorCmd::RemoveParent { id } => {
+                queue.push(EditorCommand::RemoveParent { entity_id: id });
+            }
+            InspectorCmd::TagEntity { id, tag } => {
+                queue.push(EditorCommand::TagEntity { entity_id: id, tag });
+            }
+            InspectorCmd::UntagEntity { id, tag } => {
+                queue.push(EditorCommand::UntagEntity { entity_id: id, tag });
+            }
         }
     }
 }
@@ -28776,7 +28794,7 @@ fn parse_vec3_input(v: &serde_json::Value) -> Option<[f32; 3]> {
 mod tests {
     use super::EditorPlugin;
     use bsengine_app::new_app;
-    use bsengine_core::{InspectorCmd, InspectorState, Transform};
+    use bsengine_core::{InspectorCmd, InspectorState, Parent, Transform};
     use bsengine_mcp::McpPlugin;
     use bsengine_scene::Name;
     use glam::Vec3;
@@ -28784,6 +28802,7 @@ mod tests {
 
     use crate::snapshot::{
         EditorCommand, EditorCommandQueueResource, EditorSelectionResource, EditorSnapshotResource,
+        Tags,
     };
 
     #[test]
@@ -90187,5 +90206,96 @@ mod tests {
             .expect("Crate not found");
         let pos = crate_entity.position.expect("no position");
         assert!((pos[0] - 10.0).abs() < 1e-4, "expected x=10 got {}", pos[0]);
+    }
+
+    #[test]
+    fn inspector_cmd_rename_entity_renames_via_existing_pipeline() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app.world_mut().spawn(Name("Old Name".to_string())).id();
+        app.update();
+
+        {
+            let mut insp = app.world_mut().resource_mut::<InspectorState>();
+            insp.cmd_queue.push(InspectorCmd::RenameEntity {
+                id: eid.index() as u64,
+                name: "New Name".to_string(),
+            });
+        }
+        app.update();
+
+        let name = app.world().get::<Name>(eid).expect("Name should exist");
+        assert_eq!(name.0, "New Name");
+    }
+
+    #[test]
+    fn inspector_cmd_set_and_remove_parent_reparents_via_existing_pipeline() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let parent = app.world_mut().spawn(Name("Parent".to_string())).id();
+        let child = app.world_mut().spawn(Name("Child".to_string())).id();
+        app.update();
+
+        {
+            let mut insp = app.world_mut().resource_mut::<InspectorState>();
+            insp.cmd_queue.push(InspectorCmd::SetParent {
+                id: child.index() as u64,
+                parent_id: parent.index() as u64,
+            });
+        }
+        app.update();
+        assert_eq!(
+            app.world().get::<Parent>(child).map(|p| p.0),
+            Some(parent),
+            "child should be parented after SetParent"
+        );
+
+        {
+            let mut insp = app.world_mut().resource_mut::<InspectorState>();
+            insp.cmd_queue
+                .push(InspectorCmd::RemoveParent { id: child.index() as u64 });
+        }
+        app.update();
+        assert!(
+            app.world().get::<Parent>(child).is_none(),
+            "child should be unparented after RemoveParent"
+        );
+    }
+
+    #[test]
+    fn inspector_cmd_tag_and_untag_entity_via_existing_pipeline() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app.world_mut().spawn(Name("Target".to_string())).id();
+        app.update();
+
+        {
+            let mut insp = app.world_mut().resource_mut::<InspectorState>();
+            insp.cmd_queue.push(InspectorCmd::TagEntity {
+                id: eid.index() as u64,
+                tag: "enemy".to_string(),
+            });
+        }
+        app.update();
+        assert_eq!(
+            app.world().get::<Tags>(eid).map(|t| t.0.clone()),
+            Some(vec!["enemy".to_string()]),
+        );
+
+        {
+            let mut insp = app.world_mut().resource_mut::<InspectorState>();
+            insp.cmd_queue.push(InspectorCmd::UntagEntity {
+                id: eid.index() as u64,
+                tag: "enemy".to_string(),
+            });
+        }
+        app.update();
+        assert_eq!(
+            app.world().get::<Tags>(eid).map(|t| t.0.clone()),
+            Some(vec![]),
+        );
     }
 }

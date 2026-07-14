@@ -10,17 +10,18 @@ use glam::Vec3;
 // for "which way is this thing facing" across all light/entity types, so
 // the existing move/rotate gizmos, Inspector Rot fields, and undo/redo all
 // work on directional lights for free.
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component, Default)]
 pub struct DirectionalLight {
-    pub color: Vec3,
-    pub ambient: Vec3,
+    pub color: ReflectVec3,
+    pub ambient: ReflectVec3,
 }
 
 impl Default for DirectionalLight {
     fn default() -> Self {
         Self {
-            color: Vec3::ONE,
-            ambient: Vec3::splat(0.15),
+            color: Vec3::ONE.into(),
+            ambient: Vec3::splat(0.15).into(),
         }
     }
 }
@@ -73,8 +74,22 @@ mod tests {
     #[test]
     fn default_light_has_white_color_and_dim_ambient() {
         let light = DirectionalLight::default();
-        assert_eq!(light.color, Vec3::ONE);
+        assert_eq!(light.color, Vec3::ONE.into());
         assert!(light.ambient.x > 0.0 && light.ambient.x < 1.0);
+    }
+
+    #[test]
+    fn directional_light_is_registered_reflectable() {
+        use bevy_reflect::TypeRegistry;
+        let mut registry = TypeRegistry::default();
+        registry.register::<DirectionalLight>();
+        let registration = registry
+            .get(std::any::TypeId::of::<DirectionalLight>())
+            .expect("DirectionalLight not registered");
+        assert_eq!(
+            registration.type_info().type_path(),
+            "bsengine_core::light::DirectionalLight"
+        );
     }
 
     #[test]

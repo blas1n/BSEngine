@@ -86,8 +86,8 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
 
         if let Some(dl) = &entity.directional_light {
             builder.insert(DirectionalLight {
-                color: Vec3::from(dl.color),
-                ambient: Vec3::from(dl.ambient),
+                color: Vec3::from(dl.color).into(),
+                ambient: Vec3::from(dl.ambient).into(),
             });
             // Direction lives on Transform.rotation (rotation * -Z), same as
             // SpotLight; reuse any explicit translation/scale from the scene

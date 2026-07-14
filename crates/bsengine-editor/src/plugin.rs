@@ -189,8 +189,8 @@ fn process_editor_commands(
                 let rotation = glam::Quat::from_rotation_arc(glam::Vec3::NEG_Z, dir);
                 commands.spawn((
                     DirectionalLight {
-                        color: glam::Vec3::from(color),
-                        ambient: glam::Vec3::from(ambient),
+                        color: glam::Vec3::from(color).into(),
+                        ambient: glam::Vec3::from(ambient).into(),
                     },
                     Transform {
                         rotation,
@@ -239,10 +239,10 @@ fn process_editor_commands(
                 for (e, mut light) in params.p3().iter_mut() {
                     if e.index() as u64 == entity_id {
                         if let Some(c) = color {
-                            light.color = glam::Vec3::from(c);
+                            light.color = glam::Vec3::from(c).into();
                         }
                         if let Some(a) = ambient {
-                            light.ambient = glam::Vec3::from(a);
+                            light.ambient = glam::Vec3::from(a).into();
                         }
                         break;
                     }
@@ -599,8 +599,8 @@ fn process_editor_commands(
                     }
                     if let Some(dl) = &entity.directional_light {
                         eb.insert(DirectionalLight {
-                            color: glam::Vec3::from(dl.color),
-                            ambient: glam::Vec3::from(dl.ambient),
+                            color: glam::Vec3::from(dl.color).into(),
+                            ambient: glam::Vec3::from(dl.ambient).into(),
                         });
                         // Direction lives on Transform.rotation (rotation * -Z), same
                         // as SpotLight; reuse translation/scale from the scene file's
@@ -797,7 +797,7 @@ fn sync_entity_to_info(world: &mut World, entity: Entity, info: &EntityInfo) {
             e.remove::<SpotLight>();
             if let Some(mut dl) = e.get_mut::<DirectionalLight>() {
                 if let Some(c) = info.light_color {
-                    dl.color = glam::Vec3::from(c);
+                    dl.color = glam::Vec3::from(c).into();
                 }
             }
         }
@@ -894,7 +894,7 @@ fn spawn_entity_from_info(world: &mut World, info: &EntityInfo) -> Entity {
         }
         Some("directional") => {
             e.insert(DirectionalLight {
-                color: glam::Vec3::from(info.light_color.unwrap_or([1.0; 3])),
+                color: glam::Vec3::from(info.light_color.unwrap_or([1.0; 3])).into(),
                 ..DirectionalLight::default()
             });
         }
@@ -89317,7 +89317,7 @@ mod tests {
         let eid = app
             .world_mut()
             .spawn(bsengine_core::DirectionalLight {
-                color: glam::Vec3::new(0.8, 0.8, 0.8),
+                color: glam::Vec3::new(0.8, 0.8, 0.8).into(),
                 ..Default::default()
             })
             .id();

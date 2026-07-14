@@ -639,7 +639,7 @@ fn run_scripts(world: &mut World) {
                 };
                 if let Some(e) = entity {
                     if let Some(mut light) = world.get_mut::<DirectionalLight>(e) {
-                        light.color = glam::Vec3::new(r, g, b);
+                        light.color = glam::Vec3::new(r, g, b).into();
                     }
                 }
             }
@@ -651,7 +651,7 @@ fn run_scripts(world: &mut World) {
                 };
                 if let Some(e) = entity {
                     if let Some(mut light) = world.get_mut::<DirectionalLight>(e) {
-                        light.ambient = glam::Vec3::new(r, g, b);
+                        light.ambient = glam::Vec3::new(r, g, b).into();
                     }
                 }
             }

@@ -310,8 +310,8 @@ fn render_frame(
             .unwrap_or_else(|| t.rotation * Vec3::NEG_Z);
         LightData {
             direction,
-            color: l.color,
-            ambient: l.ambient,
+            color: *l.color,
+            ambient: *l.ambient,
             point_lights: collected_point_lights,
             spot_lights: collected_spot_lights,
         }

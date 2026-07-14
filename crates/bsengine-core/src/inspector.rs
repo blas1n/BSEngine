@@ -21,6 +21,16 @@ pub struct InspectorEntityInfo {
     pub material_metallic: Option<f32>,
     pub material_roughness: Option<f32>,
     pub material_emissive: Option<[f32; 3]>,
+    // hierarchy / tags / script / mesh
+    pub parent_id: Option<u64>,
+    pub tags: Vec<String>,
+    pub script_path: Option<String>,
+    /// One of `"cube"`/`"sphere"`/`"plane"`/`"capsule"` (lowercase), or `None`
+    /// if no `PrimitiveMesh` is attached. A plain `String`, not
+    /// `bsengine_scene::Primitive`, because `bsengine-core` cannot depend on
+    /// `bsengine-scene` (that crate already depends on `bsengine-core`).
+    /// Mirrors this same struct's `light_type: Option<String>` convention.
+    pub primitive: Option<String>,
     pub visible: bool,
     pub selected: bool,
 }
@@ -129,6 +139,8 @@ pub struct InspectorState {
     pub edit_mat_metallic: f32,
     pub edit_mat_roughness: f32,
     pub edit_mat_emissive: [f32; 3],
+    pub edit_new_tag: String,
+    pub edit_script_path: String,
     pub edit_visible: bool,
     prev_selected_id: Option<u64>,
 
@@ -196,6 +208,8 @@ impl Default for InspectorState {
             edit_mat_metallic: 0.0,
             edit_mat_roughness: 0.5,
             edit_mat_emissive: [0.0, 0.0, 0.0],
+            edit_new_tag: String::new(),
+            edit_script_path: String::new(),
             edit_visible: true,
             prev_selected_id: None,
             editor_mode: false,
@@ -249,6 +263,8 @@ impl InspectorState {
                     self.edit_mat_metallic = info.material_metallic.unwrap_or(0.0);
                     self.edit_mat_roughness = info.material_roughness.unwrap_or(0.5);
                     self.edit_mat_emissive = info.material_emissive.unwrap_or([0.0, 0.0, 0.0]);
+                    self.edit_new_tag.clear();
+                    self.edit_script_path = info.script_path.clone().unwrap_or_default();
                     self.edit_visible = info.visible;
                 }
             }

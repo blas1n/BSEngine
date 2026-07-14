@@ -1212,10 +1212,24 @@ fn populate_inspector(
             material_metallic: e.material_metallic,
             material_roughness: e.material_roughness,
             material_emissive: e.material_emissive,
+            parent_id: e.parent_id,
+            tags: e.tags.clone(),
+            script_path: e.script_path.clone(),
+            primitive: e.primitive.as_ref().map(primitive_to_str),
             visible: e.visible,
             selected: e.selected,
         })
         .collect();
+}
+
+fn primitive_to_str(p: &bsengine_scene::Primitive) -> String {
+    match p {
+        bsengine_scene::Primitive::Cube => "cube",
+        bsengine_scene::Primitive::Sphere => "sphere",
+        bsengine_scene::Primitive::Plane => "plane",
+        bsengine_scene::Primitive::Capsule => "capsule",
+    }
+    .to_string()
 }
 
 fn apply_inspector_cmds(
@@ -28789,6 +28803,42 @@ mod tests {
 
         let registry = app.world().resource::<bsengine_core::EditorPanelRegistry>();
         assert!(registry.0.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn populate_inspector_copies_parent_tags_script_primitive() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let parent = app.world_mut().spawn(Name("Parent".to_string())).id();
+        let child = app
+            .world_mut()
+            .spawn((
+                Name("Child".to_string()),
+                bsengine_core::Parent(parent),
+                crate::snapshot::Tags(vec!["enemy".to_string(), "boss".to_string()]),
+                bsengine_scene::ScriptPath("assets/scripts/child.js".to_string()),
+                bsengine_scene::PrimitiveMesh(bsengine_scene::Primitive::Sphere),
+            ))
+            .id();
+        app.update();
+
+        let insp = app.world().resource::<InspectorState>();
+        let child_info = insp
+            .entities
+            .iter()
+            .find(|e| e.id == child.index() as u64)
+            .expect("child entity should be in inspector snapshot");
+        assert_eq!(child_info.parent_id, Some(parent.index() as u64));
+        assert_eq!(
+            child_info.tags,
+            vec!["enemy".to_string(), "boss".to_string()]
+        );
+        assert_eq!(
+            child_info.script_path,
+            Some("assets/scripts/child.js".to_string())
+        );
+        assert_eq!(child_info.primitive, Some("sphere".to_string()));
     }
 
     #[test]

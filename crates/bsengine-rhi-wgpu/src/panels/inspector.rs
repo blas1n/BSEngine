@@ -1,4 +1,4 @@
-use bsengine_core::{EditorPanel, EditorPanelContext, InspectorCmd};
+use bsengine_core::{EditorPanel, EditorPanelContext, InspectorCmd, PRIMITIVE_KINDS};
 
 pub struct InspectorPanel;
 
@@ -332,7 +332,7 @@ impl EditorPanel for InspectorPanel {
             egui::ComboBox::from_id_salt("mesh_primitive_combo")
                 .selected_text(current_label)
                 .show_ui(ui, |ui| {
-                    for p in ["cube", "sphere", "plane", "capsule"] {
+                    for p in PRIMITIVE_KINDS {
                         if ui.selectable_label(false, p).clicked() {
                             chosen = Some(p);
                         }

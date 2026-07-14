@@ -136,12 +136,32 @@ impl EditorPanel for HierarchyPanel {
             insp.cmd_queue.push(InspectorCmd::Duplicate { id });
         }
         if !despawn_ids.is_empty() {
-            for id in despawn_ids {
+            for &id in &despawn_ids {
                 insp.cmd_queue.push(InspectorCmd::Despawn { id });
             }
-            insp.selected_id = None;
-            insp.cmd_queue
-                .push(InspectorCmd::SetSelection { ids: vec![] });
+            // Only touch selection for ids that were actually deleted here —
+            // a context-menu Delete on an unselected row must not silently
+            // clear whatever else was selected (unlike the toolbar "－"
+            // button above, which always despawns exactly the selected set).
+            let selected_ids: Vec<u64> = entities_snapshot
+                .iter()
+                .filter(|e| e.selected)
+                .map(|e| e.id)
+                .collect();
+            let remaining_selected: Vec<u64> = selected_ids
+                .iter()
+                .copied()
+                .filter(|id| !despawn_ids.contains(id))
+                .collect();
+            if remaining_selected.len() != selected_ids.len() {
+                insp.cmd_queue.push(InspectorCmd::SetSelection {
+                    ids: remaining_selected.clone(),
+                });
+            }
+            if insp.selected_id.is_some_and(|id| despawn_ids.contains(&id)) {
+                insp.selected_id = remaining_selected.first().copied();
+                insp.sync_selection();
+            }
         }
         if let Some((id, name)) = rename_commit {
             if !name.is_empty() {
@@ -152,6 +172,35 @@ impl EditorPanel for HierarchyPanel {
 }
 
 impl HierarchyPanel {
+    /// Would setting `dropped_id`'s parent to `target_id` create a cycle in
+    /// the `parent_id` graph? True if `dropped_id` is `target_id` itself or
+    /// one of `target_id`'s existing ancestors (walking up via `parent_id`).
+    /// Bounded by `all_entities.len()` steps so a pre-existing cycle in the
+    /// snapshot (which should never happen, but this is UI code reacting to
+    /// a live snapshot, not the source of truth) can't spin forever.
+    fn would_create_cycle(
+        all_entities: &[InspectorEntityInfo],
+        dropped_id: u64,
+        target_id: u64,
+    ) -> bool {
+        let mut current = Some(target_id);
+        let mut steps = 0;
+        while let Some(id) = current {
+            if id == dropped_id {
+                return true;
+            }
+            steps += 1;
+            if steps > all_entities.len() {
+                return true;
+            }
+            current = all_entities
+                .iter()
+                .find(|e| e.id == id)
+                .and_then(|e| e.parent_id);
+        }
+        false
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn draw_row(
         ui: &mut egui::Ui,
@@ -272,7 +321,17 @@ impl HierarchyPanel {
 
             row_response.dnd_set_drag_payload(info.id);
             if let Some(dropped_id) = row_response.dnd_release_payload::<u64>() {
-                *set_parent = Some((*dropped_id, info.id));
+                let dropped_id = *dropped_id;
+                // Refuse reparents that would create a cycle (e.g. dragging a
+                // parent row onto one of its own descendants, which renders
+                // right below it and is an easy accidental drop target). A
+                // cycle would make `draw_row`'s root filter
+                // (`parent_id.is_none()`) unable to ever reach that subtree
+                // again — the entity and everything under it would silently
+                // vanish from the panel with no error.
+                if !Self::would_create_cycle(all_entities, dropped_id, info.id) {
+                    *set_parent = Some((dropped_id, info.id));
+                }
             }
 
             row_response.context_menu(|ui| {

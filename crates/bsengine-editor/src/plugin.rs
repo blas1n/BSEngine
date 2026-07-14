@@ -510,7 +510,7 @@ fn process_editor_commands(
                 for (e, mut mat) in params.p7().iter_mut() {
                     if e.index() as u64 == entity_id {
                         if let Some(c) = base_color {
-                            mat.base_color = glam::Vec3::from(c);
+                            mat.base_color = glam::Vec3::from(c).into();
                         }
                         if let Some(m) = metallic {
                             mat.metallic = m;
@@ -519,7 +519,7 @@ fn process_editor_commands(
                             mat.roughness = r;
                         }
                         if let Some(em) = emissive {
-                            mat.emissive = glam::Vec3::from(em);
+                            mat.emissive = glam::Vec3::from(em).into();
                         }
                         break;
                     }
@@ -645,11 +645,13 @@ fn process_editor_commands(
                             emissive: entity
                                 .emissive
                                 .map(glam::Vec3::from)
-                                .unwrap_or(glam::Vec3::ZERO),
+                                .unwrap_or(glam::Vec3::ZERO)
+                                .into(),
                             base_color: entity
                                 .color
                                 .map(glam::Vec3::from)
-                                .unwrap_or(glam::Vec3::ONE),
+                                .unwrap_or(glam::Vec3::ONE)
+                                .into(),
                             ..Default::default()
                         });
                     }
@@ -837,7 +839,7 @@ fn sync_entity_to_info(world: &mut World, entity: Entity, info: &EntityInfo) {
     match info.material_base_color {
         Some(base_color) => {
             if let Some(mut mat) = e.get_mut::<Material>() {
-                mat.base_color = glam::Vec3::from(base_color);
+                mat.base_color = glam::Vec3::from(base_color).into();
                 if let Some(m) = info.material_metallic {
                     mat.metallic = m;
                 }
@@ -845,7 +847,7 @@ fn sync_entity_to_info(world: &mut World, entity: Entity, info: &EntityInfo) {
                     mat.roughness = r;
                 }
                 if let Some(em) = info.material_emissive {
-                    mat.emissive = glam::Vec3::from(em);
+                    mat.emissive = glam::Vec3::from(em).into();
                 }
             }
         }
@@ -913,10 +915,14 @@ fn spawn_entity_from_info(world: &mut World, info: &EntityInfo) -> Entity {
     }
     if let Some(base_color) = info.material_base_color {
         e.insert(Material {
-            base_color: glam::Vec3::from(base_color),
+            base_color: glam::Vec3::from(base_color).into(),
             metallic: info.material_metallic.unwrap_or(0.0),
             roughness: info.material_roughness.unwrap_or(0.5),
-            emissive: info.material_emissive.map(glam::Vec3::from).unwrap_or(glam::Vec3::ZERO),
+            emissive: info
+                .material_emissive
+                .map(glam::Vec3::from)
+                .unwrap_or(glam::Vec3::ZERO)
+                .into(),
             ..Material::default()
         });
     }

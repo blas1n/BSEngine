@@ -252,8 +252,8 @@ fn render_frame(
                 .map(|m| MaterialParams {
                     metallic: m.metallic,
                     roughness: m.roughness,
-                    emissive: m.emissive,
-                    base_color: m.base_color,
+                    emissive: *m.emissive,
+                    base_color: *m.base_color,
                 })
                 .unwrap_or_default();
             Some((
@@ -457,7 +457,7 @@ mod tests {
             Material {
                 metallic: 0.8,
                 roughness: 0.2,
-                emissive: Vec3::new(0.1, 0.0, 0.0),
+                emissive: Vec3::new(0.1, 0.0, 0.0).into(),
                 ..Default::default()
             },
         ));

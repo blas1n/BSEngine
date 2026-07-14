@@ -1,5 +1,13 @@
 use bevy_ecs::prelude::Resource;
 
+/// Canonical set of recognized primitive-mesh kind strings, lowercase,
+/// shared between the Inspector's Mesh dropdown (`bsengine-rhi-wgpu`) and
+/// `InspectorEntityInfo.primitive`/`InspectorCmd::AttachPrimitiveMesh.primitive`
+/// below. `bsengine-editor`'s `primitive_to_str`/`str_to_primitive` (the only
+/// place these strings convert to/from the real `bsengine_scene::Primitive`
+/// enum) must stay in sync with this list — see the doc comments there.
+pub const PRIMITIVE_KINDS: [&str; 4] = ["cube", "sphere", "plane", "capsule"];
+
 #[derive(Clone, Default)]
 pub struct InspectorEntityInfo {
     pub id: u64,
@@ -25,11 +33,11 @@ pub struct InspectorEntityInfo {
     pub parent_id: Option<u64>,
     pub tags: Vec<String>,
     pub script_path: Option<String>,
-    /// One of `"cube"`/`"sphere"`/`"plane"`/`"capsule"` (lowercase), or `None`
-    /// if no `PrimitiveMesh` is attached. A plain `String`, not
-    /// `bsengine_scene::Primitive`, because `bsengine-core` cannot depend on
-    /// `bsengine-scene` (that crate already depends on `bsengine-core`).
-    /// Mirrors this same struct's `light_type: Option<String>` convention.
+    /// One of [`PRIMITIVE_KINDS`], or `None` if no `PrimitiveMesh` is
+    /// attached. A plain `String`, not `bsengine_scene::Primitive`, because
+    /// `bsengine-core` cannot depend on `bsengine-scene` (that crate already
+    /// depends on `bsengine-core`). Mirrors this same struct's
+    /// `light_type: Option<String>` convention.
     pub primitive: Option<String>,
     pub visible: bool,
     pub selected: bool,
@@ -133,12 +141,11 @@ pub enum InspectorCmd {
     },
     AttachPrimitiveMesh {
         id: u64,
-        /// `"cube"`/`"sphere"`/`"plane"`/`"capsule"` (lowercase) — a plain
-        /// `String`, not `bsengine_scene::Primitive`, for the same
-        /// circular-dependency reason as `InspectorEntityInfo.primitive`
-        /// (see this plan's header notes). Parsed back into the real enum
-        /// in `apply_inspector_cmds` below, where `bsengine_scene` is
-        /// already in scope.
+        /// One of [`PRIMITIVE_KINDS`] — a plain `String`, not
+        /// `bsengine_scene::Primitive`, for the same circular-dependency
+        /// reason as `InspectorEntityInfo.primitive`. Parsed back into the
+        /// real enum in `apply_inspector_cmds` (`bsengine-editor`), where
+        /// `bsengine_scene` is already in scope.
         primitive: String,
     },
     DetachPrimitiveMesh {

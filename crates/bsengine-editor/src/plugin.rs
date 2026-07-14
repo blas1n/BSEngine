@@ -1252,6 +1252,11 @@ fn populate_inspector(
         .collect();
 }
 
+/// Exhaustive match with no wildcard arm — adding a `Primitive` variant
+/// forces a compile error here. If you land here from that error, also
+/// update `bsengine_core::PRIMITIVE_KINDS` and `str_to_primitive` below to
+/// keep the DTO-boundary string set in sync (see the "primitive kinds test"
+/// in this file's test module, which round-trip-checks that sync).
 fn primitive_to_str(p: &bsengine_scene::Primitive) -> String {
     match p {
         bsengine_scene::Primitive::Cube => "cube",
@@ -1262,6 +1267,8 @@ fn primitive_to_str(p: &bsengine_scene::Primitive) -> String {
     .to_string()
 }
 
+/// Inverse of [`primitive_to_str`] — see its doc comment for the
+/// keep-in-sync note with `bsengine_core::PRIMITIVE_KINDS`.
 fn str_to_primitive(s: &str) -> Option<bsengine_scene::Primitive> {
     match s {
         "cube" => Some(bsengine_scene::Primitive::Cube),
@@ -28917,6 +28924,29 @@ mod tests {
             Some("assets/scripts/child.js".to_string())
         );
         assert_eq!(child_info.primitive, Some("sphere".to_string()));
+    }
+
+    #[test]
+    fn primitive_kinds_const_round_trips_through_str_conversions() {
+        // Every string in the canonical `PRIMITIVE_KINDS` list (used by the
+        // Inspector's Mesh dropdown in bsengine-rhi-wgpu) must parse via
+        // `str_to_primitive` and the parsed value must map back to the same
+        // string via `primitive_to_str`. This doesn't catch a *new*
+        // `Primitive` variant going unlisted (that gap is inherent to the
+        // circular-dependency string-boundary design — see
+        // `primitive_to_str`'s doc comment for the compile-time nudge that
+        // partially mitigates it), but it does catch drift/typos between
+        // `PRIMITIVE_KINDS` and the two conversion functions.
+        assert_eq!(bsengine_core::PRIMITIVE_KINDS.len(), 4);
+        for &kind in &bsengine_core::PRIMITIVE_KINDS {
+            let parsed = super::str_to_primitive(kind)
+                .unwrap_or_else(|| panic!("PRIMITIVE_KINDS entry {kind:?} did not parse"));
+            assert_eq!(
+                super::primitive_to_str(&parsed),
+                kind,
+                "str_to_primitive/primitive_to_str do not round-trip for {kind:?}"
+            );
+        }
     }
 
     #[test]

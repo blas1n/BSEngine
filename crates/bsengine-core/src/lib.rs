@@ -1112,7 +1112,7 @@ pub use immune::Immune;
 pub use impact::Impact;
 pub use input_map::{Binding, InputCode, InputMap};
 pub use inspector::{
-    EditorPlayState, GizmoMode, InspectorCmd, InspectorEntityInfo, InspectorState,
+    EditorPlayState, GizmoMode, InspectorCmd, InspectorEntityInfo, InspectorState, PRIMITIVE_KINDS,
 };
 pub use interactable::{InteractTrigger, Interactable};
 pub use intercept::Intercept;

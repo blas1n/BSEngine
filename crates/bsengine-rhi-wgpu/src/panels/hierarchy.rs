@@ -76,10 +76,8 @@ impl EditorPanel for HierarchyPanel {
 
             // Root drop zone: drag a row here to unparent it. Occupies the
             // remaining empty space below the tree.
-            let (_, root_drop_response) = ui.allocate_exact_size(
-                egui::vec2(ui.available_width(), 40.0),
-                egui::Sense::hover(),
-            );
+            let (_, root_drop_response) = ui
+                .allocate_exact_size(egui::vec2(ui.available_width(), 40.0), egui::Sense::hover());
             if let Some(dropped_id) = root_drop_response.dnd_release_payload::<u64>() {
                 remove_parent = Some(*dropped_id);
             }
@@ -125,8 +123,10 @@ impl EditorPanel for HierarchyPanel {
         }
         if let Some((child_id, parent_id)) = set_parent {
             if child_id != parent_id {
-                insp.cmd_queue
-                    .push(InspectorCmd::SetParent { id: child_id, parent_id });
+                insp.cmd_queue.push(InspectorCmd::SetParent {
+                    id: child_id,
+                    parent_id,
+                });
             }
         }
         if let Some(id) = remove_parent {
@@ -223,7 +223,9 @@ impl HierarchyPanel {
             .collect();
         let label = info.name.as_deref().unwrap_or("(unnamed)");
         let text = format!("[{}] {}", info.id, label);
-        let is_renaming = rename_state.as_ref().is_some_and(|r| r.entity_id == info.id);
+        let is_renaming = rename_state
+            .as_ref()
+            .is_some_and(|r| r.entity_id == info.id);
 
         ui.horizontal(|ui| {
             ui.add_space(depth as f32 * 16.0);
@@ -232,8 +234,7 @@ impl HierarchyPanel {
                 let state = rename_state.as_mut().expect("checked by is_renaming");
                 let edit_response =
                     ui.add(egui::TextEdit::singleline(&mut state.buffer).id_salt(info.id));
-                if edit_response.lost_focus()
-                    && ui.ctx().input(|i| i.key_pressed(egui::Key::Enter))
+                if edit_response.lost_focus() && ui.ctx().input(|i| i.key_pressed(egui::Key::Enter))
                 {
                     *rename_commit = Some((info.id, state.buffer.clone()));
                     *rename_state = None;
@@ -288,7 +289,10 @@ impl HierarchyPanel {
             if row_response.clicked() {
                 let mods = ui.ctx().input(|i| i.modifiers);
                 if mods.shift {
-                    let idx = all_entities.iter().position(|e| e.id == info.id).unwrap_or(0);
+                    let idx = all_entities
+                        .iter()
+                        .position(|e| e.id == info.id)
+                        .unwrap_or(0);
                     let anchor_idx = current_sel
                         .and_then(|id| all_entities.iter().position(|e| e.id == id))
                         .unwrap_or(idx);

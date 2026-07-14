@@ -10,6 +10,23 @@ struct RenameState {
     buffer: String,
 }
 
+/// Read-only, whole-tree context threaded through the `draw_row` recursion
+/// unchanged at every depth — bundled into one struct rather than three
+/// separate positional parameters to keep `draw_row`'s already-long
+/// argument list from growing further.
+struct TreeCtx<'a> {
+    all_entities: &'a [InspectorEntityInfo],
+    current_sel: Option<u64>,
+    /// Entity ids in depth-first rendered order (same traversal `draw_row`
+    /// itself performs: roots in snapshot order, each subtree's children
+    /// immediately after their parent). Shift-click range-select uses this
+    /// instead of `all_entities`' raw snapshot-array order, so the
+    /// highlighted range actually matches what's visually between the two
+    /// clicked rows in the tree — snapshot order and render order are not
+    /// the same thing once entities have parents.
+    order: &'a [u64],
+}
+
 impl EditorPanel for HierarchyPanel {
     fn id(&self) -> &str {
         "hierarchy"
@@ -55,13 +72,19 @@ impl EditorPanel for HierarchyPanel {
         let rename_id = egui::Id::new("hierarchy_rename_state");
         let mut rename_state: Option<RenameState> = ui.data(|d| d.get_temp(rename_id));
 
+        let order = Self::dfs_order(entities_snapshot);
+        let tree = TreeCtx {
+            all_entities: entities_snapshot,
+            current_sel,
+            order: &order,
+        };
+
         egui::ScrollArea::vertical().show(ui, |ui| {
             for root in entities_snapshot.iter().filter(|e| e.parent_id.is_none()) {
                 Self::draw_row(
                     ui,
                     root,
-                    entities_snapshot,
-                    current_sel,
+                    &tree,
                     &mut new_selection,
                     &mut new_sel,
                     &mut set_parent,
@@ -201,12 +224,41 @@ impl HierarchyPanel {
         false
     }
 
+    /// Entity ids in depth-first rendered order — same traversal `draw_row`
+    /// performs (roots in snapshot order, then each subtree's children
+    /// immediately after their parent). A `visited` guard makes this safe
+    /// against a pre-existing cycle in the live snapshot (external data,
+    /// not something the UI's own drag-and-drop can create — see
+    /// `would_create_cycle`), unlike `draw_row`'s own unguarded recursion.
+    fn dfs_order(all_entities: &[InspectorEntityInfo]) -> Vec<u64> {
+        let mut order = Vec::with_capacity(all_entities.len());
+        let mut visited = std::collections::HashSet::with_capacity(all_entities.len());
+        for root in all_entities.iter().filter(|e| e.parent_id.is_none()) {
+            Self::push_dfs(root, all_entities, &mut order, &mut visited);
+        }
+        order
+    }
+
+    fn push_dfs(
+        info: &InspectorEntityInfo,
+        all_entities: &[InspectorEntityInfo],
+        order: &mut Vec<u64>,
+        visited: &mut std::collections::HashSet<u64>,
+    ) {
+        if !visited.insert(info.id) {
+            return;
+        }
+        order.push(info.id);
+        for child in all_entities.iter().filter(|e| e.parent_id == Some(info.id)) {
+            Self::push_dfs(child, all_entities, order, visited);
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn draw_row(
         ui: &mut egui::Ui,
         info: &InspectorEntityInfo,
-        all_entities: &[InspectorEntityInfo],
-        current_sel: Option<u64>,
+        tree: &TreeCtx,
         new_selection: &mut Option<Vec<u64>>,
         new_sel: &mut Option<u64>,
         set_parent: &mut Option<(u64, u64)>,
@@ -217,7 +269,8 @@ impl HierarchyPanel {
         rename_commit: &mut Option<(u64, String)>,
         depth: usize,
     ) {
-        let children: Vec<&InspectorEntityInfo> = all_entities
+        let children: Vec<&InspectorEntityInfo> = tree
+            .all_entities
             .iter()
             .filter(|e| e.parent_id == Some(info.id))
             .collect();
@@ -253,8 +306,7 @@ impl HierarchyPanel {
                             Self::draw_row(
                                 ui,
                                 child,
-                                all_entities,
-                                current_sel,
+                                tree,
                                 new_selection,
                                 new_sel,
                                 set_parent,
@@ -289,17 +341,21 @@ impl HierarchyPanel {
             if row_response.clicked() {
                 let mods = ui.ctx().input(|i| i.modifiers);
                 if mods.shift {
-                    let idx = all_entities
-                        .iter()
-                        .position(|e| e.id == info.id)
-                        .unwrap_or(0);
-                    let anchor_idx = current_sel
-                        .and_then(|id| all_entities.iter().position(|e| e.id == id))
+                    // Range-select by *rendered* (depth-first) order, not
+                    // raw snapshot-array order — the two diverge once
+                    // entities have parents, and using array order here
+                    // would select a range with no visual relationship to
+                    // what's actually between the two clicked rows.
+                    let idx = tree.order.iter().position(|&id| id == info.id).unwrap_or(0);
+                    let anchor_idx = tree
+                        .current_sel
+                        .and_then(|id| tree.order.iter().position(|&oid| oid == id))
                         .unwrap_or(idx);
                     let (lo, hi) = (anchor_idx.min(idx), anchor_idx.max(idx));
-                    *new_selection = Some(all_entities[lo..=hi].iter().map(|e| e.id).collect());
+                    *new_selection = Some(tree.order[lo..=hi].to_vec());
                 } else if mods.ctrl {
-                    let mut ids: Vec<u64> = all_entities
+                    let mut ids: Vec<u64> = tree
+                        .all_entities
                         .iter()
                         .filter(|e| e.selected)
                         .map(|e| e.id)
@@ -333,7 +389,7 @@ impl HierarchyPanel {
                 // (`parent_id.is_none()`) unable to ever reach that subtree
                 // again — the entity and everything under it would silently
                 // vanish from the panel with no error.
-                if !Self::would_create_cycle(all_entities, dropped_id, info.id) {
+                if !Self::would_create_cycle(tree.all_entities, dropped_id, info.id) {
                     *set_parent = Some((dropped_id, info.id));
                 }
             }

@@ -525,6 +525,36 @@ fn process_editor_commands(
                     }
                 }
             }
+            EditorCommand::AttachScript { entity_id, path } => {
+                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                if let Some(entity) = target {
+                    commands
+                        .entity(entity)
+                        .insert(bsengine_scene::ScriptPath(path));
+                }
+            }
+            EditorCommand::DetachScript { entity_id } => {
+                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                if let Some(entity) = target {
+                    commands.entity(entity).remove::<bsengine_scene::ScriptPath>();
+                }
+            }
+            EditorCommand::AttachPrimitiveMesh { entity_id, primitive } => {
+                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                if let Some(entity) = target {
+                    commands
+                        .entity(entity)
+                        .insert(bsengine_scene::PrimitiveMesh(primitive));
+                }
+            }
+            EditorCommand::DetachPrimitiveMesh { entity_id } => {
+                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                if let Some(entity) = target {
+                    commands
+                        .entity(entity)
+                        .remove::<bsengine_scene::PrimitiveMesh>();
+                }
+            }
             EditorCommand::AttachPointLight {
                 entity_id,
                 color,
@@ -1232,6 +1262,16 @@ fn primitive_to_str(p: &bsengine_scene::Primitive) -> String {
     .to_string()
 }
 
+fn str_to_primitive(s: &str) -> Option<bsengine_scene::Primitive> {
+    match s {
+        "cube" => Some(bsengine_scene::Primitive::Cube),
+        "sphere" => Some(bsengine_scene::Primitive::Sphere),
+        "plane" => Some(bsengine_scene::Primitive::Plane),
+        "capsule" => Some(bsengine_scene::Primitive::Capsule),
+        _ => None,
+    }
+}
+
 fn apply_inspector_cmds(
     inspector: Option<ResMut<InspectorState>>,
     queue_res: Res<EditorCommandQueueResource>,
@@ -1373,6 +1413,25 @@ fn apply_inspector_cmds(
             }
             InspectorCmd::UntagEntity { id, tag } => {
                 queue.push(EditorCommand::UntagEntity { entity_id: id, tag });
+            }
+            InspectorCmd::AttachScript { id, path } => {
+                queue.push(EditorCommand::AttachScript { entity_id: id, path });
+            }
+            InspectorCmd::DetachScript { id } => {
+                queue.push(EditorCommand::DetachScript { entity_id: id });
+            }
+            InspectorCmd::AttachPrimitiveMesh { id, primitive } => {
+                if let Some(primitive) = str_to_primitive(&primitive) {
+                    queue.push(EditorCommand::AttachPrimitiveMesh {
+                        entity_id: id,
+                        primitive,
+                    });
+                } else {
+                    tracing::warn!("unknown primitive kind '{primitive}'");
+                }
+            }
+            InspectorCmd::DetachPrimitiveMesh { id } => {
+                queue.push(EditorCommand::DetachPrimitiveMesh { entity_id: id });
             }
         }
     }
@@ -90296,6 +90355,82 @@ mod tests {
         assert_eq!(
             app.world().get::<Tags>(eid).map(|t| t.0.clone()),
             Some(vec![]),
+        );
+    }
+
+    #[test]
+    fn editor_command_attach_and_detach_script() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app.world_mut().spawn(Name("Target".to_string())).id();
+        app.update();
+
+        {
+            let queue = app.world().resource::<EditorCommandQueueResource>();
+            queue.0.lock().unwrap().push(EditorCommand::AttachScript {
+                entity_id: eid.index() as u64,
+                path: "assets/scripts/foo.js".to_string(),
+            });
+        }
+        app.update();
+        assert_eq!(
+            app.world()
+                .get::<bsengine_scene::ScriptPath>(eid)
+                .map(|s| s.0.clone()),
+            Some("assets/scripts/foo.js".to_string())
+        );
+
+        {
+            let queue = app.world().resource::<EditorCommandQueueResource>();
+            queue
+                .0
+                .lock()
+                .unwrap()
+                .push(EditorCommand::DetachScript { entity_id: eid.index() as u64 });
+        }
+        app.update();
+        assert!(app.world().get::<bsengine_scene::ScriptPath>(eid).is_none());
+    }
+
+    #[test]
+    fn editor_command_attach_and_detach_primitive_mesh() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app.world_mut().spawn(Name("Target".to_string())).id();
+        app.update();
+
+        {
+            let queue = app.world().resource::<EditorCommandQueueResource>();
+            queue
+                .0
+                .lock()
+                .unwrap()
+                .push(EditorCommand::AttachPrimitiveMesh {
+                    entity_id: eid.index() as u64,
+                    primitive: bsengine_scene::Primitive::Capsule,
+                });
+        }
+        app.update();
+        assert_eq!(
+            app.world()
+                .get::<bsengine_scene::PrimitiveMesh>(eid)
+                .map(|p| p.0.clone()),
+            Some(bsengine_scene::Primitive::Capsule)
+        );
+
+        {
+            let queue = app.world().resource::<EditorCommandQueueResource>();
+            queue.0.lock().unwrap().push(EditorCommand::DetachPrimitiveMesh {
+                entity_id: eid.index() as u64,
+            });
+        }
+        app.update();
+        assert!(
+            app.world()
+                .get::<bsengine_scene::PrimitiveMesh>(eid)
+                .is_none()
         );
     }
 }

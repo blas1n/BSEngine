@@ -191,6 +191,20 @@ pub enum EditorCommand {
         roughness: Option<f32>,
         emissive: Option<[f32; 3]>,
     },
+    AttachScript {
+        entity_id: u64,
+        path: String,
+    },
+    DetachScript {
+        entity_id: u64,
+    },
+    AttachPrimitiveMesh {
+        entity_id: u64,
+        primitive: bsengine_scene::Primitive,
+    },
+    DetachPrimitiveMesh {
+        entity_id: u64,
+    },
 }
 
 /// Undo/redo checkpoint stacks. Each entry is a full `EditorSnapshot` taken

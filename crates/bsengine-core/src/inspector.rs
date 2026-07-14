@@ -124,6 +124,26 @@ pub enum InspectorCmd {
         id: u64,
         tag: String,
     },
+    AttachScript {
+        id: u64,
+        path: String,
+    },
+    DetachScript {
+        id: u64,
+    },
+    AttachPrimitiveMesh {
+        id: u64,
+        /// `"cube"`/`"sphere"`/`"plane"`/`"capsule"` (lowercase) — a plain
+        /// `String`, not `bsengine_scene::Primitive`, for the same
+        /// circular-dependency reason as `InspectorEntityInfo.primitive`
+        /// (see this plan's header notes). Parsed back into the real enum
+        /// in `apply_inspector_cmds` below, where `bsengine_scene` is
+        /// already in scope.
+        primitive: String,
+    },
+    DetachPrimitiveMesh {
+        id: u64,
+    },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]

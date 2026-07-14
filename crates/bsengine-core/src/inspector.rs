@@ -12,6 +12,8 @@ pub struct InspectorEntityInfo {
     pub light_color: Option<[f32; 3]>,
     pub light_intensity: Option<f32>,
     pub light_range: Option<f32>,
+    pub spot_inner_angle: Option<f32>,
+    pub spot_outer_angle: Option<f32>,
     // camera
     pub camera_fov: Option<f32>,
     // material
@@ -50,9 +52,12 @@ pub enum InspectorCmd {
     },
     UpdateLight {
         id: u64,
+        light_type: String,
         color: Option<[f32; 3]>,
         intensity: Option<f32>,
         range: Option<f32>,
+        inner_angle: Option<f32>,
+        outer_angle: Option<f32>,
     },
     UpdateCamera {
         id: u64,
@@ -117,6 +122,8 @@ pub struct InspectorState {
     pub edit_light_color: [f32; 3],
     pub edit_light_intensity: f32,
     pub edit_light_range: f32,
+    pub edit_spot_inner_angle: f32,
+    pub edit_spot_outer_angle: f32,
     pub edit_camera_fov: f32,
     pub edit_mat_base_color: [f32; 3],
     pub edit_mat_metallic: f32,
@@ -182,6 +189,8 @@ impl Default for InspectorState {
             edit_light_color: [1.0, 1.0, 1.0],
             edit_light_intensity: 1.0,
             edit_light_range: 10.0,
+            edit_spot_inner_angle: 22.5,
+            edit_spot_outer_angle: 30.0,
             edit_camera_fov: 60.0,
             edit_mat_base_color: [1.0, 1.0, 1.0],
             edit_mat_metallic: 0.0,
@@ -233,6 +242,8 @@ impl InspectorState {
                     self.edit_light_color = info.light_color.unwrap_or([1.0, 1.0, 1.0]);
                     self.edit_light_intensity = info.light_intensity.unwrap_or(1.0);
                     self.edit_light_range = info.light_range.unwrap_or(10.0);
+                    self.edit_spot_inner_angle = info.spot_inner_angle.unwrap_or(22.5);
+                    self.edit_spot_outer_angle = info.spot_outer_angle.unwrap_or(30.0);
                     self.edit_camera_fov = info.camera_fov.unwrap_or(60.0);
                     self.edit_mat_base_color = info.material_base_color.unwrap_or([1.0, 1.0, 1.0]);
                     self.edit_mat_metallic = info.material_metallic.unwrap_or(0.0);

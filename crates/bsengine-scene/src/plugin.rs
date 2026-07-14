@@ -119,7 +119,7 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
 
         if let Some(sl) = &entity.spot_light {
             builder.insert(SpotLight {
-                color: Vec3::from(sl.color),
+                color: Vec3::from(sl.color).into(),
                 intensity: sl.intensity,
                 range: sl.range,
                 inner_angle: sl.inner_angle_degrees.to_radians(),

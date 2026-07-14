@@ -461,7 +461,7 @@ fn process_editor_commands(
             } => {
                 commands.spawn((
                     SpotLight {
-                        color: glam::Vec3::from(color),
+                        color: glam::Vec3::from(color).into(),
                         intensity,
                         range,
                         inner_angle,
@@ -482,7 +482,7 @@ fn process_editor_commands(
                 for (e, mut light) in params.p4().iter_mut() {
                     if e.index() as u64 == entity_id {
                         if let Some(c) = color {
-                            light.color = glam::Vec3::from(c);
+                            light.color = glam::Vec3::from(c).into();
                         }
                         if let Some(i) = intensity {
                             light.intensity = i;
@@ -630,7 +630,7 @@ fn process_editor_commands(
                     }
                     if let Some(sl) = &entity.spot_light {
                         eb.insert(SpotLight {
-                            color: glam::Vec3::from(sl.color),
+                            color: glam::Vec3::from(sl.color).into(),
                             intensity: sl.intensity,
                             range: sl.range,
                             inner_angle: sl.inner_angle_degrees.to_radians(),
@@ -806,7 +806,7 @@ fn sync_entity_to_info(world: &mut World, entity: Entity, info: &EntityInfo) {
             e.remove::<DirectionalLight>();
             if let Some(mut sl) = e.get_mut::<SpotLight>() {
                 if let Some(c) = info.light_color {
-                    sl.color = glam::Vec3::from(c);
+                    sl.color = glam::Vec3::from(c).into();
                 }
                 if let Some(i) = info.light_intensity {
                     sl.intensity = i;
@@ -900,7 +900,7 @@ fn spawn_entity_from_info(world: &mut World, info: &EntityInfo) -> Entity {
         }
         Some("spot") => {
             e.insert(SpotLight {
-                color: glam::Vec3::from(info.light_color.unwrap_or([1.0; 3])),
+                color: glam::Vec3::from(info.light_color.unwrap_or([1.0; 3])).into(),
                 intensity: info.light_intensity.unwrap_or(1.0),
                 range: info.light_range.unwrap_or(10.0),
                 ..SpotLight::default()
@@ -1199,6 +1199,8 @@ fn populate_inspector(
             light_color: e.light_color,
             light_intensity: e.light_intensity,
             light_range: e.light_range,
+            spot_inner_angle: e.spot_inner_angle,
+            spot_outer_angle: e.spot_outer_angle,
             camera_fov: e.camera_fov,
             material_base_color: e.material_base_color,
             material_metallic: e.material_metallic,
@@ -1250,14 +1252,42 @@ fn apply_inspector_cmds(
             InspectorCmd::Despawn { id } => {
                 queue.push(EditorCommand::Despawn { entity_id: id });
             }
-            InspectorCmd::UpdateLight { id, color, intensity, range } => {
-                queue.push(EditorCommand::UpdatePointLight {
-                    entity_id: id,
-                    color,
-                    intensity,
-                    range,
-                });
-            }
+            InspectorCmd::UpdateLight {
+                id,
+                light_type,
+                color,
+                intensity,
+                range,
+                inner_angle,
+                outer_angle,
+            } => match light_type.as_str() {
+                "directional" => {
+                    queue.push(EditorCommand::UpdateDirectionalLight {
+                        entity_id: id,
+                        direction: None,
+                        color,
+                        ambient: None,
+                    });
+                }
+                "spot" => {
+                    queue.push(EditorCommand::UpdateSpotLight {
+                        entity_id: id,
+                        color,
+                        intensity,
+                        range,
+                        inner_angle,
+                        outer_angle,
+                    });
+                }
+                _ => {
+                    queue.push(EditorCommand::UpdatePointLight {
+                        entity_id: id,
+                        color,
+                        intensity,
+                        range,
+                    });
+                }
+            },
             InspectorCmd::UpdateCamera { id, fov_y_degrees } => {
                 queue.push(EditorCommand::UpdateCamera { entity_id: id, fov_y_degrees });
             }
@@ -28750,6 +28780,45 @@ mod tests {
 
         let registry = app.world().resource::<bsengine_core::EditorPanelRegistry>();
         assert!(registry.0.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn inspector_cmd_update_light_dispatches_to_correct_light_type() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app
+            .world_mut()
+            .spawn(bsengine_core::SpotLight::default())
+            .id();
+        app.update();
+
+        {
+            let mut insp = app.world_mut().resource_mut::<InspectorState>();
+            insp.cmd_queue.push(InspectorCmd::UpdateLight {
+                id: eid.index() as u64,
+                light_type: "spot".to_string(),
+                color: None,
+                intensity: None,
+                range: None,
+                inner_angle: Some(0.1),
+                outer_angle: Some(0.2),
+            });
+        }
+        app.update();
+
+        let light = app
+            .world()
+            .get::<bsengine_core::SpotLight>(eid)
+            .expect("SpotLight should still be attached");
+        assert!(
+            (light.inner_angle - 0.1).abs() < 1e-6,
+            "inner_angle was not updated — dispatch bug not fixed"
+        );
+        assert!(
+            (light.outer_angle - 0.2).abs() < 1e-6,
+            "outer_angle was not updated — dispatch bug not fixed"
+        );
     }
 
     #[test]
@@ -89902,7 +89971,7 @@ mod tests {
             app.world_mut().spawn((
                 Name("Spot".to_string()),
                 bsengine_core::SpotLight {
-                    color: Vec3::new(0.2, 0.8, 1.0),
+                    color: Vec3::new(0.2, 0.8, 1.0).into(),
                     intensity: 3.0,
                     range: 20.0,
                     inner_angle: 15_f32.to_radians(),

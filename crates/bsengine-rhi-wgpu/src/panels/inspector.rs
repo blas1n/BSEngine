@@ -148,12 +148,45 @@ impl EditorPanel for InspectorPanel {
                         .changed();
                 });
             }
+            if lt == "spot" {
+                ui.horizontal(|ui| {
+                    ui.label("Inner Angle°");
+                    light_changed |= ui
+                        .add(
+                            egui::DragValue::new(&mut insp.edit_spot_inner_angle)
+                                .speed(0.5)
+                                .range(0.0..=insp.edit_spot_outer_angle),
+                        )
+                        .changed();
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Outer Angle°");
+                    light_changed |= ui
+                        .add(
+                            egui::DragValue::new(&mut insp.edit_spot_outer_angle)
+                                .speed(0.5)
+                                .range(insp.edit_spot_inner_angle..=89.0),
+                        )
+                        .changed();
+                });
+            }
             if light_changed {
                 insp.cmd_queue.push(InspectorCmd::UpdateLight {
                     id: sel_id,
+                    light_type: lt.clone(),
                     color: Some(insp.edit_light_color),
                     intensity: Some(insp.edit_light_intensity),
                     range: Some(insp.edit_light_range),
+                    inner_angle: if lt == "spot" {
+                        Some(insp.edit_spot_inner_angle.to_radians())
+                    } else {
+                        None
+                    },
+                    outer_angle: if lt == "spot" {
+                        Some(insp.edit_spot_outer_angle.to_radians())
+                    } else {
+                        None
+                    },
                 });
             }
             ui.separator();

@@ -295,7 +295,7 @@ fn render_frame(
             SpotLightEntry {
                 position: pos,
                 direction: dir,
-                color: sl.color,
+                color: *sl.color,
                 intensity: sl.intensity,
                 range: sl.range,
                 inner_angle: sl.inner_angle,
@@ -472,7 +472,7 @@ mod tests {
         app.add_plugins(RenderPlugin);
         app.world_mut().spawn((
             SpotLight {
-                color: Vec3::new(0.9, 0.9, 1.0),
+                color: Vec3::new(0.9, 0.9, 1.0).into(),
                 intensity: 3.0,
                 range: 12.0,
                 ..Default::default()

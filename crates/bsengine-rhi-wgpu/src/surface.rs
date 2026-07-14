@@ -1222,6 +1222,7 @@ impl WgpuSurface {
         shift_held: bool,
         alt_held: bool,
         editor_panels: Option<&bsengine_core::EditorPanelRegistry>,
+        type_registry: Option<&bevy_ecs::reflect::AppTypeRegistry>,
     ) -> Result<std::collections::HashSet<String>, String> {
         let camera_data = CameraUniformData {
             view_proj: view_proj.to_cols_array_2d(),
@@ -1819,11 +1820,13 @@ impl WgpuSurface {
 
                             let entities_snapshot = insp.entities.clone();
                             let mut panels_guard = registry.0.lock().unwrap();
+                            let type_registry_guard = type_registry.map(|r| r.read());
                             let mut tab_viewer = crate::panels::BseTabViewer {
                                 insp,
                                 entities_snapshot: &entities_snapshot,
                                 cursor_pos: (cursor_x, cursor_y),
                                 panels: &mut panels_guard,
+                                type_registry: type_registry_guard.as_deref(),
                             };
                             egui_dock::DockArea::new(&mut dock_state).show(ctx, &mut tab_viewer);
                             drop(panels_guard);

@@ -82,6 +82,14 @@ pub enum InspectorCmd {
         id: u64,
     },
     SaveScene,
+    AttachComponentByType {
+        id: u64,
+        type_path: String,
+    },
+    RemoveComponentByType {
+        id: u64,
+        type_path: String,
+    },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]

@@ -1,7 +1,8 @@
 use crate::snapshot::{
     EditorCommand, EditorCommandQueueResource, EditorHistory, EditorHistoryResource,
-    EditorSelectionResource, EditorSnapshot, EditorSnapshotResource, EntityInfo,
-    SharedCommandQueue, SharedHistory, SharedSelection, SharedSnapshot, Tags, Visible,
+    EditorSelectionResource, EditorSnapshot, EditorSnapshotResource, EntityInfo, ReflectCommand,
+    ReflectCommandQueueResource, SharedCommandQueue, SharedHistory, SharedReflectCommandQueue,
+    SharedSelection, SharedSnapshot, Tags, Visible,
 };
 use bevy_app::{App, Plugin, Update};
 use bevy_ecs::prelude::{Commands, Entity, IntoSystemConfigs, ParamSet, Query, ResMut, World};
@@ -171,7 +172,7 @@ fn process_editor_commands(
             } => {
                 commands.spawn((
                     PointLight {
-                        color: glam::Vec3::from(color),
+                        color: glam::Vec3::from(color).into(),
                         intensity,
                         range,
                     },
@@ -217,7 +218,7 @@ fn process_editor_commands(
                 for (e, mut light) in params.p2().iter_mut() {
                     if e.index() as u64 == entity_id {
                         if let Some(c) = color {
-                            light.color = glam::Vec3::from(c);
+                            light.color = glam::Vec3::from(c).into();
                         }
                         if let Some(i) = intensity {
                             light.intensity = i;
@@ -533,7 +534,7 @@ fn process_editor_commands(
                 let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
                 if let Some(entity) = target {
                     commands.entity(entity).insert(PointLight {
-                        color: glam::Vec3::from(color),
+                        color: glam::Vec3::from(color).into(),
                         intensity,
                         range,
                     });
@@ -622,7 +623,7 @@ fn process_editor_commands(
                     }
                     if let Some(pl) = &entity.point_light {
                         eb.insert(PointLight {
-                            color: glam::Vec3::from(pl.color),
+                            color: glam::Vec3::from(pl.color).into(),
                             intensity: pl.intensity,
                             range: pl.range,
                         });
@@ -786,7 +787,7 @@ fn sync_entity_to_info(world: &mut World, entity: Entity, info: &EntityInfo) {
             e.remove::<DirectionalLight>();
             e.remove::<SpotLight>();
             e.insert(PointLight {
-                color: glam::Vec3::from(info.light_color.unwrap_or([1.0; 3])),
+                color: glam::Vec3::from(info.light_color.unwrap_or([1.0; 3])).into(),
                 intensity: info.light_intensity.unwrap_or(1.0),
                 range: info.light_range.unwrap_or(10.0),
             });
@@ -886,7 +887,7 @@ fn spawn_entity_from_info(world: &mut World, info: &EntityInfo) -> Entity {
     match info.light_type.as_deref() {
         Some("point") => {
             e.insert(PointLight {
-                color: glam::Vec3::from(info.light_color.unwrap_or([1.0; 3])),
+                color: glam::Vec3::from(info.light_color.unwrap_or([1.0; 3])).into(),
                 intensity: info.light_intensity.unwrap_or(1.0),
                 range: info.light_range.unwrap_or(10.0),
             });
@@ -1056,6 +1057,67 @@ fn apply_history_action(world: &mut World) {
     }
 }
 
+fn process_reflect_commands(world: &mut World) {
+    let cmds: Vec<ReflectCommand> = {
+        let Some(queue_res) = world.get_resource::<ReflectCommandQueueResource>() else {
+            return;
+        };
+        let mut queue = queue_res.0.lock().unwrap();
+        queue.drain(..).collect()
+    };
+    if cmds.is_empty() {
+        return;
+    }
+
+    let Some(app_registry) = world.get_resource::<bevy_ecs::reflect::AppTypeRegistry>().cloned()
+    else {
+        return;
+    };
+    let registry = app_registry.read();
+
+    for cmd in cmds {
+        match cmd {
+            ReflectCommand::AttachComponentByType { entity_id, type_path } => {
+                let Some(registration) = registry.get_with_type_path(&type_path) else {
+                    tracing::warn!("reflect: unknown type path '{type_path}'");
+                    continue;
+                };
+                let Some(reflect_component) = registration.data::<bevy_ecs::reflect::ReflectComponent>()
+                else {
+                    tracing::warn!("reflect: '{type_path}' is not a registered Component");
+                    continue;
+                };
+                let Some(reflect_default) = registration.data::<bevy_reflect::std_traits::ReflectDefault>()
+                else {
+                    tracing::warn!("reflect: '{type_path}' has no registered Default");
+                    continue;
+                };
+                let default_value = reflect_default.default();
+                let target = world.iter_entities().find(|e| e.id().index() as u64 == entity_id);
+                if let Some(entity) = target.map(|e| e.id()) {
+                    let mut entity_mut = world.entity_mut(entity);
+                    reflect_component.insert(&mut entity_mut, default_value.as_ref(), &registry);
+                }
+            }
+            ReflectCommand::RemoveComponentByType { entity_id, type_path } => {
+                let Some(registration) = registry.get_with_type_path(&type_path) else {
+                    tracing::warn!("reflect: unknown type path '{type_path}'");
+                    continue;
+                };
+                let Some(reflect_component) = registration.data::<bevy_ecs::reflect::ReflectComponent>()
+                else {
+                    continue;
+                };
+                let target = world.iter_entities().find(|e| e.id().index() as u64 == entity_id);
+                if let Some(entity) = target.map(|e| e.id()) {
+                    let mut entity_mut = world.entity_mut(entity);
+                    reflect_component.remove(&mut entity_mut);
+                }
+            }
+        }
+    }
+}
+
 fn update_editor_camera(
     inspector: Option<ResMut<InspectorState>>,
     mouse: Option<bsengine_ecs::Res<bsengine_input::MouseState>>,
@@ -1151,6 +1213,7 @@ fn populate_inspector(
 fn apply_inspector_cmds(
     inspector: Option<ResMut<InspectorState>>,
     queue_res: Res<EditorCommandQueueResource>,
+    reflect_queue_res: Res<ReflectCommandQueueResource>,
     selection_res: Res<EditorSelectionResource>,
 ) {
     let Some(mut inspector) = inspector else {
@@ -1231,6 +1294,18 @@ fn apply_inspector_cmds(
                     tracing::warn!("save requested but no scene file is currently loaded");
                 }
             }
+            InspectorCmd::AttachComponentByType { id, type_path } => {
+                reflect_queue_res.0.lock().unwrap().push(ReflectCommand::AttachComponentByType {
+                    entity_id: id,
+                    type_path,
+                });
+            }
+            InspectorCmd::RemoveComponentByType { id, type_path } => {
+                reflect_queue_res.0.lock().unwrap().push(ReflectCommand::RemoveComponentByType {
+                    entity_id: id,
+                    type_path,
+                });
+            }
         }
     }
 }
@@ -1241,20 +1316,25 @@ impl Plugin for EditorPlugin {
     fn build(&self, app: &mut App) {
         let snapshot: SharedSnapshot = Arc::new(Mutex::new(EditorSnapshot::default()));
         let cmd_queue: SharedCommandQueue = Arc::new(Mutex::new(Vec::new()));
+        let reflect_cmd_queue: SharedReflectCommandQueue = Arc::new(Mutex::new(Vec::new()));
         let selection: SharedSelection = Arc::new(Mutex::new(std::collections::HashSet::new()));
         let history: SharedHistory = Arc::new(Mutex::new(EditorHistory::default()));
 
         app.insert_resource(EditorSnapshotResource(snapshot.clone()));
         app.insert_resource(EditorCommandQueueResource(cmd_queue.clone()));
+        app.insert_resource(ReflectCommandQueueResource(reflect_cmd_queue.clone()));
         app.insert_resource(EditorSelectionResource(selection.clone()));
         app.insert_resource(EditorHistoryResource(history.clone()));
         app.insert_resource(InspectorState::editor());
         app.insert_resource(EditorPanelRegistry::default());
+        app.register_type::<bsengine_core::Camera>();
+        app.register_type::<bsengine_core::PointLight>();
         app.add_systems(Update, update_editor_snapshot);
         app.add_systems(Update, update_editor_camera);
         app.add_systems(Update, populate_inspector.after(update_editor_snapshot));
         app.add_systems(Update, apply_inspector_cmds.before(process_editor_commands));
         app.add_systems(Update, process_editor_commands);
+        app.add_systems(Update, process_reflect_commands.after(process_editor_commands));
         app.add_systems(Update, apply_history_action.after(process_editor_commands));
 
         if let Some(mcp) = app.world_mut().get_resource_mut::<McpRegistryResource>() {
@@ -28670,6 +28750,85 @@ mod tests {
 
         let registry = app.world().resource::<bsengine_core::EditorPanelRegistry>();
         assert!(registry.0.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn reflect_command_attaches_and_removes_component_by_type_path() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app.world_mut().spawn(Name("Target".to_string())).id();
+        app.update();
+
+        {
+            let queue = app.world().resource::<crate::snapshot::ReflectCommandQueueResource>();
+            queue.0.lock().unwrap().push(crate::snapshot::ReflectCommand::AttachComponentByType {
+                entity_id: eid.index() as u64,
+                type_path: "bsengine_core::camera::Camera".to_string(),
+            });
+        }
+        app.update();
+
+        assert!(
+            app.world().get::<bsengine_core::Camera>(eid).is_some(),
+            "Camera was not attached via ReflectCommand"
+        );
+
+        {
+            let queue = app.world().resource::<crate::snapshot::ReflectCommandQueueResource>();
+            queue.0.lock().unwrap().push(crate::snapshot::ReflectCommand::RemoveComponentByType {
+                entity_id: eid.index() as u64,
+                type_path: "bsengine_core::camera::Camera".to_string(),
+            });
+        }
+        app.update();
+
+        assert!(
+            app.world().get::<bsengine_core::Camera>(eid).is_none(),
+            "Camera was not removed via ReflectCommand"
+        );
+    }
+
+    #[test]
+    fn inspector_cmd_attach_component_by_type_reaches_reflect_queue() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app.world_mut().spawn(Name("Target".to_string())).id();
+        app.update();
+
+        {
+            let mut insp = app.world_mut().resource_mut::<InspectorState>();
+            insp.cmd_queue.push(InspectorCmd::AttachComponentByType {
+                id: eid.index() as u64,
+                type_path: "bsengine_core::camera::Camera".to_string(),
+            });
+        }
+        app.update();
+
+        assert!(
+            app.world().get::<bsengine_core::Camera>(eid).is_some(),
+            "Camera was not attached end-to-end via InspectorCmd"
+        );
+    }
+
+    #[test]
+    fn editor_plugin_registers_reflected_component_types() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.update();
+
+        let registry = app.world().resource::<bevy_ecs::reflect::AppTypeRegistry>();
+        let registry = registry.read();
+        assert!(
+            registry.get(std::any::TypeId::of::<bsengine_core::Camera>()).is_some(),
+            "Camera not registered in AppTypeRegistry"
+        );
+        assert!(
+            registry.get(std::any::TypeId::of::<bsengine_core::PointLight>()).is_some(),
+            "PointLight not registered in AppTypeRegistry"
+        );
     }
 
     #[test]
@@ -89130,7 +89289,7 @@ mod tests {
         app.add_plugins(McpPlugin);
         app.add_plugins(EditorPlugin);
         app.world_mut().spawn(bsengine_core::PointLight {
-            color: glam::Vec3::new(0.5, 0.5, 0.5),
+            color: glam::Vec3::new(0.5, 0.5, 0.5).into(),
             intensity: 3.5,
             range: 12.0,
         });
@@ -89733,7 +89892,7 @@ mod tests {
             app.world_mut().spawn((
                 Name("Lamp".to_string()),
                 bsengine_core::PointLight {
-                    color: Vec3::new(1.0, 0.5, 0.2),
+                    color: Vec3::new(1.0, 0.5, 0.2).into(),
                     intensity: 2.5,
                     range: 15.0,
                 },

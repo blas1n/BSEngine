@@ -15,6 +15,7 @@ bsengine-core   = { workspace = true }
 bsengine-render = { workspace = true }
 bevy_app        = { workspace = true }
 bevy_ecs        = { workspace = true }
+bevy_reflect    = { workspace = true }
 serde_json      = { workspace = true }
 glam            = { workspace = true }
 ron             = { workspace = true }

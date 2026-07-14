@@ -120,6 +120,7 @@ fn render_frame(
         Query<(&SpotLight, Option<&GlobalTransform>, &Transform)>,
     )>,
     editor_panels: Option<Res<EditorPanelRegistry>>,
+    type_registry: Option<Res<bevy_ecs::reflect::AppTypeRegistry>>,
 ) {
     let (Some(mut surface), Some(registry)) = (surface, registry) else {
         return;
@@ -274,7 +275,7 @@ fn render_frame(
                 .unwrap_or(t.translation);
             PointLightEntry {
                 position: pos,
-                color: pl.color,
+                color: *pl.color,
                 intensity: pl.intensity,
                 range: pl.range,
             }
@@ -350,6 +351,7 @@ fn render_frame(
         shift_held,
         alt_held,
         editor_panels.as_deref(),
+        type_registry.as_deref(),
     ) {
         Ok(clicked) => {
             if let Some(ref mut state) = ui_state {
@@ -435,7 +437,7 @@ mod tests {
         app.add_plugins(RenderPlugin);
         app.world_mut().spawn((
             PointLight {
-                color: Vec3::new(1.0, 0.5, 0.0),
+                color: Vec3::new(1.0, 0.5, 0.0).into(),
                 intensity: 2.0,
                 range: 5.0,
             },

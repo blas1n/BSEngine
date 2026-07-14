@@ -543,7 +543,7 @@ fn run_scripts(world: &mut World) {
                 };
                 if let Some(e) = entity {
                     if let Some(mut light) = world.get_mut::<PointLight>(e) {
-                        light.color = glam::Vec3::new(r, g, b);
+                        light.color = glam::Vec3::new(r, g, b).into();
                     }
                 }
             }

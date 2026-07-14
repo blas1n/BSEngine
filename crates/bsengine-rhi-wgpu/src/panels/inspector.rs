@@ -279,6 +279,78 @@ impl EditorPanel for InspectorPanel {
             ui.separator();
         }
 
+        // Tags
+        ui.strong("Tags");
+        ui.horizontal_wrapped(|ui| {
+            for tag in &sel_info.tags {
+                ui.horizontal(|ui| {
+                    ui.label(tag);
+                    if ui.small_button("×").clicked() {
+                        insp.cmd_queue.push(InspectorCmd::UntagEntity {
+                            id: sel_id,
+                            tag: tag.clone(),
+                        });
+                    }
+                });
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.text_edit_singleline(&mut insp.edit_new_tag);
+            if ui.button("Add").clicked() && !insp.edit_new_tag.is_empty() {
+                insp.cmd_queue.push(InspectorCmd::TagEntity {
+                    id: sel_id,
+                    tag: insp.edit_new_tag.clone(),
+                });
+                insp.edit_new_tag.clear();
+            }
+        });
+        ui.separator();
+
+        // Script
+        ui.strong("Script");
+        ui.horizontal(|ui| {
+            ui.text_edit_singleline(&mut insp.edit_script_path);
+            if ui.button("Attach").clicked() && !insp.edit_script_path.is_empty() {
+                insp.cmd_queue.push(InspectorCmd::AttachScript {
+                    id: sel_id,
+                    path: insp.edit_script_path.clone(),
+                });
+            }
+            if sel_info.script_path.is_some() && ui.button("Clear").clicked() {
+                insp.cmd_queue
+                    .push(InspectorCmd::DetachScript { id: sel_id });
+                insp.edit_script_path.clear();
+            }
+        });
+        ui.separator();
+
+        // Mesh
+        ui.strong("Mesh");
+        ui.horizontal(|ui| {
+            let current_label = sel_info.primitive.as_deref().unwrap_or("None");
+            let mut chosen: Option<&str> = None;
+            egui::ComboBox::from_id_salt("mesh_primitive_combo")
+                .selected_text(current_label)
+                .show_ui(ui, |ui| {
+                    for p in ["cube", "sphere", "plane", "capsule"] {
+                        if ui.selectable_label(false, p).clicked() {
+                            chosen = Some(p);
+                        }
+                    }
+                });
+            if let Some(primitive) = chosen {
+                insp.cmd_queue.push(InspectorCmd::AttachPrimitiveMesh {
+                    id: sel_id,
+                    primitive: primitive.to_string(),
+                });
+            }
+            if sel_info.primitive.is_some() && ui.button("Remove").clicked() {
+                insp.cmd_queue
+                    .push(InspectorCmd::DetachPrimitiveMesh { id: sel_id });
+            }
+        });
+        ui.separator();
+
         // Add Component
         ui.strong("Add Component");
         ui.horizontal(|ui| {

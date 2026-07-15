@@ -82,7 +82,7 @@ fn update_editor_snapshot(
                     light_ambient: dir.map(|l| l.ambient.to_array()),
                     spot_inner_angle: spot.map(|l| l.inner_angle.to_degrees()),
                     spot_outer_angle: spot.map(|l| l.outer_angle.to_degrees()),
-                    camera_fov: cam.map(|c| c.fov_y_radians.to_degrees()),
+                    camera_fov: cam.map(|c| c.fov_y_degrees.0),
                     material_base_color: mat.map(|m| m.base_color.to_array()),
                     material_metallic: mat.map(|m| m.metallic),
                     material_roughness: mat.map(|m| m.roughness),
@@ -287,7 +287,7 @@ fn process_editor_commands(
                 for (e, mut cam) in params.p5().iter_mut() {
                     if e.index() as u64 == entity_id {
                         if let Some(fov) = fov_y_degrees {
-                            cam.fov_y_radians = fov.to_radians();
+                            cam.fov_y_degrees = fov.into();
                         }
                         break;
                     }
@@ -858,7 +858,7 @@ fn sync_entity_to_info(world: &mut World, entity: Entity, info: &EntityInfo) {
     match info.camera_fov {
         Some(fov_deg) => {
             if let Some(mut cam) = e.get_mut::<Camera>() {
-                cam.fov_y_radians = fov_deg.to_radians();
+                cam.fov_y_degrees = fov_deg.into();
             }
         }
         None => {
@@ -29145,7 +29145,7 @@ mod tests {
         app.update();
 
         let edited = bsengine_core::Camera {
-            fov_y_radians: 1.2345,
+            fov_y_degrees: 1.2345.into(),
             ..Default::default()
         };
         {
@@ -29163,8 +29163,8 @@ mod tests {
             .get::<bsengine_core::Camera>(eid)
             .expect("Camera should still be attached");
         assert!(
-            (cam.fov_y_radians - 1.2345).abs() < f32::EPSILON,
-            "Camera.fov_y_radians should have been updated to the applied value"
+            (cam.fov_y_degrees.0 - 1.2345).abs() < f32::EPSILON,
+            "Camera.fov_y_degrees should have been updated to the applied value"
         );
     }
 
@@ -29180,7 +29180,7 @@ mod tests {
         app.update();
 
         let edited = bsengine_core::Camera {
-            fov_y_radians: 0.5,
+            fov_y_degrees: 0.5.into(),
             ..Default::default()
         };
         {
@@ -29195,7 +29195,7 @@ mod tests {
 
         let cam = app.world().get::<bsengine_core::Camera>(eid).expect("Camera should exist");
         assert!(
-            (cam.fov_y_radians - 0.5).abs() < f32::EPSILON,
+            (cam.fov_y_degrees.0 - 0.5).abs() < f32::EPSILON,
             "Camera should have been updated end-to-end via InspectorCmd"
         );
     }
@@ -29268,9 +29268,10 @@ mod tests {
             .downcast_ref::<bsengine_core::Camera>()
             .expect("cloned value should downcast back to Camera");
         assert!(
-            (cloned_camera.fov_y_radians - bsengine_core::Camera::default().fov_y_radians).abs()
-                < f32::EPSILON,
-            "cloned Camera's fov_y_radians should match the real component's default value"
+            (cloned_camera.fov_y_degrees.0 - 60.0).abs() < f32::EPSILON,
+            "cloned Camera's fov_y_degrees should be 60.0 (degrees) — proves the field is wired \
+             through the real reflection pipeline with the correct unit, not just internally \
+             self-consistent"
         );
     }
 
@@ -90488,9 +90489,9 @@ mod tests {
                 .find(|(n, _)| n.0 == "MainCam")
                 .expect("MainCam not found after load");
             assert!(
-                (cam.fov_y_radians.to_degrees() - 75.0).abs() < 1e-3,
+                (cam.fov_y_degrees.0 - 75.0).abs() < 1e-3,
                 "wrong fov: {}",
-                cam.fov_y_radians.to_degrees()
+                cam.fov_y_degrees.0
             );
 
             let mut prim_q = app.world_mut().query::<(

@@ -14,10 +14,11 @@
 //! This type exists purely as a *display* signal for the generic reflected-
 //! field editor: a struct field's *type* (not its name, not a comment)
 //! declares "this number means degrees", so `draw_reflect_ui` can render it
-//! without per-field naming conventions or hints. As of this writing, no
-//! real component field uses this type yet — `Camera.fov_y_radians` and
-//! `SpotLight.inner_angle`/`outer_angle` remain in radians until "PR C-2"
-//! migrates them (a wider call-site change, deferred — see the design doc).
+//! without per-field naming conventions or hints. `Camera.fov_y_degrees`
+//! ("PR C-2") is the first real field wired to this type.
+//! `SpotLight.inner_angle`/`outer_angle` remain in radians for now — a wider,
+//! more scattered call-site migration, deferred to a separate follow-up PR
+//! (see the design docs for both PRs).
 use bevy_reflect::{impl_reflect_value, prelude::ReflectDefault};
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]

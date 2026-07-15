@@ -57,6 +57,24 @@ fn compute_light_view_proj(light_dir: Vec3) -> Mat4 {
     proj * view
 }
 
+fn spot_light_entry(sl: &SpotLight, gt: Option<&GlobalTransform>, t: &Transform) -> SpotLightEntry {
+    let pos = gt
+        .map(|g| g.to_matrix().w_axis.truncate())
+        .unwrap_or(t.translation);
+    let dir = gt
+        .map(|g| -glam::Mat3::from_mat4(g.to_matrix()).z_axis)
+        .unwrap_or_else(|| t.rotation * Vec3::NEG_Z);
+    SpotLightEntry {
+        position: pos,
+        direction: dir,
+        color: *sl.color,
+        intensity: sl.intensity,
+        range: sl.range,
+        inner_angle: sl.inner_angle_degrees.to_radians(),
+        outer_angle: sl.outer_angle_degrees.to_radians(),
+    }
+}
+
 /// Pass 1: root entities (no Parent) get GlobalTransform = local Transform.
 fn propagate_roots(mut query: Query<(&Transform, &mut GlobalTransform), Without<Parent>>) {
     for (t, mut gt) in query.iter_mut() {
@@ -285,23 +303,7 @@ fn render_frame(
     let collected_spot_lights: Vec<SpotLightEntry> = render_queries
         .p4()
         .iter()
-        .map(|(sl, gt, t)| {
-            let pos = gt
-                .map(|g| g.to_matrix().w_axis.truncate())
-                .unwrap_or(t.translation);
-            let dir = gt
-                .map(|g| -glam::Mat3::from_mat4(g.to_matrix()).z_axis)
-                .unwrap_or_else(|| t.rotation * Vec3::NEG_Z);
-            SpotLightEntry {
-                position: pos,
-                direction: dir,
-                color: *sl.color,
-                intensity: sl.intensity,
-                range: sl.range,
-                inner_angle: sl.inner_angle,
-                outer_angle: sl.outer_angle,
-            }
-        })
+        .map(|(sl, gt, t)| spot_light_entry(sl, gt, t))
         .collect();
 
     let light = if let Some((l, gt, t)) = render_queries.p2().iter().next() {
@@ -480,6 +482,23 @@ mod tests {
             Transform::from_translation(Vec3::new(0.0, 5.0, 0.0)),
         ));
         app.update();
+    }
+
+    #[test]
+    fn spot_light_entry_converts_degrees_to_radians() {
+        use bsengine_core::SpotLight;
+
+        let sl = SpotLight {
+            inner_angle_degrees: 45.0.into(),
+            outer_angle_degrees: 60.0.into(),
+            ..SpotLight::default()
+        };
+        let t = Transform::from_translation(Vec3::new(0.0, 5.0, 0.0));
+
+        let entry = super::spot_light_entry(&sl, None, &t);
+
+        assert!((entry.inner_angle - 45_f32.to_radians()).abs() < 1e-6);
+        assert!((entry.outer_angle - 60_f32.to_radians()).abs() < 1e-6);
     }
 
     #[test]

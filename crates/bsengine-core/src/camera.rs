@@ -63,6 +63,13 @@ mod tests {
     }
 
     #[test]
+    fn projection_matrix_converts_degrees_to_radians_at_point_of_use() {
+        let cam = Camera::perspective(90.0, 1.0);
+        let expected = Mat4::perspective_rh(90_f32.to_radians(), 1.0, 0.1, 1000.0);
+        assert!(cam.projection_matrix().abs_diff_eq(expected, 1e-6));
+    }
+
+    #[test]
     fn update_aspect_ratio_ignores_zero_height() {
         let mut cam = Camera::default();
         let original = cam.aspect_ratio;

@@ -1,3 +1,4 @@
+use crate::panels::reflect_ui::draw_reflect_ui;
 use bsengine_core::{EditorPanel, EditorPanelContext, InspectorCmd, PRIMITIVE_KINDS};
 
 pub struct InspectorPanel;
@@ -390,5 +391,94 @@ impl EditorPanel for InspectorPanel {
                 });
             }
         }
+
+        if !insp.reflected_components.is_empty() {
+            ui.separator();
+            ui.strong("Reflected Fields");
+            let mut to_apply: Vec<(String, Box<dyn bevy_reflect::Reflect>)> = Vec::new();
+            for (type_path, value) in insp.reflected_components.iter_mut() {
+                egui::CollapsingHeader::new(type_path.as_str())
+                    .id_salt(type_path.as_str())
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        if draw_reflect_ui(ui, value.as_mut()) {
+                            to_apply.push((type_path.clone(), value.clone_value()));
+                        }
+                    });
+            }
+            for (type_path, value) in to_apply {
+                insp.cmd_queue.push(InspectorCmd::ApplyReflectedComponent {
+                    id: sel_id,
+                    type_path,
+                    value,
+                });
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bsengine_core::{InspectorEntityInfo, InspectorState};
+
+    /// Headless single-frame egui harness, mirroring `reflect_ui.rs`'s own
+    /// `with_test_ui` helper.
+    fn with_test_ui<R>(add_contents: impl FnOnce(&mut egui::Ui) -> R) -> R {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::empty());
+        let mut add_contents = Some(add_contents);
+        let mut result = None;
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                if let Some(f) = add_contents.take() {
+                    result = Some(f(ui));
+                }
+            });
+        });
+        result.expect("add_contents must run exactly once per test frame")
+    }
+
+    #[test]
+    fn reflected_fields_section_renders_without_panicking_for_a_real_camera_clone() {
+        // The manual smoke test (launching the editor with no entity
+        // selected) never exercises this panel's "Reflected Fields" branch
+        // at all, since it's gated on `!insp.reflected_components.is_empty()`
+        // and an empty scene has nothing selected. This test closes that gap
+        // by feeding the panel a real, populated `reflected_components`
+        // entry (mirroring what `populate_reflected_component_snapshot`
+        // would produce for a selected Camera) and confirming the whole
+        // `InspectorPanel::ui()` call — not just `draw_reflect_ui` in
+        // isolation, which already has its own unit tests — renders one
+        // frame without panicking.
+        let mut insp = InspectorState::default();
+        insp.selected_id = Some(1);
+        insp.reflected_components = vec![(
+            "bsengine_core::camera::Camera".to_string(),
+            Box::new(bsengine_core::Camera::default()) as Box<dyn bevy_reflect::Reflect>,
+        )];
+
+        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
+        let mut panel = InspectorPanel;
+
+        with_test_ui(|ui| {
+            let mut ctx = EditorPanelContext {
+                insp: &mut insp,
+                entities_snapshot: &entities_snapshot,
+                cursor_pos: (0.0, 0.0),
+                type_registry: None,
+            };
+            panel.ui(ui, &mut ctx);
+        });
+
+        // No synthetic pointer input was injected (headless, single frame,
+        // no drag/click simulated), so nothing should have been pushed to
+        // the command queue — this test's purpose is proving the render
+        // path is panic-free with real data, not exercising the edit path
+        // (already covered end-to-end by the backend's
+        // reflect_command_apply_component_value_mutates_attached_component
+        // and inspector_cmd_apply_reflected_component_reaches_reflect_queue
+        // tests in bsengine-editor).
+        assert!(insp.cmd_queue.is_empty());
     }
 }

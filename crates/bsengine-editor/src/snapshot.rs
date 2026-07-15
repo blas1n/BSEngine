@@ -223,8 +223,25 @@ pub struct EditorHistory {
 /// because `ReflectComponent::insert`/`remove` need `&mut EntityWorldMut`,
 /// which `process_editor_commands`'s typed system params can't provide.
 pub enum ReflectCommand {
-    AttachComponentByType { entity_id: u64, type_path: String },
-    RemoveComponentByType { entity_id: u64, type_path: String },
+    AttachComponentByType {
+        entity_id: u64,
+        type_path: String,
+    },
+    RemoveComponentByType {
+        entity_id: u64,
+        type_path: String,
+    },
+    /// Apply an edited reflected value onto an already-attached component.
+    /// Handled in `process_reflect_commands` via
+    /// `ReflectComponent::apply_or_insert` (mutates in place if the
+    /// component is already attached, which is always the expected case
+    /// here — this command only ever originates from editing an
+    /// already-cloned, already-attached component's fields).
+    ApplyComponentValue {
+        entity_id: u64,
+        type_path: String,
+        value: Box<dyn bevy_reflect::Reflect>,
+    },
 }
 
 pub type SharedSnapshot = Arc<Mutex<EditorSnapshot>>;

@@ -1093,6 +1093,77 @@ fn apply_history_action(world: &mut World) {
     }
 }
 
+/// Clones every reflected component attached to `InspectorState.selected_id`
+/// into `InspectorState.reflected_components`, so the Inspector UI (which
+/// has no `&mut World` access) can render and edit them via
+/// `draw_reflect_ui`. Runs every frame; exclusive (`world: &mut World`)
+/// because reading a component generically by `TypeRegistry` entry —
+/// without knowing its concrete type at compile time — needs
+/// `ReflectComponent::reflect`, which takes a `FilteredEntityRef` obtained
+/// from `world.entity(...)`, mirroring the same "full world access needed
+/// for generic reflection" precedent `process_reflect_commands` already
+/// established.
+fn populate_reflected_component_snapshot(world: &mut World) {
+    let Some(selected_id) = world
+        .get_resource::<InspectorState>()
+        .and_then(|insp| insp.selected_id)
+    else {
+        if let Some(mut insp) = world.get_resource_mut::<InspectorState>() {
+            insp.reflected_components.clear();
+        }
+        return;
+    };
+
+    let Some(entity) = world
+        .iter_entities()
+        .find(|e| e.id().index() as u64 == selected_id)
+        .map(|e| e.id())
+    else {
+        if let Some(mut insp) = world.get_resource_mut::<InspectorState>() {
+            insp.reflected_components.clear();
+        }
+        return;
+    };
+
+    let Some(app_registry) = world.get_resource::<bevy_ecs::reflect::AppTypeRegistry>().cloned()
+    else {
+        return;
+    };
+    let registry = app_registry.read();
+
+    let mut cloned: Vec<(String, Box<dyn bevy_reflect::Reflect>)> = Vec::new();
+    {
+        let entity_ref = world.entity(entity);
+        for registration in registry.iter() {
+            let Some(reflect_component) = registration.data::<bevy_ecs::reflect::ReflectComponent>()
+            else {
+                continue;
+            };
+            if let Some(value) = reflect_component.reflect(entity_ref) {
+                // `Reflect::clone_value()` on a derive-macro struct returns a
+                // `Box<DynamicStruct>` proxy (see `bevy_reflect_derive`'s
+                // struct impl), not a `Box<Camera>` — it does not downcast
+                // back to the concrete type, which the Inspector UI (and the
+                // round trip back through `ApplyReflectedComponent`) needs.
+                // `ReflectFromReflect` (auto-registered by `derive(Reflect)`
+                // via `FromReflect`, unless a type explicitly opts out) does
+                // produce a real `Box<Camera>` boxed as `dyn Reflect`, so
+                // prefer it; fall back to `clone_value()` only if a type
+                // somehow lacks that registration.
+                let cloned_value = registration
+                    .data::<bevy_reflect::ReflectFromReflect>()
+                    .and_then(|rfr| rfr.from_reflect(value))
+                    .unwrap_or_else(|| value.clone_value());
+                cloned.push((registration.type_info().type_path().to_string(), cloned_value));
+            }
+        }
+    }
+
+    if let Some(mut insp) = world.get_resource_mut::<InspectorState>() {
+        insp.reflected_components = cloned;
+    }
+}
+
 fn process_reflect_commands(world: &mut World) {
     let cmds: Vec<ReflectCommand> = {
         let Some(queue_res) = world.get_resource::<ReflectCommandQueueResource>() else {
@@ -1103,6 +1174,19 @@ fn process_reflect_commands(world: &mut World) {
     };
     if cmds.is_empty() {
         return;
+    }
+
+    if let (Some(snapshot_res), Some(history_res)) = (
+        world.get_resource::<EditorSnapshotResource>(),
+        world.get_resource::<EditorHistoryResource>(),
+    ) {
+        let checkpoint = snapshot_res.0.lock().unwrap().clone();
+        let mut history = history_res.0.lock().unwrap();
+        history.undo_stack.push(checkpoint);
+        history.redo_stack.clear();
+        if history.undo_stack.len() > MAX_UNDO_HISTORY {
+            history.undo_stack.remove(0);
+        }
     }
 
     let Some(app_registry) = world.get_resource::<bevy_ecs::reflect::AppTypeRegistry>().cloned()
@@ -1148,6 +1232,22 @@ fn process_reflect_commands(world: &mut World) {
                 if let Some(entity) = target.map(|e| e.id()) {
                     let mut entity_mut = world.entity_mut(entity);
                     reflect_component.remove(&mut entity_mut);
+                }
+            }
+            ReflectCommand::ApplyComponentValue { entity_id, type_path, value } => {
+                let Some(registration) = registry.get_with_type_path(&type_path) else {
+                    tracing::warn!("reflect: unknown type path '{type_path}'");
+                    continue;
+                };
+                let Some(reflect_component) = registration.data::<bevy_ecs::reflect::ReflectComponent>()
+                else {
+                    tracing::warn!("reflect: '{type_path}' is not a registered Component");
+                    continue;
+                };
+                let target = world.iter_entities().find(|e| e.id().index() as u64 == entity_id);
+                if let Some(entity) = target.map(|e| e.id()) {
+                    let mut entity_mut = world.entity_mut(entity);
+                    reflect_component.apply_or_insert(&mut entity_mut, value.as_ref(), &registry);
                 }
             }
         }
@@ -1440,6 +1540,13 @@ fn apply_inspector_cmds(
             InspectorCmd::DetachPrimitiveMesh { id } => {
                 queue.push(EditorCommand::DetachPrimitiveMesh { entity_id: id });
             }
+            InspectorCmd::ApplyReflectedComponent { id, type_path, value } => {
+                reflect_queue_res.0.lock().unwrap().push(ReflectCommand::ApplyComponentValue {
+                    entity_id: id,
+                    type_path,
+                    value,
+                });
+            }
         }
     }
 }
@@ -1469,6 +1576,7 @@ impl Plugin for EditorPlugin {
         app.add_systems(Update, update_editor_snapshot);
         app.add_systems(Update, update_editor_camera);
         app.add_systems(Update, populate_inspector.after(update_editor_snapshot));
+        app.add_systems(Update, populate_reflected_component_snapshot);
         app.add_systems(Update, apply_inspector_cmds.before(process_editor_commands));
         app.add_systems(Update, process_editor_commands);
         app.add_systems(Update, process_reflect_commands.after(process_editor_commands));
@@ -29022,6 +29130,174 @@ mod tests {
         assert!(
             app.world().get::<bsengine_core::Camera>(eid).is_none(),
             "Camera was not removed via ReflectCommand"
+        );
+    }
+
+    #[test]
+    fn reflect_command_apply_component_value_mutates_attached_component() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app
+            .world_mut()
+            .spawn((Name("Target".to_string()), bsengine_core::Camera::default()))
+            .id();
+        app.update();
+
+        let edited = bsengine_core::Camera {
+            fov_y_radians: 1.2345,
+            ..Default::default()
+        };
+        {
+            let queue = app.world().resource::<crate::snapshot::ReflectCommandQueueResource>();
+            queue.0.lock().unwrap().push(crate::snapshot::ReflectCommand::ApplyComponentValue {
+                entity_id: eid.index() as u64,
+                type_path: "bsengine_core::camera::Camera".to_string(),
+                value: Box::new(edited),
+            });
+        }
+        app.update();
+
+        let cam = app
+            .world()
+            .get::<bsengine_core::Camera>(eid)
+            .expect("Camera should still be attached");
+        assert!(
+            (cam.fov_y_radians - 1.2345).abs() < f32::EPSILON,
+            "Camera.fov_y_radians should have been updated to the applied value"
+        );
+    }
+
+    #[test]
+    fn inspector_cmd_apply_reflected_component_reaches_reflect_queue() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app
+            .world_mut()
+            .spawn((Name("Target".to_string()), bsengine_core::Camera::default()))
+            .id();
+        app.update();
+
+        let edited = bsengine_core::Camera {
+            fov_y_radians: 0.5,
+            ..Default::default()
+        };
+        {
+            let mut insp = app.world_mut().resource_mut::<InspectorState>();
+            insp.cmd_queue.push(InspectorCmd::ApplyReflectedComponent {
+                id: eid.index() as u64,
+                type_path: "bsengine_core::camera::Camera".to_string(),
+                value: Box::new(edited),
+            });
+        }
+        app.update();
+
+        let cam = app.world().get::<bsengine_core::Camera>(eid).expect("Camera should exist");
+        assert!(
+            (cam.fov_y_radians - 0.5).abs() < f32::EPSILON,
+            "Camera should have been updated end-to-end via InspectorCmd"
+        );
+    }
+
+    #[test]
+    fn reflect_command_queue_pushes_undo_checkpoint() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app.world_mut().spawn(Name("Target".to_string())).id();
+        app.update();
+
+        let history_len_before = app
+            .world()
+            .resource::<crate::snapshot::EditorHistoryResource>()
+            .0
+            .lock()
+            .unwrap()
+            .undo_stack
+            .len();
+
+        {
+            let queue = app.world().resource::<crate::snapshot::ReflectCommandQueueResource>();
+            queue.0.lock().unwrap().push(crate::snapshot::ReflectCommand::AttachComponentByType {
+                entity_id: eid.index() as u64,
+                type_path: "bsengine_core::camera::Camera".to_string(),
+            });
+        }
+        app.update();
+
+        let history_len_after = app
+            .world()
+            .resource::<crate::snapshot::EditorHistoryResource>()
+            .0
+            .lock()
+            .unwrap()
+            .undo_stack
+            .len();
+        assert_eq!(
+            history_len_after,
+            history_len_before + 1,
+            "ReflectCommand processing should push an undo checkpoint, same as EditorCommand does"
+        );
+    }
+
+    #[test]
+    fn populate_reflected_component_snapshot_clones_attached_camera() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app
+            .world_mut()
+            .spawn((Name("Target".to_string()), bsengine_core::Camera::default()))
+            .id();
+        {
+            let mut insp = app.world_mut().resource_mut::<InspectorState>();
+            insp.selected_id = Some(eid.index() as u64);
+        }
+        app.update();
+
+        let insp = app.world().resource::<InspectorState>();
+        let camera_entry = insp
+            .reflected_components
+            .iter()
+            .find(|(type_path, _)| type_path == "bsengine_core::camera::Camera")
+            .expect("Camera should be in reflected_components after selecting the entity");
+        let cloned_camera = camera_entry
+            .1
+            .as_ref()
+            .downcast_ref::<bsengine_core::Camera>()
+            .expect("cloned value should downcast back to Camera");
+        assert!(
+            (cloned_camera.fov_y_radians - bsengine_core::Camera::default().fov_y_radians).abs()
+                < f32::EPSILON,
+            "cloned Camera's fov_y_radians should match the real component's default value"
+        );
+    }
+
+    #[test]
+    fn populate_reflected_component_snapshot_clears_when_nothing_selected() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app
+            .world_mut()
+            .spawn((Name("Target".to_string()), bsengine_core::Camera::default()))
+            .id();
+        {
+            let mut insp = app.world_mut().resource_mut::<InspectorState>();
+            insp.selected_id = Some(eid.index() as u64);
+        }
+        app.update();
+        assert!(!app.world().resource::<InspectorState>().reflected_components.is_empty());
+
+        {
+            let mut insp = app.world_mut().resource_mut::<InspectorState>();
+            insp.selected_id = None;
+        }
+        app.update();
+        assert!(
+            app.world().resource::<InspectorState>().reflected_components.is_empty(),
+            "reflected_components should clear once nothing is selected"
         );
     }
 

@@ -615,7 +615,7 @@ fn run_scripts(world: &mut World) {
                 };
                 if let Some(e) = entity {
                     if let Some(mut light) = world.get_mut::<SpotLight>(e) {
-                        light.inner_angle = deg.to_radians();
+                        light.inner_angle_degrees = deg.into();
                     }
                 }
             }
@@ -627,7 +627,7 @@ fn run_scripts(world: &mut World) {
                 };
                 if let Some(e) = entity {
                     if let Some(mut light) = world.get_mut::<SpotLight>(e) {
-                        light.outer_angle = deg.to_radians();
+                        light.outer_angle_degrees = deg.into();
                     }
                 }
             }

@@ -151,6 +151,19 @@ pub enum InspectorCmd {
     DetachPrimitiveMesh {
         id: u64,
     },
+    /// Apply an edited clone of a reflected component's value back onto the
+    /// real ECS component. `value` was originally cloned out by
+    /// `populate_reflected_component_snapshot`, edited in place in the
+    /// Inspector via `draw_reflect_ui`, then re-cloned here for the trip
+    /// back through the command queue. Routed through the same
+    /// `ReflectCommandQueueResource` `AttachComponentByType`/
+    /// `RemoveComponentByType` already use, not the plain `EditorCommand`
+    /// queue — see `apply_inspector_cmds`.
+    ApplyReflectedComponent {
+        id: u64,
+        type_path: String,
+        value: Box<dyn bevy_reflect::Reflect>,
+    },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
@@ -172,6 +185,15 @@ pub struct InspectorState {
     pub entities: Vec<InspectorEntityInfo>,
     pub selected_id: Option<u64>,
     pub cmd_queue: Vec<InspectorCmd>,
+    /// Cloned reflected components currently attached to `selected_id`,
+    /// repopulated every frame by `populate_reflected_component_snapshot`
+    /// (bsengine-editor). The Inspector's "Reflected Fields" section edits
+    /// these clones in place via `draw_reflect_ui`; on change, an edited
+    /// clone is pushed back as `InspectorCmd::ApplyReflectedComponent`. Each
+    /// entry is `(type_path, cloned value)` — `type_path` matches the
+    /// format already used by `AttachComponentByType`/`RemoveComponentByType`
+    /// (e.g. `"bsengine_core::camera::Camera"`).
+    pub reflected_components: Vec<(String, Box<dyn bevy_reflect::Reflect>)>,
     pub edit_pos: [f32; 3],
     pub edit_rot: [f32; 3],
     pub edit_scale: [f32; 3],
@@ -241,6 +263,7 @@ impl Default for InspectorState {
             entities: Vec::new(),
             selected_id: None,
             cmd_queue: Vec::new(),
+            reflected_components: Vec::new(),
             edit_pos: [0.0; 3],
             edit_rot: [0.0; 3],
             edit_scale: [1.0, 1.0, 1.0],

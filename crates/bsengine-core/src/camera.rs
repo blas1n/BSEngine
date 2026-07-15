@@ -1,3 +1,4 @@
+use crate::reflect_degrees::ReflectDegrees;
 use bevy_ecs::prelude::{Component, ReflectComponent};
 use bevy_reflect::prelude::ReflectDefault;
 use bevy_reflect::Reflect;
@@ -6,7 +7,7 @@ use glam::Mat4;
 #[derive(Component, Debug, Clone, Reflect)]
 #[reflect(Component, Default)]
 pub struct Camera {
-    pub fov_y_radians: f32,
+    pub fov_y_degrees: ReflectDegrees,
     pub aspect_ratio: f32,
     pub near: f32,
     pub far: f32,
@@ -15,7 +16,7 @@ pub struct Camera {
 impl Camera {
     pub fn perspective(fov_y_degrees: f32, aspect_ratio: f32) -> Self {
         Self {
-            fov_y_radians: fov_y_degrees.to_radians(),
+            fov_y_degrees: fov_y_degrees.into(),
             aspect_ratio,
             near: 0.1,
             far: 1000.0,
@@ -23,7 +24,12 @@ impl Camera {
     }
 
     pub fn projection_matrix(&self) -> Mat4 {
-        Mat4::perspective_rh(self.fov_y_radians, self.aspect_ratio, self.near, self.far)
+        Mat4::perspective_rh(
+            self.fov_y_degrees.to_radians(),
+            self.aspect_ratio,
+            self.near,
+            self.far,
+        )
     }
 
     pub fn update_aspect_ratio(&mut self, width: u32, height: u32) {
@@ -46,7 +52,7 @@ mod tests {
     #[test]
     fn default_camera_has_60_fov() {
         let cam = Camera::default();
-        assert!((cam.fov_y_radians - 60_f32.to_radians()).abs() < 1e-6);
+        assert!((cam.fov_y_degrees.0 - 60.0).abs() < 1e-6);
     }
 
     #[test]

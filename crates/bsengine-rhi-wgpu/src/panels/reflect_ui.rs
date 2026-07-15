@@ -55,6 +55,9 @@ fn draw_leaf_ui(ui: &mut egui::Ui, value: &mut dyn Reflect) -> bool {
         }
         return changed;
     }
+    if let Some(v) = value.downcast_mut::<bsengine_core::ReflectDegrees>() {
+        return ui.add(egui::DragValue::new(&mut v.0).speed(0.5).suffix("°")).changed();
+    }
     if let Some(v) = value.downcast_mut::<bsengine_core::ReflectVec2>() {
         let mut arr = v.to_array();
         let mut changed = false;
@@ -246,6 +249,33 @@ mod tests {
             "expected the 3 DragValues to live inside a ui.horizontal group (not claiming the \
              field's own id directly) — finding a bare widget at the field's exact id means \
              dispatch fell through to the single-widget fallback label instead"
+        );
+    }
+
+    #[test]
+    fn reflect_degrees_leaf_renders_a_focusable_dragvalue_not_the_fallback_label() {
+        let mut angle: bsengine_core::ReflectDegrees = 45.0_f32.into();
+        let (changed, widget_count, is_focusable) = with_test_ui(|ctx, ui| {
+            let before = ui.next_auto_id();
+            let changed = draw_reflect_ui(ui, &mut angle);
+            let after = ui.next_auto_id();
+            let is_focusable = top_level_response_exists_at(ctx, before)
+                .map(|r| r.sense.focusable)
+                .unwrap_or(false);
+            (changed, after, is_focusable)
+        });
+        assert!(!changed, "no interaction happened, so nothing changed");
+        assert_eq!(angle.0, 45.0, "value must be untouched");
+        assert_eq!(
+            widget_count,
+            auto_id_after_n_top_level_widgets(1),
+            "expected exactly one top-level widget to be drawn for a ReflectDegrees leaf"
+        );
+        assert!(
+            is_focusable,
+            "expected a focusable DragValue at the field's position — a non-focusable result \
+             means dispatch fell through to the \"(unsupported field type)\" fallback label \
+             instead of rendering a DragValue"
         );
     }
 

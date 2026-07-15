@@ -677,7 +677,7 @@ fn run_scripts(world: &mut World) {
                 };
                 if let Some(e) = entity {
                     if let Some(mut cam) = world.get_mut::<Camera>(e) {
-                        cam.fov_y_radians = deg.to_radians();
+                        cam.fov_y_degrees = deg.into();
                     }
                 }
             }

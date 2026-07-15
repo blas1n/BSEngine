@@ -56,7 +56,9 @@ fn draw_leaf_ui(ui: &mut egui::Ui, value: &mut dyn Reflect) -> bool {
         return changed;
     }
     if let Some(v) = value.downcast_mut::<bsengine_core::ReflectDegrees>() {
-        return ui.add(egui::DragValue::new(&mut v.0).speed(0.5).suffix("°")).changed();
+        return ui
+            .add(egui::DragValue::new(&mut v.0).speed(0.5).suffix("°"))
+            .changed();
     }
     if let Some(v) = value.downcast_mut::<bsengine_core::ReflectVec2>() {
         let mut arr = v.to_array();

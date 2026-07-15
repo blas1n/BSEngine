@@ -80,7 +80,9 @@ mod tests {
         let v: ReflectDegrees = 90.0_f32.into();
         let reflected: &dyn Reflect = &v;
         let cloned = reflected.clone_value();
-        let back = cloned.downcast::<ReflectDegrees>().expect("downcast failed");
+        let back = cloned
+            .downcast::<ReflectDegrees>()
+            .expect("downcast failed");
         assert_eq!(*back, v);
     }
 }

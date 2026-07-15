@@ -1,3 +1,4 @@
+use crate::panels::reflect_ui::draw_reflect_ui;
 use bsengine_core::{EditorPanel, EditorPanelContext, InspectorCmd, PRIMITIVE_KINDS};
 
 pub struct InspectorPanel;
@@ -387,6 +388,29 @@ impl EditorPanel for InspectorPanel {
                 insp.cmd_queue.push(InspectorCmd::AttachComponentByType {
                     id: sel_id,
                     type_path,
+                });
+            }
+        }
+
+        if !insp.reflected_components.is_empty() {
+            ui.separator();
+            ui.strong("Reflected Fields");
+            let mut to_apply: Vec<(String, Box<dyn bevy_reflect::Reflect>)> = Vec::new();
+            for (type_path, value) in insp.reflected_components.iter_mut() {
+                egui::CollapsingHeader::new(type_path.as_str())
+                    .id_salt(type_path.as_str())
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        if draw_reflect_ui(ui, value.as_mut()) {
+                            to_apply.push((type_path.clone(), value.clone_value()));
+                        }
+                    });
+            }
+            for (type_path, value) in to_apply {
+                insp.cmd_queue.push(InspectorCmd::ApplyReflectedComponent {
+                    id: sel_id,
+                    type_path,
+                    value,
                 });
             }
         }

@@ -1394,42 +1394,6 @@ fn apply_inspector_cmds(
             InspectorCmd::Despawn { id } => {
                 queue.push(EditorCommand::Despawn { entity_id: id });
             }
-            InspectorCmd::UpdateLight {
-                id,
-                light_type,
-                color,
-                intensity,
-                range,
-                inner_angle,
-                outer_angle,
-            } => match light_type.as_str() {
-                "directional" => {
-                    queue.push(EditorCommand::UpdateDirectionalLight {
-                        entity_id: id,
-                        direction: None,
-                        color,
-                        ambient: None,
-                    });
-                }
-                "spot" => {
-                    queue.push(EditorCommand::UpdateSpotLight {
-                        entity_id: id,
-                        color,
-                        intensity,
-                        range,
-                        inner_angle,
-                        outer_angle,
-                    });
-                }
-                _ => {
-                    queue.push(EditorCommand::UpdatePointLight {
-                        entity_id: id,
-                        color,
-                        intensity,
-                        range,
-                    });
-                }
-            },
             InspectorCmd::SetVisible { id, visible } => {
                 queue.push(EditorCommand::SetVisible { entity_id: id, visible });
             }
@@ -29018,45 +28982,6 @@ mod tests {
                 "str_to_primitive/primitive_to_str do not round-trip for {kind:?}"
             );
         }
-    }
-
-    #[test]
-    fn inspector_cmd_update_light_dispatches_to_correct_light_type() {
-        let mut app = new_app();
-        app.add_plugins(McpPlugin);
-        app.add_plugins(EditorPlugin);
-        let eid = app
-            .world_mut()
-            .spawn(bsengine_core::SpotLight::default())
-            .id();
-        app.update();
-
-        {
-            let mut insp = app.world_mut().resource_mut::<InspectorState>();
-            insp.cmd_queue.push(InspectorCmd::UpdateLight {
-                id: eid.index() as u64,
-                light_type: "spot".to_string(),
-                color: None,
-                intensity: None,
-                range: None,
-                inner_angle: Some(0.1),
-                outer_angle: Some(0.2),
-            });
-        }
-        app.update();
-
-        let light = app
-            .world()
-            .get::<bsengine_core::SpotLight>(eid)
-            .expect("SpotLight should still be attached");
-        assert!(
-            (light.inner_angle_degrees.0 - 0.1_f32.to_degrees()).abs() < 1e-4,
-            "inner_angle was not updated — dispatch bug not fixed"
-        );
-        assert!(
-            (light.outer_angle_degrees.0 - 0.2_f32.to_degrees()).abs() < 1e-4,
-            "outer_angle was not updated — dispatch bug not fixed"
-        );
     }
 
     #[test]

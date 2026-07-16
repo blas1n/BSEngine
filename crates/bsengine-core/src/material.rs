@@ -1,4 +1,4 @@
-use crate::reflect_glam::ReflectVec3;
+use crate::reflect_color::ReflectColor;
 use bevy_ecs::prelude::{Component, ReflectComponent};
 use bevy_reflect::prelude::ReflectDefault;
 use bevy_reflect::Reflect;
@@ -10,8 +10,8 @@ pub struct Material {
     pub texture_id: Option<u64>,
     pub metallic: f32,
     pub roughness: f32,
-    pub emissive: ReflectVec3,
-    pub base_color: ReflectVec3,
+    pub emissive: ReflectColor,
+    pub base_color: ReflectColor,
 }
 
 impl Default for Material {

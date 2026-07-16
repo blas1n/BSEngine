@@ -77,10 +77,6 @@ pub enum InspectorCmd {
         inner_angle: Option<f32>,
         outer_angle: Option<f32>,
     },
-    UpdateCamera {
-        id: u64,
-        fov_y_degrees: Option<f32>,
-    },
     SetVisible {
         id: u64,
         visible: bool,
@@ -90,13 +86,6 @@ pub enum InspectorCmd {
     },
     AddCamera {
         id: u64,
-    },
-    UpdateMaterial {
-        id: u64,
-        base_color: Option<[f32; 3]>,
-        metallic: Option<f32>,
-        roughness: Option<f32>,
-        emissive: Option<[f32; 3]>,
     },
     SetSelection {
         ids: Vec<u64>,
@@ -202,11 +191,6 @@ pub struct InspectorState {
     pub edit_light_range: f32,
     pub edit_spot_inner_angle: f32,
     pub edit_spot_outer_angle: f32,
-    pub edit_camera_fov: f32,
-    pub edit_mat_base_color: [f32; 3],
-    pub edit_mat_metallic: f32,
-    pub edit_mat_roughness: f32,
-    pub edit_mat_emissive: [f32; 3],
     pub edit_new_tag: String,
     pub edit_script_path: String,
     pub edit_visible: bool,
@@ -272,11 +256,6 @@ impl Default for InspectorState {
             edit_light_range: 10.0,
             edit_spot_inner_angle: 22.5,
             edit_spot_outer_angle: 30.0,
-            edit_camera_fov: 60.0,
-            edit_mat_base_color: [1.0, 1.0, 1.0],
-            edit_mat_metallic: 0.0,
-            edit_mat_roughness: 0.5,
-            edit_mat_emissive: [0.0, 0.0, 0.0],
             edit_new_tag: String::new(),
             edit_script_path: String::new(),
             edit_visible: true,
@@ -327,11 +306,6 @@ impl InspectorState {
                     self.edit_light_range = info.light_range.unwrap_or(10.0);
                     self.edit_spot_inner_angle = info.spot_inner_angle.unwrap_or(22.5);
                     self.edit_spot_outer_angle = info.spot_outer_angle.unwrap_or(30.0);
-                    self.edit_camera_fov = info.camera_fov.unwrap_or(60.0);
-                    self.edit_mat_base_color = info.material_base_color.unwrap_or([1.0, 1.0, 1.0]);
-                    self.edit_mat_metallic = info.material_metallic.unwrap_or(0.0);
-                    self.edit_mat_roughness = info.material_roughness.unwrap_or(0.5);
-                    self.edit_mat_emissive = info.material_emissive.unwrap_or([0.0, 0.0, 0.0]);
                     self.edit_new_tag.clear();
                     self.edit_script_path = info.script_path.clone().unwrap_or_default();
                     self.edit_visible = info.visible;
@@ -425,18 +399,5 @@ mod tests {
         assert_eq!(s.edit_light_color, [0.5, 0.8, 1.0]);
         assert!((s.edit_light_intensity - 2.5).abs() < 1e-6);
         assert!((s.edit_light_range - 20.0).abs() < 1e-6);
-    }
-
-    #[test]
-    fn sync_selection_loads_camera_fov() {
-        let mut s = InspectorState::default();
-        s.entities.push(InspectorEntityInfo {
-            id: 4,
-            camera_fov: Some(90.0),
-            ..Default::default()
-        });
-        s.selected_id = Some(4);
-        s.sync_selection();
-        assert!((s.edit_camera_fov - 90.0).abs() < 1e-6);
     }
 }

@@ -55,6 +55,14 @@ fn draw_leaf_ui(ui: &mut egui::Ui, value: &mut dyn Reflect) -> bool {
         }
         return changed;
     }
+    if let Some(v) = value.downcast_mut::<bsengine_core::ReflectColor>() {
+        let mut arr = v.to_array();
+        let changed = ui.color_edit_button_rgb(&mut arr).changed();
+        if changed {
+            v.0 = glam::Vec3::from(arr);
+        }
+        return changed;
+    }
     if let Some(v) = value.downcast_mut::<bsengine_core::ReflectDegrees>() {
         return ui
             .add(egui::DragValue::new(&mut v.0).speed(0.5).suffix("°"))
@@ -278,6 +286,44 @@ mod tests {
             "expected a focusable DragValue at the field's position — a non-focusable result \
              means dispatch fell through to the \"(unsupported field type)\" fallback label \
              instead of rendering a DragValue"
+        );
+    }
+
+    #[test]
+    fn reflect_color_leaf_renders_a_focusable_color_button_not_the_fallback_label() {
+        // `ui.color_edit_button_rgb` bottoms out in egui's internal `color_button`,
+        // which calls `ui.allocate_exact_size(size, Sense::click())` directly — a bare,
+        // unwrapped top-level call, not wrapped in `ui.horizontal` like ReflectVec3's 3
+        // DragValues. `Sense::click()` has `focusable: true` (verified directly against
+        // egui 0.29.1's `sense.rs`). So this leaf has the same "1 bare focusable widget"
+        // shape as the `f32`/`ReflectDegrees` leaves, not the "1 wrapped group" shape of
+        // `ReflectVec3`.
+        let mut color: bsengine_core::ReflectColor = glam::Vec3::new(1.0, 0.5, 0.0).into();
+        let (changed, widget_count, is_focusable) = with_test_ui(|ctx, ui| {
+            let before = ui.next_auto_id();
+            let changed = draw_reflect_ui(ui, &mut color);
+            let after = ui.next_auto_id();
+            let is_focusable = top_level_response_exists_at(ctx, before)
+                .map(|r| r.sense.focusable)
+                .unwrap_or(false);
+            (changed, after, is_focusable)
+        });
+        assert!(!changed, "no interaction happened, so nothing changed");
+        assert_eq!(
+            color.0,
+            glam::Vec3::new(1.0, 0.5, 0.0),
+            "value must be untouched"
+        );
+        assert_eq!(
+            widget_count,
+            auto_id_after_n_top_level_widgets(1),
+            "expected exactly one top-level widget to be drawn for a ReflectColor leaf"
+        );
+        assert!(
+            is_focusable,
+            "expected a focusable color button at the field's position — a non-focusable \
+             result means dispatch fell through to the \"(unsupported field type)\" fallback \
+             label instead of rendering a color button"
         );
     }
 

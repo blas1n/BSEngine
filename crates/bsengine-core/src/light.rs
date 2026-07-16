@@ -1,5 +1,6 @@
 use crate::reflect_color::ReflectColor;
 use crate::reflect_degrees::ReflectDegrees;
+use crate::reflect_validate::{ReflectValidate, Validate};
 use bevy_ecs::prelude::{Component, ReflectComponent};
 use bevy_reflect::prelude::ReflectDefault;
 use bevy_reflect::Reflect;
@@ -46,7 +47,7 @@ impl Default for PointLight {
 }
 
 #[derive(Component, Debug, Clone, Reflect)]
-#[reflect(Component, Default)]
+#[reflect(Component, Default, Validate)]
 pub struct SpotLight {
     pub color: ReflectColor,
     pub intensity: f32,
@@ -66,6 +67,19 @@ impl Default for SpotLight {
             inner_angle_degrees: 22.5.into(),
             outer_angle_degrees: 30.0.into(),
         }
+    }
+}
+
+impl Validate for SpotLight {
+    fn validate(&mut self) {
+        // Matches the original hand-built Inspector widget's bounds exactly
+        // (DragValue::range(0.0..=outer) for inner, range(inner..=89.0) for
+        // outer) — clamp outer to its absolute bound first, then clamp inner
+        // against outer's now-final value, replicating the two-way
+        // constraint the old widgets enforced live while dragging.
+        self.outer_angle_degrees.0 = self.outer_angle_degrees.0.clamp(0.0, 89.0);
+        self.inner_angle_degrees.0 =
+            self.inner_angle_degrees.0.clamp(0.0, self.outer_angle_degrees.0);
     }
 }
 
@@ -146,5 +160,51 @@ mod tests {
             registration.type_info().type_path(),
             "bsengine_core::light::SpotLight"
         );
+    }
+
+    #[test]
+    fn spot_light_validate_clamps_inner_to_outer() {
+        let mut sl = SpotLight {
+            inner_angle_degrees: 50.0.into(),
+            outer_angle_degrees: 30.0.into(),
+            ..SpotLight::default()
+        };
+        sl.validate();
+        assert!(
+            (sl.inner_angle_degrees.0 - 30.0).abs() < 1e-6,
+            "inner should be pulled down to outer when it starts out larger"
+        );
+        assert!(
+            (sl.outer_angle_degrees.0 - 30.0).abs() < 1e-6,
+            "outer should be untouched when already within [0, 89]"
+        );
+    }
+
+    #[test]
+    fn spot_light_validate_clamps_outer_to_89_and_inner_follows() {
+        let mut sl = SpotLight {
+            inner_angle_degrees: 50.0.into(),
+            outer_angle_degrees: 120.0.into(),
+            ..SpotLight::default()
+        };
+        sl.validate();
+        assert!(
+            (sl.outer_angle_degrees.0 - 89.0).abs() < 1e-6,
+            "outer should be clamped to the 89 degree ceiling"
+        );
+        assert!(
+            (sl.inner_angle_degrees.0 - 50.0).abs() < 1e-6,
+            "inner (50) is already <= outer's clamped value (89), so it stays unchanged"
+        );
+    }
+
+    #[test]
+    fn spot_light_validate_leaves_already_valid_angles_unchanged() {
+        let mut sl = SpotLight::default();
+        let (inner_before, outer_before) =
+            (sl.inner_angle_degrees.0, sl.outer_angle_degrees.0);
+        sl.validate();
+        assert_eq!(sl.inner_angle_degrees.0, inner_before);
+        assert_eq!(sl.outer_angle_degrees.0, outer_before);
     }
 }

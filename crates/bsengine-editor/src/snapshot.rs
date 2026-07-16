@@ -184,13 +184,6 @@ pub enum EditorCommand {
         entity_id: u64,
         fov_y_degrees: f32,
     },
-    UpdateMaterial {
-        entity_id: u64,
-        base_color: Option<[f32; 3]>,
-        metallic: Option<f32>,
-        roughness: Option<f32>,
-        emissive: Option<[f32; 3]>,
-    },
     AttachScript {
         entity_id: u64,
         path: String,

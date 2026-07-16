@@ -500,31 +500,6 @@ fn process_editor_commands(
                     }
                 }
             }
-            EditorCommand::UpdateMaterial {
-                entity_id,
-                base_color,
-                metallic,
-                roughness,
-                emissive,
-            } => {
-                for (e, mut mat) in params.p7().iter_mut() {
-                    if e.index() as u64 == entity_id {
-                        if let Some(c) = base_color {
-                            mat.base_color = glam::Vec3::from(c).into();
-                        }
-                        if let Some(m) = metallic {
-                            mat.metallic = m;
-                        }
-                        if let Some(r) = roughness {
-                            mat.roughness = r;
-                        }
-                        if let Some(em) = emissive {
-                            mat.emissive = glam::Vec3::from(em).into();
-                        }
-                        break;
-                    }
-                }
-            }
             EditorCommand::AttachScript { entity_id, path } => {
                 let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
                 if let Some(entity) = target {
@@ -1455,9 +1430,6 @@ fn apply_inspector_cmds(
                     });
                 }
             },
-            InspectorCmd::UpdateCamera { id, fov_y_degrees } => {
-                queue.push(EditorCommand::UpdateCamera { entity_id: id, fov_y_degrees });
-            }
             InspectorCmd::SetVisible { id, visible } => {
                 queue.push(EditorCommand::SetVisible { entity_id: id, visible });
             }
@@ -1473,15 +1445,6 @@ fn apply_inspector_cmds(
                 queue.push(EditorCommand::AttachCamera {
                     entity_id: id,
                     fov_y_degrees: 60.0,
-                });
-            }
-            InspectorCmd::UpdateMaterial { id, base_color, metallic, roughness, emissive } => {
-                queue.push(EditorCommand::UpdateMaterial {
-                    entity_id: id,
-                    base_color,
-                    metallic,
-                    roughness,
-                    emissive,
                 });
             }
             InspectorCmd::SaveScene => {

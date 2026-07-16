@@ -14,7 +14,9 @@ fn validate_after_edit(
     value: &mut dyn bevy_reflect::Reflect,
     type_registry: Option<&bevy_reflect::TypeRegistry>,
 ) {
-    let Some(registry) = type_registry else { return };
+    let Some(registry) = type_registry else {
+        return;
+    };
     let Some(registration) = registry.get_with_type_path(type_path) else {
         return;
     };

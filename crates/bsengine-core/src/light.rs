@@ -78,8 +78,10 @@ impl Validate for SpotLight {
         // against outer's now-final value, replicating the two-way
         // constraint the old widgets enforced live while dragging.
         self.outer_angle_degrees.0 = self.outer_angle_degrees.0.clamp(0.0, 89.0);
-        self.inner_angle_degrees.0 =
-            self.inner_angle_degrees.0.clamp(0.0, self.outer_angle_degrees.0);
+        self.inner_angle_degrees.0 = self
+            .inner_angle_degrees
+            .0
+            .clamp(0.0, self.outer_angle_degrees.0);
     }
 }
 
@@ -201,8 +203,7 @@ mod tests {
     #[test]
     fn spot_light_validate_leaves_already_valid_angles_unchanged() {
         let mut sl = SpotLight::default();
-        let (inner_before, outer_before) =
-            (sl.inner_angle_degrees.0, sl.outer_angle_degrees.0);
+        let (inner_before, outer_before) = (sl.inner_angle_degrees.0, sl.outer_angle_degrees.0);
         sl.validate();
         assert_eq!(sl.inner_angle_degrees.0, inner_before);
         assert_eq!(sl.outer_angle_degrees.0, outer_before);

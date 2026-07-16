@@ -80,8 +80,8 @@ fn update_editor_snapshot(
                     light_intensity,
                     light_range,
                     light_ambient: dir.map(|l| l.ambient.to_array()),
-                    spot_inner_angle: spot.map(|l| l.inner_angle.to_degrees()),
-                    spot_outer_angle: spot.map(|l| l.outer_angle.to_degrees()),
+                    spot_inner_angle: spot.map(|l| l.inner_angle_degrees.0),
+                    spot_outer_angle: spot.map(|l| l.outer_angle_degrees.0),
                     camera_fov: cam.map(|c| c.fov_y_degrees.0),
                     material_base_color: mat.map(|m| m.base_color.to_array()),
                     material_metallic: mat.map(|m| m.metallic),
@@ -464,8 +464,8 @@ fn process_editor_commands(
                         color: glam::Vec3::from(color).into(),
                         intensity,
                         range,
-                        inner_angle,
-                        outer_angle,
+                        inner_angle_degrees: inner_angle.to_degrees().into(),
+                        outer_angle_degrees: outer_angle.to_degrees().into(),
                     },
                     Transform::from_translation(glam::Vec3::from(position)),
                     GlobalTransform::default(),
@@ -491,10 +491,10 @@ fn process_editor_commands(
                             light.range = r;
                         }
                         if let Some(a) = inner_angle {
-                            light.inner_angle = a;
+                            light.inner_angle_degrees = a.to_degrees().into();
                         }
                         if let Some(o) = outer_angle {
-                            light.outer_angle = o;
+                            light.outer_angle_degrees = o.to_degrees().into();
                         }
                         break;
                     }
@@ -663,8 +663,8 @@ fn process_editor_commands(
                             color: glam::Vec3::from(sl.color).into(),
                             intensity: sl.intensity,
                             range: sl.range,
-                            inner_angle: sl.inner_angle_degrees.to_radians(),
-                            outer_angle: sl.outer_angle_degrees.to_radians(),
+                            inner_angle_degrees: sl.inner_angle_degrees.into(),
+                            outer_angle_degrees: sl.outer_angle_degrees.into(),
                         });
                     }
                     if let Some(script) = &entity.script {
@@ -29087,11 +29087,11 @@ mod tests {
             .get::<bsengine_core::SpotLight>(eid)
             .expect("SpotLight should still be attached");
         assert!(
-            (light.inner_angle - 0.1).abs() < 1e-6,
+            (light.inner_angle_degrees.0 - 0.1_f32.to_degrees()).abs() < 1e-4,
             "inner_angle was not updated — dispatch bug not fixed"
         );
         assert!(
-            (light.outer_angle - 0.2).abs() < 1e-6,
+            (light.outer_angle_degrees.0 - 0.2_f32.to_degrees()).abs() < 1e-4,
             "outer_angle was not updated — dispatch bug not fixed"
         );
     }
@@ -89916,7 +89916,7 @@ mod tests {
         let lights: Vec<_> = q.iter(app.world()).collect();
         assert_eq!(lights.len(), 1);
         assert!((lights[0].intensity - 3.0).abs() < 1e-4);
-        assert!((lights[0].inner_angle - 0.3).abs() < 1e-4);
+        assert!((lights[0].inner_angle_degrees.0 - 0.3_f32.to_degrees()).abs() < 1e-3);
     }
 
     #[test]
@@ -90447,8 +90447,8 @@ mod tests {
                     color: Vec3::new(0.2, 0.8, 1.0).into(),
                     intensity: 3.0,
                     range: 20.0,
-                    inner_angle: 15_f32.to_radians(),
-                    outer_angle: 25_f32.to_radians(),
+                    inner_angle_degrees: 15.0.into(),
+                    outer_angle_degrees: 25.0.into(),
                 },
                 Transform::from_translation(Vec3::new(2.0, 4.0, 0.0)),
                 bsengine_core::GlobalTransform::default(),
@@ -90527,8 +90527,8 @@ mod tests {
                 .expect("Spot not found after load");
             assert!((sl.intensity - 3.0).abs() < 1e-4);
             assert!((sl.range - 20.0).abs() < 1e-4);
-            assert!((sl.inner_angle.to_degrees() - 15.0).abs() < 1e-2);
-            assert!((sl.outer_angle.to_degrees() - 25.0).abs() < 1e-2);
+            assert!((sl.inner_angle_degrees.0 - 15.0).abs() < 1e-2);
+            assert!((sl.outer_angle_degrees.0 - 25.0).abs() < 1e-2);
         }
     }
 

@@ -1,3 +1,4 @@
+use crate::reflect_degrees::ReflectDegrees;
 use crate::reflect_glam::ReflectVec3;
 use bevy_ecs::prelude::{Component, ReflectComponent};
 use bevy_reflect::prelude::ReflectDefault;
@@ -50,10 +51,10 @@ pub struct SpotLight {
     pub color: ReflectVec3,
     pub intensity: f32,
     pub range: f32,
-    /// Inner cone half-angle (radians) — full brightness inside.
-    pub inner_angle: f32,
-    /// Outer cone half-angle (radians) — zero brightness outside.
-    pub outer_angle: f32,
+    /// Inner cone half-angle (degrees) — full brightness inside.
+    pub inner_angle_degrees: ReflectDegrees,
+    /// Outer cone half-angle (degrees) — zero brightness outside.
+    pub outer_angle_degrees: ReflectDegrees,
 }
 
 impl Default for SpotLight {
@@ -62,8 +63,8 @@ impl Default for SpotLight {
             color: Vec3::ONE.into(),
             intensity: 1.0,
             range: 10.0,
-            inner_angle: std::f32::consts::PI / 8.0, // 22.5°
-            outer_angle: std::f32::consts::PI / 6.0, // 30°
+            inner_angle_degrees: 22.5.into(),
+            outer_angle_degrees: 30.0.into(),
         }
     }
 }
@@ -119,7 +120,7 @@ mod tests {
     fn spot_light_inner_angle_less_than_outer() {
         let sl = SpotLight::default();
         assert!(
-            sl.inner_angle < sl.outer_angle,
+            sl.inner_angle_degrees.0 < sl.outer_angle_degrees.0,
             "inner must be narrower than outer"
         );
     }
@@ -128,7 +129,7 @@ mod tests {
     fn spot_light_inner_cos_greater_than_outer_cos() {
         let sl = SpotLight::default();
         assert!(
-            sl.inner_angle.cos() > sl.outer_angle.cos(),
+            sl.inner_angle_degrees.to_radians().cos() > sl.outer_angle_degrees.to_radians().cos(),
             "cos(inner) > cos(outer) because inner < outer"
         );
     }

@@ -15,10 +15,10 @@
 //! field editor: a struct field's *type* (not its name, not a comment)
 //! declares "this number means degrees", so `draw_reflect_ui` can render it
 //! without per-field naming conventions or hints. `Camera.fov_y_degrees`
-//! ("PR C-2") is the first real field wired to this type.
-//! `SpotLight.inner_angle`/`outer_angle` remain in radians for now — a wider,
-//! more scattered call-site migration, deferred to a separate follow-up PR
-//! (see the design docs for both PRs).
+//! ("PR C-2") was the first real field wired to this type;
+//! `SpotLight.inner_angle_degrees`/`outer_angle_degrees` ("PR C-3") is the
+//! second. Both Camera and SpotLight now store their angle fields in
+//! degrees internally.
 use bevy_reflect::{impl_reflect_value, prelude::ReflectDefault};
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]

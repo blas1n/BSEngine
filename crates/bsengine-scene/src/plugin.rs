@@ -122,8 +122,8 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
                 color: Vec3::from(sl.color).into(),
                 intensity: sl.intensity,
                 range: sl.range,
-                inner_angle: sl.inner_angle_degrees.to_radians(),
-                outer_angle: sl.outer_angle_degrees.to_radians(),
+                inner_angle_degrees: sl.inner_angle_degrees.into(),
+                outer_angle_degrees: sl.outer_angle_degrees.into(),
             });
         }
 

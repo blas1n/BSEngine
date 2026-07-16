@@ -3,6 +3,29 @@ use bsengine_core::{EditorPanel, EditorPanelContext, InspectorCmd, PRIMITIVE_KIN
 
 pub struct InspectorPanel;
 
+/// Looks up the `ReflectValidate` type data for `type_path` (if the
+/// component's `#[derive(Reflect)]` registered one via
+/// `#[reflect(..., Validate)]`) and calls it on `value` in place. A no-op
+/// for any component that doesn't implement `Validate` — most components
+/// have no cross-field invariants to enforce, so this only ever does
+/// something for the (currently one) type that opts in.
+fn validate_after_edit(
+    type_path: &str,
+    value: &mut dyn bevy_reflect::Reflect,
+    type_registry: Option<&bevy_reflect::TypeRegistry>,
+) {
+    let Some(registry) = type_registry else { return };
+    let Some(registration) = registry.get_with_type_path(type_path) else {
+        return;
+    };
+    let Some(reflect_validate) = registration.data::<bsengine_core::ReflectValidate>() else {
+        return;
+    };
+    if let Some(validate) = reflect_validate.get_mut(value) {
+        validate.validate();
+    }
+}
+
 impl EditorPanel for InspectorPanel {
     fn id(&self) -> &str {
         "inspector"
@@ -231,6 +254,7 @@ impl EditorPanel for InspectorPanel {
         if !insp.reflected_components.is_empty() {
             ui.separator();
             ui.strong("Reflected Fields");
+            let type_registry = ctx.type_registry;
             let mut to_apply: Vec<(String, Box<dyn bevy_reflect::Reflect>)> = Vec::new();
             let mut to_remove: Option<String> = None;
             for (type_path, value) in insp.reflected_components.iter_mut() {
@@ -248,6 +272,7 @@ impl EditorPanel for InspectorPanel {
                 })
                 .body(|ui| {
                     if draw_reflect_ui(ui, value.as_mut()) {
+                        validate_after_edit(type_path, value.as_mut(), type_registry);
                         to_apply.push((type_path.clone(), value.clone_value()));
                     }
                 });
@@ -332,5 +357,49 @@ mod tests {
         // and inspector_cmd_apply_reflected_component_reaches_reflect_queue
         // tests in bsengine-editor).
         assert!(insp.cmd_queue.is_empty());
+    }
+
+    #[test]
+    fn validate_after_edit_clamps_an_out_of_range_spot_light() {
+        let mut registry = bevy_reflect::TypeRegistry::default();
+        registry.register::<bsengine_core::SpotLight>();
+
+        let mut sl = bsengine_core::SpotLight {
+            inner_angle_degrees: 60.0.into(),
+            outer_angle_degrees: 20.0.into(),
+            ..bsengine_core::SpotLight::default()
+        };
+        let as_reflect: &mut dyn bevy_reflect::Reflect = &mut sl;
+
+        super::validate_after_edit(
+            "bsengine_core::light::SpotLight",
+            as_reflect,
+            Some(&registry),
+        );
+
+        assert!(
+            (sl.inner_angle_degrees.0 - 20.0).abs() < 1e-6,
+            "inner should have been clamped down to outer via the generic Validate hook"
+        );
+    }
+
+    #[test]
+    fn validate_after_edit_is_a_no_op_without_a_type_registry() {
+        // Mirrors the shape of `reflected_fields_section_renders_without_panicking_for_a_
+        // real_camera_clone`'s `type_registry: None` case — confirms the helper degrades
+        // gracefully (no panic) rather than assuming a registry is always present.
+        let mut sl = bsengine_core::SpotLight {
+            inner_angle_degrees: 60.0.into(),
+            outer_angle_degrees: 20.0.into(),
+            ..bsengine_core::SpotLight::default()
+        };
+        let as_reflect: &mut dyn bevy_reflect::Reflect = &mut sl;
+
+        super::validate_after_edit("bsengine_core::light::SpotLight", as_reflect, None);
+
+        assert!(
+            (sl.inner_angle_degrees.0 - 60.0).abs() < 1e-6,
+            "with no type registry available, the value should be left untouched, not panic"
+        );
     }
 }

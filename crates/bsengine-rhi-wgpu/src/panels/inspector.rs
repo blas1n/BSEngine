@@ -32,7 +32,6 @@ impl EditorPanel for InspectorPanel {
         let has_transform = sel_info.position.is_some();
         let light_type = sel_info.light_type.clone();
         let has_camera = sel_info.camera_fov.is_some();
-        let has_material = sel_info.material_base_color.is_some();
 
         ui.heading(&entity_name);
         ui.separator();
@@ -193,93 +192,6 @@ impl EditorPanel for InspectorPanel {
             ui.separator();
         }
 
-        // Camera
-        if has_camera {
-            ui.horizontal(|ui| {
-                ui.strong("Camera");
-                if ui.small_button("✕").clicked() {
-                    insp.cmd_queue.push(InspectorCmd::RemoveComponentByType {
-                        id: sel_id,
-                        type_path: "bsengine_core::camera::Camera".to_string(),
-                    });
-                }
-            });
-            let mut cam_fov_changed = false;
-            ui.horizontal(|ui| {
-                ui.label("FOV°");
-                cam_fov_changed |= ui
-                    .add(
-                        egui::DragValue::new(&mut insp.edit_camera_fov)
-                            .speed(0.5)
-                            .range(10.0..=170.0),
-                    )
-                    .changed();
-            });
-            if cam_fov_changed {
-                insp.cmd_queue.push(InspectorCmd::UpdateCamera {
-                    id: sel_id,
-                    fov_y_degrees: Some(insp.edit_camera_fov),
-                });
-            }
-            ui.separator();
-        }
-
-        // Material
-        if has_material {
-            ui.horizontal(|ui| {
-                ui.strong("Material");
-                if ui.small_button("✕").clicked() {
-                    insp.cmd_queue.push(InspectorCmd::RemoveComponentByType {
-                        id: sel_id,
-                        type_path: "bsengine_core::material::Material".to_string(),
-                    });
-                }
-            });
-            let mut mat_changed = false;
-            ui.horizontal(|ui| {
-                ui.label("Base Color");
-                mat_changed |= ui
-                    .color_edit_button_rgb(&mut insp.edit_mat_base_color)
-                    .changed();
-            });
-            ui.horizontal(|ui| {
-                ui.label("Metallic");
-                mat_changed |= ui
-                    .add(
-                        egui::DragValue::new(&mut insp.edit_mat_metallic)
-                            .speed(0.01)
-                            .range(0.0..=1.0),
-                    )
-                    .changed();
-            });
-            ui.horizontal(|ui| {
-                ui.label("Roughness");
-                mat_changed |= ui
-                    .add(
-                        egui::DragValue::new(&mut insp.edit_mat_roughness)
-                            .speed(0.01)
-                            .range(0.0..=1.0),
-                    )
-                    .changed();
-            });
-            ui.horizontal(|ui| {
-                ui.label("Emissive");
-                mat_changed |= ui
-                    .color_edit_button_rgb(&mut insp.edit_mat_emissive)
-                    .changed();
-            });
-            if mat_changed {
-                insp.cmd_queue.push(InspectorCmd::UpdateMaterial {
-                    id: sel_id,
-                    base_color: Some(insp.edit_mat_base_color),
-                    metallic: Some(insp.edit_mat_metallic),
-                    roughness: Some(insp.edit_mat_roughness),
-                    emissive: Some(insp.edit_mat_emissive),
-                });
-            }
-            ui.separator();
-        }
-
         // Tags
         ui.strong("Tags");
         ui.horizontal_wrapped(|ui| {
@@ -396,21 +308,37 @@ impl EditorPanel for InspectorPanel {
             ui.separator();
             ui.strong("Reflected Fields");
             let mut to_apply: Vec<(String, Box<dyn bevy_reflect::Reflect>)> = Vec::new();
+            let mut to_remove: Option<String> = None;
             for (type_path, value) in insp.reflected_components.iter_mut() {
-                egui::CollapsingHeader::new(type_path.as_str())
-                    .id_salt(type_path.as_str())
-                    .default_open(true)
-                    .show(ui, |ui| {
-                        if draw_reflect_ui(ui, value.as_mut()) {
-                            to_apply.push((type_path.clone(), value.clone_value()));
-                        }
-                    });
+                let header_id = ui.make_persistent_id(type_path.as_str());
+                egui::containers::collapsing_header::CollapsingState::load_with_default_open(
+                    ui.ctx(),
+                    header_id,
+                    true,
+                )
+                .show_header(ui, |ui| {
+                    ui.strong(type_path.as_str());
+                    if ui.small_button("✕").clicked() {
+                        to_remove = Some(type_path.clone());
+                    }
+                })
+                .body(|ui| {
+                    if draw_reflect_ui(ui, value.as_mut()) {
+                        to_apply.push((type_path.clone(), value.clone_value()));
+                    }
+                });
             }
             for (type_path, value) in to_apply {
                 insp.cmd_queue.push(InspectorCmd::ApplyReflectedComponent {
                     id: sel_id,
                     type_path,
                     value,
+                });
+            }
+            if let Some(type_path) = to_remove {
+                insp.cmd_queue.push(InspectorCmd::RemoveComponentByType {
+                    id: sel_id,
+                    type_path,
                 });
             }
         }

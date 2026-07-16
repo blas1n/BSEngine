@@ -68,15 +68,6 @@ pub enum InspectorCmd {
     Despawn {
         id: u64,
     },
-    UpdateLight {
-        id: u64,
-        light_type: String,
-        color: Option<[f32; 3]>,
-        intensity: Option<f32>,
-        range: Option<f32>,
-        inner_angle: Option<f32>,
-        outer_angle: Option<f32>,
-    },
     SetVisible {
         id: u64,
         visible: bool,
@@ -186,11 +177,6 @@ pub struct InspectorState {
     pub edit_pos: [f32; 3],
     pub edit_rot: [f32; 3],
     pub edit_scale: [f32; 3],
-    pub edit_light_color: [f32; 3],
-    pub edit_light_intensity: f32,
-    pub edit_light_range: f32,
-    pub edit_spot_inner_angle: f32,
-    pub edit_spot_outer_angle: f32,
     pub edit_new_tag: String,
     pub edit_script_path: String,
     pub edit_visible: bool,
@@ -251,11 +237,6 @@ impl Default for InspectorState {
             edit_pos: [0.0; 3],
             edit_rot: [0.0; 3],
             edit_scale: [1.0, 1.0, 1.0],
-            edit_light_color: [1.0, 1.0, 1.0],
-            edit_light_intensity: 1.0,
-            edit_light_range: 10.0,
-            edit_spot_inner_angle: 22.5,
-            edit_spot_outer_angle: 30.0,
             edit_new_tag: String::new(),
             edit_script_path: String::new(),
             edit_visible: true,
@@ -301,11 +282,6 @@ impl InspectorState {
                     self.edit_pos = info.position.unwrap_or([0.0; 3]);
                     self.edit_rot = info.rotation.unwrap_or([0.0; 3]);
                     self.edit_scale = info.scale.unwrap_or([1.0, 1.0, 1.0]);
-                    self.edit_light_color = info.light_color.unwrap_or([1.0, 1.0, 1.0]);
-                    self.edit_light_intensity = info.light_intensity.unwrap_or(1.0);
-                    self.edit_light_range = info.light_range.unwrap_or(10.0);
-                    self.edit_spot_inner_angle = info.spot_inner_angle.unwrap_or(22.5);
-                    self.edit_spot_outer_angle = info.spot_outer_angle.unwrap_or(30.0);
                     self.edit_new_tag.clear();
                     self.edit_script_path = info.script_path.clone().unwrap_or_default();
                     self.edit_visible = info.visible;
@@ -381,23 +357,5 @@ mod tests {
     fn editor_cam_default_distance() {
         let s = InspectorState::default();
         assert!((s.cam_distance - 10.0).abs() < 1e-6);
-    }
-
-    #[test]
-    fn sync_selection_loads_light_params() {
-        let mut s = InspectorState::default();
-        s.entities.push(InspectorEntityInfo {
-            id: 3,
-            light_type: Some("point".into()),
-            light_color: Some([0.5, 0.8, 1.0]),
-            light_intensity: Some(2.5),
-            light_range: Some(20.0),
-            ..Default::default()
-        });
-        s.selected_id = Some(3);
-        s.sync_selection();
-        assert_eq!(s.edit_light_color, [0.5, 0.8, 1.0]);
-        assert!((s.edit_light_intensity - 2.5).abs() < 1e-6);
-        assert!((s.edit_light_range - 20.0).abs() < 1e-6);
     }
 }

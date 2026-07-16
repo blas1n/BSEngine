@@ -1,5 +1,5 @@
+use crate::reflect_color::ReflectColor;
 use crate::reflect_degrees::ReflectDegrees;
-use crate::reflect_glam::ReflectVec3;
 use bevy_ecs::prelude::{Component, ReflectComponent};
 use bevy_reflect::prelude::ReflectDefault;
 use bevy_reflect::Reflect;
@@ -14,8 +14,8 @@ use glam::Vec3;
 #[derive(Component, Debug, Clone, Reflect)]
 #[reflect(Component, Default)]
 pub struct DirectionalLight {
-    pub color: ReflectVec3,
-    pub ambient: ReflectVec3,
+    pub color: ReflectColor,
+    pub ambient: ReflectColor,
 }
 
 impl Default for DirectionalLight {
@@ -30,7 +30,7 @@ impl Default for DirectionalLight {
 #[derive(Component, Debug, Clone, Reflect)]
 #[reflect(Component, Default)]
 pub struct PointLight {
-    pub color: ReflectVec3,
+    pub color: ReflectColor,
     pub intensity: f32,
     pub range: f32,
 }
@@ -48,7 +48,7 @@ impl Default for PointLight {
 #[derive(Component, Debug, Clone, Reflect)]
 #[reflect(Component, Default)]
 pub struct SpotLight {
-    pub color: ReflectVec3,
+    pub color: ReflectColor,
     pub intensity: f32,
     pub range: f32,
     /// Inner cone half-angle (degrees) — full brightness inside.

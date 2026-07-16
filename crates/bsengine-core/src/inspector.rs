@@ -358,5 +358,4 @@ mod tests {
         let s = InspectorState::default();
         assert!((s.cam_distance - 10.0).abs() < 1e-6);
     }
-
 }

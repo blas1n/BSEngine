@@ -2113,7 +2113,6 @@ pub fn bsengine_get_entity_count() -> u32 {
     ENTITY_NAMES_SNAPSHOT.with(|s| s.borrow().len() as u32)
 }
 
-
 #[op2]
 #[string]
 pub fn bsengine_get_entities_in_radius(x: f32, y: f32, z: f32, radius: f32) -> String {
@@ -2146,7 +2145,6 @@ pub fn bsengine_get_closest_entity(x: f32, y: f32, z: f32) -> String {
             .unwrap_or_default()
     })
 }
-
 
 #[op2(fast)]
 pub fn bsengine_set_emissive(#[string] name: String, r: f32, g: f32, b: f32) {
@@ -2345,14 +2343,6 @@ pub fn bsengine_set_damping(#[string] name: String, value: f32) {
     });
 }
 
-
-
-
-
-
-
-
-
 #[op2(fast)]
 pub fn bsengine_play_animation(#[string] name: String, #[string] clip: String) {
     COMMAND_BUFFER.with(|c| {
@@ -2485,24 +2475,6 @@ pub fn bsengine_set_lifetime(#[string] name: String, seconds: f32) {
 pub fn bsengine_get_lifetime(#[string] name: String) -> f32 {
     LIFETIME_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(0.0))
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 #[op2(fast)]
 pub fn bsengine_damage_shield(#[string] name: String, amount: f32) {
@@ -2936,23 +2908,6 @@ pub fn bsengine_is_shield_depleted(#[string] name: String) -> bool {
     })
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 #[op2(fast)]
 pub fn bsengine_reset_timer(#[string] name: String) {
     COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ResetTimer { name }));
@@ -3007,101 +2962,6 @@ pub fn bsengine_is_timer_just_finished(#[string] name: String) -> bool {
             .unwrap_or(false)
     })
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 #[op2(fast)]
 pub fn bsengine_set_nav_destination(#[string] name: String, x: f32, y: f32, z: f32) {
@@ -3296,162 +3156,6 @@ pub fn bsengine_material_clear_shader(#[string] name: String) {
     });
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 #[op2(fast)]
 pub fn bsengine_set_bloom_intensity(#[string] name: String, intensity: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -3542,43 +3246,6 @@ pub fn bsengine_is_bloom_enabled(#[string] name: String) -> bool {
     })
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 #[op2(fast)]
 pub fn bsengine_set_ao_radius(#[string] name: String, radius: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -3666,22 +3333,6 @@ pub fn bsengine_is_ao_enabled(#[string] name: String) -> bool {
     })
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 #[op2(fast)]
 pub fn bsengine_set_tone_map_mode(#[string] name: String, mode: u32) {
     COMMAND_BUFFER.with(|c| {
@@ -3720,54 +3371,6 @@ pub fn bsengine_get_tone_map_exposure(#[string] name: String) -> f32 {
 pub fn bsengine_is_tone_map_enabled(#[string] name: String) -> bool {
     TONE_MAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, _, en)| *en).unwrap_or(true))
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 #[op2(fast)]
 pub fn bsengine_set_tween_duration(#[string] name: String, duration: f32) {
@@ -3887,17 +3490,6 @@ pub fn bsengine_is_tween_reversed(#[string] name: String) -> bool {
     })
 }
 
-
-
-
-
-
-
-
-
-
-
-
 #[op2(fast)]
 pub fn bsengine_set_follow_target(#[string] name: String, #[string] target: String) {
     COMMAND_BUFFER.with(|b| {
@@ -4015,1309 +3607,157 @@ pub fn bsengine_get_look_at_up_z(#[string] name: String) -> f32 {
     LOOK_AT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, _, _, z)| *z).unwrap_or(0.0))
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // --- Burn ---
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // --- Bleed ---
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // --- Poison ---
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // --- Freeze ---
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 // --- Blind ---
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // --- Charm ---
 
-
-
-
-
-
-
-
-
-
 // --- Confuse ---
-
-
-
-
-
-
-
-
-
-
-
 
 // --- Cripple ---
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 // --- Daze ---
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // --- Disarm ---
 
-
-
-
-
-
-
-
-
-
 // --- Concuss ---
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // --- Corrosion ---
 
-
-
-
-
-
-
-
-
-
-
-
-
 // --- Curse ---
-
-
-
-
-
-
-
-
-
-
-
 
 // --- Dread ---
 
-
-
-
-
-
-
-
-
-
-
 // --- Doom ---
-
-
-
-
-
-
-
-
-
 
 // --- Demoralize ---
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 // --- Dodge ---
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // --- Drain ---
 
-
-
-
-
-
-
-
-
-
-
-
 // --- Empower ---
-
-
-
-
-
-
-
-
-
-
-
 
 // --- Enervate ---
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 // --- Entangle ---
-
-
-
-
-
-
-
-
-
 
 // --- Expose ---
 
-
-
-
-
-
-
-
-
-
-
-
 // ── Exhaustion ──────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // ── Fear ────────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
-
-
-
-
 // ── Fracture ─────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // ── Frostbite ────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 // ── Fury ─────────────────────────────────────────────────────────────────────
-
-
-
-
-
-
 
 // ── Galvanize ────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
-
-
-
 // ── Haste ────────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
 
 // ── Havoc ────────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 // ── Haze ─────────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
 
 // ── Heat ─────────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
-
-
-
 // ── Hex ──────────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // ── Hobble ───────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 // ── Ignite ────────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // ── Imbue ─────────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
 // ── Immune ────────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
 
 // ── Impact ────────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
-
-
 // ── Intercept ─────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // ── Interrupt ─────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
-
-
 // ── Invincible ───────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
 
 // ── Isolate ───────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 // ── Jeer ─────────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // ── Jetpack ───────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // ── Jolt ─────────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // ── Jostle ────────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
-
-
-
 // ── Juke ─────────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
 
 // ── Kneel ────────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
-
-
-
 // ── Knit ─────────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // ── Lacerate ─────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 // ── Laden ─────────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
 
 // ── Lament ───────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
-
-
-
-
 // ── Lance ─────────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // ── Lapse ─────────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 // ── Lash ─────────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // ── Latch ────────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
-
-
 // ── Ledge ────────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // ── Leech ────────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
-
-
 // ── Lunge ────────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // ── Lure ─────────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // ── Lurk ─────────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
 
 // ── Magnet ────────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // ── Maim ──────────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // ── Malice ────────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // ── Mark ──────────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
 
 // ── Melee ─────────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // ── Mend ──────────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
 
 // ── Merge ─────────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
-
-
 // ── Mesh ──────────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
 
 // ── Minimap ───────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // ── Mirage ────────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
 
 // ── Momentum ──────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
-
-
-
-
 // ── Morale ────────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // ── Morph ─────────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // ── Mount ─────────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
-
-
 // ── Muffle ────────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
 
 // ── NetworkId ─────────────────────────────────────────────────────────────────
 
@@ -5408,121 +3848,17 @@ pub fn bsengine_network_get_peer_count() -> u32 {
 
 // ── Nimble ────────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // ── Notice ────────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // ── Nourish ───────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
-
-
-
 // ── Nova ──────────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // ── Npc ───────────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // ── Nullify ───────────────────────────────────────────────────────────────────
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 // ── Numb ──────────────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
-
-
-
-
 
 // ── Obstacle ──────────────────────────────────────────────────────────────────
 
@@ -5994,9 +4330,6 @@ pub fn bsengine_set_mass(#[string] name: String, mass: f32) {
     });
 }
 
-
-
-
 #[op2(fast)]
 pub fn bsengine_set_kinematic(#[string] name: String, kinematic: bool) {
     COMMAND_BUFFER.with(|c| {
@@ -6004,7 +4337,6 @@ pub fn bsengine_set_kinematic(#[string] name: String, kinematic: bool) {
             .push(ScriptCommand::SetKinematic { name, kinematic });
     });
 }
-
 
 #[op2(fast)]
 pub fn bsengine_set_gravity_scale(#[string] name: String, scale: f32) {
@@ -8019,8 +6351,6 @@ JSON.stringify(received)
         assert!(r.contains("ChildB"), "expected ChildB: {r}");
     }
 
-
-
     #[test]
     fn entity_exists_returns_true_when_in_snapshot() {
         super::ENTITY_NAMES_SNAPSHOT.with(|s| {
@@ -8137,12 +6467,6 @@ JSON.stringify(received)
         assert_eq!(r.trim(), "[]", "expected empty array: {r}");
     }
 
-
-
-
-
-
-
     #[test]
     fn set_kinematic_enqueues_command() {
         let mut rt = ScriptRuntime::new_with_ops();
@@ -8157,8 +6481,6 @@ JSON.stringify(received)
             assert!(found, "SetKinematic not in buffer");
         });
     }
-
-
 
     #[test]
     fn set_gravity_scale_enqueues_command() {
@@ -10363,13 +8685,6 @@ JSON.stringify(received)
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }
 
-
-
-
-
-
-
-
     #[test]
     fn play_animation_enqueues_command() {
         let mut rt = ScriptRuntime::new_with_ops();
@@ -10542,24 +8857,6 @@ JSON.stringify(received)
         assert!(r.trim() == "0" || r.trim() == "0.0", "expected 0, got {r}");
     }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     #[test]
     fn damage_shield_enqueues_command() {
         let mut rt = ScriptRuntime::new_with_ops();
@@ -10642,23 +8939,6 @@ JSON.stringify(received)
         assert_eq!(r.trim(), "true");
     }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     #[test]
     fn reset_timer_enqueues_command() {
         let mut rt = ScriptRuntime::new_with_ops();
@@ -10707,72 +8987,6 @@ JSON.stringify(received)
             .unwrap();
         assert_eq!(r.trim(), "false");
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     #[test]
     fn set_nav_destination_enqueues_command() {
@@ -10979,67 +9193,6 @@ JSON.stringify(received)
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     #[test]
     fn bloom_snapshot_read_ops() {
         super::BLOOM_SNAPSHOT.with(|s| {
@@ -11106,12 +9259,6 @@ JSON.stringify(received)
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }
 
-
-
-
-
-
-
     #[test]
     fn ao_snapshot_read_ops() {
         super::AMBIENT_OCCLUSION_SNAPSHOT.with(|s| {
@@ -11164,10 +9311,6 @@ JSON.stringify(received)
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }
 
-
-
-
-
     #[test]
     fn test_tone_map_read_ops() {
         let mut rt = ScriptRuntime::new_with_ops();
@@ -11218,14 +9361,6 @@ JSON.stringify(received)
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }
-
-
-
-
-
-
-
-
 
     #[test]
     fn test_tween_read_ops() {
@@ -11292,8 +9427,6 @@ JSON.stringify(received)
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }
-
-
 
     #[test]
     fn test_follow_read_ops() {
@@ -11393,196 +9526,6 @@ JSON.stringify(received)
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     #[test]
     fn test_network_id_read_ops() {
@@ -11684,102 +9627,6 @@ JSON.stringify(received)
         );
         super::NETWORK_STATE_SNAPSHOT.with(|s| *s.borrow_mut() = (false, false, 0, 0));
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     #[test]
     fn test_ui_set_label_queues_command() {

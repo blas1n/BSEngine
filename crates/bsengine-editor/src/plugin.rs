@@ -1514,6 +1514,12 @@ impl Plugin for EditorPlugin {
         app.register_type::<bsengine_core::Timer>();
         app.register_type::<bsengine_core::ToneMap>();
         app.register_type::<bsengine_core::Visible>();
+        app.register_type::<bsengine_core::AngularVelocity>();
+        app.register_type::<bsengine_core::ExternalImpulse>();
+        app.register_type::<bsengine_core::Follow>();
+        app.register_type::<bsengine_core::LookAt>();
+        app.register_type::<bsengine_core::NavMeshAgent>();
+        app.register_type::<bsengine_core::Velocity>();
         app.add_systems(Update, update_editor_snapshot);
         app.add_systems(Update, update_editor_camera);
         app.add_systems(Update, populate_inspector.after(update_editor_snapshot));

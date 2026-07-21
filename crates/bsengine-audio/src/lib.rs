@@ -1,3 +1,10 @@
+//! Audio playback for BSEngine, built on the `kira` audio engine.
+//!
+//! `AudioPlugin` adds an `AudioWorld` resource that manages playback.
+//! `AudioSource`/`AudioPlayer` are the ECS-facing components, with
+//! `PlaybackState` tracking whether a sound is playing, paused, or stopped.
+#![warn(missing_docs)]
+
 pub mod components;
 pub mod plugin;
 pub mod world;

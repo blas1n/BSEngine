@@ -1,3 +1,12 @@
+//! Generic Model Context Protocol (MCP) server runtime for BSEngine.
+//!
+//! `McpServer` exposes `McpTool`s (registered via `McpToolRegistry`) over
+//! MCP so an external client — typically an AI agent — can invoke them.
+//! `McpPlugin`/`McpRegistryResource` wire the registry into the app;
+//! `bsengine-editor` is the primary consumer, registering its ~700 tools
+//! here rather than reimplementing a protocol server itself.
+#![warn(missing_docs)]
+
 pub mod game_tools;
 pub mod plugin;
 pub mod registry;

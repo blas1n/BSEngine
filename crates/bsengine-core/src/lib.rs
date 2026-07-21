@@ -1,3 +1,13 @@
+//! Core ECS components and resources shared across BSEngine.
+//!
+//! Defines the real, actively-used component types (`Transform`, `Camera`,
+//! light variants, `Material`, physics-adjacent components like
+//! `Velocity`/`Damping`/`Shield`, ...) plus their `bevy_reflect`
+//! registrations backing the editor's generic Inspector UI, the
+//! `ReflectVec3`/`ReflectColor`/... opaque wrapper types reflection needs,
+//! and editor-facing infrastructure (`InspectorState`, `EditorPanelRegistry`).
+#![warn(missing_docs)]
+
 pub mod ambient_occlusion;
 pub mod angular_velocity;
 pub mod animation_player;

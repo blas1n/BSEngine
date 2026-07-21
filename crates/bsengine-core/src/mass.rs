@@ -1,9 +1,12 @@
-use bevy_ecs::prelude::Component;
+use bevy_ecs::prelude::{Component, ReflectComponent};
+use bevy_reflect::prelude::ReflectDefault;
+use bevy_reflect::Reflect;
 
 /// Physical mass of an entity in kilograms.
 /// Drives force-to-acceleration conversion in physics integrators.
 /// Zero mass is clamped to a small positive value to avoid division by zero.
-#[derive(Component, Debug, Clone, Copy, PartialEq)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Reflect)]
+#[reflect(Component, Default)]
 pub struct Mass {
     pub value: f32,
 }

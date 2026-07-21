@@ -1,7 +1,9 @@
-use bevy_ecs::prelude::{Component, Resource};
+use bevy_ecs::prelude::{Component, ReflectComponent, Resource};
+use bevy_reflect::prelude::ReflectDefault;
+use bevy_reflect::Reflect;
 
 /// How the skybox texture is laid out.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Reflect)]
 pub enum SkyboxProjection {
     /// Equirectangular (lat-long) panorama — single 2:1 image.
     #[default]
@@ -17,7 +19,8 @@ pub enum SkyboxProjection {
 pub struct SkyboxPath(pub Option<String>);
 
 /// Renders an environment background behind all geometry for a camera entity.
-#[derive(Component, Debug, Clone, PartialEq)]
+#[derive(Component, Debug, Clone, PartialEq, Reflect)]
+#[reflect(Component, Default)]
 pub struct Skybox {
     /// Asset path to the HDR/equirectangular or cubemap texture.
     pub path: String,
@@ -58,6 +61,12 @@ impl Skybox {
     pub fn disabled(mut self) -> Self {
         self.enabled = false;
         self
+    }
+}
+
+impl Default for Skybox {
+    fn default() -> Self {
+        Self::new(String::new())
     }
 }
 

@@ -1,9 +1,12 @@
-use bevy_ecs::prelude::Component;
+use bevy_ecs::prelude::{Component, ReflectComponent};
+use bevy_reflect::prelude::ReflectDefault;
+use bevy_reflect::Reflect;
 
 /// A countdown timer that can fire once or repeat.
 /// `TimerPlugin` ticks all active timers each frame.
 /// Check `just_finished()` in your systems to react when a timer fires.
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component, Default)]
 pub struct Timer {
     duration: f32,
     elapsed: f32,
@@ -93,6 +96,12 @@ impl Timer {
         self.elapsed = 0.0;
         self.just_finished = false;
         self.finished = false;
+    }
+}
+
+impl Default for Timer {
+    fn default() -> Self {
+        Self::new(0.0)
     }
 }
 

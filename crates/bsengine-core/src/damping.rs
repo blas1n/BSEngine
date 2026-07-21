@@ -1,9 +1,12 @@
-use bevy_ecs::prelude::Component;
+use bevy_ecs::prelude::{Component, ReflectComponent};
+use bevy_reflect::prelude::ReflectDefault;
+use bevy_reflect::Reflect;
 
 /// Linear damping applied to `Velocity.linear` each frame.
 /// Formula: `velocity *= (1.0 - linear * dt).max(0.0)`.
 /// `linear = 0.0` → no damping. `linear = 2.0` → ~50% speed loss per second.
-#[derive(Component, Debug, Clone, Copy, PartialEq)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Reflect)]
+#[reflect(Component, Default)]
 pub struct Damping {
     pub linear: f32,
 }

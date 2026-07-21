@@ -1,7 +1,9 @@
-use bevy_ecs::prelude::Component;
+use bevy_ecs::prelude::{Component, ReflectComponent};
+use bevy_reflect::prelude::ReflectDefault;
+use bevy_reflect::Reflect;
 
 /// How network authority is assigned for this entity.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Reflect)]
 pub enum NetworkAuthority {
     /// The server owns simulation authority; clients receive state updates.
     #[default]
@@ -15,7 +17,8 @@ pub enum NetworkAuthority {
 /// Unique network identity for a replicated entity.
 /// The networking layer uses this to match server entities to client entities
 /// and route state updates to the correct ECS entity.
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Reflect)]
+#[reflect(Component, Default)]
 pub struct NetworkId {
     /// Globally unique, stable identifier assigned at spawn time.
     pub id: u64,
@@ -55,6 +58,15 @@ impl NetworkId {
     /// Returns `true` if this entity replicates across the network.
     pub fn is_replicated(&self) -> bool {
         !matches!(self.authority, NetworkAuthority::Local)
+    }
+}
+
+impl Default for NetworkId {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            authority: NetworkAuthority::default(),
+        }
     }
 }
 

@@ -1,8 +1,11 @@
-use bevy_ecs::prelude::Component;
+use bevy_ecs::prelude::{Component, ReflectComponent};
+use bevy_reflect::prelude::ReflectDefault;
+use bevy_reflect::Reflect;
 
 /// Post-processing bloom effect applied by a camera.
 /// Bright areas above `threshold` glow outward by `radius` pixels.
-#[derive(Component, Debug, Clone, Copy, PartialEq)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Reflect)]
+#[reflect(Component, Default)]
 pub struct Bloom {
     /// Overall bloom brightness multiplier.
     pub intensity: f32,

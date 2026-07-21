@@ -1,3 +1,12 @@
+//! Rigid-body physics for BSEngine.
+//!
+//! `PhysicsPlugin` steps a `PhysicsWorld` each frame. `RigidBody`/
+//! `RigidBodyType` and `Collider`/`ColliderShape` are the ECS-facing
+//! components; `CollisionEvent` reports contacts, and `PhysicsInput`/
+//! `PhysicsTransform` are the sync points with the engine's own
+//! `Transform` component.
+#![warn(missing_docs)]
+
 pub mod components;
 pub mod plugin;
 pub mod world;

@@ -20,7 +20,7 @@ fn apply_angular_velocity(mut query: Query<(&AngularVelocity, &mut Transform)>, 
             av.angular.y * dt,
             av.angular.z * dt,
         );
-        transform.rotation = (transform.rotation * delta).normalize();
+        transform.rotation = (transform.rotation.0 * delta).normalize().into();
     }
 }
 

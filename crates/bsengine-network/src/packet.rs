@@ -40,9 +40,11 @@ impl TransformData {
 
     pub fn to_transform(self) -> Transform {
         Transform {
-            translation: Vec3::new(self.px, self.py, self.pz),
-            rotation: Quat::from_xyzw(self.rx, self.ry, self.rz, self.rw).normalize(),
-            scale: Vec3::new(self.sx, self.sy, self.sz),
+            translation: Vec3::new(self.px, self.py, self.pz).into(),
+            rotation: Quat::from_xyzw(self.rx, self.ry, self.rz, self.rw)
+                .normalize()
+                .into(),
+            scale: Vec3::new(self.sx, self.sy, self.sz).into(),
         }
     }
 
@@ -123,16 +125,16 @@ mod tests {
     #[test]
     fn transform_data_roundtrip() {
         let t = Transform {
-            translation: Vec3::new(1.0, 2.0, 3.0),
-            rotation: Quat::from_xyzw(0.0, 0.0, 0.0, 1.0),
-            scale: Vec3::ONE,
+            translation: Vec3::new(1.0, 2.0, 3.0).into(),
+            rotation: Quat::from_xyzw(0.0, 0.0, 0.0, 1.0).into(),
+            scale: Vec3::ONE.into(),
         };
         let td = TransformData::from_transform(&t);
         let bytes = td.to_bytes();
         let td2 = TransformData::from_bytes(&bytes);
         let t2 = td2.to_transform();
-        assert!((t.translation - t2.translation).length() < 1e-5);
-        assert!((t.scale - t2.scale).length() < 1e-5);
+        assert!((t.translation.0 - t2.translation.0).length() < 1e-5);
+        assert!((t.scale.0 - t2.scale.0).length() < 1e-5);
     }
 
     #[test]

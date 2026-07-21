@@ -60,10 +60,10 @@ fn compute_light_view_proj(light_dir: Vec3) -> Mat4 {
 fn spot_light_entry(sl: &SpotLight, gt: Option<&GlobalTransform>, t: &Transform) -> SpotLightEntry {
     let pos = gt
         .map(|g| g.to_matrix().w_axis.truncate())
-        .unwrap_or(t.translation);
+        .unwrap_or(t.translation.0);
     let dir = gt
         .map(|g| -glam::Mat3::from_mat4(g.to_matrix()).z_axis)
-        .unwrap_or_else(|| t.rotation * Vec3::NEG_Z);
+        .unwrap_or_else(|| t.rotation.0 * Vec3::NEG_Z);
     SpotLightEntry {
         position: pos,
         direction: dir,
@@ -78,7 +78,7 @@ fn spot_light_entry(sl: &SpotLight, gt: Option<&GlobalTransform>, t: &Transform)
 /// Pass 1: root entities (no Parent) get GlobalTransform = local Transform.
 fn propagate_roots(mut query: Query<(&Transform, &mut GlobalTransform), Without<Parent>>) {
     for (t, mut gt) in query.iter_mut() {
-        gt.0 = t.to_matrix();
+        gt.0 = t.to_matrix().into();
     }
 }
 
@@ -90,11 +90,11 @@ fn propagate_children(
         Query<(&Transform, &mut GlobalTransform, &Parent)>,
     )>,
 ) {
-    let parent_mats: HashMap<Entity, Mat4> = set.p0().iter().map(|(e, gt)| (e, gt.0)).collect();
+    let parent_mats: HashMap<Entity, Mat4> = set.p0().iter().map(|(e, gt)| (e, gt.0 .0)).collect();
 
     for (t, mut gt, parent) in set.p1().iter_mut() {
         if let Some(&mat) = parent_mats.get(&parent.0) {
-            gt.0 = mat * t.to_matrix();
+            gt.0 = (mat * t.to_matrix()).into();
         }
     }
 }
@@ -198,7 +198,7 @@ fn render_frame(
                 let proj = cam.projection_matrix();
                 (
                     proj * t.view_matrix(),
-                    t.translation,
+                    t.translation.0,
                     proj,
                     b.copied(),
                     tm.copied(),
@@ -290,7 +290,7 @@ fn render_frame(
         .map(|(pl, gt, t)| {
             let pos = gt
                 .map(|g| g.to_matrix().w_axis.truncate())
-                .unwrap_or(t.translation);
+                .unwrap_or(t.translation.0);
             PointLightEntry {
                 position: pos,
                 color: *pl.color,
@@ -309,7 +309,7 @@ fn render_frame(
     let light = if let Some((l, gt, t)) = render_queries.p2().iter().next() {
         let direction = gt
             .map(|g| -glam::Mat3::from_mat4(g.to_matrix()).z_axis)
-            .unwrap_or_else(|| t.rotation * Vec3::NEG_Z);
+            .unwrap_or_else(|| t.rotation.0 * Vec3::NEG_Z);
         LightData {
             direction,
             color: *l.color,

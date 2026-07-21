@@ -12,7 +12,7 @@ impl Plugin for VelocityPlugin {
 
 fn apply_velocity(mut query: Query<(&Velocity, &mut Transform)>, time: Res<Time>) {
     for (vel, mut transform) in query.iter_mut() {
-        transform.translation += vel.linear.0 * time.delta_seconds;
+        transform.translation.0 += vel.linear.0 * time.delta_seconds;
     }
 }
 
@@ -77,7 +77,7 @@ mod tests {
         app.update();
 
         let transform = app.world().get::<Transform>(entity).unwrap();
-        assert_eq!(transform.translation, Vec3::ZERO);
+        assert_eq!(transform.translation.0, Vec3::ZERO);
     }
 
     #[test]
@@ -91,7 +91,7 @@ mod tests {
         app.update();
 
         let transform = app.world().get::<Transform>(entity).unwrap();
-        assert_eq!(transform.translation, Vec3::new(5.0, 0.0, 0.0));
+        assert_eq!(transform.translation.0, Vec3::new(5.0, 0.0, 0.0));
     }
 
     #[test]

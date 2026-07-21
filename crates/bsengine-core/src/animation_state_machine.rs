@@ -1,8 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
-use bevy_ecs::prelude::Component;
+use bevy_ecs::prelude::{Component, ReflectComponent};
+use bevy_reflect::prelude::ReflectDefault;
+use bevy_reflect::Reflect;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Reflect)]
 pub struct AsmState {
     pub clip: String,
     pub looping: bool,
@@ -36,7 +38,7 @@ impl AsmState {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Reflect)]
 pub enum TransitionCondition {
     Trigger(String),
     FloatGreater { param: String, threshold: f32 },
@@ -46,7 +48,7 @@ pub enum TransitionCondition {
     Finished,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Reflect)]
 pub struct AsmTransition {
     /// Source state name, or `"*"` to match any state.
     pub from: String,
@@ -60,7 +62,8 @@ pub struct AsmTransition {
 /// Each frame the ECS system evaluates transitions in order and fires the first
 /// matching one, consuming Trigger parameters in the process.  Crossfade blend
 /// weight is exposed via `blend_weight` so renderers can lerp bone poses.
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component, Default)]
 pub struct AnimationStateMachine {
     pub states: HashMap<String, AsmState>,
     pub transitions: Vec<AsmTransition>,
@@ -74,6 +77,12 @@ pub struct AnimationStateMachine {
     pub blend_weight: f32,
     pub blend_duration: f32,
     pub blend_elapsed: f32,
+}
+
+impl Default for AnimationStateMachine {
+    fn default() -> Self {
+        Self::new("")
+    }
 }
 
 impl AnimationStateMachine {

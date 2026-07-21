@@ -1,19 +1,23 @@
-use bevy_ecs::prelude::Component;
+use crate::{ReflectQuat, ReflectVec3};
+use bevy_ecs::prelude::{Component, ReflectComponent};
+use bevy_reflect::prelude::ReflectDefault;
+use bevy_reflect::Reflect;
 use glam::{Mat4, Quat, Vec3};
 
-#[derive(Component, Debug, Clone, PartialEq)]
+#[derive(Component, Debug, Clone, PartialEq, Reflect)]
+#[reflect(Component, Default)]
 pub struct Transform {
-    pub translation: Vec3,
-    pub rotation: Quat,
-    pub scale: Vec3,
+    pub translation: ReflectVec3,
+    pub rotation: ReflectQuat,
+    pub scale: ReflectVec3,
 }
 
 impl Default for Transform {
     fn default() -> Self {
         Self {
-            translation: Vec3::ZERO,
-            rotation: Quat::IDENTITY,
-            scale: Vec3::ONE,
+            translation: Vec3::ZERO.into(),
+            rotation: Quat::IDENTITY.into(),
+            scale: Vec3::ONE.into(),
         }
     }
 }
@@ -21,21 +25,21 @@ impl Default for Transform {
 impl Transform {
     pub fn from_translation(translation: Vec3) -> Self {
         Self {
-            translation,
+            translation: translation.into(),
             ..Default::default()
         }
     }
 
     pub fn looking_at(mut self, target: Vec3, up: Vec3) -> Self {
-        let dir = (target - self.translation).normalize();
+        let dir = (target - self.translation.0).normalize();
         let right = up.cross(dir).normalize();
         let up = dir.cross(right);
-        self.rotation = Quat::from_mat3(&glam::Mat3::from_cols(right, up, dir));
+        self.rotation = Quat::from_mat3(&glam::Mat3::from_cols(right, up, dir)).into();
         self
     }
 
     pub fn to_matrix(&self) -> Mat4 {
-        Mat4::from_scale_rotation_translation(self.scale, self.rotation, self.translation)
+        Mat4::from_scale_rotation_translation(self.scale.0, self.rotation.0, self.translation.0)
     }
 
     pub fn view_matrix(&self) -> Mat4 {
@@ -50,9 +54,9 @@ mod tests {
     #[test]
     fn default_is_identity() {
         let t = Transform::default();
-        assert_eq!(t.translation, Vec3::ZERO);
-        assert_eq!(t.rotation, Quat::IDENTITY);
-        assert_eq!(t.scale, Vec3::ONE);
+        assert_eq!(t.translation, Vec3::ZERO.into());
+        assert_eq!(t.rotation, Quat::IDENTITY.into());
+        assert_eq!(t.scale, Vec3::ONE.into());
     }
 
     #[test]
@@ -64,8 +68,8 @@ mod tests {
     #[test]
     fn from_translation_sets_position() {
         let t = Transform::from_translation(Vec3::new(1.0, 2.0, 3.0));
-        assert_eq!(t.translation, Vec3::new(1.0, 2.0, 3.0));
-        assert_eq!(t.scale, Vec3::ONE);
+        assert_eq!(t.translation, Vec3::new(1.0, 2.0, 3.0).into());
+        assert_eq!(t.scale, Vec3::ONE.into());
     }
 
     #[test]

@@ -221,7 +221,7 @@ fn run_scripts(world: &mut World) {
                 let mut q = world.query::<(&Name, &mut Transform)>();
                 for (n, mut t) in q.iter_mut(world) {
                     if n.0 == name {
-                        t.translation = Vec3::new(x, y, z);
+                        t.translation = Vec3::new(x, y, z).into();
                         break;
                     }
                 }
@@ -236,7 +236,7 @@ fn run_scripts(world: &mut World) {
                 let mut q = world.query::<(&Name, &mut Transform)>();
                 for (n, mut t) in q.iter_mut(world) {
                     if n.0 == name {
-                        t.rotation = Quat::from_xyzw(rx, ry, rz, rw);
+                        t.rotation = Quat::from_xyzw(rx, ry, rz, rw).into();
                         break;
                     }
                 }
@@ -255,7 +255,8 @@ fn run_scripts(world: &mut World) {
                             yaw_deg.to_radians(),
                             pitch_deg.to_radians(),
                             roll_deg.to_radians(),
-                        );
+                        )
+                        .into();
                         break;
                     }
                 }
@@ -264,7 +265,7 @@ fn run_scripts(world: &mut World) {
                 let mut q = world.query::<(&Name, &mut Transform)>();
                 for (n, mut t) in q.iter_mut(world) {
                     if n.0 == name {
-                        t.scale = Vec3::new(sx, sy, sz);
+                        t.scale = Vec3::new(sx, sy, sz).into();
                         break;
                     }
                 }
@@ -273,7 +274,7 @@ fn run_scripts(world: &mut World) {
                 let mut q = world.query::<(&Name, &mut Transform)>();
                 for (n, mut t) in q.iter_mut(world) {
                     if n.0 == name {
-                        t.translation += Vec3::new(dx, dy, dz);
+                        t.translation.0 += Vec3::new(dx, dy, dz);
                         break;
                     }
                 }
@@ -283,7 +284,7 @@ fn run_scripts(world: &mut World) {
                 for (n, mut t) in q.iter_mut(world) {
                     if n.0 == name {
                         let rot = t.rotation;
-                        t.translation += rot.mul_vec3(Vec3::new(dx, dy, dz));
+                        t.translation.0 += rot.0.mul_vec3(Vec3::new(dx, dy, dz));
                         break;
                     }
                 }
@@ -536,7 +537,7 @@ fn run_scripts(world: &mut World) {
                     let dir = glam::Vec3::new(x, y, z).normalize_or(glam::Vec3::NEG_Z);
                     let rotation = Quat::from_rotation_arc(glam::Vec3::NEG_Z, dir);
                     if let Some(mut t) = world.get_mut::<Transform>(e) {
-                        t.rotation = rotation;
+                        t.rotation = rotation.into();
                     }
                 }
             }
@@ -1741,7 +1742,7 @@ fn run_scripts(world: &mut World) {
                 for (n, mut t) in q.iter_mut(world) {
                     if n.0 == name {
                         let delta = Quat::from_xyzw(rx, ry, rz, rw).normalize();
-                        t.rotation = (t.rotation * delta).normalize();
+                        t.rotation = (t.rotation.0 * delta).normalize().into();
                         break;
                     }
                 }
@@ -1760,7 +1761,7 @@ fn run_scripts(world: &mut World) {
                         if axis.length_squared() > 1e-10 {
                             let delta =
                                 Quat::from_axis_angle(axis.normalize(), angle_deg.to_radians());
-                            t.rotation = (t.rotation * delta).normalize();
+                            t.rotation = (t.rotation.0 * delta).normalize().into();
                         }
                         break;
                     }
@@ -1781,7 +1782,7 @@ fn run_scripts(world: &mut World) {
                             yaw.to_radians(),
                             roll.to_radians(),
                         );
-                        t.rotation = (t.rotation * delta).normalize();
+                        t.rotation = (t.rotation.0 * delta).normalize().into();
                         break;
                     }
                 }
@@ -1791,7 +1792,7 @@ fn run_scripts(world: &mut World) {
                 for (n, mut t) in q.iter_mut(world) {
                     if n.0 == name {
                         let delta = Quat::from_euler(EulerRot::XYZ, deg.to_radians(), 0.0, 0.0);
-                        t.rotation = (t.rotation * delta).normalize();
+                        t.rotation = (t.rotation.0 * delta).normalize().into();
                         break;
                     }
                 }
@@ -1801,7 +1802,7 @@ fn run_scripts(world: &mut World) {
                 for (n, mut t) in q.iter_mut(world) {
                     if n.0 == name {
                         let delta = Quat::from_euler(EulerRot::XYZ, 0.0, deg.to_radians(), 0.0);
-                        t.rotation = (t.rotation * delta).normalize();
+                        t.rotation = (t.rotation.0 * delta).normalize().into();
                         break;
                     }
                 }
@@ -1811,7 +1812,7 @@ fn run_scripts(world: &mut World) {
                 for (n, mut t) in q.iter_mut(world) {
                     if n.0 == name {
                         let delta = Quat::from_euler(EulerRot::XYZ, 0.0, 0.0, deg.to_radians());
-                        t.rotation = (t.rotation * delta).normalize();
+                        t.rotation = (t.rotation.0 * delta).normalize().into();
                         break;
                     }
                 }
@@ -1874,7 +1875,7 @@ fn run_scripts(world: &mut World) {
                 let mut q = world.query::<(&Name, &mut Transform)>();
                 for (n, mut t) in q.iter_mut(world) {
                     if n.0 == name {
-                        t.scale += Vec3::new(sx, sy, sz);
+                        t.scale.0 += Vec3::new(sx, sy, sz);
                         break;
                     }
                 }
@@ -1883,8 +1884,8 @@ fn run_scripts(world: &mut World) {
                 let mut q = world.query::<(&Name, &mut Transform)>();
                 for (n, mut t) in q.iter_mut(world) {
                     if n.0 == name {
-                        let (_, y, z) = t.rotation.to_euler(EulerRot::XYZ);
-                        t.rotation = Quat::from_euler(EulerRot::XYZ, deg.to_radians(), y, z);
+                        let (_, y, z) = t.rotation.0.to_euler(EulerRot::XYZ);
+                        t.rotation = Quat::from_euler(EulerRot::XYZ, deg.to_radians(), y, z).into();
                         break;
                     }
                 }
@@ -1893,8 +1894,8 @@ fn run_scripts(world: &mut World) {
                 let mut q = world.query::<(&Name, &mut Transform)>();
                 for (n, mut t) in q.iter_mut(world) {
                     if n.0 == name {
-                        let (x, _, z) = t.rotation.to_euler(EulerRot::XYZ);
-                        t.rotation = Quat::from_euler(EulerRot::XYZ, x, deg.to_radians(), z);
+                        let (x, _, z) = t.rotation.0.to_euler(EulerRot::XYZ);
+                        t.rotation = Quat::from_euler(EulerRot::XYZ, x, deg.to_radians(), z).into();
                         break;
                     }
                 }
@@ -1903,8 +1904,8 @@ fn run_scripts(world: &mut World) {
                 let mut q = world.query::<(&Name, &mut Transform)>();
                 for (n, mut t) in q.iter_mut(world) {
                     if n.0 == name {
-                        let (x, y, _) = t.rotation.to_euler(EulerRot::XYZ);
-                        t.rotation = Quat::from_euler(EulerRot::XYZ, x, y, deg.to_radians());
+                        let (x, y, _) = t.rotation.0.to_euler(EulerRot::XYZ);
+                        t.rotation = Quat::from_euler(EulerRot::XYZ, x, y, deg.to_radians()).into();
                         break;
                     }
                 }
@@ -1913,7 +1914,7 @@ fn run_scripts(world: &mut World) {
                 let mut q = world.query::<(&Name, &mut Transform)>();
                 for (n, mut t) in q.iter_mut(world) {
                     if n.0 == name {
-                        t.scale *= Vec3::new(sx, sy, sz);
+                        t.scale.0 *= Vec3::new(sx, sy, sz);
                         break;
                     }
                 }
@@ -1981,9 +1982,11 @@ fn spawn_entity(world: &mut World, params: SpawnParams) {
     };
 
     let transform = Transform {
-        translation: Vec3::new(params.x, params.y, params.z),
-        rotation: Quat::from_xyzw(params.rx, params.ry, params.rz, params.rw).normalize(),
-        scale: Vec3::new(params.sx, params.sy, params.sz),
+        translation: Vec3::new(params.x, params.y, params.z).into(),
+        rotation: Quat::from_xyzw(params.rx, params.ry, params.rz, params.rw)
+            .normalize()
+            .into(),
+        scale: Vec3::new(params.sx, params.sy, params.sz).into(),
     };
 
     let mut cmd = world.spawn((
@@ -2011,7 +2014,7 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
     let transform_snapshot: HashMap<String, (Vec3, Quat, Vec3)> = {
         let mut q = world.query::<(&Name, &Transform)>();
         q.iter(world)
-            .map(|(n, t)| (n.0.clone(), (t.translation, t.rotation, t.scale)))
+            .map(|(n, t)| (n.0.clone(), (t.translation.0, t.rotation.0, t.scale.0)))
             .collect()
     };
 

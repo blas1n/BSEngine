@@ -28,6 +28,7 @@ pub mod parent;
 pub mod reflect_color;
 pub mod reflect_degrees;
 pub mod reflect_glam;
+pub mod reflect_mat4;
 pub mod reflect_validate;
 pub mod save_data;
 pub mod screen_size;
@@ -76,6 +77,7 @@ pub use parent::Parent;
 pub use reflect_color::ReflectColor;
 pub use reflect_degrees::ReflectDegrees;
 pub use reflect_glam::{ReflectQuat, ReflectVec2, ReflectVec3, ReflectVec4};
+pub use reflect_mat4::ReflectMat4;
 pub use reflect_validate::{ReflectValidate, Validate};
 pub use save_data::SaveData;
 pub use screen_size::ScreenSize;
@@ -117,7 +119,7 @@ pub fn propagate_global_transforms(world: &mut bevy_ecs::world::World) {
     let mut gt_query = world.query::<(Entity, &mut GlobalTransform)>();
     for (e, mut gt) in gt_query.iter_mut(world) {
         if let Some(&mat) = globals.get(&e) {
-            gt.0 = mat;
+            gt.0 = mat.into();
         }
     }
 }

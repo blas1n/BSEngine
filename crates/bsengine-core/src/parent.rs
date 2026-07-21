@@ -1,6 +1,8 @@
-use bevy_ecs::prelude::{Component, Entity};
+use bevy_ecs::prelude::{Component, Entity, ReflectComponent};
+use bevy_reflect::Reflect;
 
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct Parent(pub Entity);
 
 #[cfg(test)]

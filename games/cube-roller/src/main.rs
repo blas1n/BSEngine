@@ -49,7 +49,8 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
     commands.spawn((
         DirectionalLight::default(),
         Transform {
-            rotation: Quat::from_rotation_arc(Vec3::NEG_Z, Vec3::new(-0.4, -0.8, -0.4).normalize()),
+            rotation: Quat::from_rotation_arc(Vec3::NEG_Z, Vec3::new(-0.4, -0.8, -0.4).normalize())
+                .into(),
             ..Default::default()
         },
         GlobalTransform::default(),
@@ -63,9 +64,9 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
     commands.spawn((
         MeshRenderer { mesh_id: cube_id },
         Transform {
-            translation: Vec3::new(0.0, -0.5, 0.0),
-            rotation: Quat::IDENTITY,
-            scale: Vec3::new(20.0, 0.2, 20.0),
+            translation: Vec3::new(0.0, -0.5, 0.0).into(),
+            rotation: Quat::IDENTITY.into(),
+            scale: Vec3::new(20.0, 0.2, 20.0).into(),
         },
         GlobalTransform::default(),
     ));
@@ -75,9 +76,9 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
         Player,
         MeshRenderer { mesh_id: cube_id },
         Transform {
-            translation: Vec3::new(0.0, FLOOR_Y, 0.0),
-            rotation: Quat::IDENTITY,
-            scale: Vec3::ONE,
+            translation: Vec3::new(0.0, FLOOR_Y, 0.0).into(),
+            rotation: Quat::IDENTITY.into(),
+            scale: Vec3::ONE.into(),
         },
         GlobalTransform::default(),
         Velocity::default(),
@@ -95,9 +96,9 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
             Item,
             MeshRenderer { mesh_id: cube_id },
             Transform {
-                translation: pos,
-                rotation: Quat::IDENTITY,
-                scale: Vec3::splat(0.4),
+                translation: pos.into(),
+                rotation: Quat::IDENTITY.into(),
+                scale: Vec3::splat(0.4).into(),
             },
             GlobalTransform::default(),
         ));
@@ -145,7 +146,7 @@ fn player_control(
     vel.linear.z *= DAMPING;
     vel.linear.y -= GRAVITY * dt;
 
-    transform.translation += vel.linear.0 * dt;
+    transform.translation.0 += vel.linear.0 * dt;
 
     if transform.translation.y < FLOOR_Y {
         transform.translation.y = FLOOR_Y;
@@ -166,7 +167,7 @@ fn collect_items(
     };
 
     for (entity, item_t) in items.iter() {
-        if (player_t.translation - item_t.translation).length() < COLLECT_DIST {
+        if (player_t.translation.0 - item_t.translation.0).length() < COLLECT_DIST {
             commands.entity(entity).despawn();
             *score += 1;
             println!("Score: {}", *score);
@@ -179,7 +180,7 @@ fn respawn(mut query: Query<(&mut Transform, &mut Velocity), With<Player>>) {
         return;
     };
     if t.translation.y < RESPAWN_Y {
-        t.translation = Vec3::new(0.0, FLOOR_Y, 0.0);
+        t.translation = Vec3::new(0.0, FLOOR_Y, 0.0).into();
         vel.linear = Vec3::ZERO.into();
         println!("Respawned!");
     }

@@ -41,7 +41,7 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>, mut 
             ambient: Vec3::splat(0.15).into(),
         },
         Transform {
-            rotation: Quat::from_rotation_arc(Vec3::NEG_Z, dir),
+            rotation: Quat::from_rotation_arc(Vec3::NEG_Z, dir).into(),
             ..Default::default()
         },
         GlobalTransform::default(),
@@ -53,7 +53,7 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>, mut 
 
 fn spin(mut query: Query<&mut Transform, With<MeshRenderer>>) {
     for mut t in query.iter_mut() {
-        t.rotation *= Quat::from_rotation_y(0.01);
+        t.rotation.0 *= Quat::from_rotation_y(0.01);
     }
 }
 

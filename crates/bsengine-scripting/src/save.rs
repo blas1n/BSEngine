@@ -105,9 +105,9 @@ pub fn load_world(world: &mut World, path: &str) -> Result<(), String> {
 
         if let Some(entity) = entity {
             if let Some(mut t) = world.get_mut::<Transform>(entity) {
-                t.translation = Vec3::new(ts.x, ts.y, ts.z);
-                t.rotation = Quat::from_xyzw(ts.rx, ts.ry, ts.rz, ts.rw);
-                t.scale = Vec3::new(ts.sx, ts.sy, ts.sz);
+                t.translation = Vec3::new(ts.x, ts.y, ts.z).into();
+                t.rotation = Quat::from_xyzw(ts.rx, ts.ry, ts.rz, ts.rw).into();
+                t.scale = Vec3::new(ts.sx, ts.sy, ts.sz).into();
             }
             if !es.fields.is_empty() {
                 if let Some(mut sd) = world.get_mut::<SaveData>(entity) {
@@ -120,9 +120,9 @@ pub fn load_world(world: &mut World, path: &str) -> Result<(), String> {
             let mut spawned = world.spawn((
                 Name(es.name.clone()),
                 Transform {
-                    translation: Vec3::new(ts.x, ts.y, ts.z),
-                    rotation: Quat::from_xyzw(ts.rx, ts.ry, ts.rz, ts.rw),
-                    scale: Vec3::new(ts.sx, ts.sy, ts.sz),
+                    translation: Vec3::new(ts.x, ts.y, ts.z).into(),
+                    rotation: Quat::from_xyzw(ts.rx, ts.ry, ts.rz, ts.rw).into(),
+                    scale: Vec3::new(ts.sx, ts.sy, ts.sz).into(),
                 },
             ));
             if !es.fields.is_empty() {

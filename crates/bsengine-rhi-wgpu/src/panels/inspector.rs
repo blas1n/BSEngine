@@ -509,6 +509,65 @@ mod tests {
     }
 
     #[test]
+    fn reflected_fields_section_renders_without_panicking_for_the_pr3_batch() {
+        // Same rationale as the PR1/PR2 batch tests. Parent and Tween have no
+        // ReflectDefault (Parent needs an Entity with no sensible default;
+        // Tween needs a TweenTarget with no natural default variant) -- both
+        // are hand-constructed here to exercise the read/render path directly,
+        // including a Mat4 field (GlobalTransform) and an enum-with-glam-fields
+        // field (Tween's TweenTarget) without panicking.
+        let mut insp = InspectorState::default();
+        insp.selected_id = Some(1);
+        insp.reflected_components = vec![
+            (
+                "bsengine_core::transform::Transform".to_string(),
+                Box::new(bsengine_core::Transform::default()) as Box<dyn bevy_reflect::Reflect>,
+            ),
+            (
+                "bsengine_core::global_transform::GlobalTransform".to_string(),
+                Box::new(bsengine_core::GlobalTransform::default())
+                    as Box<dyn bevy_reflect::Reflect>,
+            ),
+            (
+                "bsengine_core::parent::Parent".to_string(),
+                Box::new(bsengine_core::Parent(
+                    bevy_ecs::prelude::Entity::PLACEHOLDER,
+                )) as Box<dyn bevy_reflect::Reflect>,
+            ),
+            (
+                "bsengine_core::animation_state_machine::AnimationStateMachine".to_string(),
+                Box::new(bsengine_core::AnimationStateMachine::default())
+                    as Box<dyn bevy_reflect::Reflect>,
+            ),
+            (
+                "bsengine_core::tween::Tween".to_string(),
+                Box::new(bsengine_core::Tween::new(
+                    bsengine_core::TweenTarget::Translation {
+                        from: glam::Vec3::ZERO.into(),
+                        to: glam::Vec3::ONE.into(),
+                    },
+                    1.0,
+                )) as Box<dyn bevy_reflect::Reflect>,
+            ),
+        ];
+
+        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
+        let mut panel = InspectorPanel;
+
+        with_test_ui(|ui| {
+            let mut ctx = EditorPanelContext {
+                insp: &mut insp,
+                entities_snapshot: &entities_snapshot,
+                cursor_pos: (0.0, 0.0),
+                type_registry: None,
+            };
+            panel.ui(ui, &mut ctx);
+        });
+
+        assert!(insp.cmd_queue.is_empty());
+    }
+
+    #[test]
     fn validate_after_edit_clamps_an_out_of_range_spot_light() {
         let mut registry = bevy_reflect::TypeRegistry::default();
         registry.register::<bsengine_core::SpotLight>();

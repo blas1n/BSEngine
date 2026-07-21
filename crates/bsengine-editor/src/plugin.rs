@@ -145,7 +145,7 @@ fn process_editor_commands(
             EditorCommand::SetPosition { entity_id, x, y, z } => {
                 for (e, mut t) in params.p1().iter_mut() {
                     if e.index() as u64 == entity_id {
-                        t.translation = glam::Vec3::new(x, y, z);
+                        t.translation = glam::Vec3::new(x, y, z).into();
                         break;
                     }
                 }
@@ -193,7 +193,7 @@ fn process_editor_commands(
                         ambient: glam::Vec3::from(ambient).into(),
                     },
                     Transform {
-                        rotation,
+                        rotation: rotation.into(),
                         ..Default::default()
                     },
                     GlobalTransform::default(),
@@ -252,7 +252,7 @@ fn process_editor_commands(
                     let rotation = glam::Quat::from_rotation_arc(glam::Vec3::NEG_Z, dir);
                     for (e, mut t) in params.p1().iter_mut() {
                         if e.index() as u64 == entity_id {
-                            t.rotation = rotation;
+                            t.rotation = rotation.into();
                             break;
                         }
                     }
@@ -329,7 +329,7 @@ fn process_editor_commands(
             } => {
                 for (e, mut t) in params.p1().iter_mut() {
                     if e.index() as u64 == entity_id {
-                        t.translation += glam::Vec3::new(dx, dy, dz);
+                        t.translation.0 += glam::Vec3::new(dx, dy, dz);
                         break;
                     }
                 }
@@ -395,7 +395,8 @@ fn process_editor_commands(
                             rx.to_radians(),
                             ry.to_radians(),
                             rz.to_radians(),
-                        );
+                        )
+                        .into();
                         break;
                     }
                 }
@@ -408,7 +409,7 @@ fn process_editor_commands(
             } => {
                 for (e, mut t) in params.p1().iter_mut() {
                     if e.index() as u64 == entity_id {
-                        t.scale = glam::Vec3::new(sx, sy, sz);
+                        t.scale = glam::Vec3::new(sx, sy, sz).into();
                         break;
                     }
                 }
@@ -422,7 +423,7 @@ fn process_editor_commands(
                 for (e, mut t) in params.p1().iter_mut() {
                     if e.index() as u64 == entity_id {
                         if let Some([x, y, z]) = position {
-                            t.translation = glam::Vec3::new(x, y, z);
+                            t.translation = glam::Vec3::new(x, y, z).into();
                         }
                         if let Some([rx, ry, rz]) = rotation {
                             t.rotation = glam::Quat::from_euler(
@@ -430,10 +431,11 @@ fn process_editor_commands(
                                 rx.to_radians(),
                                 ry.to_radians(),
                                 rz.to_radians(),
-                            );
+                            )
+                            .into();
                         }
                         if let Some([sx, sy, sz]) = scale {
-                            t.scale = glam::Vec3::new(sx, sy, sz);
+                            t.scale = glam::Vec3::new(sx, sy, sz).into();
                         }
                         break;
                     }
@@ -582,9 +584,9 @@ fn process_editor_commands(
                         );
                         eb.insert((
                             Transform {
-                                translation: glam::Vec3::from(t.translation),
-                                rotation,
-                                scale: glam::Vec3::from(t.scale),
+                                translation: glam::Vec3::from(t.translation).into(),
+                                rotation: rotation.into(),
+                                scale: glam::Vec3::from(t.scale).into(),
                             },
                             GlobalTransform::default(),
                         ));
@@ -619,9 +621,9 @@ fn process_editor_commands(
                             .unwrap_or((glam::Vec3::ZERO, glam::Vec3::ONE));
                         eb.insert((
                             Transform {
-                                translation,
-                                rotation,
-                                scale,
+                                translation: translation.into(),
+                                rotation: rotation.into(),
+                                scale: scale.into(),
                             },
                             GlobalTransform::default(),
                         ));
@@ -756,14 +758,15 @@ fn sync_entity_to_info(world: &mut World, entity: Entity, info: &EntityInfo) {
     if let (Some(pos), Some(rot), Some(scale)) = (info.position, info.rotation, info.scale) {
         e.insert((
             Transform {
-                translation: glam::Vec3::from(pos),
+                translation: glam::Vec3::from(pos).into(),
                 rotation: glam::Quat::from_euler(
                     glam::EulerRot::XYZ,
                     rot[0].to_radians(),
                     rot[1].to_radians(),
                     rot[2].to_radians(),
-                ),
-                scale: glam::Vec3::from(scale),
+                )
+                .into(),
+                scale: glam::Vec3::from(scale).into(),
             },
             GlobalTransform::default(),
         ));
@@ -870,14 +873,15 @@ fn spawn_entity_from_info(world: &mut World, info: &EntityInfo) -> Entity {
     if let (Some(pos), Some(rot), Some(scale)) = (info.position, info.rotation, info.scale) {
         e.insert((
             Transform {
-                translation: glam::Vec3::from(pos),
+                translation: glam::Vec3::from(pos).into(),
                 rotation: glam::Quat::from_euler(
                     glam::EulerRot::XYZ,
                     rot[0].to_radians(),
                     rot[1].to_radians(),
                     rot[2].to_radians(),
-                ),
-                scale: glam::Vec3::from(scale),
+                )
+                .into(),
+                scale: glam::Vec3::from(scale).into(),
             },
             GlobalTransform::default(),
         ));
@@ -1520,6 +1524,11 @@ impl Plugin for EditorPlugin {
         app.register_type::<bsengine_core::LookAt>();
         app.register_type::<bsengine_core::NavMeshAgent>();
         app.register_type::<bsengine_core::Velocity>();
+        app.register_type::<bsengine_core::Transform>();
+        app.register_type::<bsengine_core::GlobalTransform>();
+        app.register_type::<bsengine_core::Parent>();
+        app.register_type::<bsengine_core::AnimationStateMachine>();
+        app.register_type::<bsengine_core::Tween>();
         app.add_systems(Update, update_editor_snapshot);
         app.add_systems(Update, update_editor_camera);
         app.add_systems(Update, populate_inspector.after(update_editor_snapshot));
@@ -29884,7 +29893,7 @@ mod tests {
                 .query::<(&bsengine_core::DirectionalLight, &Transform)>();
         let (_, transform) = q.iter(app.world()).next().expect("no DirectionalLight spawned");
         // direction lives on Transform.rotation (rotation * -Z), same as SpotLight.
-        let derived_dir = transform.rotation * Vec3::NEG_Z;
+        let derived_dir = transform.rotation.0 * Vec3::NEG_Z;
         assert!(
             (derived_dir - Vec3::new(0.0, -1.0, 0.0)).length() < 1e-4,
             "expected direction (0,-1,0), derived {:?}",
@@ -29938,7 +29947,7 @@ mod tests {
             .iter(app.world())
             .next()
             .expect("entity should still have a Transform");
-        let derived_dir = transform.rotation * Vec3::NEG_Z;
+        let derived_dir = transform.rotation.0 * Vec3::NEG_Z;
         assert!(
             (derived_dir - Vec3::new(1.0, 0.0, 0.0)).length() < 1e-4,
             "expected direction (1,0,0) after update, derived {:?}",

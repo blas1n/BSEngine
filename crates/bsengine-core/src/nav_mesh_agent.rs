@@ -1,8 +1,11 @@
-use bevy_ecs::prelude::Component;
+use crate::ReflectVec3;
+use bevy_ecs::prelude::{Component, ReflectComponent};
+use bevy_reflect::prelude::ReflectDefault;
+use bevy_reflect::Reflect;
 use glam::Vec3;
 
 /// State of the navigation agent's movement.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Reflect)]
 pub enum NavAgentState {
     /// No destination set. Agent is idle.
     #[default]
@@ -17,10 +20,16 @@ pub enum NavAgentState {
 
 /// Pathfinding agent that steers an entity along a navigation mesh.
 /// The navigation system reads `destination`, computes a path, and moves the entity each frame.
-#[derive(Component, Debug, Clone, PartialEq)]
+#[derive(Component, Debug, Clone, PartialEq, Reflect)]
+#[reflect(Component, Default)]
 pub struct NavMeshAgent {
-    /// Desired world-space destination. Set to `None` to stop pathfinding.
-    pub destination: Option<Vec3>,
+    /// Reflected as `Option<ReflectVec3>` -- `bevy_reflect` represents
+    /// `Option` via its `Enum` trait, and the generic Inspector field editor
+    /// (`draw_reflect_ui`) has no `Enum`-editing branch yet (same disclosed,
+    /// pre-existing gap as `Material.texture_id: Option<u64>` from #1702),
+    /// so this field is reflected but not editable through the generic UI
+    /// for now.
+    pub destination: Option<ReflectVec3>,
     /// Maximum movement speed in world units per second.
     pub speed: f32,
     /// Maximum rotation speed in radians per second.
@@ -69,7 +78,7 @@ impl NavMeshAgent {
     }
 
     pub fn with_destination(mut self, destination: Vec3) -> Self {
-        self.destination = Some(destination);
+        self.destination = Some(destination.into());
         self
     }
 
@@ -84,6 +93,16 @@ impl NavMeshAgent {
 
     pub fn has_arrived(&self) -> bool {
         self.state == NavAgentState::Arrived
+    }
+}
+
+impl Default for NavMeshAgent {
+    // speed=0.0, not the constructor's usual positive default -- an agent
+    // added via the Inspector's "Add Component" dropdown with no configured
+    // speed shouldn't start silently trying to move once a destination is
+    // set some other way; Idle/stationary is the safer neutral default.
+    fn default() -> Self {
+        Self::new(0.0)
     }
 }
 
@@ -110,13 +129,13 @@ mod tests {
     fn with_destination() {
         let agent = NavMeshAgent::new(5.0).with_destination(Vec3::new(10.0, 0.0, 5.0));
         assert!(agent.destination.is_some());
-        assert_eq!(agent.destination.unwrap(), Vec3::new(10.0, 0.0, 5.0));
+        assert_eq!(agent.destination.unwrap(), Vec3::new(10.0, 0.0, 5.0).into());
     }
 
     #[test]
     fn clear_destination_resets_state() {
         let mut agent = NavMeshAgent::new(5.0);
-        agent.destination = Some(Vec3::ZERO);
+        agent.destination = Some(Vec3::ZERO.into());
         agent.state = NavAgentState::Moving;
         agent.clear_destination();
         assert!(agent.destination.is_none());

@@ -1,7 +1,8 @@
-use bevy_ecs::prelude::Component;
-use glam::{Quat, Vec3};
+use crate::{ReflectQuat, ReflectVec3};
+use bevy_ecs::prelude::{Component, ReflectComponent};
+use bevy_reflect::Reflect;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect)]
 pub enum EasingFn {
     Linear,
     EaseInQuad,
@@ -26,21 +27,22 @@ impl EasingFn {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect)]
 pub enum RepeatMode {
     Once,
     Loop,
     PingPong,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Reflect)]
 pub enum TweenTarget {
-    Translation { from: Vec3, to: Vec3 },
-    Rotation { from: Quat, to: Quat },
-    Scale { from: Vec3, to: Vec3 },
+    Translation { from: ReflectVec3, to: ReflectVec3 },
+    Rotation { from: ReflectQuat, to: ReflectQuat },
+    Scale { from: ReflectVec3, to: ReflectVec3 },
 }
 
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component)]
 pub struct Tween {
     pub target: TweenTarget,
     pub duration: f32,
@@ -78,6 +80,7 @@ impl Tween {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use glam::Vec3;
 
     #[test]
     fn easing_linear_identity() {
@@ -107,8 +110,8 @@ mod tests {
     fn tween_builder_sets_fields() {
         let tw = Tween::new(
             TweenTarget::Translation {
-                from: Vec3::ZERO,
-                to: Vec3::X,
+                from: Vec3::ZERO.into(),
+                to: Vec3::X.into(),
             },
             1.0,
         )
@@ -124,8 +127,8 @@ mod tests {
     fn tween_new_defaults() {
         let tw = Tween::new(
             TweenTarget::Scale {
-                from: Vec3::ONE,
-                to: Vec3::splat(2.0),
+                from: Vec3::ONE.into(),
+                to: Vec3::splat(2.0).into(),
             },
             0.5,
         );

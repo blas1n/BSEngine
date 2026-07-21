@@ -1,7 +1,9 @@
-use bevy_ecs::prelude::Component;
+use bevy_ecs::prelude::{Component, ReflectComponent};
+use bevy_reflect::prelude::ReflectDefault;
+use bevy_reflect::Reflect;
 
 /// How high-dynamic-range luminance values are mapped to display range.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Reflect)]
 pub enum ToneMappingMode {
     /// No mapping — values above 1.0 are clipped.
     None,
@@ -18,7 +20,8 @@ pub enum ToneMappingMode {
 
 /// Tone-mapping post-processing applied by a camera.
 /// Maps HDR render output to the display's LDR range before final output.
-#[derive(Component, Debug, Clone, Copy, PartialEq)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Reflect)]
+#[reflect(Component, Default)]
 pub struct ToneMap {
     pub mode: ToneMappingMode,
     /// Camera exposure in EV (exposure value). 0.0 = no change; positive = brighter.

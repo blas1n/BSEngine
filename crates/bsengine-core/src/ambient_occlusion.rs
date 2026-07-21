@@ -1,8 +1,11 @@
-use bevy_ecs::prelude::Component;
+use bevy_ecs::prelude::{Component, ReflectComponent};
+use bevy_reflect::prelude::ReflectDefault;
+use bevy_reflect::Reflect;
 
 /// Screen-space ambient occlusion (SSAO) post-processing applied by a camera.
 /// Darkens surfaces in crevices and corners where indirect lighting is blocked.
-#[derive(Component, Debug, Clone, Copy, PartialEq)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Reflect)]
+#[reflect(Component, Default)]
 pub struct AmbientOcclusion {
     /// World-space radius used to sample occluders.
     pub radius: f32,

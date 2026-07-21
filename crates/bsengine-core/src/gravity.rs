@@ -1,4 +1,6 @@
-use bevy_ecs::prelude::{Component, Resource};
+use bevy_ecs::prelude::{Component, ReflectComponent, Resource};
+use bevy_reflect::prelude::ReflectDefault;
+use bevy_reflect::Reflect;
 use glam::Vec3;
 
 /// Global gravitational acceleration applied to all entities with `Velocity`.
@@ -30,7 +32,8 @@ impl Gravity {
 
 /// Per-entity gravity multiplier. Use 0.0 for gravity-immune entities,
 /// negative values for reverse gravity, >1.0 for heavy objects.
-#[derive(Component, Debug, Clone, Copy, PartialEq)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Reflect)]
+#[reflect(Component, Default)]
 pub struct GravityScale(pub f32);
 
 impl Default for GravityScale {

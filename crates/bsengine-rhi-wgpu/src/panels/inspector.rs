@@ -375,11 +375,13 @@ mod tests {
         insp.reflected_components = vec![
             (
                 "bsengine_core::ambient_occlusion::AmbientOcclusion".to_string(),
-                Box::new(bsengine_core::AmbientOcclusion::default()) as Box<dyn bevy_reflect::Reflect>,
+                Box::new(bsengine_core::AmbientOcclusion::default())
+                    as Box<dyn bevy_reflect::Reflect>,
             ),
             (
                 "bsengine_core::animation_player::AnimationPlayer".to_string(),
-                Box::new(bsengine_core::AnimationPlayer::default()) as Box<dyn bevy_reflect::Reflect>,
+                Box::new(bsengine_core::AnimationPlayer::default())
+                    as Box<dyn bevy_reflect::Reflect>,
             ),
             (
                 "bsengine_core::bloom::Bloom".to_string(),

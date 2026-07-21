@@ -62,9 +62,9 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
                 }
             }
             let transform = Transform {
-                translation: Vec3::from(t.translation),
-                rotation,
-                scale: Vec3::from(t.scale),
+                translation: Vec3::from(t.translation).into(),
+                rotation: rotation.into(),
+                scale: Vec3::from(t.scale).into(),
             };
             builder.insert((transform, GlobalTransform::default()));
         }
@@ -101,9 +101,9 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
                 .unwrap_or((Vec3::ZERO, Vec3::ONE));
             builder.insert((
                 Transform {
-                    translation,
-                    rotation,
-                    scale,
+                    translation: translation.into(),
+                    rotation: rotation.into(),
+                    scale: scale.into(),
                 },
                 GlobalTransform::default(),
             ));
@@ -265,7 +265,7 @@ mod tests {
         assert_eq!(results.len(), 1);
         let (name, _light, transform) = &results[0];
         assert_eq!(name.0, "Sun");
-        let derived_dir = transform.rotation * Vec3::NEG_Z;
+        let derived_dir = transform.rotation.0 * Vec3::NEG_Z;
         assert!((derived_dir.y - (-1.0)).abs() < 1e-5);
     }
 

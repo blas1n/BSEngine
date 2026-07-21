@@ -22,15 +22,15 @@ fn apply_follow(
             continue;
         };
         let desired = target_gt.0.w_axis.truncate() + follow.offset.0;
-        let diff = desired - transform.translation;
+        let diff = desired - transform.translation.0;
         let dist = diff.length();
         if dist < 1e-5 {
             continue;
         }
         if follow.speed.is_infinite() || dist <= follow.speed * dt {
-            transform.translation = desired;
+            transform.translation = desired.into();
         } else {
-            transform.translation += diff / dist * follow.speed * dt;
+            transform.translation.0 += diff / dist * follow.speed * dt;
         }
     }
 }
@@ -40,7 +40,7 @@ fn apply_look_at(mut lookers: Query<(&LookAt, &mut Transform)>, targets: Query<&
         let Ok(target_gt) = targets.get(look_at.target) else {
             continue;
         };
-        let direction = target_gt.0.w_axis.truncate() - transform.translation;
+        let direction = target_gt.0.w_axis.truncate() - transform.translation.0;
         if direction.length_squared() < 1e-8 {
             continue;
         }
@@ -61,7 +61,9 @@ fn apply_look_at(mut lookers: Query<(&LookAt, &mut Transform)>, targets: Query<&
         let right = up.cross(fwd).normalize();
         let actual_up = fwd.cross(right).normalize();
         // Columns: right=X, actual_up=Y, -fwd=Z (forward is -Z in RH coords)
-        transform.rotation = Quat::from_mat3(&Mat3::from_cols(right, actual_up, -fwd)).normalize();
+        transform.rotation = Quat::from_mat3(&Mat3::from_cols(right, actual_up, -fwd))
+            .normalize()
+            .into();
     }
 }
 
@@ -87,7 +89,7 @@ mod tests {
             .world_mut()
             .spawn((
                 Transform::from_translation(Vec3::new(5.0, 0.0, 0.0)),
-                GlobalTransform(Mat4::from_translation(Vec3::new(5.0, 0.0, 0.0))),
+                GlobalTransform(Mat4::from_translation(Vec3::new(5.0, 0.0, 0.0)).into()),
             ))
             .id();
 
@@ -112,7 +114,7 @@ mod tests {
             .world_mut()
             .spawn((
                 Transform::from_translation(Vec3::new(10.0, 0.0, 0.0)),
-                GlobalTransform(Mat4::from_translation(Vec3::new(10.0, 0.0, 0.0))),
+                GlobalTransform(Mat4::from_translation(Vec3::new(10.0, 0.0, 0.0)).into()),
             ))
             .id();
 
@@ -137,7 +139,7 @@ mod tests {
             .world_mut()
             .spawn((
                 Transform::from_translation(Vec3::new(0.0, 0.0, -5.0)),
-                GlobalTransform(Mat4::from_translation(Vec3::new(0.0, 0.0, -5.0))),
+                GlobalTransform(Mat4::from_translation(Vec3::new(0.0, 0.0, -5.0)).into()),
             ))
             .id();
 

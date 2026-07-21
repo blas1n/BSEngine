@@ -170,8 +170,8 @@ fn resolve_physics_bodies(
             rb,
             col,
             PhysicsInput {
-                translation: t.translation,
-                rotation: t.rotation,
+                translation: t.translation.0,
+                rotation: t.rotation.0,
             },
         ));
     }
@@ -254,8 +254,8 @@ fn resolve_physics_bodies_world(world: &mut World) {
             rb,
             col,
             PhysicsInput {
-                translation: t.translation,
-                rotation: t.rotation,
+                translation: t.translation.0,
+                rotation: t.rotation.0,
             },
         ));
     }

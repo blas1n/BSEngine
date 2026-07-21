@@ -113,7 +113,8 @@ fn setup_empty_scene(mut commands: Commands, mut registry: Option<ResMut<GpuMesh
     commands.spawn((
         DirectionalLight::default(),
         Transform {
-            rotation: Quat::from_rotation_arc(Vec3::NEG_Z, Vec3::new(-0.4, -0.8, -0.4).normalize()),
+            rotation: Quat::from_rotation_arc(Vec3::NEG_Z, Vec3::new(-0.4, -0.8, -0.4).normalize())
+                .into(),
             ..Default::default()
         },
         GlobalTransform::default(),
@@ -125,9 +126,9 @@ fn setup_empty_scene(mut commands: Commands, mut registry: Option<ResMut<GpuMesh
         commands.spawn((
             MeshRenderer { mesh_id },
             Transform {
-                translation: Vec3::new(0.0, -0.1, 0.0),
-                rotation: Quat::IDENTITY,
-                scale: Vec3::new(20.0, 0.2, 20.0),
+                translation: Vec3::new(0.0, -0.1, 0.0).into(),
+                rotation: Quat::IDENTITY.into(),
+                scale: Vec3::new(20.0, 0.2, 20.0).into(),
             },
             GlobalTransform::default(),
         ));

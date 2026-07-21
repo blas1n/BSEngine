@@ -30,7 +30,7 @@ fn navigate_agents(
     // Read pass: collect positions for separation (must finish before mutable borrow).
     let all_positions: Vec<(Entity, Vec3, f32)> = query
         .iter()
-        .map(|(e, a, t)| (e, t.translation, a.radius))
+        .map(|(e, a, t)| (e, t.translation.0, a.radius))
         .collect();
 
     for (entity, mut agent, mut transform) in query.iter_mut() {
@@ -64,7 +64,7 @@ fn navigate_agents(
             .is_none_or(|d| (d - dest).length_squared() > 0.0001);
 
         if needs_recompute {
-            match navmesh.find_path(transform.translation, dest) {
+            match navmesh.find_path(transform.translation.0, dest) {
                 Some(wp) => {
                     cache.0.insert(entity, (wp, 0, Some(dest)));
                 }

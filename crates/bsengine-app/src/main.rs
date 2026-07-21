@@ -96,7 +96,8 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
     commands.spawn((
         DirectionalLight::default(),
         Transform {
-            rotation: Quat::from_rotation_arc(Vec3::NEG_Z, Vec3::new(-0.4, -0.8, -0.4).normalize()),
+            rotation: Quat::from_rotation_arc(Vec3::NEG_Z, Vec3::new(-0.4, -0.8, -0.4).normalize())
+                .into(),
             ..Default::default()
         },
         GlobalTransform::default(),

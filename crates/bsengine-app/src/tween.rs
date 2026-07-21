@@ -26,13 +26,13 @@ fn tick_tweens(mut query: Query<(&mut Tween, &mut Transform)>, time: Res<Time>) 
 
         match &tween.target {
             TweenTarget::Translation { from, to } => {
-                transform.translation = from.lerp(*to, eased_t);
+                transform.translation = from.lerp(to.0, eased_t).into();
             }
             TweenTarget::Rotation { from, to } => {
-                transform.rotation = from.slerp(*to, eased_t);
+                transform.rotation = from.slerp(to.0, eased_t).into();
             }
             TweenTarget::Scale { from, to } => {
-                transform.scale = from.lerp(*to, eased_t);
+                transform.scale = from.lerp(to.0, eased_t).into();
             }
         }
 
@@ -84,8 +84,8 @@ mod tests {
                 Transform::default(),
                 Tween::new(
                     TweenTarget::Translation {
-                        from: Vec3::ZERO,
-                        to: Vec3::new(10.0, 0.0, 0.0),
+                        from: Vec3::ZERO.into(),
+                        to: Vec3::new(10.0, 0.0, 0.0).into(),
                     },
                     1.0,
                 ),
@@ -107,8 +107,8 @@ mod tests {
                 Transform::default(),
                 Tween::new(
                     TweenTarget::Translation {
-                        from: Vec3::ZERO,
-                        to: Vec3::X,
+                        from: Vec3::ZERO.into(),
+                        to: Vec3::X.into(),
                     },
                     0.5,
                 ),
@@ -130,8 +130,8 @@ mod tests {
                 Transform::default(),
                 Tween::new(
                     TweenTarget::Translation {
-                        from: Vec3::ZERO,
-                        to: Vec3::X,
+                        from: Vec3::ZERO.into(),
+                        to: Vec3::X.into(),
                     },
                     0.5,
                 )
@@ -154,8 +154,8 @@ mod tests {
                 Transform::default(),
                 Tween::new(
                     TweenTarget::Translation {
-                        from: Vec3::ZERO,
-                        to: Vec3::X,
+                        from: Vec3::ZERO.into(),
+                        to: Vec3::X.into(),
                     },
                     0.5,
                 )
@@ -179,8 +179,8 @@ mod tests {
                 Transform::default(),
                 Tween::new(
                     TweenTarget::Scale {
-                        from: Vec3::ONE,
-                        to: Vec3::splat(3.0),
+                        from: Vec3::ONE.into(),
+                        to: Vec3::splat(3.0).into(),
                     },
                     1.0,
                 ),
@@ -205,8 +205,8 @@ mod tests {
                 Transform::default(),
                 Tween::new(
                     TweenTarget::Rotation {
-                        from: from_rot,
-                        to: to_rot,
+                        from: from_rot.into(),
+                        to: to_rot.into(),
                     },
                     1.0,
                 ),
@@ -229,8 +229,8 @@ mod tests {
                 Transform::default(),
                 Tween::new(
                     TweenTarget::Translation {
-                        from: Vec3::ZERO,
-                        to: Vec3::X,
+                        from: Vec3::ZERO.into(),
+                        to: Vec3::X.into(),
                     },
                     1.0,
                 )

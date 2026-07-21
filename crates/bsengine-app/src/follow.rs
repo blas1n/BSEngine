@@ -21,7 +21,7 @@ fn apply_follow(
         let Ok(target_gt) = targets.get(follow.target) else {
             continue;
         };
-        let desired = target_gt.0.w_axis.truncate() + follow.offset;
+        let desired = target_gt.0.w_axis.truncate() + follow.offset.0;
         let diff = desired - transform.translation;
         let dist = diff.length();
         if dist < 1e-5 {
@@ -45,7 +45,7 @@ fn apply_look_at(mut lookers: Query<(&LookAt, &mut Transform)>, targets: Query<&
             continue;
         }
         let fwd = direction.normalize();
-        let up = look_at.up;
+        let up = look_at.up.0;
 
         // Guard against degenerate up == fwd
         let up = if fwd.abs_diff_eq(up, 0.01) || fwd.abs_diff_eq(-up, 0.01) {

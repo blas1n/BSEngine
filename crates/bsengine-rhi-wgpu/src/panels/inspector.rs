@@ -450,6 +450,65 @@ mod tests {
     }
 
     #[test]
+    fn reflected_fields_section_renders_without_panicking_for_the_pr2_batch() {
+        // Same rationale as the PR1 batch test. Follow/LookAt are included
+        // here even though they have no ReflectDefault (so they'd never
+        // appear via the Inspector's own Add Component flow) -- this test
+        // exercises the read/render path directly with a hand-constructed
+        // instance instead, to prove the generic field renderer handles an
+        // Entity field (via new(Entity::PLACEHOLDER)) without panicking.
+        let mut insp = InspectorState::default();
+        insp.selected_id = Some(1);
+        insp.reflected_components = vec![
+            (
+                "bsengine_core::angular_velocity::AngularVelocity".to_string(),
+                Box::new(bsengine_core::AngularVelocity::default())
+                    as Box<dyn bevy_reflect::Reflect>,
+            ),
+            (
+                "bsengine_core::external_impulse::ExternalImpulse".to_string(),
+                Box::new(bsengine_core::ExternalImpulse::default())
+                    as Box<dyn bevy_reflect::Reflect>,
+            ),
+            (
+                "bsengine_core::follow::Follow".to_string(),
+                Box::new(bsengine_core::Follow::new(
+                    bevy_ecs::prelude::Entity::PLACEHOLDER,
+                )) as Box<dyn bevy_reflect::Reflect>,
+            ),
+            (
+                "bsengine_core::follow::LookAt".to_string(),
+                Box::new(bsengine_core::LookAt::new(
+                    bevy_ecs::prelude::Entity::PLACEHOLDER,
+                )) as Box<dyn bevy_reflect::Reflect>,
+            ),
+            (
+                "bsengine_core::nav_mesh_agent::NavMeshAgent".to_string(),
+                Box::new(bsengine_core::NavMeshAgent::default()) as Box<dyn bevy_reflect::Reflect>,
+            ),
+            (
+                "bsengine_core::velocity::Velocity".to_string(),
+                Box::new(bsengine_core::Velocity::default()) as Box<dyn bevy_reflect::Reflect>,
+            ),
+        ];
+
+        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
+        let mut panel = InspectorPanel;
+
+        with_test_ui(|ui| {
+            let mut ctx = EditorPanelContext {
+                insp: &mut insp,
+                entities_snapshot: &entities_snapshot,
+                cursor_pos: (0.0, 0.0),
+                type_registry: None,
+            };
+            panel.ui(ui, &mut ctx);
+        });
+
+        assert!(insp.cmd_queue.is_empty());
+    }
+
+    #[test]
     fn validate_after_edit_clamps_an_out_of_range_spot_light() {
         let mut registry = bevy_reflect::TypeRegistry::default();
         registry.register::<bsengine_core::SpotLight>();

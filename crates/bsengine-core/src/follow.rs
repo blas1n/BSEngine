@@ -1,14 +1,17 @@
-use bevy_ecs::prelude::{Component, Entity};
+use crate::ReflectVec3;
+use bevy_ecs::prelude::{Component, Entity, ReflectComponent};
+use bevy_reflect::Reflect;
 use glam::Vec3;
 
 /// Causes this entity's `Transform` to move toward another entity's position
 /// at the given `speed` (units/second), with a local `offset` applied to the
 /// target position. The `FollowPlugin` reads this and updates `Transform`.
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct Follow {
     pub target: Entity,
     /// World-space offset added to the target's position before interpolation.
-    pub offset: Vec3,
+    pub offset: ReflectVec3,
     /// Maximum move speed (units/second). Use `f32::INFINITY` for instant snap.
     pub speed: f32,
 }
@@ -17,13 +20,13 @@ impl Follow {
     pub fn new(target: Entity) -> Self {
         Self {
             target,
-            offset: Vec3::ZERO,
+            offset: Vec3::ZERO.into(),
             speed: f32::INFINITY,
         }
     }
 
     pub fn with_offset(mut self, offset: Vec3) -> Self {
-        self.offset = offset;
+        self.offset = offset.into();
         self
     }
 
@@ -35,23 +38,24 @@ impl Follow {
 
 /// Causes this entity's `Transform` rotation to orient toward another entity's
 /// position each frame. The `LookAtPlugin` reads this and updates `Transform`.
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, Reflect)]
+#[reflect(Component)]
 pub struct LookAt {
     pub target: Entity,
     /// World-space up vector used to compute the orientation.
-    pub up: Vec3,
+    pub up: ReflectVec3,
 }
 
 impl LookAt {
     pub fn new(target: Entity) -> Self {
         Self {
             target,
-            up: Vec3::Y,
+            up: Vec3::Y.into(),
         }
     }
 
     pub fn with_up(mut self, up: Vec3) -> Self {
-        self.up = up.normalize();
+        self.up = up.normalize().into();
         self
     }
 }
@@ -71,7 +75,7 @@ mod tests {
         let e = dummy_entity();
         let f = Follow::new(e);
         assert!(f.speed.is_infinite());
-        assert_eq!(f.offset, Vec3::ZERO);
+        assert_eq!(f.offset, Vec3::ZERO.into());
     }
 
     #[test]
@@ -79,14 +83,14 @@ mod tests {
         let e = dummy_entity();
         let f = Follow::new(e).with_speed(5.0).with_offset(Vec3::Y * 2.0);
         assert_eq!(f.speed, 5.0);
-        assert_eq!(f.offset, Vec3::new(0.0, 2.0, 0.0));
+        assert_eq!(f.offset, Vec3::new(0.0, 2.0, 0.0).into());
     }
 
     #[test]
     fn look_at_defaults_y_up() {
         let e = dummy_entity();
         let l = LookAt::new(e);
-        assert_eq!(l.up, Vec3::Y);
+        assert_eq!(l.up, Vec3::Y.into());
     }
 
     #[test]

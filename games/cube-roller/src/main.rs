@@ -145,7 +145,7 @@ fn player_control(
     vel.linear.z *= DAMPING;
     vel.linear.y -= GRAVITY * dt;
 
-    transform.translation += vel.linear * dt;
+    transform.translation += vel.linear.0 * dt;
 
     if transform.translation.y < FLOOR_Y {
         transform.translation.y = FLOOR_Y;
@@ -180,7 +180,7 @@ fn respawn(mut query: Query<(&mut Transform, &mut Velocity), With<Player>>) {
     };
     if t.translation.y < RESPAWN_Y {
         t.translation = Vec3::new(0.0, FLOOR_Y, 0.0);
-        vel.linear = Vec3::ZERO;
+        vel.linear = Vec3::ZERO.into();
         println!("Respawned!");
     }
 }

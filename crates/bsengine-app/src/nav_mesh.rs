@@ -46,6 +46,7 @@ fn navigate_agents(
             cache.0.remove(&entity);
             continue;
         };
+        let dest = dest.0;
 
         // Check arrival before computing paths.
         let flat_pos = Vec3::new(transform.translation.x, 0.0, transform.translation.z);
@@ -293,7 +294,7 @@ mod tests {
 
         // Change destination.
         let mut agent = app.world_mut().get_mut::<NavMeshAgent>(entity).unwrap();
-        agent.destination = Some(Vec3::new(-3.0, 0.0, 0.0));
+        agent.destination = Some(Vec3::new(-3.0, 0.0, 0.0).into());
         app.update();
 
         let state = app

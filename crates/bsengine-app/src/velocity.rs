@@ -12,7 +12,7 @@ impl Plugin for VelocityPlugin {
 
 fn apply_velocity(mut query: Query<(&Velocity, &mut Transform)>, time: Res<Time>) {
     for (vel, mut transform) in query.iter_mut() {
-        transform.translation += vel.linear * time.delta_seconds;
+        transform.translation += vel.linear.0 * time.delta_seconds;
     }
 }
 

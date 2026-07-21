@@ -19,7 +19,7 @@ fn apply_gravity(
     let dt = time.delta_seconds;
     for (mut vel, scale) in query.iter_mut() {
         let s = scale.map(|gs| gs.value()).unwrap_or(1.0);
-        vel.linear += gravity.acceleration * s * dt;
+        vel.linear.0 += gravity.acceleration * s * dt;
     }
 }
 
@@ -93,7 +93,7 @@ mod tests {
         app.update();
 
         let vel = app.world().get::<Velocity>(entity).unwrap();
-        assert_eq!(vel.linear, Vec3::ZERO);
+        assert_eq!(vel.linear, Vec3::ZERO.into());
     }
 
     #[test]

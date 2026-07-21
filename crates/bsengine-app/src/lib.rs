@@ -1,3 +1,12 @@
+//! Gameplay-systems layer for BSEngine, built on `bevy_app`.
+//!
+//! Each module is a small, independent `Plugin` (e.g. `VelocityPlugin`,
+//! `GravityPlugin`, `TweenPlugin`) that a game wires up via
+//! `App::add_plugins`. Also re-exports the app-level schedule labels
+//! (`Startup`, `PreUpdate`, `Update`, `PostUpdate`, `Last`) and the
+//! `new_app()`/`BsPlugin` entry points.
+#![warn(missing_docs)]
+
 pub mod angular_velocity;
 pub mod animation_player;
 pub mod animation_state_machine;

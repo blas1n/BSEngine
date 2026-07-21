@@ -1,8 +1,19 @@
-use bevy_ecs::prelude::Component;
+use bevy_ecs::prelude::{Component, ReflectComponent};
+use bevy_reflect::prelude::ReflectDefault;
+use bevy_reflect::Reflect;
 
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component, Default)]
 pub struct CustomShader {
     pub path: String,
+}
+
+impl Default for CustomShader {
+    fn default() -> Self {
+        Self {
+            path: String::new(),
+        }
+    }
 }
 
 #[cfg(test)]

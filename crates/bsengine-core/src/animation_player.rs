@@ -1,6 +1,9 @@
-use bevy_ecs::prelude::Component;
+use bevy_ecs::prelude::{Component, ReflectComponent};
+use bevy_reflect::prelude::ReflectDefault;
+use bevy_reflect::Reflect;
 
-#[derive(Component, Debug, Clone, PartialEq)]
+#[derive(Component, Debug, Clone, PartialEq, Reflect)]
+#[reflect(Component, Default)]
 pub struct AnimationPlayer {
     pub clip: String,
     pub time: f32,
@@ -80,6 +83,12 @@ impl AnimationPlayer {
             self.time = self.duration;
             self.playing = false;
         }
+    }
+}
+
+impl Default for AnimationPlayer {
+    fn default() -> Self {
+        Self::new("")
     }
 }
 

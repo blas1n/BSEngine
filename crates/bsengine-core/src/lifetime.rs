@@ -1,8 +1,11 @@
-use bevy_ecs::prelude::Component;
+use bevy_ecs::prelude::{Component, ReflectComponent};
+use bevy_reflect::prelude::ReflectDefault;
+use bevy_reflect::Reflect;
 
 /// Automatically despawns an entity when `remaining` reaches zero.
 /// Decrement is driven by `LifetimePlugin` using `Res<Time>.delta_seconds`.
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component, Default)]
 pub struct Lifetime {
     pub remaining: f32,
 }
@@ -16,6 +19,16 @@ impl Lifetime {
 
     pub fn is_expired(&self) -> bool {
         self.remaining <= 0.0
+    }
+}
+
+impl Default for Lifetime {
+    // 1.0s, not 0.0s -- a Lifetime added via the Inspector's "Add Component"
+    // dropdown with remaining=0.0 would be immediately expired and despawned
+    // by LifetimePlugin on the very next frame, which would be a confusing
+    // UX for something that just got added.
+    fn default() -> Self {
+        Self::from_seconds(1.0)
     }
 }
 

@@ -362,6 +362,92 @@ mod tests {
     }
 
     #[test]
+    fn reflected_fields_section_renders_without_panicking_for_the_pr1_batch() {
+        // Same rationale as the Camera-only test above (avoid the gap where
+        // a manual "launch with nothing selected" smoke test never exercises
+        // this branch at all) but covering all 14 components added in PR 1
+        // of the bevy_reflect remaining-components work in a single frame,
+        // rather than one near-identical test per component. If this panics,
+        // remove entries from the Vec below one at a time to bisect which
+        // component's generic field rendering is at fault.
+        let mut insp = InspectorState::default();
+        insp.selected_id = Some(1);
+        insp.reflected_components = vec![
+            (
+                "bsengine_core::ambient_occlusion::AmbientOcclusion".to_string(),
+                Box::new(bsengine_core::AmbientOcclusion::default()) as Box<dyn bevy_reflect::Reflect>,
+            ),
+            (
+                "bsengine_core::animation_player::AnimationPlayer".to_string(),
+                Box::new(bsengine_core::AnimationPlayer::default()) as Box<dyn bevy_reflect::Reflect>,
+            ),
+            (
+                "bsengine_core::bloom::Bloom".to_string(),
+                Box::new(bsengine_core::Bloom::default()) as Box<dyn bevy_reflect::Reflect>,
+            ),
+            (
+                "bsengine_core::custom_shader::CustomShader".to_string(),
+                Box::new(bsengine_core::CustomShader::default()) as Box<dyn bevy_reflect::Reflect>,
+            ),
+            (
+                "bsengine_core::damping::Damping".to_string(),
+                Box::new(bsengine_core::Damping::default()) as Box<dyn bevy_reflect::Reflect>,
+            ),
+            (
+                "bsengine_core::gravity::GravityScale".to_string(),
+                Box::new(bsengine_core::GravityScale::default()) as Box<dyn bevy_reflect::Reflect>,
+            ),
+            (
+                "bsengine_core::lifetime::Lifetime".to_string(),
+                Box::new(bsengine_core::Lifetime::default()) as Box<dyn bevy_reflect::Reflect>,
+            ),
+            (
+                "bsengine_core::mass::Mass".to_string(),
+                Box::new(bsengine_core::Mass::default()) as Box<dyn bevy_reflect::Reflect>,
+            ),
+            (
+                "bsengine_core::network_id::NetworkId".to_string(),
+                Box::new(bsengine_core::NetworkId::default()) as Box<dyn bevy_reflect::Reflect>,
+            ),
+            (
+                "bsengine_core::shield::Shield".to_string(),
+                Box::new(bsengine_core::Shield::default()) as Box<dyn bevy_reflect::Reflect>,
+            ),
+            (
+                "bsengine_core::skybox::Skybox".to_string(),
+                Box::new(bsengine_core::Skybox::default()) as Box<dyn bevy_reflect::Reflect>,
+            ),
+            (
+                "bsengine_core::timer::Timer".to_string(),
+                Box::new(bsengine_core::Timer::default()) as Box<dyn bevy_reflect::Reflect>,
+            ),
+            (
+                "bsengine_core::tone_map::ToneMap".to_string(),
+                Box::new(bsengine_core::ToneMap::default()) as Box<dyn bevy_reflect::Reflect>,
+            ),
+            (
+                "bsengine_core::visible::Visible".to_string(),
+                Box::new(bsengine_core::Visible::default()) as Box<dyn bevy_reflect::Reflect>,
+            ),
+        ];
+
+        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
+        let mut panel = InspectorPanel;
+
+        with_test_ui(|ui| {
+            let mut ctx = EditorPanelContext {
+                insp: &mut insp,
+                entities_snapshot: &entities_snapshot,
+                cursor_pos: (0.0, 0.0),
+                type_registry: None,
+            };
+            panel.ui(ui, &mut ctx);
+        });
+
+        assert!(insp.cmd_queue.is_empty());
+    }
+
+    #[test]
     fn validate_after_edit_clamps_an_out_of_range_spot_light() {
         let mut registry = bevy_reflect::TypeRegistry::default();
         registry.register::<bsengine_core::SpotLight>();

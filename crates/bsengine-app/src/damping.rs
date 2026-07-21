@@ -14,7 +14,7 @@ fn apply_damping(mut query: Query<(&Damping, &mut Velocity)>, time: Res<Time>) {
     let dt = time.delta_seconds;
     for (damping, mut vel) in query.iter_mut() {
         let factor = (1.0 - damping.linear * dt).max(0.0);
-        vel.linear *= factor;
+        vel.linear.0 *= factor;
     }
 }
 
@@ -81,7 +81,7 @@ mod tests {
 
         let vel = app.world().get::<Velocity>(entity).unwrap();
         // factor = (1.0 - 1.0 * 1.0).max(0.0) = 0.0
-        assert_eq!(vel.linear, Vec3::ZERO);
+        assert_eq!(vel.linear, Vec3::ZERO.into());
     }
 
     #[test]
@@ -96,7 +96,7 @@ mod tests {
 
         let vel = app.world().get::<Velocity>(entity).unwrap();
         // factor = (1.0 - 2.0 * 1.0).max(0.0) = 0.0 — no sign reversal
-        assert_eq!(vel.linear, Vec3::ZERO);
+        assert_eq!(vel.linear, Vec3::ZERO.into());
     }
 
     #[test]

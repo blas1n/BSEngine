@@ -767,7 +767,7 @@ fn run_scripts(world: &mut World) {
                 };
                 if let Some(e) = entity {
                     if let Some(mut a) = world.get_mut::<NavMeshAgent>(e) {
-                        a.destination = Some(glam::Vec3::new(x, y, z));
+                        a.destination = Some(glam::Vec3::new(x, y, z).into());
                     }
                 }
             }
@@ -1147,7 +1147,7 @@ fn run_scripts(world: &mut World) {
                 };
                 if let Some(e) = entity {
                     if let Some(mut f) = world.get_mut::<Follow>(e) {
-                        f.offset = Vec3::new(x, y, z);
+                        f.offset = Vec3::new(x, y, z).into();
                     }
                 }
             }
@@ -1189,7 +1189,7 @@ fn run_scripts(world: &mut World) {
                 };
                 if let Some(e) = entity {
                     if let Some(mut la) = world.get_mut::<LookAt>(e) {
-                        la.up = Vec3::new(x, y, z);
+                        la.up = Vec3::new(x, y, z).into();
                     }
                 }
             }

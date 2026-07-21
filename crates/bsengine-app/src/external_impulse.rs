@@ -25,10 +25,10 @@ fn apply_external_impulses(
 
         let inv_mass = mass.map(|m| m.inverse()).unwrap_or(1.0);
 
-        velocity.linear += impulse.linear * inv_mass;
+        velocity.linear.0 += impulse.linear.0 * inv_mass;
 
         if let Some(mut av) = angular_velocity {
-            av.angular += impulse.angular * inv_mass;
+            av.angular.0 += impulse.angular.0 * inv_mass;
         }
 
         impulse.clear();

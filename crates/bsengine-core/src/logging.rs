@@ -10,6 +10,7 @@ pub fn init_logging() {
                 EnvFilter::try_from_default_env()
                     .unwrap_or_else(|_| EnvFilter::new("bsengine=debug,warn")),
             )
+            .with_writer(std::io::stderr)
             .init();
     });
 }

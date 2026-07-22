@@ -2,7 +2,7 @@ SceneDescriptor(entities: [
     EntityDescriptor(
         name: "Camera",
         camera: true,
-        transform: Some((translation: (0.0, 5.0, 16.0))),
+        transform: Some((translation: (0.0, 5.0, 20.0))),
         script: Some("assets/scripts/camera.js"),
     ),
     EntityDescriptor(
@@ -13,16 +13,32 @@ SceneDescriptor(entities: [
         )),
     ),
     EntityDescriptor(
-        name: "Floor",
+        name: "StartFloor",
         primitive: Some(Cube),
-        transform: Some((translation: (0.0, -0.25, 0.0), scale: (8.0, 0.5, 32.0))),
+        transform: Some((translation: (0.0, -0.25, 12.0), scale: (8.0, 0.5, 8.0))),
         rigidbody: Some(Static),
-        collider: Some((shape: Box(hx: 4.0, hy: 0.25, hz: 16.0), friction: 0.8)),
+        collider: Some((shape: Box(hx: 4.0, hy: 0.25, hz: 4.0), friction: 0.8)),
+    ),
+    EntityDescriptor(
+        name: "MovingPlatform",
+        primitive: Some(Cube),
+        transform: Some((translation: (0.0, -0.25, 6.5), scale: (4.0, 0.5, 3.0))),
+        color: Some((0.3, 0.5, 0.9)),
+        rigidbody: Some(Kinematic),
+        collider: Some((shape: Box(hx: 2.0, hy: 0.25, hz: 1.5), friction: 1.2)),
+        script: Some("assets/scripts/moving_platform.js"),
+    ),
+    EntityDescriptor(
+        name: "EndFloor",
+        primitive: Some(Cube),
+        transform: Some((translation: (0.0, -0.25, -3.0), scale: (8.0, 0.5, 16.0))),
+        rigidbody: Some(Static),
+        collider: Some((shape: Box(hx: 4.0, hy: 0.25, hz: 8.0), friction: 0.8)),
     ),
     EntityDescriptor(
         name: "MovingObstacle",
         primitive: Some(Capsule),
-        transform: Some((translation: (0.0, 0.5, 0.0), rotation: (0.0, 0.0, 0.7071, 0.7071), scale: (0.5, 0.5, 0.5))),
+        transform: Some((translation: (0.0, 0.5, -1.5), rotation: (0.0, 0.0, 0.7071, 0.7071), scale: (0.5, 0.5, 0.5))),
         color: Some((0.9, 0.6, 0.1)),
         rigidbody: Some(Kinematic),
         collider: Some((shape: Capsule(half_height: 0.5, radius: 0.5), friction: 0.8)),
@@ -31,7 +47,7 @@ SceneDescriptor(entities: [
     EntityDescriptor(
         name: "Ball",
         primitive: Some(Sphere),
-        transform: Some((translation: (0.0, 1.0, 8.0), scale: (0.5, 0.5, 0.5))),
+        transform: Some((translation: (0.0, 1.0, 12.0), scale: (0.5, 0.5, 0.5))),
         color: Some((0.9, 0.3, 0.1)),
         rigidbody: Some(Dynamic),
         collider: Some((shape: Sphere(radius: 0.5), restitution: 0.1, friction: 0.6)),
@@ -44,6 +60,6 @@ SceneDescriptor(entities: [
         color: Some((0.2, 0.9, 0.3)),
         emissive: Some((0.1, 0.4, 0.1)),
         collider: Some((shape: Sphere(radius: 1.0), sensor: true)),
-        script: Some("assets/scripts/goal_level4.js"),
+        script: Some("assets/scripts/goal_level5.js"),
     ),
 ])

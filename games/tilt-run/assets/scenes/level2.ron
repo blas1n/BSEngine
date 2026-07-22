@@ -49,6 +49,6 @@ SceneDescriptor(entities: [
         color: Some((0.2, 0.9, 0.3)),
         emissive: Some((0.1, 0.4, 0.1)),
         collider: Some((shape: Sphere(radius: 1.0), sensor: true)),
-        script: Some("assets/scripts/goal.js"),
+        script: Some("assets/scripts/goal_level2.js"),
     ),
 ])

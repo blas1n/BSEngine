@@ -63,9 +63,9 @@ fn find<'a>(tools: &'a [McpTool], name: &str) -> &'a McpTool {
 }
 
 #[test]
-fn builds_nine_tools() {
+fn builds_eleven_tools() {
     let tools = test_tools(test_registry());
-    assert_eq!(tools.len(), 9);
+    assert_eq!(tools.len(), 11);
 }
 
 #[test]
@@ -101,6 +101,44 @@ fn full_session_round_trip() {
     let stop = find(&tools, "test_session_stop");
     let out = (stop.handler)(json!({"session_id": session_id}));
     assert!(out.is_ok(), "{:?}", out.error);
+}
+
+#[test]
+fn record_save_and_replay_round_trip() {
+    let tools = test_tools(test_registry());
+
+    let start = find(&tools, "test_session_start");
+    let out = (start.handler)(json!({"game": "cube-evader"}));
+    assert!(out.is_ok(), "{:?}", out.error);
+    let session_id = out.content["session_id"].as_str().unwrap().to_string();
+
+    (find(&tools, "test_press_key").handler)(json!({"session_id": session_id, "key": "W"}));
+    (find(&tools, "test_step").handler)(json!({"session_id": session_id, "frames": 20}));
+    (find(&tools, "test_assert").handler)(json!({
+        "session_id": session_id,
+        "query": {"tool": "get_transform", "args": {"name": "Player"}},
+        "path": "z", "op": "<", "value": -1.5,
+        "label": "player moved forward",
+    }));
+
+    let save = find(&tools, "test_save_recording");
+    let out = (save.handler)(json!({"session_id": session_id, "name": "round-trip-test"}));
+    assert!(out.is_ok(), "{:?}", out.error);
+
+    (find(&tools, "test_session_stop").handler)(json!({"session_id": session_id}));
+
+    let replay = find(&tools, "test_run_replay");
+    let out = (replay.handler)(json!({"game": "cube-evader", "name": "round-trip-test"}));
+    assert!(out.is_ok(), "{:?}", out.error);
+    assert_eq!(
+        out.content["passed"], true,
+        "replay stderr: {}",
+        out.content["stderr"]
+    );
+
+    let saved_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../games/cube-evader/tests/round-trip-test.testlog.json");
+    std::fs::remove_file(saved_path).ok();
 }
 
 #[test]

@@ -11,7 +11,12 @@ use crate::tool::{McpTool, McpToolOutput};
 
 /// Builds the full set of `test_*` tools bound to a shared `SessionRegistry`.
 pub fn test_tools(registry: Arc<SessionRegistry>) -> Vec<McpTool> {
-    let mut tools = vec![start_tool(registry.clone()), stop_tool(registry.clone())];
+    let mut tools = vec![
+        start_tool(registry.clone()),
+        stop_tool(registry.clone()),
+        save_recording_tool(registry.clone()),
+        run_replay_tool(registry.clone()),
+    ];
     tools.extend(passthrough_tools(registry));
     tools
 }
@@ -60,6 +65,72 @@ fn stop_tool(registry: Arc<SessionRegistry>) -> McpTool {
             };
             match registry.stop_session(session_id) {
                 Ok(()) => McpToolOutput::success(json!({ "stopped": session_id })),
+                Err(e) => McpToolOutput::error(&e),
+            }
+        }),
+    }
+}
+
+fn save_recording_tool(registry: Arc<SessionRegistry>) -> McpTool {
+    McpTool {
+        name: "test_save_recording".to_string(),
+        description: "Saves the session's accumulated commands (step/press/release/assert, in \
+            order) as games/<game>/tests/<name>.testlog.json — replayable with test_run_replay \
+            or `bsengine-runtime --test <game> --replay <file>` with no AI involved."
+            .to_string(),
+        input_schema: Some(json!({
+            "type": "object",
+            "properties": {
+                "session_id": { "type": "string" },
+                "name": { "type": "string", "description": "Recording name, no extension" },
+            },
+            "required": ["session_id", "name"],
+        })),
+        handler: Box::new(move |args| {
+            let session_id = match args.get("session_id").and_then(|v| v.as_str()) {
+                Some(s) => s,
+                None => return McpToolOutput::error("missing required field: session_id"),
+            };
+            let name = match args.get("name").and_then(|v| v.as_str()) {
+                Some(n) => n,
+                None => return McpToolOutput::error("missing required field: name"),
+            };
+            match registry.save_recording(session_id, name) {
+                Ok(path) => McpToolOutput::success(json!({ "saved": path.display().to_string() })),
+                Err(e) => McpToolOutput::error(&e),
+            }
+        }),
+    }
+}
+
+fn run_replay_tool(registry: Arc<SessionRegistry>) -> McpTool {
+    McpTool {
+        name: "test_run_replay".to_string(),
+        description: "Runs a saved recording (games/<game>/tests/<name>.testlog.json) through \
+            bsengine-runtime --test --replay with no AI involved — the same check CI runs. \
+            Lets Claude verify a recording still passes without needing a CI run."
+            .to_string(),
+        input_schema: Some(json!({
+            "type": "object",
+            "properties": {
+                "game": { "type": "string" },
+                "name": { "type": "string" },
+            },
+            "required": ["game", "name"],
+        })),
+        handler: Box::new(move |args| {
+            let game = match args.get("game").and_then(|v| v.as_str()) {
+                Some(g) => g,
+                None => return McpToolOutput::error("missing required field: game"),
+            };
+            let name = match args.get("name").and_then(|v| v.as_str()) {
+                Some(n) => n,
+                None => return McpToolOutput::error("missing required field: name"),
+            };
+            match registry.run_replay(game, name) {
+                Ok(result) => McpToolOutput::success(
+                    json!({ "passed": result.passed, "stderr": result.stderr }),
+                ),
                 Err(e) => McpToolOutput::error(&e),
             }
         }),

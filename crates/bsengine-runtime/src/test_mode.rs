@@ -80,90 +80,97 @@ pub fn run_test_mode(project_dir: &str) {
             }
         };
 
-        match command {
-            Command::Step { frames } => {
-                for _ in 0..frames {
-                    app.update();
-                    frame += 1;
-                }
-                write_response(&mut stdout, &CommandResponse::ok(json!({"frame": frame})));
-            }
-            Command::PressKey { key } => match key_from_str(&key) {
-                Some(code) => {
-                    app.world_mut().resource_mut::<Input<KeyCode>>().press(code);
-                    write_response(&mut stdout, &CommandResponse::ok(json!({})));
-                }
-                None => write_response(
-                    &mut stdout,
-                    &CommandResponse::err(format!("unknown key: {key}")),
-                ),
-            },
-            Command::ReleaseKey { key } => match key_from_str(&key) {
-                Some(code) => {
-                    app.world_mut()
-                        .resource_mut::<Input<KeyCode>>()
-                        .release(code);
-                    write_response(&mut stdout, &CommandResponse::ok(json!({})));
-                }
-                None => write_response(
-                    &mut stdout,
-                    &CommandResponse::err(format!("unknown key: {key}")),
-                ),
-            },
-            Command::PressMouse { button } => match mouse_button_from_u8(button) {
-                Some(b) => {
-                    app.world_mut()
-                        .resource_mut::<Input<MouseButton>>()
-                        .press(b);
-                    write_response(&mut stdout, &CommandResponse::ok(json!({})));
-                }
-                None => write_response(
-                    &mut stdout,
-                    &CommandResponse::err(format!("unknown mouse button: {button}")),
-                ),
-            },
-            Command::ReleaseMouse { button } => match mouse_button_from_u8(button) {
-                Some(b) => {
-                    app.world_mut()
-                        .resource_mut::<Input<MouseButton>>()
-                        .release(b);
-                    write_response(&mut stdout, &CommandResponse::ok(json!({})));
-                }
-                None => write_response(
-                    &mut stdout,
-                    &CommandResponse::err(format!("unknown mouse button: {button}")),
-                ),
-            },
-            Command::Query { tool, args } => match run_query(app.world_mut(), &tool, &args) {
-                Ok(result) => write_response(&mut stdout, &CommandResponse::ok(result)),
-                Err(e) => write_response(&mut stdout, &CommandResponse::err(e)),
-            },
-            Command::Assert {
-                query,
-                path,
-                op,
-                value,
-                label,
-            } => match run_query(app.world_mut(), &query.tool, &query.args) {
-                Ok(result) => {
-                    let actual = eval_path(&result, &path).cloned().unwrap_or(Value::Null);
-                    match eval_op(&actual, &op, &value) {
-                        Ok(passed) => write_response(
-                            &mut stdout,
-                            &CommandResponse::ok(
-                                json!({"passed": passed, "actual": actual, "label": label}),
-                            ),
-                        ),
-                        Err(e) => write_response(&mut stdout, &CommandResponse::err(e)),
-                    }
-                }
-                Err(e) => write_response(&mut stdout, &CommandResponse::err(e)),
-            },
-            Command::Shutdown => {
-                write_response(&mut stdout, &CommandResponse::ok(json!({})));
-                break;
-            }
+        let (response, should_stop) = execute_command(&mut app, &mut frame, command);
+        write_response(&mut stdout, &response);
+        if should_stop {
+            break;
         }
+    }
+}
+
+/// Runs one protocol command against `app`, returning its response and
+/// whether the caller should stop the loop (true only for `Shutdown`).
+/// Shared by the interactive stdin loop above and a replay loop added in a
+/// later task — both must execute commands identically for replay fidelity.
+pub fn execute_command(
+    app: &mut App,
+    frame: &mut u64,
+    command: Command,
+) -> (CommandResponse, bool) {
+    match command {
+        Command::Step { frames } => {
+            for _ in 0..frames {
+                app.update();
+                *frame += 1;
+            }
+            (CommandResponse::ok(json!({"frame": *frame})), false)
+        }
+        Command::PressKey { key } => match key_from_str(&key) {
+            Some(code) => {
+                app.world_mut().resource_mut::<Input<KeyCode>>().press(code);
+                (CommandResponse::ok(json!({})), false)
+            }
+            None => (CommandResponse::err(format!("unknown key: {key}")), false),
+        },
+        Command::ReleaseKey { key } => match key_from_str(&key) {
+            Some(code) => {
+                app.world_mut()
+                    .resource_mut::<Input<KeyCode>>()
+                    .release(code);
+                (CommandResponse::ok(json!({})), false)
+            }
+            None => (CommandResponse::err(format!("unknown key: {key}")), false),
+        },
+        Command::PressMouse { button } => match mouse_button_from_u8(button) {
+            Some(b) => {
+                app.world_mut()
+                    .resource_mut::<Input<MouseButton>>()
+                    .press(b);
+                (CommandResponse::ok(json!({})), false)
+            }
+            None => (
+                CommandResponse::err(format!("unknown mouse button: {button}")),
+                false,
+            ),
+        },
+        Command::ReleaseMouse { button } => match mouse_button_from_u8(button) {
+            Some(b) => {
+                app.world_mut()
+                    .resource_mut::<Input<MouseButton>>()
+                    .release(b);
+                (CommandResponse::ok(json!({})), false)
+            }
+            None => (
+                CommandResponse::err(format!("unknown mouse button: {button}")),
+                false,
+            ),
+        },
+        Command::Query { tool, args } => match run_query(app.world_mut(), &tool, &args) {
+            Ok(result) => (CommandResponse::ok(result), false),
+            Err(e) => (CommandResponse::err(e), false),
+        },
+        Command::Assert {
+            query,
+            path,
+            op,
+            value,
+            label,
+        } => match run_query(app.world_mut(), &query.tool, &query.args) {
+            Ok(result) => {
+                let actual = eval_path(&result, &path).cloned().unwrap_or(Value::Null);
+                match eval_op(&actual, &op, &value) {
+                    Ok(passed) => (
+                        CommandResponse::ok(
+                            json!({"passed": passed, "actual": actual, "label": label}),
+                        ),
+                        false,
+                    ),
+                    Err(e) => (CommandResponse::err(e), false),
+                }
+            }
+            Err(e) => (CommandResponse::err(e), false),
+        },
+        Command::Shutdown => (CommandResponse::ok(json!({})), true),
     }
 }
 
@@ -172,4 +179,63 @@ fn write_response(stdout: &mut io::Stdout, response: &CommandResponse) {
         let _ = writeln!(stdout, "{s}");
         let _ = stdout.flush();
     }
+}
+
+#[derive(serde::Deserialize)]
+struct RecordedLog {
+    actions: Vec<Command>,
+}
+
+/// Runs a saved action log to completion with no stdin/AI involvement.
+/// Returns `true` if every command succeeded and every `Assert` passed;
+/// on the first failure, prints details to stderr and returns `false`.
+pub fn run_replay_mode(project_dir: &str, log_path: &str) -> bool {
+    let log_str = std::fs::read_to_string(log_path)
+        .unwrap_or_else(|e| panic!("cannot read replay log {log_path}: {e}"));
+    let log: RecordedLog = serde_json::from_str(&log_str)
+        .unwrap_or_else(|e| panic!("cannot parse replay log {log_path}: {e}"));
+
+    let mut app = build_test_app(project_dir);
+    let mut frame: u64 = 0;
+
+    for command in log.actions {
+        let is_assert = matches!(command, Command::Assert { .. });
+        let (response, _) = execute_command(&mut app, &mut frame, command);
+
+        if !response.ok {
+            eprintln!(
+                "REPLAY FAILED: {}",
+                response
+                    .error
+                    .unwrap_or_else(|| "unknown error".to_string())
+            );
+            return false;
+        }
+
+        if is_assert {
+            let passed = response
+                .data
+                .as_ref()
+                .and_then(|d| d.get("passed"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            if !passed {
+                let label = response
+                    .data
+                    .as_ref()
+                    .and_then(|d| d.get("label"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("(unlabeled assertion)");
+                let actual = response
+                    .data
+                    .as_ref()
+                    .and_then(|d| d.get("actual"))
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                eprintln!("REPLAY FAILED: {label} — actual: {actual}");
+                return false;
+            }
+        }
+    }
+    true
 }

@@ -13,10 +13,20 @@ use serde_json::Value;
 
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 
+/// Result of running a saved recording via `bsengine-runtime --test --replay`.
+pub struct ReplayResult {
+    /// Whether the replayed run's assertions all passed (child exit success).
+    pub passed: bool,
+    /// The child process's captured stderr output.
+    pub stderr: String,
+}
+
 struct Session {
+    game: String,
     child: Child,
     stdin: ChildStdin,
     stdout: BufReader<ChildStdout>,
+    actions: Vec<Value>,
 }
 
 /// Manages live `bsengine-runtime --test` child processes keyed by session id.
@@ -58,9 +68,11 @@ impl SessionRegistry {
 
         let session_id = format!("session-{}", NEXT_SESSION_ID.fetch_add(1, Ordering::SeqCst));
         let session = Session {
+            game: game.to_string(),
             child,
             stdin,
             stdout: BufReader::new(stdout),
+            actions: Vec::new(),
         };
         self.sessions
             .lock()
@@ -76,7 +88,57 @@ impl SessionRegistry {
         let session = sessions
             .get_mut(session_id)
             .ok_or_else(|| format!("no such session: {session_id}"))?;
-        write_and_read(session, &command)
+        let response = write_and_read(session, &command)?;
+        if command.get("cmd").and_then(|v| v.as_str()) != Some("query") {
+            session.actions.push(command);
+        }
+        Ok(response)
+    }
+
+    /// Serializes the session's accumulated action log to
+    /// `<games_root>/<game>/tests/<name>.testlog.json` and returns that path.
+    pub fn save_recording(&self, session_id: &str, name: &str) -> Result<PathBuf, String> {
+        let sessions = self.sessions.lock().unwrap();
+        let session = sessions
+            .get(session_id)
+            .ok_or_else(|| format!("no such session: {session_id}"))?;
+
+        let log = serde_json::json!({ "game": session.game, "actions": session.actions });
+        let dir = self.games_root.join(&session.game).join("tests");
+        std::fs::create_dir_all(&dir).map_err(|e| format!("failed to create tests dir: {e}"))?;
+        let path = dir.join(format!("{name}.testlog.json"));
+        let content = serde_json::to_string_pretty(&log)
+            .map_err(|e| format!("failed to encode recording: {e}"))?;
+        std::fs::write(&path, content).map_err(|e| format!("failed to write recording: {e}"))?;
+        Ok(path)
+    }
+
+    /// Spawns `bsengine-runtime --test <game> --replay <name>.testlog.json`,
+    /// waits for it to finish, and reports pass/fail. Independent of any
+    /// live interactive session.
+    pub fn run_replay(&self, game: &str, name: &str) -> Result<ReplayResult, String> {
+        let game_dir = self.games_root.join(game);
+        let log_path = self
+            .games_root
+            .join(game)
+            .join("tests")
+            .join(format!("{name}.testlog.json"));
+        if !log_path.exists() {
+            return Err(format!("no recorded log at {}", log_path.display()));
+        }
+
+        let output = Command::new(&self.runtime_bin)
+            .arg("--test")
+            .arg(&game_dir)
+            .arg("--replay")
+            .arg(&log_path)
+            .output()
+            .map_err(|e| format!("failed to run replay: {e}"))?;
+
+        Ok(ReplayResult {
+            passed: output.status.success(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        })
     }
 
     /// Sends `shutdown` to the session's child (best-effort), waits for it

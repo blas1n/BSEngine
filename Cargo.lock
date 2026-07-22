@@ -770,6 +770,7 @@ dependencies = [
  "bsengine-scene",
  "bsengine-scripting",
  "bsengine-window",
+ "glam 0.29.3",
  "kira",
  "ron",
  "serde",

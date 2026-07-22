@@ -50,8 +50,7 @@ fn start_tool(registry: Arc<SessionRegistry>) -> McpTool {
 fn stop_tool(registry: Arc<SessionRegistry>) -> McpTool {
     McpTool {
         name: "test_session_stop".to_string(),
-        description: "Stops a headless test session and terminates its child process."
-            .to_string(),
+        description: "Stops a headless test session and terminates its child process.".to_string(),
         input_schema: Some(json!({
             "type": "object",
             "properties": {
@@ -224,7 +223,8 @@ fn passthrough_specs() -> Vec<PassthroughSpec> {
         PassthroughSpec {
             tool_name: "test_query_state",
             child_cmd: "query",
-            description: "Reads live world state. `tool` is one of get_transform, get_visible, \
+            description:
+                "Reads live world state. `tool` is one of get_transform, get_visible, \
                 get_entity_names; `args` are that query's parameters (e.g. {\"name\": \"Player\"}).",
             input_schema: json!({
                 "type": "object",
@@ -301,7 +301,10 @@ fn build_child_command(child_cmd: &str, args: &Value) -> Result<Value, String> {
 }
 
 fn mcp_output_from_response(response: Value) -> McpToolOutput {
-    let ok = response.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+    let ok = response
+        .get("ok")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     if ok {
         McpToolOutput::success(response.get("data").cloned().unwrap_or(Value::Null))
     } else {

@@ -34,7 +34,10 @@ fn runtime_bin_path() -> &'static PathBuf {
                 Err(_) => continue,
             };
             if msg.get("reason").and_then(|v| v.as_str()) == Some("compiler-artifact")
-                && msg.get("target").and_then(|t| t.get("name")).and_then(|v| v.as_str())
+                && msg
+                    .get("target")
+                    .and_then(|t| t.get("name"))
+                    .and_then(|v| v.as_str())
                     == Some("bsengine-runtime")
             {
                 if let Some(exe) = msg.get("executable").and_then(|v| v.as_str()) {

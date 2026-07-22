@@ -13,7 +13,9 @@ fn send(stdin: &mut std::process::ChildStdin, json: &str) {
 
 fn read_response(reader: &mut impl BufRead) -> serde_json::Value {
     let mut line = String::new();
-    reader.read_line(&mut line).expect("failed to read response line");
+    reader
+        .read_line(&mut line)
+        .expect("failed to read response line");
     serde_json::from_str(&line).unwrap_or_else(|e| panic!("invalid JSON response {line:?}: {e}"))
 }
 
@@ -45,7 +47,10 @@ fn press_key_and_step_moves_player_forward() {
     );
     let resp = read_response(&mut reader);
     assert_eq!(resp["ok"], true, "assert command failed: {resp}");
-    assert_eq!(resp["data"]["passed"], true, "assertion did not pass: {resp}");
+    assert_eq!(
+        resp["data"]["passed"], true,
+        "assertion did not pass: {resp}"
+    );
 
     send(&mut stdin, r#"{"cmd":"shutdown"}"#);
     let resp = read_response(&mut reader);
@@ -72,7 +77,10 @@ fn get_entity_names_lists_scene_entities() {
     let resp = read_response(&mut reader);
     assert_eq!(resp["ok"], true, "initial step failed: {resp}");
 
-    send(&mut stdin, r#"{"cmd":"query","tool":"get_entity_names","args":{}}"#);
+    send(
+        &mut stdin,
+        r#"{"cmd":"query","tool":"get_entity_names","args":{}}"#,
+    );
     let resp = read_response(&mut reader);
     assert_eq!(resp["ok"], true, "query failed: {resp}");
     let names = resp["data"].as_array().expect("data should be an array");

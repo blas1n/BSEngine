@@ -1,68 +1,39 @@
 use std::env;
 
-use bevy_app::{PostStartup, Update};
-use bevy_ecs::prelude::{IntoSystemConfigs, World};
 use bsengine_app::new_app;
 use bsengine_audio::AudioPlugin;
-use bsengine_core::{HudTexts, Transform};
-use bsengine_ecs::{Added, Commands, Entity, Query, ResMut};
 use bsengine_editor::EditorPlugin;
 use bsengine_input::InputPlugin;
 use bsengine_network::NetworkPlugin;
-use bsengine_physics::{Collider, PhysicsInput, PhysicsPlugin, RigidBody};
-use bsengine_render::{MeshRenderer, RenderPlugin};
-use bsengine_rhi_wgpu::{
-    capsule_vertices, cube_vertices, plane_vertices, sphere_vertices, GpuMeshRegistry,
-    WgpuRHIPlugin,
-};
-use bsengine_scene::{
-    spawn_scene_entities, ColliderShapeDesc, Name, PendingSceneLoad, PhysicsBodyDesc, Primitive,
-    PrimitiveMesh, RigidBodyDesc, SceneDescriptor, ScenePlugin,
-};
-use bsengine_scripting::{
-    load_scripts, ScriptRuntime, ScriptRuntimeResource, ScriptingPlugin, SoundHandles,
-};
+use bsengine_physics::PhysicsPlugin;
+use bsengine_render::RenderPlugin;
+use bsengine_rhi_wgpu::WgpuRHIPlugin;
+use bsengine_scene::ScenePlugin;
+use bsengine_scripting::ScriptingPlugin;
 use bsengine_window::{WindowDescriptor, WindowPlugin};
-use serde::Deserialize;
 
-#[derive(Deserialize)]
-struct ProjectManifest {
-    project: ProjectSection,
-    #[serde(default)]
-    window: WindowSection,
-}
+mod scene_systems;
+mod test_mode;
+mod test_protocol;
+mod test_query;
 
-#[derive(Deserialize)]
-struct ProjectSection {
-    name: String,
-    entry_scene: String,
-}
-
-#[derive(Deserialize, Default)]
-struct WindowSection {
-    #[serde(default)]
-    title: Option<String>,
-    #[serde(default = "default_width")]
-    width: u32,
-    #[serde(default = "default_height")]
-    height: u32,
-    #[serde(default = "default_true")]
-    resizable: bool,
-}
-
-fn default_width() -> u32 {
-    1280
-}
-fn default_height() -> u32 {
-    720
-}
-fn default_true() -> bool {
-    true
-}
+use scene_systems::{register_scene_systems, ProjectManifest};
 
 fn main() {
-    let project_dir = env::args().nth(1).unwrap_or_else(|| ".".to_string());
-    let manifest_path = format!("{}/project.toml", project_dir);
+    let mut args = env::args().skip(1);
+    let first_arg = args.next().unwrap_or_else(|| ".".to_string());
+
+    if first_arg == "--test" {
+        let project_dir = args.next().unwrap_or_else(|| ".".to_string());
+        test_mode::run_test_mode(&project_dir);
+        return;
+    }
+
+    run_windowed(&first_arg);
+}
+
+fn run_windowed(project_dir: &str) {
+    let manifest_path = format!("{project_dir}/project.toml");
 
     let manifest_str = std::fs::read_to_string(&manifest_path)
         .unwrap_or_else(|e| panic!("Cannot read {manifest_path}: {e}"));
@@ -73,10 +44,11 @@ fn main() {
     let title = manifest
         .window
         .title
+        .clone()
         .unwrap_or_else(|| manifest.project.name.clone());
 
-    new_app()
-        .add_plugins(WgpuRHIPlugin)
+    let mut app = new_app();
+    app.add_plugins(WgpuRHIPlugin)
         .add_plugins(WindowPlugin {
             descriptor: WindowDescriptor {
                 title,
@@ -93,170 +65,8 @@ fn main() {
         .add_plugins(RenderPlugin)
         .add_plugins(ScenePlugin::from_file(&scene_path))
         .add_plugins(ScriptingPlugin {
-            project_dir: project_dir.clone(),
-        })
-        // PostStartup: resolve primitive meshes, then physics bodies
-        .add_systems(
-            PostStartup,
-            (resolve_primitives, resolve_physics_bodies).chain(),
-        )
-        // Update: handle scene transitions first, then re-resolve newly spawned entities
-        .add_systems(Update, handle_scene_load)
-        .add_systems(Update, resolve_primitives.after(handle_scene_load))
-        .add_systems(Update, resolve_physics_bodies.after(resolve_primitives))
-        .run();
-}
-
-fn resolve_primitives(
-    query: Query<(Entity, &PrimitiveMesh), Added<PrimitiveMesh>>,
-    mut commands: Commands,
-    registry: Option<ResMut<GpuMeshRegistry>>,
-) {
-    let Some(mut registry) = registry else { return };
-
-    let mut cube_id: Option<u64> = None;
-    let mut sphere_id: Option<u64> = None;
-    let mut plane_id: Option<u64> = None;
-    let mut capsule_id: Option<u64> = None;
-
-    for (entity, prim) in query.iter() {
-        let mesh_id = match &prim.0 {
-            Primitive::Cube => *cube_id.get_or_insert_with(|| {
-                let (v, i) = cube_vertices();
-                registry.register(&v, &i)
-            }),
-            Primitive::Sphere => *sphere_id.get_or_insert_with(|| {
-                let (v, i) = sphere_vertices();
-                registry.register(&v, &i)
-            }),
-            Primitive::Plane => *plane_id.get_or_insert_with(|| {
-                let (v, i) = plane_vertices();
-                registry.register(&v, &i)
-            }),
-            Primitive::Capsule => *capsule_id.get_or_insert_with(|| {
-                let (v, i) = capsule_vertices();
-                registry.register(&v, &i)
-            }),
-        };
-        commands.entity(entity).insert(MeshRenderer { mesh_id });
-    }
-}
-
-fn resolve_physics_bodies(
-    query: Query<(Entity, &PhysicsBodyDesc), Added<PhysicsBodyDesc>>,
-    transforms: Query<&Transform>,
-    mut commands: Commands,
-) {
-    for (entity, desc) in query.iter() {
-        let rb = match desc.rigidbody {
-            RigidBodyDesc::Dynamic => RigidBody::dynamic(),
-            RigidBodyDesc::Static => RigidBody::fixed(),
-            RigidBodyDesc::Kinematic => RigidBody::kinematic(),
-        };
-        let col_base = match &desc.collider.shape {
-            ColliderShapeDesc::Box { hx, hy, hz } => Collider::cuboid(*hx, *hy, *hz),
-            ColliderShapeDesc::Sphere { radius } => Collider::ball(*radius),
-            ColliderShapeDesc::Capsule {
-                half_height,
-                radius,
-            } => Collider::capsule(*half_height, *radius),
-        };
-        let col = col_base
-            .with_restitution(desc.collider.restitution)
-            .with_friction(desc.collider.friction)
-            .with_sensor(desc.collider.sensor);
-        let t = transforms.get(entity).cloned().unwrap_or_default();
-        commands.entity(entity).insert((
-            rb,
-            col,
-            PhysicsInput {
-                translation: t.translation.0,
-                rotation: t.rotation.0,
-            },
-        ));
-    }
-}
-
-fn handle_scene_load(world: &mut World) {
-    let pending = world.remove_resource::<PendingSceneLoad>();
-    let Some(pending) = pending else { return };
-
-    let content = match std::fs::read_to_string(&pending.path) {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!("[scene] failed to read {}: {e}", pending.path);
-            return;
-        }
-    };
-    let scene: SceneDescriptor = match ron::from_str(&content) {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::error!("[scene] failed to parse {}: {e}", pending.path);
-            return;
-        }
-    };
-
-    // Stop all sounds and clear handles
-    if let Some(mut handles) = world.get_resource_mut::<SoundHandles>() {
-        for (_, mut handle) in handles.0.drain() {
-            handle.stop(kira::Tween::default());
-        }
-    }
-
-    // Despawn all named entities
-    let named: Vec<Entity> = {
-        let mut q = world.query::<(Entity, &Name)>();
-        q.iter(world).map(|(e, _)| e).collect()
-    };
-    for e in named {
-        world.despawn(e);
-    }
-
-    // Clear HUD
-    if let Some(mut hud) = world.get_resource_mut::<HudTexts>() {
-        hud.0.clear();
-    }
-
-    // Reset script runtime
-    world.insert_non_send_resource(ScriptRuntimeResource(ScriptRuntime::new_with_ops()));
-
-    // Spawn scene and resolve physics inline (Added<> won't fire for same-frame spawns)
-    spawn_scene_entities(world, &scene.entities);
-    resolve_physics_bodies_world(world);
-    load_scripts(world);
-}
-
-fn resolve_physics_bodies_world(world: &mut World) {
-    let entities: Vec<(Entity, PhysicsBodyDesc)> = {
-        let mut q = world.query::<(Entity, &PhysicsBodyDesc)>();
-        q.iter(world).map(|(e, d)| (e, d.clone())).collect()
-    };
-    for (entity, desc) in entities {
-        let rb = match desc.rigidbody {
-            RigidBodyDesc::Dynamic => RigidBody::dynamic(),
-            RigidBodyDesc::Static => RigidBody::fixed(),
-            RigidBodyDesc::Kinematic => RigidBody::kinematic(),
-        };
-        let col_base = match desc.collider.shape {
-            ColliderShapeDesc::Box { hx, hy, hz } => Collider::cuboid(hx, hy, hz),
-            ColliderShapeDesc::Sphere { radius } => Collider::ball(radius),
-            ColliderShapeDesc::Capsule {
-                half_height,
-                radius,
-            } => Collider::capsule(half_height, radius),
-        };
-        let col = col_base
-            .with_restitution(desc.collider.restitution)
-            .with_friction(desc.collider.friction)
-            .with_sensor(desc.collider.sensor);
-        let t = world.get::<Transform>(entity).cloned().unwrap_or_default();
-        world.entity_mut(entity).insert((
-            rb,
-            col,
-            PhysicsInput {
-                translation: t.translation.0,
-                rotation: t.rotation.0,
-            },
-        ));
-    }
+            project_dir: project_dir.to_string(),
+        });
+    register_scene_systems(&mut app);
+    app.run();
 }

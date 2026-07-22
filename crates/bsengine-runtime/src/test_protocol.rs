@@ -8,12 +8,25 @@ use serde_json::Value;
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
 pub enum Command {
-    Step { frames: u32 },
-    PressKey { key: String },
-    ReleaseKey { key: String },
-    PressMouse { button: u8 },
-    ReleaseMouse { button: u8 },
-    Query { tool: String, args: Value },
+    Step {
+        frames: u32,
+    },
+    PressKey {
+        key: String,
+    },
+    ReleaseKey {
+        key: String,
+    },
+    PressMouse {
+        button: u8,
+    },
+    ReleaseMouse {
+        button: u8,
+    },
+    Query {
+        tool: String,
+        args: Value,
+    },
     Assert {
         query: QuerySpec,
         path: String,

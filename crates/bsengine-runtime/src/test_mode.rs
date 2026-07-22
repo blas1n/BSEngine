@@ -72,7 +72,10 @@ pub fn run_test_mode(project_dir: &str) {
         let command: Command = match serde_json::from_str(&line) {
             Ok(c) => c,
             Err(e) => {
-                write_response(&mut stdout, &CommandResponse::err(format!("parse error: {e}")));
+                write_response(
+                    &mut stdout,
+                    &CommandResponse::err(format!("parse error: {e}")),
+                );
                 continue;
             }
         };

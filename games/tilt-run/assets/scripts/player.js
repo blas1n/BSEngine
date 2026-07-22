@@ -1,8 +1,8 @@
-const FORCE_MAGNITUDE = 1.0;
+const FORCE_MAGNITUDE = 0.045;
 const FALL_Y_THRESHOLD = -5.0;
 const START_X = 0.0;
 const START_Y = 1.0;
-const START_Z = 6.0;
+const START_Z = 8.0;
 
 function onUpdate(self) {
     const t = Bsengine.getTransform(self);

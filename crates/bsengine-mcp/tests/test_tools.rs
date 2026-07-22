@@ -130,7 +130,11 @@ fn record_save_and_replay_round_trip() {
     let replay = find(&tools, "test_run_replay");
     let out = (replay.handler)(json!({"game": "cube-evader", "name": "round-trip-test"}));
     assert!(out.is_ok(), "{:?}", out.error);
-    assert_eq!(out.content["passed"], true, "replay stderr: {}", out.content["stderr"]);
+    assert_eq!(
+        out.content["passed"], true,
+        "replay stderr: {}",
+        out.content["stderr"]
+    );
 
     let saved_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../games/cube-evader/tests/round-trip-test.testlog.json");

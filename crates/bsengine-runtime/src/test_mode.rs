@@ -92,7 +92,11 @@ pub fn run_test_mode(project_dir: &str) {
 /// whether the caller should stop the loop (true only for `Shutdown`).
 /// Shared by the interactive stdin loop above and a replay loop added in a
 /// later task — both must execute commands identically for replay fidelity.
-pub fn execute_command(app: &mut App, frame: &mut u64, command: Command) -> (CommandResponse, bool) {
+pub fn execute_command(
+    app: &mut App,
+    frame: &mut u64,
+    command: Command,
+) -> (CommandResponse, bool) {
     match command {
         Command::Step { frames } => {
             for _ in 0..frames {
@@ -201,7 +205,9 @@ pub fn run_replay_mode(project_dir: &str, log_path: &str) -> bool {
         if !response.ok {
             eprintln!(
                 "REPLAY FAILED: {}",
-                response.error.unwrap_or_else(|| "unknown error".to_string())
+                response
+                    .error
+                    .unwrap_or_else(|| "unknown error".to_string())
             );
             return false;
         }

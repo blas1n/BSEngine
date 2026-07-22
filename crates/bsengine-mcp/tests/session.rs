@@ -112,7 +112,11 @@ fn save_recording_records_non_query_commands_only() {
     let log: serde_json::Value = serde_json::from_str(&content).unwrap();
     assert_eq!(log["game"], "cube-evader");
     let actions = log["actions"].as_array().unwrap();
-    assert_eq!(actions.len(), 2, "query should not be recorded: {actions:?}");
+    assert_eq!(
+        actions.len(),
+        2,
+        "query should not be recorded: {actions:?}"
+    );
     assert_eq!(actions[0]["cmd"], "press_key");
     assert_eq!(actions[1]["cmd"], "step");
 

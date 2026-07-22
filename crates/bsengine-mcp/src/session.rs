@@ -13,6 +13,14 @@ use serde_json::Value;
 
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 
+/// Result of running a saved recording via `bsengine-runtime --test --replay`.
+pub struct ReplayResult {
+    /// Whether the replayed run's assertions all passed (child exit success).
+    pub passed: bool,
+    /// The child process's captured stderr output.
+    pub stderr: String,
+}
+
 struct Session {
     game: String,
     child: Child,
@@ -103,6 +111,34 @@ impl SessionRegistry {
             .map_err(|e| format!("failed to encode recording: {e}"))?;
         std::fs::write(&path, content).map_err(|e| format!("failed to write recording: {e}"))?;
         Ok(path)
+    }
+
+    /// Spawns `bsengine-runtime --test <game> --replay <name>.testlog.json`,
+    /// waits for it to finish, and reports pass/fail. Independent of any
+    /// live interactive session.
+    pub fn run_replay(&self, game: &str, name: &str) -> Result<ReplayResult, String> {
+        let game_dir = self.games_root.join(game);
+        let log_path = self
+            .games_root
+            .join(game)
+            .join("tests")
+            .join(format!("{name}.testlog.json"));
+        if !log_path.exists() {
+            return Err(format!("no recorded log at {}", log_path.display()));
+        }
+
+        let output = Command::new(&self.runtime_bin)
+            .arg("--test")
+            .arg(&game_dir)
+            .arg("--replay")
+            .arg(&log_path)
+            .output()
+            .map_err(|e| format!("failed to run replay: {e}"))?;
+
+        Ok(ReplayResult {
+            passed: output.status.success(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        })
     }
 
     /// Sends `shutdown` to the session's child (best-effort), waits for it

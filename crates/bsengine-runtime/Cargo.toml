@@ -34,3 +34,4 @@ tracing         = { workspace = true }
 
 [dev-dependencies]
 glam            = { workspace = true }
+tempfile        = "3"

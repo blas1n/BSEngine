@@ -1,5 +1,6 @@
 {
   "game": "tilt-run",
+  "scene": "assets/scenes/level3.ron",
   "actions": [
     { "cmd": "press_key", "key": "W" },
     { "cmd": "step", "frames": 20 },

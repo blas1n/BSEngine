@@ -1,0 +1,17 @@
+{
+  "game": "tilt-run",
+  "actions": [
+    { "cmd": "press_key", "key": "W" },
+    { "cmd": "step", "frames": 20 },
+    { "cmd": "release_key", "key": "W" },
+    { "cmd": "step", "frames": 330 },
+    {
+      "cmd": "assert",
+      "query": { "tool": "get_transform", "args": { "name": "Ball" } },
+      "path": "z",
+      "op": "<",
+      "value": -6.0,
+      "label": "ball reached goal area in level 3"
+    }
+  ]
+}

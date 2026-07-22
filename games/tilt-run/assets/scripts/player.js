@@ -1,15 +1,22 @@
 const FORCE_MAGNITUDE = 0.045;
 const FALL_Y_THRESHOLD = -5.0;
-const START_X = 0.0;
-const START_Y = 1.0;
-const START_Z = 8.0;
+
+let startX = null;
+let startY = null;
+let startZ = null;
 
 function onUpdate(self) {
     const t = Bsengine.getTransform(self);
     if (!t) return;
 
+    if (startX === null) {
+        startX = t.x;
+        startY = t.y;
+        startZ = t.z;
+    }
+
     if (t.y < FALL_Y_THRESHOLD) {
-        Bsengine.setTransform(self, START_X, START_Y, START_Z);
+        Bsengine.setTransform(self, startX, startY, startZ);
         Bsengine.setVelocity(self, 0.0, 0.0, 0.0);
         Bsengine.setAngularVelocity(self, 0.0, 0.0, 0.0);
         Bsengine.setHudText(0, "Fell! Retry");

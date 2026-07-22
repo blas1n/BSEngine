@@ -1,0 +1,17 @@
+{
+  "game": "tilt-run",
+  "actions": [
+    { "cmd": "press_key", "key": "W" },
+    { "cmd": "step", "frames": 155 },
+    { "cmd": "release_key", "key": "W" },
+    { "cmd": "step", "frames": 30 },
+    {
+      "cmd": "assert",
+      "query": { "tool": "get_transform", "args": { "name": "Ball" } },
+      "path": "z",
+      "op": "<",
+      "value": -6.0,
+      "label": "ball crossed the bridge and reached goal area in level 2"
+    }
+  ]
+}

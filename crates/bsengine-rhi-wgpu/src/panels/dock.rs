@@ -108,6 +108,15 @@ impl egui_dock::TabViewer for BseTabViewer<'_> {
             }
         }
     }
+
+    // The viewport tab draws no content of its own — the 3D scene is
+    // rendered directly into the swapchain texture before egui runs, and
+    // ViewportPanel::ui only paints gizmo overlays on top of it. Without
+    // this override, egui_dock's default opaque tab-body fill paints over
+    // that already-rendered scene every frame, hiding it completely.
+    fn clear_background(&self, tab: &String) -> bool {
+        tab != "viewport"
+    }
 }
 
 /// Renders the toolbar's "Window ▾" menu: a checkbox per registered panel

@@ -18,5 +18,6 @@ pub mod runtime;
 pub mod save;
 pub use plugin::{
     load_scripts, ProjectDir, Script, ScriptRuntimeResource, ScriptingPlugin, SoundHandles,
+    KEY_MAPPINGS,
 };
 pub use runtime::ScriptRuntime;

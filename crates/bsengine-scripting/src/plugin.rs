@@ -164,7 +164,9 @@ pub fn load_scripts(world: &mut World) {
     }
 }
 
-const KEY_MAPPINGS: &[(KeyCode, &str)] = &[
+/// Canonical key-name table shared by the scripting snapshot (`Bsengine.isKeyPressed`)
+/// and the headless test runtime's `press_key`/`release_key` commands.
+pub const KEY_MAPPINGS: &[(KeyCode, &str)] = &[
     (KeyCode::W, "W"),
     (KeyCode::A, "A"),
     (KeyCode::S, "S"),

@@ -37,14 +37,18 @@ impl<T: Eq + Hash + Clone> Input<T> {
         self.just_released.contains(key)
     }
 
-    pub(crate) fn press(&mut self, key: T) {
+    /// Marks `key` as pressed. Used by the real input pipeline and by the
+    /// headless test runtime's synthetic input injection — both go through
+    /// this same resource so scripts can't distinguish the two.
+    pub fn press(&mut self, key: T) {
         if !self.pressed.contains(&key) {
             self.just_pressed.insert(key.clone());
         }
         self.pressed.insert(key);
     }
 
-    pub(crate) fn release(&mut self, key: T) {
+    /// Marks `key` as released. See [`Input::press`].
+    pub fn release(&mut self, key: T) {
         self.pressed.remove(&key);
         self.just_released.insert(key);
     }

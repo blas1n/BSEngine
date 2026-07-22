@@ -773,6 +773,7 @@ dependencies = [
  "kira",
  "ron",
  "serde",
+ "serde_json",
  "toml",
  "tracing",
 ]

@@ -35,7 +35,10 @@ fn runtime_bin_path() -> &'static PathBuf {
                 Err(_) => continue,
             };
             if msg.get("reason").and_then(|v| v.as_str()) == Some("compiler-artifact")
-                && msg.get("target").and_then(|t| t.get("name")).and_then(|v| v.as_str())
+                && msg
+                    .get("target")
+                    .and_then(|t| t.get("name"))
+                    .and_then(|v| v.as_str())
                     == Some("bsengine-runtime")
             {
                 if let Some(exe) = msg.get("executable").and_then(|v| v.as_str()) {
@@ -53,7 +56,10 @@ fn test_registry() -> Arc<SessionRegistry> {
 }
 
 fn find<'a>(tools: &'a [McpTool], name: &str) -> &'a McpTool {
-    tools.iter().find(|t| t.name == name).unwrap_or_else(|| panic!("tool {name} not found"))
+    tools
+        .iter()
+        .find(|t| t.name == name)
+        .unwrap_or_else(|| panic!("tool {name} not found"))
 }
 
 #[test]

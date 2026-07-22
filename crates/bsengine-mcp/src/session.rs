@@ -14,9 +14,11 @@ use serde_json::Value;
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 
 struct Session {
+    game: String,
     child: Child,
     stdin: ChildStdin,
     stdout: BufReader<ChildStdout>,
+    actions: Vec<Value>,
 }
 
 /// Manages live `bsengine-runtime --test` child processes keyed by session id.
@@ -58,9 +60,11 @@ impl SessionRegistry {
 
         let session_id = format!("session-{}", NEXT_SESSION_ID.fetch_add(1, Ordering::SeqCst));
         let session = Session {
+            game: game.to_string(),
             child,
             stdin,
             stdout: BufReader::new(stdout),
+            actions: Vec::new(),
         };
         self.sessions
             .lock()
@@ -76,7 +80,29 @@ impl SessionRegistry {
         let session = sessions
             .get_mut(session_id)
             .ok_or_else(|| format!("no such session: {session_id}"))?;
-        write_and_read(session, &command)
+        let response = write_and_read(session, &command)?;
+        if command.get("cmd").and_then(|v| v.as_str()) != Some("query") {
+            session.actions.push(command);
+        }
+        Ok(response)
+    }
+
+    /// Serializes the session's accumulated action log to
+    /// `<games_root>/<game>/tests/<name>.testlog.json` and returns that path.
+    pub fn save_recording(&self, session_id: &str, name: &str) -> Result<PathBuf, String> {
+        let sessions = self.sessions.lock().unwrap();
+        let session = sessions
+            .get(session_id)
+            .ok_or_else(|| format!("no such session: {session_id}"))?;
+
+        let log = serde_json::json!({ "game": session.game, "actions": session.actions });
+        let dir = self.games_root.join(&session.game).join("tests");
+        std::fs::create_dir_all(&dir).map_err(|e| format!("failed to create tests dir: {e}"))?;
+        let path = dir.join(format!("{name}.testlog.json"));
+        let content = serde_json::to_string_pretty(&log)
+            .map_err(|e| format!("failed to encode recording: {e}"))?;
+        std::fs::write(&path, content).map_err(|e| format!("failed to write recording: {e}"))?;
+        Ok(path)
     }
 
     /// Sends `shutdown` to the session's child (best-effort), waits for it

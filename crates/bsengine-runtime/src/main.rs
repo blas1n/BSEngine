@@ -25,7 +25,17 @@ fn main() {
 
     if first_arg == "--test" {
         let project_dir = args.next().unwrap_or_else(|| ".".to_string());
-        test_mode::run_test_mode(&project_dir);
+        match args.next().as_deref() {
+            Some("--replay") => {
+                let log_path = args
+                    .next()
+                    .unwrap_or_else(|| panic!("--replay requires a log file path"));
+                let passed = test_mode::run_replay_mode(&project_dir, &log_path);
+                std::process::exit(if passed { 0 } else { 1 });
+            }
+            Some(other) => panic!("unknown argument after project dir: {other}"),
+            None => test_mode::run_test_mode(&project_dir),
+        }
         return;
     }
 

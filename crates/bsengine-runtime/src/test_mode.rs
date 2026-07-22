@@ -173,3 +173,60 @@ fn write_response(stdout: &mut io::Stdout, response: &CommandResponse) {
         let _ = stdout.flush();
     }
 }
+
+#[derive(serde::Deserialize)]
+struct RecordedLog {
+    actions: Vec<Command>,
+}
+
+/// Runs a saved action log to completion with no stdin/AI involvement.
+/// Returns `true` if every command succeeded and every `Assert` passed;
+/// on the first failure, prints details to stderr and returns `false`.
+pub fn run_replay_mode(project_dir: &str, log_path: &str) -> bool {
+    let log_str = std::fs::read_to_string(log_path)
+        .unwrap_or_else(|e| panic!("cannot read replay log {log_path}: {e}"));
+    let log: RecordedLog = serde_json::from_str(&log_str)
+        .unwrap_or_else(|e| panic!("cannot parse replay log {log_path}: {e}"));
+
+    let mut app = build_test_app(project_dir);
+    let mut frame: u64 = 0;
+
+    for command in log.actions {
+        let is_assert = matches!(command, Command::Assert { .. });
+        let (response, _) = execute_command(&mut app, &mut frame, command);
+
+        if !response.ok {
+            eprintln!(
+                "REPLAY FAILED: {}",
+                response.error.unwrap_or_else(|| "unknown error".to_string())
+            );
+            return false;
+        }
+
+        if is_assert {
+            let passed = response
+                .data
+                .as_ref()
+                .and_then(|d| d.get("passed"))
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            if !passed {
+                let label = response
+                    .data
+                    .as_ref()
+                    .and_then(|d| d.get("label"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("(unlabeled assertion)");
+                let actual = response
+                    .data
+                    .as_ref()
+                    .and_then(|d| d.get("actual"))
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                eprintln!("REPLAY FAILED: {label} — actual: {actual}");
+                return false;
+            }
+        }
+    }
+    true
+}

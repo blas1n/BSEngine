@@ -1,6 +1,6 @@
 [project]
 name = "Tilt Run"
-entry_scene = "assets/scenes/level3.ron"
+entry_scene = "assets/scenes/level4.ron"
 
 [window]
 title = "Tilt Run"

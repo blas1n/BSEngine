@@ -21,7 +21,16 @@ impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(PhysicsWorld::default());
         app.add_event::<CollisionEvent>();
-        app.add_systems(Update, (spawn_bodies, step_world, sync_from_rapier).chain());
+        app.add_systems(
+            Update,
+            (
+                spawn_bodies,
+                step_world,
+                sync_from_rapier,
+                sync_transform_from_physics,
+            )
+                .chain(),
+        );
     }
 }
 
@@ -169,6 +178,21 @@ fn sync_from_rapier(
     }
 }
 
+/// Copies simulated position/rotation from `PhysicsTransform` (written by
+/// `sync_from_rapier`) into the generic `Transform` component that
+/// rendering and scripts actually read — without this, physics-driven
+/// bodies (falling, forces, impulses) simulate correctly internally but
+/// never visibly move, since nothing outside this crate reads
+/// `PhysicsTransform`.
+fn sync_transform_from_physics(
+    mut query: Query<(&PhysicsTransform, &mut bsengine_core::Transform)>,
+) {
+    for (physics_transform, mut transform) in query.iter_mut() {
+        transform.translation = physics_transform.translation.into();
+        transform.rotation = physics_transform.rotation.into();
+    }
+}
+
 fn make_shape(shape: &ColliderShape) -> SharedShape {
     match shape {
         ColliderShape::Box { half_extents } => {
@@ -179,5 +203,43 @@ fn make_shape(shape: &ColliderShape) -> SharedShape {
             half_height,
             radius,
         } => SharedShape::capsule_y(*half_height, *radius),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::components::{Collider, PhysicsInput, RigidBody};
+    use bsengine_app::new_app;
+    use bsengine_core::Transform;
+
+    #[test]
+    fn dynamic_body_falls_and_updates_transform_component() {
+        let mut app = new_app();
+        app.add_plugins(PhysicsPlugin);
+
+        let start = Vec3::new(0.0, 5.0, 0.0);
+        app.world_mut().spawn((
+            Transform::from_translation(start),
+            RigidBody::dynamic(),
+            Collider::ball(0.5),
+            PhysicsInput {
+                translation: start,
+                rotation: Quat::IDENTITY,
+            },
+        ));
+
+        for _ in 0..30 {
+            app.update();
+        }
+
+        let mut query = app.world_mut().query::<&Transform>();
+        let transform = query.iter(app.world()).next().unwrap();
+        assert!(
+            transform.translation.0.y < start.y,
+            "expected the dynamic body to fall under gravity and for Transform to \
+             reflect it via PhysicsTransform sync, got y={}",
+            transform.translation.0.y
+        );
     }
 }

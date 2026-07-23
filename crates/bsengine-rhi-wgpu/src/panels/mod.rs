@@ -1,3 +1,4 @@
+pub mod asset_browser;
 pub mod dock;
 pub mod hierarchy;
 pub mod inspector;

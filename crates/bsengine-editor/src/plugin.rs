@@ -1363,6 +1363,7 @@ fn apply_inspector_cmds(
     queue_res: Res<EditorCommandQueueResource>,
     reflect_queue_res: Res<ReflectCommandQueueResource>,
     selection_res: Res<EditorSelectionResource>,
+    mut commands: Commands,
 ) {
     let Some(mut inspector) = inspector else {
         return;
@@ -1420,6 +1421,19 @@ fn apply_inspector_cmds(
                     queue.push(EditorCommand::SaveScene { path });
                 } else {
                     tracing::warn!("save requested but no scene file is currently loaded");
+                }
+            }
+            InspectorCmd::ReloadScene => {
+                if let Some(path) = inspector.current_scene_path.clone() {
+                    // Goes through the same PendingSceneLoad -> handle_scene_load
+                    // path Bsengine.loadScene uses (properly despawns existing
+                    // named entities, clears HUD, resets the script runtime,
+                    // then respawns from the file) -- unlike EditorCommand::
+                    // LoadScene above, which only spawns and would duplicate
+                    // entities if the scene is already loaded.
+                    commands.insert_resource(bsengine_scene::PendingSceneLoad { path });
+                } else {
+                    tracing::warn!("reload requested but no scene file is currently loaded");
                 }
             }
             InspectorCmd::AttachComponentByType { id, type_path } => {
@@ -90655,6 +90669,64 @@ mod tests {
             app.world()
                 .get::<bsengine_scene::PrimitiveMesh>(eid)
                 .is_none()
+        );
+    }
+
+    // Regression test for the Unity/Unreal-style "pressing Play resets the
+    // scene" behavior: the toolbar's Play button (bsengine-rhi-wgpu) pushes
+    // InspectorCmd::ReloadScene when transitioning Stopped -> Playing, and
+    // apply_inspector_cmds must turn that into a PendingSceneLoad so the
+    // existing handle_scene_load system (which properly despawns and
+    // respawns from the RON file) can pick it up. This can't exercise the
+    // full despawn/respawn round trip headlessly here — that system lives
+    // in bsengine-runtime, and bsengine-runtime can't combine EditorPlugin
+    // with ScriptingPlugin in one process (known V8 handle-scope conflict)
+    // — but it does prove the wiring this crate owns: ReloadScene ->
+    // PendingSceneLoad with the right path, catching a regression like the
+    // match arm being dropped or the path being wrong.
+    #[test]
+    fn inspector_cmd_reload_scene_inserts_pending_scene_load() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.update();
+
+        {
+            let mut inspector = app.world_mut().resource_mut::<InspectorState>();
+            inspector.current_scene_path = Some("assets/scenes/level1.ron".to_string());
+            inspector.cmd_queue.push(InspectorCmd::ReloadScene);
+        }
+        app.update();
+
+        let pending = app
+            .world()
+            .get_resource::<bsengine_scene::PendingSceneLoad>();
+        assert_eq!(
+            pending.map(|p| p.path.clone()),
+            Some("assets/scenes/level1.ron".to_string()),
+            "ReloadScene should insert a PendingSceneLoad for the current scene path"
+        );
+    }
+
+    #[test]
+    fn inspector_cmd_reload_scene_without_current_path_does_not_insert_pending_load() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.update();
+
+        {
+            let mut inspector = app.world_mut().resource_mut::<InspectorState>();
+            assert_eq!(inspector.current_scene_path, None);
+            inspector.cmd_queue.push(InspectorCmd::ReloadScene);
+        }
+        app.update();
+
+        assert!(
+            app.world()
+                .get_resource::<bsengine_scene::PendingSceneLoad>()
+                .is_none(),
+            "ReloadScene with no current scene path should not insert PendingSceneLoad"
         );
     }
 }

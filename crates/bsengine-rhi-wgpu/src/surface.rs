@@ -1773,13 +1773,23 @@ impl WgpuSurface {
                             egui::TopBottomPanel::top("bse_editor_toolbar").show(ctx, |ui| {
                                 ui.horizontal(|ui| {
                                     if ui.button(play_label).clicked() {
-                                        insp.play_state = if insp.play_state
-                                            == bsengine_core::EditorPlayState::Playing
-                                        {
-                                            bsengine_core::EditorPlayState::Stopped
-                                        } else {
+                                        let starting_play = insp.play_state
+                                            != bsengine_core::EditorPlayState::Playing;
+                                        insp.play_state = if starting_play {
                                             bsengine_core::EditorPlayState::Playing
+                                        } else {
+                                            bsengine_core::EditorPlayState::Stopped
                                         };
+                                        if starting_play {
+                                            // Unity/Unreal-style "Play resets the
+                                            // scene": every Play press respawns
+                                            // from the scene file's authored
+                                            // state, discarding whatever the
+                                            // previous session's physics/scripts
+                                            // did to it (e.g. a fallen ball).
+                                            insp.cmd_queue
+                                                .push(bsengine_core::InspectorCmd::ReloadScene);
+                                        }
                                     }
                                     ui.separator();
                                     let mode_label = if insp.play_state

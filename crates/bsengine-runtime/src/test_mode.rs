@@ -57,6 +57,7 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>) -> App {
     // was written.
     let mut inspector_state = InspectorState::editor();
     inspector_state.play_state = EditorPlayState::Playing;
+    inspector_state.current_scene_path = Some(scene_path.clone());
     app.insert_resource(inspector_state);
 
     app

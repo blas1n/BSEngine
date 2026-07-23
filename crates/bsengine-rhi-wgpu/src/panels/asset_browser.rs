@@ -39,6 +39,52 @@ fn categorize_by_extension(path: &Path) -> AssetKind {
     }
 }
 
+/// One row in the Asset Browser's tile grid or folder tree.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AssetEntry {
+    pub name: String,
+    pub path: PathBuf,
+    pub kind: AssetKind,
+    pub is_dir: bool,
+}
+
+/// Scans one directory (non-recursive — the panel navigates into
+/// subdirectories rather than showing the whole tree flattened) and returns
+/// its immediate children, directories first, then alphabetically within
+/// each group. Unreadable entries (permission errors, races with concurrent
+/// deletes) are silently skipped rather than failing the whole scan — this
+/// is a best-effort UI listing, not a source of truth.
+pub fn scan_dir(dir: &Path) -> Vec<AssetEntry> {
+    let Ok(read_dir) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut entries: Vec<AssetEntry> = read_dir
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let path = e.path();
+            let is_dir = e.file_type().ok()?.is_dir();
+            let name = e.file_name().to_string_lossy().to_string();
+            let kind = if is_dir {
+                AssetKind::Directory
+            } else {
+                categorize_by_extension(&path)
+            };
+            Some(AssetEntry {
+                name,
+                path,
+                kind,
+                is_dir,
+            })
+        })
+        .collect();
+    entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+    });
+    entries
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -77,5 +123,34 @@ mod tests {
             categorize_by_extension(Path::new("no_extension")),
             AssetKind::Other
         );
+    }
+
+    #[test]
+    fn scan_dir_lists_files_and_dirs_sorted_dirs_first() {
+        let tmp = std::env::temp_dir().join("bse_asset_browser_scan_test");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(tmp.join("Models")).unwrap();
+        std::fs::write(tmp.join("main.ron"), "").unwrap();
+        std::fs::write(tmp.join("ball.js"), "").unwrap();
+
+        let entries = scan_dir(&tmp);
+
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0].name, "Models");
+        assert!(entries[0].is_dir);
+        assert_eq!(entries[0].kind, AssetKind::Directory);
+        assert_eq!(entries[1].name, "ball.js");
+        assert_eq!(entries[1].kind, AssetKind::Script);
+        assert_eq!(entries[2].name, "main.ron");
+        assert_eq!(entries[2].kind, AssetKind::Scene);
+
+        std::fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn scan_dir_on_missing_directory_returns_empty() {
+        let tmp = std::env::temp_dir().join("bse_asset_browser_scan_test_missing");
+        std::fs::remove_dir_all(&tmp).ok();
+        assert!(scan_dir(&tmp).is_empty());
     }
 }

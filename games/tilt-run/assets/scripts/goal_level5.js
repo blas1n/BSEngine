@@ -7,5 +7,6 @@ Bsengine.onCollision("Goal", (other, started) => {
     cleared = true;
     if (IS_FINAL_LEVEL) {
         Bsengine.setHudText(1, "All Clear!");
+        Bsengine.sendMessage("Ball", "gameOver", true);
     }
 });

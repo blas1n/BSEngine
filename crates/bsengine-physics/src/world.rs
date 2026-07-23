@@ -182,6 +182,22 @@ impl PhysicsWorld {
         }
     }
 
+    /// Clears any force/torque accumulated via `apply_force`/`add_torque` —
+    /// those persist and keep being applied every subsequent step until
+    /// explicitly cleared (Rapier's own documented behavior for
+    /// `add_force`/`add_torque`). A script that teleports/stops a body
+    /// (fall recovery, "game over" freeze, ...) needs this alongside
+    /// `set_linvel`/`set_angvel` zeroing: velocity alone doesn't stop a
+    /// held-over force from reintroducing motion on the very next step.
+    pub fn reset_forces(&mut self, entity: Entity) {
+        if let Some(&handle) = self.entity_body_map.get(&entity) {
+            if let Some(body) = self.rigid_body_set.get_mut(handle) {
+                body.reset_forces(false);
+                body.reset_torques(false);
+            }
+        }
+    }
+
     pub fn apply_torque_impulse(&mut self, entity: Entity, impulse: Vec3) {
         if let Some(&handle) = self.entity_body_map.get(&entity) {
             if let Some(body) = self.rigid_body_set.get_mut(handle) {

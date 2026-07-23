@@ -659,6 +659,9 @@ pub enum ScriptCommand {
         py: f32,
         pz: f32,
     },
+    ResetForces {
+        name: String,
+    },
     SetVelocity {
         name: String,
         vx: f32,
@@ -4100,6 +4103,13 @@ pub fn bsengine_add_force_at_point(
 }
 
 #[op2(fast)]
+pub fn bsengine_reset_forces(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::ResetForces { name });
+    });
+}
+
+#[op2(fast)]
 pub fn bsengine_set_velocity(#[string] name: String, vx: f32, vy: f32, vz: f32) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
@@ -4902,6 +4912,7 @@ deno_core::extension!(
         bsengine_apply_impulse_at_point,
         bsengine_add_force,
         bsengine_add_force_at_point,
+        bsengine_reset_forces,
         bsengine_set_velocity,
         bsengine_set_velocity_x,
         bsengine_set_velocity_y,
@@ -5358,6 +5369,11 @@ var Bsengine = {
     applyImpulseAtPoint: (name, fx, fy, fz, px, py, pz) => Deno.core.ops.bsengine_apply_impulse_at_point(name, fx, fy, fz, px, py, pz),
     addForce:         (name, fx, fy, fz) => Deno.core.ops.bsengine_add_force(name, fx, fy, fz),
     addForceAtPoint:  (name, fx, fy, fz, px, py, pz) => Deno.core.ops.bsengine_add_force_at_point(name, fx, fy, fz, px, py, pz),
+    // Clears any force/torque accumulated via addForce/addTorque — those
+    // persist across steps until explicitly cleared (Rapier's documented
+    // behavior), so stopping a body needs this alongside setVelocity(0,0,0)
+    // or a held-over force reintroduces motion on the next physics step.
+    resetForces:      (name) => Deno.core.ops.bsengine_reset_forces(name),
     setVelocity:      (name, vx, vy, vz) => Deno.core.ops.bsengine_set_velocity(name, vx, vy, vz),
     setVelocityX:     (name, vx) => Deno.core.ops.bsengine_set_velocity_x(name, vx),
     setVelocityY:     (name, vy) => Deno.core.ops.bsengine_set_velocity_y(name, vy),

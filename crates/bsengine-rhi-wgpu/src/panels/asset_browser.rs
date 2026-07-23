@@ -118,6 +118,10 @@ pub struct AssetBrowserPanel {
     /// keyed by asset path. Cleared implicitly whenever this panel is
     /// dropped — there is no disk cache in this task.
     thumbnail_cache: std::collections::HashMap<PathBuf, egui::TextureHandle>,
+    /// Cached subdirectory paths under `root`, keyed by parent directory.
+    /// Rebuilt on Refresh and on navigation — NOT rescanned every frame,
+    /// unlike a naive implementation of `draw_folder_tree` would do.
+    tree_cache: std::collections::HashMap<PathBuf, Vec<PathBuf>>,
 }
 
 impl Default for AssetBrowserPanel {
@@ -130,6 +134,7 @@ impl Default for AssetBrowserPanel {
             scanned: false,
             pending_load_scene: None,
             thumbnail_cache: std::collections::HashMap::new(),
+            tree_cache: std::collections::HashMap::new(),
         }
     }
 }
@@ -152,6 +157,7 @@ impl EditorPanel for AssetBrowserPanel {
         ui.horizontal(|ui| {
             if ui.button("Refresh").clicked() {
                 self.entries = scan_dir(&self.current_dir);
+                self.tree_cache.clear();
             }
             ui.separator();
             self.draw_breadcrumb(ui);
@@ -177,6 +183,7 @@ impl EditorPanel for AssetBrowserPanel {
         if let Some(dir) = navigate_to {
             self.current_dir = dir;
             self.entries = scan_dir(&self.current_dir);
+            self.tree_cache.clear();
         }
 
         if let Some(path) = self.pending_load_scene.take() {
@@ -221,12 +228,29 @@ impl AssetBrowserPanel {
     /// Recursively renders `dir`'s subdirectories as a `CollapsingHeader`
     /// tree, mirroring `HierarchyPanel::draw_row`'s recursion shape.
     /// Clicking a folder's label sets `*navigate_to`.
-    fn draw_folder_tree(&self, ui: &mut egui::Ui, dir: PathBuf, navigate_to: &mut Option<PathBuf>) {
-        let subdirs: Vec<PathBuf> = scan_dir(&dir)
-            .into_iter()
-            .filter(|e| e.is_dir)
-            .map(|e| e.path)
-            .collect();
+    ///
+    /// Subdirectory lists are cached in `self.tree_cache` keyed by `dir`
+    /// rather than rescanned every frame — the cache is only populated here
+    /// (lazily, on first visit to a given `dir`) and is invalidated wholesale
+    /// by `ui()` on Refresh and on navigation, matching this panel's
+    /// existing "manual refresh only" design for `self.entries`.
+    fn draw_folder_tree(
+        &mut self,
+        ui: &mut egui::Ui,
+        dir: PathBuf,
+        navigate_to: &mut Option<PathBuf>,
+    ) {
+        let subdirs: Vec<PathBuf> = if let Some(cached) = self.tree_cache.get(&dir) {
+            cached.clone()
+        } else {
+            let subdirs: Vec<PathBuf> = scan_dir(&dir)
+                .into_iter()
+                .filter(|e| e.is_dir)
+                .map(|e| e.path)
+                .collect();
+            self.tree_cache.insert(dir.clone(), subdirs.clone());
+            subdirs
+        };
         let label = dir
             .file_name()
             .map(|n| n.to_string_lossy().to_string())

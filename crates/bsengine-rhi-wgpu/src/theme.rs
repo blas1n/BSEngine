@@ -18,7 +18,10 @@ pub const TEXT: Color32 = Color32::from_rgb(0xe8, 0xea, 0xee);
 pub const TEXT_MUTED: Color32 = Color32::from_rgb(0xb8, 0xbc, 0xc4);
 /// Placeholder / disabled text.
 pub const TEXT_DIM: Color32 = Color32::from_rgb(0x6a, 0x6f, 0x7a);
-/// Selection state, Play button, active tool — reserved for state, not decoration.
+/// Selection state, Play button, active tool, and section-header icons —
+/// reserved for state and category accents, never for header/body label
+/// text (which stays `TEXT`, see Inspector's section headers for the
+/// icon-vs-label split this describes).
 pub const ACCENT: Color32 = Color32::from_rgb(0xe0, 0x91, 0x3a);
 /// Selected-row background wash (accent at ~13% alpha).
 ///
@@ -99,6 +102,9 @@ mod tests {
         assert_eq!(visuals.selection.bg_fill, ACCENT_WASH);
         assert_eq!(visuals.selection.stroke.color, ACCENT);
         assert_eq!(visuals.widgets.open.bg_stroke.color, ACCENT);
+        assert_eq!(visuals.widgets.noninteractive.fg_stroke.color, TEXT);
+        assert_eq!(visuals.widgets.inactive.fg_stroke.color, TEXT);
+        assert_eq!(visuals.widgets.hovered.fg_stroke.color, TEXT);
         assert!(visuals.dark_mode);
     }
 

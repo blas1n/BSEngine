@@ -5,6 +5,7 @@ pub mod inspector;
 pub mod reflect_ui;
 pub mod viewport;
 
+pub use asset_browser::{AssetBrowserPanel, AssetDragPayload, AssetKind};
 pub use dock::{
     default_dock_state, ensure_builtin_panels, layout_path, load_dock_state, save_dock_state,
     window_menu_ui, BseTabViewer,

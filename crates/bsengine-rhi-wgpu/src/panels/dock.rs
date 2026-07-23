@@ -50,7 +50,7 @@ pub fn ensure_builtin_panels(registry: &EditorPanelRegistry) {
     map.entry("viewport".to_string())
         .or_insert_with(|| Box::new(crate::panels::ViewportPanel) as Box<dyn EditorPanel>);
     map.entry("assets".to_string()).or_insert_with(|| {
-        Box::new(crate::panels::asset_browser::AssetBrowserPanel::default()) as Box<dyn EditorPanel>
+        Box::new(crate::panels::AssetBrowserPanel::default()) as Box<dyn EditorPanel>
     });
 }
 

@@ -21,10 +21,8 @@ impl EditorPanel for ViewportPanel {
         insp.viewport_contains_cursor = panel_rect.contains(egui::Pos2::new(cursor_x, cursor_y));
         let response = ui.allocate_rect(panel_rect, egui::Sense::click_and_drag());
 
-        if let Some(payload) =
-            response.dnd_release_payload::<crate::panels::asset_browser::AssetDragPayload>()
-        {
-            if payload.kind == crate::panels::asset_browser::AssetKind::Mesh {
+        if let Some(payload) = response.dnd_release_payload::<crate::panels::AssetDragPayload>() {
+            if payload.kind == crate::panels::AssetKind::Mesh {
                 let name = payload
                     .path
                     .file_stem()

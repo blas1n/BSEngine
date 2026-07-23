@@ -462,9 +462,9 @@ impl HierarchyPanel {
             }
 
             if let Some(payload) =
-                row_response.dnd_release_payload::<crate::panels::asset_browser::AssetDragPayload>()
+                row_response.dnd_release_payload::<crate::panels::AssetDragPayload>()
             {
-                if payload.kind == crate::panels::asset_browser::AssetKind::Script {
+                if payload.kind == crate::panels::AssetKind::Script {
                     *attach_script = Some((info.id, payload.path.to_string_lossy().to_string()));
                 }
             }

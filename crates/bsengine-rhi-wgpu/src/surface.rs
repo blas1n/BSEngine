@@ -1686,13 +1686,6 @@ impl WgpuSurface {
                 // Runtime inspector panels / full editor layout
                 if let Some(insp) = inspector.as_deref_mut() {
                     if insp.editor_mode {
-                        let play_label =
-                            if insp.play_state == bsengine_core::EditorPlayState::Playing {
-                                "■  Stop"
-                            } else {
-                                "▶  Play"
-                            };
-
                         // Keyboard shortcuts. Ignored while an egui widget (e.g. a
                         // DragValue or text field) has focus, so Ctrl+Z etc. don't
                         // get stolen from in-progress text editing.
@@ -1761,59 +1754,90 @@ impl WgpuSurface {
 
                             egui::TopBottomPanel::top("bse_editor_toolbar").show(ctx, |ui| {
                                 ui.horizontal(|ui| {
-                                    if ui.button(play_label).clicked() {
-                                        insp.play_state = if insp.play_state
+                                    ui.horizontal(|ui| {
+                                        if ui
+                                            .button(format!(
+                                                "{} Play",
+                                                egui_phosphor::regular::PLAY
+                                            ))
+                                            .on_hover_text("Play (toggles editor/play mode)")
+                                            .clicked()
+                                        {
+                                            insp.play_state = if insp.play_state
+                                                == bsengine_core::EditorPlayState::Playing
+                                            {
+                                                bsengine_core::EditorPlayState::Stopped
+                                            } else {
+                                                bsengine_core::EditorPlayState::Playing
+                                            };
+                                        }
+                                        let mode_label = if insp.play_state
                                             == bsengine_core::EditorPlayState::Playing
                                         {
-                                            bsengine_core::EditorPlayState::Stopped
+                                            "● Playing"
                                         } else {
-                                            bsengine_core::EditorPlayState::Playing
+                                            "◆ Editor"
                                         };
-                                    }
+                                        ui.label(mode_label);
+                                    });
                                     ui.separator();
-                                    let mode_label = if insp.play_state
-                                        == bsengine_core::EditorPlayState::Playing
-                                    {
-                                        "● Playing"
-                                    } else {
-                                        "◆ Editor"
-                                    };
-                                    ui.label(mode_label);
+                                    ui.horizontal(|ui| {
+                                        if ui
+                                            .button(egui_phosphor::regular::ARROW_COUNTER_CLOCKWISE)
+                                            .on_hover_text("Undo (Ctrl+Z)")
+                                            .clicked()
+                                        {
+                                            insp.request_undo = true;
+                                        }
+                                        if ui
+                                            .button(egui_phosphor::regular::ARROW_CLOCKWISE)
+                                            .on_hover_text("Redo (Ctrl+Y)")
+                                            .clicked()
+                                        {
+                                            insp.request_redo = true;
+                                        }
+                                        let save_enabled = insp.current_scene_path.is_some();
+                                        if ui
+                                            .add_enabled(
+                                                save_enabled,
+                                                egui::Button::new(egui_phosphor::regular::FLOPPY_DISK),
+                                            )
+                                            .on_hover_text("Save Scene (Ctrl+S)")
+                                            .on_disabled_hover_text("No scene file loaded")
+                                            .clicked()
+                                        {
+                                            insp.cmd_queue.push(bsengine_core::InspectorCmd::SaveScene);
+                                        }
+                                    });
                                     ui.separator();
-                                    if ui.button("↩ Undo").clicked() {
-                                        insp.request_undo = true;
-                                    }
-                                    if ui.button("↪ Redo").clicked() {
-                                        insp.request_redo = true;
-                                    }
-                                    ui.separator();
-                                    let save_enabled = insp.current_scene_path.is_some();
-                                    if ui
-                                        .add_enabled(save_enabled, egui::Button::new("💾 Save"))
-                                        .on_disabled_hover_text("No scene file loaded")
-                                        .clicked()
-                                    {
-                                        insp.cmd_queue.push(bsengine_core::InspectorCmd::SaveScene);
-                                    }
-                                    ui.separator();
-                                    if ui
-                                        .selectable_label(
-                                            insp.gizmo_mode == bsengine_core::GizmoMode::Translate,
-                                            "Move (W)",
-                                        )
-                                        .clicked()
-                                    {
-                                        insp.gizmo_mode = bsengine_core::GizmoMode::Translate;
-                                    }
-                                    if ui
-                                        .selectable_label(
-                                            insp.gizmo_mode == bsengine_core::GizmoMode::Rotate,
-                                            "Rotate (E)",
-                                        )
-                                        .clicked()
-                                    {
-                                        insp.gizmo_mode = bsengine_core::GizmoMode::Rotate;
-                                    }
+                                    ui.horizontal(|ui| {
+                                        if ui
+                                            .selectable_label(
+                                                insp.gizmo_mode == bsengine_core::GizmoMode::Translate,
+                                                format!(
+                                                    "{} Move",
+                                                    egui_phosphor::regular::ARROWS_OUT_CARDINAL
+                                                ),
+                                            )
+                                            .on_hover_text("Move (W)")
+                                            .clicked()
+                                        {
+                                            insp.gizmo_mode = bsengine_core::GizmoMode::Translate;
+                                        }
+                                        if ui
+                                            .selectable_label(
+                                                insp.gizmo_mode == bsengine_core::GizmoMode::Rotate,
+                                                format!(
+                                                    "{} Rotate",
+                                                    egui_phosphor::regular::ARROWS_CLOCKWISE
+                                                ),
+                                            )
+                                            .on_hover_text("Rotate (E)")
+                                            .clicked()
+                                        {
+                                            insp.gizmo_mode = bsengine_core::GizmoMode::Rotate;
+                                        }
+                                    });
                                     ui.separator();
                                     crate::panels::window_menu_ui(ui, &mut dock_state, registry);
                                 });

@@ -21,6 +21,22 @@ impl EditorPanel for ViewportPanel {
         insp.viewport_contains_cursor = panel_rect.contains(egui::Pos2::new(cursor_x, cursor_y));
         let response = ui.allocate_rect(panel_rect, egui::Sense::click_and_drag());
 
+        if let Some(payload) =
+            response.dnd_release_payload::<crate::panels::asset_browser::AssetDragPayload>()
+        {
+            if payload.kind == crate::panels::asset_browser::AssetKind::Mesh {
+                let name = payload
+                    .path
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "Mesh".to_string());
+                insp.cmd_queue.push(InspectorCmd::SpawnMeshAsset {
+                    name,
+                    path: payload.path.to_string_lossy().to_string(),
+                });
+            }
+        }
+
         // Gizmo overlays only make sense while editing: once Play starts,
         // the viewport shows the game's own Camera entity feed (see
         // bsengine-render's render_frame), which the editor-orbit-relative

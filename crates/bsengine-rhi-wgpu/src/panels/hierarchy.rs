@@ -50,6 +50,7 @@ impl EditorPanel for HierarchyPanel {
         let mut duplicate: Option<u64> = None;
         let mut rename_commit: Option<(u64, String)> = None;
         let mut despawn_ids: Vec<u64> = Vec::new();
+        let mut attach_script: Option<(u64, String)> = None;
 
         ui.horizontal(|ui| {
             if ui
@@ -106,6 +107,7 @@ impl EditorPanel for HierarchyPanel {
                         &mut despawn_ids,
                         &mut rename_state,
                         &mut rename_commit,
+                        &mut attach_script,
                         0,
                     );
                 }
@@ -221,6 +223,9 @@ impl EditorPanel for HierarchyPanel {
                 insp.cmd_queue.push(InspectorCmd::RenameEntity { id, name });
             }
         }
+        if let Some((id, path)) = attach_script {
+            insp.cmd_queue.push(InspectorCmd::AttachScript { id, path });
+        }
     }
 }
 
@@ -327,6 +332,7 @@ impl HierarchyPanel {
         despawn_ids: &mut Vec<u64>,
         rename_state: &mut Option<RenameState>,
         rename_commit: &mut Option<(u64, String)>,
+        attach_script: &mut Option<(u64, String)>,
         depth: usize,
     ) {
         let children: Vec<&InspectorEntityInfo> = tree
@@ -375,6 +381,7 @@ impl HierarchyPanel {
                                 despawn_ids,
                                 rename_state,
                                 rename_commit,
+                                attach_script,
                                 depth + 1,
                             );
                         }
@@ -451,6 +458,14 @@ impl HierarchyPanel {
                 // vanish from the panel with no error.
                 if !Self::would_create_cycle(tree.all_entities, dropped_id, info.id) {
                     *set_parent = Some((dropped_id, info.id));
+                }
+            }
+
+            if let Some(payload) =
+                row_response.dnd_release_payload::<crate::panels::asset_browser::AssetDragPayload>()
+            {
+                if payload.kind == crate::panels::asset_browser::AssetKind::Script {
+                    *attach_script = Some((info.id, payload.path.to_string_lossy().to_string()));
                 }
             }
 

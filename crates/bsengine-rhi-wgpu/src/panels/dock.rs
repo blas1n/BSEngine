@@ -127,33 +127,37 @@ pub fn window_menu_ui(
     dock_state: &mut DockState<String>,
     registry: &EditorPanelRegistry,
 ) {
-    ui.menu_button("Window ▾", |ui| {
-        let panels: MutexGuard<HashMap<String, Box<dyn EditorPanel>>> = registry.0.lock().unwrap();
-        let mut ids: Vec<&String> = panels.keys().collect();
-        ids.sort();
-        for id in ids {
-            let title = panels
-                .get(id)
-                .map(|p| p.title())
-                .unwrap_or_else(|| id.clone());
-            let is_open = dock_state.iter_all_tabs().any(|(_, tab)| tab == id);
-            let mut checked = is_open;
-            if ui.checkbox(&mut checked, &title).changed() {
-                if checked && !is_open {
-                    dock_state.push_to_first_leaf(id.clone());
-                } else if !checked && is_open {
-                    if let Some(loc) = dock_state.find_tab(id) {
-                        dock_state.remove_tab(loc);
+    ui.menu_button(
+        format!("{} Window", egui_phosphor::regular::APP_WINDOW),
+        |ui| {
+            let panels: MutexGuard<HashMap<String, Box<dyn EditorPanel>>> =
+                registry.0.lock().unwrap();
+            let mut ids: Vec<&String> = panels.keys().collect();
+            ids.sort();
+            for id in ids {
+                let title = panels
+                    .get(id)
+                    .map(|p| p.title())
+                    .unwrap_or_else(|| id.clone());
+                let is_open = dock_state.iter_all_tabs().any(|(_, tab)| tab == id);
+                let mut checked = is_open;
+                if ui.checkbox(&mut checked, &title).changed() {
+                    if checked && !is_open {
+                        dock_state.push_to_first_leaf(id.clone());
+                    } else if !checked && is_open {
+                        if let Some(loc) = dock_state.find_tab(id) {
+                            dock_state.remove_tab(loc);
+                        }
                     }
                 }
             }
-        }
-        drop(panels);
-        ui.separator();
-        if ui.button("Reset Layout").clicked() {
-            *dock_state = default_dock_state();
-        }
-    });
+            drop(panels);
+            ui.separator();
+            if ui.button("Reset Layout").clicked() {
+                *dock_state = default_dock_state();
+            }
+        },
+    );
 }
 
 #[cfg(test)]

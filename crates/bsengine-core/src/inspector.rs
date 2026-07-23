@@ -179,6 +179,10 @@ pub struct InspectorState {
     pub edit_scale: [f32; 3],
     pub edit_new_tag: String,
     pub edit_script_path: String,
+    /// Live text in the Hierarchy panel's search box. Empty means "show the
+    /// full tree"; non-empty switches Hierarchy to a flat, name-filtered
+    /// list (see `HierarchyPanel::matches_search`).
+    pub hierarchy_search: String,
     pub edit_visible: bool,
     prev_selected_id: Option<u64>,
 
@@ -239,6 +243,7 @@ impl Default for InspectorState {
             edit_scale: [1.0, 1.0, 1.0],
             edit_new_tag: String::new(),
             edit_script_path: String::new(),
+            hierarchy_search: String::new(),
             edit_visible: true,
             prev_selected_id: None,
             editor_mode: false,

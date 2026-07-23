@@ -242,6 +242,18 @@ impl HierarchyPanel {
         order
     }
 
+    /// Case-insensitive substring match used by the Hierarchy search box. An
+    /// empty `query` matches every entity (including unnamed ones), so the
+    /// panel shows the full tree when the search box is empty.
+    fn matches_search(name: Option<&str>, query: &str) -> bool {
+        if query.is_empty() {
+            return true;
+        }
+        name.unwrap_or("")
+            .to_lowercase()
+            .contains(&query.to_lowercase())
+    }
+
     fn push_dfs(
         info: &InspectorEntityInfo,
         all_entities: &[InspectorEntityInfo],
@@ -477,5 +489,32 @@ mod tests {
             vec![1, 2],
             "duplicate id must not appear twice in the output"
         );
+    }
+
+    #[test]
+    fn matches_search_is_case_insensitive_substring() {
+        assert!(HierarchyPanel::matches_search(
+            Some("PlayerCharacter"),
+            "player"
+        ));
+        assert!(HierarchyPanel::matches_search(
+            Some("PlayerCharacter"),
+            "CHAR"
+        ));
+        assert!(!HierarchyPanel::matches_search(
+            Some("PlayerCharacter"),
+            "zzz"
+        ));
+    }
+
+    #[test]
+    fn matches_search_empty_query_matches_everything() {
+        assert!(HierarchyPanel::matches_search(Some("Anything"), ""));
+        assert!(HierarchyPanel::matches_search(None, ""));
+    }
+
+    #[test]
+    fn matches_search_unnamed_entity_only_matches_empty_query() {
+        assert!(!HierarchyPanel::matches_search(None, "x"));
     }
 }

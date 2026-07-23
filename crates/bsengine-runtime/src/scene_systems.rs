@@ -14,7 +14,7 @@ use bsengine_scene::{
     spawn_scene_entities, ColliderShapeDesc, Name, PendingSceneLoad, PhysicsBodyDesc, Primitive,
     PrimitiveMesh, RigidBodyDesc, SceneDescriptor,
 };
-use bsengine_scripting::{load_scripts, ScriptRuntime, ScriptRuntimeResource, SoundHandles};
+use bsengine_scripting::{load_scripts, SoundHandles};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -176,8 +176,15 @@ pub fn handle_scene_load(world: &mut World) {
         hud.0.clear();
     }
 
-    // Reset script runtime
-    world.insert_non_send_resource(ScriptRuntimeResource(ScriptRuntime::new_with_ops()));
+    // Script state (Bsengine._scripts, timers, collision/message handlers,
+    // ...) is reset below by re-running BOOTSTRAP_JS + each entity's script
+    // via load_scripts, which replaces the whole `Bsengine` object. This
+    // deliberately reuses the existing ScriptRuntime/V8 isolate rather than
+    // constructing a new one: creating a second V8 isolate while
+    // EditorPlugin's stack is active corrupts V8's isolate state (crashes
+    // with "Cannot create a handle without a HandleScope" the moment a
+    // script next runs) — see BOOTSTRAP_JS's `var Bsengine` comment for the
+    // JS-side half of this fix.
 
     // Spawn scene and resolve physics inline (Added<> won't fire for same-frame spawns)
     spawn_scene_entities(world, &scene.entities);

@@ -7,6 +7,7 @@ use std::io::{self, BufRead, Write};
 
 use bevy_app::App;
 use bsengine_audio::AudioPlugin;
+use bsengine_core::{EditorPlayState, InspectorState};
 use bsengine_input::{Input, InputPlugin, KeyCode, MouseButton};
 use bsengine_physics::PhysicsPlugin;
 use bsengine_scene::ScenePlugin;
@@ -34,6 +35,24 @@ pub fn build_test_app(project_dir: &str) -> App {
             project_dir: project_dir.to_string(),
         });
     register_scene_systems(&mut app);
+
+    // The windowed runtime (main.rs's run_windowed) always runs with
+    // EditorPlugin, which gates script execution behind `editor_mode &&
+    // play_state == Stopped` (see bsengine-scripting's run_scripts) unless
+    // something forces play_state to Playing — which run_windowed does,
+    // since "run a game" should play it, not silently boot into a stopped
+    // editor. Mirror that same InspectorState (not the full EditorPlugin,
+    // which requires the render/window stack this headless app doesn't
+    // have) here so headless tests exercise the same gate production does
+    // — otherwise a regression here (e.g. someone removing run_windowed's
+    // override) would pass every headless test while being unplayable in
+    // the real windowed runtime, exactly as happened before this comment
+    // was written.
+    let mut inspector_state = InspectorState::editor();
+    inspector_state.play_state = EditorPlayState::Playing;
+    inspector_state.current_scene_path = Some(scene_path.clone());
+    app.insert_resource(inspector_state);
+
     app
 }
 
@@ -238,4 +257,65 @@ pub fn run_replay_mode(project_dir: &str, log_path: &str) -> bool {
         }
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cube_evader_dir() -> String {
+        format!("{}/../../games/cube-evader", env!("CARGO_MANIFEST_DIR"))
+    }
+
+    // Regression test for the "Play resets the scene" crash: EditorPlugin
+    // pushing InspectorCmd::ReloadScene used to make handle_scene_load
+    // construct a brand-new V8 isolate mid-session, which corrupted V8's
+    // isolate state whenever EditorPlugin's stack was also active — the
+    // game crashed with "Cannot create a handle without a HandleScope" the
+    // next time a script ran. The fix (var Bsengine in BOOTSTRAP_JS, no
+    // isolate recreation in handle_scene_load) means this combination is
+    // now safe to exercise headlessly, unlike before that fix.
+    #[test]
+    fn editor_plugin_reload_scene_does_not_corrupt_scripting() {
+        let project_dir = cube_evader_dir();
+        let mut app = build_test_app(&project_dir);
+        let scene_path = app
+            .world()
+            .resource::<InspectorState>()
+            .current_scene_path
+            .clone()
+            .expect("build_test_app should set current_scene_path");
+        app.add_plugins(bsengine_editor::EditorPlugin);
+        {
+            let mut inspector = app.world_mut().resource_mut::<InspectorState>();
+            inspector.play_state = EditorPlayState::Playing;
+            inspector.current_scene_path = Some(scene_path);
+        }
+
+        app.world_mut()
+            .resource_mut::<Input<KeyCode>>()
+            .press(KeyCode::W);
+        for _ in 0..20 {
+            app.update();
+        }
+
+        app.world_mut()
+            .resource_mut::<Input<KeyCode>>()
+            .release(KeyCode::W);
+        app.world_mut()
+            .resource_mut::<InspectorState>()
+            .cmd_queue
+            .push(bsengine_core::InspectorCmd::ReloadScene);
+        for _ in 0..3 {
+            app.update();
+        }
+
+        let z = crate::test_query::get_transform(app.world_mut(), "Player")["z"]
+            .as_f64()
+            .expect("Player should exist with a transform after reload");
+        assert!(
+            z.abs() < 0.01,
+            "Player should be back at its authored z=0.0 after reload, got {z}"
+        );
+    }
 }

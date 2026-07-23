@@ -22,6 +22,14 @@
       "op": ">",
       "value": -1.5,
       "label": "ball stayed near the goal's x position (not deflected off the obstacle) in level 5"
+    },
+    {
+      "cmd": "assert",
+      "query": { "tool": "get_hud_text", "args": { "id": "1" } },
+      "path": "",
+      "op": "==",
+      "value": "All Clear!",
+      "label": "goal collision fired and set the final-level HUD message"
     }
   ]
 }

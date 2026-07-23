@@ -10,9 +10,9 @@
       "cmd": "assert",
       "query": { "tool": "get_transform", "args": { "name": "Ball" } },
       "path": "z",
-      "op": "<",
-      "value": -6.0,
-      "label": "ball crossed the bridge and reached goal area in level 2"
+      "op": ">",
+      "value": 9.0,
+      "label": "ball crossed the bridge, goal collision fired, and loadScene respawned Ball at level 3's start (z=10)"
     }
   ]
 }

@@ -10,9 +10,9 @@
       "cmd": "assert",
       "query": { "tool": "get_transform", "args": { "name": "Ball" } },
       "path": "z",
-      "op": "<",
-      "value": -6.0,
-      "label": "ball reached goal area in level 3"
+      "op": ">",
+      "value": 7.0,
+      "label": "goal collision fired and loadScene respawned Ball at level 4's start (z=8)"
     }
   ]
 }

@@ -50,6 +50,7 @@ SceneDescriptor(entities: [
         transform: Some((translation: (0.0, 0.5, -8.0), scale: (1.0, 1.0, 1.0))),
         color: Some((0.2, 0.9, 0.3)),
         emissive: Some((0.1, 0.4, 0.1)),
+        rigidbody: Some(Static),
         collider: Some((shape: Sphere(radius: 1.0), sensor: true)),
         script: Some("assets/scripts/goal_level3.js"),
     ),

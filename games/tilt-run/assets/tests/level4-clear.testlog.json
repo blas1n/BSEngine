@@ -11,9 +11,9 @@
       "cmd": "assert",
       "query": { "tool": "get_transform", "args": { "name": "Ball" } },
       "path": "z",
-      "op": "<",
-      "value": -6.0,
-      "label": "ball timed the moving obstacle and reached goal area in level 4"
+      "op": ">",
+      "value": 11.0,
+      "label": "ball timed the moving obstacle, goal collision fired, and loadScene respawned Ball at level 5's start (z=12)"
     }
   ]
 }

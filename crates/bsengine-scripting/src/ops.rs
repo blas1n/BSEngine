@@ -5411,8 +5411,13 @@ var Bsengine = {
     seekSound:            (id, pos)     => Deno.core.ops.bsengine_seek_sound(id, pos),
     getSoundState:        (id)          => Deno.core.ops.bsengine_get_sound_state(id),
     getSoundPosition:     (id)          => Deno.core.ops.bsengine_get_sound_position(id),
-    setHudText:     (id, text)             => Deno.core.ops.bsengine_set_hud_text(id, String(text)),
-    clearHudText:   (id)                   => Deno.core.ops.bsengine_clear_hud_text(id),
+    // `id` is coerced to a string here: this op's Rust side takes a
+    // #[string] id, and callers (see player.js/goal_levelN.js) pass a
+    // plain numeric literal like `setHudText(1, ...)` — without this,
+    // deno_core silently turns a non-string argument into an empty
+    // string, so every numeric-id HUD slot collides on the same "" key.
+    setHudText:     (id, text)             => Deno.core.ops.bsengine_set_hud_text(String(id), String(text)),
+    clearHudText:   (id)                   => Deno.core.ops.bsengine_clear_hud_text(String(id)),
 
     // UI widgets — immediate-mode overlay (egui-backed)
     // Each call sets or replaces the widget with the given id.

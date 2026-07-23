@@ -88,7 +88,14 @@ fn run_windowed(project_dir: &str) {
     // user finds and clicks the toolbar's Play button. Force Playing here
     // so `cargo run -p bsengine-runtime -- <game>` actually plays the game
     // immediately, matching what running a game is supposed to do.
-    app.world_mut().resource_mut::<InspectorState>().play_state = EditorPlayState::Playing;
+    {
+        let mut inspector = app.world_mut().resource_mut::<InspectorState>();
+        inspector.play_state = EditorPlayState::Playing;
+        // Populated on manual Ctrl+S saves otherwise; without this, a
+        // freshly-launched game (never saved) has no path for the Play
+        // button's "reload the scene" behavior to reload from.
+        inspector.current_scene_path = Some(scene_path.clone());
+    }
 
     app.run();
 }

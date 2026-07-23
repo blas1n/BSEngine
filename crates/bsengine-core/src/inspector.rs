@@ -85,6 +85,13 @@ pub enum InspectorCmd {
         id: u64,
     },
     SaveScene,
+    /// Reloads the current scene from `InspectorState.current_scene_path`,
+    /// discarding all runtime changes (physics, script-mutated positions,
+    /// ...) and respawning from the RON file's authored state — the
+    /// Unity/Unreal-style "Stop resets the scene" behavior, triggered here
+    /// by pressing Play again rather than by Stop itself (see the toolbar's
+    /// play/stop button in bsengine-rhi-wgpu).
+    ReloadScene,
     AttachComponentByType {
         id: u64,
         type_path: String,

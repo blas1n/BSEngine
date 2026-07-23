@@ -21,7 +21,15 @@ pub const TEXT_DIM: Color32 = Color32::from_rgb(0x6a, 0x6f, 0x7a);
 /// Selection state, Play button, active tool — reserved for state, not decoration.
 pub const ACCENT: Color32 = Color32::from_rgb(0xe0, 0x91, 0x3a);
 /// Selected-row background wash (accent at ~13% alpha).
-pub const ACCENT_WASH: Color32 = Color32::from_rgba_premultiplied(0xe0, 0x91, 0x3a, 0x22);
+///
+/// `Color32::from_rgba_unmultiplied` is not a `const fn` in this workspace's
+/// pinned `ecolor` version, so this can't be built with the unmultiplied
+/// constructor while staying a `const`. Instead the RGB channels are
+/// pre-multiplied by hand (`component * alpha / 255`, rounded) so the
+/// premultiplied-alpha invariant (r,g,b <= a) holds: this is accent orange
+/// (0xe0, 0x91, 0x3a) blended to ~13% alpha (0x22), premultiplied to
+/// (0x1e, 0x13, 0x08).
+pub const ACCENT_WASH: Color32 = Color32::from_rgba_premultiplied(0x1e, 0x13, 0x08, 0x22);
 
 /// Builds the editor's `egui::Visuals` from the palette above, starting from
 /// `Visuals::dark()` as a base so every field egui expects has a sane
@@ -61,6 +69,7 @@ pub fn build_visuals() -> egui::Visuals {
     visuals.widgets.active.rounding = Rounding::same(5.0);
 
     visuals.widgets.open.bg_fill = DIVIDER;
+    visuals.widgets.open.bg_stroke = Stroke::new(1.0, ACCENT);
     visuals.widgets.open.weak_bg_fill = DIVIDER;
     visuals.widgets.open.fg_stroke = Stroke::new(1.0, TEXT);
     visuals.widgets.open.rounding = Rounding::same(5.0);
@@ -87,6 +96,7 @@ mod tests {
         assert_eq!(visuals.panel_fill, BG);
         assert_eq!(visuals.selection.bg_fill, ACCENT_WASH);
         assert_eq!(visuals.selection.stroke.color, ACCENT);
+        assert_eq!(visuals.widgets.open.bg_stroke.color, ACCENT);
         assert!(visuals.dark_mode);
     }
 }

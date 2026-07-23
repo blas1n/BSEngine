@@ -52,15 +52,27 @@ impl EditorPanel for HierarchyPanel {
         let mut despawn_ids: Vec<u64> = Vec::new();
 
         ui.horizontal(|ui| {
-            if ui.button("＋").clicked() {
+            if ui
+                .button(egui_phosphor::regular::PLUS)
+                .on_hover_text("Spawn Entity")
+                .clicked()
+            {
                 spawn_entity = true;
             }
             if ui
-                .add_enabled(current_sel.is_some(), egui::Button::new("－"))
+                .add_enabled(
+                    current_sel.is_some(),
+                    egui::Button::new(egui_phosphor::regular::MINUS),
+                )
+                .on_hover_text("Despawn Selected")
                 .clicked()
             {
                 despawn_entity = true;
             }
+        });
+        ui.horizontal(|ui| {
+            ui.label(egui_phosphor::regular::MAGNIFYING_GLASS);
+            ui.text_edit_singleline(&mut insp.hierarchy_search);
         });
         ui.label("Ctrl+click: toggle · Shift+click: range · double-click: rename · right-click: menu · drag onto a row to reparent");
         ui.separator();
@@ -80,29 +92,47 @@ impl EditorPanel for HierarchyPanel {
         };
 
         egui::ScrollArea::vertical().show(ui, |ui| {
-            for root in entities_snapshot.iter().filter(|e| e.parent_id.is_none()) {
-                Self::draw_row(
-                    ui,
-                    root,
-                    &tree,
-                    &mut new_selection,
-                    &mut new_sel,
-                    &mut set_parent,
-                    &mut remove_parent,
-                    &mut duplicate,
-                    &mut despawn_ids,
-                    &mut rename_state,
-                    &mut rename_commit,
-                    0,
-                );
-            }
+            if insp.hierarchy_search.is_empty() {
+                for root in entities_snapshot.iter().filter(|e| e.parent_id.is_none()) {
+                    Self::draw_row(
+                        ui,
+                        root,
+                        &tree,
+                        &mut new_selection,
+                        &mut new_sel,
+                        &mut set_parent,
+                        &mut remove_parent,
+                        &mut duplicate,
+                        &mut despawn_ids,
+                        &mut rename_state,
+                        &mut rename_commit,
+                        0,
+                    );
+                }
 
-            // Root drop zone: drag a row here to unparent it. Occupies the
-            // remaining empty space below the tree.
-            let (_, root_drop_response) = ui
-                .allocate_exact_size(egui::vec2(ui.available_width(), 40.0), egui::Sense::hover());
-            if let Some(dropped_id) = root_drop_response.dnd_release_payload::<u64>() {
-                remove_parent = Some(*dropped_id);
+                // Root drop zone: drag a row here to unparent it. Occupies
+                // the remaining empty space below the tree.
+                let (_, root_drop_response) = ui.allocate_exact_size(
+                    egui::vec2(ui.available_width(), 40.0),
+                    egui::Sense::hover(),
+                );
+                if let Some(dropped_id) = root_drop_response.dnd_release_payload::<u64>() {
+                    remove_parent = Some(*dropped_id);
+                }
+            } else {
+                // Filtered mode: a flat list of matches, no tree/DnD/rename —
+                // clear the search box to return to the full tree.
+                for info in entities_snapshot
+                    .iter()
+                    .filter(|e| Self::matches_search(e.name.as_deref(), &insp.hierarchy_search))
+                {
+                    let label = info.name.as_deref().unwrap_or("(unnamed)");
+                    let text = format!("{} [{}] {}", Self::icon_for(info), info.id, label);
+                    if ui.selectable_label(info.selected, text).clicked() {
+                        new_selection = Some(vec![info.id]);
+                        new_sel = Some(info.id);
+                    }
+                }
             }
         });
 
@@ -254,6 +284,21 @@ impl HierarchyPanel {
             .contains(&query.to_lowercase())
     }
 
+    /// Icon shown next to each Hierarchy row, chosen by the first matching
+    /// component on the entity: camera, light, primitive mesh, else a
+    /// generic node icon (used for group/empty entities like "Environment").
+    fn icon_for(info: &InspectorEntityInfo) -> &'static str {
+        if info.camera_fov.is_some() {
+            egui_phosphor::regular::CAMERA
+        } else if info.light_type.is_some() {
+            egui_phosphor::regular::LIGHTBULB
+        } else if info.primitive.is_some() {
+            egui_phosphor::regular::CUBE
+        } else {
+            egui_phosphor::regular::TREE_STRUCTURE
+        }
+    }
+
     fn push_dfs(
         info: &InspectorEntityInfo,
         all_entities: &[InspectorEntityInfo],
@@ -290,7 +335,7 @@ impl HierarchyPanel {
             .filter(|e| e.parent_id == Some(info.id))
             .collect();
         let label = info.name.as_deref().unwrap_or("(unnamed)");
-        let text = format!("[{}] {}", info.id, label);
+        let text = format!("{} [{}] {}", Self::icon_for(info), info.id, label);
         let is_renaming = rename_state
             .as_ref()
             .is_some_and(|r| r.entity_id == info.id);
@@ -516,5 +561,26 @@ mod tests {
     #[test]
     fn matches_search_unnamed_entity_only_matches_empty_query() {
         assert!(!HierarchyPanel::matches_search(None, "x"));
+    }
+
+    #[test]
+    fn icon_for_prefers_camera_over_light_and_mesh() {
+        let mut info = entity(1, None);
+        info.camera_fov = Some(60.0);
+        info.light_type = Some("point".to_string());
+        info.primitive = Some("cube".to_string());
+        assert_eq!(
+            HierarchyPanel::icon_for(&info),
+            egui_phosphor::regular::CAMERA
+        );
+    }
+
+    #[test]
+    fn icon_for_falls_back_to_generic_node_icon() {
+        let info = entity(1, None);
+        assert_eq!(
+            HierarchyPanel::icon_for(&info),
+            egui_phosphor::regular::TREE_STRUCTURE
+        );
     }
 }

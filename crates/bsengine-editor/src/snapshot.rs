@@ -60,6 +60,13 @@ pub enum EditorCommand {
         entity_id: u64,
     },
     LoadScene(String),
+    /// Spawn a named entity with a `GltfAsset` component so the existing
+    /// `bsengine-gltf` async loader picks it up. See
+    /// `InspectorCmd::SpawnMeshAsset`'s doc comment for the full rationale.
+    SpawnMeshAsset {
+        name: String,
+        path: String,
+    },
     SaveScene {
         path: String,
     },

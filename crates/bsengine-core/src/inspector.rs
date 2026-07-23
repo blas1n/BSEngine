@@ -85,6 +85,23 @@ pub enum InspectorCmd {
         id: u64,
     },
     SaveScene,
+    /// Replace the current scene by loading and parsing a `.ron` file at
+    /// `path`. Mirrors `EditorCommand::LoadScene`, which already does the
+    /// actual file read/parse/spawn — this variant only exists so UI code
+    /// (the Asset Browser) can request it through the same `InspectorCmd`
+    /// pipeline every other UI-driven command goes through.
+    LoadScene {
+        path: String,
+    },
+    /// Spawn a new named entity with a `GltfAsset { path }` component
+    /// attached, so `bsengine-gltf`'s existing `load_gltf_assets` system
+    /// (already registered in the editor app, already tested) picks it up
+    /// and asynchronously replaces it with the loaded mesh's
+    /// `MeshRenderer`/`Material`. Always spawns as a root entity.
+    SpawnMeshAsset {
+        name: String,
+        path: String,
+    },
     AttachComponentByType {
         id: u64,
         type_path: String,

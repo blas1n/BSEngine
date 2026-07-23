@@ -589,6 +589,7 @@ dependencies = [
  "bsengine-app",
  "bsengine-core",
  "bsengine-ecs",
+ "bsengine-gltf",
  "bsengine-input",
  "bsengine-mcp",
  "bsengine-render",

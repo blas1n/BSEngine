@@ -115,6 +115,10 @@ pub struct AssetBrowserPanel {
     /// `InspectorCmd::LoadScene` in a later task (Task 7 of this plan) —
     /// for now it's just stored, not yet consumed.
     pending_load_scene: Option<String>,
+    /// In-memory cache of decoded+downsampled Texture-tile thumbnails,
+    /// keyed by asset path. Cleared implicitly whenever this panel is
+    /// dropped — there is no disk cache in this task.
+    thumbnail_cache: std::collections::HashMap<PathBuf, egui::TextureHandle>,
 }
 
 impl Default for AssetBrowserPanel {
@@ -126,6 +130,7 @@ impl Default for AssetBrowserPanel {
             entries: Vec::new(),
             scanned: false,
             pending_load_scene: None,
+            thumbnail_cache: std::collections::HashMap::new(),
         }
     }
 }
@@ -242,9 +247,33 @@ impl AssetBrowserPanel {
             });
     }
 
+    /// Loads and downsamples `path` to a 64×64 `egui::TextureHandle`,
+    /// caching the result in-memory for the lifetime of this panel (cleared
+    /// implicitly whenever the whole `AssetBrowserPanel` is dropped — there
+    /// is no disk cache in this task). Returns `None` if the file can't be
+    /// decoded (corrupt/unsupported image); the tile falls back to the
+    /// fixed Texture icon in that case.
+    fn thumbnail_for(&mut self, ctx: &egui::Context, path: &Path) -> Option<egui::TextureHandle> {
+        if let Some(handle) = self.thumbnail_cache.get(path) {
+            return Some(handle.clone());
+        }
+        let img = image::open(path).ok()?;
+        let thumb = img.thumbnail(64, 64).to_rgba8();
+        let size = [thumb.width() as usize, thumb.height() as usize];
+        let color_image = egui::ColorImage::from_rgba_unmultiplied(size, thumb.as_raw());
+        let handle = ctx.load_texture(
+            path.to_string_lossy().to_string(),
+            color_image,
+            egui::TextureOptions::default(),
+        );
+        self.thumbnail_cache
+            .insert(path.to_path_buf(), handle.clone());
+        Some(handle)
+    }
+
     /// Fixed per-kind icon shown on a tile. Texture tiles get a real
-    /// decoded-image thumbnail in a later task; until then every kind
-    /// (including Texture) shows this fixed icon.
+    /// decoded-image thumbnail via `thumbnail_for`; other kinds always show
+    /// this fixed icon, and Texture falls back to it when decoding fails.
     fn icon_for_kind(kind: AssetKind) -> &'static str {
         match kind {
             AssetKind::Directory => egui_phosphor::regular::FOLDER,
@@ -265,7 +294,16 @@ impl AssetBrowserPanel {
     ) {
         ui.vertical(|ui| {
             ui.set_width(64.0);
-            let response = ui.button(Self::icon_for_kind(entry.kind));
+            let response = if entry.kind == AssetKind::Texture {
+                match self.thumbnail_for(ui.ctx(), &entry.path) {
+                    Some(handle) => ui.add(egui::ImageButton::new(
+                        egui::Image::new(&handle).fit_to_exact_size(egui::vec2(48.0, 48.0)),
+                    )),
+                    None => ui.button(Self::icon_for_kind(entry.kind)),
+                }
+            } else {
+                ui.button(Self::icon_for_kind(entry.kind))
+            };
             ui.label(&entry.name);
 
             if entry.is_dir {

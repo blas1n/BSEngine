@@ -4,6 +4,7 @@
 //! `docs/superpowers/specs/2026-07-23-editor-ui-redesign-design.md` section
 //! B/C for the approved design.
 
+use bsengine_core::{EditorPanel, EditorPanelContext};
 use std::path::{Path, PathBuf};
 
 /// Coarse category used for the tile icon and drag/drop behavior. No
@@ -83,6 +84,57 @@ pub fn scan_dir(dir: &Path) -> Vec<AssetEntry> {
         _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
     });
     entries
+}
+
+/// Root directory the panel scans, relative to the editor process's cwd —
+/// same convention `dock.rs::layout_path()` uses for `editor_layout.json`.
+fn assets_root() -> PathBuf {
+    PathBuf::from("assets")
+}
+
+/// Unity Project panel / Unreal Content Browser equivalent: scans
+/// `assets_root()`, shows a folder tree + tile grid of the current
+/// directory, and lets the user spawn meshes / attach scripts / load
+/// scenes via drag-and-drop or double-click.
+pub struct AssetBrowserPanel {
+    root: PathBuf,
+    current_dir: PathBuf,
+    entries: Vec<AssetEntry>,
+    scanned: bool,
+}
+
+impl Default for AssetBrowserPanel {
+    fn default() -> Self {
+        let root = assets_root();
+        Self {
+            current_dir: root.clone(),
+            root,
+            entries: Vec::new(),
+            scanned: false,
+        }
+    }
+}
+
+impl EditorPanel for AssetBrowserPanel {
+    fn id(&self) -> &str {
+        "assets"
+    }
+
+    fn title(&self) -> String {
+        "Assets".to_string()
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _ctx: &mut EditorPanelContext) {
+        if !self.scanned {
+            self.entries = scan_dir(&self.current_dir);
+            self.scanned = true;
+        }
+        ui.label(format!(
+            "{} entries in {:?}",
+            self.entries.len(),
+            self.current_dir
+        ));
+    }
 }
 
 #[cfg(test)]

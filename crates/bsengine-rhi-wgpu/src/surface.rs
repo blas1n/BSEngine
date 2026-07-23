@@ -1800,20 +1800,24 @@ impl WgpuSurface {
                                         if ui
                                             .add_enabled(
                                                 save_enabled,
-                                                egui::Button::new(egui_phosphor::regular::FLOPPY_DISK),
+                                                egui::Button::new(
+                                                    egui_phosphor::regular::FLOPPY_DISK,
+                                                ),
                                             )
                                             .on_hover_text("Save Scene (Ctrl+S)")
                                             .on_disabled_hover_text("No scene file loaded")
                                             .clicked()
                                         {
-                                            insp.cmd_queue.push(bsengine_core::InspectorCmd::SaveScene);
+                                            insp.cmd_queue
+                                                .push(bsengine_core::InspectorCmd::SaveScene);
                                         }
                                     });
                                     ui.separator();
                                     ui.horizontal(|ui| {
                                         if ui
                                             .selectable_label(
-                                                insp.gizmo_mode == bsengine_core::GizmoMode::Translate,
+                                                insp.gizmo_mode
+                                                    == bsengine_core::GizmoMode::Translate,
                                                 format!(
                                                     "{} Move",
                                                     egui_phosphor::regular::ARROWS_OUT_CARDINAL

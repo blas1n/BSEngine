@@ -7,6 +7,7 @@ use std::io::{self, BufRead, Write};
 
 use bevy_app::App;
 use bsengine_audio::AudioPlugin;
+use bsengine_core::{EditorPlayState, InspectorState};
 use bsengine_input::{Input, InputPlugin, KeyCode, MouseButton};
 use bsengine_physics::PhysicsPlugin;
 use bsengine_scene::ScenePlugin;
@@ -41,6 +42,23 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>) -> App {
             project_dir: project_dir.to_string(),
         });
     register_scene_systems(&mut app);
+
+    // The windowed runtime (main.rs's run_windowed) always runs with
+    // EditorPlugin, which gates script execution behind `editor_mode &&
+    // play_state == Stopped` (see bsengine-scripting's run_scripts) unless
+    // something forces play_state to Playing — which run_windowed does,
+    // since "run a game" should play it, not silently boot into a stopped
+    // editor. Mirror that same InspectorState (not the full EditorPlugin,
+    // which requires the render/window stack this headless app doesn't
+    // have) here so headless tests exercise the same gate production does
+    // — otherwise a regression here (e.g. someone removing run_windowed's
+    // override) would pass every headless test while being unplayable in
+    // the real windowed runtime, exactly as happened before this comment
+    // was written.
+    let mut inspector_state = InspectorState::editor();
+    inspector_state.play_state = EditorPlayState::Playing;
+    app.insert_resource(inspector_state);
+
     app
 }
 

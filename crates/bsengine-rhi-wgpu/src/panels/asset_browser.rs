@@ -40,6 +40,16 @@ fn categorize_by_extension(path: &Path) -> AssetKind {
     }
 }
 
+/// Drag payload for Mesh/Script tiles dragged out of the Asset Browser onto
+/// the Hierarchy or Viewport. Distinct from the `u64` entity-id payload
+/// Hierarchy rows already use for reparenting — egui's drag-and-drop keys
+/// drop targets by payload type, so both can coexist on the same rows.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AssetDragPayload {
+    pub path: PathBuf,
+    pub kind: AssetKind,
+}
+
 /// One row in the Asset Browser's tile grid or folder tree.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AssetEntry {
@@ -101,6 +111,10 @@ pub struct AssetBrowserPanel {
     current_dir: PathBuf,
     entries: Vec<AssetEntry>,
     scanned: bool,
+    /// Set by a double-clicked Scene tile; drained into
+    /// `InspectorCmd::LoadScene` in a later task (Task 7 of this plan) —
+    /// for now it's just stored, not yet consumed.
+    pending_load_scene: Option<String>,
 }
 
 impl Default for AssetBrowserPanel {
@@ -111,6 +125,7 @@ impl Default for AssetBrowserPanel {
             root,
             entries: Vec::new(),
             scanned: false,
+            pending_load_scene: None,
         }
     }
 }
@@ -124,16 +139,160 @@ impl EditorPanel for AssetBrowserPanel {
         "Assets".to_string()
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _ctx: &mut EditorPanelContext) {
+    fn ui(&mut self, ui: &mut egui::Ui, ctx: &mut EditorPanelContext) {
         if !self.scanned {
             self.entries = scan_dir(&self.current_dir);
             self.scanned = true;
         }
-        ui.label(format!(
-            "{} entries in {:?}",
-            self.entries.len(),
-            self.current_dir
-        ));
+
+        ui.horizontal(|ui| {
+            if ui.button("Refresh").clicked() {
+                self.entries = scan_dir(&self.current_dir);
+            }
+            ui.separator();
+            self.draw_breadcrumb(ui);
+        });
+        ui.separator();
+
+        let mut navigate_to: Option<PathBuf> = None;
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                ui.set_width(160.0);
+                self.draw_folder_tree(ui, self.root.clone(), &mut navigate_to);
+            });
+            ui.separator();
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    for entry in self.entries.clone() {
+                        self.draw_tile(ui, &entry, &mut navigate_to, ctx);
+                    }
+                });
+            });
+        });
+
+        if let Some(dir) = navigate_to {
+            self.current_dir = dir;
+            self.entries = scan_dir(&self.current_dir);
+        }
+    }
+}
+
+impl AssetBrowserPanel {
+    /// Renders `Assets / Sub / Folder` as clickable segments; clicking a
+    /// segment sets `current_dir` to that ancestor and rescans.
+    fn draw_breadcrumb(&mut self, ui: &mut egui::Ui) {
+        let Ok(relative) = self.current_dir.strip_prefix(&self.root) else {
+            ui.label(self.current_dir.to_string_lossy());
+            return;
+        };
+        let mut path_so_far = self.root.clone();
+        let mut clicked_dir: Option<PathBuf> = None;
+        ui.horizontal(|ui| {
+            if ui.link("Assets").clicked() {
+                clicked_dir = Some(self.root.clone());
+            }
+            for component in relative.components() {
+                path_so_far.push(component);
+                ui.label("/");
+                if ui
+                    .link(component.as_os_str().to_string_lossy().to_string())
+                    .clicked()
+                {
+                    clicked_dir = Some(path_so_far.clone());
+                }
+            }
+        });
+        if let Some(dir) = clicked_dir {
+            self.current_dir = dir;
+            self.entries = scan_dir(&self.current_dir);
+        }
+    }
+
+    /// Recursively renders `dir`'s subdirectories as a `CollapsingHeader`
+    /// tree, mirroring `HierarchyPanel::draw_row`'s recursion shape.
+    /// Clicking a folder's label sets `*navigate_to`.
+    fn draw_folder_tree(&self, ui: &mut egui::Ui, dir: PathBuf, navigate_to: &mut Option<PathBuf>) {
+        let subdirs: Vec<PathBuf> = scan_dir(&dir)
+            .into_iter()
+            .filter(|e| e.is_dir)
+            .map(|e| e.path)
+            .collect();
+        let label = dir
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "Assets".to_string());
+
+        if subdirs.is_empty() {
+            if ui
+                .selectable_label(dir == self.current_dir, label)
+                .clicked()
+            {
+                *navigate_to = Some(dir);
+            }
+            return;
+        }
+
+        egui::CollapsingHeader::new(label)
+            .id_salt(dir.to_string_lossy().to_string())
+            .default_open(true)
+            .show(ui, |ui| {
+                for sub in subdirs {
+                    self.draw_folder_tree(ui, sub, navigate_to);
+                }
+            });
+    }
+
+    /// Fixed per-kind icon shown on a tile. Texture tiles get a real
+    /// decoded-image thumbnail in a later task; until then every kind
+    /// (including Texture) shows this fixed icon.
+    fn icon_for_kind(kind: AssetKind) -> &'static str {
+        match kind {
+            AssetKind::Directory => egui_phosphor::regular::FOLDER,
+            AssetKind::Scene => egui_phosphor::regular::FILM_STRIP,
+            AssetKind::Script => egui_phosphor::regular::FILE_JS,
+            AssetKind::Mesh => egui_phosphor::regular::CUBE,
+            AssetKind::Texture => egui_phosphor::regular::FILE_IMAGE,
+            AssetKind::Other => egui_phosphor::regular::FILE,
+        }
+    }
+
+    fn draw_tile(
+        &mut self,
+        ui: &mut egui::Ui,
+        entry: &AssetEntry,
+        navigate_to: &mut Option<PathBuf>,
+        _ctx: &mut EditorPanelContext,
+    ) {
+        ui.vertical(|ui| {
+            ui.set_width(64.0);
+            let response = ui.button(Self::icon_for_kind(entry.kind));
+            ui.label(&entry.name);
+
+            if entry.is_dir {
+                if response.clicked() {
+                    *navigate_to = Some(entry.path.clone());
+                }
+                return;
+            }
+
+            match entry.kind {
+                AssetKind::Scene => {
+                    if response.double_clicked() {
+                        self.pending_load_scene = Some(entry.path.to_string_lossy().to_string());
+                    }
+                }
+                AssetKind::Mesh | AssetKind::Script => {
+                    let drag_id = ui.id().with(("asset_tile_drag", &entry.path));
+                    let drag_response = ui.interact(response.rect, drag_id, egui::Sense::drag());
+                    let combined = drag_response | response;
+                    combined.dnd_set_drag_payload(AssetDragPayload {
+                        path: entry.path.clone(),
+                        kind: entry.kind,
+                    });
+                }
+                _ => {}
+            }
+        });
     }
 }
 

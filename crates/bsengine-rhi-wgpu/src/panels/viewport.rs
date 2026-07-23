@@ -18,6 +18,7 @@ impl EditorPanel for ViewportPanel {
 
         let panel_rect = ui.max_rect();
         insp.viewport_size = [panel_rect.width(), panel_rect.height()];
+        insp.viewport_pos = [panel_rect.min.x, panel_rect.min.y];
         insp.viewport_contains_cursor = panel_rect.contains(egui::Pos2::new(cursor_x, cursor_y));
         let response = ui.allocate_rect(panel_rect, egui::Sense::click_and_drag());
 

@@ -21,7 +21,17 @@ impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(PhysicsWorld::default());
         app.add_event::<CollisionEvent>();
-        app.add_systems(Update, (spawn_bodies, step_world, sync_from_rapier).chain());
+        app.add_systems(
+            Update,
+            (
+                sync_physics_input_from_transform_for_kinematic,
+                spawn_bodies,
+                step_world,
+                sync_from_rapier,
+                sync_transform_from_physics,
+            )
+                .chain(),
+        );
     }
 }
 
@@ -169,6 +179,45 @@ fn sync_from_rapier(
     }
 }
 
+/// Copies simulated position/rotation from `PhysicsTransform` (written by
+/// `sync_from_rapier`) into the generic `Transform` component that
+/// rendering and scripts actually read — without this, physics-driven
+/// bodies (falling, forces, impulses) simulate correctly internally but
+/// never visibly move, since nothing outside this crate reads
+/// `PhysicsTransform`.
+///
+/// Only applies to `Dynamic` bodies. For `Static`/`Kinematic` bodies,
+/// `Transform` is authoritative (scene-authored or script-driven via
+/// `Bsengine.setTransform`) and physics follows it, not the other way
+/// around — see `sync_physics_input_from_transform_for_kinematic`.
+fn sync_transform_from_physics(
+    mut query: Query<(&RigidBody, &PhysicsTransform, &mut bsengine_core::Transform)>,
+) {
+    for (rigid_body, physics_transform, mut transform) in query.iter_mut() {
+        if rigid_body.body_type == RigidBodyType::Dynamic {
+            transform.translation = physics_transform.translation.into();
+            transform.rotation = physics_transform.rotation.into();
+        }
+    }
+}
+
+/// For kinematic bodies, copies the script/scene-authoritative `Transform`
+/// into `PhysicsInput` each frame, so `step_world` picks up script-driven
+/// movement (e.g. a moving platform using `Bsengine.setTransform`) and
+/// Rapier's collision resolution reflects where the body actually is.
+/// Dynamic bodies don't need this — their `Transform` is physics-driven,
+/// not the other way around.
+fn sync_physics_input_from_transform_for_kinematic(
+    mut query: Query<(&RigidBody, &bsengine_core::Transform, &mut PhysicsInput)>,
+) {
+    for (rigid_body, transform, mut input) in query.iter_mut() {
+        if rigid_body.body_type == RigidBodyType::KinematicPosition {
+            input.translation = transform.translation.0;
+            input.rotation = transform.rotation.0;
+        }
+    }
+}
+
 fn make_shape(shape: &ColliderShape) -> SharedShape {
     match shape {
         ColliderShape::Box { half_extents } => {
@@ -179,5 +228,117 @@ fn make_shape(shape: &ColliderShape) -> SharedShape {
             half_height,
             radius,
         } => SharedShape::capsule_y(*half_height, *radius),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::components::{Collider, PhysicsInput, RigidBody};
+    use bsengine_app::new_app;
+    use bsengine_core::Transform;
+
+    #[test]
+    fn dynamic_body_falls_and_updates_transform_component() {
+        let mut app = new_app();
+        app.add_plugins(PhysicsPlugin);
+
+        let start = Vec3::new(0.0, 5.0, 0.0);
+        app.world_mut().spawn((
+            Transform::from_translation(start),
+            RigidBody::dynamic(),
+            Collider::ball(0.5),
+            PhysicsInput {
+                translation: start,
+                rotation: Quat::IDENTITY,
+            },
+        ));
+
+        for _ in 0..30 {
+            app.update();
+        }
+
+        let mut query = app.world_mut().query::<&Transform>();
+        let transform = query.iter(app.world()).next().unwrap();
+        assert!(
+            transform.translation.0.y < start.y,
+            "expected the dynamic body to fall under gravity and for Transform to \
+             reflect it via PhysicsTransform sync, got y={}",
+            transform.translation.0.y
+        );
+    }
+
+    #[test]
+    fn kinematic_body_transform_is_authoritative_not_overwritten_by_physics() {
+        let mut app = new_app();
+        app.add_plugins(PhysicsPlugin);
+
+        let start = Vec3::new(0.0, 0.0, 0.0);
+        let entity = app
+            .world_mut()
+            .spawn((
+                Transform::from_translation(start),
+                RigidBody::kinematic(),
+                Collider::cuboid(1.0, 0.25, 1.0),
+                PhysicsInput {
+                    translation: start,
+                    rotation: Quat::IDENTITY,
+                },
+            ))
+            .id();
+
+        app.update();
+
+        // Simulate a script moving the platform via Bsengine.setTransform.
+        let moved = Vec3::new(5.0, 0.0, 0.0);
+        app.world_mut()
+            .get_mut::<Transform>(entity)
+            .unwrap()
+            .translation = moved.into();
+
+        app.update();
+        app.update();
+
+        let transform = app.world().get::<Transform>(entity).unwrap();
+        assert_eq!(
+            transform.translation.0, moved,
+            "kinematic body's script-driven Transform should not be reverted by physics sync"
+        );
+    }
+
+    #[test]
+    fn kinematic_body_physics_input_tracks_transform_each_frame() {
+        let mut app = new_app();
+        app.add_plugins(PhysicsPlugin);
+
+        let start = Vec3::new(0.0, 0.0, 0.0);
+        let entity = app
+            .world_mut()
+            .spawn((
+                Transform::from_translation(start),
+                RigidBody::kinematic(),
+                Collider::cuboid(1.0, 0.25, 1.0),
+                PhysicsInput {
+                    translation: start,
+                    rotation: Quat::IDENTITY,
+                },
+            ))
+            .id();
+
+        app.update();
+
+        let moved = Vec3::new(5.0, 0.0, 0.0);
+        app.world_mut()
+            .get_mut::<Transform>(entity)
+            .unwrap()
+            .translation = moved.into();
+
+        app.update();
+
+        let input = app.world().get::<PhysicsInput>(entity).unwrap();
+        assert_eq!(
+            input.translation, moved,
+            "kinematic body's PhysicsInput should track its script-driven Transform"
+        );
     }
 }

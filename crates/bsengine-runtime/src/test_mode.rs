@@ -7,6 +7,7 @@ use std::io::{self, BufRead, Write};
 
 use bevy_app::App;
 use bsengine_audio::AudioPlugin;
+use bsengine_core::{EditorPlayState, InspectorState};
 use bsengine_input::{Input, InputPlugin, KeyCode, MouseButton};
 use bsengine_physics::PhysicsPlugin;
 use bsengine_scene::ScenePlugin;
@@ -17,13 +18,20 @@ use crate::scene_systems::{register_scene_systems, ProjectManifest};
 use crate::test_protocol::{Command, CommandResponse};
 use crate::test_query::{eval_op, eval_path, run_query};
 
-pub fn build_test_app(project_dir: &str) -> App {
+/// Builds the headless app rooted at `project_dir`. Loads `scene_override`
+/// (a path relative to `project_dir`, e.g. `"assets/scenes/level3.ron"`) if
+/// given, otherwise falls back to `project.toml`'s `entry_scene` — lets a
+/// replay log pin its own starting scene instead of always depending on
+/// whatever the project's entry scene currently is (which changes as a
+/// multi-level game's "real" entry point evolves during development).
+pub fn build_test_app(project_dir: &str, scene_override: Option<&str>) -> App {
     let manifest_path = format!("{project_dir}/project.toml");
     let manifest_str = std::fs::read_to_string(&manifest_path)
         .unwrap_or_else(|e| panic!("Cannot read {manifest_path}: {e}"));
     let manifest: ProjectManifest = toml::from_str(&manifest_str)
         .unwrap_or_else(|e| panic!("Cannot parse {manifest_path}: {e}"));
-    let scene_path = format!("{project_dir}/{}", manifest.project.entry_scene);
+    let relative_scene = scene_override.unwrap_or(&manifest.project.entry_scene);
+    let scene_path = format!("{project_dir}/{relative_scene}");
 
     let mut app = bsengine_app::new_app();
     app.add_plugins(InputPlugin)
@@ -34,6 +42,24 @@ pub fn build_test_app(project_dir: &str) -> App {
             project_dir: project_dir.to_string(),
         });
     register_scene_systems(&mut app);
+
+    // The windowed runtime (main.rs's run_windowed) always runs with
+    // EditorPlugin, which gates script execution behind `editor_mode &&
+    // play_state == Stopped` (see bsengine-scripting's run_scripts) unless
+    // something forces play_state to Playing — which run_windowed does,
+    // since "run a game" should play it, not silently boot into a stopped
+    // editor. Mirror that same InspectorState (not the full EditorPlugin,
+    // which requires the render/window stack this headless app doesn't
+    // have) here so headless tests exercise the same gate production does
+    // — otherwise a regression here (e.g. someone removing run_windowed's
+    // override) would pass every headless test while being unplayable in
+    // the real windowed runtime, exactly as happened before this comment
+    // was written.
+    let mut inspector_state = InspectorState::editor();
+    inspector_state.play_state = EditorPlayState::Playing;
+    inspector_state.current_scene_path = Some(scene_path.clone());
+    app.insert_resource(inspector_state);
+
     app
 }
 
@@ -54,7 +80,7 @@ fn mouse_button_from_u8(button: u8) -> Option<MouseButton> {
 }
 
 pub fn run_test_mode(project_dir: &str) {
-    let mut app = build_test_app(project_dir);
+    let mut app = build_test_app(project_dir, None);
     let mut frame: u64 = 0;
 
     let stdin = io::stdin();
@@ -183,6 +209,15 @@ fn write_response(stdout: &mut io::Stdout, response: &CommandResponse) {
 
 #[derive(serde::Deserialize)]
 struct RecordedLog {
+    /// Path (relative to `project_dir`) of the scene this log was recorded
+    /// against, e.g. `"assets/scenes/level3.ron"`. When present, replay
+    /// loads this scene directly instead of the project's current
+    /// `entry_scene` — needed once a game has more than one independently
+    /// replayable level, since only one `entry_scene` can be active at a
+    /// time. Absent for older logs recorded before this field existed,
+    /// which fall back to `entry_scene` as before.
+    #[serde(default)]
+    scene: Option<String>,
     actions: Vec<Command>,
 }
 
@@ -195,7 +230,7 @@ pub fn run_replay_mode(project_dir: &str, log_path: &str) -> bool {
     let log: RecordedLog = serde_json::from_str(&log_str)
         .unwrap_or_else(|e| panic!("cannot parse replay log {log_path}: {e}"));
 
-    let mut app = build_test_app(project_dir);
+    let mut app = build_test_app(project_dir, log.scene.as_deref());
     let mut frame: u64 = 0;
 
     for command in log.actions {
@@ -238,4 +273,110 @@ pub fn run_replay_mode(project_dir: &str, log_path: &str) -> bool {
         }
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write_two_scene_project() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("assets/scenes")).unwrap();
+        std::fs::write(
+            root.join("project.toml"),
+            "[project]\nname = \"Test\"\nentry_scene = \"assets/scenes/a.ron\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("assets/scenes/a.ron"),
+            "SceneDescriptor(entities: [EntityDescriptor(name: \"SceneA\")])",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("assets/scenes/b.ron"),
+            "SceneDescriptor(entities: [EntityDescriptor(name: \"SceneB\")])",
+        )
+        .unwrap();
+        dir
+    }
+
+    #[test]
+    fn build_test_app_with_no_override_loads_entry_scene() {
+        let dir = write_two_scene_project();
+        let mut app = build_test_app(dir.path().to_str().unwrap(), None);
+        app.update();
+
+        let names = crate::test_query::get_entity_names(app.world_mut());
+        let names: Vec<String> = serde_json::from_value(names).unwrap();
+        assert!(names.contains(&"SceneA".to_string()), "names: {names:?}");
+        assert!(!names.contains(&"SceneB".to_string()), "names: {names:?}");
+    }
+
+    #[test]
+    fn build_test_app_with_override_loads_that_scene_instead() {
+        let dir = write_two_scene_project();
+        let mut app = build_test_app(dir.path().to_str().unwrap(), Some("assets/scenes/b.ron"));
+        app.update();
+
+        let names = crate::test_query::get_entity_names(app.world_mut());
+        let names: Vec<String> = serde_json::from_value(names).unwrap();
+        assert!(names.contains(&"SceneB".to_string()), "names: {names:?}");
+        assert!(!names.contains(&"SceneA".to_string()), "names: {names:?}");
+    }
+
+    // Regression test for the "Play resets the scene" crash: EditorPlugin
+    // pushing InspectorCmd::ReloadScene used to make handle_scene_load
+    // construct a brand-new V8 isolate mid-session, which corrupted V8's
+    // isolate state whenever EditorPlugin's stack was also active — the
+    // game crashed with "Cannot create a handle without a HandleScope" the
+    // next time a script ran. The fix (var Bsengine in BOOTSTRAP_JS, no
+    // isolate recreation in handle_scene_load) means this combination is
+    // now safe to exercise headlessly, unlike before that fix. Uses
+    // cube-evader (not the synthetic two-scene fixture above) because it
+    // has a real Player script — a reload with no scripted entities never
+    // touches BOOTSTRAP_JS/V8 at all and wouldn't exercise the bug.
+    #[test]
+    fn editor_plugin_reload_scene_does_not_corrupt_scripting() {
+        let project_dir = format!("{}/../../games/cube-evader", env!("CARGO_MANIFEST_DIR"));
+        let mut app = build_test_app(&project_dir, None);
+        let scene_path = app
+            .world()
+            .resource::<InspectorState>()
+            .current_scene_path
+            .clone()
+            .expect("build_test_app should set current_scene_path");
+        app.add_plugins(bsengine_editor::EditorPlugin);
+        {
+            let mut inspector = app.world_mut().resource_mut::<InspectorState>();
+            inspector.play_state = EditorPlayState::Playing;
+            inspector.current_scene_path = Some(scene_path);
+        }
+
+        app.world_mut()
+            .resource_mut::<Input<KeyCode>>()
+            .press(KeyCode::W);
+        for _ in 0..20 {
+            app.update();
+        }
+
+        app.world_mut()
+            .resource_mut::<Input<KeyCode>>()
+            .release(KeyCode::W);
+        app.world_mut()
+            .resource_mut::<InspectorState>()
+            .cmd_queue
+            .push(bsengine_core::InspectorCmd::ReloadScene);
+        for _ in 0..3 {
+            app.update();
+        }
+
+        let z = crate::test_query::get_transform(app.world_mut(), "Player")["z"]
+            .as_f64()
+            .expect("Player should exist with a transform after reload");
+        assert!(
+            z.abs() < 0.01,
+            "Player should be back at its authored z=0.0 after reload, got {z}"
+        );
+    }
 }

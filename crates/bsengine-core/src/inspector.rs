@@ -85,6 +85,13 @@ pub enum InspectorCmd {
         id: u64,
     },
     SaveScene,
+    /// Reloads the current scene from `InspectorState.current_scene_path`,
+    /// discarding all runtime changes (physics, script-mutated positions,
+    /// ...) and respawning from the RON file's authored state — the
+    /// Unity/Unreal-style "Stop resets the scene" behavior, triggered here
+    /// by pressing Play again rather than by Stop itself (see the toolbar's
+    /// play/stop button in bsengine-rhi-wgpu).
+    ReloadScene,
     AttachComponentByType {
         id: u64,
         type_path: String,
@@ -195,6 +202,12 @@ pub struct InspectorState {
     // Set by the egui viewport panel each frame; read by the camera system
     pub viewport_contains_cursor: bool,
     pub viewport_size: [f32; 2],
+    /// Top-left corner of the viewport panel in window screen space, set by
+    /// the egui viewport panel each frame. Read by the HUD text overlay so
+    /// `Bsengine.setHudText` positions relative to the actual rendered game
+    /// view instead of the whole editor window (which would put it under
+    /// the toolbar/other dock panels in editor mode).
+    pub viewport_pos: [f32; 2],
 
     // Override view_proj computed by EditorPlugin from orbit state; read by RenderPlugin
     pub editor_view_proj: Option<[[f32; 4]; 4]>,
@@ -249,6 +262,7 @@ impl Default for InspectorState {
             cam_pitch: 0.4,
             viewport_contains_cursor: false,
             viewport_size: [1280.0, 720.0],
+            viewport_pos: [0.0, 0.0],
             editor_view_proj: None,
             editor_proj: [[0.0; 4]; 4],
             editor_cam_pos: [0.0; 3],

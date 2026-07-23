@@ -1,0 +1,18 @@
+{
+  "game": "tilt-run",
+  "scene": "assets/scenes/level3.ron",
+  "actions": [
+    { "cmd": "press_key", "key": "W" },
+    { "cmd": "step", "frames": 20 },
+    { "cmd": "release_key", "key": "W" },
+    { "cmd": "step", "frames": 330 },
+    {
+      "cmd": "assert",
+      "query": { "tool": "get_transform", "args": { "name": "Ball" } },
+      "path": "z",
+      "op": ">",
+      "value": 7.0,
+      "label": "goal collision fired and loadScene respawned Ball at level 4's start (z=8)"
+    }
+  ]
+}

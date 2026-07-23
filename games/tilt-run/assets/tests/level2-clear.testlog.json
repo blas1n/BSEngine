@@ -1,0 +1,18 @@
+{
+  "game": "tilt-run",
+  "scene": "assets/scenes/level2.ron",
+  "actions": [
+    { "cmd": "press_key", "key": "W" },
+    { "cmd": "step", "frames": 155 },
+    { "cmd": "release_key", "key": "W" },
+    { "cmd": "step", "frames": 30 },
+    {
+      "cmd": "assert",
+      "query": { "tool": "get_transform", "args": { "name": "Ball" } },
+      "path": "z",
+      "op": ">",
+      "value": 9.0,
+      "label": "ball crossed the bridge, goal collision fired, and loadScene respawned Ball at level 3's start (z=10)"
+    }
+  ]
+}

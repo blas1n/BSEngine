@@ -220,12 +220,21 @@ fn run_scripts(world: &mut World) {
     for cmd in commands {
         match cmd {
             ScriptCommand::SetTransform { name, x, y, z } => {
-                let mut q = world.query::<(&Name, &mut Transform)>();
-                for (n, mut t) in q.iter_mut(world) {
-                    if n.0 == name {
-                        t.translation = Vec3::new(x, y, z).into();
-                        break;
-                    }
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name, &mut Transform)>();
+                    q.iter_mut(world).find_map(|(e, n, mut t)| {
+                        (n.0 == name).then(|| {
+                            t.translation = Vec3::new(x, y, z).into();
+                            e
+                        })
+                    })
+                };
+                // Also teleport the actual Rapier body — for a Dynamic body,
+                // Transform alone gets overwritten from the physics
+                // simulation next frame (see PhysicsWorld::set_translation).
+                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
+                {
+                    pw.set_translation(e, Vec3::new(x, y, z));
                 }
             }
             ScriptCommand::SetRotation {
@@ -235,12 +244,19 @@ fn run_scripts(world: &mut World) {
                 rz,
                 rw,
             } => {
-                let mut q = world.query::<(&Name, &mut Transform)>();
-                for (n, mut t) in q.iter_mut(world) {
-                    if n.0 == name {
-                        t.rotation = Quat::from_xyzw(rx, ry, rz, rw).into();
-                        break;
-                    }
+                let rot = Quat::from_xyzw(rx, ry, rz, rw);
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name, &mut Transform)>();
+                    q.iter_mut(world).find_map(|(e, n, mut t)| {
+                        (n.0 == name).then(|| {
+                            t.rotation = rot.into();
+                            e
+                        })
+                    })
+                };
+                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
+                {
+                    pw.set_rotation(e, rot);
                 }
             }
             ScriptCommand::SetRotationEuler {
@@ -1389,7 +1405,19 @@ fn run_scripts(world: &mut World) {
                 }
             }
             ScriptCommand::LoadScene { path } => {
-                world.insert_resource(PendingSceneLoad { path });
+                // `path` is project-relative (e.g. "assets/scenes/level2.ron",
+                // matching every other path convention in this engine —
+                // ScriptPath, entry_scene, ...), but handle_scene_load reads
+                // it directly with std::fs, so it needs the same project_dir
+                // prefix ScenePlugin::from_file/InspectorState.current_scene_path
+                // already carry. Without this, loadScene only works by
+                // accident when the process's CWD happens to equal
+                // project_dir.
+                let full_path = match world.get_resource::<ProjectDir>() {
+                    Some(pd) if !pd.0.is_empty() => format!("{}/{path}", pd.0),
+                    _ => path,
+                };
+                world.insert_resource(PendingSceneLoad { path: full_path });
             }
             ScriptCommand::SetVisible { name, visible } => {
                 let mut q = world.query::<(&Name, &mut Visible)>();
@@ -1508,6 +1536,16 @@ fn run_scripts(world: &mut World) {
                 if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
                 {
                     pw.apply_force_at_point(e, Vec3::new(fx, fy, fz), Vec3::new(px, py, pz));
+                }
+            }
+            ScriptCommand::ResetForces { name } => {
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
+                {
+                    pw.reset_forces(e);
                 }
             }
             ScriptCommand::SetVelocity { name, vx, vy, vz } => {

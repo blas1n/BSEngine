@@ -157,6 +157,47 @@ impl PhysicsWorld {
         }
     }
 
+    /// Teleports a body's actual Rapier position, not just the `Transform`
+    /// component. For a `Dynamic` body, `Transform` is overwritten every
+    /// frame from the simulated Rapier position (see
+    /// `sync_transform_from_physics` in bsengine-runtime's physics plugin),
+    /// so a script calling `Bsengine.setTransform` on one needs this to make
+    /// the teleport actually stick instead of being silently undone next
+    /// frame.
+    pub fn set_translation(&mut self, entity: Entity, pos: Vec3) {
+        if let Some(&handle) = self.entity_body_map.get(&entity) {
+            if let Some(body) = self.rigid_body_set.get_mut(handle) {
+                body.set_translation(Vector::new(pos.x, pos.y, pos.z), true);
+            }
+        }
+    }
+
+    /// Rotation counterpart to [`Self::set_translation`] — see its doc for
+    /// why `Dynamic` bodies need this instead of only writing `Transform`.
+    pub fn set_rotation(&mut self, entity: Entity, rot: glam::Quat) {
+        if let Some(&handle) = self.entity_body_map.get(&entity) {
+            if let Some(body) = self.rigid_body_set.get_mut(handle) {
+                body.set_rotation(Rotation::from_xyzw(rot.x, rot.y, rot.z, rot.w), true);
+            }
+        }
+    }
+
+    /// Clears any force/torque accumulated via `apply_force`/`add_torque` —
+    /// those persist and keep being applied every subsequent step until
+    /// explicitly cleared (Rapier's own documented behavior for
+    /// `add_force`/`add_torque`). A script that teleports/stops a body
+    /// (fall recovery, "game over" freeze, ...) needs this alongside
+    /// `set_linvel`/`set_angvel` zeroing: velocity alone doesn't stop a
+    /// held-over force from reintroducing motion on the very next step.
+    pub fn reset_forces(&mut self, entity: Entity) {
+        if let Some(&handle) = self.entity_body_map.get(&entity) {
+            if let Some(body) = self.rigid_body_set.get_mut(handle) {
+                body.reset_forces(false);
+                body.reset_torques(false);
+            }
+        }
+    }
+
     pub fn apply_torque_impulse(&mut self, entity: Entity, impulse: Vec3) {
         if let Some(&handle) = self.entity_body_map.get(&entity) {
             if let Some(body) = self.rigid_body_set.get_mut(handle) {

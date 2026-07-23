@@ -1502,6 +1502,15 @@ impl WgpuSurface {
 
         // --- post-process passes: bloom → SSAO → composite → swapchain ---
         let is_editor = inspector.as_ref().map(|i| i.editor_mode).unwrap_or(false);
+        // In editor mode the rendered game view is a sub-panel within the
+        // dock layout, not the whole window — anchor the HUD to that
+        // panel's top-left instead of the window's, or "Fell! Retry" etc.
+        // paint under the toolbar/other panels instead of over the game.
+        let hud_offset = inspector
+            .as_ref()
+            .filter(|i| i.editor_mode)
+            .map(|i| (i.viewport_pos[0] + 8.0, i.viewport_pos[1] + 8.0))
+            .unwrap_or((8.0, 8.0));
         self.post_process.apply(&mut encoder, &view);
 
         // UI + HUD overlay via egui (always on in editor mode)
@@ -1569,7 +1578,10 @@ impl WgpuSurface {
 
             let mut new_text_values = ui_state.text_values.clone();
             let full_output = self.egui_ctx.run(raw_input, |ctx| {
-                // HUD texts — text-only overlay at top-left
+                // HUD texts — text-only overlay anchored to the game
+                // viewport's top-left (the whole window's top-left in
+                // non-editor mode, since hud_offset falls back to (8, 8)
+                // there — see hud_offset's computation above).
                 if !hud_texts.is_empty() {
                     let painter = ctx.layer_painter(egui::LayerId::new(
                         egui::Order::Foreground,
@@ -1580,7 +1592,7 @@ impl WgpuSurface {
                     for (i, key) in sorted_keys.iter().enumerate() {
                         let text = &hud_texts[*key];
                         painter.text(
-                            egui::pos2(8.0, 8.0 + i as f32 * 24.0),
+                            egui::pos2(hud_offset.0, hud_offset.1 + i as f32 * 24.0),
                             egui::Align2::LEFT_TOP,
                             text,
                             egui::FontId::proportional(20.0),

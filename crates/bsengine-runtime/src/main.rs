@@ -2,6 +2,7 @@ use std::env;
 
 use bsengine_app::new_app;
 use bsengine_audio::AudioPlugin;
+use bsengine_core::{EditorPlayState, InspectorState};
 use bsengine_editor::EditorPlugin;
 use bsengine_input::InputPlugin;
 use bsengine_network::NetworkPlugin;
@@ -78,5 +79,16 @@ fn run_windowed(project_dir: &str) {
             project_dir: project_dir.to_string(),
         });
     register_scene_systems(&mut app);
+
+    // bsengine-runtime's job is to run a game, not edit one — EditorPlugin
+    // is still included (for now, this is the only windowed entry point,
+    // and its inspector/hierarchy tooling is useful during development),
+    // but it defaults to InspectorState::editor()'s Stopped play state,
+    // which silently gates scripts (WASD, onUpdate, ...) off until the
+    // user finds and clicks the toolbar's Play button. Force Playing here
+    // so `cargo run -p bsengine-runtime -- <game>` actually plays the game
+    // immediately, matching what running a game is supposed to do.
+    app.world_mut().resource_mut::<InspectorState>().play_state = EditorPlayState::Playing;
+
     app.run();
 }

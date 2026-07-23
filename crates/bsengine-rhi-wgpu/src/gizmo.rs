@@ -280,6 +280,51 @@ pub fn draw_rotate_gizmo(
     }
 }
 
+/// World-space ground-plane (Y=0) grid line endpoints, `spacing` world units
+/// apart, out to `half_extent` lines on each side of the origin, projected
+/// to screen space. A line is omitted if either endpoint is behind the
+/// camera (see `world_to_screen`).
+pub fn ground_grid_lines(
+    view_proj: &[[f32; 4]; 4],
+    rect: Rect,
+    spacing: f32,
+    half_extent: i32,
+) -> Vec<[Pos2; 2]> {
+    let extent = half_extent as f32 * spacing;
+    let mut lines = Vec::new();
+    for i in -half_extent..=half_extent {
+        let offset = i as f32 * spacing;
+        if let (Some(a), Some(b)) = (
+            world_to_screen(Vec3::new(-extent, 0.0, offset), view_proj, rect),
+            world_to_screen(Vec3::new(extent, 0.0, offset), view_proj, rect),
+        ) {
+            lines.push([a, b]);
+        }
+        if let (Some(a), Some(b)) = (
+            world_to_screen(Vec3::new(offset, 0.0, -extent), view_proj, rect),
+            world_to_screen(Vec3::new(offset, 0.0, extent), view_proj, rect),
+        ) {
+            lines.push([a, b]);
+        }
+    }
+    lines
+}
+
+/// Paints pre-projected ground-grid lines with a faint, constant stroke.
+///
+/// Uses `from_rgba_premultiplied` with all four channels equal (30, 30, 30,
+/// 30) rather than a naive (255, 255, 255, 30): egui's premultiplied-alpha
+/// convention requires `r, g, b <= a` (the stored channels are already
+/// alpha-scaled), so a "white at 30/255 opacity" value must be pre-scaled to
+/// r=g=b=a=30, not left at full 255 with alpha tacked on — the latter is
+/// what caused the `theme.rs` `ACCENT_WASH` bug earlier in this plan.
+pub fn draw_ground_grid(painter: &Painter, lines: &[[Pos2; 2]]) {
+    let stroke = Stroke::new(1.0, Color32::from_rgba_premultiplied(30, 30, 30, 30));
+    for [a, b] in lines {
+        painter.line_segment([*a, *b], stroke);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -480,5 +525,21 @@ mod tests {
             hit_test_rotate(Vec3::ZERO, 1.0, &vp, rect, Pos2::new(-500.0, -500.0)),
             None
         );
+    }
+
+    #[test]
+    fn ground_grid_lines_returns_one_line_pair_per_row_and_column() {
+        let eye = Vec3::new(0.0, 10.0, 20.0);
+        let view = Mat4::look_at_rh(eye, Vec3::ZERO, Vec3::Y);
+        let proj = Mat4::perspective_rh(60f32.to_radians(), 1.0, 0.1, 1000.0);
+        let view_proj = (proj * view).to_cols_array_2d();
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
+
+        let lines = ground_grid_lines(&view_proj, rect, 1.0, 1);
+
+        // half_extent=1 means i in [-1, 0, 1]: 3 rows + 3 columns = 6 lines,
+        // all well within view of a camera at (0, 10, 20) looking at the
+        // origin, so none should be culled for being behind the camera.
+        assert_eq!(lines.len(), 6);
     }
 }

@@ -183,6 +183,9 @@ pub struct InspectorState {
     /// full tree"; non-empty switches Hierarchy to a flat, name-filtered
     /// list (see `HierarchyPanel::matches_search`).
     pub hierarchy_search: String,
+    /// Whether the viewport draws the ground-plane reference grid. Toggled
+    /// by the viewport overlay's grid button.
+    pub show_grid: bool,
     pub edit_visible: bool,
     prev_selected_id: Option<u64>,
 
@@ -244,6 +247,7 @@ impl Default for InspectorState {
             edit_new_tag: String::new(),
             edit_script_path: String::new(),
             hierarchy_search: String::new(),
+            show_grid: true,
             edit_visible: true,
             prev_selected_id: None,
             editor_mode: false,

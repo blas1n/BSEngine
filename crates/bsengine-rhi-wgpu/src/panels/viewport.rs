@@ -27,6 +27,13 @@ impl EditorPanel for ViewportPanel {
         // view_proj no longer matches.
         let is_stopped = insp.play_state == bsengine_core::EditorPlayState::Stopped;
 
+        if is_stopped && insp.show_grid {
+            if let Some(view_proj) = insp.editor_view_proj {
+                let lines = crate::gizmo::ground_grid_lines(&view_proj, panel_rect, 1.0, 10);
+                crate::gizmo::draw_ground_grid(ui.painter(), &lines);
+            }
+        }
+
         if is_stopped {
             if let Some(view_proj) = insp.editor_view_proj {
                 for info in entities_snapshot {
@@ -204,5 +211,53 @@ impl EditorPanel for ViewportPanel {
                 }
             }
         }
+
+        egui::Area::new(egui::Id::new("viewport_mini_toolbar"))
+            .fixed_pos(panel_rect.min + egui::vec2(8.0, 8.0))
+            .show(ui.ctx(), |ui| {
+                egui::Frame::menu(ui.style()).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        if ui
+                            .selectable_label(
+                                insp.gizmo_mode == bsengine_core::GizmoMode::Translate,
+                                egui_phosphor::regular::ARROWS_OUT_CARDINAL,
+                            )
+                            .on_hover_text("Move (W)")
+                            .clicked()
+                        {
+                            insp.gizmo_mode = bsengine_core::GizmoMode::Translate;
+                        }
+                        if ui
+                            .selectable_label(
+                                insp.gizmo_mode == bsengine_core::GizmoMode::Rotate,
+                                egui_phosphor::regular::ARROWS_CLOCKWISE,
+                            )
+                            .on_hover_text("Rotate (E)")
+                            .clicked()
+                        {
+                            insp.gizmo_mode = bsengine_core::GizmoMode::Rotate;
+                        }
+                        if ui
+                            .selectable_label(insp.show_grid, egui_phosphor::regular::GRID_FOUR)
+                            .on_hover_text("Toggle Grid")
+                            .clicked()
+                        {
+                            insp.show_grid = !insp.show_grid;
+                        }
+                    });
+                });
+            });
+
+        egui::Area::new(egui::Id::new("viewport_stats_overlay"))
+            .fixed_pos(egui::Pos2::new(
+                panel_rect.max.x - 90.0,
+                panel_rect.min.y + 8.0,
+            ))
+            .show(ui.ctx(), |ui| {
+                egui::Frame::menu(ui.style()).show(ui, |ui| {
+                    let fps = 1.0 / ui.ctx().input(|i| i.stable_dt.max(1e-6));
+                    ui.colored_label(crate::theme::TEXT_DIM, format!("{fps:.0} FPS"));
+                });
+            });
     }
 }

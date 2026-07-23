@@ -111,9 +111,8 @@ pub struct AssetBrowserPanel {
     current_dir: PathBuf,
     entries: Vec<AssetEntry>,
     scanned: bool,
-    /// Set by a double-clicked Scene tile; drained into
-    /// `InspectorCmd::LoadScene` in a later task (Task 7 of this plan) —
-    /// for now it's just stored, not yet consumed.
+    /// Set by a double-clicked Scene tile; drained at the end of `ui` into
+    /// `InspectorCmd::LoadScene` via `ctx.insp.cmd_queue`.
     pending_load_scene: Option<String>,
     /// In-memory cache of decoded+downsampled Texture-tile thumbnails,
     /// keyed by asset path. Cleared implicitly whenever this panel is
@@ -178,6 +177,12 @@ impl EditorPanel for AssetBrowserPanel {
         if let Some(dir) = navigate_to {
             self.current_dir = dir;
             self.entries = scan_dir(&self.current_dir);
+        }
+
+        if let Some(path) = self.pending_load_scene.take() {
+            ctx.insp
+                .cmd_queue
+                .push(bsengine_core::InspectorCmd::LoadScene { path });
         }
     }
 }

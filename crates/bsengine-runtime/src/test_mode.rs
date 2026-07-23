@@ -324,4 +324,59 @@ mod tests {
         assert!(names.contains(&"SceneB".to_string()), "names: {names:?}");
         assert!(!names.contains(&"SceneA".to_string()), "names: {names:?}");
     }
+
+    // Regression test for the "Play resets the scene" crash: EditorPlugin
+    // pushing InspectorCmd::ReloadScene used to make handle_scene_load
+    // construct a brand-new V8 isolate mid-session, which corrupted V8's
+    // isolate state whenever EditorPlugin's stack was also active — the
+    // game crashed with "Cannot create a handle without a HandleScope" the
+    // next time a script ran. The fix (var Bsengine in BOOTSTRAP_JS, no
+    // isolate recreation in handle_scene_load) means this combination is
+    // now safe to exercise headlessly, unlike before that fix. Uses
+    // cube-evader (not the synthetic two-scene fixture above) because it
+    // has a real Player script — a reload with no scripted entities never
+    // touches BOOTSTRAP_JS/V8 at all and wouldn't exercise the bug.
+    #[test]
+    fn editor_plugin_reload_scene_does_not_corrupt_scripting() {
+        let project_dir = format!("{}/../../games/cube-evader", env!("CARGO_MANIFEST_DIR"));
+        let mut app = build_test_app(&project_dir, None);
+        let scene_path = app
+            .world()
+            .resource::<InspectorState>()
+            .current_scene_path
+            .clone()
+            .expect("build_test_app should set current_scene_path");
+        app.add_plugins(bsengine_editor::EditorPlugin);
+        {
+            let mut inspector = app.world_mut().resource_mut::<InspectorState>();
+            inspector.play_state = EditorPlayState::Playing;
+            inspector.current_scene_path = Some(scene_path);
+        }
+
+        app.world_mut()
+            .resource_mut::<Input<KeyCode>>()
+            .press(KeyCode::W);
+        for _ in 0..20 {
+            app.update();
+        }
+
+        app.world_mut()
+            .resource_mut::<Input<KeyCode>>()
+            .release(KeyCode::W);
+        app.world_mut()
+            .resource_mut::<InspectorState>()
+            .cmd_queue
+            .push(bsengine_core::InspectorCmd::ReloadScene);
+        for _ in 0..3 {
+            app.update();
+        }
+
+        let z = crate::test_query::get_transform(app.world_mut(), "Player")["z"]
+            .as_f64()
+            .expect("Player should exist with a transform after reload");
+        assert!(
+            z.abs() < 0.01,
+            "Player should be back at its authored z=0.0 after reload, got {z}"
+        );
+    }
 }

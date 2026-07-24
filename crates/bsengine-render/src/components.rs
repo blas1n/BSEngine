@@ -1,7 +1,9 @@
 use bevy_ecs::prelude::Component;
 
+/// Marks an entity as drawable and identifies which mesh asset to render it with.
 #[derive(Component, Debug, Clone)]
 pub struct MeshRenderer {
+    /// Id of the mesh asset to draw, as registered with the mesh/asset store.
     pub mesh_id: u64,
 }
 

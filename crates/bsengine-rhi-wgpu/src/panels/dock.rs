@@ -47,8 +47,9 @@ pub fn ensure_builtin_panels(registry: &EditorPanelRegistry) {
         .or_insert_with(|| Box::new(crate::panels::HierarchyPanel) as Box<dyn EditorPanel>);
     map.entry("inspector".to_string())
         .or_insert_with(|| Box::new(crate::panels::InspectorPanel) as Box<dyn EditorPanel>);
-    map.entry("viewport".to_string())
-        .or_insert_with(|| Box::new(crate::panels::ViewportPanel) as Box<dyn EditorPanel>);
+    map.entry("viewport".to_string()).or_insert_with(|| {
+        Box::new(crate::panels::ViewportPanel::default()) as Box<dyn EditorPanel>
+    });
     map.entry("assets".to_string()).or_insert_with(|| {
         Box::new(crate::panels::AssetBrowserPanel::default()) as Box<dyn EditorPanel>
     });

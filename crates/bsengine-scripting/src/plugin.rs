@@ -41,10 +41,12 @@ pub struct ProjectDir(pub String);
 /// Loaded JS source for a scripted entity.
 #[derive(Component)]
 pub struct Script {
+    /// The full text of the entity's script file.
     pub source: String,
 }
 
-// Not Send/Sync — stored as a non-send resource via insert_non_send_resource.
+/// Non-Send wrapper around the entity's V8 isolate; stored as a non-send
+/// resource via `insert_non_send_resource` since `JsRuntime` isn't `Send`/`Sync`.
 pub struct ScriptRuntimeResource(pub ScriptRuntime);
 
 /// Stores kira sound handles by script-assigned id for stopSound support.
@@ -57,7 +59,10 @@ pub(crate) struct ScriptTimingState {
     last_frame: std::time::Instant,
 }
 
+/// Bevy plugin that wires up the JS scripting runtime: loads scripts, runs
+/// them each frame, and exposes ECS state to them via the `bsengine_ops` extension.
 pub struct ScriptingPlugin {
+    /// Root directory used to resolve relative script paths.
     pub project_dir: String,
 }
 
@@ -107,6 +112,8 @@ fn capture_collision_events(
     COLLISION_SNAPSHOT.with(|s| *s.borrow_mut() = collisions);
 }
 
+/// Read the JS source for every entity with a `ScriptPath` (resolved against
+/// `ProjectDir`) and attach it as a `Script` component.
 pub fn load_scripts(world: &mut World) {
     let project_dir = world
         .get_resource::<ProjectDir>()

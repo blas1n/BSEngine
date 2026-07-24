@@ -12,7 +12,11 @@
 #![allow(clippy::type_complexity)]
 #![warn(missing_docs)]
 
+/// Registers the editor's ECS systems, resources, and the `EditorCommand`/
+/// `ReflectCommand` processing loop into a Bevy `App`.
 pub mod plugin;
+/// The MCP-facing data model: `EditorSnapshot`, `EntityInfo`, `EditorCommand`,
+/// `ReflectCommand`, and the shared resources the editor bridge reads/writes.
 pub mod snapshot;
 
 pub use plugin::EditorPlugin;

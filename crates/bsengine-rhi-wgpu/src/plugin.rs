@@ -9,9 +9,12 @@ use bsengine_rhi::RHI;
 use bsengine_window::{WindowHandle, WindowResized};
 use std::sync::Arc;
 
+/// ECS resource wrapping the app's shared `RHI` implementation.
 #[derive(Resource)]
 pub struct RhiResource(pub Arc<dyn RHI>);
 
+/// Bevy plugin that initializes the wgpu RHI, creates the swapchain surface,
+/// and wires up window-resize handling.
 pub struct WgpuRHIPlugin;
 
 impl Plugin for WgpuRHIPlugin {

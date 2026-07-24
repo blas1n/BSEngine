@@ -8,12 +8,14 @@ use bevy_reflect::Reflect;
 #[derive(Component, Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Component, Default)]
 pub struct Mass {
+    /// Mass in kilograms, clamped away from zero to avoid division by zero.
     pub value: f32,
 }
 
 impl Mass {
     const MIN: f32 = 1e-6;
 
+    /// Creates a mass from a kilogram value, clamped to a small positive minimum.
     pub fn new(kg: f32) -> Self {
         Self {
             value: kg.max(Self::MIN),

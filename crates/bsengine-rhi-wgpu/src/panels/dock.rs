@@ -68,6 +68,7 @@ pub fn load_dock_state(path: &Path) -> Option<DockState<String>> {
     }
 }
 
+/// Serializes and writes the dock layout to `path`; failures are logged as warnings, not propagated.
 pub fn save_dock_state(path: &Path, state: &DockState<String>) {
     match serde_json::to_string(state) {
         Ok(json) => {
@@ -85,10 +86,15 @@ pub fn save_dock_state(path: &Path, state: &DockState<String>) {
 /// panel type that's no longer registered) renders a placeholder instead
 /// of panicking.
 pub struct BseTabViewer<'a> {
+    /// Shared editor/inspector state (selection, edit buffers, command queue).
     pub insp: &'a mut InspectorState,
+    /// This frame's snapshot of every entity's inspectable info.
     pub entities_snapshot: &'a [InspectorEntityInfo],
+    /// Current mouse position in window space, forwarded to panels for hit-testing.
     pub cursor_pos: (f32, f32),
+    /// Registered panel instances, keyed by tab id.
     pub panels: &'a mut HashMap<String, Box<dyn EditorPanel>>,
+    /// Reflection type registry, used to render/edit reflected components.
     pub type_registry: Option<&'a bevy_reflect::TypeRegistry>,
 }
 

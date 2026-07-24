@@ -2,6 +2,8 @@ use bevy_app::{App, Plugin, PostUpdate};
 use bsengine_core::{AnimationPlayer, AnimationStateMachine, Time, TransitionCondition};
 use bsengine_ecs::{Query, Res};
 
+/// Evaluates `AnimationStateMachine` transitions in `PostUpdate` and drives the
+/// entity's `AnimationPlayer` (clip, speed, looping) and crossfade blend weight.
 pub struct AnimationStateMachinePlugin;
 
 impl Plugin for AnimationStateMachinePlugin {

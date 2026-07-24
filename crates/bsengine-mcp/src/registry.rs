@@ -2,25 +2,32 @@ use crate::tool::{McpTool, McpToolOutput};
 use serde_json::Value;
 use std::collections::HashMap;
 
+/// Holds `McpTool`s keyed by name and dispatches calls to them by name.
 pub struct McpToolRegistry {
     tools: HashMap<String, McpTool>,
 }
 
 impl McpToolRegistry {
+    /// Creates an empty registry with no tools registered.
     pub fn new() -> Self {
         Self {
             tools: HashMap::new(),
         }
     }
 
+    /// Adds a tool to the registry, replacing any existing tool with the same name.
     pub fn register(&mut self, tool: McpTool) {
         self.tools.insert(tool.name.clone(), tool);
     }
 
+    /// Returns all currently registered tools, in arbitrary order.
     pub fn list_tools(&self) -> Vec<&McpTool> {
         self.tools.values().collect()
     }
 
+    /// Looks up the tool by name and runs its handler on `input`.
+    ///
+    /// Returns `Err` if no tool with that name is registered.
     pub fn execute(&self, name: &str, input: Value) -> Result<McpToolOutput, String> {
         let tool = self
             .tools

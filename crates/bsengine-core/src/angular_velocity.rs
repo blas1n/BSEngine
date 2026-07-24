@@ -10,6 +10,7 @@ use glam::Vec3;
 #[derive(Component, Debug, Clone, PartialEq, Reflect)]
 #[reflect(Component, Default)]
 pub struct AngularVelocity {
+    /// Per-axis angular rate in radians per second (pitch, yaw, roll).
     pub angular: ReflectVec3,
 }
 
@@ -22,12 +23,14 @@ impl Default for AngularVelocity {
 }
 
 impl AngularVelocity {
+    /// Creates an angular velocity from per-axis rates in radians per second.
     pub fn new(pitch: f32, yaw: f32, roll: f32) -> Self {
         Self {
             angular: Vec3::new(pitch, yaw, roll).into(),
         }
     }
 
+    /// Creates an angular velocity from a `glam::Vec3` of Euler rates.
     pub fn from_vec3(angular: Vec3) -> Self {
         Self {
             angular: angular.into(),

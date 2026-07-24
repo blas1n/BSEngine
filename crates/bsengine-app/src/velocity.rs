@@ -2,6 +2,7 @@ use bevy_app::{App, Plugin, Update};
 use bsengine_core::{Time, Transform, Velocity};
 use bsengine_ecs::{Query, Res};
 
+/// Integrates each entity's `Transform` translation by its `Velocity` every frame.
 pub struct VelocityPlugin;
 
 impl Plugin for VelocityPlugin {

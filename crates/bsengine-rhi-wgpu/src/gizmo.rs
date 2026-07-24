@@ -5,8 +5,11 @@
 use egui::{Color32, Painter, Pos2, Rect, Stroke, Vec2};
 use glam::{Mat4, Quat, Vec3};
 
+/// Gizmo axis id for the X axis.
 pub const AXIS_X: u8 = 0;
+/// Gizmo axis id for the Y axis.
 pub const AXIS_Y: u8 = 1;
+/// Gizmo axis id for the Z axis.
 pub const AXIS_Z: u8 = 2;
 
 const HANDLE_HIT_RADIUS: f32 = 8.0;
@@ -18,6 +21,7 @@ const HANDLE_LENGTH_FRACTION: f32 = 0.15;
 const FRUSTUM_VIZ_DISTANCE: f32 = 1.2;
 const FRUSTUM_DEFAULT_ASPECT: f32 = 16.0 / 9.0;
 
+/// Maps a gizmo axis id to its unit direction vector in world space.
 pub fn axis_dir(axis: u8) -> Vec3 {
     match axis {
         AXIS_X => Vec3::X,

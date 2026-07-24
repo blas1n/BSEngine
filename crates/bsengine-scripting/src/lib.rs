@@ -12,9 +12,13 @@
 #![allow(clippy::type_complexity)]
 #![warn(missing_docs)]
 // bsengine-scripting
+/// Deno ops exposing ECS state and mutations to JS scripts as `Bsengine.*` calls.
 pub mod ops;
+/// The `ScriptingPlugin` Bevy plugin and its supporting components/resources.
 pub mod plugin;
+/// The `ScriptRuntime` V8 isolate wrapper used to execute script source.
 pub mod runtime;
+/// Script-driven save-game serialization to/from JSON.
 pub mod save;
 pub use plugin::{
     load_scripts, ProjectDir, Script, ScriptRuntimeResource, ScriptingPlugin, SoundHandles,

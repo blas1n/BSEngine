@@ -1,8 +1,10 @@
 use bevy_ecs::prelude::{Component, Resource};
 use serde::{Deserialize, Serialize};
 
+/// Root of a scene file: the list of entities to spawn plus scene-wide settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SceneDescriptor {
+    /// Entities to spawn into the world, in file order.
     pub entities: Vec<EntityDescriptor>,
     /// Optional equirectangular skybox image path (relative to the scene file).
     #[serde(default)]
@@ -12,9 +14,13 @@ pub struct SceneDescriptor {
 /// Built-in primitive mesh shapes that the runtime can spawn without an asset file.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Primitive {
+    /// Unit cube.
     Cube,
+    /// Unit sphere.
     Sphere,
+    /// Flat ground plane.
     Plane,
+    /// Cylinder with hemispherical caps.
     Capsule,
 }
 
@@ -33,26 +39,36 @@ pub struct ScriptPath(pub String);
 /// required.  The legacy `components` field is kept for compatibility.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EntityDescriptor {
+    /// Name assigned to the spawned entity's `Name` component.
     pub name: String,
+    /// Initial position/rotation/scale. Absent means no `Transform` component is added.
     #[serde(default)]
     pub transform: Option<TransformDescriptor>,
+    /// Path to a glTF asset to load as this entity's mesh.
     #[serde(default)]
     pub gltf: Option<String>,
+    /// Whether this entity should get a `Camera` component.
     #[serde(default)]
     pub camera: bool,
     /// Camera-only: vertical field of view in degrees. Defaults to 60 if absent.
     #[serde(default)]
     pub camera_fov: Option<f32>,
+    /// Directional (sun-like) light to attach to this entity.
     #[serde(default)]
     pub directional_light: Option<DirectionalLightDescriptor>,
+    /// Point light to attach to this entity.
     #[serde(default)]
     pub point_light: Option<PointLightDescriptor>,
+    /// Spot light to attach to this entity.
     #[serde(default)]
     pub spot_light: Option<SpotLightDescriptor>,
+    /// Built-in primitive mesh shape to spawn, if not using a glTF asset.
     #[serde(default)]
     pub primitive: Option<Primitive>,
+    /// Path to a JS script to attach via `ScriptPath`.
     #[serde(default)]
     pub script: Option<String>,
+    /// Emissive color as [r, g, b], added on top of the base color.
     #[serde(default)]
     pub emissive: Option<[f32; 3]>,
     /// Albedo/base color as [r, g, b] in linear 0–1. Multiplies the mesh vertex color and texture.
@@ -61,21 +77,27 @@ pub struct EntityDescriptor {
     /// Camera-only: point in world space the camera should face. Overrides the transform rotation.
     #[serde(default)]
     pub look_at: Option<[f32; 3]>,
+    /// Physics body type; requires `collider` to also be set to take effect.
     #[serde(default)]
     pub rigidbody: Option<RigidBodyDesc>,
+    /// Collision shape and material; requires `rigidbody` to also be set to take effect.
     #[serde(default)]
     pub collider: Option<ColliderDesc>,
+    /// Legacy (name, json) component pairs, kept for backwards compatibility.
     #[serde(default)]
     pub components: Vec<(String, String)>,
 }
 
+/// Position, rotation, and scale for a scene entity, as written in a scene file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransformDescriptor {
+    /// World-space position as [x, y, z]. Defaults to the origin.
     #[serde(default)]
     pub translation: [f32; 3],
     /// Quaternion as [x, y, z, w].  Defaults to identity.
     #[serde(default = "default_rotation")]
     pub rotation: [f32; 4],
+    /// Per-axis scale as [x, y, z]. Defaults to uniform scale of 1.
     #[serde(default = "default_scale")]
     pub scale: [f32; 3],
 }
@@ -90,31 +112,43 @@ impl Default for TransformDescriptor {
     }
 }
 
+/// Sun-like light that shines uniformly along `direction`, with no falloff over distance.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DirectionalLightDescriptor {
+    /// Direction the light travels in, as [x, y, z]. Does not need to be normalized.
     pub direction: [f32; 3],
+    /// Light color as [r, g, b] in linear 0-1. Defaults to white.
     #[serde(default = "default_white")]
     pub color: [f32; 3],
+    /// Ambient light color added uniformly to unlit surfaces, as [r, g, b].
     #[serde(default = "default_ambient")]
     pub ambient: [f32; 3],
 }
 
+/// Omnidirectional light that falls off with distance from the entity's position.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PointLightDescriptor {
+    /// Light color as [r, g, b] in linear 0-1. Defaults to white.
     #[serde(default = "default_white")]
     pub color: [f32; 3],
+    /// Brightness multiplier. Defaults to 1.
     #[serde(default = "default_intensity")]
     pub intensity: f32,
+    /// Maximum distance the light reaches, in world units.
     #[serde(default = "default_range")]
     pub range: f32,
 }
 
+/// Cone-shaped light that falls off with distance and angle from the entity's forward direction.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpotLightDescriptor {
+    /// Light color as [r, g, b] in linear 0-1. Defaults to white.
     #[serde(default = "default_white")]
     pub color: [f32; 3],
+    /// Brightness multiplier. Defaults to 1.
     #[serde(default = "default_intensity")]
     pub intensity: f32,
+    /// Maximum distance the light reaches, in world units.
     #[serde(default = "default_range")]
     pub range: f32,
     /// Inner cone half-angle in degrees — full brightness inside.
@@ -128,27 +162,52 @@ pub struct SpotLightDescriptor {
 /// Rigid body type for physics descriptors in scene files.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum RigidBodyDesc {
+    /// Fully simulated body, affected by forces, gravity, and collisions.
     Dynamic,
+    /// Immovable body that other bodies can collide with but that never moves itself.
     Static,
+    /// Body moved directly by code/animation rather than by the physics simulation.
     Kinematic,
 }
 
 /// Collider shape descriptor for scene files.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ColliderShapeDesc {
-    Box { hx: f32, hy: f32, hz: f32 },
-    Sphere { radius: f32 },
-    Capsule { half_height: f32, radius: f32 },
+    /// Axis-aligned box collider defined by its half-extents.
+    Box {
+        /// Half-extent along the x axis.
+        hx: f32,
+        /// Half-extent along the y axis.
+        hy: f32,
+        /// Half-extent along the z axis.
+        hz: f32,
+    },
+    /// Spherical collider.
+    Sphere {
+        /// Sphere radius.
+        radius: f32,
+    },
+    /// Capsule collider: a cylinder with hemispherical caps, aligned to the local y axis.
+    Capsule {
+        /// Half the height of the cylindrical section, excluding the end caps.
+        half_height: f32,
+        /// Radius of the cylindrical section and end caps.
+        radius: f32,
+    },
 }
 
 /// Full collider descriptor for scene files.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ColliderDesc {
+    /// Collision geometry.
     pub shape: ColliderShapeDesc,
+    /// Bounciness, from 0 (no bounce) to 1 (fully elastic).
     #[serde(default)]
     pub restitution: f32,
+    /// Surface friction coefficient. Defaults to 0.5.
     #[serde(default = "default_friction")]
     pub friction: f32,
+    /// If true, this collider detects overlaps but does not physically collide.
     #[serde(default)]
     pub sensor: bool,
 }
@@ -157,13 +216,16 @@ pub struct ColliderDesc {
 /// The runtime resolves this into actual physics components.
 #[derive(Component, Debug, Clone)]
 pub struct PhysicsBodyDesc {
+    /// Physics simulation type for this body.
     pub rigidbody: RigidBodyDesc,
+    /// Collision shape and material for this body.
     pub collider: ColliderDesc,
 }
 
 /// Signals a runtime scene transition was requested via script.
 #[derive(Resource)]
 pub struct PendingSceneLoad {
+    /// Path to the scene file to load next.
     pub path: String,
 }
 

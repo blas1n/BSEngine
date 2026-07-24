@@ -8,49 +8,93 @@
 //! and editor-facing infrastructure (`InspectorState`, `EditorPanelRegistry`).
 #![warn(missing_docs)]
 
+/// Screen-space ambient occlusion post-process settings.
 pub mod ambient_occlusion;
+/// Angular (rotational) velocity component for physics-driven entities.
 pub mod angular_velocity;
+/// Simple single-clip skeletal/sprite animation playback component.
 pub mod animation_player;
+/// Graph-based animation state machine with parameterized transitions.
 pub mod animation_state_machine;
+/// HDR bloom post-process settings.
 pub mod bloom;
+/// Perspective camera component and projection math.
 pub mod camera;
+/// Cursor visibility/lock configuration resource.
 pub mod cursor_config;
+/// Current cursor position resource, in window space.
 pub mod cursor_pos;
+/// Custom shader override component for materials.
 pub mod custom_shader;
+/// Linear/angular velocity damping (drag) component.
 pub mod damping;
+/// Editor-side dockable panel trait and registry.
 pub mod editor_panel;
+/// One-shot linear/angular impulse component consumed by the physics step.
 pub mod external_impulse;
+/// Components that make an entity's transform track another entity.
 pub mod follow;
+/// World-space transform resulting from local transform + parent hierarchy.
 pub mod global_transform;
+/// Gravitational acceleration resource and per-entity gravity scale.
 pub mod gravity;
+/// Named on-screen HUD text overlay resource.
 pub mod hud_texts;
+/// Editor inspector state, entity snapshots, and inspector command protocol.
 pub mod inspector;
+/// Countdown-to-despawn component for temporary entities.
 pub mod lifetime;
+/// Directional, point, and spot light components.
 pub mod light;
+/// Engine-wide logging initialization.
 pub mod logging;
+/// Physical mass component used by the physics integrator.
 pub mod mass;
+/// PBR material properties component.
 pub mod material;
+/// Human-readable entity name component.
 pub mod name;
+/// Baked navigation mesh resource used for pathfinding.
 pub mod nav_mesh;
+/// Nav-mesh-driven pathing agent component and its runtime state.
 pub mod nav_mesh_agent;
+/// Networked entity identity and authority components.
 pub mod network_id;
+/// Parent-entity reference for building transform hierarchies.
 pub mod parent;
+/// `bevy_reflect`-friendly wrapper for RGBA color values.
 pub mod reflect_color;
+/// `bevy_reflect`-friendly wrapper for angles expressed in degrees.
 pub mod reflect_degrees;
+/// `bevy_reflect`-friendly wrappers for `glam` vector and quaternion types.
 pub mod reflect_glam;
+/// `bevy_reflect`-friendly wrapper for a `glam::Mat4`.
 pub mod reflect_mat4;
+/// Validation trait for reflected component field values.
 pub mod reflect_validate;
+/// Serializable save-game data resource.
 pub mod save_data;
+/// Current window/render-target size resource.
 pub mod screen_size;
+/// Depletable shield/absorb-damage component.
 pub mod shield;
+/// Skybox background component and its projection mode.
 pub mod skybox;
+/// Frame and elapsed-time resource driven by the app's main loop.
 pub mod time;
+/// Simple countdown timer component.
 pub mod timer;
+/// HDR-to-LDR tone mapping post-process settings.
 pub mod tone_map;
+/// Local position/rotation/scale transform component.
 pub mod transform;
+/// Time-driven property tween/animation component.
 pub mod tween;
+/// Immediate-mode UI widget tree and state resource.
 pub mod ui_state;
+/// Linear velocity component consumed by the physics integrator.
 pub mod velocity;
+/// Visibility toggle component controlling whether an entity is rendered.
 pub mod visible;
 
 pub use ambient_occlusion::AmbientOcclusion;
@@ -102,6 +146,8 @@ pub use ui_state::{UiState, UiWidget};
 pub use velocity::Velocity;
 pub use visible::Visible;
 
+/// Recomputes every entity's [`GlobalTransform`] from its local [`Transform`]
+/// and [`Parent`] chain, iterating a fixed number of passes to settle deep hierarchies.
 pub fn propagate_global_transforms(world: &mut bevy_ecs::world::World) {
     use bevy_ecs::prelude::Entity;
     use glam::Mat4;

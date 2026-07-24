@@ -7,6 +7,7 @@ use glam::Vec3;
 /// Insert this resource to override the default (9.81 m/s² downward).
 #[derive(Resource, Debug, Clone, PartialEq)]
 pub struct Gravity {
+    /// World-space acceleration applied per second to entities with `Velocity`.
     pub acceleration: Vec3,
 }
 
@@ -19,10 +20,12 @@ impl Default for Gravity {
 }
 
 impl Gravity {
+    /// Creates a gravity resource with the given world-space acceleration.
     pub fn new(acceleration: Vec3) -> Self {
         Self { acceleration }
     }
 
+    /// Creates a gravity resource with zero acceleration.
     pub fn zero() -> Self {
         Self {
             acceleration: Vec3::ZERO,
@@ -43,10 +46,12 @@ impl Default for GravityScale {
 }
 
 impl GravityScale {
+    /// Creates a gravity scale with the given multiplier.
     pub fn new(scale: f32) -> Self {
         Self(scale)
     }
 
+    /// Returns the underlying multiplier value.
     pub fn value(self) -> f32 {
         self.0
     }

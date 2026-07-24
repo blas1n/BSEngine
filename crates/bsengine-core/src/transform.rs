@@ -4,11 +4,15 @@ use bevy_reflect::prelude::ReflectDefault;
 use bevy_reflect::Reflect;
 use glam::{Mat4, Quat, Vec3};
 
+/// Local position, rotation, and scale of an entity, relative to its parent (if any).
 #[derive(Component, Debug, Clone, PartialEq, Reflect)]
 #[reflect(Component, Default)]
 pub struct Transform {
+    /// Local-space position.
     pub translation: ReflectVec3,
+    /// Local-space rotation.
     pub rotation: ReflectQuat,
+    /// Local-space scale.
     pub scale: ReflectVec3,
 }
 
@@ -23,6 +27,7 @@ impl Default for Transform {
 }
 
 impl Transform {
+    /// Creates a transform at the given position with identity rotation and unit scale.
     pub fn from_translation(translation: Vec3) -> Self {
         Self {
             translation: translation.into(),
@@ -30,6 +35,7 @@ impl Transform {
         }
     }
 
+    /// Rotates this transform so it faces `target`, using `up` to determine the roll axis.
     pub fn looking_at(mut self, target: Vec3, up: Vec3) -> Self {
         let dir = (target - self.translation.0).normalize();
         let right = up.cross(dir).normalize();
@@ -38,10 +44,12 @@ impl Transform {
         self
     }
 
+    /// Builds the local-to-world transform matrix (scale, then rotate, then translate).
     pub fn to_matrix(&self) -> Mat4 {
         Mat4::from_scale_rotation_translation(self.scale.0, self.rotation.0, self.translation.0)
     }
 
+    /// Builds the world-to-view matrix, i.e. the inverse of `to_matrix()`.
     pub fn view_matrix(&self) -> Mat4 {
         self.to_matrix().inverse()
     }

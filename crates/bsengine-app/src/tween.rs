@@ -2,6 +2,8 @@ use bevy_app::{App, Plugin, Update};
 use bsengine_core::{Time, Transform, Tween, TweenTarget};
 use bsengine_ecs::{Query, Res};
 
+/// Advances each entity's `Tween` and applies the eased value to its `Transform`,
+/// handling `RepeatMode::Once`/`Loop`/`PingPong` once the tween completes.
 pub struct TweenPlugin;
 
 impl Plugin for TweenPlugin {

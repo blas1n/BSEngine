@@ -28,11 +28,14 @@ pub struct Skybox {
     pub intensity: f32,
     /// Y-axis rotation of the skybox in radians.
     pub rotation: f32,
+    /// How the texture at `path` is laid out.
     pub projection: SkyboxProjection,
+    /// Whether the skybox is rendered at all.
     pub enabled: bool,
 }
 
 impl Skybox {
+    /// Creates an enabled skybox from the given texture path with default intensity/rotation.
     pub fn new(path: impl Into<String>) -> Self {
         Self {
             path: path.into(),
@@ -43,21 +46,25 @@ impl Skybox {
         }
     }
 
+    /// Sets the brightness multiplier, clamped to non-negative.
     pub fn with_intensity(mut self, intensity: f32) -> Self {
         self.intensity = intensity.max(0.0);
         self
     }
 
+    /// Sets the Y-axis rotation, in radians.
     pub fn with_rotation(mut self, radians: f32) -> Self {
         self.rotation = radians;
         self
     }
 
+    /// Sets how the skybox texture is laid out.
     pub fn with_projection(mut self, projection: SkyboxProjection) -> Self {
         self.projection = projection;
         self
     }
 
+    /// Turns the skybox off while keeping its other settings.
     pub fn disabled(mut self) -> Self {
         self.enabled = false;
         self

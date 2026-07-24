@@ -7,31 +7,52 @@ use bsengine_core::{Name, SaveData, Transform};
 use glam::{Quat, Vec3};
 use serde::{Deserialize, Serialize};
 
+/// Root JSON structure of a save-game file: a format version plus the
+/// serialized state of every named, transform-bearing entity.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GameSaveFile {
+    /// Save-file format version, for future migration compatibility.
     pub version: String,
+    /// Serialized entities captured at save time.
     pub entities: Vec<EntitySave>,
 }
 
+/// Serialized state of a single entity: its identifying name, transform,
+/// and any script-defined `SaveData` fields.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct EntitySave {
+    /// The entity's `Name` component value, used to match it on load.
     pub name: String,
+    /// The entity's position, rotation, and scale at save time.
     pub transform: TransformSave,
+    /// Script-defined key/value fields from the entity's `SaveData`, stored as UTF-8 strings.
     #[serde(default)]
     pub fields: HashMap<String, String>,
 }
 
+/// Flat, JSON-friendly encoding of a `Transform` (translation, quaternion
+/// rotation, and scale) for save files.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TransformSave {
+    /// Translation X component.
     pub x: f32,
+    /// Translation Y component.
     pub y: f32,
+    /// Translation Z component.
     pub z: f32,
+    /// Rotation quaternion X component.
     pub rx: f32,
+    /// Rotation quaternion Y component.
     pub ry: f32,
+    /// Rotation quaternion Z component.
     pub rz: f32,
+    /// Rotation quaternion W component.
     pub rw: f32,
+    /// Scale X component.
     pub sx: f32,
+    /// Scale Y component.
     pub sy: f32,
+    /// Scale Z component.
     pub sz: f32,
 }
 

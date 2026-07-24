@@ -5,6 +5,7 @@ use std::collections::HashMap;
 /// Values are stored as raw bytes; higher-level systems serialize/deserialize them.
 #[derive(Component, Debug, Clone, PartialEq)]
 pub struct SaveData {
+    /// Which save slot this data belongs to.
     pub slot: u32,
     /// Named fields — key = field name, value = raw serialised bytes.
     pub fields: HashMap<String, Vec<u8>>,
@@ -12,10 +13,12 @@ pub struct SaveData {
     pub last_saved_at: u64,
     /// Whether there are unsaved changes since the last flush.
     pub dirty: bool,
+    /// Whether this save slot is active and should be persisted.
     pub enabled: bool,
 }
 
 impl SaveData {
+    /// Creates an empty, enabled save slot with the given slot number.
     pub fn new(slot: u32) -> Self {
         Self {
             slot,
@@ -26,6 +29,7 @@ impl SaveData {
         }
     }
 
+    /// Turns this save slot off.
     pub fn disabled(mut self) -> Self {
         self.enabled = false;
         self
@@ -57,6 +61,7 @@ impl SaveData {
         self.dirty = false;
     }
 
+    /// Returns the number of fields currently stored.
     pub fn field_count(&self) -> usize {
         self.fields.len()
     }

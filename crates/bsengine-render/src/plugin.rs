@@ -372,6 +372,8 @@ fn update_camera_aspect(mut events: EventReader<WindowResized>, mut cameras: Que
     }
 }
 
+/// Bevy plugin that registers the render-related resources, events, and per-frame
+/// systems (transform propagation, camera aspect updates, frame rendering).
 pub struct RenderPlugin;
 
 impl Plugin for RenderPlugin {

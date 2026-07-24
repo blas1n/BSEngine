@@ -9,7 +9,10 @@ pub enum NetworkAuthority {
     #[default]
     Server,
     /// A specific client (by peer ID) owns simulation authority.
-    Client { peer_id: u64 },
+    Client {
+        /// Id of the peer that owns this entity.
+        peer_id: u64,
+    },
     /// No network replication — local-only entity.
     Local,
 }
@@ -22,6 +25,7 @@ pub enum NetworkAuthority {
 pub struct NetworkId {
     /// Globally unique, stable identifier assigned at spawn time.
     pub id: u64,
+    /// Who currently owns simulation authority over this entity.
     pub authority: NetworkAuthority,
 }
 

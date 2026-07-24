@@ -2,9 +2,11 @@ use bevy_ecs::prelude::{Component, ReflectComponent};
 use bevy_reflect::prelude::ReflectDefault;
 use bevy_reflect::Reflect;
 
+/// Overrides the default material shader with a custom WGSL shader file.
 #[derive(Component, Debug, Clone, Reflect)]
 #[reflect(Component, Default)]
 pub struct CustomShader {
+    /// Path to the WGSL shader source, relative to the project's shader directory.
     pub path: String,
 }
 

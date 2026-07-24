@@ -44,10 +44,12 @@ pub struct NavMeshAgent {
     pub height: f32,
     /// Current state written back by the navigation system each frame.
     pub state: NavAgentState,
+    /// Whether the navigation system processes this agent at all.
     pub enabled: bool,
 }
 
 impl NavMeshAgent {
+    /// Creates an agent with the given max speed (clamped to non-negative) and default tuning.
     pub fn new(speed: f32) -> Self {
         Self {
             destination: None,
@@ -62,35 +64,42 @@ impl NavMeshAgent {
         }
     }
 
+    /// Sets the maximum rotation speed, in radians per second (clamped to non-negative).
     pub fn with_angular_speed(mut self, radians_per_second: f32) -> Self {
         self.angular_speed = radians_per_second.max(0.0);
         self
     }
 
+    /// Sets the arrival distance threshold, clamped to non-negative.
     pub fn with_stopping_distance(mut self, distance: f32) -> Self {
         self.stopping_distance = distance.max(0.0);
         self
     }
 
+    /// Sets the avoidance capsule radius, clamped to non-negative.
     pub fn with_radius(mut self, radius: f32) -> Self {
         self.radius = radius.max(0.0);
         self
     }
 
+    /// Sets the target destination the agent should path toward.
     pub fn with_destination(mut self, destination: Vec3) -> Self {
         self.destination = Some(destination.into());
         self
     }
 
+    /// Clears the current destination and resets state to idle.
     pub fn clear_destination(&mut self) {
         self.destination = None;
         self.state = NavAgentState::Idle;
     }
 
+    /// Returns true if the agent is currently moving toward its destination.
     pub fn is_moving(&self) -> bool {
         self.state == NavAgentState::Moving
     }
 
+    /// Returns true if the agent has reached its destination.
     pub fn has_arrived(&self) -> bool {
         self.state == NavAgentState::Arrived
     }

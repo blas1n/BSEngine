@@ -5,9 +5,13 @@
 //! as the `AssetServerResource`.
 #![warn(missing_docs)]
 
+/// Typed, cloneable references to loaded assets.
 pub mod handle;
+/// Wires the asset server into the app as a resource.
 pub mod plugin;
+/// Loads and caches raw asset bytes from disk.
 pub mod server;
+/// Concrete asset data types (textures, meshes).
 pub mod types;
 
 pub use handle::Handle;

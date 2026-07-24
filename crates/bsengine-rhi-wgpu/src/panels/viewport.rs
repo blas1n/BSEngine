@@ -1,7 +1,19 @@
 use bsengine_core::{EditorPanel, EditorPanelContext, InspectorCmd};
 
 /// The Viewport panel: renders the editor gizmo/grid/frustum overlays on top of the 3D scene.
-pub struct ViewportPanel;
+pub struct ViewportPanel {
+    /// Exponential-moving-average of the instantaneous per-frame FPS
+    /// (`1.0 / stable_dt`), so the stats overlay doesn't visibly jitter —
+    /// raw per-frame dt varies enough, even at a steady refresh rate, that
+    /// displaying it unsmoothed makes the readout look like it's flickering.
+    smoothed_fps: f32,
+}
+
+impl Default for ViewportPanel {
+    fn default() -> Self {
+        Self { smoothed_fps: 60.0 }
+    }
+}
 
 impl EditorPanel for ViewportPanel {
     fn id(&self) -> &str {
@@ -263,16 +275,24 @@ impl EditorPanel for ViewportPanel {
                 });
             });
 
+        let instantaneous_fps = 1.0 / ui.ctx().input(|i| i.stable_dt.max(1e-6));
+        self.smoothed_fps += (instantaneous_fps - self.smoothed_fps) * 0.1;
+
         egui::Area::new(egui::Id::new("viewport_stats_overlay"))
             .fixed_pos(egui::Pos2::new(
-                panel_rect.max.x - 90.0,
+                panel_rect.max.x - 8.0,
                 panel_rect.min.y + 8.0,
             ))
+            .pivot(egui::Align2::RIGHT_TOP)
             .show(ui.ctx(), |ui| {
-                egui::Frame::menu(ui.style()).show(ui, |ui| {
-                    let fps = 1.0 / ui.ctx().input(|i| i.stable_dt.max(1e-6));
-                    ui.colored_label(crate::theme::TEXT_DIM, format!("{fps:.0} FPS"));
-                });
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(format!("{:.0} FPS", self.smoothed_fps))
+                            .size(11.0)
+                            .color(crate::theme::ACCENT),
+                    )
+                    .extend(),
+                );
             });
     }
 }

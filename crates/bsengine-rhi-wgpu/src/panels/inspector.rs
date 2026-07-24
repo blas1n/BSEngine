@@ -50,11 +50,13 @@ impl EditorPanel for InspectorPanel {
             .find(|e| e.id == sel_id)
             .cloned()
             .unwrap_or_default();
-        let entity_name = sel_info
-            .name
-            .as_deref()
-            .map(String::from)
-            .unwrap_or_else(|| format!("Entity {sel_id}"));
+        // Mirrors `hierarchy.rs`'s row text exactly (`[{id}] {label}`, with
+        // the same "(unnamed)" placeholder) so the Inspector header always
+        // reads as the same entity the Hierarchy selection highlighted —
+        // this used to say "Entity {id}" here but "(unnamed)" in the tree,
+        // two different placeholder strings for the same "no name" state.
+        let label = sel_info.name.as_deref().unwrap_or("(unnamed)");
+        let entity_name = format!("[{sel_id}] {label}");
         let has_transform = sel_info.position.is_some();
         let light_type = sel_info.light_type.clone();
         let has_camera = sel_info.camera_fov.is_some();

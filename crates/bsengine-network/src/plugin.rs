@@ -10,6 +10,7 @@ use crate::{
     session::{NetworkRole, NetworkSession},
 };
 
+/// Bevy plugin that wires up the UDP send/receive systems for entity transform replication.
 pub struct NetworkPlugin;
 
 impl Plugin for NetworkPlugin {

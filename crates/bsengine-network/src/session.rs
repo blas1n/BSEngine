@@ -4,14 +4,21 @@ use std::net::{SocketAddr, UdpSocket};
 /// Whether this process acts as a server or client.
 #[derive(Debug)]
 pub enum NetworkRole {
+    /// Authoritative host: accepts client connections and broadcasts entity state.
     Server,
-    Client { server_addr: SocketAddr },
+    /// Connects to a remote server and sends only its own client-authoritative transforms.
+    Client {
+        /// Address of the server this client is connected (or connecting) to.
+        server_addr: SocketAddr,
+    },
 }
 
 /// Live network session — inserted as a Bevy Resource when networking is active.
 #[derive(Resource)]
 pub struct NetworkSession {
+    /// Whether this session is acting as the server or as a client.
     pub role: NetworkRole,
+    /// Non-blocking UDP socket used for all send/receive traffic.
     pub socket: UdpSocket,
     /// Server: list of connected client addresses. Client: [server_addr].
     pub peers: Vec<SocketAddr>,
@@ -24,6 +31,7 @@ pub struct NetworkSession {
 }
 
 impl NetworkSession {
+    /// Binds a non-blocking UDP socket on all interfaces at `port` and starts a server session.
     pub fn new_server(port: u16) -> Result<Self, std::io::Error> {
         let socket = UdpSocket::bind(format!("0.0.0.0:{port}"))?;
         socket.set_nonblocking(true)?;
@@ -38,6 +46,7 @@ impl NetworkSession {
         })
     }
 
+    /// Binds an ephemeral local UDP socket, sends a HELLO to `host:port`, and starts a client session.
     pub fn new_client(host: &str, port: u16) -> Result<Self, std::io::Error> {
         let server_addr: SocketAddr = format!("{host}:{port}").parse().map_err(|_| {
             std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid server address")
@@ -56,10 +65,12 @@ impl NetworkSession {
         })
     }
 
+    /// Returns true if this session is acting as the server.
     pub fn is_server(&self) -> bool {
         matches!(self.role, NetworkRole::Server)
     }
 
+    /// Number of known peers (connected clients for a server, or the server itself for a client).
     pub fn peer_count(&self) -> u32 {
         self.peers.len() as u32
     }

@@ -10,6 +10,7 @@ use crate::{
     },
 };
 
+/// Non-send ECS resource wrapping the `gilrs` gamepad context, so it can be polled each frame.
 pub struct GilrsResource(gilrs::Gilrs);
 
 /// Per-frame mouse position, raw movement delta, and scroll wheel delta.
@@ -18,11 +19,15 @@ pub struct GilrsResource(gilrs::Gilrs);
 /// `scroll_delta` accumulates scroll wheel input for the current frame and resets each frame.
 #[derive(Resource, Default, Clone)]
 pub struct MouseState {
+    /// Last known cursor position in window pixels, top-left origin.
     pub position: (f64, f64),
+    /// Raw mouse movement accumulated this frame; reset to zero every frame.
     pub delta: (f64, f64),
+    /// Scroll wheel delta accumulated this frame; reset to zero every frame.
     pub scroll_delta: f64,
 }
 
+/// Bevy plugin that wires up keyboard, mouse, and gamepad polling as `PreUpdate` systems.
 pub struct InputPlugin;
 
 impl Plugin for InputPlugin {

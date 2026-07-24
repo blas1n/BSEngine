@@ -8,16 +8,6 @@ use std::sync::{Arc, Mutex};
 #[derive(Component, Clone, Default)]
 pub struct Tags(pub Vec<String>);
 
-/// Whether an entity is rendered; toggled via `EditorCommand::SetVisible`.
-#[derive(Component, Clone)]
-pub struct Visible(pub bool);
-
-impl Default for Visible {
-    fn default() -> Self {
-        Self(true)
-    }
-}
-
 /// Flattened, per-entity view of the ECS world used to build an
 /// `EditorSnapshot`; every field is `Option`/absent when the entity has no
 /// corresponding component, so the MCP layer can serialize it directly.

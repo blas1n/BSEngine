@@ -2,14 +2,14 @@ use crate::snapshot::{
     EditorCommand, EditorCommandQueueResource, EditorHistory, EditorHistoryResource,
     EditorSelectionResource, EditorSnapshot, EditorSnapshotResource, EntityInfo, ReflectCommand,
     ReflectCommandQueueResource, SharedCommandQueue, SharedHistory, SharedReflectCommandQueue,
-    SharedSelection, SharedSnapshot, Tags, Visible,
+    SharedSelection, SharedSnapshot, Tags,
 };
 use bevy_app::{App, Plugin, Update};
 use bevy_ecs::prelude::{Commands, Entity, IntoSystemConfigs, ParamSet, Query, ResMut, World};
 use bsengine_core::{
     Camera, DirectionalLight, EditorPanelRegistry, GlobalTransform, InspectorCmd,
     InspectorEntityInfo, InspectorState,
-    Material, Parent, PointLight, SpotLight, Transform,
+    Material, Parent, PointLight, SpotLight, Transform, Visible,
 };
 use bsengine_ecs::Res;
 use bsengine_mcp::{McpRegistryResource, McpTool, McpToolOutput};
@@ -89,7 +89,7 @@ fn update_editor_snapshot(
                     material_emissive: mat.map(|m| m.emissive.to_array()),
                     parent_id: parent.map(|p| p.0.index() as u64),
                     tags: tags.map(|t| t.0.clone()).unwrap_or_default(),
-                    visible: vis.map(|v| v.0).unwrap_or(true),
+                    visible: vis.map(|v| v.is_visible).unwrap_or(true),
                     selected: selection.contains(&(e.index() as u64)),
                 }
             },
@@ -340,7 +340,9 @@ fn process_editor_commands(
             EditorCommand::SetVisible { entity_id, visible } => {
                 let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
                 if let Some(entity) = target {
-                    commands.entity(entity).insert(Visible(visible));
+                    commands
+                        .entity(entity)
+                        .insert(Visible { is_visible: visible });
                 }
             }
             EditorCommand::SetParent {
@@ -530,9 +532,14 @@ fn process_editor_commands(
             EditorCommand::DetachPrimitiveMesh { entity_id } => {
                 let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
                 if let Some(entity) = target {
+                    // `resolve_primitives` (bsengine-runtime) reacts to
+                    // `Added<PrimitiveMesh>` by inserting a derived
+                    // `MeshRenderer` -- remove both here, or the entity keeps
+                    // rendering the stale mesh after this "detach".
                     commands
                         .entity(entity)
-                        .remove::<bsengine_scene::PrimitiveMesh>();
+                        .remove::<bsengine_scene::PrimitiveMesh>()
+                        .remove::<MeshRenderer>();
                 }
             }
             EditorCommand::AttachPointLight {
@@ -787,7 +794,9 @@ fn sync_entity_to_info(world: &mut World, entity: Entity, info: &EntityInfo) {
         }
     }
 
-    e.insert(Visible(info.visible));
+    e.insert(Visible {
+        is_visible: info.visible,
+    });
 
     if info.tags.is_empty() {
         e.remove::<Tags>();
@@ -893,7 +902,7 @@ fn spawn_entity_from_info(world: &mut World, info: &EntityInfo) -> Entity {
         e.insert(MeshRenderer { mesh_id });
     }
     if !info.visible {
-        e.insert(Visible(false));
+        e.insert(Visible::hidden());
     }
     if !info.tags.is_empty() {
         e.insert(Tags(info.tags.clone()));
@@ -90595,6 +90604,36 @@ mod tests {
     }
 
     #[test]
+    fn inspector_cmd_set_visible_writes_the_component_the_renderer_actually_reads() {
+        // Regression test: `EditorCommand::SetVisible` used to insert a
+        // separate, unreflected `bsengine_editor::snapshot::Visible(bool)`
+        // that bsengine-render's culling and bsengine-scripting's
+        // `Bsengine.setVisible`/`getVisible` never read (they only look at
+        // `bsengine_core::Visible.is_visible`) -- so toggling "Visible" in
+        // the Inspector had no effect on what was actually rendered.
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app.world_mut().spawn(Name("Target".to_string())).id();
+        app.update();
+
+        {
+            let mut insp = app.world_mut().resource_mut::<InspectorState>();
+            insp.cmd_queue.push(InspectorCmd::SetVisible {
+                id: eid.index() as u64,
+                visible: false,
+            });
+        }
+        app.update();
+        assert_eq!(
+            app.world().get::<bsengine_core::Visible>(eid),
+            Some(&bsengine_core::Visible { is_visible: false }),
+            "SetVisible must write bsengine_core::Visible, the type bsengine-render and \
+             bsengine-scripting actually read -- not an editor-only phantom component"
+        );
+    }
+
+    #[test]
     fn editor_command_attach_and_detach_script() {
         let mut app = new_app();
         app.add_plugins(McpPlugin);
@@ -90667,6 +90706,43 @@ mod tests {
             app.world()
                 .get::<bsengine_scene::PrimitiveMesh>(eid)
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn editor_command_detach_primitive_mesh_also_removes_derived_mesh_renderer() {
+        // `resolve_primitives` (bsengine-runtime) reacts to `Added<PrimitiveMesh>`
+        // by inserting a derived `MeshRenderer` -- not exercised by this test's
+        // plugin set, so it's simulated directly here. `DetachPrimitiveMesh`
+        // must remove both, or the entity keeps rendering a stale mesh after
+        // the Inspector's "Remove" button supposedly cleared it.
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app.world_mut().spawn(Name("Target".to_string())).id();
+        app.update();
+
+        app.world_mut()
+            .entity_mut(eid)
+            .insert(bsengine_scene::PrimitiveMesh(bsengine_scene::Primitive::Capsule))
+            .insert(bsengine_render::MeshRenderer { mesh_id: 1 });
+
+        {
+            let queue = app.world().resource::<EditorCommandQueueResource>();
+            queue.0.lock().unwrap().push(EditorCommand::DetachPrimitiveMesh {
+                entity_id: eid.index() as u64,
+            });
+        }
+        app.update();
+        assert!(
+            app.world()
+                .get::<bsengine_scene::PrimitiveMesh>(eid)
+                .is_none(),
+            "PrimitiveMesh should be removed"
+        );
+        assert!(
+            app.world().get::<bsengine_render::MeshRenderer>(eid).is_none(),
+            "derived MeshRenderer must also be removed, or the entity keeps rendering a stale mesh"
         );
     }
 

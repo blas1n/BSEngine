@@ -1887,8 +1887,22 @@ impl WgpuSurface {
                                 panels: &mut panels_guard,
                                 type_registry: type_registry_guard.as_deref(),
                             };
+                            let mut dock_style = egui_dock::Style::from_egui(ctx.style().as_ref());
+                            // `Style::from_egui` derives the tab-bar's "focused"/"hovered"/
+                            // "*_with_kb_focus" text colors from `Visuals::strong_text_color()`,
+                            // which resolves to `widgets.active.fg_stroke` — this theme
+                            // deliberately makes that near-black (dark text on the bright
+                            // accent-colored Play/active-button background), which egui_dock's
+                            // reuse of the same field turns into near-invisible dark-on-dark
+                            // text for whichever tab is currently focused or hovered. Override
+                            // just those tab-text colors back to the theme's normal bright text.
+                            dock_style.tab.focused.text_color = crate::theme::TEXT;
+                            dock_style.tab.focused_with_kb_focus.text_color = crate::theme::TEXT;
+                            dock_style.tab.hovered.text_color = crate::theme::TEXT;
+                            dock_style.tab.active_with_kb_focus.text_color = crate::theme::TEXT;
+                            dock_style.tab.inactive_with_kb_focus.text_color = crate::theme::TEXT;
                             egui_dock::DockArea::new(&mut dock_state)
-                                .style(egui_dock::Style::from_egui(ctx.style().as_ref()))
+                                .style(dock_style)
                                 .show(ctx, &mut tab_viewer);
                             drop(panels_guard);
 

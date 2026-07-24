@@ -402,8 +402,22 @@ impl HierarchyPanel {
             // becomes an actual DnD source without disturbing its existing
             // click/double-click behavior (`Response::union` ORs
             // `clicked`/`double_clicked`/`drag_started`/`dragged`).
+            //
+            // This second interact MUST also sense `click` (not `Sense::drag()`
+            // alone): it's added after (i.e. on top of, in hit-test z-order)
+            // the row's own click-sensing widget on the *exact same rect*.
+            // egui's hit-test (`hit_test_on_close` in egui's `hit_test.rs`)
+            // deliberately nulls out the click hit whenever the topmost of two
+            // perfectly-overlapping widgets senses only drag — "the top thing
+            // senses only drags, so we ignore the click-widget below it" — so
+            // with `Sense::drag()` here, every row's click was permanently
+            // swallowed regardless of `Response::union`'s own (correct) OR
+            // logic. `Sense::click_and_drag()` keeps this topmost widget's
+            // click hit intact, since egui special-cases "topmost widget
+            // senses both" to report both hits.
             let drag_id = ui.id().with(("hierarchy_row_drag", info.id));
-            let drag_response = ui.interact(row_response.rect, drag_id, egui::Sense::drag());
+            let drag_response =
+                ui.interact(row_response.rect, drag_id, egui::Sense::click_and_drag());
             let row_response = drag_response | row_response;
 
             if row_response.clicked() {
@@ -597,6 +611,89 @@ mod tests {
         assert_eq!(
             HierarchyPanel::icon_for(&info),
             egui_phosphor::regular::TREE_STRUCTURE
+        );
+    }
+
+    /// Regression test for the tree-view row click failing to register.
+    ///
+    /// egui hit-tests using the *previous* frame's widget rects
+    /// (`Context::begin_pass` reads `viewport.prev_pass.widgets`), so this
+    /// needs two `Context::run` passes: the first establishes the row's
+    /// rect, the second delivers a press+release at that rect and observes
+    /// whether `.clicked()` fires.
+    ///
+    /// `draw_row` unions a same-rect `ui.interact(.., Sense::drag())` onto
+    /// the row's own click-sensing response to enable DnD-reparent. Per
+    /// egui's `hit_test_on_close` (Some click hit, Some drag hit branch),
+    /// when the *topmost* of two perfectly-overlapping widgets senses only
+    /// drag, egui deliberately reports `click: None` for the pair ("the top
+    /// thing senses only drags, so we ignore the click-widget below it") —
+    /// so `.clicked()` never fires, regardless of `Response::union`'s
+    /// otherwise-correct OR-merge. Using `Sense::click_and_drag()` for the
+    /// unioned interact keeps that topmost widget's own click hit intact.
+    #[test]
+    fn row_click_registers_despite_unioned_drag_sense_interact() {
+        let ctx = egui::Context::default();
+        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
+
+        let mut row_rect = egui::Rect::NOTHING;
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen_rect),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let row_response = ui.selectable_label(false, "row");
+                    let drag_id = ui.id().with("row_drag");
+                    let _drag_response =
+                        ui.interact(row_response.rect, drag_id, egui::Sense::click_and_drag());
+                    row_rect = row_response.rect;
+                });
+            },
+        );
+
+        let pos = row_rect.center();
+        let click_events = vec![
+            egui::Event::PointerMoved(pos),
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::default(),
+            },
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::default(),
+            },
+        ];
+
+        let mut clicked = false;
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen_rect),
+                events: click_events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let row_response = ui.selectable_label(false, "row");
+                    let drag_id = ui.id().with("row_drag");
+                    let drag_response =
+                        ui.interact(row_response.rect, drag_id, egui::Sense::click_and_drag());
+                    let row_response = drag_response | row_response;
+                    if row_response.clicked() {
+                        clicked = true;
+                    }
+                });
+            },
+        );
+
+        assert!(
+            clicked,
+            "row click must register even with a same-rect drag-sense interact unioned in"
         );
     }
 }

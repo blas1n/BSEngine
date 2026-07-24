@@ -177,9 +177,16 @@ impl EditorPanel for AssetBrowserPanel {
         ui.separator();
 
         let mut navigate_to: Option<PathBuf> = None;
+        let available_height = ui.available_height();
         ui.horizontal(|ui| {
+            // Force the row to claim the panel's full remaining height so
+            // the separator below draws as one unbroken line between the
+            // folder tree and the tile grid, instead of stopping wherever
+            // the shorter column's content happens to end.
+            ui.set_min_height(available_height);
             ui.vertical(|ui| {
                 ui.set_width(160.0);
+                ui.set_min_height(available_height);
                 self.draw_folder_tree(ui, self.root.clone(), &mut navigate_to);
             });
             ui.separator();

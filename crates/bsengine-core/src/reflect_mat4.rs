@@ -8,6 +8,7 @@
 //! directly.
 use bevy_reflect::{impl_reflect_value, prelude::ReflectDefault};
 
+/// Reflectable wrapper around a `glam::Mat4`.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct ReflectMat4(pub glam::Mat4);
 

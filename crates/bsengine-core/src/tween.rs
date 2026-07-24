@@ -2,15 +2,21 @@ use crate::{ReflectQuat, ReflectVec3};
 use bevy_ecs::prelude::{Component, ReflectComponent};
 use bevy_reflect::Reflect;
 
+/// Easing curve applied to a tween's normalized progress before interpolating.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect)]
 pub enum EasingFn {
+    /// Constant rate of change; no easing.
     Linear,
+    /// Starts slow, accelerates toward the end.
     EaseInQuad,
+    /// Starts fast, decelerates toward the end.
     EaseOutQuad,
+    /// Starts slow, speeds up through the middle, ends slow.
     EaseInOutQuad,
 }
 
 impl EasingFn {
+    /// Maps a linear progress value `t` in `[0, 1]` through this easing curve.
     pub fn apply(self, t: f32) -> f32 {
         match self {
             EasingFn::Linear => t,
@@ -27,33 +33,65 @@ impl EasingFn {
     }
 }
 
+/// How a tween behaves once it reaches the end of its duration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect)]
 pub enum RepeatMode {
+    /// Play once and stop.
     Once,
+    /// Restart from the beginning each time it finishes.
     Loop,
+    /// Reverse direction each time it finishes, bouncing between start and end.
     PingPong,
 }
 
+/// The property being animated and its start/end values.
 #[derive(Debug, Clone, Reflect)]
 pub enum TweenTarget {
-    Translation { from: ReflectVec3, to: ReflectVec3 },
-    Rotation { from: ReflectQuat, to: ReflectQuat },
-    Scale { from: ReflectVec3, to: ReflectVec3 },
+    /// Animates `Transform.translation`.
+    Translation {
+        /// Starting position.
+        from: ReflectVec3,
+        /// Ending position.
+        to: ReflectVec3,
+    },
+    /// Animates `Transform.rotation`.
+    Rotation {
+        /// Starting rotation.
+        from: ReflectQuat,
+        /// Ending rotation.
+        to: ReflectQuat,
+    },
+    /// Animates `Transform.scale`.
+    Scale {
+        /// Starting scale.
+        from: ReflectVec3,
+        /// Ending scale.
+        to: ReflectVec3,
+    },
 }
 
+/// Animates a `Transform` property from one value to another over time.
 #[derive(Component, Debug, Clone, Reflect)]
 #[reflect(Component)]
 pub struct Tween {
+    /// Which property is being animated, and its start/end values.
     pub target: TweenTarget,
+    /// Total time the tween takes to go from start to end, in seconds.
     pub duration: f32,
+    /// Easing curve applied to progress before interpolating.
     pub easing: EasingFn,
+    /// Behavior once the tween reaches the end.
     pub repeat: RepeatMode,
+    /// Whether a non-repeating tween has completed.
     pub finished: bool,
+    /// Time accumulated since the tween started, in seconds.
     pub elapsed: f32,
+    /// Whether the tween is currently playing back-to-front (used by `PingPong`).
     pub reversed: bool,
 }
 
 impl Tween {
+    /// Creates a linear, non-repeating tween for `target` over `duration` seconds.
     pub fn new(target: TweenTarget, duration: f32) -> Self {
         Self {
             target,
@@ -66,11 +104,13 @@ impl Tween {
         }
     }
 
+    /// Sets the easing curve applied to progress.
     pub fn with_easing(mut self, easing: EasingFn) -> Self {
         self.easing = easing;
         self
     }
 
+    /// Sets the behavior once the tween reaches the end.
     pub fn with_repeat(mut self, repeat: RepeatMode) -> Self {
         self.repeat = repeat;
         self

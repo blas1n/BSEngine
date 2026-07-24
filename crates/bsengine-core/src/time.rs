@@ -2,9 +2,12 @@ use std::time::Instant;
 
 use bevy_ecs::prelude::Resource;
 
+/// Frame timing resource updated once per frame by the app's main loop.
 #[derive(Resource)]
 pub struct Time {
+    /// Seconds elapsed since the previous `tick()` call.
     pub delta_seconds: f32,
+    /// Total seconds elapsed since the app started.
     pub elapsed_seconds: f32,
     startup: Instant,
     last_tick: Instant,
@@ -23,6 +26,7 @@ impl Default for Time {
 }
 
 impl Time {
+    /// Advances the clock, recomputing `delta_seconds` and `elapsed_seconds` from the current instant.
     pub fn tick(&mut self) {
         let now = Instant::now();
         self.delta_seconds = now.duration_since(self.last_tick).as_secs_f32();

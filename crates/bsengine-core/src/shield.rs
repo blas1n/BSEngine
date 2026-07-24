@@ -2,10 +2,13 @@ use bevy_ecs::prelude::{Component, ReflectComponent};
 use bevy_reflect::prelude::ReflectDefault;
 use bevy_reflect::Reflect;
 
+/// Depletable damage-absorbing shield that recharges over time.
 #[derive(Component, Debug, Clone, PartialEq, Reflect)]
 #[reflect(Component, Default)]
 pub struct Shield {
+    /// Current shield charge.
     pub current: f32,
+    /// Maximum shield charge.
     pub max: f32,
     /// HP per second restored while recharging.
     pub recharge_rate: f32,
@@ -16,6 +19,7 @@ pub struct Shield {
 }
 
 impl Shield {
+    /// Creates a full shield with the given maximum charge (clamped to non-negative) and no recharge.
     pub fn new(max: f32) -> Self {
         let max = max.max(0.0);
         Self {
@@ -27,20 +31,24 @@ impl Shield {
         }
     }
 
+    /// Sets the recharge rate (HP/s) and the delay (seconds) before recharging resumes after damage.
     pub fn with_recharge(mut self, rate: f32, delay: f32) -> Self {
         self.recharge_rate = rate.max(0.0);
         self.recharge_delay = delay.max(0.0);
         self
     }
 
+    /// Returns true if the shield has no charge remaining.
     pub fn is_depleted(&self) -> bool {
         self.current <= 0.0
     }
 
+    /// Returns true if the shield is at maximum charge.
     pub fn is_full(&self) -> bool {
         self.current >= self.max
     }
 
+    /// Returns the current charge as a fraction of max, clamped to `[0, 1]`.
     pub fn fraction(&self) -> f32 {
         if self.max <= 0.0 {
             0.0

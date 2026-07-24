@@ -9,6 +9,7 @@ use glam::Vec3;
 #[derive(Component, Debug, Clone, Copy, Reflect)]
 #[reflect(Component)]
 pub struct Follow {
+    /// The entity whose position this entity moves toward.
     pub target: Entity,
     /// World-space offset added to the target's position before interpolation.
     pub offset: ReflectVec3,
@@ -17,6 +18,7 @@ pub struct Follow {
 }
 
 impl Follow {
+    /// Creates a `Follow` targeting `target` with no offset and instant snap speed.
     pub fn new(target: Entity) -> Self {
         Self {
             target,
@@ -25,11 +27,13 @@ impl Follow {
         }
     }
 
+    /// Sets the world-space offset added to the target's position.
     pub fn with_offset(mut self, offset: Vec3) -> Self {
         self.offset = offset.into();
         self
     }
 
+    /// Sets the maximum move speed, in units per second.
     pub fn with_speed(mut self, speed: f32) -> Self {
         self.speed = speed;
         self
@@ -41,12 +45,14 @@ impl Follow {
 #[derive(Component, Debug, Clone, Copy, Reflect)]
 #[reflect(Component)]
 pub struct LookAt {
+    /// The entity this entity orients its rotation toward.
     pub target: Entity,
     /// World-space up vector used to compute the orientation.
     pub up: ReflectVec3,
 }
 
 impl LookAt {
+    /// Creates a `LookAt` targeting `target` with a default world-up of `Vec3::Y`.
     pub fn new(target: Entity) -> Self {
         Self {
             target,
@@ -54,6 +60,7 @@ impl LookAt {
         }
     }
 
+    /// Sets the up vector used to compute orientation, normalizing it.
     pub fn with_up(mut self, up: Vec3) -> Self {
         self.up = up.normalize().into();
         self

@@ -4,13 +4,19 @@ use bevy_reflect::prelude::ReflectDefault;
 use bevy_reflect::Reflect;
 use glam::Vec3;
 
+/// PBR (physically-based rendering) surface material properties.
 #[derive(Component, Debug, Clone, Reflect)]
 #[reflect(Component, Default)]
 pub struct Material {
+    /// Id of the base color texture asset, or `None` for a flat-colored surface.
     pub texture_id: Option<u64>,
+    /// How metallic the surface is, from 0 (dielectric) to 1 (metal).
     pub metallic: f32,
+    /// Surface microfacet roughness, from 0 (mirror-smooth) to 1 (fully diffuse).
     pub roughness: f32,
+    /// Self-emitted light color, added regardless of scene lighting.
     pub emissive: ReflectColor,
+    /// Base (albedo) color of the surface.
     pub base_color: ReflectColor,
 }
 

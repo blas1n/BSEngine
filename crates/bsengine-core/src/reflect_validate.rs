@@ -16,8 +16,11 @@
 //! `format!("Reflect{name}")`, not an allowlist of built-in names).
 use bevy_reflect::reflect_trait;
 
+/// Reflected hook for components with cross-field invariants that must be
+/// re-enforced after any generic field edit in the Inspector.
 #[reflect_trait]
 pub trait Validate {
+    /// Re-enforces this component's invariants across its fields.
     fn validate(&mut self);
 }
 

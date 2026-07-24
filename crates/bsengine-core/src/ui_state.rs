@@ -2,49 +2,84 @@ use std::collections::{HashMap, HashSet};
 
 use bevy_ecs::prelude::Resource;
 
+/// A single immediate-mode UI element rendered by the HUD/UI system.
 #[derive(Clone, Debug)]
 pub enum UiWidget {
+    /// A static or dynamic text label.
     Label {
+        /// Unique widget identifier.
         id: String,
+        /// Text content to display.
         text: String,
+        /// X position, in screen-space pixels.
         x: f32,
+        /// Y position, in screen-space pixels.
         y: f32,
+        /// Font size, in pixels.
         font_size: f32,
     },
+    /// A clickable button.
     Button {
+        /// Unique widget identifier.
         id: String,
+        /// Text shown on the button.
         label: String,
+        /// X position, in screen-space pixels.
         x: f32,
+        /// Y position, in screen-space pixels.
         y: f32,
+        /// Button width, in pixels.
         width: f32,
+        /// Button height, in pixels.
         height: f32,
     },
+    /// A rectangular container with a title bar.
     Panel {
+        /// Unique widget identifier.
         id: String,
+        /// Text shown in the panel's title bar.
         title: String,
+        /// X position, in screen-space pixels.
         x: f32,
+        /// Y position, in screen-space pixels.
         y: f32,
+        /// Panel width, in pixels.
         width: f32,
+        /// Panel height, in pixels.
         height: f32,
     },
+    /// An editable single-line text field.
     TextInput {
+        /// Unique widget identifier.
         id: String,
+        /// Placeholder text shown when the field is empty.
         hint: String,
+        /// X position, in screen-space pixels.
         x: f32,
+        /// Y position, in screen-space pixels.
         y: f32,
+        /// Field width, in pixels.
         width: f32,
     },
+    /// A texture displayed at a fixed screen position.
     Image {
+        /// Unique widget identifier.
         id: String,
+        /// Path to the texture asset to display.
         texture_path: String,
+        /// X position, in screen-space pixels.
         x: f32,
+        /// Y position, in screen-space pixels.
         y: f32,
+        /// Image width, in pixels.
         width: f32,
+        /// Image height, in pixels.
         height: f32,
     },
 }
 
 impl UiWidget {
+    /// Returns this widget's unique identifier, regardless of its variant.
     pub fn id(&self) -> &str {
         match self {
             Self::Label { id, .. }
@@ -56,8 +91,11 @@ impl UiWidget {
     }
 }
 
+/// Resource holding the current tree of immediate-mode UI widgets and their
+/// per-frame interaction state.
 #[derive(Resource, Default, Clone)]
 pub struct UiState {
+    /// All widgets currently registered for rendering.
     pub widgets: Vec<UiWidget>,
     /// Buttons whose click was registered this frame (cleared next render).
     pub clicked: HashSet<String>,
@@ -66,6 +104,7 @@ pub struct UiState {
 }
 
 impl UiState {
+    /// Inserts a widget, or replaces the existing widget with the same id.
     pub fn set_widget(&mut self, widget: UiWidget) {
         let id = widget.id().to_string();
         if let Some(pos) = self.widgets.iter().position(|w| w.id() == id) {
@@ -75,11 +114,13 @@ impl UiState {
         }
     }
 
+    /// Removes the widget with the given id, along with any stored text input value.
     pub fn remove_widget(&mut self, id: &str) {
         self.widgets.retain(|w| w.id() != id);
         self.text_values.remove(id);
     }
 
+    /// Removes all widgets and clears click/text-input state.
     pub fn clear(&mut self) {
         self.widgets.clear();
         self.text_values.clear();

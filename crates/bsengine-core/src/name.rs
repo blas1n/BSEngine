@@ -5,10 +5,12 @@ use bevy_ecs::prelude::Component;
 pub struct Name(pub String);
 
 impl Name {
+    /// Creates a name from any string-like value.
     pub fn new(name: impl Into<String>) -> Self {
         Self(name.into())
     }
 
+    /// Returns the name as a string slice.
     pub fn as_str(&self) -> &str {
         &self.0
     }

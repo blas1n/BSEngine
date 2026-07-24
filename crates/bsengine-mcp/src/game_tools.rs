@@ -111,6 +111,8 @@ Notes:
 - Each entity's script is isolated — multiple entities can each have their own script
 - path is relative to game root (e.g. "assets/scripts/player.js")"#;
 
+/// Builds the `game_create`/`scene_write`/`script_write`/`game_validate` tools,
+/// each scoped to game projects under `root/games/`.
 pub fn game_tools(root: PathBuf) -> Vec<McpTool> {
     let r1 = root.clone();
     let r2 = root.clone();

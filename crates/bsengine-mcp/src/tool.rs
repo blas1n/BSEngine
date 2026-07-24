@@ -1,12 +1,17 @@
 use serde_json::Value;
 
+/// Result of running an `McpTool`'s handler: either success content or an
+/// error message, never both.
 #[derive(Debug)]
 pub struct McpToolOutput {
+    /// The tool's return value on success (`Value::Null` on error).
     pub content: Value,
+    /// The failure message, present only when the tool call failed.
     pub error: Option<String>,
 }
 
 impl McpToolOutput {
+    /// Builds a successful output wrapping the given content.
     pub fn success(content: Value) -> Self {
         Self {
             content,
@@ -14,6 +19,7 @@ impl McpToolOutput {
         }
     }
 
+    /// Builds a failed output carrying the given error message.
     pub fn error(msg: &str) -> Self {
         Self {
             content: Value::Null,
@@ -21,15 +27,22 @@ impl McpToolOutput {
         }
     }
 
+    /// Returns true if the tool call succeeded (no error message set).
     pub fn is_ok(&self) -> bool {
         self.error.is_none()
     }
 }
 
+/// A single MCP tool: its name/description/input schema for discovery, plus
+/// the handler that executes it.
 pub struct McpTool {
+    /// Unique tool name, used to look it up and to invoke it via `tools/call`.
     pub name: String,
+    /// Human-readable description shown to MCP clients via `tools/list`.
     pub description: String,
+    /// JSON Schema describing the handler's expected input, if any.
     pub input_schema: Option<Value>,
+    /// The function invoked with the call's input to produce an `McpToolOutput`.
     pub handler: Box<dyn Fn(Value) -> McpToolOutput + Send + Sync>,
 }
 

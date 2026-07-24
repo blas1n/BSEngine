@@ -6,10 +6,16 @@ use wgpu::util::DeviceExt;
 
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+/// A single GPU mesh vertex: position, vertex color, normal, and UV, packed
+/// for direct upload via `bytemuck`.
 pub struct Vertex {
+    /// Local-space position.
     pub position: [f32; 3],
+    /// Per-vertex RGB tint, multiplied with material color at render time.
     pub color: [f32; 3],
+    /// Local-space surface normal.
     pub normal: [f32; 3],
+    /// Texture coordinates.
     pub uv: [f32; 2],
 }
 
@@ -30,14 +36,19 @@ pub fn compute_bounding_sphere(vertices: &[Vertex]) -> (Vec3, f32) {
     (center, radius)
 }
 
+/// A mesh's GPU-resident buffers plus its precomputed bounding sphere.
 pub struct GpuMesh {
+    /// GPU buffer holding this mesh's `Vertex` data.
     pub vertex_buffer: wgpu::Buffer,
+    /// GPU buffer holding this mesh's triangle indices.
     pub index_buffer: wgpu::Buffer,
+    /// Number of indices to draw.
     pub index_count: u32,
     /// Local-space bounding sphere (center, radius).
     pub bounds: (Vec3, f32),
 }
 
+/// Owns every GPU mesh uploaded for the running app, keyed by a registry-assigned id.
 #[derive(Resource)]
 pub struct GpuMeshRegistry {
     device: Arc<wgpu::Device>,
@@ -46,6 +57,7 @@ pub struct GpuMeshRegistry {
 }
 
 impl GpuMeshRegistry {
+    /// Creates an empty registry bound to the given wgpu device.
     pub fn new(device: Arc<wgpu::Device>) -> Self {
         Self {
             device,
@@ -54,6 +66,7 @@ impl GpuMeshRegistry {
         }
     }
 
+    /// Uploads vertex/index data as a new GPU mesh and returns its assigned id.
     pub fn register(&mut self, vertices: &[Vertex], indices: &[u32]) -> u64 {
         let id = self.next_id;
         self.next_id += 1;
@@ -86,15 +99,18 @@ impl GpuMeshRegistry {
         id
     }
 
+    /// Looks up a previously registered mesh by id.
     pub fn get(&self, id: u64) -> Option<&GpuMesh> {
         self.meshes.get(&id)
     }
 
+    /// Looks up a previously registered mesh's local-space bounding sphere by id.
     pub fn get_bounds(&self, id: u64) -> Option<(Vec3, f32)> {
         self.meshes.get(&id).map(|m| m.bounds)
     }
 }
 
+/// Vertices/indices for a single centered, unit-sized triangle.
 pub fn triangle_vertices() -> (Vec<Vertex>, Vec<u32>) {
     let vertices = vec![
         Vertex {
@@ -120,6 +136,8 @@ pub fn triangle_vertices() -> (Vec<Vertex>, Vec<u32>) {
     (vertices, indices)
 }
 
+/// Vertices/indices for a unit cube, with one distinctly colored face per axis
+/// direction and per-face (non-shared) normals/UVs.
 pub fn cube_vertices() -> (Vec<Vertex>, Vec<u32>) {
     let v = |pos: [f32; 3], col: [f32; 3], normal: [f32; 3], uv: [f32; 2]| Vertex {
         position: pos,
@@ -170,6 +188,7 @@ pub fn cube_vertices() -> (Vec<Vertex>, Vec<u32>) {
     (vertices, indices)
 }
 
+/// Vertices/indices for a UV sphere of unit diameter, built as a stack/slice grid.
 pub fn sphere_vertices() -> (Vec<Vertex>, Vec<u32>) {
     const STACKS: u32 = 16;
     const SLICES: u32 = 32;
@@ -207,6 +226,7 @@ pub fn sphere_vertices() -> (Vec<Vertex>, Vec<u32>) {
     (verts, idx)
 }
 
+/// Vertices/indices for a flat unit-sized quad in the XZ plane, facing +Y.
 pub fn plane_vertices() -> (Vec<Vertex>, Vec<u32>) {
     let verts = vec![
         Vertex {
@@ -238,6 +258,8 @@ pub fn plane_vertices() -> (Vec<Vertex>, Vec<u32>) {
     (verts, idx)
 }
 
+/// Vertices/indices for a capsule: a cylindrical body capped with two
+/// hemispheres, built as stacked rings of vertices.
 pub fn capsule_vertices() -> (Vec<Vertex>, Vec<u32>) {
     const SLICES: u32 = 24;
     const CAP_STACKS: u32 = 8;

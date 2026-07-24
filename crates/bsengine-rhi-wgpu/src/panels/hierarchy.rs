@@ -1,5 +1,6 @@
 use bsengine_core::{EditorPanel, EditorPanelContext, InspectorCmd, InspectorEntityInfo};
 
+/// The Hierarchy panel: shows the entity tree with selection, drag-to-reparent, and inline rename.
 pub struct HierarchyPanel;
 
 /// Which row is currently being renamed inline (double-click target), and

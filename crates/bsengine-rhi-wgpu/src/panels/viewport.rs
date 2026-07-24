@@ -1,5 +1,6 @@
 use bsengine_core::{EditorPanel, EditorPanelContext, InspectorCmd};
 
+/// The Viewport panel: renders the editor gizmo/grid/frustum overlays on top of the 3D scene.
 pub struct ViewportPanel;
 
 impl EditorPanel for ViewportPanel {

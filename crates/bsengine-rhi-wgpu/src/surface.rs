@@ -290,9 +290,13 @@ struct CameraUniformData {
 
 /// Material parameters uploaded per draw call.
 pub struct MaterialParams {
+    /// 0 = fully dielectric, 1 = fully metallic, PBR-style.
     pub metallic: f32,
+    /// Surface microfacet roughness, 0 = mirror-smooth, 1 = fully rough.
     pub roughness: f32,
+    /// Self-illumination color added regardless of lighting.
     pub emissive: Vec3,
+    /// Base albedo color multiplied with the surface texture (if any).
     pub base_color: Vec3,
 }
 
@@ -323,29 +327,45 @@ struct ModelUniformData {
 
 /// A single point light entry for the GPU buffer.
 pub struct PointLightEntry {
+    /// World-space position of the light.
     pub position: Vec3,
+    /// Light color (linear RGB, unclamped so intensity can exceed 1.0 per channel).
     pub color: Vec3,
+    /// Brightness multiplier applied to `color`.
     pub intensity: f32,
+    /// Distance at which the light's contribution falls off to zero.
     pub range: f32,
 }
 
 /// A single spot light entry for the GPU buffer.
 pub struct SpotLightEntry {
+    /// World-space position of the light.
     pub position: Vec3,
+    /// World-space direction the cone points toward.
     pub direction: Vec3,
+    /// Light color (linear RGB, unclamped so intensity can exceed 1.0 per channel).
     pub color: Vec3,
+    /// Brightness multiplier applied to `color`.
     pub intensity: f32,
+    /// Distance at which the light's contribution falls off to zero.
     pub range: f32,
+    /// Half-angle (radians) of the cone's fully-lit inner core.
     pub inner_angle: f32,
+    /// Half-angle (radians) of the cone's outer falloff edge.
     pub outer_angle: f32,
 }
 
 /// Light parameters passed per frame.
 pub struct LightData {
+    /// Directional (sun) light's world-space direction.
     pub direction: Vec3,
+    /// Directional (sun) light's color.
     pub color: Vec3,
+    /// Flat ambient light added to every surface regardless of direction.
     pub ambient: Vec3,
+    /// Active point lights this frame (uploaded up to a fixed GPU-side cap).
     pub point_lights: Vec<PointLightEntry>,
+    /// Active spot lights this frame (uploaded up to a fixed GPU-side cap).
     pub spot_lights: Vec<SpotLightEntry>,
 }
 
@@ -491,6 +511,8 @@ fn map_keycode_to_egui(code: bsengine_input::KeyCode) -> Option<egui::Key> {
     })
 }
 
+/// Owns the wgpu swapchain, all GPU pipelines/buffers for the main scene and
+/// shadow passes, the egui renderer, and per-frame render state for one window.
 pub struct WgpuSurface {
     _window: Arc<winit::window::Window>,
     pub(crate) surface: wgpu::Surface<'static>,
@@ -526,6 +548,8 @@ pub struct WgpuSurface {
 }
 
 impl WgpuSurface {
+    /// Initializes the wgpu adapter/device/swapchain for `window` and builds
+    /// every pipeline, buffer, and bind group the main render loop needs.
     pub async fn new(window: Arc<winit::window::Window>) -> Result<Self, String> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
@@ -1183,19 +1207,25 @@ impl WgpuSurface {
         Ok(())
     }
 
+    /// Unloads the current skybox, if any, reverting to no skybox rendering.
     pub fn clear_skybox(&mut self) {
         self.skybox = None;
         self.loaded_skybox_path = None;
     }
 
+    /// Whether a skybox is currently loaded and will be rendered.
     pub fn has_skybox(&self) -> bool {
         self.skybox.is_some()
     }
 
+    /// Path of the currently loaded skybox texture, if any.
     pub fn loaded_skybox_path(&self) -> Option<&str> {
         self.loaded_skybox_path.as_deref()
     }
 
+    /// Renders one full frame: shadow map, main scene pass, post-processing,
+    /// skybox, and the game/editor UI overlay, then presents the swapchain.
+    /// Returns the ids of any `UiWidget::Button`s clicked this frame.
     #[allow(clippy::too_many_arguments)] // one frame's worth of render inputs; splitting into a struct is a larger refactor
     pub fn render_frame(
         &mut self,
@@ -2065,6 +2095,8 @@ impl WgpuSurface {
         Ok(clicked)
     }
 
+    /// Reconfigures the swapchain and depth/post-process targets for a new
+    /// window size; a no-op if either dimension is zero (e.g. minimized).
     pub fn resize(&mut self, width: u32, height: u32) {
         if width == 0 || height == 0 {
             return;
@@ -2079,6 +2111,8 @@ impl WgpuSurface {
             .resize_targets(&self.device, &self.depth_view, width, height);
     }
 
+    /// Compiles a WGSL custom shader and stores it as a render pipeline keyed
+    /// by `path`, replacing any previously compiled pipeline for that path.
     pub fn compile_and_store_shader(&mut self, path: &str, wgsl: &str) {
         let shader = self
             .device
@@ -2154,10 +2188,13 @@ impl WgpuSurface {
         self.custom_pipelines.insert(path.to_string(), pipeline);
     }
 
+    /// Whether a custom shader has already been compiled and stored for `path`.
     pub fn has_custom_shader(&self, path: &str) -> bool {
         self.custom_pipelines.contains_key(path)
     }
 
+    /// Compiles a standalone WGSL source string into a shader module, without
+    /// building a pipeline or storing it.
     pub fn compile_shader(device: &wgpu::Device, src: &str) -> wgpu::ShaderModule {
         device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("wgsl shader"),
@@ -2166,6 +2203,7 @@ impl WgpuSurface {
     }
 }
 
+/// ECS resource wrapping the app's [`WgpuSurface`].
 #[derive(Resource)]
 pub struct WgpuSurfaceResource(pub WgpuSurface);
 

@@ -1,6 +1,7 @@
 use crate::panels::reflect_ui::draw_reflect_ui;
 use bsengine_core::{EditorPanel, EditorPanelContext, InspectorCmd, PRIMITIVE_KINDS};
 
+/// The Inspector panel: shows and edits the selected entity's transform, tags, and components.
 pub struct InspectorPanel;
 
 /// Looks up the `ReflectValidate` type data for `type_path` (if the

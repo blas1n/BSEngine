@@ -13,11 +13,17 @@ use std::path::{Path, PathBuf};
 /// category with no attach target in this plan.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AssetKind {
+    /// A subdirectory to navigate into.
     Directory,
+    /// A `.ron` scene file, double-click loads it.
     Scene,
+    /// A `.js` script file, draggable onto an entity to attach it.
     Script,
+    /// A `.glb`/`.gltf` model file, draggable into the viewport to spawn it.
     Mesh,
+    /// A `.png`/`.jpg`/`.jpeg` image file, shown with a decoded thumbnail.
     Texture,
+    /// Any file extension not recognized as one of the other kinds.
     Other,
 }
 
@@ -46,16 +52,22 @@ fn categorize_by_extension(path: &Path) -> AssetKind {
 /// drop targets by payload type, so both can coexist on the same rows.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AssetDragPayload {
+    /// Filesystem path of the dragged asset.
     pub path: PathBuf,
+    /// Category of the dragged asset, used by the drop target to decide how to handle it.
     pub kind: AssetKind,
 }
 
 /// One row in the Asset Browser's tile grid or folder tree.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AssetEntry {
+    /// File or directory name, as shown under its tile.
     pub name: String,
+    /// Full filesystem path.
     pub path: PathBuf,
+    /// Category derived from the file extension (or `Directory`).
     pub kind: AssetKind,
+    /// Whether this entry is a directory rather than a file.
     pub is_dir: bool,
 }
 

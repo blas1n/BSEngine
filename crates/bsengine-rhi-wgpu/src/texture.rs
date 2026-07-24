@@ -8,6 +8,7 @@ struct GpuTexture {
     bind_group: wgpu::BindGroup,
 }
 
+/// Owns every GPU texture uploaded for the running app, keyed by a registry-assigned id.
 #[derive(Resource)]
 pub struct GpuTextureRegistry {
     device: Arc<wgpu::Device>,
@@ -19,6 +20,7 @@ pub struct GpuTextureRegistry {
 }
 
 impl GpuTextureRegistry {
+    /// Creates an empty registry bound to the given wgpu device/queue.
     pub fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
         let bgl = Self::create_bgl(&device);
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -63,6 +65,8 @@ impl GpuTextureRegistry {
         })
     }
 
+    /// Decodes an in-memory image file (PNG, JPEG, etc), uploads it as an
+    /// RGBA8 texture, and returns its assigned id.
     pub fn load_from_bytes(&mut self, bytes: &[u8]) -> Result<u64, String> {
         let img = image::load_from_memory(bytes).map_err(|e| format!("image decode: {e}"))?;
         let rgba = img.to_rgba8();
@@ -70,6 +74,7 @@ impl GpuTextureRegistry {
         Ok(self.upload_rgba(width, height, &rgba))
     }
 
+    /// Uploads already-decoded RGBA8 pixel data as a new texture and returns its assigned id.
     pub fn load_from_rgba(&mut self, width: u32, height: u32, rgba: &[u8]) -> u64 {
         self.upload_rgba(width, height, rgba)
     }
@@ -131,6 +136,7 @@ impl GpuTextureRegistry {
         id
     }
 
+    /// Looks up a previously loaded texture's bind group by id.
     pub fn get_bind_group(&self, id: u64) -> Option<&wgpu::BindGroup> {
         self.textures.get(&id).map(|t| &t.bind_group)
     }

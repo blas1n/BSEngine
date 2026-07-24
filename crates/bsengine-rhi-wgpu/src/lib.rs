@@ -13,13 +13,21 @@
 #![allow(clippy::type_complexity)]
 #![warn(missing_docs)]
 
+/// Screen-space translate/rotate gizmo math and drawing.
 pub mod gizmo;
+/// GPU mesh generation and the mesh registry.
 pub mod mesh;
+/// Editor-only egui panels (asset browser, dock, hierarchy, inspector, viewport).
 pub mod panels;
+/// The Bevy plugin that wires the wgpu RHI into the app.
 pub mod plugin;
+/// Post-processing render passes (bloom, tonemapping, etc).
 pub mod post_process;
+/// The `WgpuRHI` implementation of the abstract RHI traits.
 pub mod rhi;
+/// Swapchain/frame lifecycle and the main scene render pass.
 pub mod surface;
+/// GPU texture loading and the texture registry.
 pub mod texture;
 pub mod theme;
 pub use mesh::{

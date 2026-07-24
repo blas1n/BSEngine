@@ -7,17 +7,22 @@ use tracing::warn;
 
 use crate::loader::GltfLoader;
 
+/// Marker component requesting that a GLTF/GLB file be loaded onto this
+/// entity; replaced by `MeshRenderer`/`Material` once loading completes.
 #[derive(Component, Clone, Debug)]
 pub struct GltfAsset {
+    /// Filesystem path to the GLTF/GLB file to load.
     pub path: String,
 }
 
 impl GltfAsset {
+    /// Creates a new `GltfAsset` pointing at the given file path.
     pub fn new(path: impl Into<String>) -> Self {
         Self { path: path.into() }
     }
 }
 
+/// Bevy plugin that loads `GltfAsset` entities into renderable meshes each frame.
 pub struct GltfPlugin;
 
 impl Plugin for GltfPlugin {

@@ -15,6 +15,7 @@ use crate::{
     world::PhysicsWorld,
 };
 
+/// Bevy plugin that inserts a `PhysicsWorld` and steps spawn/simulate/sync systems each frame.
 pub struct PhysicsPlugin;
 
 impl Plugin for PhysicsPlugin {

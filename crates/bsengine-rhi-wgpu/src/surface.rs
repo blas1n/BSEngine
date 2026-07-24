@@ -1887,7 +1887,9 @@ impl WgpuSurface {
                                 panels: &mut panels_guard,
                                 type_registry: type_registry_guard.as_deref(),
                             };
-                            egui_dock::DockArea::new(&mut dock_state).show(ctx, &mut tab_viewer);
+                            egui_dock::DockArea::new(&mut dock_state)
+                                .style(egui_dock::Style::from_egui(ctx.style().as_ref()))
+                                .show(ctx, &mut tab_viewer);
                             drop(panels_guard);
 
                             let layout_json =

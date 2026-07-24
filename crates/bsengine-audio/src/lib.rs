@@ -5,8 +5,11 @@
 //! `PlaybackState` tracking whether a sound is playing, paused, or stopped.
 #![warn(missing_docs)]
 
+/// ECS components for attaching and configuring audio playback on entities.
 pub mod components;
+/// The Bevy [`AudioPlugin`] and the systems that drive playback each frame.
 pub mod plugin;
+/// The [`AudioWorld`] resource wrapping the underlying `kira` audio manager.
 pub mod world;
 
 pub use components::{AudioPlayer, AudioSource, PlaybackState};

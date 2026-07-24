@@ -1,9 +1,11 @@
 use crate::descriptor::PluginDescriptor;
 use std::path::Path;
 
+/// Stateless helper for reading plugin manifests from the filesystem.
 pub struct PluginLoader;
 
 impl PluginLoader {
+    /// Reads and parses the `plugin.toml` manifest inside `dir`.
     pub fn load_from_dir(dir: &Path) -> Result<PluginDescriptor, String> {
         let toml_path = dir.join("plugin.toml");
         let content = std::fs::read_to_string(&toml_path)
@@ -11,6 +13,8 @@ impl PluginLoader {
         toml::from_str(&content).map_err(|e| format!("Parse error in {}: {e}", toml_path.display()))
     }
 
+    /// Scans immediate subdirectories of `root`, loading a descriptor from
+    /// each one that contains a valid `plugin.toml`; invalid entries are skipped.
     pub fn scan_directory(root: &Path) -> Result<Vec<PluginDescriptor>, String> {
         let mut plugins = Vec::new();
         let entries = std::fs::read_dir(root)

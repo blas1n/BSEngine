@@ -1,25 +1,30 @@
 use crate::descriptor::PluginDescriptor;
 use std::collections::HashMap;
 
+/// In-memory table of loaded plugin descriptors, keyed by plugin name.
 pub struct PluginRegistry {
     plugins: HashMap<String, PluginDescriptor>,
 }
 
 impl PluginRegistry {
+    /// Creates an empty registry.
     pub fn new() -> Self {
         Self {
             plugins: HashMap::new(),
         }
     }
 
+    /// Registers a plugin descriptor, overwriting any existing entry with the same name.
     pub fn register(&mut self, desc: PluginDescriptor) {
         self.plugins.insert(desc.name.clone(), desc);
     }
 
+    /// Looks up a registered plugin descriptor by name.
     pub fn get(&self, name: &str) -> Option<&PluginDescriptor> {
         self.plugins.get(name)
     }
 
+    /// Returns all registered plugin descriptors, in arbitrary order.
     pub fn all(&self) -> Vec<&PluginDescriptor> {
         self.plugins.values().collect()
     }

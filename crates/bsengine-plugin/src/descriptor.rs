@@ -1,10 +1,15 @@
 use serde::{Deserialize, Serialize};
 
+/// Plugin manifest metadata, parsed from a plugin's `plugin.toml` file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginDescriptor {
+    /// Unique plugin name, used as its registry key.
     pub name: String,
+    /// Plugin version string (e.g. semver).
     pub version: String,
+    /// Optional human-readable description of the plugin.
     pub description: Option<String>,
+    /// Optional path, relative to the plugin directory, to its entry script.
     pub entry_script: Option<String>,
 }
 

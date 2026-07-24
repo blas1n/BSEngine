@@ -368,8 +368,17 @@ impl AssetBrowserPanel {
                     }
                 }
                 AssetKind::Mesh | AssetKind::Script => {
+                    // Sense::click_and_drag() here, not Sense::drag() alone:
+                    // this interact is registered after (on top of, in
+                    // hit-test z-order) `response`'s own click-sensing
+                    // widget, on the exact same rect. egui's hit-test nulls
+                    // out the click hit whenever the topmost of two
+                    // perfectly-overlapping widgets senses only drag (see
+                    // the identical bug fixed in hierarchy.rs's draw_row) —
+                    // click_and_drag() keeps this tile clickable too.
                     let drag_id = ui.id().with(("asset_tile_drag", &entry.path));
-                    let drag_response = ui.interact(response.rect, drag_id, egui::Sense::drag());
+                    let drag_response =
+                        ui.interact(response.rect, drag_id, egui::Sense::click_and_drag());
                     let combined = drag_response | response;
                     combined.dnd_set_drag_payload(AssetDragPayload {
                         path: entry.path.clone(),
@@ -449,5 +458,78 @@ mod tests {
         let tmp = std::env::temp_dir().join("bse_asset_browser_scan_test_missing");
         std::fs::remove_dir_all(&tmp).ok();
         assert!(scan_dir(&tmp).is_empty());
+    }
+
+    /// Regression test mirroring `hierarchy.rs`'s
+    /// `row_click_registers_despite_unioned_drag_sense_interact`: a same-rect
+    /// `ui.interact(.., Sense::drag())` registered after (topmost over) a
+    /// click-sensing widget nulls out that widget's click hit entirely (see
+    /// egui's `hit_test_on_close`), regardless of `Response::union`. Two
+    /// `Context::run` passes are required because egui hit-tests against the
+    /// *previous* frame's widget rects.
+    #[test]
+    fn asset_tile_click_registers_despite_unioned_drag_sense_interact() {
+        let ctx = egui::Context::default();
+        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
+
+        let mut tile_rect = egui::Rect::NOTHING;
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen_rect),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let response = ui.button("tile");
+                    let drag_id = ui.id().with("asset_tile_drag");
+                    let _drag_response =
+                        ui.interact(response.rect, drag_id, egui::Sense::click_and_drag());
+                    tile_rect = response.rect;
+                });
+            },
+        );
+
+        let pos = tile_rect.center();
+        let click_events = vec![
+            egui::Event::PointerMoved(pos),
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::default(),
+            },
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::default(),
+            },
+        ];
+
+        let mut clicked = false;
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen_rect),
+                events: click_events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let response = ui.button("tile");
+                    let drag_id = ui.id().with("asset_tile_drag");
+                    let drag_response =
+                        ui.interact(response.rect, drag_id, egui::Sense::click_and_drag());
+                    let combined = drag_response | response;
+                    if combined.clicked() {
+                        clicked = true;
+                    }
+                });
+            },
+        );
+
+        assert!(
+            clicked,
+            "asset tile click must register even with a same-rect drag-sense interact unioned in"
+        );
     }
 }

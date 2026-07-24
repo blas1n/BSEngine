@@ -21,11 +21,32 @@ impl EditorPanel for ViewportPanel {
         insp.viewport_contains_cursor = panel_rect.contains(egui::Pos2::new(cursor_x, cursor_y));
         let response = ui.allocate_rect(panel_rect, egui::Sense::click_and_drag());
 
+        if let Some(payload) = response.dnd_release_payload::<crate::panels::AssetDragPayload>() {
+            if payload.kind == crate::panels::AssetKind::Mesh {
+                let name = payload
+                    .path
+                    .file_stem()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "Mesh".to_string());
+                insp.cmd_queue.push(InspectorCmd::SpawnMeshAsset {
+                    name,
+                    path: payload.path.to_string_lossy().to_string(),
+                });
+            }
+        }
+
         // Gizmo overlays only make sense while editing: once Play starts,
         // the viewport shows the game's own Camera entity feed (see
         // bsengine-render's render_frame), which the editor-orbit-relative
         // view_proj no longer matches.
         let is_stopped = insp.play_state == bsengine_core::EditorPlayState::Stopped;
+
+        if is_stopped && insp.show_grid {
+            if let Some(view_proj) = insp.editor_view_proj {
+                let lines = crate::gizmo::ground_grid_lines(&view_proj, panel_rect, 1.0, 10);
+                crate::gizmo::draw_ground_grid(ui.painter(), &lines);
+            }
+        }
 
         if is_stopped {
             if let Some(view_proj) = insp.editor_view_proj {
@@ -204,5 +225,53 @@ impl EditorPanel for ViewportPanel {
                 }
             }
         }
+
+        egui::Area::new(egui::Id::new("viewport_mini_toolbar"))
+            .fixed_pos(panel_rect.min + egui::vec2(8.0, 8.0))
+            .show(ui.ctx(), |ui| {
+                egui::Frame::menu(ui.style()).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        if ui
+                            .selectable_label(
+                                insp.gizmo_mode == bsengine_core::GizmoMode::Translate,
+                                egui_phosphor::regular::ARROWS_OUT_CARDINAL,
+                            )
+                            .on_hover_text("Move (W)")
+                            .clicked()
+                        {
+                            insp.gizmo_mode = bsengine_core::GizmoMode::Translate;
+                        }
+                        if ui
+                            .selectable_label(
+                                insp.gizmo_mode == bsengine_core::GizmoMode::Rotate,
+                                egui_phosphor::regular::ARROWS_CLOCKWISE,
+                            )
+                            .on_hover_text("Rotate (E)")
+                            .clicked()
+                        {
+                            insp.gizmo_mode = bsengine_core::GizmoMode::Rotate;
+                        }
+                        if ui
+                            .selectable_label(insp.show_grid, egui_phosphor::regular::GRID_FOUR)
+                            .on_hover_text("Toggle Grid")
+                            .clicked()
+                        {
+                            insp.show_grid = !insp.show_grid;
+                        }
+                    });
+                });
+            });
+
+        egui::Area::new(egui::Id::new("viewport_stats_overlay"))
+            .fixed_pos(egui::Pos2::new(
+                panel_rect.max.x - 90.0,
+                panel_rect.min.y + 8.0,
+            ))
+            .show(ui.ctx(), |ui| {
+                egui::Frame::menu(ui.style()).show(ui, |ui| {
+                    let fps = 1.0 / ui.ctx().input(|i| i.stable_dt.max(1e-6));
+                    ui.colored_label(crate::theme::TEXT_DIM, format!("{fps:.0} FPS"));
+                });
+            });
     }
 }

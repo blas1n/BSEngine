@@ -136,6 +136,9 @@ fn process_editor_commands(
             EditorCommand::SpawnNamed(name) => {
                 commands.spawn(Name(name));
             }
+            EditorCommand::SpawnMeshAsset { name, path } => {
+                commands.spawn((Name(name), bsengine_gltf::GltfAsset::new(path)));
+            }
             EditorCommand::Despawn { entity_id } => {
                 let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
                 if let Some(entity) = target {
@@ -1421,6 +1424,12 @@ fn apply_inspector_cmds(
                 } else {
                     tracing::warn!("save requested but no scene file is currently loaded");
                 }
+            }
+            InspectorCmd::LoadScene { path } => {
+                queue.push(EditorCommand::LoadScene(path));
+            }
+            InspectorCmd::SpawnMeshAsset { name, path } => {
+                queue.push(EditorCommand::SpawnMeshAsset { name, path });
             }
             InspectorCmd::AttachComponentByType { id, type_path } => {
                 reflect_queue_res.0.lock().unwrap().push(ReflectCommand::AttachComponentByType {
@@ -90656,5 +90665,30 @@ mod tests {
                 .get::<bsengine_scene::PrimitiveMesh>(eid)
                 .is_none()
         );
+    }
+
+    #[test]
+    fn spawn_mesh_asset_command_spawns_entity_with_name_and_gltf_asset() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.update();
+
+        {
+            let queue = app.world().resource::<EditorCommandQueueResource>();
+            queue.0.lock().unwrap().push(EditorCommand::SpawnMeshAsset {
+                name: "Rock".to_string(),
+                path: "assets/models/rock.glb".to_string(),
+            });
+        }
+        app.update();
+
+        let mut query = app.world_mut().query::<(&Name, &bsengine_gltf::GltfAsset)>();
+        let (name, gltf_asset) = query
+            .iter(app.world())
+            .next()
+            .expect("expected one entity with Name + GltfAsset");
+        assert_eq!(name.0, "Rock");
+        assert_eq!(gltf_asset.path, "assets/models/rock.glb");
     }
 }

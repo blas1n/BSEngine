@@ -12,8 +12,9 @@ pub fn layout_path() -> PathBuf {
     PathBuf::from("editor_layout.json")
 }
 
-/// Hierarchy (20%) | Viewport (~60%) | Inspector (~20%) — the same visual
-/// arrangement the fixed-panel layout used, just now rearrangeable.
+/// Hierarchy (20%) | Viewport (~60%) | Inspector (~20%) on top (70% of the
+/// window height), full-width Assets browser below (30%) — Unity Project
+/// panel / Unreal Content Browser convention.
 pub fn default_dock_state() -> DockState<String> {
     let mut state = DockState::new(vec!["hierarchy".to_string()]);
     let surface = SurfaceIndex::main();
@@ -29,10 +30,16 @@ pub fn default_dock_state() -> DockState<String> {
         0.75,
         Node::leaf("inspector".to_string()),
     );
+    let [_top, _assets] = state.split(
+        (surface, NodeIndex::root()),
+        Split::Below,
+        0.7,
+        Node::leaf("assets".to_string()),
+    );
     state
 }
 
-/// Idempotently registers the three built-in panels if they aren't already
+/// Idempotently registers the four built-in panels if they aren't already
 /// present (e.g. from a previous frame, or pre-registered by app code).
 pub fn ensure_builtin_panels(registry: &EditorPanelRegistry) {
     let mut map = registry.0.lock().unwrap();
@@ -42,6 +49,9 @@ pub fn ensure_builtin_panels(registry: &EditorPanelRegistry) {
         .or_insert_with(|| Box::new(crate::panels::InspectorPanel) as Box<dyn EditorPanel>);
     map.entry("viewport".to_string())
         .or_insert_with(|| Box::new(crate::panels::ViewportPanel) as Box<dyn EditorPanel>);
+    map.entry("assets".to_string()).or_insert_with(|| {
+        Box::new(crate::panels::AssetBrowserPanel::default()) as Box<dyn EditorPanel>
+    });
 }
 
 /// Loads a previously saved layout. Returns `None` if the file doesn't
@@ -127,33 +137,37 @@ pub fn window_menu_ui(
     dock_state: &mut DockState<String>,
     registry: &EditorPanelRegistry,
 ) {
-    ui.menu_button("Window ▾", |ui| {
-        let panels: MutexGuard<HashMap<String, Box<dyn EditorPanel>>> = registry.0.lock().unwrap();
-        let mut ids: Vec<&String> = panels.keys().collect();
-        ids.sort();
-        for id in ids {
-            let title = panels
-                .get(id)
-                .map(|p| p.title())
-                .unwrap_or_else(|| id.clone());
-            let is_open = dock_state.iter_all_tabs().any(|(_, tab)| tab == id);
-            let mut checked = is_open;
-            if ui.checkbox(&mut checked, &title).changed() {
-                if checked && !is_open {
-                    dock_state.push_to_first_leaf(id.clone());
-                } else if !checked && is_open {
-                    if let Some(loc) = dock_state.find_tab(id) {
-                        dock_state.remove_tab(loc);
+    ui.menu_button(
+        format!("{} Window", egui_phosphor::regular::APP_WINDOW),
+        |ui| {
+            let panels: MutexGuard<HashMap<String, Box<dyn EditorPanel>>> =
+                registry.0.lock().unwrap();
+            let mut ids: Vec<&String> = panels.keys().collect();
+            ids.sort();
+            for id in ids {
+                let title = panels
+                    .get(id)
+                    .map(|p| p.title())
+                    .unwrap_or_else(|| id.clone());
+                let is_open = dock_state.iter_all_tabs().any(|(_, tab)| tab == id);
+                let mut checked = is_open;
+                if ui.checkbox(&mut checked, &title).changed() {
+                    if checked && !is_open {
+                        dock_state.push_to_first_leaf(id.clone());
+                    } else if !checked && is_open {
+                        if let Some(loc) = dock_state.find_tab(id) {
+                            dock_state.remove_tab(loc);
+                        }
                     }
                 }
             }
-        }
-        drop(panels);
-        ui.separator();
-        if ui.button("Reset Layout").clicked() {
-            *dock_state = default_dock_state();
-        }
-    });
+            drop(panels);
+            ui.separator();
+            if ui.button("Reset Layout").clicked() {
+                *dock_state = default_dock_state();
+            }
+        },
+    );
 }
 
 #[cfg(test)]
@@ -161,13 +175,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_dock_state_has_three_builtin_tabs() {
+    fn default_dock_state_has_four_builtin_tabs_including_assets() {
         let state = default_dock_state();
         let mut ids: Vec<&String> = state.iter_all_tabs().map(|(_, tab)| tab).collect();
         ids.sort();
         assert_eq!(
             ids,
             vec![
+                &"assets".to_string(),
                 &"hierarchy".to_string(),
                 &"inspector".to_string(),
                 &"viewport".to_string()
@@ -221,10 +236,10 @@ mod tests {
     }
 
     #[test]
-    fn ensure_builtin_panels_is_idempotent() {
+    fn ensure_builtin_panels_registers_four_panels() {
         let registry = EditorPanelRegistry::default();
         ensure_builtin_panels(&registry);
         ensure_builtin_panels(&registry);
-        assert_eq!(registry.0.lock().unwrap().len(), 3);
+        assert_eq!(registry.0.lock().unwrap().len(), 4);
     }
 }

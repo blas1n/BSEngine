@@ -17,6 +17,7 @@ winit.workspace = true
 egui.workspace = true
 egui-wgpu.workspace = true
 egui_dock.workspace = true
+egui-phosphor.workspace = true
 serde_json.workspace = true
 bevy_reflect.workspace = true
 bytemuck.workspace = true

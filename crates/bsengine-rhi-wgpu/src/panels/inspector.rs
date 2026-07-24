@@ -72,7 +72,13 @@ impl EditorPanel for InspectorPanel {
 
         // Transform
         if has_transform {
-            ui.strong("Transform");
+            ui.horizontal(|ui| {
+                ui.colored_label(
+                    crate::theme::ACCENT,
+                    egui_phosphor::regular::ARROWS_OUT_CARDINAL,
+                );
+                ui.colored_label(crate::theme::TEXT, "Transform");
+            });
             let mut pos_changed = false;
             ui.horizontal(|ui| {
                 ui.label("Pos");
@@ -142,7 +148,10 @@ impl EditorPanel for InspectorPanel {
         }
 
         // Tags
-        ui.strong("Tags");
+        ui.horizontal(|ui| {
+            ui.colored_label(crate::theme::ACCENT, egui_phosphor::regular::TAG);
+            ui.colored_label(crate::theme::TEXT, "Tags");
+        });
         ui.horizontal_wrapped(|ui| {
             for tag in &sel_info.tags {
                 ui.horizontal(|ui| {
@@ -169,7 +178,10 @@ impl EditorPanel for InspectorPanel {
         ui.separator();
 
         // Script
-        ui.strong("Script");
+        ui.horizontal(|ui| {
+            ui.colored_label(crate::theme::ACCENT, egui_phosphor::regular::CODE);
+            ui.colored_label(crate::theme::TEXT, "Script");
+        });
         ui.horizontal(|ui| {
             ui.text_edit_singleline(&mut insp.edit_script_path);
             if ui.button("Attach").clicked() && !insp.edit_script_path.is_empty() {
@@ -187,7 +199,10 @@ impl EditorPanel for InspectorPanel {
         ui.separator();
 
         // Mesh
-        ui.strong("Mesh");
+        ui.horizontal(|ui| {
+            ui.colored_label(crate::theme::ACCENT, egui_phosphor::regular::CUBE);
+            ui.colored_label(crate::theme::TEXT, "Mesh");
+        });
         ui.horizontal(|ui| {
             let current_label = sel_info.primitive.as_deref().unwrap_or("None");
             let mut chosen: Option<&str> = None;
@@ -214,7 +229,10 @@ impl EditorPanel for InspectorPanel {
         ui.separator();
 
         // Add Component
-        ui.strong("Add Component");
+        ui.horizontal(|ui| {
+            ui.colored_label(crate::theme::ACCENT, egui_phosphor::regular::PLUS);
+            ui.colored_label(crate::theme::TEXT, "Add Component");
+        });
         ui.horizontal(|ui| {
             if light_type.is_none() && ui.button("Point Light").clicked() {
                 insp.cmd_queue
@@ -227,7 +245,10 @@ impl EditorPanel for InspectorPanel {
 
         if let Some(registry) = ctx.type_registry {
             ui.separator();
-            ui.strong("Add Component (reflected)");
+            ui.horizontal(|ui| {
+                ui.colored_label(crate::theme::ACCENT, egui_phosphor::regular::PLUS);
+                ui.colored_label(crate::theme::TEXT, "Add Component (reflected)");
+            });
             let mut to_attach: Option<String> = None;
             egui::ComboBox::from_id_salt("reflect_add_component")
                 .selected_text("Select type...")
@@ -255,7 +276,10 @@ impl EditorPanel for InspectorPanel {
 
         if !insp.reflected_components.is_empty() {
             ui.separator();
-            ui.strong("Reflected Fields");
+            ui.horizontal(|ui| {
+                ui.colored_label(crate::theme::ACCENT, egui_phosphor::regular::LIST);
+                ui.colored_label(crate::theme::TEXT, "Reflected Fields");
+            });
             let type_registry = ctx.type_registry;
             let mut to_apply: Vec<(String, Box<dyn bevy_reflect::Reflect>)> = Vec::new();
             let mut to_remove: Option<String> = None;
@@ -267,10 +291,13 @@ impl EditorPanel for InspectorPanel {
                     true,
                 )
                 .show_header(ui, |ui| {
-                    ui.strong(type_path.as_str());
-                    if ui.small_button("✕").clicked() {
-                        to_remove = Some(type_path.clone());
-                    }
+                    ui.colored_label(crate::theme::TEXT, type_path.as_str());
+                    ui.menu_button(egui_phosphor::regular::DOTS_THREE, |ui| {
+                        if ui.button("Remove Component").clicked() {
+                            to_remove = Some(type_path.clone());
+                            ui.close_menu();
+                        }
+                    });
                 })
                 .body(|ui| {
                     if draw_reflect_ui(ui, value.as_mut()) {

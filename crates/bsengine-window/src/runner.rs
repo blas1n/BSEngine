@@ -186,6 +186,8 @@ impl ApplicationHandler for BsWinitApp {
     }
 }
 
+/// Bevy `App` runner that drives a `winit` event loop, translating window and
+/// device events into ECS events and calling `app.update()` on each redraw.
 pub fn winit_runner(app: App) -> AppExit {
     let event_loop = EventLoop::new().expect("Failed to create event loop");
     event_loop.set_control_flow(ControlFlow::Poll);

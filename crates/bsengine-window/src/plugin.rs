@@ -5,8 +5,10 @@ use bevy_ecs::prelude::*;
 use bsengine_core::{CursorConfig, CursorPos};
 use winit::window::CursorGrabMode;
 
+/// Bevy plugin that creates the OS window and wires up cursor/window events.
 #[derive(Default)]
 pub struct WindowPlugin {
+    /// Initial size, title, and resizability of the window to create.
     pub descriptor: WindowDescriptor,
 }
 

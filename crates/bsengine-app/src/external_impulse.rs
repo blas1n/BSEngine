@@ -2,6 +2,8 @@ use bevy_app::{App, Plugin, Update};
 use bsengine_core::{AngularVelocity, ExternalImpulse, Mass, Velocity};
 use bsengine_ecs::Query;
 
+/// Applies each entity's pending `ExternalImpulse` to its `Velocity`/`AngularVelocity`
+/// (scaled by inverse mass) once per frame, then clears the impulse.
 pub struct ExternalImpulsePlugin;
 
 impl Plugin for ExternalImpulsePlugin {

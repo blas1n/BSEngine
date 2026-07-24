@@ -3,6 +3,8 @@ use bsengine_core::{Follow, GlobalTransform, LookAt, Time, Transform};
 use bsengine_ecs::{Query, Res};
 use glam::{Mat3, Quat, Vec3};
 
+/// Moves entities with a `Follow` component toward their target's position and
+/// orients entities with a `LookAt` component toward their target, each frame.
 pub struct FollowPlugin;
 
 impl Plugin for FollowPlugin {

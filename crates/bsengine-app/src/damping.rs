@@ -2,6 +2,7 @@ use bevy_app::{App, Plugin, Update};
 use bsengine_core::{Damping, Time, Velocity};
 use bsengine_ecs::{Query, Res};
 
+/// Exponentially decays entity `Velocity` toward zero based on its `Damping` factor.
 pub struct DampingPlugin;
 
 impl Plugin for DampingPlugin {

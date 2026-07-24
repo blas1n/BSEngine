@@ -3,6 +3,7 @@ use bsengine_core::{AnimationPlayer, Time};
 use bsengine_ecs::Query;
 use bsengine_ecs::Res;
 
+/// Advances every `AnimationPlayer`'s clip time each frame by `Time::delta_seconds`.
 pub struct AnimationPlugin;
 
 impl Plugin for AnimationPlugin {

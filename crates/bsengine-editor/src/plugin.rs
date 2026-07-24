@@ -1491,6 +1491,9 @@ fn apply_inspector_cmds(
     }
 }
 
+/// Bevy `Plugin` that wires the editor bridge into an `App`: inserts the
+/// shared snapshot/command-queue/selection/history resources and registers
+/// the systems that process `EditorCommand`s and `ReflectCommand`s each frame.
 pub struct EditorPlugin;
 
 impl Plugin for EditorPlugin {

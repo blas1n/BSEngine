@@ -260,15 +260,27 @@ fn draw_leaf_ui(ui: &mut egui::Ui, value: &mut dyn Reflect) -> bool {
         return changed;
     }
     if let Some(v) = value.downcast_mut::<bsengine_core::ReflectQuat>() {
-        let mut arr = v.to_array();
+        // Same to_euler/from_euler(EulerRot::XYZ) convention already used by
+        // the hardcoded Transform panel (inspector.rs) and hierarchy.rs --
+        // showing/editing raw quaternion x/y/z/w here would be far less
+        // usable than the degrees a user actually thinks in.
+        let (rx, ry, rz) = v.0.to_euler(glam::EulerRot::XYZ);
+        let mut degrees = [rx.to_degrees(), ry.to_degrees(), rz.to_degrees()];
         let mut changed = false;
         ui.horizontal(|ui| {
-            for a in arr.iter_mut() {
-                changed |= ui.add(egui::DragValue::new(a).speed(0.05)).changed();
+            for d in degrees.iter_mut() {
+                changed |= ui
+                    .add(egui::DragValue::new(d).speed(0.5).suffix("°"))
+                    .changed();
             }
         });
         if changed {
-            v.0 = glam::Quat::from_array(arr);
+            v.0 = glam::Quat::from_euler(
+                glam::EulerRot::XYZ,
+                degrees[0].to_radians(),
+                degrees[1].to_radians(),
+                degrees[2].to_radians(),
+            );
         }
         return changed;
     }
@@ -937,6 +949,148 @@ mod tests {
             !is_focusable,
             "the fallback label must be a plain, non-focusable label — if this becomes \
              focusable, a live interactive widget is being silently drawn for an unhandled type"
+        );
+    }
+
+    #[test]
+    fn reflect_quat_leaf_renders_three_euler_degree_dragvalues_not_four_raw_components() {
+        let mut rot: bsengine_core::ReflectQuat = glam::Quat::IDENTITY.into();
+        let (changed, widget_count) = with_test_ui(|_ctx, ui| {
+            let changed = draw_reflect_ui(ui, &mut rot, &empty_ctx());
+            let after = ui.next_auto_id();
+            (changed, after)
+        });
+        assert!(!changed, "no interaction happened, so nothing changed");
+        assert_eq!(rot.0, glam::Quat::IDENTITY, "value must be untouched");
+        // Previously rendered 4 bare DragValues (x, y, z, w) inside one
+        // ui.horizontal (1 top-level group). Now renders 3 (Euler XYZ
+        // degrees) inside the same kind of group -- still 1 top-level
+        // group either way, so the widget-count signal alone can't
+        // distinguish "3 DragValues" from "4 DragValues". This is why the
+        // keyboard-interaction test below (not this one) is the real
+        // regression guard; this test only proves the leaf still dispatches
+        // to a wrapped group, not the unsupported-type fallback.
+        assert_eq!(
+            widget_count,
+            auto_id_after_n_top_level_widgets(1),
+            "expected exactly one top-level group wrapping the Euler DragValues"
+        );
+    }
+
+    #[test]
+    fn reflect_quat_euler_edit_roundtrips_through_the_quaternion() {
+        // A quaternion built from known Euler XYZ degrees, converted back
+        // to Euler degrees via the exact same to_euler/from_euler(XYZ)
+        // convention draw_leaf_ui must use -- proves the conversion formula
+        // is lossless within float tolerance, independent of any UI code.
+        let original_degrees = [30.0_f32, 45.0, 60.0];
+        let quat = glam::Quat::from_euler(
+            glam::EulerRot::XYZ,
+            original_degrees[0].to_radians(),
+            original_degrees[1].to_radians(),
+            original_degrees[2].to_radians(),
+        );
+        let (rx, ry, rz) = quat.to_euler(glam::EulerRot::XYZ);
+        let degrees_via_conversion = [rx.to_degrees(), ry.to_degrees(), rz.to_degrees()];
+        for (a, b) in original_degrees.iter().zip(degrees_via_conversion.iter()) {
+            assert!(
+                (a - b).abs() < 1e-3,
+                "Euler XYZ round-trip must be lossless within float tolerance: {a} vs {b}"
+            );
+        }
+    }
+
+    #[test]
+    fn reflect_quat_leaf_edits_only_the_dragged_euler_axis_via_keyboard() {
+        // Real regression gate for "3 Euler-degree DragValues, not 4 raw
+        // x/y/z/w components": tabs keyboard focus onto the *first* widget
+        // draw_leaf_ui's ReflectQuat branch creates (order-based, so no
+        // pixel-position guessing is needed -- see egui 0.29.1's
+        // `Memory::interested_in_focus`: "nothing has focus and the user
+        // pressed tab -- give focus to the first widget that wants it"),
+        // then presses ArrowUp 3 times while it's focused. egui's DragValue
+        // reads ArrowUp/Down directly off the keyboard while focused
+        // (`is_kb_editing`, drag_value.rs) and bumps its bound value by
+        // `speed` per press -- no mouse/pixel interaction needed at all.
+        //
+        // On the current (post-Step-2) code the first DragValue drawn is
+        // bound to the X Euler-degree with speed(0.5), so 3 presses must
+        // move it by exactly 1.5 degrees, leaving Y and Z untouched. On the
+        // pre-Step-2 code (4 raw quaternion x/y/z/w components, speed(0.05))
+        // the first DragValue is bound to the raw quaternion x component
+        // instead -- 3 presses would add 0.15 to it directly (no Euler
+        // conversion at all), and `Quat::from_array` doesn't renormalize,
+        // producing an entirely different (and non-unit) quaternion whose
+        // Euler decomposition would not show "X moved by ~1.5°, Y/Z at 0" --
+        // so this test is red on that code, not just tautologically green.
+        let mut rot: bsengine_core::ReflectQuat = glam::Quat::IDENTITY.into();
+
+        let egui_ctx = egui::Context::default();
+        egui_ctx.set_fonts(egui::FontDefinitions::empty());
+        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
+
+        // Frame 1: Tab with nothing focused yet. egui grants focus, within
+        // this very same frame, to the first widget that registers interest
+        // in it -- whichever DragValue draw_leaf_ui's loop creates first.
+        let _ = egui_ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen_rect),
+                events: vec![egui::Event::Key {
+                    key: egui::Key::Tab,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::default(),
+                }],
+                ..Default::default()
+            },
+            |egui_ctx| {
+                egui::CentralPanel::default()
+                    .show(egui_ctx, |ui| draw_reflect_ui(ui, &mut rot, &empty_ctx()));
+            },
+        );
+
+        // Frame 2: 3x ArrowUp while that first DragValue still holds
+        // keyboard focus. DragValue consumes these directly and bumps its
+        // bound value by `speed` per press.
+        let mut changed = false;
+        let _ = egui_ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen_rect),
+                events: vec![
+                    egui::Event::Key {
+                        key: egui::Key::ArrowUp,
+                        physical_key: None,
+                        pressed: true,
+                        repeat: false,
+                        modifiers: egui::Modifiers::default(),
+                    };
+                    3
+                ],
+                ..Default::default()
+            },
+            |egui_ctx| {
+                egui::CentralPanel::default().show(egui_ctx, |ui| {
+                    changed = draw_reflect_ui(ui, &mut rot, &empty_ctx());
+                });
+            },
+        );
+
+        assert!(
+            changed,
+            "3 ArrowUp presses on the focused first DragValue should have registered a change"
+        );
+        let (rx, ry, rz) = rot.0.to_euler(glam::EulerRot::XYZ);
+        let (rx_deg, ry_deg, rz_deg) = (rx.to_degrees(), ry.to_degrees(), rz.to_degrees());
+        assert!(
+            (rx_deg - 1.5).abs() < 1e-2,
+            "expected the X Euler degree to have moved by exactly 3 * speed(0.5) = 1.5 -- got \
+             {rx_deg}"
+        );
+        assert!(
+            ry_deg.abs() < 1e-2 && rz_deg.abs() < 1e-2,
+            "only the first (X) DragValue was interacted with -- Y and Z must stay at 0, got \
+             ({ry_deg}, {rz_deg})"
         );
     }
 }

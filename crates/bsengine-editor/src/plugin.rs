@@ -1606,6 +1606,15 @@ impl Plugin for EditorPlugin {
         app.register_type::<bsengine_scene::Primitive>();
         app.register_type::<bsengine_scene::PrimitiveMesh>();
         app.register_type::<bsengine_scene::ScriptPath>();
+        // Explicit, defensive registration -- as of this writing these three
+        // already get a ReflectDefault transitively (bevy_reflect's
+        // register_type_dependencies walks Transform's/ScriptPath's own
+        // fields), so this is currently redundant, not a fix for an active
+        // bug. Kept anyway so List-append/enum-variant-switch (which need
+        // ReflectDefault for these types in the real app registry, not just
+        // in reflect_ui.rs's own unit-test-local registries) don't silently
+        // regress if a future refactor to Transform/ScriptPath breaks that
+        // transitive path.
         app.register_type::<String>();
         app.register_type::<bsengine_core::ReflectVec3>();
         app.register_type::<bsengine_core::ReflectQuat>();
@@ -90947,6 +90956,16 @@ mod tests {
         assert_eq!(gltf_asset.path, "assets/models/rock.glb");
     }
 
+    /// Verifies the property List-append/enum-variant-switch actually
+    /// depend on -- these three types have a `ReflectDefault` in the real
+    /// app's registry, not just in reflect_ui.rs's own unit-test-local
+    /// registries. A pass here doesn't uniquely attribute to this file's
+    /// explicit `register_type` calls for these three types specifically:
+    /// bevy_reflect's `register_type_dependencies` already walks
+    /// `Transform`'s/`ScriptPath`'s own fields and would supply the same
+    /// `ReflectDefault`s transitively even without them (confirmed by
+    /// temporarily removing the explicit calls and re-running this test).
+    /// Both paths are acceptable; this test guards the end state either way.
     #[test]
     fn app_type_registry_has_default_for_string_and_glam_wrappers() {
         let mut app = new_app();

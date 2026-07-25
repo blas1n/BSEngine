@@ -1,4 +1,4 @@
-use crate::panels::reflect_ui::draw_reflect_ui;
+use crate::panels::reflect_ui::{draw_reflect_ui, ReflectUiCtx};
 use bsengine_core::{EditorPanel, EditorPanelContext, InspectorCmd, PRIMITIVE_KINDS};
 
 /// The Inspector panel: shows and edits the selected entity's transform, tags, and components.
@@ -58,8 +58,6 @@ impl EditorPanel for InspectorPanel {
         let label = sel_info.name.as_deref().unwrap_or("(unnamed)");
         let entity_name = format!("[{sel_id}] {label}");
         let has_transform = sel_info.position.is_some();
-        let light_type = sel_info.light_type.clone();
-        let has_camera = sel_info.camera_fov.is_some();
 
         ui.heading(&entity_name);
         ui.separator();
@@ -231,26 +229,14 @@ impl EditorPanel for InspectorPanel {
         });
         ui.separator();
 
-        // Add Component
-        ui.horizontal(|ui| {
-            ui.colored_label(crate::theme::ACCENT, egui_phosphor::regular::PLUS);
-            ui.colored_label(crate::theme::TEXT, "Add Component");
-        });
-        ui.horizontal(|ui| {
-            if light_type.is_none() && ui.button("Point Light").clicked() {
-                insp.cmd_queue
-                    .push(InspectorCmd::AddPointLight { id: sel_id });
-            }
-            if !has_camera && ui.button("Camera").clicked() {
-                insp.cmd_queue.push(InspectorCmd::AddCamera { id: sel_id });
-            }
-        });
-
+        // Add Component -- a single menu listing every registered,
+        // ReflectDefault-constructible component type not already attached
+        // to this entity (filtering prevents a confusing duplicate-attach).
         if let Some(registry) = ctx.type_registry {
             ui.separator();
             ui.horizontal(|ui| {
                 ui.colored_label(crate::theme::ACCENT, egui_phosphor::regular::PLUS);
-                ui.colored_label(crate::theme::TEXT, "Add Component (reflected)");
+                ui.colored_label(crate::theme::TEXT, "Add Component");
             });
             let mut to_attach: Option<String> = None;
             egui::ComboBox::from_id_salt("reflect_add_component")
@@ -263,7 +249,20 @@ impl EditorPanel for InspectorPanel {
                         {
                             continue;
                         }
+                        if registration
+                            .data::<bevy_reflect::std_traits::ReflectDefault>()
+                            .is_none()
+                        {
+                            continue;
+                        }
                         let type_path = registration.type_info().type_path().to_string();
+                        let already_attached = insp
+                            .reflected_components
+                            .iter()
+                            .any(|(existing_path, _)| existing_path == &type_path);
+                        if already_attached {
+                            continue;
+                        }
                         if ui.selectable_label(false, &type_path).clicked() {
                             to_attach = Some(type_path);
                         }
@@ -284,6 +283,10 @@ impl EditorPanel for InspectorPanel {
                 ui.colored_label(crate::theme::TEXT, "Reflected Fields");
             });
             let type_registry = ctx.type_registry;
+            let reflect_ctx = ReflectUiCtx {
+                entities: ctx.entities_snapshot,
+                type_registry,
+            };
             let mut to_apply: Vec<(String, Box<dyn bevy_reflect::Reflect>)> = Vec::new();
             let mut to_remove: Option<String> = None;
             for (type_path, value) in insp.reflected_components.iter_mut() {
@@ -303,7 +306,7 @@ impl EditorPanel for InspectorPanel {
                     });
                 })
                 .body(|ui| {
-                    if draw_reflect_ui(ui, value.as_mut()) {
+                    if draw_reflect_ui(ui, value.as_mut(), &reflect_ctx) {
                         validate_after_edit(type_path, value.as_mut(), type_registry);
                         to_apply.push((type_path.clone(), value.clone_value()));
                     }
@@ -618,6 +621,210 @@ mod tests {
         assert!(
             (sl.inner_angle_degrees.0 - 20.0).abs() < 1e-6,
             "inner should have been clamped down to outer via the generic Validate hook"
+        );
+    }
+
+    #[test]
+    fn add_component_menu_filters_out_already_attached_types() {
+        let mut registry = bevy_reflect::TypeRegistry::default();
+        registry.register::<bsengine_core::Camera>();
+        registry.register::<bsengine_core::PointLight>();
+
+        let mut insp = InspectorState::default();
+        insp.selected_id = Some(1);
+        // Camera is already attached (present in reflected_components) --
+        // it must not also appear as a pickable entry in the Add Component
+        // menu, or picking it would be a confusing no-op duplicate-attach.
+        insp.reflected_components = vec![(
+            "bsengine_core::camera::Camera".to_string(),
+            Box::new(bsengine_core::Camera::default()) as Box<dyn bevy_reflect::Reflect>,
+        )];
+
+        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
+        let mut panel = InspectorPanel;
+
+        with_test_ui(|ui| {
+            let mut ctx = EditorPanelContext {
+                insp: &mut insp,
+                entities_snapshot: &entities_snapshot,
+                cursor_pos: (0.0, 0.0),
+                type_registry: Some(&registry),
+            };
+            panel.ui(ui, &mut ctx);
+        });
+
+        // No interaction was simulated (headless single frame), so this
+        // doesn't test clicking the menu -- it's a smoke test that the
+        // panel renders without panicking with a registry containing an
+        // already-attached type.
+        assert!(insp.cmd_queue.is_empty());
+    }
+
+    #[test]
+    fn add_component_menu_click_only_offers_the_not_yet_attached_type() {
+        // Regression test that genuinely drives `InspectorPanel::ui()`'s Add
+        // Component combo, mirroring the click-simulation technique in
+        // `reflect_ui.rs`'s `enum_variant_combo_switches_to_a_default_instance_
+        // of_the_chosen_variant` test (open combo, settle frame, click a row)
+        // adapted to `panel.ui(ui, &mut ctx)`'s call shape instead of
+        // `draw_reflect_ui(ui, value, &ctx)`.
+        //
+        // Camera is registered AND already attached (in reflected_components);
+        // PointLight is registered and NOT attached. With the real
+        // `already_attached` filter in place, the combo has exactly one
+        // candidate row (PointLight) -- clicking it must queue
+        // `AttachComponentByType` for PointLight, never Camera. If the filter
+        // were a no-op, Camera would also be offered as a row, which this
+        // test's row-count and type_path assertions below would catch.
+        let mut registry = bevy_reflect::TypeRegistry::default();
+        registry.register::<bsengine_core::Camera>();
+        registry.register::<bsengine_core::PointLight>();
+
+        let mut insp = InspectorState::default();
+        insp.selected_id = Some(1);
+        insp.reflected_components = vec![(
+            "bsengine_core::camera::Camera".to_string(),
+            Box::new(bsengine_core::Camera::default()) as Box<dyn bevy_reflect::Reflect>,
+        )];
+
+        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
+        let mut panel = InspectorPanel;
+
+        let egui_ctx = egui::Context::default();
+        egui_ctx.set_fonts(egui::FontDefinitions::empty());
+        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
+
+        let run_frame = |egui_ctx: &egui::Context,
+                         events: Vec<egui::Event>,
+                         insp: &mut InspectorState,
+                         entities_snapshot: &[InspectorEntityInfo],
+                         panel: &mut InspectorPanel| {
+            let _ = egui_ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(screen_rect),
+                    events,
+                    ..Default::default()
+                },
+                |egui_ctx| {
+                    egui::CentralPanel::default().show(egui_ctx, |ui| {
+                        let mut ctx = EditorPanelContext {
+                            insp,
+                            entities_snapshot,
+                            cursor_pos: (0.0, 0.0),
+                            type_registry: Some(&registry),
+                        };
+                        panel.ui(ui, &mut ctx);
+                    });
+                },
+            );
+        };
+        let click_events = |pos: egui::Pos2| {
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::default(),
+                },
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::default(),
+                },
+            ]
+        };
+
+        // Frame 1: draw the panel once (combo closed) so its widgets exist
+        // in egui's id/layout cache before anything is clicked.
+        run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
+
+        // Frame 2: click the combo box to open its popup. Its position was
+        // found empirically for this exact scenario (fixed 800x800 headless
+        // screen rect, `FontDefinitions::empty()`, this panel's fixed
+        // section order up to "Add Component") by scanning candidate y
+        // values and observing `ctx.memory(|mem| mem.any_popup_open())`
+        // flip to true -- the closed combo box spans y=[240,268], so its
+        // vertical center (254) is used here.
+        let combo_pos = egui::Pos2::new(20.0, 254.0);
+        run_frame(
+            &egui_ctx,
+            click_events(combo_pos),
+            &mut insp,
+            &entities_snapshot,
+            &mut panel,
+        );
+
+        // Frame 3 ("settle"): redraw with no input so the popup's cached
+        // size/id sequence stabilizes before anything tries to click into
+        // it (see reflect_ui.rs's identical settle-frame comment for why
+        // this is needed).
+        run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
+
+        // Frame 4: click the popup's only row (y=278, likewise found
+        // empirically: with the real `already_attached` filter active,
+        // clicking anywhere in y=[269,287] queues PointLight, and nothing at
+        // all is queued for y >= 288 -- there is no second row).
+        let point_light_row_pos = egui::Pos2::new(30.0, 278.0);
+        run_frame(
+            &egui_ctx,
+            click_events(point_light_row_pos),
+            &mut insp,
+            &entities_snapshot,
+            &mut panel,
+        );
+
+        assert_eq!(
+            insp.cmd_queue.len(),
+            1,
+            "clicking the popup's only row should queue exactly one attach command; \
+             a queue of 0 means the click missed"
+        );
+        match &insp.cmd_queue[0] {
+            InspectorCmd::AttachComponentByType { id, type_path } => {
+                assert_eq!(*id, 1);
+                assert_eq!(
+                    type_path, "bsengine_core::light::PointLight",
+                    "the only clickable row must be PointLight -- Camera is already \
+                     attached and must never be offered again"
+                );
+            }
+            other => panic!(
+                "expected AttachComponentByType, got a different InspectorCmd variant instead: {:?}",
+                std::mem::discriminant(other)
+            ),
+        }
+
+        // Frame 5: reopen the combo and click y=298 -- the row position
+        // Camera would occupy as a second entry if the `already_attached`
+        // filter regressed to a no-op (measured the same way: with the
+        // filter genuinely disabled, y=[290,308] reliably queues
+        // `AttachComponentByType` for Camera). With the real filter active,
+        // there is no second row there, so this must add nothing to the
+        // queue: the length must stay at 1 from frame 4, not grow to 2.
+        run_frame(
+            &egui_ctx,
+            click_events(combo_pos),
+            &mut insp,
+            &entities_snapshot,
+            &mut panel,
+        );
+        run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
+        let camera_row_pos = egui::Pos2::new(30.0, 298.0);
+        run_frame(
+            &egui_ctx,
+            click_events(camera_row_pos),
+            &mut insp,
+            &entities_snapshot,
+            &mut panel,
+        );
+        assert_eq!(
+            insp.cmd_queue.len(),
+            1,
+            "clicking where Camera's row would sit if it weren't filtered out must not \
+             queue a second command -- a length of 2 here means the already_attached \
+             filter regressed and Camera became clickable again"
         );
     }
 

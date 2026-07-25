@@ -1,11 +1,18 @@
-use bevy_ecs::prelude::Component;
+use bevy_ecs::prelude::{Component, ReflectComponent};
+use bevy_reflect::prelude::ReflectDefault;
+use bevy_reflect::Reflect;
 use bsengine_ecs::Resource;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 /// Free-form string labels attached to an entity, set/cleared via
 /// `EditorCommand::TagEntity`/`UntagEntity` and used for selection/filtering.
-#[derive(Component, Clone, Default)]
+/// Also reflected so it appears in the Inspector's generic "Reflected
+/// Fields" list (via the List-editing UI added in reflect_ui.rs) -- the
+/// TagEntity/UntagEntity commands remain a second, equivalent entry point
+/// onto the same component.
+#[derive(Component, Clone, Default, Debug, Reflect)]
+#[reflect(Component, Default)]
 pub struct Tags(pub Vec<String>);
 
 /// Flattened, per-entity view of the ECS world used to build an

@@ -1155,6 +1155,78 @@ fn populate_reflected_component_snapshot(world: &mut World) {
     }
 }
 
+/// Recursively walks `value`'s reflect tree and, for every leaf field whose
+/// declared type is `bevy_ecs::Entity`, replaces it with the live entity
+/// that currently has the same `.index()` (if any still does). The
+/// Inspector UI (`reflect_ui.rs`) only ever knows a raw `u64` index for an
+/// `Entity`-typed field -- it edits a *detached clone*, with no `World`
+/// access to look up the entity's real generation -- so it writes
+/// `Entity::from_raw(index)` (generation 0) as a placeholder. Applying that
+/// as-is could silently target the wrong (or a since-despawned-and-reused)
+/// entity slot; this runs once, here, where `World` access is actually
+/// available, before the value is applied to a live component.
+fn fixup_entity_fields(value: &mut dyn bevy_reflect::Reflect, world: &World) {
+    if let Some(entity) = value.downcast_mut::<bevy_ecs::prelude::Entity>() {
+        let wanted_index = entity.index();
+        if let Some(live) = world.iter_entities().find(|e| e.id().index() == wanted_index) {
+            *entity = live.id();
+        }
+        return;
+    }
+    match value.reflect_mut() {
+        bevy_reflect::ReflectMut::Struct(s) => {
+            for i in 0..s.field_len() {
+                if let Some(field) = s.field_at_mut(i) {
+                    fixup_entity_fields(field, world);
+                }
+            }
+        }
+        bevy_reflect::ReflectMut::TupleStruct(ts) => {
+            for i in 0..ts.field_len() {
+                if let Some(field) = ts.field_mut(i) {
+                    fixup_entity_fields(field, world);
+                }
+            }
+        }
+        bevy_reflect::ReflectMut::Enum(e) => {
+            for i in 0..e.field_len() {
+                if let Some(field) = e.field_at_mut(i) {
+                    fixup_entity_fields(field, world);
+                }
+            }
+        }
+        bevy_reflect::ReflectMut::List(l) => {
+            for i in 0..l.len() {
+                if let Some(field) = l.get_mut(i) {
+                    fixup_entity_fields(field, world);
+                }
+            }
+        }
+        bevy_reflect::ReflectMut::Array(a) => {
+            for i in 0..a.len() {
+                if let Some(field) = a.get_mut(i) {
+                    fixup_entity_fields(field, world);
+                }
+            }
+        }
+        bevy_reflect::ReflectMut::Map(m) => {
+            // `Map` only exposes a mutable reference to the *value* half of
+            // each entry (`get_at_mut`) -- keys are immutable through this
+            // trait, since mutating one in place would desync the map's
+            // internal hash bucket for it. That's fine here: recursing into
+            // the value covers the realistic shape (e.g. `HashMap<K,
+            // Entity>`); a key itself being an `Entity` is an unusual design
+            // this codebase doesn't use.
+            for i in 0..m.len() {
+                if let Some((_key, value)) = m.get_at_mut(i) {
+                    fixup_entity_fields(value, world);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 fn process_reflect_commands(world: &mut World) {
     let cmds: Vec<ReflectCommand> = {
         let Some(queue_res) = world.get_resource::<ReflectCommandQueueResource>() else {
@@ -1225,7 +1297,7 @@ fn process_reflect_commands(world: &mut World) {
                     reflect_component.remove(&mut entity_mut);
                 }
             }
-            ReflectCommand::ApplyComponentValue { entity_id, type_path, value } => {
+            ReflectCommand::ApplyComponentValue { entity_id, type_path, mut value } => {
                 let Some(registration) = registry.get_with_type_path(&type_path) else {
                     tracing::warn!("reflect: unknown type path '{type_path}'");
                     continue;
@@ -1235,6 +1307,7 @@ fn process_reflect_commands(world: &mut World) {
                     tracing::warn!("reflect: '{type_path}' is not a registered Component");
                     continue;
                 };
+                fixup_entity_fields(value.as_mut(), world);
                 let target = world.iter_entities().find(|e| e.id().index() as u64 == entity_id);
                 if let Some(entity) = target.map(|e| e.id()) {
                     let mut entity_mut = world.entity_mut(entity);
@@ -1550,6 +1623,22 @@ impl Plugin for EditorPlugin {
         app.register_type::<bsengine_core::Parent>();
         app.register_type::<bsengine_core::AnimationStateMachine>();
         app.register_type::<bsengine_core::Tween>();
+        app.register_type::<Tags>();
+        app.register_type::<bsengine_scene::Primitive>();
+        app.register_type::<bsengine_scene::PrimitiveMesh>();
+        app.register_type::<bsengine_scene::ScriptPath>();
+        // Explicit, defensive registration -- as of this writing these three
+        // already get a ReflectDefault transitively (bevy_reflect's
+        // register_type_dependencies walks Transform's/ScriptPath's own
+        // fields), so this is currently redundant, not a fix for an active
+        // bug. Kept anyway so List-append/enum-variant-switch (which need
+        // ReflectDefault for these types in the real app registry, not just
+        // in reflect_ui.rs's own unit-test-local registries) don't silently
+        // regress if a future refactor to Transform/ScriptPath breaks that
+        // transitive path.
+        app.register_type::<String>();
+        app.register_type::<bsengine_core::ReflectVec3>();
+        app.register_type::<bsengine_core::ReflectQuat>();
         app.add_systems(Update, update_editor_snapshot);
         app.add_systems(Update, update_editor_camera);
         app.add_systems(Update, populate_inspector.after(update_editor_snapshot));
@@ -29107,6 +29196,198 @@ mod tests {
     }
 
     #[test]
+    fn reflect_command_apply_component_value_mutates_a_list_shaped_component() {
+        // `Tags` (a `Vec<String>`-wrapping tuple struct) is the best
+        // available `List`-shaped reflected component. `reflect_ui.rs`'s
+        // List tests exercise the UI-only rendering in isolation (no ECS),
+        // and the other `ApplyComponentValue` tests in this module only
+        // cover `Struct`-shaped components (`Camera`, `Follow`) -- nothing
+        // proves a `List`-shaped component round-trips through the full
+        // command pipeline. This does: InspectorCmd::ApplyReflectedComponent
+        // -> ReflectCommand::ApplyComponentValue ->
+        // ReflectComponent::apply_or_insert.
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app
+            .world_mut()
+            .spawn((Name("Target".to_string()), Tags(vec!["a".to_string()])))
+            .id();
+        app.update();
+
+        // Simulates what the List-editing UI's "+" button would produce:
+        // the existing value plus one appended element.
+        let edited = Tags(vec!["a".to_string(), "b".to_string()]);
+        {
+            let queue = app
+                .world()
+                .resource::<crate::snapshot::ReflectCommandQueueResource>();
+            queue
+                .0
+                .lock()
+                .unwrap()
+                .push(crate::snapshot::ReflectCommand::ApplyComponentValue {
+                    entity_id: eid.index() as u64,
+                    type_path: "bsengine_editor::snapshot::Tags".to_string(),
+                    value: Box::new(edited),
+                });
+        }
+        app.update();
+
+        let tags = app
+            .world()
+            .get::<Tags>(eid)
+            .expect("Tags should still be attached");
+        assert_eq!(
+            tags.0,
+            vec!["a".to_string(), "b".to_string()],
+            "Tags(Vec<String>) should round-trip through the full reflect command \
+             pipeline end-to-end, not just the UI-only or snapshot-only layers"
+        );
+    }
+
+    #[test]
+    fn apply_component_value_fixes_up_a_stale_entity_field_generation() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // Spawn, despawn, and respawn at the same index so the live entity's
+        // generation is now > 0 -- Entity::from_raw(index) (generation 0)
+        // would NOT equal this live entity.
+        let throwaway = app.world_mut().spawn(Name("Throwaway".to_string())).id();
+        app.world_mut().despawn(throwaway);
+        let target = app
+            .world_mut()
+            .spawn(Name("Target".to_string()))
+            .id();
+        assert_eq!(
+            target.index(),
+            throwaway.index(),
+            "test setup requires the respawn to reuse the same index"
+        );
+        assert_ne!(
+            target,
+            bevy_ecs::prelude::Entity::from_raw(target.index()),
+            "test setup requires a nonzero generation to actually exercise the fixup"
+        );
+
+        let follower = app.world_mut().spawn(Name("Follower".to_string())).id();
+        app.update();
+
+        let stale_follow = bsengine_core::Follow::new(bevy_ecs::prelude::Entity::from_raw(target.index()));
+        {
+            let queue = app
+                .world()
+                .resource::<crate::snapshot::ReflectCommandQueueResource>();
+            queue
+                .0
+                .lock()
+                .unwrap()
+                .push(crate::snapshot::ReflectCommand::ApplyComponentValue {
+                    entity_id: follower.index() as u64,
+                    type_path: "bsengine_core::follow::Follow".to_string(),
+                    value: Box::new(stale_follow),
+                });
+        }
+        app.update();
+
+        let applied = app
+            .world()
+            .get::<bsengine_core::Follow>(follower)
+            .expect("Follow should have been applied");
+        assert_eq!(
+            applied.target, target,
+            "the applied Follow.target must be fixed up to the live entity's real generation, \
+             not the stale generation-0 placeholder the UI layer constructed"
+        );
+    }
+
+    #[test]
+    fn apply_component_value_fixes_up_stale_entity_generations_inside_array_and_map_fields() {
+        use bevy_ecs::prelude::{Component, ReflectComponent};
+        use bevy_reflect::Reflect;
+
+        // Test-only component whose reflect tree puts an `Entity` inside
+        // both an `Array` (`[Entity; 2]`) and a `Map`
+        // (`HashMap<String, Entity>`) field -- proving `fixup_entity_fields`'s
+        // `Array`/`Map` arms actually recurse into their elements, rather
+        // than silently falling through `_ => {}` like before this fix.
+        #[derive(Component, Clone, Debug, Reflect)]
+        #[reflect(Component)]
+        struct EntityCollections {
+            array: [bevy_ecs::prelude::Entity; 2],
+            map: std::collections::HashMap<String, bevy_ecs::prelude::Entity>,
+        }
+
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.register_type::<EntityCollections>();
+
+        // Spawn, despawn, and respawn at the same index so the live entity's
+        // generation is now > 0 -- Entity::from_raw(index) (generation 0)
+        // would NOT equal this live entity (same technique as
+        // `apply_component_value_fixes_up_a_stale_entity_field_generation`).
+        let throwaway = app.world_mut().spawn(Name("Throwaway".to_string())).id();
+        app.world_mut().despawn(throwaway);
+        let target = app.world_mut().spawn(Name("Target".to_string())).id();
+        assert_eq!(
+            target.index(),
+            throwaway.index(),
+            "test setup requires the respawn to reuse the same index"
+        );
+        assert_ne!(
+            target,
+            bevy_ecs::prelude::Entity::from_raw(target.index()),
+            "test setup requires a nonzero generation to actually exercise the fixup"
+        );
+
+        let holder = app.world_mut().spawn(Name("Holder".to_string())).id();
+        app.update();
+
+        let stale = bevy_ecs::prelude::Entity::from_raw(target.index());
+        let mut map = std::collections::HashMap::new();
+        map.insert("target".to_string(), stale);
+        let value = EntityCollections { array: [stale, stale], map };
+
+        let type_path = <EntityCollections as bevy_reflect::TypePath>::type_path().to_string();
+        {
+            let queue = app
+                .world()
+                .resource::<crate::snapshot::ReflectCommandQueueResource>();
+            queue
+                .0
+                .lock()
+                .unwrap()
+                .push(crate::snapshot::ReflectCommand::ApplyComponentValue {
+                    entity_id: holder.index() as u64,
+                    type_path,
+                    value: Box::new(value),
+                });
+        }
+        app.update();
+
+        let applied = app
+            .world()
+            .get::<EntityCollections>(holder)
+            .expect("EntityCollections should have been applied");
+        assert_eq!(
+            applied.array[0], target,
+            "Array element containing a stale Entity must be fixed up to the live generation"
+        );
+        assert_eq!(
+            applied.array[1], target,
+            "Array element containing a stale Entity must be fixed up to the live generation"
+        );
+        assert_eq!(
+            applied.map.get("target"),
+            Some(&target),
+            "Map value containing a stale Entity must be fixed up to the live generation"
+        );
+    }
+
+    #[test]
     fn inspector_cmd_apply_reflected_component_reaches_reflect_queue() {
         let mut app = new_app();
         app.add_plugins(McpPlugin);
@@ -29214,6 +29495,32 @@ mod tests {
     }
 
     #[test]
+    fn populate_reflected_component_snapshot_includes_attached_tags() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app
+            .world_mut()
+            .spawn((Name("Target".to_string()), Tags(vec!["enemy".to_string()])))
+            .id();
+        {
+            let mut insp = app.world_mut().resource_mut::<InspectorState>();
+            insp.selected_id = Some(eid.index() as u64);
+        }
+        app.update();
+
+        let insp = app.world().resource::<InspectorState>();
+        let found = insp
+            .reflected_components
+            .iter()
+            .find(|(type_path, _)| type_path == "bsengine_editor::snapshot::Tags");
+        assert!(
+            found.is_some(),
+            "Tags must appear in the Reflected Fields list once selected, now that it's a Reflect component"
+        );
+    }
+
+    #[test]
     fn populate_reflected_component_snapshot_clears_when_nothing_selected() {
         let mut app = new_app();
         app.add_plugins(McpPlugin);
@@ -29241,6 +29548,40 @@ mod tests {
     }
 
     #[test]
+    fn populate_reflected_component_snapshot_includes_attached_primitive_mesh_and_script_path() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app
+            .world_mut()
+            .spawn((
+                Name("Target".to_string()),
+                bsengine_scene::PrimitiveMesh(bsengine_scene::Primitive::Capsule),
+                bsengine_scene::ScriptPath("assets/scripts/foo.js".to_string()),
+            ))
+            .id();
+        {
+            let mut insp = app.world_mut().resource_mut::<InspectorState>();
+            insp.selected_id = Some(eid.index() as u64);
+        }
+        app.update();
+
+        let insp = app.world().resource::<InspectorState>();
+        assert!(
+            insp.reflected_components
+                .iter()
+                .any(|(p, _)| p == "bsengine_scene::types::PrimitiveMesh"),
+            "PrimitiveMesh must appear in Reflected Fields"
+        );
+        assert!(
+            insp.reflected_components
+                .iter()
+                .any(|(p, _)| p == "bsengine_scene::types::ScriptPath"),
+            "ScriptPath must appear in Reflected Fields"
+        );
+    }
+
+    #[test]
     fn inspector_cmd_attach_component_by_type_reaches_reflect_queue() {
         let mut app = new_app();
         app.add_plugins(McpPlugin);
@@ -29260,6 +29601,58 @@ mod tests {
         assert!(
             app.world().get::<bsengine_core::Camera>(eid).is_some(),
             "Camera was not attached end-to-end via InspectorCmd"
+        );
+    }
+
+    #[test]
+    fn inspector_cmd_attach_component_by_type_inserts_a_real_default_primitive_mesh() {
+        // Full verification would confirm `resolve_primitives`
+        // (bsengine-runtime's system reacting to `Added<PrimitiveMesh>` by
+        // inserting a derived `MeshRenderer`) still fires when the component
+        // arrives via this reflected path rather than a typed
+        // `commands.insert()`. That's not reachable from this crate's test
+        // harness: `resolve_primitives` lives in `bsengine-runtime`, which
+        // is a binary-only crate (no `[lib]` target -- see its Cargo.toml,
+        // `[[bin]]` only) that itself depends on `bsengine-editor`, so there
+        // is no way to add its plugin here without an unresolvable cycle
+        // (and nothing to `use` even if there weren't one). See
+        // `editor_command_detach_primitive_mesh_also_removes_derived_mesh_renderer`
+        // above for the same limitation on the older typed-command path.
+        //
+        // This narrower test instead confirms the piece that *is* testable
+        // here: `InspectorCmd::AttachComponentByType` (the unified Add
+        // Component menu's mechanism) inserts a genuine, usable
+        // `PrimitiveMesh` component via `ReflectComponent::insert`+
+        // `ReflectDefault` -- not just a UI-only stub -- with its
+        // `#[default]` variant (`Primitive::Cube`), the same starting point
+        // a typed `commands.insert(PrimitiveMesh::default())` would produce.
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app.world_mut().spawn(Name("Target".to_string())).id();
+        app.update();
+
+        {
+            let mut insp = app.world_mut().resource_mut::<InspectorState>();
+            insp.cmd_queue.push(InspectorCmd::AttachComponentByType {
+                id: eid.index() as u64,
+                type_path: "bsengine_scene::types::PrimitiveMesh".to_string(),
+            });
+        }
+        app.update();
+
+        let mesh = app
+            .world()
+            .get::<bsengine_scene::PrimitiveMesh>(eid)
+            .expect(
+                "PrimitiveMesh should have been attached via the reflected \
+                 AttachComponentByType path",
+            );
+        assert_eq!(
+            mesh.0,
+            bsengine_scene::Primitive::Cube,
+            "the default PrimitiveMesh attached via ReflectDefault should be \
+             Primitive::Cube per its #[default]"
         );
     }
 
@@ -90769,5 +91162,47 @@ mod tests {
             .expect("expected one entity with Name + GltfAsset");
         assert_eq!(name.0, "Rock");
         assert_eq!(gltf_asset.path, "assets/models/rock.glb");
+    }
+
+    /// Verifies the property List-append/enum-variant-switch actually
+    /// depend on -- these three types have a `ReflectDefault` in the real
+    /// app's registry, not just in reflect_ui.rs's own unit-test-local
+    /// registries. A pass here doesn't uniquely attribute to this file's
+    /// explicit `register_type` calls for these three types specifically:
+    /// bevy_reflect's `register_type_dependencies` already walks
+    /// `Transform`'s/`ScriptPath`'s own fields and would supply the same
+    /// `ReflectDefault`s transitively even without them (confirmed by
+    /// temporarily removing the explicit calls and re-running this test).
+    /// Both paths are acceptable; this test guards the end state either way.
+    #[test]
+    fn app_type_registry_has_default_for_string_and_glam_wrappers() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.update();
+
+        let registry = app
+            .world()
+            .resource::<bevy_ecs::reflect::AppTypeRegistry>()
+            .read();
+        for (type_id, label) in [
+            (std::any::TypeId::of::<String>(), "String"),
+            (
+                std::any::TypeId::of::<bsengine_core::ReflectVec3>(),
+                "ReflectVec3",
+            ),
+            (
+                std::any::TypeId::of::<bsengine_core::ReflectQuat>(),
+                "ReflectQuat",
+            ),
+        ] {
+            assert!(
+                registry
+                    .get_type_data::<bevy_reflect::std_traits::ReflectDefault>(type_id)
+                    .is_some(),
+                "{label} must have a registered ReflectDefault for the List-append and \
+                 enum-variant-switch UI features to work in the real app"
+            );
+        }
     }
 }

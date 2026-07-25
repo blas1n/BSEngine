@@ -1,4 +1,6 @@
-use bevy_ecs::prelude::{Component, Resource};
+use bevy_ecs::prelude::{Component, ReflectComponent, Resource};
+use bevy_reflect::prelude::ReflectDefault;
+use bevy_reflect::Reflect;
 use serde::{Deserialize, Serialize};
 
 /// Root of a scene file: the list of entities to spawn plus scene-wide settings.
@@ -12,9 +14,11 @@ pub struct SceneDescriptor {
 }
 
 /// Built-in primitive mesh shapes that the runtime can spawn without an asset file.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default, Reflect)]
+#[reflect(Default)]
 pub enum Primitive {
     /// Unit cube.
+    #[default]
     Cube,
     /// Unit sphere.
     Sphere,
@@ -25,12 +29,17 @@ pub enum Primitive {
 }
 
 /// Marker component inserted by `ScenePlugin` for entities with `primitive: Some(...)`.
-/// The runtime converts this into a `MeshRenderer` with registered GPU geometry.
-#[derive(Component, Debug, Clone)]
+/// The runtime converts this into a `MeshRenderer` with registered GPU geometry. Reflected
+/// so it appears in the Inspector's generic Reflected Fields list -- its shape is editable
+/// there via the enum-variant-switching UI added earlier in this plan.
+#[derive(Component, Debug, Clone, Default, Reflect)]
+#[reflect(Component, Default)]
 pub struct PrimitiveMesh(pub Primitive);
 
-/// Relative path to a JS script file, resolved against the project root by the scripting plugin.
-#[derive(Component, Debug, Clone)]
+/// Relative path to a JS script file, resolved against the project root by the scripting
+/// plugin. Reflected so it appears in the Inspector's generic Reflected Fields list.
+#[derive(Component, Debug, Clone, Default, Reflect)]
+#[reflect(Component, Default)]
 pub struct ScriptPath(pub String);
 
 /// Describes a single entity in the scene file.

@@ -1,5 +1,6 @@
 use crate::{ReflectQuat, ReflectVec3};
 use bevy_ecs::prelude::{Component, ReflectComponent};
+use bevy_reflect::prelude::ReflectDefault;
 use bevy_reflect::Reflect;
 
 /// Easing curve applied to a tween's normalized progress before interpolating.
@@ -72,7 +73,7 @@ pub enum TweenTarget {
 
 /// Animates a `Transform` property from one value to another over time.
 #[derive(Component, Debug, Clone, Reflect)]
-#[reflect(Component)]
+#[reflect(Component, Default)]
 pub struct Tween {
     /// Which property is being animated, and its start/end values.
     pub target: TweenTarget,
@@ -88,6 +89,23 @@ pub struct Tween {
     pub elapsed: f32,
     /// Whether the tween is currently playing back-to-front (used by `PingPong`).
     pub reversed: bool,
+}
+
+impl Default for Tween {
+    fn default() -> Self {
+        Self {
+            target: TweenTarget::Translation {
+                from: glam::Vec3::ZERO.into(),
+                to: glam::Vec3::ZERO.into(),
+            },
+            duration: 1.0,
+            easing: EasingFn::Linear,
+            repeat: RepeatMode::Once,
+            finished: false,
+            elapsed: 0.0,
+            reversed: false,
+        }
+    }
 }
 
 impl Tween {
@@ -176,5 +194,14 @@ mod tests {
         assert_eq!(tw.repeat, RepeatMode::Once);
         assert!(!tw.finished);
         assert!((tw.elapsed - 0.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn tween_has_a_default_impl() {
+        let t = Tween::default();
+        assert_eq!(t.duration, 1.0);
+        assert!(!t.finished);
+        assert_eq!(t.elapsed, 0.0);
+        assert!(matches!(t.target, TweenTarget::Translation { .. }));
     }
 }

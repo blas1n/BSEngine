@@ -664,15 +664,41 @@ mod tests {
 
         // Simulate a click on the append ("+") button by calling
         // draw_reflect_ui inside a frame where the button's id is pressed.
-        // This mirrors the click-simulation pattern used in
-        // hierarchy.rs's `row_click_registers_despite_unioned_drag_sense_interact`
-        // test: two `Context::run` passes, since egui hit-tests against the
-        // *previous* frame's widget rects.
         let egui_ctx = egui::Context::default();
         egui_ctx.set_fonts(egui::FontDefinitions::empty());
         let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
 
-        let mut button_rect = egui::Rect::NOTHING;
+        // Frame 1: measure where the append row starts via
+        // `next_widget_position()` -- the same technique used by
+        // `enum_variant_combo_switches_to_a_default_instance_of_the_chosen_variant`
+        // above. This deliberately does NOT use
+        // `ui.ctx().read_response(before)`: that only resolves for bare,
+        // unwrapped top-level widgets, and the "+" button lives inside its
+        // own `ui.horizontal` wrapper (see the `ReflectMut::List` arm),
+        // which puts it on an independently-salted *child* `Ui` that never
+        // claims the parent's pre-call id (see `top_level_response_exists_at`'s
+        // doc comment above). With `read_response` that silently collapsed
+        // to `Rect::NOTHING`, whose `center()` is `(NaN, NaN)`.
+        //
+        // That NaN position didn't just harmlessly miss the button --
+        // verified directly against egui 0.29.1's own
+        // `emath::Rect::distance_sq_to_pos` and `egui::hit_test::hit_test`:
+        // a NaN pointer position makes every `if`/`else if` distance
+        // comparison evaluate to `false`, so *every* widget's
+        // distance-to-pointer falls through to `distance_sq_to_pos`'s final
+        // `else { 0.0 }` arm. Every widget therefore ties at distance zero,
+        // and `hit_test`'s own "in a tie, pick last = topmost" rule means a
+        // NaN-position click always resolves to whichever click/drag-sense
+        // widget was drawn *last* in the frame -- not "whatever's under the
+        // (nonexistent) pointer". The old test only ever passed because the
+        // "+" button happened to be both the last and only such widget on
+        // screen. The trailing "decoy" button below is a permanent
+        // regression guard against exactly that: if this test ever
+        // regressed back to the `read_response` technique, the click would
+        // land on "decoy" instead and the assertion below would fail (this
+        // was verified by temporarily reverting to `read_response` with
+        // this same decoy in place).
+        let mut append_top = egui::Pos2::ZERO;
         let _ = egui_ctx.run(
             egui::RawInput {
                 screen_rect: Some(screen_rect),
@@ -680,30 +706,16 @@ mod tests {
             },
             |egui_ctx| {
                 egui::CentralPanel::default().show(egui_ctx, |ui| {
+                    append_top = ui.next_widget_position();
                     draw_reflect_ui(ui, &mut tags, &ctx);
-                });
-            },
-        );
-        // Re-run once, capturing the actual button response this time.
-        let _ = egui_ctx.run(
-            egui::RawInput {
-                screen_rect: Some(screen_rect),
-                ..Default::default()
-            },
-            |egui_ctx| {
-                egui::CentralPanel::default().show(egui_ctx, |ui| {
-                    let before = ui.next_auto_id();
-                    draw_reflect_ui(ui, &mut tags, &ctx);
-                    button_rect = ui
-                        .ctx()
-                        .read_response(before)
-                        .map(|r| r.rect)
-                        .unwrap_or(egui::Rect::NOTHING);
+                    let _ = ui.button("decoy");
                 });
             },
         );
 
-        let pos = button_rect.center();
+        // A click safely inside the "+" `small_button`'s row (top-left of
+        // the append row's own `ui.horizontal`, nudged in from its corner).
+        let pos = egui::Pos2::new(append_top.x + 8.0, append_top.y + 8.0);
         let click_events = vec![
             egui::Event::PointerMoved(pos),
             egui::Event::PointerButton {
@@ -728,6 +740,7 @@ mod tests {
             |egui_ctx| {
                 egui::CentralPanel::default().show(egui_ctx, |ui| {
                     draw_reflect_ui(ui, &mut tags, &ctx);
+                    let _ = ui.button("decoy");
                 });
             },
         );

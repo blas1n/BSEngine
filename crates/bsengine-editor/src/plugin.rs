@@ -1602,6 +1602,7 @@ impl Plugin for EditorPlugin {
         app.register_type::<bsengine_core::Parent>();
         app.register_type::<bsengine_core::AnimationStateMachine>();
         app.register_type::<bsengine_core::Tween>();
+        app.register_type::<Tags>();
         app.add_systems(Update, update_editor_snapshot);
         app.add_systems(Update, update_editor_camera);
         app.add_systems(Update, populate_inspector.after(update_editor_snapshot));
@@ -29319,6 +29320,32 @@ mod tests {
             "cloned Camera's fov_y_degrees should be 60.0 (degrees) — proves the field is wired \
              through the real reflection pipeline with the correct unit, not just internally \
              self-consistent"
+        );
+    }
+
+    #[test]
+    fn populate_reflected_component_snapshot_includes_attached_tags() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app
+            .world_mut()
+            .spawn((Name("Target".to_string()), Tags(vec!["enemy".to_string()])))
+            .id();
+        {
+            let mut insp = app.world_mut().resource_mut::<InspectorState>();
+            insp.selected_id = Some(eid.index() as u64);
+        }
+        app.update();
+
+        let insp = app.world().resource::<InspectorState>();
+        let found = insp
+            .reflected_components
+            .iter()
+            .find(|(type_path, _)| type_path == "bsengine_editor::snapshot::Tags");
+        assert!(
+            found.is_some(),
+            "Tags must appear in the Reflected Fields list once selected, now that it's a Reflect component"
         );
     }
 

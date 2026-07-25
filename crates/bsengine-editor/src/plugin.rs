@@ -1155,6 +1155,57 @@ fn populate_reflected_component_snapshot(world: &mut World) {
     }
 }
 
+/// Recursively walks `value`'s reflect tree and, for every leaf field whose
+/// declared type is `bevy_ecs::Entity`, replaces it with the live entity
+/// that currently has the same `.index()` (if any still does). The
+/// Inspector UI (`reflect_ui.rs`) only ever knows a raw `u64` index for an
+/// `Entity`-typed field -- it edits a *detached clone*, with no `World`
+/// access to look up the entity's real generation -- so it writes
+/// `Entity::from_raw(index)` (generation 0) as a placeholder. Applying that
+/// as-is could silently target the wrong (or a since-despawned-and-reused)
+/// entity slot; this runs once, here, where `World` access is actually
+/// available, before the value is applied to a live component.
+fn fixup_entity_fields(value: &mut dyn bevy_reflect::Reflect, world: &World) {
+    if let Some(entity) = value.downcast_mut::<bevy_ecs::prelude::Entity>() {
+        let wanted_index = entity.index();
+        if let Some(live) = world.iter_entities().find(|e| e.id().index() == wanted_index) {
+            *entity = live.id();
+        }
+        return;
+    }
+    match value.reflect_mut() {
+        bevy_reflect::ReflectMut::Struct(s) => {
+            for i in 0..s.field_len() {
+                if let Some(field) = s.field_at_mut(i) {
+                    fixup_entity_fields(field, world);
+                }
+            }
+        }
+        bevy_reflect::ReflectMut::TupleStruct(ts) => {
+            for i in 0..ts.field_len() {
+                if let Some(field) = ts.field_mut(i) {
+                    fixup_entity_fields(field, world);
+                }
+            }
+        }
+        bevy_reflect::ReflectMut::Enum(e) => {
+            for i in 0..e.field_len() {
+                if let Some(field) = e.field_at_mut(i) {
+                    fixup_entity_fields(field, world);
+                }
+            }
+        }
+        bevy_reflect::ReflectMut::List(l) => {
+            for i in 0..l.len() {
+                if let Some(field) = l.get_mut(i) {
+                    fixup_entity_fields(field, world);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 fn process_reflect_commands(world: &mut World) {
     let cmds: Vec<ReflectCommand> = {
         let Some(queue_res) = world.get_resource::<ReflectCommandQueueResource>() else {
@@ -1225,7 +1276,7 @@ fn process_reflect_commands(world: &mut World) {
                     reflect_component.remove(&mut entity_mut);
                 }
             }
-            ReflectCommand::ApplyComponentValue { entity_id, type_path, value } => {
+            ReflectCommand::ApplyComponentValue { entity_id, type_path, mut value } => {
                 let Some(registration) = registry.get_with_type_path(&type_path) else {
                     tracing::warn!("reflect: unknown type path '{type_path}'");
                     continue;
@@ -1235,6 +1286,7 @@ fn process_reflect_commands(world: &mut World) {
                     tracing::warn!("reflect: '{type_path}' is not a registered Component");
                     continue;
                 };
+                fixup_entity_fields(value.as_mut(), world);
                 let target = world.iter_entities().find(|e| e.id().index() as u64 == entity_id);
                 if let Some(entity) = target.map(|e| e.id()) {
                     let mut entity_mut = world.entity_mut(entity);
@@ -29103,6 +29155,63 @@ mod tests {
         assert!(
             (cam.fov_y_degrees.0 - 1.2345).abs() < f32::EPSILON,
             "Camera.fov_y_degrees should have been updated to the applied value"
+        );
+    }
+
+    #[test]
+    fn apply_component_value_fixes_up_a_stale_entity_field_generation() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        // Spawn, despawn, and respawn at the same index so the live entity's
+        // generation is now > 0 -- Entity::from_raw(index) (generation 0)
+        // would NOT equal this live entity.
+        let throwaway = app.world_mut().spawn(Name("Throwaway".to_string())).id();
+        app.world_mut().despawn(throwaway);
+        let target = app
+            .world_mut()
+            .spawn(Name("Target".to_string()))
+            .id();
+        assert_eq!(
+            target.index(),
+            throwaway.index(),
+            "test setup requires the respawn to reuse the same index"
+        );
+        assert_ne!(
+            target,
+            bevy_ecs::prelude::Entity::from_raw(target.index()),
+            "test setup requires a nonzero generation to actually exercise the fixup"
+        );
+
+        let follower = app.world_mut().spawn(Name("Follower".to_string())).id();
+        app.update();
+
+        let stale_follow = bsengine_core::Follow::new(bevy_ecs::prelude::Entity::from_raw(target.index()));
+        {
+            let queue = app
+                .world()
+                .resource::<crate::snapshot::ReflectCommandQueueResource>();
+            queue
+                .0
+                .lock()
+                .unwrap()
+                .push(crate::snapshot::ReflectCommand::ApplyComponentValue {
+                    entity_id: follower.index() as u64,
+                    type_path: "bsengine_core::follow::Follow".to_string(),
+                    value: Box::new(stale_follow),
+                });
+        }
+        app.update();
+
+        let applied = app
+            .world()
+            .get::<bsengine_core::Follow>(follower)
+            .expect("Follow should have been applied");
+        assert_eq!(
+            applied.target, target,
+            "the applied Follow.target must be fixed up to the live entity's real generation, \
+             not the stale generation-0 placeholder the UI layer constructed"
         );
     }
 

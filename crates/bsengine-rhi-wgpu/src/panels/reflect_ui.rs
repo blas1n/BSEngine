@@ -1,5 +1,22 @@
 use bevy_reflect::Reflect;
 
+/// Read-only context threaded through every `draw_reflect_ui`/`draw_leaf_ui`
+/// call in a single Inspector frame — bundled into one struct rather than
+/// separate positional parameters, mirroring `hierarchy.rs`'s `TreeCtx` (same
+/// rationale: keeps the recursive calls' argument lists from growing every
+/// time a new leaf case needs more context).
+pub struct ReflectUiCtx<'a> {
+    /// Every entity in the current scene, for rendering an `Entity`-typed
+    /// field's current target and the picker's search list. Empty is a
+    /// valid, safe value (the picker just has nothing to show/pick).
+    pub entities: &'a [bsengine_core::InspectorEntityInfo],
+    /// Used to look up `ReflectDefault` for: (a) a `List`'s item type when
+    /// appending a new element, (b) an enum variant's field types when
+    /// switching to a variant that isn't currently active. `None` is a
+    /// valid, safe value (those two features just become no-ops).
+    pub type_registry: Option<&'a bevy_reflect::TypeRegistry>,
+}
+
 /// Recursively renders an egui editor for any `Reflect` value. Returns
 /// whether anything changed. Handles:
 /// - `Struct`: iterate fields, label + recurse.
@@ -8,7 +25,7 @@ use bevy_reflect::Reflect;
 ///   and recurse into its fields.
 /// - Opaque `Value`: glam Vec2/Vec3/Vec4/Quat get dedicated multi-DragValue
 ///   rows; everything else falls through to primitive widgets.
-pub fn draw_reflect_ui(ui: &mut egui::Ui, value: &mut dyn Reflect) -> bool {
+pub fn draw_reflect_ui(ui: &mut egui::Ui, value: &mut dyn Reflect, ctx: &ReflectUiCtx) -> bool {
     match value.reflect_mut() {
         bevy_reflect::ReflectMut::Struct(s) => {
             let mut changed = false;
@@ -17,7 +34,7 @@ pub fn draw_reflect_ui(ui: &mut egui::Ui, value: &mut dyn Reflect) -> bool {
                 if let Some(field) = s.field_at_mut(i) {
                     ui.horizontal(|ui| {
                         ui.label(&name);
-                        changed |= draw_reflect_ui(ui, field);
+                        changed |= draw_reflect_ui(ui, field, ctx);
                     });
                 }
             }
@@ -28,7 +45,7 @@ pub fn draw_reflect_ui(ui: &mut egui::Ui, value: &mut dyn Reflect) -> bool {
             let mut changed = false;
             for i in 0..e.field_len() {
                 if let Some(field) = e.field_at_mut(i) {
-                    changed |= draw_reflect_ui(ui, field);
+                    changed |= draw_reflect_ui(ui, field, ctx);
                 }
             }
             changed
@@ -125,8 +142,15 @@ fn draw_leaf_ui(ui: &mut egui::Ui, value: &mut dyn Reflect) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::draw_reflect_ui;
+    use super::{draw_reflect_ui, ReflectUiCtx};
     use bevy_reflect::Reflect;
+
+    fn empty_ctx() -> ReflectUiCtx<'static> {
+        ReflectUiCtx {
+            entities: &[],
+            type_registry: None,
+        }
+    }
 
     #[derive(Reflect, Debug, PartialEq, Clone)]
     struct SampleStruct {
@@ -197,7 +221,7 @@ mod tests {
         let mut speed: f32 = 3.5;
         let (changed, widget_count, is_focusable) = with_test_ui(|ctx, ui| {
             let before = ui.next_auto_id();
-            let changed = draw_reflect_ui(ui, &mut speed);
+            let changed = draw_reflect_ui(ui, &mut speed, &empty_ctx());
             let after = ui.next_auto_id();
             let is_focusable = top_level_response_exists_at(ctx, before)
                 .map(|r| r.sense.focusable)
@@ -230,7 +254,7 @@ mod tests {
         let mut offset: bsengine_core::ReflectVec3 = glam::Vec3::new(1.0, 2.0, 3.0).into();
         let (changed, widget_count, is_wrapped_group) = with_test_ui(|ctx, ui| {
             let before = ui.next_auto_id();
-            let changed = draw_reflect_ui(ui, &mut offset);
+            let changed = draw_reflect_ui(ui, &mut offset, &empty_ctx());
             let after = ui.next_auto_id();
             let is_wrapped_group = top_level_response_exists_at(ctx, before).is_none();
             (changed, after, is_wrapped_group)
@@ -267,7 +291,7 @@ mod tests {
         let mut angle: bsengine_core::ReflectDegrees = 45.0_f32.into();
         let (changed, widget_count, is_focusable) = with_test_ui(|ctx, ui| {
             let before = ui.next_auto_id();
-            let changed = draw_reflect_ui(ui, &mut angle);
+            let changed = draw_reflect_ui(ui, &mut angle, &empty_ctx());
             let after = ui.next_auto_id();
             let is_focusable = top_level_response_exists_at(ctx, before)
                 .map(|r| r.sense.focusable)
@@ -301,7 +325,7 @@ mod tests {
         let mut color: bsengine_core::ReflectColor = glam::Vec3::new(1.0, 0.5, 0.0).into();
         let (changed, widget_count, is_focusable) = with_test_ui(|ctx, ui| {
             let before = ui.next_auto_id();
-            let changed = draw_reflect_ui(ui, &mut color);
+            let changed = draw_reflect_ui(ui, &mut color, &empty_ctx());
             let after = ui.next_auto_id();
             let is_focusable = top_level_response_exists_at(ctx, before)
                 .map(|r| r.sense.focusable)
@@ -336,7 +360,7 @@ mod tests {
         };
         let expected = s.clone();
         let (changed, widget_count) = with_test_ui(|_ctx, ui| {
-            let changed = draw_reflect_ui(ui, &mut s);
+            let changed = draw_reflect_ui(ui, &mut s, &empty_ctx());
             let after = ui.next_auto_id();
             (changed, after)
         });
@@ -365,7 +389,7 @@ mod tests {
         let mut value: i32 = 7;
         let (changed, widget_count, is_focusable) = with_test_ui(|ctx, ui| {
             let before = ui.next_auto_id();
-            let changed = draw_reflect_ui(ui, &mut value);
+            let changed = draw_reflect_ui(ui, &mut value, &empty_ctx());
             let after = ui.next_auto_id();
             let is_focusable = top_level_response_exists_at(ctx, before)
                 .map(|r| r.sense.focusable)

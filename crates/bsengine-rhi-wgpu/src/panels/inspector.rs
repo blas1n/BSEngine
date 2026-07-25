@@ -1,4 +1,4 @@
-use crate::panels::reflect_ui::draw_reflect_ui;
+use crate::panels::reflect_ui::{draw_reflect_ui, ReflectUiCtx};
 use bsengine_core::{EditorPanel, EditorPanelContext, InspectorCmd, PRIMITIVE_KINDS};
 
 /// The Inspector panel: shows and edits the selected entity's transform, tags, and components.
@@ -284,6 +284,10 @@ impl EditorPanel for InspectorPanel {
                 ui.colored_label(crate::theme::TEXT, "Reflected Fields");
             });
             let type_registry = ctx.type_registry;
+            let reflect_ctx = ReflectUiCtx {
+                entities: ctx.entities_snapshot,
+                type_registry,
+            };
             let mut to_apply: Vec<(String, Box<dyn bevy_reflect::Reflect>)> = Vec::new();
             let mut to_remove: Option<String> = None;
             for (type_path, value) in insp.reflected_components.iter_mut() {
@@ -303,7 +307,7 @@ impl EditorPanel for InspectorPanel {
                     });
                 })
                 .body(|ui| {
-                    if draw_reflect_ui(ui, value.as_mut()) {
+                    if draw_reflect_ui(ui, value.as_mut(), &reflect_ctx) {
                         validate_after_edit(type_path, value.as_mut(), type_registry);
                         to_apply.push((type_path.clone(), value.clone_value()));
                     }

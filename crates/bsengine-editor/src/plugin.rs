@@ -29196,6 +29196,57 @@ mod tests {
     }
 
     #[test]
+    fn reflect_command_apply_component_value_mutates_a_list_shaped_component() {
+        // `Tags` (a `Vec<String>`-wrapping tuple struct) is the best
+        // available `List`-shaped reflected component. `reflect_ui.rs`'s
+        // List tests exercise the UI-only rendering in isolation (no ECS),
+        // and the other `ApplyComponentValue` tests in this module only
+        // cover `Struct`-shaped components (`Camera`, `Follow`) -- nothing
+        // proves a `List`-shaped component round-trips through the full
+        // command pipeline. This does: InspectorCmd::ApplyReflectedComponent
+        // -> ReflectCommand::ApplyComponentValue ->
+        // ReflectComponent::apply_or_insert.
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app
+            .world_mut()
+            .spawn((Name("Target".to_string()), Tags(vec!["a".to_string()])))
+            .id();
+        app.update();
+
+        // Simulates what the List-editing UI's "+" button would produce:
+        // the existing value plus one appended element.
+        let edited = Tags(vec!["a".to_string(), "b".to_string()]);
+        {
+            let queue = app
+                .world()
+                .resource::<crate::snapshot::ReflectCommandQueueResource>();
+            queue
+                .0
+                .lock()
+                .unwrap()
+                .push(crate::snapshot::ReflectCommand::ApplyComponentValue {
+                    entity_id: eid.index() as u64,
+                    type_path: "bsengine_editor::snapshot::Tags".to_string(),
+                    value: Box::new(edited),
+                });
+        }
+        app.update();
+
+        let tags = app
+            .world()
+            .get::<Tags>(eid)
+            .expect("Tags should still be attached");
+        assert_eq!(
+            tags.0,
+            vec!["a".to_string(), "b".to_string()],
+            "Tags(Vec<String>) should round-trip through the full reflect command \
+             pipeline end-to-end, not just the UI-only or snapshot-only layers"
+        );
+    }
+
+    #[test]
     fn apply_component_value_fixes_up_a_stale_entity_field_generation() {
         let mut app = new_app();
         app.add_plugins(McpPlugin);

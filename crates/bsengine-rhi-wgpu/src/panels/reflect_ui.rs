@@ -783,48 +783,129 @@ mod tests {
         );
     }
 
+    #[derive(Reflect, Debug, PartialEq, Clone, Default)]
+    enum SampleSiblingEnum {
+        #[default]
+        A,
+        B,
+    }
+
+    #[derive(Reflect, Debug, PartialEq, Clone, Default)]
+    struct SampleTwoEnumFields {
+        first: SampleSiblingEnum,
+        second: SampleSiblingEnum,
+    }
+
     #[test]
-    fn sibling_enum_fields_get_distinct_variant_combo_ids() {
-        // Regression test for a bug where the variant ComboBox's id was derived
-        // from `ui.id()` -- egui's *stable* id, which (verified against egui
-        // 0.29.1's `Ui::new_child`) is identical across sibling children of the
-        // same parent `Ui`, since `ui.horizontal(..)` (used by the Struct match
-        // arm's per-field loop) doesn't override the child's id_salt away from
-        // the literal default `"child"`. That meant every sibling enum field's
-        // ComboBox resolved to the exact same egui id -- concretely,
-        // `bsengine_core::Tween`'s three sibling enum fields (`target`,
-        // `easing`, `repeat`), all rendered through this exact code path,
-        // would all share one popup's open/closed state.
+    fn opening_a_sibling_enum_fields_combo_actually_switches_its_variant() {
+        // Regression test for the sibling-id-collision bug fixed alongside this
+        // test (see the `combo_salt = ui.next_auto_id()` comment in
+        // `draw_reflect_ui`'s Enum arm) -- mirrors `bsengine_core::Tween`'s
+        // shape (2+ sibling enum-typed fields on one struct) and drives the
+        // *real* `draw_reflect_ui`, through its actual `ReflectMut::Struct`
+        // arm, which recurses into each field's own `ui.horizontal(..)` --
+        // exactly the call shape that made `first` and `second`'s combos
+        // collide on one id pre-fix.
         //
-        // This replicates the *exact* pattern `draw_reflect_ui`'s Enum arm now
-        // uses -- `let combo_salt = ui.next_auto_id(); ui.push_id(combo_salt, ..)`
-        // -- inside two sibling field-child `Ui`s built the same way the Struct
-        // match arm builds them (`ui.horizontal(|ui| { .. })` per field), and
-        // asserts the two resulting ComboBox button ids differ. This directly
-        // exercises the id-uniqueness invariant the fix relies on, without the
-        // sub-pixel popup-click simulation the other test in this file needs
-        // (and which egui's own multi-pass, cache-warming popup layout makes
-        // fragile to aim at two *different* popups in the same frame).
-        let mut combo_ids = Vec::new();
-        with_test_ui(|_ctx, ui| {
-            for _ in 0..2 {
-                ui.horizontal(|ui| {
-                    let combo_salt = ui.next_auto_id();
-                    let outer = ui.push_id(combo_salt, |ui| {
-                        egui::ComboBox::from_id_salt("variant")
-                            .selected_text("Unit")
-                            .show_ui(ui, |_ui| {})
-                    });
-                    combo_ids.push(outer.inner.response.id);
-                });
-            }
-        });
-        assert_eq!(combo_ids.len(), 2);
-        assert_ne!(
-            combo_ids[0], combo_ids[1],
-            "sibling enum fields' variant ComboBoxes must not resolve to the same \
-             egui id -- a shared id means their popup open/closed state (and thus \
-             clicks) collide, as happened for Tween's target/easing/repeat fields"
+        // Empirically (verified by temporarily reverting *only* the
+        // production `combo_salt` line back to `ui.id().with(..)`, see the
+        // task notes): with the id collision, `first`'s combo becomes
+        // entirely unclickable when `second` is also present. The reason is
+        // structural, not incidental to this test's specific click
+        // coordinates: `draw_reflect_ui`'s Struct arm draws `first` then
+        // `second` in the *same frame*; since both fields' combo buttons
+        // register under the identical id, egui's global per-id "was this
+        // clicked this frame" flag is shared, so *both* fields' ComboBox
+        // internals independently see the click and each call
+        // `toggle_popup` on the (shared) popup id -- once each, i.e. twice
+        // total, which cancels back to closed. So opening a field's combo
+        // silently does nothing whenever a sibling enum field is drawn
+        // alongside it. With the fix, each field's combo has its own id, so
+        // only the clicked field's `toggle_popup` fires and the popup
+        // actually opens.
+        //
+        // This test opens `first`'s combo and selects "B" (the non-default
+        // 2nd variant); it is red on the pre-fix code (the click has no
+        // effect -- `first` stays `A`) and green on the fix.
+        let mut value = SampleTwoEnumFields::default();
+        let registry = bevy_reflect::TypeRegistry::default(); // Unit variants need no ReflectDefault lookups.
+        let ctx = ReflectUiCtx {
+            entities: &[],
+            type_registry: Some(&registry),
+        };
+
+        let egui_ctx = egui::Context::default();
+        egui_ctx.set_fonts(egui::FontDefinitions::empty());
+        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
+
+        let run_frame = |events: Vec<egui::Event>, value: &mut SampleTwoEnumFields| {
+            let _ = egui_ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(screen_rect),
+                    events,
+                    ..Default::default()
+                },
+                |egui_ctx| {
+                    egui::CentralPanel::default()
+                        .show(egui_ctx, |ui| draw_reflect_ui(ui, value, &ctx));
+                },
+            );
+        };
+        let click_events = |pos: egui::Pos2| {
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::default(),
+                },
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::default(),
+                },
+            ]
+        };
+
+        // Layout is deterministic (fixed screen size, no fonts, identical
+        // default field values) and was measured empirically: `first`'s row
+        // spans y=[8, 29], `second`'s spans y=[29, 50] directly below it,
+        // with no gap. x=60 lands inside either row's combo regardless of
+        // the (near-zero-width, fontless) preceding field-name label --
+        // verified directly by scanning x in [20..120] and confirming every
+        // candidate opens the popup.
+        //
+        // Frame 1: draw once (closed) to establish prior-frame widget rects.
+        run_frame(vec![], &mut value);
+
+        // Frame 2: click inside `first`'s row to open its combo.
+        run_frame(click_events(egui::Pos2::new(60.0, 15.0)), &mut value);
+
+        // Frame 3 ("settle"): redraw with no input, so the popup's cached
+        // size/id sequence stabilizes before anything clicks into it (same
+        // reason as the single-enum combo test above).
+        run_frame(vec![], &mut value);
+
+        // Frame 4: click the settled popup's 2nd entry ("B", index 1 of
+        // `SampleSiblingEnum`'s 2 variants). Its row starts exactly at
+        // `first`'s row bottom (29) with the same ~21px stride + ~9px
+        // half-height measured for the single-enum combo test.
+        run_frame(click_events(egui::Pos2::new(60.0, 60.0)), &mut value);
+
+        assert_eq!(
+            value.first,
+            SampleSiblingEnum::B,
+            "opening and selecting in `first`'s combo should switch it to B -- if this \
+             is still A, the click had no effect, which is exactly the symptom of the \
+             sibling-id-collision bug (both fields' ComboBoxes toggling the same shared \
+             popup id back closed within the same frame)"
+        );
+        assert_eq!(
+            value.second,
+            SampleSiblingEnum::A,
+            "only `first` was interacted with -- `second` must stay at its default"
         );
     }
 

@@ -1603,6 +1603,9 @@ impl Plugin for EditorPlugin {
         app.register_type::<bsengine_core::AnimationStateMachine>();
         app.register_type::<bsengine_core::Tween>();
         app.register_type::<Tags>();
+        app.register_type::<bsengine_scene::Primitive>();
+        app.register_type::<bsengine_scene::PrimitiveMesh>();
+        app.register_type::<bsengine_scene::ScriptPath>();
         app.add_systems(Update, update_editor_snapshot);
         app.add_systems(Update, update_editor_camera);
         app.add_systems(Update, populate_inspector.after(update_editor_snapshot));
@@ -29373,6 +29376,40 @@ mod tests {
         assert!(
             app.world().resource::<InspectorState>().reflected_components.is_empty(),
             "reflected_components should clear once nothing is selected"
+        );
+    }
+
+    #[test]
+    fn populate_reflected_component_snapshot_includes_attached_primitive_mesh_and_script_path() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app
+            .world_mut()
+            .spawn((
+                Name("Target".to_string()),
+                bsengine_scene::PrimitiveMesh(bsengine_scene::Primitive::Capsule),
+                bsengine_scene::ScriptPath("assets/scripts/foo.js".to_string()),
+            ))
+            .id();
+        {
+            let mut insp = app.world_mut().resource_mut::<InspectorState>();
+            insp.selected_id = Some(eid.index() as u64);
+        }
+        app.update();
+
+        let insp = app.world().resource::<InspectorState>();
+        assert!(
+            insp.reflected_components
+                .iter()
+                .any(|(p, _)| p == "bsengine_scene::types::PrimitiveMesh"),
+            "PrimitiveMesh must appear in Reflected Fields"
+        );
+        assert!(
+            insp.reflected_components
+                .iter()
+                .any(|(p, _)| p == "bsengine_scene::types::ScriptPath"),
+            "ScriptPath must appear in Reflected Fields"
         );
     }
 

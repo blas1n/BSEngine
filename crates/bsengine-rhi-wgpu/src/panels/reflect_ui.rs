@@ -210,6 +210,22 @@ fn draw_leaf_ui(ui: &mut egui::Ui, value: &mut dyn Reflect, ctx: &ReflectUiCtx) 
     // reparenting, and a searchable ComboBox is offered as a fallback for
     // when drag-and-drop isn't convenient.
     if let Some(entity) = value.downcast_mut::<bevy_ecs::prelude::Entity>() {
+        // `ui.next_auto_id()` (NOT `ui.id()`) as the ComboBox salt -- `ui.id()`
+        // is egui's *stable* id, identical across sibling fields under the
+        // same parent `Ui`, which caused a real ComboBox id-collision bug
+        // fixed earlier in this file's history (see the `combo_salt` comment
+        // in the Enum arm of `draw_reflect_ui` above, for sibling enum-typed
+        // fields). `next_auto_id()` varies correctly per call site even when
+        // siblings share the same stable `.id()`, because each child `Ui`'s
+        // auto-id counter increments per creation.
+        //
+        // Captured first, before any other call in this block that would
+        // consume an id -- including `allocate_exact_size` below, which
+        // (via `allocate_response`/`allocate_space`) unconditionally
+        // advances the `Ui`'s auto-id counter regardless of `Sense`, so it
+        // is itself an id-consuming call, not just the `ComboBox` further
+        // down.
+        let picker_salt = ui.next_auto_id();
         let mut changed = false;
         let current_label = if *entity == bevy_ecs::prelude::Entity::PLACEHOLDER {
             "(none)".to_string()
@@ -235,17 +251,6 @@ fn draw_leaf_ui(ui: &mut egui::Ui, value: &mut dyn Reflect, ctx: &ReflectUiCtx) 
             *entity = bevy_ecs::prelude::Entity::from_raw(*dropped_id as u32);
             changed = true;
         }
-        // `ui.next_auto_id()` (NOT `ui.id()`) as the salt -- `ui.id()` is
-        // egui's *stable* id, identical across sibling fields under the
-        // same parent `Ui`, which caused a real ComboBox id-collision bug
-        // fixed earlier in this file's history (see the `combo_salt`
-        // comment in the Enum arm of `draw_reflect_ui` above, for sibling
-        // enum-typed fields). `next_auto_id()` varies correctly per call
-        // site even when siblings share the same stable `.id()`, because
-        // each child `Ui`'s auto-id counter increments per creation.
-        // Captured here, before the ComboBox call below (the only other
-        // widget call in this block), for the same reason.
-        let picker_salt = ui.next_auto_id();
         egui::ComboBox::from_id_salt(picker_salt)
             .selected_text("Search…")
             .show_ui(ui, |ui| {

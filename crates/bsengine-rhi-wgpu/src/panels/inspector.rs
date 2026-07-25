@@ -58,8 +58,6 @@ impl EditorPanel for InspectorPanel {
         let label = sel_info.name.as_deref().unwrap_or("(unnamed)");
         let entity_name = format!("[{sel_id}] {label}");
         let has_transform = sel_info.position.is_some();
-        let light_type = sel_info.light_type.clone();
-        let has_camera = sel_info.camera_fov.is_some();
 
         ui.heading(&entity_name);
         ui.separator();

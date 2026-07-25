@@ -158,7 +158,7 @@ pub fn draw_reflect_ui(ui: &mut egui::Ui, value: &mut dyn Reflect, ctx: &Reflect
             }
             changed
         }
-        _ => draw_leaf_ui(ui, value),
+        _ => draw_leaf_ui(ui, value, ctx),
     }
 }
 
@@ -202,7 +202,67 @@ fn build_default_variant(
     ))
 }
 
-fn draw_leaf_ui(ui: &mut egui::Ui, value: &mut dyn Reflect) -> bool {
+fn draw_leaf_ui(ui: &mut egui::Ui, value: &mut dyn Reflect, ctx: &ReflectUiCtx) -> bool {
+    // `Entity`-typed fields (e.g. Follow/LookAt/Parent's target) get a
+    // dedicated picker: the current target is shown as "[id] name", a drop
+    // zone accepts the same u64 drag payload Hierarchy rows already emit
+    // (`row_response.dnd_set_drag_payload(info.id)` in hierarchy.rs) for
+    // reparenting, and a searchable ComboBox is offered as a fallback for
+    // when drag-and-drop isn't convenient.
+    if let Some(entity) = value.downcast_mut::<bevy_ecs::prelude::Entity>() {
+        let mut changed = false;
+        let current_label = if *entity == bevy_ecs::prelude::Entity::PLACEHOLDER {
+            "(none)".to_string()
+        } else {
+            ctx.entities
+                .iter()
+                .find(|e| e.id == entity.index() as u64)
+                .map(|e| format!("[{}] {}", e.id, e.name.as_deref().unwrap_or("(unnamed)")))
+                .unwrap_or_else(|| format!("[{}] (not found)", entity.index()))
+        };
+        let (rect, response) = ui.allocate_exact_size(
+            egui::vec2(ui.available_width().min(160.0), 20.0),
+            egui::Sense::hover(),
+        );
+        ui.painter().text(
+            rect.left_center(),
+            egui::Align2::LEFT_CENTER,
+            &current_label,
+            egui::FontId::default(),
+            ui.visuals().text_color(),
+        );
+        if let Some(dropped_id) = response.dnd_release_payload::<u64>() {
+            *entity = bevy_ecs::prelude::Entity::from_raw(*dropped_id as u32);
+            changed = true;
+        }
+        // `ui.next_auto_id()` (NOT `ui.id()`) as the salt -- `ui.id()` is
+        // egui's *stable* id, identical across sibling fields under the
+        // same parent `Ui`, which caused a real ComboBox id-collision bug
+        // fixed earlier in this file's history (see the `combo_salt`
+        // comment in the Enum arm of `draw_reflect_ui` above, for sibling
+        // enum-typed fields). `next_auto_id()` varies correctly per call
+        // site even when siblings share the same stable `.id()`, because
+        // each child `Ui`'s auto-id counter increments per creation.
+        // Captured here, before the ComboBox call below (the only other
+        // widget call in this block), for the same reason.
+        let picker_salt = ui.next_auto_id();
+        egui::ComboBox::from_id_salt(picker_salt)
+            .selected_text("Search…")
+            .show_ui(ui, |ui| {
+                for info in ctx.entities {
+                    let label = format!(
+                        "[{}] {}",
+                        info.id,
+                        info.name.as_deref().unwrap_or("(unnamed)")
+                    );
+                    if ui.selectable_label(false, label).clicked() {
+                        *entity = bevy_ecs::prelude::Entity::from_raw(info.id as u32);
+                        changed = true;
+                    }
+                }
+            });
+        return changed;
+    }
     // Fields of type `glam::Vec2/Vec3/Vec4/Quat` are never `Reflect` themselves (Task 1: Rust's
     // orphan rule blocks that impl from bsengine-core) — reflected components store these as the
     // local `ReflectVec2`/`ReflectVec3`/`ReflectVec4`/`ReflectQuat` wrapper types instead
@@ -1092,5 +1152,246 @@ mod tests {
             "only the first (X) DragValue was interacted with -- Y and Z must stay at 0, got \
              ({ry_deg}, {rz_deg})"
         );
+    }
+
+    #[test]
+    fn entity_leaf_shows_target_name_and_accepts_a_hierarchy_drag_payload() {
+        let entities = vec![
+            bsengine_core::InspectorEntityInfo {
+                id: 1,
+                name: Some("Player".to_string()),
+                ..Default::default()
+            },
+            bsengine_core::InspectorEntityInfo {
+                id: 2,
+                name: Some("Boss".to_string()),
+                ..Default::default()
+            },
+        ];
+        let ctx = ReflectUiCtx {
+            entities: &entities,
+            type_registry: None,
+        };
+        let mut target = bevy_ecs::prelude::Entity::PLACEHOLDER;
+
+        let egui_ctx = egui::Context::default();
+        egui_ctx.set_fonts(egui::FontDefinitions::empty());
+        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
+
+        // Frame 1: draw with no target set yet -- establishes the field's
+        // drop-zone rect and confirms the "(none)" placeholder shows.
+        let mut field_rect = egui::Rect::NOTHING;
+        let _ = egui_ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen_rect),
+                ..Default::default()
+            },
+            |egui_ctx| {
+                egui::CentralPanel::default().show(egui_ctx, |ui| {
+                    let before = ui.next_auto_id();
+                    draw_reflect_ui(ui, &mut target, &ctx);
+                    field_rect = ui
+                        .ctx()
+                        .read_response(before)
+                        .map(|r| r.rect)
+                        .unwrap_or(egui::Rect::NOTHING);
+                });
+            },
+        );
+
+        // Frame 2: set a drag payload directly -- the same call
+        // `Response::dnd_set_drag_payload` makes internally on
+        // `drag_started()` (egui's `response.rs`), so this is equivalent to
+        // a real drag having started elsewhere (e.g. a Hierarchy row, which
+        // calls `.dnd_set_drag_payload(info.id)` in `hierarchy.rs`) without
+        // needing to simulate the full drag gesture -- then release the
+        // pointer over the field's rect. `Response::dnd_release_payload`
+        // only requires `contains_pointer()` (true once the field's
+        // `Sense::hover()` rect contains the pointer position) and
+        // `pointer.any_released()` (true from a single `PointerButton
+        // {pressed: false}` event, unconditional on any prior `pressed:
+        // true` in this test -- confirmed directly against egui 0.29.1's
+        // `input_state/mod.rs`: every `pressed: false` event unconditionally
+        // pushes a `PointerEvent::Released`).
+        egui::DragAndDrop::set_payload(&egui_ctx, 2u64);
+        let drop_pos = field_rect.center();
+        let _ = egui_ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen_rect),
+                events: vec![
+                    egui::Event::PointerMoved(drop_pos),
+                    egui::Event::PointerButton {
+                        pos: drop_pos,
+                        button: egui::PointerButton::Primary,
+                        pressed: false,
+                        modifiers: egui::Modifiers::default(),
+                    },
+                ],
+                ..Default::default()
+            },
+            |egui_ctx| {
+                egui::CentralPanel::default().show(egui_ctx, |ui| {
+                    draw_reflect_ui(ui, &mut target, &ctx);
+                });
+            },
+        );
+
+        assert_eq!(
+            target.index(),
+            2,
+            "dropping the id-2 Hierarchy payload should set the field's target to that raw index"
+        );
+    }
+
+    #[derive(Reflect, Debug, Clone)]
+    struct SampleTwoEntityFields {
+        first: bevy_ecs::prelude::Entity,
+        second: bevy_ecs::prelude::Entity,
+    }
+
+    #[test]
+    fn opening_a_sibling_entity_fields_picker_only_affects_that_field() {
+        // Regression test for the same class of sibling-id-collision bug
+        // fixed in Task 4 (see `combo_salt = ui.next_auto_id()` in
+        // `draw_reflect_ui`'s Enum arm, and its `opening_a_sibling_enum_..`
+        // regression test above) -- but for the Entity picker's own
+        // `picker_salt = ui.next_auto_id()` line in `draw_leaf_ui`. Mirrors
+        // a component with 2+ sibling `Entity`-typed fields (e.g. a future
+        // component with 2 `Entity` fields, or `Follow`+`LookAt` ending up
+        // as siblings under one parent `Ui` in a future refactor) and
+        // drives the *real* `draw_reflect_ui`, through its actual
+        // `ReflectMut::Struct` arm, exactly the call shape that would make
+        // `first` and `second`'s picker ComboBoxes collide on one id if the
+        // salt regressed back to `ui.id()`.
+        //
+        // If `picker_salt` regressed to `ui.id()` (stable, identical across
+        // sibling fields), both fields' ComboBox internals would register
+        // under the same id, so opening one field's popup while a sibling
+        // Entity field is also present would toggle it right back closed
+        // within the same frame (the exact mechanism documented on the
+        // enum regression test above) -- silently no-op'ing the selection
+        // click below. This test opens `first`'s picker and selects the
+        // 2nd entity ("Boss", id 2) while `second` is also present and
+        // untouched; it is red on the pre-fix `ui.id()` salt and green on
+        // the `next_auto_id()` fix already in production code.
+        //
+        // Coordinates below were measured empirically against this exact
+        // scene (2 Entity fields, 2 registered entities, fontless/400x400
+        // headless canvas) the same way the enum sibling test's were: by
+        // instrumenting the real production path with a scratch diagnostic
+        // (not committed) that scanned candidate click points and printed
+        // which one actually flipped `first`/`second`, then hard-coding the
+        // ones that worked.
+        let entities = vec![
+            bsengine_core::InspectorEntityInfo {
+                id: 1,
+                name: Some("Player".to_string()),
+                ..Default::default()
+            },
+            bsengine_core::InspectorEntityInfo {
+                id: 2,
+                name: Some("Boss".to_string()),
+                ..Default::default()
+            },
+        ];
+        let ctx = ReflectUiCtx {
+            entities: &entities,
+            type_registry: None,
+        };
+        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
+        let click_events = |pos: egui::Pos2| {
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::default(),
+                },
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::default(),
+                },
+            ]
+        };
+
+        // --- Scenario A: interact with `first`'s picker; `second` must stay untouched. ---
+        {
+            let mut value = SampleTwoEntityFields {
+                first: bevy_ecs::prelude::Entity::PLACEHOLDER,
+                second: bevy_ecs::prelude::Entity::PLACEHOLDER,
+            };
+            let egui_ctx = egui::Context::default();
+            egui_ctx.set_fonts(egui::FontDefinitions::empty());
+            let run = |events: Vec<egui::Event>, v: &mut SampleTwoEntityFields| {
+                let _ = egui_ctx.run(
+                    egui::RawInput {
+                        screen_rect: Some(screen_rect),
+                        events,
+                        ..Default::default()
+                    },
+                    |c| {
+                        egui::CentralPanel::default().show(c, |ui| draw_reflect_ui(ui, v, &ctx));
+                    },
+                );
+            };
+            run(vec![], &mut value); // frame 1: establish prior-frame widget rects
+            run(click_events(egui::Pos2::new(180.0, 15.0)), &mut value); // frame 2: open `first`'s combo
+            run(vec![], &mut value); // frame 3: settle (popup's cached size/id sequence stabilizes)
+            run(click_events(egui::Pos2::new(200.0, 60.0)), &mut value); // frame 4: select "Boss" (id 2)
+
+            assert_eq!(
+                value.first,
+                bevy_ecs::prelude::Entity::from_raw(2),
+                "opening and selecting in `first`'s picker should set it to entity id 2 -- if \
+                 this is still PLACEHOLDER, the click had no effect, which is exactly the \
+                 symptom of the sibling-id-collision bug (both fields' picker ComboBoxes \
+                 toggling the same shared popup id back closed within the same frame)"
+            );
+            assert_eq!(
+                value.second,
+                bevy_ecs::prelude::Entity::PLACEHOLDER,
+                "only `first`'s picker was interacted with -- `second` must stay untouched"
+            );
+        }
+
+        // --- Scenario B: interact with `second`'s picker; `first` must stay untouched. ---
+        {
+            let mut value = SampleTwoEntityFields {
+                first: bevy_ecs::prelude::Entity::PLACEHOLDER,
+                second: bevy_ecs::prelude::Entity::PLACEHOLDER,
+            };
+            let egui_ctx = egui::Context::default();
+            egui_ctx.set_fonts(egui::FontDefinitions::empty());
+            let run = |events: Vec<egui::Event>, v: &mut SampleTwoEntityFields| {
+                let _ = egui_ctx.run(
+                    egui::RawInput {
+                        screen_rect: Some(screen_rect),
+                        events,
+                        ..Default::default()
+                    },
+                    |c| {
+                        egui::CentralPanel::default().show(c, |ui| draw_reflect_ui(ui, v, &ctx));
+                    },
+                );
+            };
+            run(vec![], &mut value); // frame 1: establish prior-frame widget rects
+            run(click_events(egui::Pos2::new(180.0, 40.0)), &mut value); // frame 2: open `second`'s combo
+            run(vec![], &mut value); // frame 3: settle
+            run(click_events(egui::Pos2::new(200.0, 85.0)), &mut value); // frame 4: select "Boss" (id 2)
+
+            assert_eq!(
+                value.second,
+                bevy_ecs::prelude::Entity::from_raw(2),
+                "opening and selecting in `second`'s picker should set it to entity id 2"
+            );
+            assert_eq!(
+                value.first,
+                bevy_ecs::prelude::Entity::PLACEHOLDER,
+                "only `second`'s picker was interacted with -- `first` must stay untouched"
+            );
+        }
     }
 }

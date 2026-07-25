@@ -20,12 +20,21 @@ pub struct ReflectUiCtx<'a> {
 /// Recursively renders an egui editor for any `Reflect` value. Returns
 /// whether anything changed. Handles:
 /// - `Struct`: iterate fields, label + recurse.
+/// - `TupleStruct`: iterate fields and recurse, with no label wrapper
+///   (tuple struct fields have no name to show).
 /// - `Enum`: display the current variant's name (read-only — switching
 ///   variants generically is out of scope for this pass, see design doc)
 ///   and recurse into its fields.
+/// - `List`: one row per element (recursively-rendered widget + a remove
+///   button), plus an append row that pushes a `ReflectDefault`-constructed
+///   item via the type registry.
 /// - Opaque `Value`: glam Vec2/Vec3/Vec4/Quat get dedicated multi-DragValue
 ///   rows; everything else falls through to primitive widgets.
 pub fn draw_reflect_ui(ui: &mut egui::Ui, value: &mut dyn Reflect, ctx: &ReflectUiCtx) -> bool {
+    let list_item_type_id = match value.get_represented_type_info() {
+        Some(bevy_reflect::TypeInfo::List(list_info)) => Some(list_info.item_type_id()),
+        _ => None,
+    };
     match value.reflect_mut() {
         bevy_reflect::ReflectMut::Struct(s) => {
             let mut changed = false;
@@ -47,6 +56,39 @@ pub fn draw_reflect_ui(ui: &mut egui::Ui, value: &mut dyn Reflect, ctx: &Reflect
                     changed |= draw_reflect_ui(ui, field, ctx);
                 }
             }
+            changed
+        }
+        bevy_reflect::ReflectMut::List(l) => {
+            let mut changed = false;
+            let mut remove_at: Option<usize> = None;
+            for i in 0..l.len() {
+                if let Some(element) = l.get_mut(i) {
+                    ui.horizontal(|ui| {
+                        changed |= draw_reflect_ui(ui, element, ctx);
+                        if ui.small_button("×").clicked() {
+                            remove_at = Some(i);
+                        }
+                    });
+                }
+            }
+            if let Some(i) = remove_at {
+                l.remove(i);
+                changed = true;
+            }
+            ui.horizontal(|ui| {
+                if ui.small_button("+").clicked() {
+                    if let (Some(item_type_id), Some(registry)) =
+                        (list_item_type_id, ctx.type_registry)
+                    {
+                        if let Some(default) = registry
+                            .get_type_data::<bevy_reflect::std_traits::ReflectDefault>(item_type_id)
+                        {
+                            l.push(default.default());
+                            changed = true;
+                        }
+                    }
+                }
+            });
             changed
         }
         bevy_reflect::ReflectMut::Enum(e) => {
@@ -413,6 +455,113 @@ mod tests {
             "expected exactly 2 top-level widgets (one f32 DragValue, one bool checkbox) -- \
              a widget count of 1 would mean this fell through to the single fallback label \
              instead of iterating the tuple struct's fields"
+        );
+    }
+
+    #[test]
+    fn list_leaf_renders_one_row_per_element_plus_an_append_button() {
+        let mut tags: Vec<String> = vec!["enemy".to_string(), "boss".to_string()];
+        let (changed, widget_count) = with_test_ui(|_ctx, ui| {
+            let changed = draw_reflect_ui(ui, &mut tags, &empty_ctx());
+            let after = ui.next_auto_id();
+            (changed, after)
+        });
+        assert!(!changed, "no interaction happened, so nothing changed");
+        assert_eq!(tags, vec!["enemy".to_string(), "boss".to_string()]);
+        // One ui.horizontal group per existing element (text field + "x"
+        // button), plus one more group for the "+" append row: 2 elements
+        // + 1 append row = 3 top-level groups.
+        assert_eq!(
+            widget_count,
+            auto_id_after_n_top_level_widgets(3),
+            "expected 2 element rows + 1 append row"
+        );
+    }
+
+    #[test]
+    fn list_append_button_pushes_a_default_item_using_the_type_registry() {
+        let mut tags: Vec<String> = vec![];
+        let mut registry = bevy_reflect::TypeRegistry::default();
+        registry.register::<String>();
+        let ctx = ReflectUiCtx {
+            entities: &[],
+            type_registry: Some(&registry),
+        };
+
+        // Simulate a click on the append ("+") button by calling
+        // draw_reflect_ui inside a frame where the button's id is pressed.
+        // This mirrors the click-simulation pattern used in
+        // hierarchy.rs's `row_click_registers_despite_unioned_drag_sense_interact`
+        // test: two `Context::run` passes, since egui hit-tests against the
+        // *previous* frame's widget rects.
+        let egui_ctx = egui::Context::default();
+        egui_ctx.set_fonts(egui::FontDefinitions::empty());
+        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
+
+        let mut button_rect = egui::Rect::NOTHING;
+        let _ = egui_ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen_rect),
+                ..Default::default()
+            },
+            |egui_ctx| {
+                egui::CentralPanel::default().show(egui_ctx, |ui| {
+                    draw_reflect_ui(ui, &mut tags, &ctx);
+                });
+            },
+        );
+        // Re-run once, capturing the actual button response this time.
+        let _ = egui_ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen_rect),
+                ..Default::default()
+            },
+            |egui_ctx| {
+                egui::CentralPanel::default().show(egui_ctx, |ui| {
+                    let before = ui.next_auto_id();
+                    draw_reflect_ui(ui, &mut tags, &ctx);
+                    button_rect = ui
+                        .ctx()
+                        .read_response(before)
+                        .map(|r| r.rect)
+                        .unwrap_or(egui::Rect::NOTHING);
+                });
+            },
+        );
+
+        let pos = button_rect.center();
+        let click_events = vec![
+            egui::Event::PointerMoved(pos),
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::default(),
+            },
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::default(),
+            },
+        ];
+        let _ = egui_ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen_rect),
+                events: click_events,
+                ..Default::default()
+            },
+            |egui_ctx| {
+                egui::CentralPanel::default().show(egui_ctx, |ui| {
+                    draw_reflect_ui(ui, &mut tags, &ctx);
+                });
+            },
+        );
+
+        assert_eq!(
+            tags,
+            vec!["".to_string()],
+            "clicking append should push one default (empty-string) item"
         );
     }
 

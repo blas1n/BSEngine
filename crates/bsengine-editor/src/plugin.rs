@@ -1606,6 +1606,9 @@ impl Plugin for EditorPlugin {
         app.register_type::<bsengine_scene::Primitive>();
         app.register_type::<bsengine_scene::PrimitiveMesh>();
         app.register_type::<bsengine_scene::ScriptPath>();
+        app.register_type::<String>();
+        app.register_type::<bsengine_core::ReflectVec3>();
+        app.register_type::<bsengine_core::ReflectQuat>();
         app.add_systems(Update, update_editor_snapshot);
         app.add_systems(Update, update_editor_camera);
         app.add_systems(Update, populate_inspector.after(update_editor_snapshot));
@@ -90942,5 +90945,37 @@ mod tests {
             .expect("expected one entity with Name + GltfAsset");
         assert_eq!(name.0, "Rock");
         assert_eq!(gltf_asset.path, "assets/models/rock.glb");
+    }
+
+    #[test]
+    fn app_type_registry_has_default_for_string_and_glam_wrappers() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.update();
+
+        let registry = app
+            .world()
+            .resource::<bevy_ecs::reflect::AppTypeRegistry>()
+            .read();
+        for (type_id, label) in [
+            (std::any::TypeId::of::<String>(), "String"),
+            (
+                std::any::TypeId::of::<bsengine_core::ReflectVec3>(),
+                "ReflectVec3",
+            ),
+            (
+                std::any::TypeId::of::<bsengine_core::ReflectQuat>(),
+                "ReflectQuat",
+            ),
+        ] {
+            assert!(
+                registry
+                    .get_type_data::<bevy_reflect::std_traits::ReflectDefault>(type_id)
+                    .is_some(),
+                "{label} must have a registered ReflectDefault for the List-append and \
+                 enum-variant-switch UI features to work in the real app"
+            );
+        }
     }
 }

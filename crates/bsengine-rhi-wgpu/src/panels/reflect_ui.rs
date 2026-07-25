@@ -47,7 +47,19 @@ pub fn draw_reflect_ui(ui: &mut egui::Ui, value: &mut dyn Reflect, ctx: &Reflect
         {
             let current_variant = e.variant_name().to_string();
             let mut target_variant: Option<&str> = None;
-            ui.push_id(ui.id().with("enum_variant_combo"), |ui| {
+            // `ui.id()` is egui's *stable* id, which is shared across sibling
+            // children of the same parent `Ui` (e.g. every field in a Struct's
+            // field loop gets a child `Ui` via `new_child`, and unless an
+            // explicit id_salt is given, that always resolves to the same
+            // `.id()`). Deriving the combo's id from it would collide when a
+            // component has 2+ sibling enum fields (e.g. `Tween`'s
+            // target/easing/repeat), making their popups share open/closed
+            // state. `ui.next_auto_id()` is the per-call-site auto-id counter,
+            // which *does* vary between sibling calls, so it's captured here
+            // -- before any other widget call in this block consumes it --
+            // and used as the combo's id salt instead.
+            let combo_salt = ui.next_auto_id();
+            ui.push_id(combo_salt, |ui| {
                 egui::ComboBox::from_id_salt("variant")
                     .selected_text(&current_variant)
                     .show_ui(ui, |ui| {
@@ -768,6 +780,51 @@ mod tests {
             value,
             SampleEnum::Tuple(0.0),
             "selecting 'Tuple' in the variant combo should switch to Tuple with a default f32 field"
+        );
+    }
+
+    #[test]
+    fn sibling_enum_fields_get_distinct_variant_combo_ids() {
+        // Regression test for a bug where the variant ComboBox's id was derived
+        // from `ui.id()` -- egui's *stable* id, which (verified against egui
+        // 0.29.1's `Ui::new_child`) is identical across sibling children of the
+        // same parent `Ui`, since `ui.horizontal(..)` (used by the Struct match
+        // arm's per-field loop) doesn't override the child's id_salt away from
+        // the literal default `"child"`. That meant every sibling enum field's
+        // ComboBox resolved to the exact same egui id -- concretely,
+        // `bsengine_core::Tween`'s three sibling enum fields (`target`,
+        // `easing`, `repeat`), all rendered through this exact code path,
+        // would all share one popup's open/closed state.
+        //
+        // This replicates the *exact* pattern `draw_reflect_ui`'s Enum arm now
+        // uses -- `let combo_salt = ui.next_auto_id(); ui.push_id(combo_salt, ..)`
+        // -- inside two sibling field-child `Ui`s built the same way the Struct
+        // match arm builds them (`ui.horizontal(|ui| { .. })` per field), and
+        // asserts the two resulting ComboBox button ids differ. This directly
+        // exercises the id-uniqueness invariant the fix relies on, without the
+        // sub-pixel popup-click simulation the other test in this file needs
+        // (and which egui's own multi-pass, cache-warming popup layout makes
+        // fragile to aim at two *different* popups in the same frame).
+        let mut combo_ids = Vec::new();
+        with_test_ui(|_ctx, ui| {
+            for _ in 0..2 {
+                ui.horizontal(|ui| {
+                    let combo_salt = ui.next_auto_id();
+                    let outer = ui.push_id(combo_salt, |ui| {
+                        egui::ComboBox::from_id_salt("variant")
+                            .selected_text("Unit")
+                            .show_ui(ui, |_ui| {})
+                    });
+                    combo_ids.push(outer.inner.response.id);
+                });
+            }
+        });
+        assert_eq!(combo_ids.len(), 2);
+        assert_ne!(
+            combo_ids[0], combo_ids[1],
+            "sibling enum fields' variant ComboBoxes must not resolve to the same \
+             egui id -- a shared id means their popup open/closed state (and thus \
+             clicks) collide, as happened for Tween's target/easing/repeat fields"
         );
     }
 

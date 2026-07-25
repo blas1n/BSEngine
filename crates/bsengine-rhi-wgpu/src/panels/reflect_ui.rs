@@ -40,6 +40,15 @@ pub fn draw_reflect_ui(ui: &mut egui::Ui, value: &mut dyn Reflect, ctx: &Reflect
             }
             changed
         }
+        bevy_reflect::ReflectMut::TupleStruct(ts) => {
+            let mut changed = false;
+            for i in 0..ts.field_len() {
+                if let Some(field) = ts.field_mut(i) {
+                    changed |= draw_reflect_ui(ui, field, ctx);
+                }
+            }
+            changed
+        }
         bevy_reflect::ReflectMut::Enum(e) => {
             ui.label(format!("({})", e.variant_name()));
             let mut changed = false;
@@ -158,6 +167,9 @@ mod tests {
         offset: bsengine_core::ReflectVec3,
         enabled: bool,
     }
+
+    #[derive(Reflect, Debug, PartialEq, Clone)]
+    struct SampleTupleStruct(f32, bool);
 
     /// Runs `add_contents` against a real (headless) `egui::Ui` inside a single frame and
     /// returns whatever it returns. This mirrors the pattern egui's own crate uses internally
@@ -376,6 +388,31 @@ mod tests {
             widget_count,
             auto_id_after_n_top_level_widgets(3),
             "expected exactly 3 top-level field groups (one ui.horizontal per struct field)"
+        );
+    }
+
+    #[test]
+    fn tuple_struct_recursion_renders_two_field_widgets_not_a_single_fallback_label() {
+        let mut s = SampleTupleStruct(2.0, true);
+        let expected = s.clone();
+        let (changed, widget_count) = with_test_ui(|_ctx, ui| {
+            let changed = draw_reflect_ui(ui, &mut s, &empty_ctx());
+            let after = ui.next_auto_id();
+            (changed, after)
+        });
+        assert!(!changed, "no interaction happened, so nothing changed");
+        assert_eq!(s, expected, "no field should have been touched");
+        // Unlike SampleStruct's fields, a tuple struct's fields have no
+        // `ui.horizontal` label wrapper of their own in this implementation
+        // (there's no field name to show) -- each field is drawn directly by
+        // recursing into draw_reflect_ui, so a bare f32 leaf claims 1
+        // top-level id and the bool leaf claims another: 2 total.
+        assert_eq!(
+            widget_count,
+            auto_id_after_n_top_level_widgets(2),
+            "expected exactly 2 top-level widgets (one f32 DragValue, one bool checkbox) -- \
+             a widget count of 1 would mean this fell through to the single fallback label \
+             instead of iterating the tuple struct's fields"
         );
     }
 

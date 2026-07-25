@@ -22,15 +22,60 @@ pub struct ReflectUiCtx<'a> {
 /// - `Struct`: iterate fields, label + recurse.
 /// - `TupleStruct`: iterate fields and recurse, with no label wrapper
 ///   (tuple struct fields have no name to show).
-/// - `Enum`: display the current variant's name (read-only — switching
-///   variants generically is out of scope for this pass, see design doc)
-///   and recurse into its fields.
+/// - `Enum`: a combo box listing every variant (from `EnumInfo`); picking a
+///   different one builds a `ReflectDefault`-based `DynamicEnum` for it and
+///   applies it, then recurses into the (possibly new) active variant's
+///   fields.
 /// - `List`: one row per element (recursively-rendered widget + a remove
 ///   button), plus an append row that pushes a `ReflectDefault`-constructed
 ///   item via the type registry.
 /// - Opaque `Value`: glam Vec2/Vec3/Vec4/Quat get dedicated multi-DragValue
 ///   rows; everything else falls through to primitive widgets.
 pub fn draw_reflect_ui(ui: &mut egui::Ui, value: &mut dyn Reflect, ctx: &ReflectUiCtx) -> bool {
+    // Enum variant switching is decided in a read-only pass first: building
+    // the DynamicEnum needs `value.apply(..)`, a *mutable* borrow, but the
+    // combo box itself is drawn while holding `e: &mut dyn Enum` (an
+    // existing mutable borrow of `value` from `value.reflect_mut()`) --
+    // those two mutable borrows can't coexist. Deciding the switch via
+    // `value.reflect_ref()` (immutable) first, entirely separate from the
+    // `reflect_mut()` match below, sidesteps the conflict: by the time
+    // `value.apply(..)` runs, this `if let` block (and its immutable
+    // borrows) has already gone out of scope.
+    let variant_switch =
+        if let (bevy_reflect::ReflectRef::Enum(e), Some(bevy_reflect::TypeInfo::Enum(enum_info))) =
+            (value.reflect_ref(), value.get_represented_type_info())
+        {
+            let current_variant = e.variant_name().to_string();
+            let mut target_variant: Option<&str> = None;
+            ui.push_id(ui.id().with("enum_variant_combo"), |ui| {
+                egui::ComboBox::from_id_salt("variant")
+                    .selected_text(&current_variant)
+                    .show_ui(ui, |ui| {
+                        for name in enum_info.variant_names() {
+                            if ui
+                                .selectable_label(*name == current_variant, *name)
+                                .clicked()
+                                && *name != current_variant
+                            {
+                                target_variant = Some(name);
+                            }
+                        }
+                    });
+            });
+            target_variant.and_then(|name| {
+                ctx.type_registry
+                    .and_then(|registry| build_default_variant(enum_info, name, registry))
+            })
+        } else {
+            None
+        };
+    if let Some(dyn_enum) = variant_switch {
+        value.apply(&dyn_enum);
+        return true;
+    }
+
+    // `l` (below) mutably borrows value for the rest of this match, so this lookup (which
+    // needs &value) has to happen first.
     let list_item_type_id = match value.get_represented_type_info() {
         Some(bevy_reflect::TypeInfo::List(list_info)) => Some(list_info.item_type_id()),
         _ => None,
@@ -103,6 +148,46 @@ pub fn draw_reflect_ui(ui: &mut egui::Ui, value: &mut dyn Reflect, ctx: &Reflect
         }
         _ => draw_leaf_ui(ui, value),
     }
+}
+
+/// Builds a `DynamicEnum` representing `variant_name` with every field set
+/// to its `ReflectDefault`-constructed value, or `None` if `variant_name`
+/// doesn't exist on this enum or any of its fields lack a registered
+/// `ReflectDefault` (a safe no-op switch in that case, rather than a partial
+/// / panicking one).
+fn build_default_variant(
+    enum_info: &bevy_reflect::EnumInfo,
+    variant_name: &str,
+    registry: &bevy_reflect::TypeRegistry,
+) -> Option<bevy_reflect::DynamicEnum> {
+    let variant_info = enum_info.variant(variant_name)?;
+    let dynamic_variant = match variant_info {
+        bevy_reflect::VariantInfo::Unit(_) => bevy_reflect::DynamicVariant::Unit,
+        bevy_reflect::VariantInfo::Tuple(tuple_info) => {
+            let mut t = bevy_reflect::DynamicTuple::default();
+            for field in tuple_info.iter() {
+                let default = registry
+                    .get_type_data::<bevy_reflect::std_traits::ReflectDefault>(field.type_id())?
+                    .default();
+                t.insert_boxed(default);
+            }
+            bevy_reflect::DynamicVariant::Tuple(t)
+        }
+        bevy_reflect::VariantInfo::Struct(struct_info) => {
+            let mut s = bevy_reflect::DynamicStruct::default();
+            for field in struct_info.iter() {
+                let default = registry
+                    .get_type_data::<bevy_reflect::std_traits::ReflectDefault>(field.type_id())?
+                    .default();
+                s.insert_boxed(field.name(), default);
+            }
+            bevy_reflect::DynamicVariant::Struct(s)
+        }
+    };
+    Some(bevy_reflect::DynamicEnum::new(
+        variant_name,
+        dynamic_variant,
+    ))
 }
 
 fn draw_leaf_ui(ui: &mut egui::Ui, value: &mut dyn Reflect) -> bool {
@@ -562,6 +647,127 @@ mod tests {
             tags,
             vec!["".to_string()],
             "clicking append should push one default (empty-string) item"
+        );
+    }
+
+    #[derive(Reflect, Debug, PartialEq, Clone, Default)]
+    enum SampleEnum {
+        #[default]
+        Unit,
+        Tuple(f32),
+        Named {
+            x: f32,
+        },
+    }
+
+    #[test]
+    fn enum_variant_combo_switches_to_a_default_instance_of_the_chosen_variant() {
+        let mut value = SampleEnum::Unit;
+        let mut registry = bevy_reflect::TypeRegistry::default();
+        registry.register::<f32>();
+        let ctx = ReflectUiCtx {
+            entities: &[],
+            type_registry: Some(&registry),
+        };
+
+        let egui_ctx = egui::Context::default();
+        egui_ctx.set_fonts(egui::FontDefinitions::empty());
+        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
+
+        let run_frame =
+            |egui_ctx: &egui::Context, events: Vec<egui::Event>, value: &mut SampleEnum| {
+                let _ = egui_ctx.run(
+                    egui::RawInput {
+                        screen_rect: Some(screen_rect),
+                        events,
+                        ..Default::default()
+                    },
+                    |egui_ctx| {
+                        egui::CentralPanel::default().show(egui_ctx, |ui| {
+                            draw_reflect_ui(ui, value, &ctx);
+                        });
+                    },
+                );
+            };
+        let click_events = |pos: egui::Pos2| {
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::default(),
+                },
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::default(),
+                },
+            ]
+        };
+
+        // Frame 1: draw the combo box (closed) to learn where it sits.
+        // `SampleEnum::Unit` has no fields, so the combo box is the *only*
+        // thing drawn -- the cursor position before and after fully brackets
+        // its row (CentralPanel's content Ui doesn't shrink-to-fit its
+        // `min_rect`, it pre-allocates the full available area, so
+        // `ui.min_rect()` can't be used for this; `next_widget_position()`
+        // tracks the actual layout cursor instead).
+        let mut combo_top = egui::Pos2::ZERO;
+        let mut combo_bottom = egui::Pos2::ZERO;
+        let _ = egui_ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen_rect),
+                ..Default::default()
+            },
+            |egui_ctx| {
+                egui::CentralPanel::default().show(egui_ctx, |ui| {
+                    combo_top = ui.next_widget_position();
+                    draw_reflect_ui(ui, &mut value, &ctx);
+                    combo_bottom = ui.next_widget_position();
+                });
+            },
+        );
+
+        // Frame 2: click the combo box (safely inside its row) to open the popup.
+        let open_pos = egui::Pos2::new(combo_top.x + 20.0, combo_top.y + 8.0);
+        run_frame(&egui_ctx, click_events(open_pos), &mut value);
+
+        // Frame 3 ("settle"): redraw with no input. The popup's first-ever
+        // frame (frame 2) sizes its `Area`/`ScrollArea` from a placeholder
+        // default (it hasn't measured real content yet), which shifts how
+        // many internal child `Ui`s get created versus every frame after --
+        // and that shift changes the auto-generated `Id`s of the entries
+        // inside it. A click sent in frame 2's immediate next frame gets
+        // hit-tested against frame 2's (pre-settle) ids, but resolved
+        // against the newly-drawn (post-settle) ones, so it never lands.
+        // One extra no-op redraw lets the popup's cached size (and thus its
+        // id sequence) stabilize *before* anything tries to click into it;
+        // every frame from here on reproduces the same ids/positions.
+        run_frame(&egui_ctx, vec![], &mut value);
+
+        // Frame 4: click the settled popup's 2nd entry ("Tuple", index 1 in
+        // `EnumInfo::variant_names()` declaration order: Unit, Tuple, Named).
+        // Its row starts exactly at `combo_bottom.y` (the popup is anchored
+        // to the combo box's bottom-left) and each row after that is a fixed
+        // stride down; both the stride and horizontal center were measured
+        // empirically against this popup (button padding + a bare/unstyled
+        // `FontDefinitions::empty()` row height) and are stable across
+        // frames once settled.
+        let row_stride = 21.0;
+        let row_half_height = 9.0;
+        let tuple_variant_index = 1.0;
+        let tuple_pos = egui::Pos2::new(
+            combo_top.x + 50.0,
+            combo_bottom.y + row_stride * tuple_variant_index + row_half_height,
+        );
+        run_frame(&egui_ctx, click_events(tuple_pos), &mut value);
+
+        assert_eq!(
+            value,
+            SampleEnum::Tuple(0.0),
+            "selecting 'Tuple' in the variant combo should switch to Tuple with a default f32 field"
         );
     }
 

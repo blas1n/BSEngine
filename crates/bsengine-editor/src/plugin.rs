@@ -29605,6 +29605,58 @@ mod tests {
     }
 
     #[test]
+    fn inspector_cmd_attach_component_by_type_inserts_a_real_default_primitive_mesh() {
+        // Full verification would confirm `resolve_primitives`
+        // (bsengine-runtime's system reacting to `Added<PrimitiveMesh>` by
+        // inserting a derived `MeshRenderer`) still fires when the component
+        // arrives via this reflected path rather than a typed
+        // `commands.insert()`. That's not reachable from this crate's test
+        // harness: `resolve_primitives` lives in `bsengine-runtime`, which
+        // is a binary-only crate (no `[lib]` target -- see its Cargo.toml,
+        // `[[bin]]` only) that itself depends on `bsengine-editor`, so there
+        // is no way to add its plugin here without an unresolvable cycle
+        // (and nothing to `use` even if there weren't one). See
+        // `editor_command_detach_primitive_mesh_also_removes_derived_mesh_renderer`
+        // above for the same limitation on the older typed-command path.
+        //
+        // This narrower test instead confirms the piece that *is* testable
+        // here: `InspectorCmd::AttachComponentByType` (the unified Add
+        // Component menu's mechanism) inserts a genuine, usable
+        // `PrimitiveMesh` component via `ReflectComponent::insert`+
+        // `ReflectDefault` -- not just a UI-only stub -- with its
+        // `#[default]` variant (`Primitive::Cube`), the same starting point
+        // a typed `commands.insert(PrimitiveMesh::default())` would produce.
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app.world_mut().spawn(Name("Target".to_string())).id();
+        app.update();
+
+        {
+            let mut insp = app.world_mut().resource_mut::<InspectorState>();
+            insp.cmd_queue.push(InspectorCmd::AttachComponentByType {
+                id: eid.index() as u64,
+                type_path: "bsengine_scene::types::PrimitiveMesh".to_string(),
+            });
+        }
+        app.update();
+
+        let mesh = app
+            .world()
+            .get::<bsengine_scene::PrimitiveMesh>(eid)
+            .expect(
+                "PrimitiveMesh should have been attached via the reflected \
+                 AttachComponentByType path",
+            );
+        assert_eq!(
+            mesh.0,
+            bsengine_scene::Primitive::Cube,
+            "the default PrimitiveMesh attached via ReflectDefault should be \
+             Primitive::Cube per its #[default]"
+        );
+    }
+
+    #[test]
     fn editor_plugin_registers_reflected_component_types() {
         let mut app = new_app();
         app.add_plugins(McpPlugin);

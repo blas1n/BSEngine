@@ -1202,6 +1202,27 @@ fn fixup_entity_fields(value: &mut dyn bevy_reflect::Reflect, world: &World) {
                 }
             }
         }
+        bevy_reflect::ReflectMut::Array(a) => {
+            for i in 0..a.len() {
+                if let Some(field) = a.get_mut(i) {
+                    fixup_entity_fields(field, world);
+                }
+            }
+        }
+        bevy_reflect::ReflectMut::Map(m) => {
+            // `Map` only exposes a mutable reference to the *value* half of
+            // each entry (`get_at_mut`) -- keys are immutable through this
+            // trait, since mutating one in place would desync the map's
+            // internal hash bucket for it. That's fine here: recursing into
+            // the value covers the realistic shape (e.g. `HashMap<K,
+            // Entity>`); a key itself being an `Entity` is an unusual design
+            // this codebase doesn't use.
+            for i in 0..m.len() {
+                if let Some((_key, value)) = m.get_at_mut(i) {
+                    fixup_entity_fields(value, world);
+                }
+            }
+        }
         _ => {}
     }
 }
@@ -29228,6 +29249,90 @@ mod tests {
             applied.target, target,
             "the applied Follow.target must be fixed up to the live entity's real generation, \
              not the stale generation-0 placeholder the UI layer constructed"
+        );
+    }
+
+    #[test]
+    fn apply_component_value_fixes_up_stale_entity_generations_inside_array_and_map_fields() {
+        use bevy_ecs::prelude::{Component, ReflectComponent};
+        use bevy_reflect::Reflect;
+
+        // Test-only component whose reflect tree puts an `Entity` inside
+        // both an `Array` (`[Entity; 2]`) and a `Map`
+        // (`HashMap<String, Entity>`) field -- proving `fixup_entity_fields`'s
+        // `Array`/`Map` arms actually recurse into their elements, rather
+        // than silently falling through `_ => {}` like before this fix.
+        #[derive(Component, Clone, Debug, Reflect)]
+        #[reflect(Component)]
+        struct EntityCollections {
+            array: [bevy_ecs::prelude::Entity; 2],
+            map: std::collections::HashMap<String, bevy_ecs::prelude::Entity>,
+        }
+
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.register_type::<EntityCollections>();
+
+        // Spawn, despawn, and respawn at the same index so the live entity's
+        // generation is now > 0 -- Entity::from_raw(index) (generation 0)
+        // would NOT equal this live entity (same technique as
+        // `apply_component_value_fixes_up_a_stale_entity_field_generation`).
+        let throwaway = app.world_mut().spawn(Name("Throwaway".to_string())).id();
+        app.world_mut().despawn(throwaway);
+        let target = app.world_mut().spawn(Name("Target".to_string())).id();
+        assert_eq!(
+            target.index(),
+            throwaway.index(),
+            "test setup requires the respawn to reuse the same index"
+        );
+        assert_ne!(
+            target,
+            bevy_ecs::prelude::Entity::from_raw(target.index()),
+            "test setup requires a nonzero generation to actually exercise the fixup"
+        );
+
+        let holder = app.world_mut().spawn(Name("Holder".to_string())).id();
+        app.update();
+
+        let stale = bevy_ecs::prelude::Entity::from_raw(target.index());
+        let mut map = std::collections::HashMap::new();
+        map.insert("target".to_string(), stale);
+        let value = EntityCollections { array: [stale, stale], map };
+
+        let type_path = <EntityCollections as bevy_reflect::TypePath>::type_path().to_string();
+        {
+            let queue = app
+                .world()
+                .resource::<crate::snapshot::ReflectCommandQueueResource>();
+            queue
+                .0
+                .lock()
+                .unwrap()
+                .push(crate::snapshot::ReflectCommand::ApplyComponentValue {
+                    entity_id: holder.index() as u64,
+                    type_path,
+                    value: Box::new(value),
+                });
+        }
+        app.update();
+
+        let applied = app
+            .world()
+            .get::<EntityCollections>(holder)
+            .expect("EntityCollections should have been applied");
+        assert_eq!(
+            applied.array[0], target,
+            "Array element containing a stale Entity must be fixed up to the live generation"
+        );
+        assert_eq!(
+            applied.array[1], target,
+            "Array element containing a stale Entity must be fixed up to the live generation"
+        );
+        assert_eq!(
+            applied.map.get("target"),
+            Some(&target),
+            "Map value containing a stale Entity must be fixed up to the live generation"
         );
     }
 

@@ -289,7 +289,10 @@ impl EditorPanel for InspectorPanel {
             };
             let mut to_apply: Vec<(String, Box<dyn bevy_reflect::Reflect>)> = Vec::new();
             let mut to_remove: Option<String> = None;
-            for (type_path, value) in insp.reflected_components.iter_mut() {
+            for (type_path, value) in insp.reflected_components.iter_mut().filter(|(p, _)| {
+                p != "bsengine_core::global_transform::GlobalTransform"
+                    && p != "bsengine_core::visible::Visible"
+            }) {
                 let header_id = ui.make_persistent_id(type_path.as_str());
                 egui::containers::collapsing_header::CollapsingState::load_with_default_open(
                     ui.ctx(),
@@ -598,6 +601,65 @@ mod tests {
         });
 
         assert!(insp.cmd_queue.is_empty());
+    }
+
+    #[test]
+    fn reflected_fields_list_hides_global_transform_and_visible() {
+        let mut insp = InspectorState::default();
+        insp.selected_id = Some(1);
+        insp.reflected_components = vec![
+            (
+                "bsengine_core::transform::Transform".to_string(),
+                Box::new(bsengine_core::Transform::default()) as Box<dyn bevy_reflect::Reflect>,
+            ),
+            (
+                "bsengine_core::global_transform::GlobalTransform".to_string(),
+                Box::new(bsengine_core::GlobalTransform::default())
+                    as Box<dyn bevy_reflect::Reflect>,
+            ),
+            (
+                "bsengine_core::visible::Visible".to_string(),
+                Box::new(bsengine_core::Visible::default()) as Box<dyn bevy_reflect::Reflect>,
+            ),
+        ];
+
+        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
+        let mut panel = InspectorPanel;
+        let shown_type_paths = with_test_ui(|ui| {
+            let mut ctx = EditorPanelContext {
+                insp: &mut insp,
+                entities_snapshot: &entities_snapshot,
+                cursor_pos: (0.0, 0.0),
+                type_registry: None,
+            };
+            panel.ui(ui, &mut ctx);
+            // Re-derive which type paths actually rendered a collapsible
+            // header by checking egui's per-id "open" memory state -- each
+            // reflected entry's header uses
+            // `ui.make_persistent_id(type_path.as_str())` as its collapsing
+            // header id (see the production code below), so a header
+            // genuinely rendered iff that persistent id has recorded
+            // open/closed state in memory.
+            [
+                "bsengine_core::transform::Transform",
+                "bsengine_core::global_transform::GlobalTransform",
+                "bsengine_core::visible::Visible",
+            ]
+            .into_iter()
+            .filter(|type_path| {
+                let id = ui.make_persistent_id(*type_path);
+                egui::containers::collapsing_header::CollapsingState::load(ui.ctx(), id).is_some()
+            })
+            .collect::<Vec<_>>()
+        });
+
+        assert_eq!(
+            shown_type_paths,
+            vec!["bsengine_core::transform::Transform"],
+            "GlobalTransform (derived, no lasting effect if edited) and Visible (already \
+             shown as the header checkbox) must not also render as Reflected Fields entries -- \
+             only Transform, which has neither exclusion, should show"
+        );
     }
 
     #[test]

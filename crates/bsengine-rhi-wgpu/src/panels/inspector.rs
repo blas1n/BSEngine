@@ -57,7 +57,6 @@ impl EditorPanel for InspectorPanel {
         // two different placeholder strings for the same "no name" state.
         let label = sel_info.name.as_deref().unwrap_or("(unnamed)");
         let entity_name = format!("[{sel_id}] {label}");
-        let has_transform = sel_info.position.is_some();
 
         ui.heading(&entity_name);
         ui.separator();
@@ -70,83 +69,6 @@ impl EditorPanel for InspectorPanel {
             });
         }
         ui.separator();
-
-        // Transform
-        if has_transform {
-            ui.horizontal(|ui| {
-                ui.colored_label(
-                    crate::theme::ACCENT,
-                    egui_phosphor::regular::ARROWS_OUT_CARDINAL,
-                );
-                ui.colored_label(crate::theme::TEXT, "Transform");
-            });
-            let mut pos_changed = false;
-            ui.horizontal(|ui| {
-                ui.label("Pos");
-                pos_changed |= ui
-                    .add(egui::DragValue::new(&mut insp.edit_pos[0]).speed(0.05))
-                    .changed();
-                pos_changed |= ui
-                    .add(egui::DragValue::new(&mut insp.edit_pos[1]).speed(0.05))
-                    .changed();
-                pos_changed |= ui
-                    .add(egui::DragValue::new(&mut insp.edit_pos[2]).speed(0.05))
-                    .changed();
-            });
-            if pos_changed {
-                insp.cmd_queue.push(InspectorCmd::SetPosition {
-                    id: sel_id,
-                    x: insp.edit_pos[0],
-                    y: insp.edit_pos[1],
-                    z: insp.edit_pos[2],
-                });
-            }
-
-            let mut rot_changed = false;
-            ui.horizontal(|ui| {
-                ui.label("Rot°");
-                rot_changed |= ui
-                    .add(egui::DragValue::new(&mut insp.edit_rot[0]).speed(0.5))
-                    .changed();
-                rot_changed |= ui
-                    .add(egui::DragValue::new(&mut insp.edit_rot[1]).speed(0.5))
-                    .changed();
-                rot_changed |= ui
-                    .add(egui::DragValue::new(&mut insp.edit_rot[2]).speed(0.5))
-                    .changed();
-            });
-            if rot_changed {
-                insp.cmd_queue.push(InspectorCmd::SetRotation {
-                    id: sel_id,
-                    rx: insp.edit_rot[0],
-                    ry: insp.edit_rot[1],
-                    rz: insp.edit_rot[2],
-                });
-            }
-
-            let mut scale_changed = false;
-            ui.horizontal(|ui| {
-                ui.label("Scale");
-                scale_changed |= ui
-                    .add(egui::DragValue::new(&mut insp.edit_scale[0]).speed(0.01))
-                    .changed();
-                scale_changed |= ui
-                    .add(egui::DragValue::new(&mut insp.edit_scale[1]).speed(0.01))
-                    .changed();
-                scale_changed |= ui
-                    .add(egui::DragValue::new(&mut insp.edit_scale[2]).speed(0.01))
-                    .changed();
-            });
-            if scale_changed {
-                insp.cmd_queue.push(InspectorCmd::SetScale {
-                    id: sel_id,
-                    sx: insp.edit_scale[0],
-                    sy: insp.edit_scale[1],
-                    sz: insp.edit_scale[2],
-                });
-            }
-            ui.separator();
-        }
 
         // Tags
         ui.horizontal(|ui| {
@@ -888,6 +810,185 @@ mod tests {
              queue a second command -- a length of 2 here means the already_attached \
              filter regressed and Camera became clickable again"
         );
+    }
+
+    #[test]
+    fn generic_reflected_list_can_edit_transform_translation() {
+        // Proves the generic Reflected Fields list can perform the same
+        // edit the hardcoded Transform DragValues used to, via a real
+        // keyboard interaction through the actual InspectorPanel::ui() --
+        // not just a render-without-panicking smoke test. Reuses the
+        // Tab-to-focus + ArrowUp technique from reflect_ui.rs's
+        // `reflect_quat_leaf_edits_only_the_dragged_euler_axis_via_keyboard`
+        // test (Phase 1, Task 5): egui's Memory::interested_in_focus grants
+        // focus to the first focus-wanting widget on Tab when nothing is
+        // focused yet, and each further Tab in its own frame (Focus::
+        // begin_pass/end_pass processes at most one FocusDirection step per
+        // frame, so multiple Tab events queued in a single frame do not
+        // stack) advances focus to the next one; DragValue reads
+        // ArrowUp/ArrowDown directly while keyboard-focused, bumping its
+        // bound value by `speed` per press.
+        //
+        // Unlike that isolated reflect_ui.rs test -- which calls
+        // draw_reflect_ui directly on a bare ReflectQuat with nothing else
+        // in the UI tree, so the very first Tab reaches the first DragValue
+        // -- this test drives the *whole* InspectorPanel::ui(), which draws
+        // several other focusable (`Sense::click()`, which sets
+        // `focusable: true` -- see egui's sense.rs) widgets before the
+        // Reflected Fields list: the Visible checkbox, the new-tag text
+        // edit + "Add" button, the script-path text edit + "Attach" button,
+        // and the mesh primitive combo box, then this Transform entry's own
+        // collapsing-header toggle button and "..." menu button (both added
+        // by CollapsingState::show_header itself, not just its closure).
+        // That's 8 focusable widgets ahead of translation.x's DragValue, so
+        // 9 Tab presses (one per frame) are needed, not 1. This was
+        // confirmed empirically with a throwaway diagnostic test that swept
+        // tab_count from 0 to 19 and printed the resulting queued command
+        // after 3x ArrowUp at each count: queue_len stayed 0 through
+        // tab_count=8, became 1 at tab_count=9 with translation moved to
+        // (0.15, 0, 0) and rotation/scale untouched, then 10/11 hit
+        // translation.y/z, 12-14 hit rotation's raw quaternion x/y/z
+        // components, 15-17 hit scale.x/y/z, and 18+ found no more
+        // focus-wanting widgets.
+        //
+        // Separately, `value` here is NOT a concrete `Transform`: derived
+        // `Reflect` structs' `clone_value()` (see bevy_reflect_derive's
+        // `impls/structs.rs`) returns `Box::new(Struct::clone_dynamic(self))`
+        // -- a `DynamicStruct`, not `Box<Self>` -- so `downcast_ref::
+        // <Transform>()` on the queued value always returns `None`. This
+        // mirrors exactly how production applies it too: `apply_inspector_
+        // cmds` (bsengine-editor/src/plugin.rs) routes `value` through
+        // `ReflectComponent::apply_or_insert`, not a downcast. This test
+        // does the same by patching a fresh `Transform::default()` via
+        // `Reflect::apply`.
+        let mut insp = InspectorState::default();
+        insp.selected_id = Some(1);
+        insp.reflected_components = vec![(
+            "bsengine_core::transform::Transform".to_string(),
+            Box::new(bsengine_core::Transform::default()) as Box<dyn bevy_reflect::Reflect>,
+        )];
+
+        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
+        let mut panel = InspectorPanel;
+
+        let egui_ctx = egui::Context::default();
+        egui_ctx.set_fonts(egui::FontDefinitions::empty());
+        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
+
+        let run_frame = |egui_ctx: &egui::Context,
+                         events: Vec<egui::Event>,
+                         insp: &mut InspectorState,
+                         entities_snapshot: &[InspectorEntityInfo],
+                         panel: &mut InspectorPanel| {
+            let _ = egui_ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(screen_rect),
+                    events,
+                    ..Default::default()
+                },
+                |egui_ctx| {
+                    egui::CentralPanel::default().show(egui_ctx, |ui| {
+                        let mut ctx = EditorPanelContext {
+                            insp,
+                            entities_snapshot,
+                            cursor_pos: (0.0, 0.0),
+                            type_registry: None,
+                        };
+                        panel.ui(ui, &mut ctx);
+                    });
+                },
+            );
+        };
+
+        // Frame 1: draw once so the widget tree/focus-interest exists.
+        run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
+
+        // Frames 2-10: one Tab per frame, walking focus through the 8
+        // focusable widgets that precede translation.x (Visible checkbox;
+        // new-tag text edit; "Add" button; script-path text edit; "Attach"
+        // button; mesh combo box; Transform's collapsing-header toggle
+        // button; Transform's "..." menu button) until the 9th Tab lands on
+        // translation.x's DragValue -- see the empirical sweep described
+        // above.
+        let tab_event = || egui::Event::Key {
+            key: egui::Key::Tab,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::default(),
+        };
+        for _ in 0..9 {
+            run_frame(
+                &egui_ctx,
+                vec![tab_event()],
+                &mut insp,
+                &entities_snapshot,
+                &mut panel,
+            );
+        }
+
+        // Final frame: 3x ArrowUp while translation.x's DragValue is
+        // focused -- bumps it by 3 * speed(0.05) = 0.15.
+        let arrow_up_events = (0..3)
+            .flat_map(|_| {
+                vec![egui::Event::Key {
+                    key: egui::Key::ArrowUp,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::default(),
+                }]
+            })
+            .collect();
+        run_frame(
+            &egui_ctx,
+            arrow_up_events,
+            &mut insp,
+            &entities_snapshot,
+            &mut panel,
+        );
+
+        assert_eq!(
+            insp.cmd_queue.len(),
+            1,
+            "editing translation.x via the generic list should queue exactly one \
+             ApplyReflectedComponent command"
+        );
+        match &insp.cmd_queue[0] {
+            InspectorCmd::ApplyReflectedComponent {
+                id,
+                type_path,
+                value,
+            } => {
+                assert_eq!(*id, 1);
+                assert_eq!(type_path, "bsengine_core::transform::Transform");
+                // `value` is a `DynamicStruct` (see the comment above this
+                // test), not a concrete `Transform` -- patch it onto a real
+                // default `Transform` via `Reflect::apply`, the same
+                // mechanism production uses (`ReflectComponent::
+                // apply_or_insert`), to get a concrete value to assert on.
+                let mut transform = bsengine_core::Transform::default();
+                bevy_reflect::Reflect::apply(&mut transform, value.as_ref());
+                assert!(
+                    (transform.translation.0.x - 0.15).abs() < 1e-4,
+                    "translation.x should have moved by 3 * speed(0.05) = 0.15, got {}",
+                    transform.translation.0.x
+                );
+                assert_eq!(
+                    transform.translation.0.y, 0.0,
+                    "only translation.x was edited -- y must be untouched"
+                );
+                assert_eq!(
+                    transform.rotation.0,
+                    glam::Quat::IDENTITY,
+                    "only translation.x was edited -- rotation must be untouched"
+                );
+            }
+            other => panic!(
+                "expected ApplyReflectedComponent, got a different InspectorCmd variant: {:?}",
+                std::mem::discriminant(other)
+            ),
+        }
     }
 
     #[test]

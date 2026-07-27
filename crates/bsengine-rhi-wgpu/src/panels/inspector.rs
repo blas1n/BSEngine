@@ -105,7 +105,11 @@ impl EditorPanel for InspectorPanel {
             }
         }
 
-        if !insp.reflected_components.is_empty() {
+        if insp
+            .reflected_components
+            .iter()
+            .any(|(p, _)| !is_hidden_reflected_type(p))
+        {
             ui.separator();
             let type_registry = ctx.type_registry;
             let reflect_ctx = ReflectUiCtx {
@@ -1390,6 +1394,80 @@ mod tests {
         assert!(
             !rendered_texts.iter().any(|t| t == "Reflected Fields"),
             "the \"Reflected Fields\" banner must be gone entirely, got: {rendered_texts:?}"
+        );
+    }
+
+    #[test]
+    fn an_entity_with_only_hidden_components_renders_identically_to_no_components() {
+        // Found during the final whole-branch review: the section guard
+        // `if !insp.reflected_components.is_empty()` checked the *unfiltered*
+        // vec, but the loop below only iterates the *filtered* (non-hidden)
+        // list. An entity whose only reflected_components entries are
+        // GlobalTransform/Visible (both hidden by is_hidden_reflected_type)
+        // would satisfy the unfiltered emptiness check, draw the leading
+        // ui.separator(), then iterate zero times -- a dangling separator
+        // with nothing below it. Real-world reachability is low
+        // (GlobalTransform is normally paired with a present, non-hidden
+        // Transform), but nothing in the ECS structurally prevents it.
+        //
+        // Fixed by checking emptiness on the filtered set instead. Verified
+        // here by rendering two scenarios -- reflected_components empty vs.
+        // containing only hidden entries -- and asserting their rendered
+        // shape counts are identical, proving the hidden-only case draws
+        // nothing extra (no dangling separator) beyond what the truly-empty
+        // case draws.
+        fn render_shape_count(
+            reflected_components: Vec<(String, Box<dyn bevy_reflect::Reflect>)>,
+        ) -> usize {
+            let mut insp = InspectorState::default();
+            insp.selected_id = Some(1);
+            insp.reflected_components = reflected_components;
+
+            let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
+            let mut panel = InspectorPanel;
+
+            let egui_ctx = egui::Context::default();
+            egui_ctx.set_fonts(egui::FontDefinitions::empty());
+            let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
+
+            let full_output = egui_ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(screen_rect),
+                    ..Default::default()
+                },
+                |egui_ctx| {
+                    egui::CentralPanel::default().show(egui_ctx, |ui| {
+                        let mut ctx = EditorPanelContext {
+                            insp: &mut insp,
+                            entities_snapshot: &entities_snapshot,
+                            cursor_pos: (0.0, 0.0),
+                            type_registry: None,
+                        };
+                        panel.ui(ui, &mut ctx);
+                    });
+                },
+            );
+
+            full_output.shapes.len()
+        }
+
+        let empty_count = render_shape_count(vec![]);
+        let hidden_only_count = render_shape_count(vec![
+            (
+                "bsengine_core::global_transform::GlobalTransform".to_string(),
+                Box::new(bsengine_core::GlobalTransform::default())
+                    as Box<dyn bevy_reflect::Reflect>,
+            ),
+            (
+                "bsengine_core::visible::Visible".to_string(),
+                Box::new(bsengine_core::Visible::default()) as Box<dyn bevy_reflect::Reflect>,
+            ),
+        ]);
+
+        assert_eq!(
+            empty_count, hidden_only_count,
+            "an entity with only hidden reflected components must render exactly like an \
+             entity with none -- no dangling separator or empty section left behind"
         );
     }
 

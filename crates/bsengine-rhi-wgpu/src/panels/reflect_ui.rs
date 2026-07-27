@@ -32,6 +32,32 @@ pub(crate) fn is_hidden_reflected_type(path: &str) -> bool {
         || path == "bsengine_core::visible::Visible"
 }
 
+/// Returns the short, human-readable name for `type_path` (e.g. `"Transform"`
+/// for `"bsengine_core::transform::Transform"`), used to display a component
+/// in the Inspector without its full namespace. Falls back to the original
+/// `type_path` string when no registry is available, or when the type isn't
+/// registered in it (both are safe, valid states — the display just becomes
+/// less friendly, nothing breaks).
+///
+/// Uses `bevy_reflect`'s own `TypePathTable::short_path()` rather than
+/// manually splitting `type_path` on `"::"`, since that would mis-handle any
+/// type with `::` inside its generic parameters (e.g. `Vec<other::Type>`).
+pub(crate) fn short_component_name(
+    type_path: &str,
+    type_registry: Option<&bevy_reflect::TypeRegistry>,
+) -> String {
+    type_registry
+        .and_then(|registry| registry.get_with_type_path(type_path))
+        .map(|registration| {
+            registration
+                .type_info()
+                .type_path_table()
+                .short_path()
+                .to_string()
+        })
+        .unwrap_or_else(|| type_path.to_string())
+}
+
 /// Looks up the `ReflectValidate` type data for `type_path` (if the
 /// component's `#[derive(Reflect)]` registered one via
 /// `#[reflect(..., Validate)]`) and calls it on `value` in place. A no-op
@@ -411,7 +437,7 @@ fn draw_leaf_ui(ui: &mut egui::Ui, value: &mut dyn Reflect, ctx: &ReflectUiCtx) 
 
 #[cfg(test)]
 mod tests {
-    use super::{draw_reflect_ui, ReflectUiCtx};
+    use super::{draw_reflect_ui, short_component_name, ReflectUiCtx};
     use bevy_reflect::Reflect;
 
     fn empty_ctx() -> ReflectUiCtx<'static> {
@@ -1455,5 +1481,42 @@ mod tests {
                 "only `second`'s picker was interacted with -- `first` must stay untouched"
             );
         }
+    }
+
+    #[test]
+    fn short_component_name_resolves_a_registered_types_short_path() {
+        let mut registry = bevy_reflect::TypeRegistry::default();
+        registry.register::<bsengine_core::Transform>();
+
+        let short = short_component_name("bsengine_core::transform::Transform", Some(&registry));
+
+        assert_eq!(
+            short, "Transform",
+            "a registered type's short_path() must be used instead of the full type_path"
+        );
+    }
+
+    #[test]
+    fn short_component_name_falls_back_to_the_full_path_without_a_registry() {
+        let short = short_component_name("bsengine_core::transform::Transform", None);
+
+        assert_eq!(
+            short, "bsengine_core::transform::Transform",
+            "with no type registry available, the full type_path must be returned unchanged \
+             (existing tests that pass type_registry: None rely on this fallback)"
+        );
+    }
+
+    #[test]
+    fn short_component_name_falls_back_to_the_full_path_when_the_type_isnt_registered() {
+        let registry = bevy_reflect::TypeRegistry::default();
+
+        let short = short_component_name("some_crate::not_registered::Thing", Some(&registry));
+
+        assert_eq!(
+            short, "some_crate::not_registered::Thing",
+            "an unregistered type_path has no TypeRegistration to look up a short name from, \
+             so it must fall back to the original string rather than panicking"
+        );
     }
 }

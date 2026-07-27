@@ -1394,7 +1394,7 @@ mod tests {
     }
 
     #[test]
-    fn separator_is_drawn_before_every_component_except_the_first() {
+    fn component_list_handles_multiple_counts_without_panicking() {
         // Visual boundary design (approved via the visual companion,
         // 2026-07-27 brainstorm): no framed box per component, just a thin
         // ui.separator() between each pair -- drawn *before* each component

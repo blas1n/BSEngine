@@ -47,27 +47,6 @@ impl EditorPanel for InspectorPanel {
         }
         ui.separator();
 
-        // Script
-        ui.horizontal(|ui| {
-            ui.colored_label(crate::theme::ACCENT, egui_phosphor::regular::CODE);
-            ui.colored_label(crate::theme::TEXT, "Script");
-        });
-        ui.horizontal(|ui| {
-            ui.text_edit_singleline(&mut insp.edit_script_path);
-            if ui.button("Attach").clicked() && !insp.edit_script_path.is_empty() {
-                insp.cmd_queue.push(InspectorCmd::AttachScript {
-                    id: sel_id,
-                    path: insp.edit_script_path.clone(),
-                });
-            }
-            if sel_info.script_path.is_some() && ui.button("Clear").clicked() {
-                insp.cmd_queue
-                    .push(InspectorCmd::DetachScript { id: sel_id });
-                insp.edit_script_path.clear();
-            }
-        });
-        ui.separator();
-
         // Mesh
         ui.horizontal(|ui| {
             ui.colored_label(crate::theme::ACCENT, egui_phosphor::regular::CUBE);
@@ -677,14 +656,15 @@ mod tests {
         // screen rect, `FontDefinitions::empty()`, this panel's fixed
         // section order up to "Add Component") by scanning candidate y
         // values and observing `ctx.memory(|mem| mem.any_popup_open())`
-        // flip to true -- with the hardcoded Tags section removed (Task 3),
-        // there are two combo boxes ahead of it now (the mesh primitive
-        // combo opens a popup for y=[118,144]; the Add Component combo --
-        // the one this test wants -- opens one for y=[178,204]), so its
-        // vertical center (190) is used here. (Before Task 3 removed the
-        // Tags section this was y=254; it shifted up because two focusable
-        // Tags widgets are now gone.)
-        let combo_pos = egui::Pos2::new(20.0, 190.0);
+        // flip to true -- with the hardcoded Script section also removed
+        // (Task 4), there are still two combo boxes ahead of it (the mesh
+        // primitive combo opens a popup for y=[66,94]; the Add Component
+        // combo -- the one this test wants -- opens one for y=[126,154]),
+        // so its vertical center (140) is used here. (Before Task 4 removed
+        // the Script section's text edit + "Attach" button -- 2 focusable
+        // widgets -- this was y=190; it shifted up because that section's
+        // two rows are now gone.)
+        let combo_pos = egui::Pos2::new(20.0, 140.0);
         run_frame(
             &egui_ctx,
             click_events(combo_pos),
@@ -699,11 +679,11 @@ mod tests {
         // this is needed).
         run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
 
-        // Frame 4: click the popup's only row (y=215, likewise found
+        // Frame 4: click the popup's only row (y=165, likewise found
         // empirically: with the real `already_attached` filter active,
-        // clicking anywhere in y=[206,224] queues PointLight, and nothing at
+        // clicking anywhere in y=[156,172] queues PointLight, and nothing at
         // all is queued outside that range -- there is no second row).
-        let point_light_row_pos = egui::Pos2::new(30.0, 215.0);
+        let point_light_row_pos = egui::Pos2::new(30.0, 165.0);
         run_frame(
             &egui_ctx,
             click_events(point_light_row_pos),
@@ -733,8 +713,8 @@ mod tests {
             ),
         }
 
-        // Frame 5: reopen the combo and click y=235 -- just past the
-        // PointLight row's range (y=[206,224]), the row position Camera
+        // Frame 5: reopen the combo and click y=183 -- just past the
+        // PointLight row's range (y=[156,172]), the row position Camera
         // would occupy as a second entry if the `already_attached` filter
         // regressed to a no-op. With the real filter active, there is no
         // second row there, so this must add nothing to the queue: the
@@ -747,7 +727,7 @@ mod tests {
             &mut panel,
         );
         run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
-        let camera_row_pos = egui::Pos2::new(30.0, 235.0);
+        let camera_row_pos = egui::Pos2::new(30.0, 183.0);
         run_frame(
             &egui_ctx,
             click_events(camera_row_pos),
@@ -787,25 +767,28 @@ mod tests {
         // -- this test drives the *whole* InspectorPanel::ui(), which draws
         // several other focusable (`Sense::click()`, which sets
         // `focusable: true` -- see egui's sense.rs) widgets before the
-        // Reflected Fields list: the Visible checkbox, the script-path text
-        // edit + "Attach" button, and the mesh primitive combo box, then
-        // this Transform entry's own collapsing-header toggle button and
-        // "..." menu button (both added by CollapsingState::show_header
-        // itself, not just its closure). That's 6 focusable widgets ahead of
-        // translation.x's DragValue, so 7 Tab presses (one per frame) are
-        // needed, not 1. This was confirmed empirically with a throwaway
-        // diagnostic test that swept tab_count from 0 to 14 and printed the
-        // resulting queued command after 3x ArrowUp at each count: queue_len
-        // stayed 0 through tab_count=6, became 1 at tab_count=7 with
-        // translation moved to (0.15, 0, 0) and rotation/scale untouched,
-        // then 8/9 hit translation.y/z, and 10+ found no more focus-wanting
-        // widgets (or hit rotation's raw quaternion components, which
-        // ArrowUp doesn't move the same way).
+        // Reflected Fields list: the Visible checkbox and the mesh primitive
+        // combo box, then this Transform entry's own collapsing-header
+        // toggle button and "..." menu button (both added by
+        // CollapsingState::show_header itself, not just its closure).
+        // That's 4 focusable widgets ahead of translation.x's DragValue, so
+        // 5 Tab presses (one per frame) are needed, not 1. This was
+        // confirmed empirically with a throwaway diagnostic test that swept
+        // tab_count from 0 to 14 and printed the resulting queued command
+        // after 3x ArrowUp at each count: queue_len stayed 0 through
+        // tab_count=4, became 1 at tab_count=5 with translation moved to
+        // (0.15, 0, 0) and rotation/scale untouched, then 6/7 hit
+        // translation.y/z, and 8+ found no more focus-wanting widgets (or
+        // hit rotation's raw quaternion components, which ArrowUp doesn't
+        // move the same way), until tab_count=14 wrapped focus back to the
+        // start of the chain and queue_len returned to 0.
         //
         // (Prior to Task 3 removing the hardcoded Tags section's new-tag
         // text edit + "Add" button -- 2 focusable widgets -- this count was
-        // 9; it dropped to 7 as a direct, expected consequence of that
-        // removal.)
+        // 9, dropping to 7 as a direct consequence of that removal; Task 4
+        // removing the hardcoded Script section's text edit + "Attach"
+        // button -- 2 more focusable widgets -- dropped it again, from 7
+        // to 5.)
         //
         // Separately, `value` here is NOT a concrete `Transform`: derived
         // `Reflect` structs' `clone_value()` (see bevy_reflect_derive's
@@ -859,12 +842,12 @@ mod tests {
         // Frame 1: draw once so the widget tree/focus-interest exists.
         run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
 
-        // Frames 2-8: one Tab per frame, walking focus through the 6
+        // Frames 2-6: one Tab per frame, walking focus through the 4
         // focusable widgets that precede translation.x (Visible checkbox;
-        // script-path text edit; "Attach" button; mesh combo box;
-        // Transform's collapsing-header toggle button; Transform's "..."
-        // menu button) until the 7th Tab lands on translation.x's DragValue
-        // -- see the empirical sweep described above.
+        // mesh combo box; Transform's collapsing-header toggle button;
+        // Transform's "..." menu button) until the 5th Tab lands on
+        // translation.x's DragValue -- see the empirical sweep described
+        // above.
         let tab_event = || egui::Event::Key {
             key: egui::Key::Tab,
             physical_key: None,
@@ -872,7 +855,7 @@ mod tests {
             repeat: false,
             modifiers: egui::Modifiers::default(),
         };
-        for _ in 0..7 {
+        for _ in 0..5 {
             run_frame(
                 &egui_ctx,
                 vec![tab_event()],
@@ -938,6 +921,131 @@ mod tests {
                     glam::Quat::IDENTITY,
                     "only translation.x was edited -- rotation must be untouched"
                 );
+            }
+            other => panic!(
+                "expected ApplyReflectedComponent, got a different InspectorCmd variant: {:?}",
+                std::mem::discriminant(other)
+            ),
+        }
+    }
+
+    #[test]
+    fn generic_reflected_list_can_edit_script_path() {
+        // ScriptPath(String) is a tuple struct -- its TupleStruct arm in
+        // draw_reflect_ui recurses directly into the String field with no
+        // wrapping label (Phase 1, Task 2's design), so the String leaf's
+        // `ui.text_edit_singleline` is the sole, first-and-only
+        // Tab-focusable widget *for a ScriptPath entry itself*. TextEdit
+        // reads pending `Event::Text(String)` events while keyboard-focused
+        // and appends each to its bound buffer.
+        //
+        // With the hardcoded Script section removed (this task), the
+        // focusable widgets preceding the ScriptPath entry's own leaf text
+        // field are: the Visible checkbox(1), the mesh primitive combo
+        // box(2), then this ScriptPath entry's own collapsing-header
+        // toggle(3) and "..." menu button(4) (both added by
+        // `CollapsingState::show_header` itself), before the 5th Tab
+        // finally lands on the leaf. Confirmed empirically with a
+        // throwaway diagnostic test that swept tab_count from 0 to 14:
+        // queue_len was 0 through tab_count=4, became 1 at tab_count=5,
+        // then 0 again through tab_count=10 before becoming 1 again at
+        // tab_count=11 (egui's focus wraps back around to the start of the
+        // chain once it runs out of focus-wanting widgets, so a much larger
+        // tab_count re-lands on the same leaf on a later lap).
+        let mut insp = InspectorState::default();
+        insp.selected_id = Some(1);
+        insp.reflected_components = vec![(
+            "bsengine_scene::types::ScriptPath".to_string(),
+            Box::new(bsengine_scene::ScriptPath(String::new())) as Box<dyn bevy_reflect::Reflect>,
+        )];
+
+        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
+        let mut panel = InspectorPanel;
+
+        let egui_ctx = egui::Context::default();
+        egui_ctx.set_fonts(egui::FontDefinitions::empty());
+        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
+
+        let run_frame = |egui_ctx: &egui::Context,
+                         events: Vec<egui::Event>,
+                         insp: &mut InspectorState,
+                         entities_snapshot: &[InspectorEntityInfo],
+                         panel: &mut InspectorPanel| {
+            let _ = egui_ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(screen_rect),
+                    events,
+                    ..Default::default()
+                },
+                |egui_ctx| {
+                    egui::CentralPanel::default().show(egui_ctx, |ui| {
+                        let mut ctx = EditorPanelContext {
+                            insp,
+                            entities_snapshot,
+                            cursor_pos: (0.0, 0.0),
+                            type_registry: None,
+                        };
+                        panel.ui(ui, &mut ctx);
+                    });
+                },
+            );
+        };
+
+        // Frame 1: draw once so the widget tree/focus-interest exists.
+        run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
+
+        // Frames 2-6: one Tab per frame, walking focus through the 4
+        // focusable widgets that precede the ScriptPath entry's leaf text
+        // field (see the comment above) until the 5th Tab lands on it.
+        let tab_event = || egui::Event::Key {
+            key: egui::Key::Tab,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::default(),
+        };
+        for _ in 0..5 {
+            run_frame(
+                &egui_ctx,
+                vec![tab_event()],
+                &mut insp,
+                &entities_snapshot,
+                &mut panel,
+            );
+        }
+
+        // Frame 7: type "foo.js" into the focused text field.
+        run_frame(
+            &egui_ctx,
+            vec![egui::Event::Text("foo.js".to_string())],
+            &mut insp,
+            &entities_snapshot,
+            &mut panel,
+        );
+
+        assert_eq!(
+            insp.cmd_queue.len(),
+            1,
+            "typing into ScriptPath's text field via the generic list should queue \
+             exactly one ApplyReflectedComponent command"
+        );
+        match &insp.cmd_queue[0] {
+            InspectorCmd::ApplyReflectedComponent {
+                id,
+                type_path,
+                value,
+            } => {
+                assert_eq!(*id, 1);
+                assert_eq!(type_path, "bsengine_scene::types::ScriptPath");
+                // `value` is a `DynamicTupleStruct` (see the comment in
+                // `generic_reflected_list_can_edit_transform_translation` for
+                // why `clone_value()` on a derived `Reflect` type never
+                // downcasts back to `Self`), not a concrete `ScriptPath` --
+                // patch it onto a real `ScriptPath` via `Reflect::apply`, the
+                // same mechanism production uses, to get a concrete value.
+                let mut script_path = bsengine_scene::ScriptPath(String::new());
+                bevy_reflect::Reflect::apply(&mut script_path, value.as_ref());
+                assert_eq!(script_path.0, "foo.js");
             }
             other => panic!(
                 "expected ApplyReflectedComponent, got a different InspectorCmd variant: {:?}",

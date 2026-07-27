@@ -29,3 +29,4 @@ tracing.workspace = true
 [dev-dependencies]
 bsengine-app.workspace = true
 bsengine-editor.workspace = true
+bsengine-scene.workspace = true

@@ -739,6 +739,7 @@ dependencies = [
  "bsengine-editor",
  "bsengine-input",
  "bsengine-rhi",
+ "bsengine-scene",
  "bsengine-window",
  "bytemuck",
  "egui",

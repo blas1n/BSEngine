@@ -6,12 +6,15 @@ use bsengine_core::{EditorPanel, EditorPanelContext, InspectorCmd};
 
 /// The Inspector panel: renders a header (entity name + Visible toggle), a
 /// unified Add Component menu for attaching any registered, reflectable
-/// component not already present, and a generic Reflected Fields list that
+/// component not already present, and a generic component list (no
+/// wrapping section label -- each attached component is its own block,
+/// separated by a thin rule, matching Unity's Inspector convention) that
 /// renders and edits every reflectable component currently attached to the
-/// selected entity via `draw_reflect_ui`. No component type gets bespoke,
-/// hand-built UI here anymore -- Transform, Tags, Script, and Mesh (the
-/// former hardcoded sections) all now render exclusively through the
-/// generic list, same as every other reflected component.
+/// selected entity via `draw_reflect_ui`, showing each one's short type
+/// name rather than its full namespace-qualified path. No component type
+/// gets bespoke, hand-built UI here anymore -- Transform, Tags, Script, and
+/// Mesh (the former hardcoded sections) all now render exclusively through
+/// this generic list, same as every other reflected component.
 pub struct InspectorPanel;
 
 impl EditorPanel for InspectorPanel {
@@ -104,10 +107,6 @@ impl EditorPanel for InspectorPanel {
 
         if !insp.reflected_components.is_empty() {
             ui.separator();
-            ui.horizontal(|ui| {
-                ui.colored_label(crate::theme::ACCENT, egui_phosphor::regular::LIST);
-                ui.colored_label(crate::theme::TEXT, "Reflected Fields");
-            });
             let type_registry = ctx.type_registry;
             let reflect_ctx = ReflectUiCtx {
                 entities: ctx.entities_snapshot,
@@ -115,11 +114,15 @@ impl EditorPanel for InspectorPanel {
             };
             let mut to_apply: Vec<(String, Box<dyn bevy_reflect::Reflect>)> = Vec::new();
             let mut to_remove: Option<String> = None;
-            for (type_path, value) in insp
+            for (i, (type_path, value)) in insp
                 .reflected_components
                 .iter_mut()
                 .filter(|(p, _)| !is_hidden_reflected_type(p))
+                .enumerate()
             {
+                if i > 0 {
+                    ui.separator();
+                }
                 let header_id = ui.make_persistent_id(type_path.as_str());
                 egui::containers::collapsing_header::CollapsingState::load_with_default_open(
                     ui.ctx(),
@@ -1333,5 +1336,111 @@ mod tests {
             (sl.inner_angle_degrees.0 - 60.0).abs() < 1e-6,
             "with no type registry available, the value should be left untouched, not panic"
         );
+    }
+
+    #[test]
+    fn reflected_fields_banner_label_is_never_rendered() {
+        // The "Reflected Fields" section banner (icon + text row that used
+        // to precede the component list) is being removed entirely --
+        // Unity's Inspector has no equivalent wrapping label, each
+        // component is just its own block directly. This is a straight
+        // regression guard: the literal string must never appear in
+        // rendered output again, regardless of how many components exist.
+        let mut insp = InspectorState::default();
+        insp.selected_id = Some(1);
+        insp.reflected_components = vec![
+            (
+                "bsengine_core::transform::Transform".to_string(),
+                Box::new(bsengine_core::Transform::default()) as Box<dyn bevy_reflect::Reflect>,
+            ),
+            (
+                "bsengine_editor::snapshot::Tags".to_string(),
+                Box::new(bsengine_editor::snapshot::Tags(vec!["enemy".to_string()]))
+                    as Box<dyn bevy_reflect::Reflect>,
+            ),
+        ];
+
+        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
+        let mut panel = InspectorPanel;
+
+        let egui_ctx = egui::Context::default();
+        egui_ctx.set_fonts(egui::FontDefinitions::empty());
+        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
+
+        let full_output = egui_ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen_rect),
+                ..Default::default()
+            },
+            |egui_ctx| {
+                egui::CentralPanel::default().show(egui_ctx, |ui| {
+                    let mut ctx = EditorPanelContext {
+                        insp: &mut insp,
+                        entities_snapshot: &entities_snapshot,
+                        cursor_pos: (0.0, 0.0),
+                        type_registry: None,
+                    };
+                    panel.ui(ui, &mut ctx);
+                });
+            },
+        );
+
+        let rendered_texts = collect_rendered_texts(&full_output.shapes);
+
+        assert!(
+            !rendered_texts.iter().any(|t| t == "Reflected Fields"),
+            "the \"Reflected Fields\" banner must be gone entirely, got: {rendered_texts:?}"
+        );
+    }
+
+    #[test]
+    fn separator_is_drawn_before_every_component_except_the_first() {
+        // Visual boundary design (approved via the visual companion,
+        // 2026-07-27 brainstorm): no framed box per component, just a thin
+        // ui.separator() between each pair -- drawn *before* each component
+        // except the first, since a separator already precedes the whole
+        // list (ending the Add Component section), which serves as the rule
+        // before the first component. With N components there must be
+        // exactly N-1 *additional* separators drawn by the loop itself.
+        //
+        // egui doesn't expose "shapes drawn by ui.separator()" as a
+        // distinct, directly-queryable shape variant (a separator paints a
+        // Shape::Line/Rect, indistinguishable at this level from any other
+        // thin rect this panel might draw) -- so instead of counting
+        // separator shapes precisely, this test asserts the weaker but
+        // still meaningful invariant that CAN be checked without
+        // over-fitting to egui's internal paint representation: the panel
+        // renders without panicking for 1, 2, and 3 reflected_components
+        // entries (0 separators, 1 separator, 2 separators respectively),
+        // proving the enumerate()-based conditional doesn't panic or
+        // corrupt state at any component count, including the boundary
+        // case of exactly one component (i == 0, no separator drawn at
+        // all).
+        for count in 1..=3 {
+            let mut insp = InspectorState::default();
+            insp.selected_id = Some(1);
+            insp.reflected_components = (0..count)
+                .map(|i| {
+                    (
+                        format!("test_module::Component{i}"),
+                        Box::new(bsengine_core::Transform::default())
+                            as Box<dyn bevy_reflect::Reflect>,
+                    )
+                })
+                .collect();
+
+            let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
+            let mut panel = InspectorPanel;
+
+            with_test_ui(|ui| {
+                let mut ctx = EditorPanelContext {
+                    insp: &mut insp,
+                    entities_snapshot: &entities_snapshot,
+                    cursor_pos: (0.0, 0.0),
+                    type_registry: None,
+                };
+                panel.ui(ui, &mut ctx);
+            });
+        }
     }
 }

@@ -17,6 +17,50 @@ pub struct ReflectUiCtx<'a> {
     pub type_registry: Option<&'a bevy_reflect::TypeRegistry>,
 }
 
+/// Returns whether `path` (a component's `type_path()`) should be hidden from
+/// user-facing reflected-component lists. Shared by the docked Inspector
+/// panel and the overlay-mode fallback UI so the exclusion list only needs
+/// to be maintained in one place.
+///
+/// `GlobalTransform` is a derived value fully recomputed every frame by the
+/// transform-propagation system -- editing it has no lasting effect, so it's
+/// hidden entirely rather than shown read-only. `Visible` is already
+/// surfaced by the header's checkbox; showing it again in the list would be
+/// a confusing duplicate.
+pub(crate) fn is_hidden_reflected_type(path: &str) -> bool {
+    path == "bsengine_core::global_transform::GlobalTransform"
+        || path == "bsengine_core::visible::Visible"
+}
+
+/// Looks up the `ReflectValidate` type data for `type_path` (if the
+/// component's `#[derive(Reflect)]` registered one via
+/// `#[reflect(..., Validate)]`) and calls it on `value` in place. A no-op
+/// for any component that doesn't implement `Validate` — most components
+/// have no cross-field invariants to enforce, so this only ever does
+/// something for the (currently one) type that opts in.
+///
+/// Shared by the docked Inspector panel and the overlay-mode fallback UI so
+/// both apply the same cross-field clamp (e.g. `SpotLight`'s inner/outer
+/// angle) after an edit, rather than the overlay silently skipping it.
+pub(crate) fn validate_after_edit(
+    type_path: &str,
+    value: &mut dyn Reflect,
+    type_registry: Option<&bevy_reflect::TypeRegistry>,
+) {
+    let Some(registry) = type_registry else {
+        return;
+    };
+    let Some(registration) = registry.get_with_type_path(type_path) else {
+        return;
+    };
+    let Some(reflect_validate) = registration.data::<bsengine_core::ReflectValidate>() else {
+        return;
+    };
+    if let Some(validate) = reflect_validate.get_mut(value) {
+        validate.validate();
+    }
+}
+
 /// Recursively renders an egui editor for any `Reflect` value. Returns
 /// whether anything changed. Handles:
 /// - `Struct`: iterate fields, label + recurse.

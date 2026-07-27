@@ -1971,8 +1971,7 @@ impl WgpuSurface {
                                     ui.separator();
                                     for (type_path, value) in
                                         insp.reflected_components.iter_mut().filter(|(p, _)| {
-                                            p != "bsengine_core::global_transform::GlobalTransform"
-                                                && p != "bsengine_core::visible::Visible"
+                                            !crate::panels::reflect_ui::is_hidden_reflected_type(p)
                                         })
                                     {
                                         ui.colored_label(crate::theme::TEXT, type_path.as_str());
@@ -1981,6 +1980,11 @@ impl WgpuSurface {
                                             value.as_mut(),
                                             &reflect_ctx,
                                         ) {
+                                            crate::panels::reflect_ui::validate_after_edit(
+                                                type_path,
+                                                value.as_mut(),
+                                                type_registry_guard.as_deref(),
+                                            );
                                             to_apply.push((type_path.clone(), value.clone_value()));
                                         }
                                         ui.separator();

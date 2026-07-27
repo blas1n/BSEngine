@@ -1,33 +1,10 @@
-use crate::panels::reflect_ui::{draw_reflect_ui, ReflectUiCtx};
+use crate::panels::reflect_ui::{
+    draw_reflect_ui, is_hidden_reflected_type, validate_after_edit, ReflectUiCtx,
+};
 use bsengine_core::{EditorPanel, EditorPanelContext, InspectorCmd, PRIMITIVE_KINDS};
 
 /// The Inspector panel: shows and edits the selected entity's transform, tags, and components.
 pub struct InspectorPanel;
-
-/// Looks up the `ReflectValidate` type data for `type_path` (if the
-/// component's `#[derive(Reflect)]` registered one via
-/// `#[reflect(..., Validate)]`) and calls it on `value` in place. A no-op
-/// for any component that doesn't implement `Validate` — most components
-/// have no cross-field invariants to enforce, so this only ever does
-/// something for the (currently one) type that opts in.
-fn validate_after_edit(
-    type_path: &str,
-    value: &mut dyn bevy_reflect::Reflect,
-    type_registry: Option<&bevy_reflect::TypeRegistry>,
-) {
-    let Some(registry) = type_registry else {
-        return;
-    };
-    let Some(registration) = registry.get_with_type_path(type_path) else {
-        return;
-    };
-    let Some(reflect_validate) = registration.data::<bsengine_core::ReflectValidate>() else {
-        return;
-    };
-    if let Some(validate) = reflect_validate.get_mut(value) {
-        validate.validate();
-    }
-}
 
 impl EditorPanel for InspectorPanel {
     fn id(&self) -> &str {
@@ -211,10 +188,11 @@ impl EditorPanel for InspectorPanel {
             };
             let mut to_apply: Vec<(String, Box<dyn bevy_reflect::Reflect>)> = Vec::new();
             let mut to_remove: Option<String> = None;
-            for (type_path, value) in insp.reflected_components.iter_mut().filter(|(p, _)| {
-                p != "bsengine_core::global_transform::GlobalTransform"
-                    && p != "bsengine_core::visible::Visible"
-            }) {
+            for (type_path, value) in insp
+                .reflected_components
+                .iter_mut()
+                .filter(|(p, _)| !is_hidden_reflected_type(p))
+            {
                 let header_id = ui.make_persistent_id(type_path.as_str());
                 egui::containers::collapsing_header::CollapsingState::load_with_default_open(
                     ui.ctx(),

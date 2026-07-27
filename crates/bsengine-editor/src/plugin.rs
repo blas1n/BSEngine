@@ -29102,8 +29102,12 @@ mod tests {
 
     #[test]
     fn primitive_kinds_const_round_trips_through_str_conversions() {
-        // Every string in the canonical `PRIMITIVE_KINDS` list (used by the
-        // Inspector's Mesh dropdown in bsengine-rhi-wgpu) must parse via
+        // Every string in the canonical `PRIMITIVE_KINDS` list (the
+        // lowercase string form of `bsengine_scene::Primitive` used at the
+        // `InspectorEntityInfo`/`InspectorCmd::AttachPrimitiveMesh`
+        // DTO boundary, since the Inspector no longer has a dedicated Mesh
+        // dropdown -- `PrimitiveMesh` attaches through the generic Add
+        // Component menu like any other component) must parse via
         // `str_to_primitive` and the parsed value must map back to the same
         // string via `primitive_to_str`. This doesn't catch a *new*
         // `Primitive` variant going unlisted (that gap is inherent to the

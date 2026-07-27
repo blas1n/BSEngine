@@ -1,11 +1,14 @@
 use bevy_ecs::prelude::Resource;
 
-/// Canonical set of recognized primitive-mesh kind strings, lowercase,
-/// shared between the Inspector's Mesh dropdown (`bsengine-rhi-wgpu`) and
-/// `InspectorEntityInfo.primitive`/`InspectorCmd::AttachPrimitiveMesh.primitive`
-/// below. `bsengine-editor`'s `primitive_to_str`/`str_to_primitive` (the only
-/// place these strings convert to/from the real `bsengine_scene::Primitive`
-/// enum) must stay in sync with this list — see the doc comments there.
+/// Canonical set of recognized primitive-mesh kind strings, lowercase. This
+/// is the string format used by `InspectorEntityInfo.primitive` and
+/// `InspectorCmd::AttachPrimitiveMesh.primitive` below (the Inspector no
+/// longer has a dedicated Mesh dropdown -- `PrimitiveMesh` is attached like
+/// any other component, through the generic Add Component menu and
+/// Reflected Fields list). `bsengine-editor`'s `primitive_to_str`/
+/// `str_to_primitive` (the only place these strings convert to/from the
+/// real `bsengine_scene::Primitive` enum) must stay in sync with this list
+/// — see the doc comments there, and the round-trip test that enforces it.
 pub const PRIMITIVE_KINDS: [&str; 4] = ["cube", "sphere", "plane", "capsule"];
 
 /// Flattened, read-only snapshot of one ECS entity's editor-relevant
@@ -293,16 +296,14 @@ pub struct InspectorState {
     /// format already used by `AttachComponentByType`/`RemoveComponentByType`
     /// (e.g. `"bsengine_core::camera::Camera"`).
     pub reflected_components: Vec<(String, Box<dyn bevy_reflect::Reflect>)>,
-    /// Editable position buffer for the Transform section, synced from the selected entity.
+    /// World-space position of the selected entity, synced from it on
+    /// selection change and read/written by the viewport's translate-gizmo
+    /// drag handling (see `gizmo_drag_axis` below).
     pub edit_pos: [f32; 3],
-    /// Editable rotation buffer for the Transform section, synced from the selected entity.
+    /// Euler rotation, in degrees, of the selected entity, synced from it on
+    /// selection change and read/written by the viewport's rotate-gizmo
+    /// drag handling (see `gizmo_rotate_axis` below).
     pub edit_rot: [f32; 3],
-    /// Editable scale buffer for the Transform section, synced from the selected entity.
-    pub edit_scale: [f32; 3],
-    /// Live text in the "add tag" input box.
-    pub edit_new_tag: String,
-    /// Editable script path buffer for the selected entity.
-    pub edit_script_path: String,
     /// Live text in the Hierarchy panel's search box. Empty means "show the
     /// full tree"; non-empty switches Hierarchy to a flat, name-filtered
     /// list (see `HierarchyPanel::matches_search`).
@@ -389,9 +390,6 @@ impl Default for InspectorState {
             reflected_components: Vec::new(),
             edit_pos: [0.0; 3],
             edit_rot: [0.0; 3],
-            edit_scale: [1.0, 1.0, 1.0],
-            edit_new_tag: String::new(),
-            edit_script_path: String::new(),
             hierarchy_search: String::new(),
             show_grid: true,
             edit_visible: true,
@@ -438,9 +436,6 @@ impl InspectorState {
                 if let Some(info) = self.entities.iter().find(|e| e.id == id) {
                     self.edit_pos = info.position.unwrap_or([0.0; 3]);
                     self.edit_rot = info.rotation.unwrap_or([0.0; 3]);
-                    self.edit_scale = info.scale.unwrap_or([1.0, 1.0, 1.0]);
-                    self.edit_new_tag.clear();
-                    self.edit_script_path = info.script_path.clone().unwrap_or_default();
                     self.edit_visible = info.visible;
                 }
             }
@@ -477,7 +472,6 @@ mod tests {
         s.sync_selection();
         assert_eq!(s.edit_pos, [1.0, 2.0, 3.0]);
         assert_eq!(s.edit_rot, [10.0, 20.0, 30.0]);
-        assert_eq!(s.edit_scale, [2.0, 2.0, 2.0]);
     }
 
     #[test]
@@ -507,7 +501,7 @@ mod tests {
         s.selected_id = Some(2);
         s.sync_selection();
         assert_eq!(s.edit_pos, [0.0; 3]);
-        assert_eq!(s.edit_scale, [1.0, 1.0, 1.0]);
+        assert_eq!(s.edit_rot, [0.0; 3]);
     }
 
     #[test]

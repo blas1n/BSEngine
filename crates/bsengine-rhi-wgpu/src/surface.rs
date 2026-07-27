@@ -1956,106 +1956,49 @@ impl WgpuSurface {
                                 .and_then(|e| e.name.as_deref().map(String::from))
                                 .unwrap_or_else(|| format!("Entity {sel_id}"));
 
-                            let mut pos_changed = false;
-                            let mut rot_changed = false;
-                            let mut scale_changed = false;
+                            let type_registry_guard = type_registry.map(|r| r.read());
+                            let reflect_ctx = crate::panels::reflect_ui::ReflectUiCtx {
+                                entities: &entities_snapshot,
+                                type_registry: type_registry_guard.as_deref(),
+                            };
+                            let mut to_apply: Vec<(String, Box<dyn bevy_reflect::Reflect>)> =
+                                Vec::new();
 
                             egui::SidePanel::right("bse_insp_props")
                                 .default_width(220.0)
                                 .show(ctx, |ui| {
                                     ui.heading(&entity_name);
                                     ui.separator();
-                                    ui.strong("Transform");
-                                    ui.horizontal(|ui| {
-                                        ui.label("Pos");
-                                        pos_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut insp.edit_pos[0])
-                                                    .speed(0.05),
-                                            )
-                                            .changed();
-                                        pos_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut insp.edit_pos[1])
-                                                    .speed(0.05),
-                                            )
-                                            .changed();
-                                        pos_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut insp.edit_pos[2])
-                                                    .speed(0.05),
-                                            )
-                                            .changed();
-                                    });
-                                    ui.horizontal(|ui| {
-                                        ui.label("Rot°");
-                                        rot_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut insp.edit_rot[0])
-                                                    .speed(0.5),
-                                            )
-                                            .changed();
-                                        rot_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut insp.edit_rot[1])
-                                                    .speed(0.5),
-                                            )
-                                            .changed();
-                                        rot_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut insp.edit_rot[2])
-                                                    .speed(0.5),
-                                            )
-                                            .changed();
-                                    });
-                                    ui.horizontal(|ui| {
-                                        ui.label("Scale");
-                                        scale_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut insp.edit_scale[0])
-                                                    .speed(0.01),
-                                            )
-                                            .changed();
-                                        scale_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut insp.edit_scale[1])
-                                                    .speed(0.01),
-                                            )
-                                            .changed();
-                                        scale_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut insp.edit_scale[2])
-                                                    .speed(0.01),
-                                            )
-                                            .changed();
-                                    });
+                                    for (type_path, value) in
+                                        insp.reflected_components.iter_mut().filter(|(p, _)| {
+                                            !crate::panels::reflect_ui::is_hidden_reflected_type(p)
+                                        })
+                                    {
+                                        ui.colored_label(crate::theme::TEXT, type_path.as_str());
+                                        if crate::panels::reflect_ui::draw_reflect_ui(
+                                            ui,
+                                            value.as_mut(),
+                                            &reflect_ctx,
+                                        ) {
+                                            crate::panels::reflect_ui::validate_after_edit(
+                                                type_path,
+                                                value.as_mut(),
+                                                type_registry_guard.as_deref(),
+                                            );
+                                            to_apply.push((type_path.clone(), value.clone_value()));
+                                        }
+                                        ui.separator();
+                                    }
                                 });
 
-                            if pos_changed {
-                                insp.cmd_queue
-                                    .push(bsengine_core::InspectorCmd::SetPosition {
+                            for (type_path, value) in to_apply {
+                                insp.cmd_queue.push(
+                                    bsengine_core::InspectorCmd::ApplyReflectedComponent {
                                         id: sel_id,
-                                        x: insp.edit_pos[0],
-                                        y: insp.edit_pos[1],
-                                        z: insp.edit_pos[2],
-                                    });
-                            }
-                            if rot_changed {
-                                insp.cmd_queue
-                                    .push(bsengine_core::InspectorCmd::SetRotation {
-                                        id: sel_id,
-                                        rx: insp.edit_rot[0],
-                                        ry: insp.edit_rot[1],
-                                        rz: insp.edit_rot[2],
-                                    });
-                            }
-                            if scale_changed {
-                                insp.cmd_queue.push(bsengine_core::InspectorCmd::SetScale {
-                                    id: sel_id,
-                                    sx: insp.edit_scale[0],
-                                    sy: insp.edit_scale[1],
-                                    sz: insp.edit_scale[2],
-                                });
+                                        type_path,
+                                        value,
+                                    },
+                                );
                             }
                         }
                     }

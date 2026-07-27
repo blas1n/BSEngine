@@ -1,33 +1,17 @@
-use crate::panels::reflect_ui::{draw_reflect_ui, ReflectUiCtx};
-use bsengine_core::{EditorPanel, EditorPanelContext, InspectorCmd, PRIMITIVE_KINDS};
+use crate::panels::reflect_ui::{
+    draw_reflect_ui, is_hidden_reflected_type, validate_after_edit, ReflectUiCtx,
+};
+use bsengine_core::{EditorPanel, EditorPanelContext, InspectorCmd};
 
-/// The Inspector panel: shows and edits the selected entity's transform, tags, and components.
+/// The Inspector panel: renders a header (entity name + Visible toggle), a
+/// unified Add Component menu for attaching any registered, reflectable
+/// component not already present, and a generic Reflected Fields list that
+/// renders and edits every reflectable component currently attached to the
+/// selected entity via `draw_reflect_ui`. No component type gets bespoke,
+/// hand-built UI here anymore -- Transform, Tags, Script, and Mesh (the
+/// former hardcoded sections) all now render exclusively through the
+/// generic list, same as every other reflected component.
 pub struct InspectorPanel;
-
-/// Looks up the `ReflectValidate` type data for `type_path` (if the
-/// component's `#[derive(Reflect)]` registered one via
-/// `#[reflect(..., Validate)]`) and calls it on `value` in place. A no-op
-/// for any component that doesn't implement `Validate` — most components
-/// have no cross-field invariants to enforce, so this only ever does
-/// something for the (currently one) type that opts in.
-fn validate_after_edit(
-    type_path: &str,
-    value: &mut dyn bevy_reflect::Reflect,
-    type_registry: Option<&bevy_reflect::TypeRegistry>,
-) {
-    let Some(registry) = type_registry else {
-        return;
-    };
-    let Some(registration) = registry.get_with_type_path(type_path) else {
-        return;
-    };
-    let Some(reflect_validate) = registration.data::<bsengine_core::ReflectValidate>() else {
-        return;
-    };
-    if let Some(validate) = reflect_validate.get_mut(value) {
-        validate.validate();
-    }
-}
 
 impl EditorPanel for InspectorPanel {
     fn id(&self) -> &str {
@@ -57,7 +41,6 @@ impl EditorPanel for InspectorPanel {
         // two different placeholder strings for the same "no name" state.
         let label = sel_info.name.as_deref().unwrap_or("(unnamed)");
         let entity_name = format!("[{sel_id}] {label}");
-        let has_transform = sel_info.position.is_some();
 
         ui.heading(&entity_name);
         ui.separator();
@@ -71,169 +54,10 @@ impl EditorPanel for InspectorPanel {
         }
         ui.separator();
 
-        // Transform
-        if has_transform {
-            ui.horizontal(|ui| {
-                ui.colored_label(
-                    crate::theme::ACCENT,
-                    egui_phosphor::regular::ARROWS_OUT_CARDINAL,
-                );
-                ui.colored_label(crate::theme::TEXT, "Transform");
-            });
-            let mut pos_changed = false;
-            ui.horizontal(|ui| {
-                ui.label("Pos");
-                pos_changed |= ui
-                    .add(egui::DragValue::new(&mut insp.edit_pos[0]).speed(0.05))
-                    .changed();
-                pos_changed |= ui
-                    .add(egui::DragValue::new(&mut insp.edit_pos[1]).speed(0.05))
-                    .changed();
-                pos_changed |= ui
-                    .add(egui::DragValue::new(&mut insp.edit_pos[2]).speed(0.05))
-                    .changed();
-            });
-            if pos_changed {
-                insp.cmd_queue.push(InspectorCmd::SetPosition {
-                    id: sel_id,
-                    x: insp.edit_pos[0],
-                    y: insp.edit_pos[1],
-                    z: insp.edit_pos[2],
-                });
-            }
-
-            let mut rot_changed = false;
-            ui.horizontal(|ui| {
-                ui.label("Rot°");
-                rot_changed |= ui
-                    .add(egui::DragValue::new(&mut insp.edit_rot[0]).speed(0.5))
-                    .changed();
-                rot_changed |= ui
-                    .add(egui::DragValue::new(&mut insp.edit_rot[1]).speed(0.5))
-                    .changed();
-                rot_changed |= ui
-                    .add(egui::DragValue::new(&mut insp.edit_rot[2]).speed(0.5))
-                    .changed();
-            });
-            if rot_changed {
-                insp.cmd_queue.push(InspectorCmd::SetRotation {
-                    id: sel_id,
-                    rx: insp.edit_rot[0],
-                    ry: insp.edit_rot[1],
-                    rz: insp.edit_rot[2],
-                });
-            }
-
-            let mut scale_changed = false;
-            ui.horizontal(|ui| {
-                ui.label("Scale");
-                scale_changed |= ui
-                    .add(egui::DragValue::new(&mut insp.edit_scale[0]).speed(0.01))
-                    .changed();
-                scale_changed |= ui
-                    .add(egui::DragValue::new(&mut insp.edit_scale[1]).speed(0.01))
-                    .changed();
-                scale_changed |= ui
-                    .add(egui::DragValue::new(&mut insp.edit_scale[2]).speed(0.01))
-                    .changed();
-            });
-            if scale_changed {
-                insp.cmd_queue.push(InspectorCmd::SetScale {
-                    id: sel_id,
-                    sx: insp.edit_scale[0],
-                    sy: insp.edit_scale[1],
-                    sz: insp.edit_scale[2],
-                });
-            }
-            ui.separator();
-        }
-
-        // Tags
-        ui.horizontal(|ui| {
-            ui.colored_label(crate::theme::ACCENT, egui_phosphor::regular::TAG);
-            ui.colored_label(crate::theme::TEXT, "Tags");
-        });
-        ui.horizontal_wrapped(|ui| {
-            for tag in &sel_info.tags {
-                ui.horizontal(|ui| {
-                    ui.label(tag);
-                    if ui.small_button("×").clicked() {
-                        insp.cmd_queue.push(InspectorCmd::UntagEntity {
-                            id: sel_id,
-                            tag: tag.clone(),
-                        });
-                    }
-                });
-            }
-        });
-        ui.horizontal(|ui| {
-            ui.text_edit_singleline(&mut insp.edit_new_tag);
-            if ui.button("Add").clicked() && !insp.edit_new_tag.is_empty() {
-                insp.cmd_queue.push(InspectorCmd::TagEntity {
-                    id: sel_id,
-                    tag: insp.edit_new_tag.clone(),
-                });
-                insp.edit_new_tag.clear();
-            }
-        });
-        ui.separator();
-
-        // Script
-        ui.horizontal(|ui| {
-            ui.colored_label(crate::theme::ACCENT, egui_phosphor::regular::CODE);
-            ui.colored_label(crate::theme::TEXT, "Script");
-        });
-        ui.horizontal(|ui| {
-            ui.text_edit_singleline(&mut insp.edit_script_path);
-            if ui.button("Attach").clicked() && !insp.edit_script_path.is_empty() {
-                insp.cmd_queue.push(InspectorCmd::AttachScript {
-                    id: sel_id,
-                    path: insp.edit_script_path.clone(),
-                });
-            }
-            if sel_info.script_path.is_some() && ui.button("Clear").clicked() {
-                insp.cmd_queue
-                    .push(InspectorCmd::DetachScript { id: sel_id });
-                insp.edit_script_path.clear();
-            }
-        });
-        ui.separator();
-
-        // Mesh
-        ui.horizontal(|ui| {
-            ui.colored_label(crate::theme::ACCENT, egui_phosphor::regular::CUBE);
-            ui.colored_label(crate::theme::TEXT, "Mesh");
-        });
-        ui.horizontal(|ui| {
-            let current_label = sel_info.primitive.as_deref().unwrap_or("None");
-            let mut chosen: Option<&str> = None;
-            egui::ComboBox::from_id_salt("mesh_primitive_combo")
-                .selected_text(current_label)
-                .show_ui(ui, |ui| {
-                    for p in PRIMITIVE_KINDS {
-                        if ui.selectable_label(false, p).clicked() {
-                            chosen = Some(p);
-                        }
-                    }
-                });
-            if let Some(primitive) = chosen {
-                insp.cmd_queue.push(InspectorCmd::AttachPrimitiveMesh {
-                    id: sel_id,
-                    primitive: primitive.to_string(),
-                });
-            }
-            if sel_info.primitive.is_some() && ui.button("Remove").clicked() {
-                insp.cmd_queue
-                    .push(InspectorCmd::DetachPrimitiveMesh { id: sel_id });
-            }
-        });
-        ui.separator();
-
         // Add Component -- a single menu listing every registered,
         // ReflectDefault-constructible component type not already attached
         // to this entity (filtering prevents a confusing duplicate-attach).
         if let Some(registry) = ctx.type_registry {
-            ui.separator();
             ui.horizontal(|ui| {
                 ui.colored_label(crate::theme::ACCENT, egui_phosphor::regular::PLUS);
                 ui.colored_label(crate::theme::TEXT, "Add Component");
@@ -289,7 +113,11 @@ impl EditorPanel for InspectorPanel {
             };
             let mut to_apply: Vec<(String, Box<dyn bevy_reflect::Reflect>)> = Vec::new();
             let mut to_remove: Option<String> = None;
-            for (type_path, value) in insp.reflected_components.iter_mut() {
+            for (type_path, value) in insp
+                .reflected_components
+                .iter_mut()
+                .filter(|(p, _)| !is_hidden_reflected_type(p))
+            {
                 let header_id = ui.make_persistent_id(type_path.as_str());
                 egui::containers::collapsing_header::CollapsingState::load_with_default_open(
                     ui.ctx(),
@@ -601,6 +429,65 @@ mod tests {
     }
 
     #[test]
+    fn reflected_fields_list_hides_global_transform_and_visible() {
+        let mut insp = InspectorState::default();
+        insp.selected_id = Some(1);
+        insp.reflected_components = vec![
+            (
+                "bsengine_core::transform::Transform".to_string(),
+                Box::new(bsengine_core::Transform::default()) as Box<dyn bevy_reflect::Reflect>,
+            ),
+            (
+                "bsengine_core::global_transform::GlobalTransform".to_string(),
+                Box::new(bsengine_core::GlobalTransform::default())
+                    as Box<dyn bevy_reflect::Reflect>,
+            ),
+            (
+                "bsengine_core::visible::Visible".to_string(),
+                Box::new(bsengine_core::Visible::default()) as Box<dyn bevy_reflect::Reflect>,
+            ),
+        ];
+
+        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
+        let mut panel = InspectorPanel;
+        let shown_type_paths = with_test_ui(|ui| {
+            let mut ctx = EditorPanelContext {
+                insp: &mut insp,
+                entities_snapshot: &entities_snapshot,
+                cursor_pos: (0.0, 0.0),
+                type_registry: None,
+            };
+            panel.ui(ui, &mut ctx);
+            // Re-derive which type paths actually rendered a collapsible
+            // header by checking egui's per-id "open" memory state -- each
+            // reflected entry's header uses
+            // `ui.make_persistent_id(type_path.as_str())` as its collapsing
+            // header id (see the production code below), so a header
+            // genuinely rendered iff that persistent id has recorded
+            // open/closed state in memory.
+            [
+                "bsengine_core::transform::Transform",
+                "bsengine_core::global_transform::GlobalTransform",
+                "bsengine_core::visible::Visible",
+            ]
+            .into_iter()
+            .filter(|type_path| {
+                let id = ui.make_persistent_id(*type_path);
+                egui::containers::collapsing_header::CollapsingState::load(ui.ctx(), id).is_some()
+            })
+            .collect::<Vec<_>>()
+        });
+
+        assert_eq!(
+            shown_type_paths,
+            vec!["bsengine_core::transform::Transform"],
+            "GlobalTransform (derived, no lasting effect if edited) and Visible (already \
+             shown as the header checkbox) must not also render as Reflected Fields entries -- \
+             only Transform, which has neither exclusion, should show"
+        );
+    }
+
+    #[test]
     fn validate_after_edit_clamps_an_out_of_range_spot_light() {
         let mut registry = bevy_reflect::TypeRegistry::default();
         registry.register::<bsengine_core::SpotLight>();
@@ -741,13 +628,19 @@ mod tests {
         run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
 
         // Frame 2: click the combo box to open its popup. Its position was
-        // found empirically for this exact scenario (fixed 800x800 headless
+        // found empirically for this exact scenario (fixed 400x400 headless
         // screen rect, `FontDefinitions::empty()`, this panel's fixed
         // section order up to "Add Component") by scanning candidate y
         // values and observing `ctx.memory(|mem| mem.any_popup_open())`
-        // flip to true -- the closed combo box spans y=[240,268], so its
-        // vertical center (254) is used here.
-        let combo_pos = egui::Pos2::new(20.0, 254.0);
+        // flip to true -- with the hardcoded Mesh section now also removed
+        // (this task), the Add Component combo is the *first* combo box in
+        // the panel, opening a popup for y=[76,100], so its vertical center
+        // (88) is used here. (Before this task removed the Mesh section's
+        // header row + combo row + trailing separator, this was y=140,
+        // sitting behind the now-gone mesh primitive combo, which used to
+        // open a popup for y=[66,94]; before Task 4 removed the Script
+        // section's text edit + "Attach" button, this was y=190.)
+        let combo_pos = egui::Pos2::new(20.0, 88.0);
         run_frame(
             &egui_ctx,
             click_events(combo_pos),
@@ -762,11 +655,12 @@ mod tests {
         // this is needed).
         run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
 
-        // Frame 4: click the popup's only row (y=278, likewise found
+        // Frame 4: click the popup's only row (y=112, likewise found
         // empirically: with the real `already_attached` filter active,
-        // clicking anywhere in y=[269,287] queues PointLight, and nothing at
-        // all is queued for y >= 288 -- there is no second row).
-        let point_light_row_pos = egui::Pos2::new(30.0, 278.0);
+        // clicking anywhere in y=[104,120] queues PointLight, and nothing at
+        // all is queued outside that range -- there is no second row).
+        // (Before this task removed the Mesh section, this was y=165.)
+        let point_light_row_pos = egui::Pos2::new(30.0, 112.0);
         run_frame(
             &egui_ctx,
             click_events(point_light_row_pos),
@@ -796,13 +690,13 @@ mod tests {
             ),
         }
 
-        // Frame 5: reopen the combo and click y=298 -- the row position
-        // Camera would occupy as a second entry if the `already_attached`
-        // filter regressed to a no-op (measured the same way: with the
-        // filter genuinely disabled, y=[290,308] reliably queues
-        // `AttachComponentByType` for Camera). With the real filter active,
-        // there is no second row there, so this must add nothing to the
-        // queue: the length must stay at 1 from frame 4, not grow to 2.
+        // Frame 5: reopen the combo and click y=130 -- just past the
+        // PointLight row's range (y=[104,120]), the row position Camera
+        // would occupy as a second entry if the `already_attached` filter
+        // regressed to a no-op. With the real filter active, there is no
+        // second row there, so this must add nothing to the queue: the
+        // length must stay at 1 from frame 4, not grow to 2. (Before this
+        // task removed the Mesh section, this was y=183.)
         run_frame(
             &egui_ctx,
             click_events(combo_pos),
@@ -811,7 +705,7 @@ mod tests {
             &mut panel,
         );
         run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
-        let camera_row_pos = egui::Pos2::new(30.0, 298.0);
+        let camera_row_pos = egui::Pos2::new(30.0, 130.0);
         run_frame(
             &egui_ctx,
             click_events(camera_row_pos),
@@ -825,6 +719,395 @@ mod tests {
             "clicking where Camera's row would sit if it weren't filtered out must not \
              queue a second command -- a length of 2 here means the already_attached \
              filter regressed and Camera became clickable again"
+        );
+    }
+
+    #[test]
+    fn generic_reflected_list_can_edit_transform_translation() {
+        // Proves the generic Reflected Fields list can perform the same
+        // edit the hardcoded Transform DragValues used to, via a real
+        // keyboard interaction through the actual InspectorPanel::ui() --
+        // not just a render-without-panicking smoke test. Reuses the
+        // Tab-to-focus + ArrowUp technique from reflect_ui.rs's
+        // `reflect_quat_leaf_edits_only_the_dragged_euler_axis_via_keyboard`
+        // test (Phase 1, Task 5): egui's Memory::interested_in_focus grants
+        // focus to the first focus-wanting widget on Tab when nothing is
+        // focused yet, and each further Tab in its own frame (Focus::
+        // begin_pass/end_pass processes at most one FocusDirection step per
+        // frame, so multiple Tab events queued in a single frame do not
+        // stack) advances focus to the next one; DragValue reads
+        // ArrowUp/ArrowDown directly while keyboard-focused, bumping its
+        // bound value by `speed` per press.
+        //
+        // Unlike that isolated reflect_ui.rs test -- which calls
+        // draw_reflect_ui directly on a bare ReflectQuat with nothing else
+        // in the UI tree, so the very first Tab reaches the first DragValue
+        // -- this test drives the *whole* InspectorPanel::ui(), which draws
+        // several other focusable (`Sense::click()`, which sets
+        // `focusable: true` -- see egui's sense.rs) widgets before the
+        // Reflected Fields list: the Visible checkbox, then this Transform
+        // entry's own collapsing-header toggle button and "..." menu button
+        // (both added by CollapsingState::show_header itself, not just its
+        // closure). That's 3 focusable widgets ahead of translation.x's
+        // DragValue, so 4 Tab presses (one per frame) are needed, not 1.
+        // This was confirmed empirically with a throwaway diagnostic test
+        // that swept tab_count from 0 to 14 and printed the resulting
+        // queued command after 3x ArrowUp at each count: queue_len stayed 0
+        // through tab_count=3, became 1 at tab_count=4 with translation
+        // moved to (0.15, 0, 0) and rotation/scale untouched, then 5/6 hit
+        // translation.y/z, and 7+ found no more focus-wanting widgets (or
+        // hit rotation's raw quaternion components, which ArrowUp doesn't
+        // move the same way), until tab_count=13 wrapped focus back to the
+        // start of the chain and queue_len returned to 0.
+        //
+        // (Prior to Task 3 removing the hardcoded Tags section's new-tag
+        // text edit + "Add" button -- 2 focusable widgets -- this count was
+        // 9, dropping to 7 as a direct consequence of that removal; Task 4
+        // removing the hardcoded Script section's text edit + "Attach"
+        // button -- 2 more focusable widgets -- dropped it again, from 7
+        // to 5; Task 5 removing the hardcoded Mesh section's primitive
+        // combo box -- 1 more focusable widget -- dropped it again, from 5
+        // to 4.)
+        //
+        // Separately, `value` here is NOT a concrete `Transform`: derived
+        // `Reflect` structs' `clone_value()` (see bevy_reflect_derive's
+        // `impls/structs.rs`) returns `Box::new(Struct::clone_dynamic(self))`
+        // -- a `DynamicStruct`, not `Box<Self>` -- so `downcast_ref::
+        // <Transform>()` on the queued value always returns `None`. This
+        // mirrors exactly how production applies it too: `apply_inspector_
+        // cmds` (bsengine-editor/src/plugin.rs) routes `value` through
+        // `ReflectComponent::apply_or_insert`, not a downcast. This test
+        // does the same by patching a fresh `Transform::default()` via
+        // `Reflect::apply`.
+        let mut insp = InspectorState::default();
+        insp.selected_id = Some(1);
+        insp.reflected_components = vec![(
+            "bsengine_core::transform::Transform".to_string(),
+            Box::new(bsengine_core::Transform::default()) as Box<dyn bevy_reflect::Reflect>,
+        )];
+
+        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
+        let mut panel = InspectorPanel;
+
+        let egui_ctx = egui::Context::default();
+        egui_ctx.set_fonts(egui::FontDefinitions::empty());
+        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
+
+        let run_frame = |egui_ctx: &egui::Context,
+                         events: Vec<egui::Event>,
+                         insp: &mut InspectorState,
+                         entities_snapshot: &[InspectorEntityInfo],
+                         panel: &mut InspectorPanel| {
+            let _ = egui_ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(screen_rect),
+                    events,
+                    ..Default::default()
+                },
+                |egui_ctx| {
+                    egui::CentralPanel::default().show(egui_ctx, |ui| {
+                        let mut ctx = EditorPanelContext {
+                            insp,
+                            entities_snapshot,
+                            cursor_pos: (0.0, 0.0),
+                            type_registry: None,
+                        };
+                        panel.ui(ui, &mut ctx);
+                    });
+                },
+            );
+        };
+
+        // Frame 1: draw once so the widget tree/focus-interest exists.
+        run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
+
+        // Frames 2-5: one Tab per frame, walking focus through the 3
+        // focusable widgets that precede translation.x (Visible checkbox;
+        // Transform's collapsing-header toggle button; Transform's "..."
+        // menu button) until the 4th Tab lands on translation.x's
+        // DragValue -- see the empirical sweep described above.
+        let tab_event = || egui::Event::Key {
+            key: egui::Key::Tab,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::default(),
+        };
+        for _ in 0..4 {
+            run_frame(
+                &egui_ctx,
+                vec![tab_event()],
+                &mut insp,
+                &entities_snapshot,
+                &mut panel,
+            );
+        }
+
+        // Final frame: 3x ArrowUp while translation.x's DragValue is
+        // focused -- bumps it by 3 * speed(0.05) = 0.15.
+        let arrow_up_events = (0..3)
+            .flat_map(|_| {
+                vec![egui::Event::Key {
+                    key: egui::Key::ArrowUp,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::default(),
+                }]
+            })
+            .collect();
+        run_frame(
+            &egui_ctx,
+            arrow_up_events,
+            &mut insp,
+            &entities_snapshot,
+            &mut panel,
+        );
+
+        assert_eq!(
+            insp.cmd_queue.len(),
+            1,
+            "editing translation.x via the generic list should queue exactly one \
+             ApplyReflectedComponent command"
+        );
+        match &insp.cmd_queue[0] {
+            InspectorCmd::ApplyReflectedComponent {
+                id,
+                type_path,
+                value,
+            } => {
+                assert_eq!(*id, 1);
+                assert_eq!(type_path, "bsengine_core::transform::Transform");
+                // `value` is a `DynamicStruct` (see the comment above this
+                // test), not a concrete `Transform` -- patch it onto a real
+                // default `Transform` via `Reflect::apply`, the same
+                // mechanism production uses (`ReflectComponent::
+                // apply_or_insert`), to get a concrete value to assert on.
+                let mut transform = bsengine_core::Transform::default();
+                bevy_reflect::Reflect::apply(&mut transform, value.as_ref());
+                assert!(
+                    (transform.translation.0.x - 0.15).abs() < 1e-4,
+                    "translation.x should have moved by 3 * speed(0.05) = 0.15, got {}",
+                    transform.translation.0.x
+                );
+                assert_eq!(
+                    transform.translation.0.y, 0.0,
+                    "only translation.x was edited -- y must be untouched"
+                );
+                assert_eq!(
+                    transform.rotation.0,
+                    glam::Quat::IDENTITY,
+                    "only translation.x was edited -- rotation must be untouched"
+                );
+            }
+            other => panic!(
+                "expected ApplyReflectedComponent, got a different InspectorCmd variant: {:?}",
+                std::mem::discriminant(other)
+            ),
+        }
+    }
+
+    #[test]
+    fn generic_reflected_list_can_edit_script_path() {
+        // ScriptPath(String) is a tuple struct -- its TupleStruct arm in
+        // draw_reflect_ui recurses directly into the String field with no
+        // wrapping label (Phase 1, Task 2's design), so the String leaf's
+        // `ui.text_edit_singleline` is the sole, first-and-only
+        // Tab-focusable widget *for a ScriptPath entry itself*. TextEdit
+        // reads pending `Event::Text(String)` events while keyboard-focused
+        // and appends each to its bound buffer.
+        //
+        // With the hardcoded Script section removed (Task 4) and the
+        // hardcoded Mesh section also removed (this task), the focusable
+        // widgets preceding the ScriptPath entry's own leaf text field are:
+        // the Visible checkbox(1), then this ScriptPath entry's own
+        // collapsing-header toggle(2) and "..." menu button(3) (both added
+        // by `CollapsingState::show_header` itself), before the 4th Tab
+        // finally lands on the leaf. Confirmed empirically with a
+        // throwaway diagnostic test that swept tab_count from 0 to 14:
+        // queue_len was 0 through tab_count=3, became 1 at tab_count=4,
+        // then 0 again through tab_count=8 before becoming 1 again at
+        // tab_count=9 (egui's focus wraps back around to the start of the
+        // chain once it runs out of focus-wanting widgets, so a much larger
+        // tab_count re-lands on the same leaf on a later lap; the wrap
+        // period shrank from 6 Tabs to 5 as a direct consequence of
+        // removing one focusable widget from the chain).
+        let mut insp = InspectorState::default();
+        insp.selected_id = Some(1);
+        insp.reflected_components = vec![(
+            "bsengine_scene::types::ScriptPath".to_string(),
+            Box::new(bsengine_scene::ScriptPath(String::new())) as Box<dyn bevy_reflect::Reflect>,
+        )];
+
+        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
+        let mut panel = InspectorPanel;
+
+        let egui_ctx = egui::Context::default();
+        egui_ctx.set_fonts(egui::FontDefinitions::empty());
+        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
+
+        let run_frame = |egui_ctx: &egui::Context,
+                         events: Vec<egui::Event>,
+                         insp: &mut InspectorState,
+                         entities_snapshot: &[InspectorEntityInfo],
+                         panel: &mut InspectorPanel| {
+            let _ = egui_ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(screen_rect),
+                    events,
+                    ..Default::default()
+                },
+                |egui_ctx| {
+                    egui::CentralPanel::default().show(egui_ctx, |ui| {
+                        let mut ctx = EditorPanelContext {
+                            insp,
+                            entities_snapshot,
+                            cursor_pos: (0.0, 0.0),
+                            type_registry: None,
+                        };
+                        panel.ui(ui, &mut ctx);
+                    });
+                },
+            );
+        };
+
+        // Frame 1: draw once so the widget tree/focus-interest exists.
+        run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
+
+        // Frames 2-5: one Tab per frame, walking focus through the 3
+        // focusable widgets that precede the ScriptPath entry's leaf text
+        // field (see the comment above) until the 4th Tab lands on it.
+        let tab_event = || egui::Event::Key {
+            key: egui::Key::Tab,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::default(),
+        };
+        for _ in 0..4 {
+            run_frame(
+                &egui_ctx,
+                vec![tab_event()],
+                &mut insp,
+                &entities_snapshot,
+                &mut panel,
+            );
+        }
+
+        // Frame 6: type "foo.js" into the focused text field.
+        run_frame(
+            &egui_ctx,
+            vec![egui::Event::Text("foo.js".to_string())],
+            &mut insp,
+            &entities_snapshot,
+            &mut panel,
+        );
+
+        assert_eq!(
+            insp.cmd_queue.len(),
+            1,
+            "typing into ScriptPath's text field via the generic list should queue \
+             exactly one ApplyReflectedComponent command"
+        );
+        match &insp.cmd_queue[0] {
+            InspectorCmd::ApplyReflectedComponent {
+                id,
+                type_path,
+                value,
+            } => {
+                assert_eq!(*id, 1);
+                assert_eq!(type_path, "bsengine_scene::types::ScriptPath");
+                // `value` is a `DynamicTupleStruct` (see the comment in
+                // `generic_reflected_list_can_edit_transform_translation` for
+                // why `clone_value()` on a derived `Reflect` type never
+                // downcasts back to `Self`), not a concrete `ScriptPath` --
+                // patch it onto a real `ScriptPath` via `Reflect::apply`, the
+                // same mechanism production uses, to get a concrete value.
+                let mut script_path = bsengine_scene::ScriptPath(String::new());
+                bevy_reflect::Reflect::apply(&mut script_path, value.as_ref());
+                assert_eq!(script_path.0, "foo.js");
+            }
+            other => panic!(
+                "expected ApplyReflectedComponent, got a different InspectorCmd variant: {:?}",
+                std::mem::discriminant(other)
+            ),
+        }
+    }
+
+    #[test]
+    fn generic_reflected_list_shows_tags_as_an_editable_entry() {
+        // Tags' List-editing mechanics (the +/x row UI) and its full
+        // command-pipeline round-trip are already thoroughly tested in
+        // reflect_ui.rs and bsengine-editor (Phase 1) -- this test is
+        // narrower and Inspector-panel-specific: proving Tags genuinely
+        // renders as an interactive entry (a real CollapsingHeader with a
+        // body, not just present-but-inert) once the hardcoded Tags
+        // section is gone.
+        let mut insp = InspectorState::default();
+        insp.selected_id = Some(1);
+        insp.reflected_components = vec![(
+            "bsengine_editor::snapshot::Tags".to_string(),
+            Box::new(bsengine_editor::snapshot::Tags(vec!["enemy".to_string()]))
+                as Box<dyn bevy_reflect::Reflect>,
+        )];
+
+        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
+        let mut panel = InspectorPanel;
+
+        let shown = with_test_ui(|ui| {
+            let mut ctx = EditorPanelContext {
+                insp: &mut insp,
+                entities_snapshot: &entities_snapshot,
+                cursor_pos: (0.0, 0.0),
+                type_registry: None,
+            };
+            panel.ui(ui, &mut ctx);
+            let id = ui.make_persistent_id("bsengine_editor::snapshot::Tags");
+            egui::containers::collapsing_header::CollapsingState::load(ui.ctx(), id).is_some()
+        });
+
+        assert!(
+            shown,
+            "Tags must render as a genuine Reflected Fields entry once the hardcoded \
+             Tags section is removed"
+        );
+    }
+
+    #[test]
+    fn generic_reflected_list_shows_primitive_mesh_as_an_editable_entry() {
+        // PrimitiveMesh's enum-variant-switching mechanics are already
+        // thoroughly tested in reflect_ui.rs (Phase 1, Task 4) -- this test
+        // is narrower and Inspector-panel-specific: proving PrimitiveMesh
+        // genuinely renders as an interactive entry once the hardcoded Mesh
+        // section is gone.
+        let mut insp = InspectorState::default();
+        insp.selected_id = Some(1);
+        insp.reflected_components = vec![(
+            "bsengine_scene::types::PrimitiveMesh".to_string(),
+            Box::new(bsengine_scene::PrimitiveMesh(
+                bsengine_scene::Primitive::Cube,
+            )) as Box<dyn bevy_reflect::Reflect>,
+        )];
+
+        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
+        let mut panel = InspectorPanel;
+
+        let shown = with_test_ui(|ui| {
+            let mut ctx = EditorPanelContext {
+                insp: &mut insp,
+                entities_snapshot: &entities_snapshot,
+                cursor_pos: (0.0, 0.0),
+                type_registry: None,
+            };
+            panel.ui(ui, &mut ctx);
+            let id = ui.make_persistent_id("bsengine_scene::types::PrimitiveMesh");
+            egui::containers::collapsing_header::CollapsingState::load(ui.ctx(), id).is_some()
+        });
+
+        assert!(
+            shown,
+            "PrimitiveMesh must render as a genuine Reflected Fields entry once the \
+             hardcoded Mesh section is removed"
         );
     }
 

@@ -1,5 +1,6 @@
 use crate::panels::reflect_ui::{
-    draw_reflect_ui, is_hidden_reflected_type, validate_after_edit, ReflectUiCtx,
+    draw_reflect_ui, is_hidden_reflected_type, short_component_name, validate_after_edit,
+    ReflectUiCtx,
 };
 use bsengine_core::{EditorPanel, EditorPanelContext, InspectorCmd};
 
@@ -125,7 +126,10 @@ impl EditorPanel for InspectorPanel {
                     true,
                 )
                 .show_header(ui, |ui| {
-                    ui.colored_label(crate::theme::TEXT, type_path.as_str());
+                    ui.colored_label(
+                        crate::theme::TEXT,
+                        short_component_name(type_path.as_str(), type_registry),
+                    );
                     ui.menu_button(egui_phosphor::regular::DOTS_THREE, |ui| {
                         if ui.button("Remove Component").clicked() {
                             to_remove = Some(type_path.clone());
@@ -177,6 +181,89 @@ mod tests {
             });
         });
         result.expect("add_contents must run exactly once per test frame")
+    }
+
+    /// Recursively collects every literal string egui actually rendered as
+    /// text in one frame's output shapes -- used to assert on rendered
+    /// content directly (e.g. "the header shows 'Transform', never the full
+    /// type_path"), without needing egui's `accesskit` feature (not enabled
+    /// in this workspace). `Shape::Text`'s `galley.text()` gives the exact
+    /// rendered string; `Shape::Vec` nests recursively and must be walked.
+    fn collect_rendered_texts(shapes: &[egui::epaint::ClippedShape]) -> Vec<String> {
+        fn walk(shape: &egui::Shape, out: &mut Vec<String>) {
+            match shape {
+                egui::Shape::Text(text_shape) => out.push(text_shape.galley.text().to_string()),
+                egui::Shape::Vec(nested) => {
+                    for s in nested {
+                        walk(s, out);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        for clipped in shapes {
+            walk(&clipped.shape, &mut out);
+        }
+        out
+    }
+
+    #[test]
+    fn component_header_shows_short_type_name_not_full_path() {
+        // The header used to render `type_path.as_str()` directly (e.g.
+        // "bsengine_core::transform::Transform"). It must now render only
+        // the short name ("Transform"), via short_component_name -- verified
+        // here by walking the actual rendered egui shapes (not just calling
+        // short_component_name directly in isolation), so this would catch
+        // a regression back to raw type_path display.
+        let mut insp = InspectorState::default();
+        insp.selected_id = Some(1);
+        insp.reflected_components = vec![(
+            "bsengine_core::transform::Transform".to_string(),
+            Box::new(bsengine_core::Transform::default()) as Box<dyn bevy_reflect::Reflect>,
+        )];
+
+        let mut registry = bevy_reflect::TypeRegistry::default();
+        registry.register::<bsengine_core::Transform>();
+
+        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
+        let mut panel = InspectorPanel;
+
+        let egui_ctx = egui::Context::default();
+        egui_ctx.set_fonts(egui::FontDefinitions::empty());
+        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
+
+        let full_output = egui_ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen_rect),
+                ..Default::default()
+            },
+            |egui_ctx| {
+                egui::CentralPanel::default().show(egui_ctx, |ui| {
+                    let mut ctx = EditorPanelContext {
+                        insp: &mut insp,
+                        entities_snapshot: &entities_snapshot,
+                        cursor_pos: (0.0, 0.0),
+                        type_registry: Some(&registry),
+                    };
+                    panel.ui(ui, &mut ctx);
+                });
+            },
+        );
+
+        let rendered_texts = collect_rendered_texts(&full_output.shapes);
+
+        assert!(
+            rendered_texts.iter().any(|t| t == "Transform"),
+            "expected the short name \"Transform\" among rendered texts, got: {rendered_texts:?}"
+        );
+        assert!(
+            !rendered_texts
+                .iter()
+                .any(|t| t.contains("bsengine_core::transform::Transform")),
+            "the full, namespace-qualified type_path must never be rendered as visible text, \
+             got: {rendered_texts:?}"
+        );
     }
 
     #[test]

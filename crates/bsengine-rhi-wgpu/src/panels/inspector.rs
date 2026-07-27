@@ -3,7 +3,14 @@ use crate::panels::reflect_ui::{
 };
 use bsengine_core::{EditorPanel, EditorPanelContext, InspectorCmd};
 
-/// The Inspector panel: shows and edits the selected entity's transform, tags, and components.
+/// The Inspector panel: renders a header (entity name + Visible toggle), a
+/// unified Add Component menu for attaching any registered, reflectable
+/// component not already present, and a generic Reflected Fields list that
+/// renders and edits every reflectable component currently attached to the
+/// selected entity via `draw_reflect_ui`. No component type gets bespoke,
+/// hand-built UI here anymore -- Transform, Tags, Script, and Mesh (the
+/// former hardcoded sections) all now render exclusively through the
+/// generic list, same as every other reflected component.
 pub struct InspectorPanel;
 
 impl EditorPanel for InspectorPanel {
@@ -51,7 +58,6 @@ impl EditorPanel for InspectorPanel {
         // ReflectDefault-constructible component type not already attached
         // to this entity (filtering prevents a confusing duplicate-attach).
         if let Some(registry) = ctx.type_registry {
-            ui.separator();
             ui.horizontal(|ui| {
                 ui.colored_label(crate::theme::ACCENT, egui_phosphor::regular::PLUS);
                 ui.colored_label(crate::theme::TEXT, "Add Component");

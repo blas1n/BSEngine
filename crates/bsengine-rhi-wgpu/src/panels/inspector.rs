@@ -88,7 +88,8 @@ impl EditorPanel for InspectorPanel {
                         if already_attached {
                             continue;
                         }
-                        if ui.selectable_label(false, &type_path).clicked() {
+                        let short_name = short_component_name(&type_path, Some(registry));
+                        if ui.selectable_label(false, &short_name).clicked() {
                             to_attach = Some(type_path);
                         }
                     }
@@ -806,6 +807,122 @@ mod tests {
             "clicking where Camera's row would sit if it weren't filtered out must not \
              queue a second command -- a length of 2 here means the already_attached \
              filter regressed and Camera became clickable again"
+        );
+    }
+
+    #[test]
+    fn add_component_menu_shows_short_names_not_full_type_paths() {
+        // Mirrors add_component_menu_click_only_offers_the_not_yet_attached_type's
+        // setup (Camera already attached, PointLight registered and not
+        // attached) but checks *rendered text* after opening the combo,
+        // rather than the resulting command -- this test would fail if the
+        // dropdown's selectable rows went back to showing the raw type_path.
+        let mut registry = bevy_reflect::TypeRegistry::default();
+        registry.register::<bsengine_core::Camera>();
+        registry.register::<bsengine_core::PointLight>();
+
+        let mut insp = InspectorState::default();
+        insp.selected_id = Some(1);
+        insp.reflected_components = vec![(
+            "bsengine_core::camera::Camera".to_string(),
+            Box::new(bsengine_core::Camera::default()) as Box<dyn bevy_reflect::Reflect>,
+        )];
+
+        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
+        let mut panel = InspectorPanel;
+
+        let egui_ctx = egui::Context::default();
+        egui_ctx.set_fonts(egui::FontDefinitions::empty());
+        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
+
+        let run_frame = |egui_ctx: &egui::Context,
+                         events: Vec<egui::Event>,
+                         insp: &mut InspectorState,
+                         entities_snapshot: &[InspectorEntityInfo],
+                         panel: &mut InspectorPanel| {
+            egui_ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(screen_rect),
+                    events,
+                    ..Default::default()
+                },
+                |egui_ctx| {
+                    egui::CentralPanel::default().show(egui_ctx, |ui| {
+                        let mut ctx = EditorPanelContext {
+                            insp,
+                            entities_snapshot,
+                            cursor_pos: (0.0, 0.0),
+                            type_registry: Some(&registry),
+                        };
+                        panel.ui(ui, &mut ctx);
+                    });
+                },
+            )
+        };
+        let click_events = |pos: egui::Pos2| {
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::default(),
+                },
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::default(),
+                },
+            ]
+        };
+
+        // Frame 1: draw once (combo closed). Frame 2: click the combo to
+        // open its popup, at the same empirically-found position the
+        // existing add_component_menu_click_only_offers_the_not_yet_attached_type
+        // test uses for this identical scenario (Camera attached, PointLight
+        // not) -- check that test's own comment for the coordinate's
+        // derivation history and confirm it's still accurate for the
+        // current file before reusing it here (if the coordinate has since
+        // changed in that test, use whatever its CURRENT value is instead
+        // of the one shown here, since that test is the source of truth
+        // for this exact scenario's combo position).
+        run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
+        let combo_pos = egui::Pos2::new(20.0, 88.0);
+        let _ = run_frame(
+            &egui_ctx,
+            click_events(combo_pos),
+            &mut insp,
+            &entities_snapshot,
+            &mut panel,
+        );
+
+        // Frame 3 ("settle"): redraw with no input. Per
+        // add_component_menu_click_only_offers_the_not_yet_attached_type's
+        // own "settle frame" comment (and enum_variant_combo_switches_..._'s
+        // longer explanation in reflect_ui.rs), the popup's first-ever frame
+        // (frame 2, just above) sizes its Area/ScrollArea from a placeholder
+        // default and does not yet paint its selectable rows -- confirmed
+        // empirically here too: capturing frame 2's own FullOutput finds
+        // none of the popup's row text at all, not even the full type_path,
+        // so a bare frame-2 capture can't distinguish "not fixed yet" from
+        // "popup never opened." Capturing the settle frame's output instead
+        // is what actually exercises the rendered row text.
+        let full_output = run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
+
+        let rendered_texts = collect_rendered_texts(&full_output.shapes);
+
+        assert!(
+            rendered_texts.iter().any(|t| t == "PointLight"),
+            "expected the short name \"PointLight\" among rendered texts once the popup is \
+             open, got: {rendered_texts:?}"
+        );
+        assert!(
+            !rendered_texts
+                .iter()
+                .any(|t| t.contains("bsengine_core::light::PointLight")),
+            "the full, namespace-qualified type_path must never be rendered as visible text \
+             in the dropdown, got: {rendered_texts:?}"
         );
     }
 

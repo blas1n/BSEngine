@@ -47,36 +47,6 @@ impl EditorPanel for InspectorPanel {
         }
         ui.separator();
 
-        // Tags
-        ui.horizontal(|ui| {
-            ui.colored_label(crate::theme::ACCENT, egui_phosphor::regular::TAG);
-            ui.colored_label(crate::theme::TEXT, "Tags");
-        });
-        ui.horizontal_wrapped(|ui| {
-            for tag in &sel_info.tags {
-                ui.horizontal(|ui| {
-                    ui.label(tag);
-                    if ui.small_button("×").clicked() {
-                        insp.cmd_queue.push(InspectorCmd::UntagEntity {
-                            id: sel_id,
-                            tag: tag.clone(),
-                        });
-                    }
-                });
-            }
-        });
-        ui.horizontal(|ui| {
-            ui.text_edit_singleline(&mut insp.edit_new_tag);
-            if ui.button("Add").clicked() && !insp.edit_new_tag.is_empty() {
-                insp.cmd_queue.push(InspectorCmd::TagEntity {
-                    id: sel_id,
-                    tag: insp.edit_new_tag.clone(),
-                });
-                insp.edit_new_tag.clear();
-            }
-        });
-        ui.separator();
-
         // Script
         ui.horizontal(|ui| {
             ui.colored_label(crate::theme::ACCENT, egui_phosphor::regular::CODE);
@@ -703,13 +673,18 @@ mod tests {
         run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
 
         // Frame 2: click the combo box to open its popup. Its position was
-        // found empirically for this exact scenario (fixed 800x800 headless
+        // found empirically for this exact scenario (fixed 400x400 headless
         // screen rect, `FontDefinitions::empty()`, this panel's fixed
         // section order up to "Add Component") by scanning candidate y
         // values and observing `ctx.memory(|mem| mem.any_popup_open())`
-        // flip to true -- the closed combo box spans y=[240,268], so its
-        // vertical center (254) is used here.
-        let combo_pos = egui::Pos2::new(20.0, 254.0);
+        // flip to true -- with the hardcoded Tags section removed (Task 3),
+        // there are two combo boxes ahead of it now (the mesh primitive
+        // combo opens a popup for y=[118,144]; the Add Component combo --
+        // the one this test wants -- opens one for y=[178,204]), so its
+        // vertical center (190) is used here. (Before Task 3 removed the
+        // Tags section this was y=254; it shifted up because two focusable
+        // Tags widgets are now gone.)
+        let combo_pos = egui::Pos2::new(20.0, 190.0);
         run_frame(
             &egui_ctx,
             click_events(combo_pos),
@@ -724,11 +699,11 @@ mod tests {
         // this is needed).
         run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
 
-        // Frame 4: click the popup's only row (y=278, likewise found
+        // Frame 4: click the popup's only row (y=215, likewise found
         // empirically: with the real `already_attached` filter active,
-        // clicking anywhere in y=[269,287] queues PointLight, and nothing at
-        // all is queued for y >= 288 -- there is no second row).
-        let point_light_row_pos = egui::Pos2::new(30.0, 278.0);
+        // clicking anywhere in y=[206,224] queues PointLight, and nothing at
+        // all is queued outside that range -- there is no second row).
+        let point_light_row_pos = egui::Pos2::new(30.0, 215.0);
         run_frame(
             &egui_ctx,
             click_events(point_light_row_pos),
@@ -758,13 +733,12 @@ mod tests {
             ),
         }
 
-        // Frame 5: reopen the combo and click y=298 -- the row position
-        // Camera would occupy as a second entry if the `already_attached`
-        // filter regressed to a no-op (measured the same way: with the
-        // filter genuinely disabled, y=[290,308] reliably queues
-        // `AttachComponentByType` for Camera). With the real filter active,
-        // there is no second row there, so this must add nothing to the
-        // queue: the length must stay at 1 from frame 4, not grow to 2.
+        // Frame 5: reopen the combo and click y=235 -- just past the
+        // PointLight row's range (y=[206,224]), the row position Camera
+        // would occupy as a second entry if the `already_attached` filter
+        // regressed to a no-op. With the real filter active, there is no
+        // second row there, so this must add nothing to the queue: the
+        // length must stay at 1 from frame 4, not grow to 2.
         run_frame(
             &egui_ctx,
             click_events(combo_pos),
@@ -773,7 +747,7 @@ mod tests {
             &mut panel,
         );
         run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
-        let camera_row_pos = egui::Pos2::new(30.0, 298.0);
+        let camera_row_pos = egui::Pos2::new(30.0, 235.0);
         run_frame(
             &egui_ctx,
             click_events(camera_row_pos),
@@ -813,21 +787,25 @@ mod tests {
         // -- this test drives the *whole* InspectorPanel::ui(), which draws
         // several other focusable (`Sense::click()`, which sets
         // `focusable: true` -- see egui's sense.rs) widgets before the
-        // Reflected Fields list: the Visible checkbox, the new-tag text
-        // edit + "Add" button, the script-path text edit + "Attach" button,
-        // and the mesh primitive combo box, then this Transform entry's own
-        // collapsing-header toggle button and "..." menu button (both added
-        // by CollapsingState::show_header itself, not just its closure).
-        // That's 8 focusable widgets ahead of translation.x's DragValue, so
-        // 9 Tab presses (one per frame) are needed, not 1. This was
-        // confirmed empirically with a throwaway diagnostic test that swept
-        // tab_count from 0 to 19 and printed the resulting queued command
-        // after 3x ArrowUp at each count: queue_len stayed 0 through
-        // tab_count=8, became 1 at tab_count=9 with translation moved to
-        // (0.15, 0, 0) and rotation/scale untouched, then 10/11 hit
-        // translation.y/z, 12-14 hit rotation's raw quaternion x/y/z
-        // components, 15-17 hit scale.x/y/z, and 18+ found no more
-        // focus-wanting widgets.
+        // Reflected Fields list: the Visible checkbox, the script-path text
+        // edit + "Attach" button, and the mesh primitive combo box, then
+        // this Transform entry's own collapsing-header toggle button and
+        // "..." menu button (both added by CollapsingState::show_header
+        // itself, not just its closure). That's 6 focusable widgets ahead of
+        // translation.x's DragValue, so 7 Tab presses (one per frame) are
+        // needed, not 1. This was confirmed empirically with a throwaway
+        // diagnostic test that swept tab_count from 0 to 14 and printed the
+        // resulting queued command after 3x ArrowUp at each count: queue_len
+        // stayed 0 through tab_count=6, became 1 at tab_count=7 with
+        // translation moved to (0.15, 0, 0) and rotation/scale untouched,
+        // then 8/9 hit translation.y/z, and 10+ found no more focus-wanting
+        // widgets (or hit rotation's raw quaternion components, which
+        // ArrowUp doesn't move the same way).
+        //
+        // (Prior to Task 3 removing the hardcoded Tags section's new-tag
+        // text edit + "Add" button -- 2 focusable widgets -- this count was
+        // 9; it dropped to 7 as a direct, expected consequence of that
+        // removal.)
         //
         // Separately, `value` here is NOT a concrete `Transform`: derived
         // `Reflect` structs' `clone_value()` (see bevy_reflect_derive's
@@ -881,13 +859,12 @@ mod tests {
         // Frame 1: draw once so the widget tree/focus-interest exists.
         run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
 
-        // Frames 2-10: one Tab per frame, walking focus through the 8
+        // Frames 2-8: one Tab per frame, walking focus through the 6
         // focusable widgets that precede translation.x (Visible checkbox;
-        // new-tag text edit; "Add" button; script-path text edit; "Attach"
-        // button; mesh combo box; Transform's collapsing-header toggle
-        // button; Transform's "..." menu button) until the 9th Tab lands on
-        // translation.x's DragValue -- see the empirical sweep described
-        // above.
+        // script-path text edit; "Attach" button; mesh combo box;
+        // Transform's collapsing-header toggle button; Transform's "..."
+        // menu button) until the 7th Tab lands on translation.x's DragValue
+        // -- see the empirical sweep described above.
         let tab_event = || egui::Event::Key {
             key: egui::Key::Tab,
             physical_key: None,
@@ -895,7 +872,7 @@ mod tests {
             repeat: false,
             modifiers: egui::Modifiers::default(),
         };
-        for _ in 0..9 {
+        for _ in 0..7 {
             run_frame(
                 &egui_ctx,
                 vec![tab_event()],
@@ -967,6 +944,45 @@ mod tests {
                 std::mem::discriminant(other)
             ),
         }
+    }
+
+    #[test]
+    fn generic_reflected_list_shows_tags_as_an_editable_entry() {
+        // Tags' List-editing mechanics (the +/x row UI) and its full
+        // command-pipeline round-trip are already thoroughly tested in
+        // reflect_ui.rs and bsengine-editor (Phase 1) -- this test is
+        // narrower and Inspector-panel-specific: proving Tags genuinely
+        // renders as an interactive entry (a real CollapsingHeader with a
+        // body, not just present-but-inert) once the hardcoded Tags
+        // section is gone.
+        let mut insp = InspectorState::default();
+        insp.selected_id = Some(1);
+        insp.reflected_components = vec![(
+            "bsengine_editor::snapshot::Tags".to_string(),
+            Box::new(bsengine_editor::snapshot::Tags(vec!["enemy".to_string()]))
+                as Box<dyn bevy_reflect::Reflect>,
+        )];
+
+        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
+        let mut panel = InspectorPanel;
+
+        let shown = with_test_ui(|ui| {
+            let mut ctx = EditorPanelContext {
+                insp: &mut insp,
+                entities_snapshot: &entities_snapshot,
+                cursor_pos: (0.0, 0.0),
+                type_registry: None,
+            };
+            panel.ui(ui, &mut ctx);
+            let id = ui.make_persistent_id("bsengine_editor::snapshot::Tags");
+            egui::containers::collapsing_header::CollapsingState::load(ui.ctx(), id).is_some()
+        });
+
+        assert!(
+            shown,
+            "Tags must render as a genuine Reflected Fields entry once the hardcoded \
+             Tags section is removed"
+        );
     }
 
     #[test]

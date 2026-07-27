@@ -1,7 +1,7 @@
 use crate::panels::reflect_ui::{
     draw_reflect_ui, is_hidden_reflected_type, validate_after_edit, ReflectUiCtx,
 };
-use bsengine_core::{EditorPanel, EditorPanelContext, InspectorCmd, PRIMITIVE_KINDS};
+use bsengine_core::{EditorPanel, EditorPanelContext, InspectorCmd};
 
 /// The Inspector panel: shows and edits the selected entity's transform, tags, and components.
 pub struct InspectorPanel;
@@ -45,36 +45,6 @@ impl EditorPanel for InspectorPanel {
                 visible: insp.edit_visible,
             });
         }
-        ui.separator();
-
-        // Mesh
-        ui.horizontal(|ui| {
-            ui.colored_label(crate::theme::ACCENT, egui_phosphor::regular::CUBE);
-            ui.colored_label(crate::theme::TEXT, "Mesh");
-        });
-        ui.horizontal(|ui| {
-            let current_label = sel_info.primitive.as_deref().unwrap_or("None");
-            let mut chosen: Option<&str> = None;
-            egui::ComboBox::from_id_salt("mesh_primitive_combo")
-                .selected_text(current_label)
-                .show_ui(ui, |ui| {
-                    for p in PRIMITIVE_KINDS {
-                        if ui.selectable_label(false, p).clicked() {
-                            chosen = Some(p);
-                        }
-                    }
-                });
-            if let Some(primitive) = chosen {
-                insp.cmd_queue.push(InspectorCmd::AttachPrimitiveMesh {
-                    id: sel_id,
-                    primitive: primitive.to_string(),
-                });
-            }
-            if sel_info.primitive.is_some() && ui.button("Remove").clicked() {
-                insp.cmd_queue
-                    .push(InspectorCmd::DetachPrimitiveMesh { id: sel_id });
-            }
-        });
         ui.separator();
 
         // Add Component -- a single menu listing every registered,
@@ -656,15 +626,15 @@ mod tests {
         // screen rect, `FontDefinitions::empty()`, this panel's fixed
         // section order up to "Add Component") by scanning candidate y
         // values and observing `ctx.memory(|mem| mem.any_popup_open())`
-        // flip to true -- with the hardcoded Script section also removed
-        // (Task 4), there are still two combo boxes ahead of it (the mesh
-        // primitive combo opens a popup for y=[66,94]; the Add Component
-        // combo -- the one this test wants -- opens one for y=[126,154]),
-        // so its vertical center (140) is used here. (Before Task 4 removed
-        // the Script section's text edit + "Attach" button -- 2 focusable
-        // widgets -- this was y=190; it shifted up because that section's
-        // two rows are now gone.)
-        let combo_pos = egui::Pos2::new(20.0, 140.0);
+        // flip to true -- with the hardcoded Mesh section now also removed
+        // (this task), the Add Component combo is the *first* combo box in
+        // the panel, opening a popup for y=[76,100], so its vertical center
+        // (88) is used here. (Before this task removed the Mesh section's
+        // header row + combo row + trailing separator, this was y=140,
+        // sitting behind the now-gone mesh primitive combo, which used to
+        // open a popup for y=[66,94]; before Task 4 removed the Script
+        // section's text edit + "Attach" button, this was y=190.)
+        let combo_pos = egui::Pos2::new(20.0, 88.0);
         run_frame(
             &egui_ctx,
             click_events(combo_pos),
@@ -679,11 +649,12 @@ mod tests {
         // this is needed).
         run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
 
-        // Frame 4: click the popup's only row (y=165, likewise found
+        // Frame 4: click the popup's only row (y=112, likewise found
         // empirically: with the real `already_attached` filter active,
-        // clicking anywhere in y=[156,172] queues PointLight, and nothing at
+        // clicking anywhere in y=[104,120] queues PointLight, and nothing at
         // all is queued outside that range -- there is no second row).
-        let point_light_row_pos = egui::Pos2::new(30.0, 165.0);
+        // (Before this task removed the Mesh section, this was y=165.)
+        let point_light_row_pos = egui::Pos2::new(30.0, 112.0);
         run_frame(
             &egui_ctx,
             click_events(point_light_row_pos),
@@ -713,12 +684,13 @@ mod tests {
             ),
         }
 
-        // Frame 5: reopen the combo and click y=183 -- just past the
-        // PointLight row's range (y=[156,172]), the row position Camera
+        // Frame 5: reopen the combo and click y=130 -- just past the
+        // PointLight row's range (y=[104,120]), the row position Camera
         // would occupy as a second entry if the `already_attached` filter
         // regressed to a no-op. With the real filter active, there is no
         // second row there, so this must add nothing to the queue: the
-        // length must stay at 1 from frame 4, not grow to 2.
+        // length must stay at 1 from frame 4, not grow to 2. (Before this
+        // task removed the Mesh section, this was y=183.)
         run_frame(
             &egui_ctx,
             click_events(combo_pos),
@@ -727,7 +699,7 @@ mod tests {
             &mut panel,
         );
         run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
-        let camera_row_pos = egui::Pos2::new(30.0, 183.0);
+        let camera_row_pos = egui::Pos2::new(30.0, 130.0);
         run_frame(
             &egui_ctx,
             click_events(camera_row_pos),
@@ -767,20 +739,19 @@ mod tests {
         // -- this test drives the *whole* InspectorPanel::ui(), which draws
         // several other focusable (`Sense::click()`, which sets
         // `focusable: true` -- see egui's sense.rs) widgets before the
-        // Reflected Fields list: the Visible checkbox and the mesh primitive
-        // combo box, then this Transform entry's own collapsing-header
-        // toggle button and "..." menu button (both added by
-        // CollapsingState::show_header itself, not just its closure).
-        // That's 4 focusable widgets ahead of translation.x's DragValue, so
-        // 5 Tab presses (one per frame) are needed, not 1. This was
-        // confirmed empirically with a throwaway diagnostic test that swept
-        // tab_count from 0 to 14 and printed the resulting queued command
-        // after 3x ArrowUp at each count: queue_len stayed 0 through
-        // tab_count=4, became 1 at tab_count=5 with translation moved to
-        // (0.15, 0, 0) and rotation/scale untouched, then 6/7 hit
-        // translation.y/z, and 8+ found no more focus-wanting widgets (or
+        // Reflected Fields list: the Visible checkbox, then this Transform
+        // entry's own collapsing-header toggle button and "..." menu button
+        // (both added by CollapsingState::show_header itself, not just its
+        // closure). That's 3 focusable widgets ahead of translation.x's
+        // DragValue, so 4 Tab presses (one per frame) are needed, not 1.
+        // This was confirmed empirically with a throwaway diagnostic test
+        // that swept tab_count from 0 to 14 and printed the resulting
+        // queued command after 3x ArrowUp at each count: queue_len stayed 0
+        // through tab_count=3, became 1 at tab_count=4 with translation
+        // moved to (0.15, 0, 0) and rotation/scale untouched, then 5/6 hit
+        // translation.y/z, and 7+ found no more focus-wanting widgets (or
         // hit rotation's raw quaternion components, which ArrowUp doesn't
-        // move the same way), until tab_count=14 wrapped focus back to the
+        // move the same way), until tab_count=13 wrapped focus back to the
         // start of the chain and queue_len returned to 0.
         //
         // (Prior to Task 3 removing the hardcoded Tags section's new-tag
@@ -788,7 +759,9 @@ mod tests {
         // 9, dropping to 7 as a direct consequence of that removal; Task 4
         // removing the hardcoded Script section's text edit + "Attach"
         // button -- 2 more focusable widgets -- dropped it again, from 7
-        // to 5.)
+        // to 5; Task 5 removing the hardcoded Mesh section's primitive
+        // combo box -- 1 more focusable widget -- dropped it again, from 5
+        // to 4.)
         //
         // Separately, `value` here is NOT a concrete `Transform`: derived
         // `Reflect` structs' `clone_value()` (see bevy_reflect_derive's
@@ -842,12 +815,11 @@ mod tests {
         // Frame 1: draw once so the widget tree/focus-interest exists.
         run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
 
-        // Frames 2-6: one Tab per frame, walking focus through the 4
+        // Frames 2-5: one Tab per frame, walking focus through the 3
         // focusable widgets that precede translation.x (Visible checkbox;
-        // mesh combo box; Transform's collapsing-header toggle button;
-        // Transform's "..." menu button) until the 5th Tab lands on
-        // translation.x's DragValue -- see the empirical sweep described
-        // above.
+        // Transform's collapsing-header toggle button; Transform's "..."
+        // menu button) until the 4th Tab lands on translation.x's
+        // DragValue -- see the empirical sweep described above.
         let tab_event = || egui::Event::Key {
             key: egui::Key::Tab,
             physical_key: None,
@@ -855,7 +827,7 @@ mod tests {
             repeat: false,
             modifiers: egui::Modifiers::default(),
         };
-        for _ in 0..5 {
+        for _ in 0..4 {
             run_frame(
                 &egui_ctx,
                 vec![tab_event()],
@@ -939,19 +911,21 @@ mod tests {
         // reads pending `Event::Text(String)` events while keyboard-focused
         // and appends each to its bound buffer.
         //
-        // With the hardcoded Script section removed (this task), the
-        // focusable widgets preceding the ScriptPath entry's own leaf text
-        // field are: the Visible checkbox(1), the mesh primitive combo
-        // box(2), then this ScriptPath entry's own collapsing-header
-        // toggle(3) and "..." menu button(4) (both added by
-        // `CollapsingState::show_header` itself), before the 5th Tab
+        // With the hardcoded Script section removed (Task 4) and the
+        // hardcoded Mesh section also removed (this task), the focusable
+        // widgets preceding the ScriptPath entry's own leaf text field are:
+        // the Visible checkbox(1), then this ScriptPath entry's own
+        // collapsing-header toggle(2) and "..." menu button(3) (both added
+        // by `CollapsingState::show_header` itself), before the 4th Tab
         // finally lands on the leaf. Confirmed empirically with a
         // throwaway diagnostic test that swept tab_count from 0 to 14:
-        // queue_len was 0 through tab_count=4, became 1 at tab_count=5,
-        // then 0 again through tab_count=10 before becoming 1 again at
-        // tab_count=11 (egui's focus wraps back around to the start of the
+        // queue_len was 0 through tab_count=3, became 1 at tab_count=4,
+        // then 0 again through tab_count=8 before becoming 1 again at
+        // tab_count=9 (egui's focus wraps back around to the start of the
         // chain once it runs out of focus-wanting widgets, so a much larger
-        // tab_count re-lands on the same leaf on a later lap).
+        // tab_count re-lands on the same leaf on a later lap; the wrap
+        // period shrank from 6 Tabs to 5 as a direct consequence of
+        // removing one focusable widget from the chain).
         let mut insp = InspectorState::default();
         insp.selected_id = Some(1);
         insp.reflected_components = vec![(
@@ -994,9 +968,9 @@ mod tests {
         // Frame 1: draw once so the widget tree/focus-interest exists.
         run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
 
-        // Frames 2-6: one Tab per frame, walking focus through the 4
+        // Frames 2-5: one Tab per frame, walking focus through the 3
         // focusable widgets that precede the ScriptPath entry's leaf text
-        // field (see the comment above) until the 5th Tab lands on it.
+        // field (see the comment above) until the 4th Tab lands on it.
         let tab_event = || egui::Event::Key {
             key: egui::Key::Tab,
             physical_key: None,
@@ -1004,7 +978,7 @@ mod tests {
             repeat: false,
             modifiers: egui::Modifiers::default(),
         };
-        for _ in 0..5 {
+        for _ in 0..4 {
             run_frame(
                 &egui_ctx,
                 vec![tab_event()],
@@ -1014,7 +988,7 @@ mod tests {
             );
         }
 
-        // Frame 7: type "foo.js" into the focused text field.
+        // Frame 6: type "foo.js" into the focused text field.
         run_frame(
             &egui_ctx,
             vec![egui::Event::Text("foo.js".to_string())],
@@ -1090,6 +1064,44 @@ mod tests {
             shown,
             "Tags must render as a genuine Reflected Fields entry once the hardcoded \
              Tags section is removed"
+        );
+    }
+
+    #[test]
+    fn generic_reflected_list_shows_primitive_mesh_as_an_editable_entry() {
+        // PrimitiveMesh's enum-variant-switching mechanics are already
+        // thoroughly tested in reflect_ui.rs (Phase 1, Task 4) -- this test
+        // is narrower and Inspector-panel-specific: proving PrimitiveMesh
+        // genuinely renders as an interactive entry once the hardcoded Mesh
+        // section is gone.
+        let mut insp = InspectorState::default();
+        insp.selected_id = Some(1);
+        insp.reflected_components = vec![(
+            "bsengine_scene::types::PrimitiveMesh".to_string(),
+            Box::new(bsengine_scene::PrimitiveMesh(
+                bsengine_scene::Primitive::Cube,
+            )) as Box<dyn bevy_reflect::Reflect>,
+        )];
+
+        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
+        let mut panel = InspectorPanel;
+
+        let shown = with_test_ui(|ui| {
+            let mut ctx = EditorPanelContext {
+                insp: &mut insp,
+                entities_snapshot: &entities_snapshot,
+                cursor_pos: (0.0, 0.0),
+                type_registry: None,
+            };
+            panel.ui(ui, &mut ctx);
+            let id = ui.make_persistent_id("bsengine_scene::types::PrimitiveMesh");
+            egui::containers::collapsing_header::CollapsingState::load(ui.ctx(), id).is_some()
+        });
+
+        assert!(
+            shown,
+            "PrimitiveMesh must render as a genuine Reflected Fields entry once the \
+             hardcoded Mesh section is removed"
         );
     }
 

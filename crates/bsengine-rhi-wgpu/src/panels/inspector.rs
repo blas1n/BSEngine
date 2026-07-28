@@ -179,10 +179,26 @@ impl EditorPanel for InspectorPanel {
 /// compile-time one instead of a documentary one.
 const SEARCH_HINT: &str = "Search";
 
+/// Shown in the Add Component picker in place of the row list when the
+/// search text matched no component type.
+///
+/// A `const` for the same reason as [`SEARCH_HINT`]: it is what the tests
+/// look for in the rendered output, and a duplicated literal there could
+/// drift from this one without anything failing.
+const NO_MATCHES_LABEL: &str = "No matches";
+
+/// Shown in the Add Component picker in place of the row list when nothing
+/// is listed and nothing was typed -- i.e. every registered, constructible
+/// component type is already attached to this entity, so there is nothing
+/// left to add. Distinct from [`NO_MATCHES_LABEL`] because the two states
+/// call for different reactions: clear the search, versus nothing to do.
+const ALL_ATTACHED_LABEL: &str = "All components attached";
+
 /// Draws the Add Component button and, when it is open, the picker popup
-/// above it. Returns the `type_path` of the component type the user chose
-/// this frame, if any; the caller is what turns that into an
-/// `InspectorCmd`.
+/// on whichever side of the button has more room (see the direction choice
+/// at the `popup_above_or_below_widget` call). Returns the `type_path` of
+/// the component type the user chose this frame, if any; the caller is what
+/// turns that into an `InspectorCmd`.
 ///
 /// `attached` is the selected entity's current component list, used only to
 /// filter already-present types out of the picker (offering them would
@@ -230,6 +246,7 @@ fn draw_add_component(
     let popup_id = ui.make_persistent_id("add_component_popup");
     let filter_id = ui.make_persistent_id("add_component_filter");
     let focus_search_id = ui.make_persistent_id("add_component_focus_search");
+    let direction_id = ui.make_persistent_id("add_component_popup_direction");
     // Unity insets this button rather than filling the panel width. The
     // explicit width also keeps `popup_above_or_below_widget`'s
     // debug_assert satisfied: it sizes the popup as `button.rect.width() -
@@ -268,6 +285,7 @@ fn draw_add_component(
         let was_open = ui.memory(|m| m.is_popup_open(popup_id));
         ui.memory_mut(|m| m.toggle_popup(popup_id));
         if !was_open {
+            let direction_at_open = picker_direction(ui.ctx().screen_rect(), button_response.rect);
             ui.memory_mut(|m| {
                 m.data.insert_temp(filter_id, String::new());
                 // Unity focuses the search box on open so you can type
@@ -275,19 +293,37 @@ fn draw_add_component(
                 // popup closure below to consume -- see the comment there
                 // for why focus cannot be granted from this point.
                 m.data.insert_temp(focus_search_id, true);
+                // The side is decided once, here, and held for as long as
+                // the popup stays up. It cannot simply be recomputed at
+                // render time: `popup_above_or_below_widget` rebuilds
+                // `Area::fixed_pos` from the button's rect every frame, so
+                // an open popup already tracks the button as the Inspector
+                // scrolls, and a per-frame direction would make it *flip*
+                // from one side of the button to the other the moment the
+                // button crossed the screen's midpoint. Sliding is the
+                // pre-existing behaviour; jumping across the button would
+                // be new. Open time is also the only moment the choice has
+                // to be right, and the button's rect is already in hand.
+                m.data.insert_temp(direction_id, direction_at_open);
             });
         }
     }
+
+    // Falls back to a fresh measurement only if no latched side is found,
+    // which normally cannot happen -- the popup is opened by the branch
+    // above, which always stores one. It matters if egui's temp store is
+    // ever cleared under an open popup, where recomputing is a better
+    // answer than defaulting to a fixed side.
+    let direction = ui
+        .memory(|m| m.data.get_temp::<egui::AboveOrBelow>(direction_id))
+        .unwrap_or_else(|| picker_direction(ui.ctx().screen_rect(), button_response.rect));
 
     let mut to_attach: Option<String> = None;
     egui::popup::popup_above_or_below_widget(
         ui,
         popup_id,
         &button_response,
-        // Above: the button sits at the end of the content, so opening
-        // downward would collide with `Area`'s screen-clamping near the
-        // bottom edge and land back on top of the button.
-        egui::AboveOrBelow::Above,
+        direction,
         // Not CloseOnClick (what ComboBox uses) -- the search field below
         // must survive being clicked and typed into. Escape still closes.
         egui::popup::PopupCloseBehavior::CloseOnClickOutside,
@@ -329,6 +365,12 @@ fn draw_add_component(
             egui::ScrollArea::vertical()
                 .max_height(240.0)
                 .show(ui, |ui| {
+                    // Whether the loop below drew a single row. Tracked
+                    // rather than pre-computed: the three `continue`s are
+                    // the only definition of "listable", and a separate
+                    // count would be a second copy of that predicate, free
+                    // to drift from it.
+                    let mut listed_any = false;
                     for registration in registry.iter() {
                         if registration
                             .data::<bevy_ecs::reflect::ReflectComponent>()
@@ -364,9 +406,31 @@ fn draw_add_component(
                         if !needle.is_empty() && !short_name.to_lowercase().contains(&needle) {
                             continue;
                         }
+                        listed_any = true;
                         if ui.selectable_label(false, &short_name).clicked() {
                             to_attach = Some(type_path);
                         }
+                    }
+                    // Without this the popup is a search box over blank
+                    // space, which reads as a rendering failure rather than
+                    // as an answer. Dimmed and drawn as a plain label, so it
+                    // is visibly not a row you can click.
+                    //
+                    // `TEXT_DIM` is the palette's own "placeholder /
+                    // disabled text" entry (theme.rs), reached the way the
+                    // component headers above reach `TEXT` -- via
+                    // `colored_label`, since this workspace's panels take
+                    // their colours from that one table rather than from
+                    // egui's derived weak-text grey.
+                    if !listed_any {
+                        ui.colored_label(
+                            crate::theme::TEXT_DIM,
+                            if needle.is_empty() {
+                                ALL_ATTACHED_LABEL
+                            } else {
+                                NO_MATCHES_LABEL
+                            },
+                        );
                     }
                 });
         },
@@ -376,6 +440,49 @@ fn draw_add_component(
         ui.memory_mut(|m| m.close_popup());
     }
     to_attach
+}
+
+/// Which side of `button_rect` the Add Component picker opens on: the side
+/// with more room against `screen`, ties going to `Above`.
+///
+/// The popup's `Area` clamps itself to `ctx.screen_rect()` (`area.rs`
+/// defaults `constrain: true`), so one that does not fit on the side it was
+/// told to use gets pushed back across the button, covering it and
+/// everything past it. Both fixed choices fail that way at their own edge,
+/// which is why the side is measured from the geometry instead of being
+/// written into the source. It is measured once per opening, not once per
+/// frame -- see the `insert_temp` that latches it in `draw_add_component`.
+///
+/// **What this works out to in practice is not what the tie rule suggests.**
+/// The button's y is set by the component list, not by the window: it lands
+/// at roughly 59, 152, 245 and 338 px for zero through three components, and
+/// does not move as the window grows. So on any real editor window -- 720px
+/// tall and up -- `space_below` wins for every entity anyone will select,
+/// and the picker opens *downward*. That is the opposite of the fixed
+/// `Above` that PR #1729 shipped, and it is correct: there is genuinely more
+/// room below, and the ~290px popup fits in it. `Above` is now the rare
+/// case, reached only when the button sits past the screen's midpoint --
+/// a window around 400px tall, or a short docked Inspector.
+///
+/// One consequence worth knowing when reading the tests: the `Above` branch
+/// is only reachable in a geometry that does not occur at production window
+/// sizes, so `picker_opens_above_a_button_that_sits_low` is a valid unit
+/// test of this rule but does not guard the common case.
+///
+/// This is also only a best effort, because it compares free space without
+/// knowing what has to fit in it: `popup_above_or_below_widget` never
+/// exposes the popup's measured height. When neither side has room the
+/// popup is still clamped -- choosing the larger side minimises the overlap
+/// rather than removing it. The 400px test screen with two components is
+/// exactly that: `Above` wins with 245px of room and is clamped anyway.
+fn picker_direction(screen: egui::Rect, button_rect: egui::Rect) -> egui::AboveOrBelow {
+    let space_above = button_rect.top() - screen.top();
+    let space_below = screen.bottom() - button_rect.bottom();
+    if space_above >= space_below {
+        egui::AboveOrBelow::Above
+    } else {
+        egui::AboveOrBelow::Below
+    }
 }
 
 /// The persistent id of one component block's collapsing header.
@@ -488,6 +595,200 @@ mod tests {
             .into_iter()
             .map(|(text, _)| text)
             .collect()
+    }
+
+    /// Drives `InspectorPanel::ui` frame by frame against a fixed-size
+    /// screen with a type registry attached, so the Add Component picker is
+    /// live. This is the setup every picker test needs, and which eight of
+    /// them each spelled out in full: the same ~60 lines of `run_frame` and
+    /// `click_events` closures, differing only in what was registered and
+    /// what was attached.
+    ///
+    /// Those two are therefore the constructor's arguments. Everything the
+    /// copies held in common -- the empty-font context, the 400x400 screen,
+    /// the empty entity snapshot, entity 1 being the selected one -- lives
+    /// here instead, so a test body shows only what that test uniquely does.
+    ///
+    /// The two `generic_reflected_list_can_edit_*` tests deliberately do not
+    /// build on this. They run with `type_registry: None`, so no picker
+    /// exists at all, and drive keyboard focus rather than the pointer;
+    /// folding them in would mean parameterising away the very things that
+    /// make them different tests.
+    struct PickerHarness {
+        egui_ctx: egui::Context,
+        screen_rect: egui::Rect,
+        registry: bevy_reflect::TypeRegistry,
+        insp: InspectorState,
+        entities_snapshot: Vec<InspectorEntityInfo>,
+        panel: InspectorPanel,
+    }
+
+    /// The pair of frames [`PickerHarness::open_picker`] captures.
+    struct PickerFrames {
+        /// The frame drawn with the picker still closed, before the button
+        /// was clicked.
+        ///
+        /// Kept rather than discarded because several assertions are only
+        /// sound as a *difference* against it: an attached component draws
+        /// its own header, so its short name is legitimately on screen with
+        /// the picker open or shut, and only the change between these two
+        /// frames says whether the picker offered it as a row.
+        closed: egui::FullOutput,
+        /// The settle frame -- the first one that paints the popup's own
+        /// content. See [`PickerHarness::open_picker`].
+        open: egui::FullOutput,
+    }
+
+    impl PickerHarness {
+        /// `registry` decides what the picker can offer; `attached` is what
+        /// the selected entity already has, which is both what the
+        /// component list renders and what the picker filters out.
+        fn new(
+            registry: bevy_reflect::TypeRegistry,
+            attached: Vec<(String, Box<dyn bevy_reflect::Reflect>)>,
+        ) -> Self {
+            let egui_ctx = egui::Context::default();
+            egui_ctx.set_fonts(egui::FontDefinitions::empty());
+
+            let mut insp = InspectorState::default();
+            insp.selected_id = Some(1);
+            insp.reflected_components = attached;
+
+            Self {
+                egui_ctx,
+                screen_rect: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0)),
+                registry,
+                insp,
+                entities_snapshot: Vec::new(),
+                panel: InspectorPanel,
+            }
+        }
+
+        /// The screen the panel is laid out in, so a test can phrase a
+        /// position claim relative to it ("in the lower half") instead of
+        /// naming a pixel.
+        fn screen_rect(&self) -> egui::Rect {
+            self.screen_rect
+        }
+
+        /// Resizes the screen for every later frame, i.e. the user dragging
+        /// the editor window's edge.
+        ///
+        /// Only interesting between frames: it moves the button relative to
+        /// the screen's midpoint without moving it in the panel, which is
+        /// how a test can change the answer the direction rule would give
+        /// while a popup is already open.
+        fn set_screen_rect(&mut self, screen_rect: egui::Rect) {
+            self.screen_rect = screen_rect;
+        }
+
+        /// Runs one frame with `events` delivered to it.
+        fn frame(&mut self, events: Vec<egui::Event>) -> egui::FullOutput {
+            self.egui_ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(self.screen_rect),
+                    events,
+                    ..Default::default()
+                },
+                |egui_ctx| {
+                    egui::CentralPanel::default().show(egui_ctx, |ui| {
+                        let mut ctx = EditorPanelContext {
+                            insp: &mut self.insp,
+                            entities_snapshot: &self.entities_snapshot,
+                            cursor_pos: (0.0, 0.0),
+                            type_registry: Some(&self.registry),
+                        };
+                        self.panel.ui(ui, &mut ctx);
+                    });
+                },
+            )
+        }
+
+        /// Runs one frame with no input.
+        fn draw(&mut self) -> egui::FullOutput {
+            self.frame(Vec::new())
+        }
+
+        /// Runs one frame carrying a full primary-button click at `pos`.
+        ///
+        /// `pos` must come from [`collect_rendered_texts_with_pos`] and be
+        /// used exactly as returned -- see that fn's doc comment for why
+        /// adding a half-row offset to "reach the centre" lands outside the
+        /// widget in this zero-sized-galley harness.
+        fn click(&mut self, pos: egui::Pos2) -> egui::FullOutput {
+            self.frame(vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::default(),
+                },
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::default(),
+                },
+            ])
+        }
+
+        /// Runs one frame delivering `text` as typed input, which reaches
+        /// whichever widget currently holds focus.
+        fn type_text(&mut self, text: &str) -> egui::FullOutput {
+            self.frame(vec![egui::Event::Text(text.to_string())])
+        }
+
+        /// Opens the picker the way a user does -- draw, click the Add
+        /// Component button, let the popup settle -- and returns the frame
+        /// before the click alongside the first frame that actually paints
+        /// the popup.
+        ///
+        /// Three details here are the reason this sequence is centralised
+        /// rather than copied, since each is silently wrong in a way no
+        /// assertion points at directly:
+        ///
+        /// - **The click coordinate is read out of the render**, never
+        ///   hardcoded. Hand-measured constants had to be re-measured three
+        ///   times over PR #1727 as sections moved; this instead asks the
+        ///   frame where the button's label actually landed, which also
+        ///   tracks the button's x as the panel width changes (it is
+        ///   centred).
+        /// - **`contains`, not `==`.** The button's galley is the PLUS icon
+        ///   glyph followed by the words, so it never equals
+        ///   "Add Component" exactly.
+        /// - **The settle frame is mandatory.** A popup's first frame sizes
+        ///   its `Area` from a placeholder and paints none of its content;
+        ///   the frame after it is the first with real rows. Confirmed
+        ///   empirically, not just reasoned: capturing that opening frame's
+        ///   own output finds no row text at all -- not even a full
+        ///   type_path -- so a test reading it could not tell "the picker
+        ///   rendered the wrong thing" from "the picker never opened".
+        ///   `reflect_ui.rs` carries the same note for its own combo-box
+        ///   popup.
+        fn open_picker(&mut self) -> PickerFrames {
+            let closed = self.draw();
+            let button_pos = collect_rendered_texts_with_pos(&closed.shapes)
+                .into_iter()
+                .find(|(text, _)| text.contains("Add Component"))
+                .map(|(_, pos)| pos)
+                .expect("the Add Component button must render");
+            self.click(button_pos);
+            let open = self.draw();
+            PickerFrames { closed, open }
+        }
+    }
+
+    /// Counts how many of `texts` are exactly `needle`.
+    ///
+    /// Counts rather than a set membership test, because the interesting
+    /// question is usually how many times a name rendered, not whether it
+    /// did: with the already-attached filter regressed, an attached type
+    /// renders twice on an open frame (its component header, plus the picker
+    /// row that should not exist), and a set difference against the closed
+    /// frame would cancel the extra against the header and pass.
+    fn occurrences(texts: &[String], needle: &str) -> usize {
+        texts.iter().filter(|text| text.as_str() == needle).count()
     }
 
     #[test]
@@ -901,90 +1202,15 @@ mod tests {
         registry.register::<bsengine_core::Camera>();
         registry.register::<bsengine_core::PointLight>();
 
-        let mut insp = InspectorState::default();
-        insp.selected_id = Some(1);
-        insp.reflected_components = vec![(
-            "bsengine_core::camera::Camera".to_string(),
-            Box::new(bsengine_core::Camera::default()) as Box<dyn bevy_reflect::Reflect>,
-        )];
-
-        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
-        let mut panel = InspectorPanel;
-
-        let egui_ctx = egui::Context::default();
-        egui_ctx.set_fonts(egui::FontDefinitions::empty());
-        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
-
-        let run_frame = |egui_ctx: &egui::Context,
-                         events: Vec<egui::Event>,
-                         insp: &mut InspectorState,
-                         entities_snapshot: &[InspectorEntityInfo],
-                         panel: &mut InspectorPanel| {
-            egui_ctx.run(
-                egui::RawInput {
-                    screen_rect: Some(screen_rect),
-                    events,
-                    ..Default::default()
-                },
-                |egui_ctx| {
-                    egui::CentralPanel::default().show(egui_ctx, |ui| {
-                        let mut ctx = EditorPanelContext {
-                            insp,
-                            entities_snapshot,
-                            cursor_pos: (0.0, 0.0),
-                            type_registry: Some(&registry),
-                        };
-                        panel.ui(ui, &mut ctx);
-                    });
-                },
-            )
-        };
-        let click_events = |pos: egui::Pos2| {
-            vec![
-                egui::Event::PointerMoved(pos),
-                egui::Event::PointerButton {
-                    pos,
-                    button: egui::PointerButton::Primary,
-                    pressed: true,
-                    modifiers: egui::Modifiers::default(),
-                },
-                egui::Event::PointerButton {
-                    pos,
-                    button: egui::PointerButton::Primary,
-                    pressed: false,
-                    modifiers: egui::Modifiers::default(),
-                },
-            ]
-        };
-
-        // Frame 1: draw the panel once (picker closed) so its widgets exist
-        // in egui's id/layout cache before anything is clicked.
-        let frame1 = run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
-
-        // Frame 2: click the Add Component button to open the picker, at
-        // the position frame 1's output says the button's label actually
-        // rendered at -- the click coordinate comes from this run rather
-        // than a hardcoded constant. It is used as-is; see
-        // collect_rendered_texts_with_pos's doc comment for why adding a
-        // half-row offset would land outside the widget here.
-        let button_pos = collect_rendered_texts_with_pos(&frame1.shapes)
-            .into_iter()
-            .find(|(text, _)| text.contains("Add Component"))
-            .map(|(_, pos)| pos)
-            .expect("the Add Component button must render");
-        run_frame(
-            &egui_ctx,
-            click_events(button_pos),
-            &mut insp,
-            &entities_snapshot,
-            &mut panel,
+        let mut harness = PickerHarness::new(
+            registry,
+            vec![(
+                "bsengine_core::camera::Camera".to_string(),
+                Box::new(bsengine_core::Camera::default()) as Box<dyn bevy_reflect::Reflect>,
+            )],
         );
 
-        // Frame 3 ("settle"): redraw with no input so the popup's cached
-        // size/id sequence stabilizes before anything tries to click into
-        // it (see reflect_ui.rs's identical settle-frame comment for why
-        // this is needed).
-        let settled = run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
+        let frames = harness.open_picker();
 
         // The filter's actual effect, asserted directly rather than probed
         // by clicking where a filtered-out row would have been: opening the
@@ -1000,11 +1226,6 @@ mod tests {
         // header and fail a correct build. What the filter guarantees is
         // narrower -- that *opening the picker contributes* no Camera row.
         //
-        // Counts, not a set difference: with the filter regressed to a
-        // no-op, "Camera" renders twice on the open frame (attached header +
-        // picker row), so a set difference against the closed frame would
-        // cancel it against the header and pass regardless.
-        //
         // The PointLight assertion doubles as the vacuity guard for the
         // Camera one: if the picker ever stops opening, PointLight's +1
         // fails first, so "Camera gained no row" can never pass merely
@@ -1013,53 +1234,39 @@ mod tests {
         // These hold every string the frame rendered -- entity heading,
         // "Visible", field labels, the attached component's header -- not
         // just picker rows.
-        let closed_texts = collect_rendered_texts(&frame1.shapes);
-        let open_texts = collect_rendered_texts(&settled.shapes);
-        let count = |texts: &[String], needle: &str| {
-            texts.iter().filter(|text| text.as_str() == needle).count()
-        };
+        let closed_texts = collect_rendered_texts(&frames.closed.shapes);
+        let open_texts = collect_rendered_texts(&frames.open.shapes);
         assert_eq!(
-            count(&open_texts, "PointLight"),
-            count(&closed_texts, "PointLight") + 1,
+            occurrences(&open_texts, "PointLight"),
+            occurrences(&closed_texts, "PointLight") + 1,
             "opening the picker must add exactly one PointLight row -- it is registered and \
              not yet attached, so it must be offered. closed: {closed_texts:?}, open: \
              {open_texts:?}"
         );
         assert_eq!(
-            count(&open_texts, "Camera"),
-            count(&closed_texts, "Camera"),
+            occurrences(&open_texts, "Camera"),
+            occurrences(&closed_texts, "Camera"),
             "Camera is already attached, so opening the picker must add no Camera row -- an \
              extra one here means the already_attached filter regressed. closed: \
              {closed_texts:?}, open: {open_texts:?}"
         );
 
-        // Frame 4: click the picker's only row.
-        //
-        // Likewise for that row: the settle frame is the first one that
-        // actually paints row content (a popup's opening frame sizes its
-        // Area from a placeholder and paints nothing -- see this file's and
-        // reflect_ui.rs's existing notes on why a settle frame is
-        // required), so its output is where the row position comes from.
-        let point_light_row_pos = collect_rendered_texts_with_pos(&settled.shapes)
+        // Click the picker's only row, at the position the settle frame --
+        // the first one to paint rows at all -- says it rendered at.
+        let point_light_row_pos = collect_rendered_texts_with_pos(&frames.open.shapes)
             .into_iter()
             .find(|(text, _)| text == "PointLight")
             .map(|(_, pos)| pos)
             .expect("the popup's PointLight row must render on the settle frame");
-        run_frame(
-            &egui_ctx,
-            click_events(point_light_row_pos),
-            &mut insp,
-            &entities_snapshot,
-            &mut panel,
-        );
+        harness.click(point_light_row_pos);
 
         assert_eq!(
-            insp.cmd_queue.len(),
+            harness.insp.cmd_queue.len(),
             1,
             "clicking the popup's only row should queue exactly one attach command; \
              a queue of 0 means the click missed"
         );
-        match &insp.cmd_queue[0] {
+        match &harness.insp.cmd_queue[0] {
             InspectorCmd::AttachComponentByType { id, type_path } => {
                 assert_eq!(*id, 1);
                 assert_eq!(
@@ -1086,101 +1293,20 @@ mod tests {
         registry.register::<bsengine_core::Camera>();
         registry.register::<bsengine_core::PointLight>();
 
-        let mut insp = InspectorState::default();
-        insp.selected_id = Some(1);
-        insp.reflected_components = vec![(
-            "bsengine_core::camera::Camera".to_string(),
-            Box::new(bsengine_core::Camera::default()) as Box<dyn bevy_reflect::Reflect>,
-        )];
-
-        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
-        let mut panel = InspectorPanel;
-
-        let egui_ctx = egui::Context::default();
-        egui_ctx.set_fonts(egui::FontDefinitions::empty());
-        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
-
-        let run_frame = |egui_ctx: &egui::Context,
-                         events: Vec<egui::Event>,
-                         insp: &mut InspectorState,
-                         entities_snapshot: &[InspectorEntityInfo],
-                         panel: &mut InspectorPanel| {
-            egui_ctx.run(
-                egui::RawInput {
-                    screen_rect: Some(screen_rect),
-                    events,
-                    ..Default::default()
-                },
-                |egui_ctx| {
-                    egui::CentralPanel::default().show(egui_ctx, |ui| {
-                        let mut ctx = EditorPanelContext {
-                            insp,
-                            entities_snapshot,
-                            cursor_pos: (0.0, 0.0),
-                            type_registry: Some(&registry),
-                        };
-                        panel.ui(ui, &mut ctx);
-                    });
-                },
-            )
-        };
-        let click_events = |pos: egui::Pos2| {
-            vec![
-                egui::Event::PointerMoved(pos),
-                egui::Event::PointerButton {
-                    pos,
-                    button: egui::PointerButton::Primary,
-                    pressed: true,
-                    modifiers: egui::Modifiers::default(),
-                },
-                egui::Event::PointerButton {
-                    pos,
-                    button: egui::PointerButton::Primary,
-                    pressed: false,
-                    modifiers: egui::Modifiers::default(),
-                },
-            ]
-        };
-
-        // Frame 1: draw once (picker closed). Frame 2: click the Add
-        // Component button to open the picker, at the position frame 1's
-        // output says the button's label actually rendered at -- the
-        // coordinate is read out of the render rather than hardcoded,
-        // exactly as in
-        // add_component_picker_click_only_offers_the_not_yet_attached_type
-        // (which drives this identical scenario: Camera attached, PointLight
-        // not). The position is used as-is -- see
-        // collect_rendered_texts_with_pos's doc comment for why adding a
-        // half-row offset would land outside the widget in this
-        // zero-sized-galley harness.
-        let frame1 = run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
-        let button_pos = collect_rendered_texts_with_pos(&frame1.shapes)
-            .into_iter()
-            .find(|(text, _)| text.contains("Add Component"))
-            .map(|(_, pos)| pos)
-            .expect("the Add Component button must render");
-        let _ = run_frame(
-            &egui_ctx,
-            click_events(button_pos),
-            &mut insp,
-            &entities_snapshot,
-            &mut panel,
+        let mut harness = PickerHarness::new(
+            registry,
+            vec![(
+                "bsengine_core::camera::Camera".to_string(),
+                Box::new(bsengine_core::Camera::default()) as Box<dyn bevy_reflect::Reflect>,
+            )],
         );
 
-        // Frame 3 ("settle"): redraw with no input. Per
-        // add_component_picker_click_only_offers_the_not_yet_attached_type's
-        // own "settle frame" comment (and enum_variant_combo_switches_..._'s
-        // longer explanation in reflect_ui.rs), the popup's first-ever frame
-        // (frame 2, just above) sizes its Area/ScrollArea from a placeholder
-        // default and does not yet paint its selectable rows -- confirmed
-        // empirically here too: capturing frame 2's own FullOutput finds
-        // none of the popup's row text at all, not even the full type_path,
-        // so a bare frame-2 capture can't distinguish "not fixed yet" from
-        // "popup never opened." Capturing the settle frame's output instead
-        // is what actually exercises the rendered row text.
-        let full_output = run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
-
-        let rendered_texts = collect_rendered_texts(&full_output.shapes);
+        // The settle frame is the one that carries the rows -- see
+        // `PickerHarness::open_picker`, whose doc records the empirical
+        // check behind that: the opening frame paints no row text at all,
+        // not even a full type_path, so reading it could not tell a
+        // regressed row label from a popup that never opened.
+        let rendered_texts = collect_rendered_texts(&harness.open_picker().open.shapes);
 
         assert!(
             rendered_texts.iter().any(|t| t == "PointLight"),
@@ -1267,61 +1393,12 @@ mod tests {
         let mut registry = bevy_reflect::TypeRegistry::default();
         registry.register::<bsengine_core::PointLight>();
 
-        let mut insp = InspectorState::default();
-        insp.selected_id = Some(1);
+        let mut harness = PickerHarness::new(registry, Vec::new());
 
-        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
-        let mut panel = InspectorPanel;
+        let frames = harness.open_picker();
 
-        let egui_ctx = egui::Context::default();
-        egui_ctx.set_fonts(egui::FontDefinitions::empty());
-        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
-
-        let run_frame = |egui_ctx: &egui::Context,
-                         events: Vec<egui::Event>,
-                         insp: &mut InspectorState,
-                         entities_snapshot: &[InspectorEntityInfo],
-                         panel: &mut InspectorPanel| {
-            egui_ctx.run(
-                egui::RawInput {
-                    screen_rect: Some(screen_rect),
-                    events,
-                    ..Default::default()
-                },
-                |egui_ctx| {
-                    egui::CentralPanel::default().show(egui_ctx, |ui| {
-                        let mut ctx = EditorPanelContext {
-                            insp,
-                            entities_snapshot,
-                            cursor_pos: (0.0, 0.0),
-                            type_registry: Some(&registry),
-                        };
-                        panel.ui(ui, &mut ctx);
-                    });
-                },
-            )
-        };
-        let click_events = |pos: egui::Pos2| {
-            vec![
-                egui::Event::PointerMoved(pos),
-                egui::Event::PointerButton {
-                    pos,
-                    button: egui::PointerButton::Primary,
-                    pressed: true,
-                    modifiers: egui::Modifiers::default(),
-                },
-                egui::Event::PointerButton {
-                    pos,
-                    button: egui::PointerButton::Primary,
-                    pressed: false,
-                    modifiers: egui::Modifiers::default(),
-                },
-            ]
-        };
-
-        // Frame 1: nothing clicked yet -- the button shows, the picker doesn't.
-        let closed = run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
-        let closed_texts = collect_rendered_texts_with_pos(&closed.shapes);
+        // The frame before the click: the button shows, the picker doesn't.
+        let closed_texts = collect_rendered_texts_with_pos(&frames.closed.shapes);
         assert!(
             closed_texts
                 .iter()
@@ -1334,30 +1411,7 @@ mod tests {
              {closed_texts:?}"
         );
 
-        // Frame 2: click the button where it actually rendered. The label's
-        // own position is the click point -- with zero-sized galleys it
-        // sits at the centre of the button's padded rect, so both axes are
-        // correct as-is, including x, which moves with the panel width
-        // because the button is centred.
-        let button_pos = closed_texts
-            .iter()
-            .find(|(text, _)| text.contains("Add Component"))
-            .map(|(_, pos)| *pos)
-            .expect("the Add Component button must render");
-        run_frame(
-            &egui_ctx,
-            click_events(button_pos),
-            &mut insp,
-            &entities_snapshot,
-            &mut panel,
-        );
-
-        // Frame 3 ("settle"): a popup's opening frame sizes its Area from a
-        // placeholder and paints no row content -- the same quirk this
-        // file's other popup tests and reflect_ui.rs already document. The
-        // frame after it is the first with real rows.
-        let opened = run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
-        let opened_texts = collect_rendered_texts(&opened.shapes);
+        let opened_texts = collect_rendered_texts(&frames.open.shapes);
 
         assert!(
             opened_texts.iter().any(|text| text == "PointLight"),
@@ -1375,74 +1429,9 @@ mod tests {
         registry.register::<bsengine_core::PointLight>();
         registry.register::<bsengine_core::Camera>();
 
-        let mut insp = InspectorState::default();
-        insp.selected_id = Some(1);
+        let mut harness = PickerHarness::new(registry, Vec::new());
 
-        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
-        let mut panel = InspectorPanel;
-
-        let egui_ctx = egui::Context::default();
-        egui_ctx.set_fonts(egui::FontDefinitions::empty());
-        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
-
-        let run_frame = |egui_ctx: &egui::Context,
-                         events: Vec<egui::Event>,
-                         insp: &mut InspectorState,
-                         entities_snapshot: &[InspectorEntityInfo],
-                         panel: &mut InspectorPanel| {
-            egui_ctx.run(
-                egui::RawInput {
-                    screen_rect: Some(screen_rect),
-                    events,
-                    ..Default::default()
-                },
-                |egui_ctx| {
-                    egui::CentralPanel::default().show(egui_ctx, |ui| {
-                        let mut ctx = EditorPanelContext {
-                            insp,
-                            entities_snapshot,
-                            cursor_pos: (0.0, 0.0),
-                            type_registry: Some(&registry),
-                        };
-                        panel.ui(ui, &mut ctx);
-                    });
-                },
-            )
-        };
-        let click_events = |pos: egui::Pos2| {
-            vec![
-                egui::Event::PointerMoved(pos),
-                egui::Event::PointerButton {
-                    pos,
-                    button: egui::PointerButton::Primary,
-                    pressed: true,
-                    modifiers: egui::Modifiers::default(),
-                },
-                egui::Event::PointerButton {
-                    pos,
-                    button: egui::PointerButton::Primary,
-                    pressed: false,
-                    modifiers: egui::Modifiers::default(),
-                },
-            ]
-        };
-
-        // Open the picker: draw, click the button where it rendered, settle.
-        let closed = run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
-        let button_pos = collect_rendered_texts_with_pos(&closed.shapes)
-            .into_iter()
-            .find(|(text, _)| text.contains("Add Component"))
-            .map(|(_, pos)| pos)
-            .expect("the Add Component button must render");
-        run_frame(
-            &egui_ctx,
-            click_events(button_pos),
-            &mut insp,
-            &entities_snapshot,
-            &mut panel,
-        );
-        let opened = run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
-
+        let opened = harness.open_picker().open;
         let unfiltered = collect_rendered_texts(&opened.shapes);
         assert!(
             unfiltered.iter().any(|text| text == "PointLight")
@@ -1461,23 +1450,9 @@ mod tests {
             .find(|(text, _)| text == SEARCH_HINT)
             .map(|(_, pos)| pos)
             .expect("the search field's hint text must render while the picker is open");
-        run_frame(
-            &egui_ctx,
-            click_events(search_pos),
-            &mut insp,
-            &entities_snapshot,
-            &mut panel,
-        );
-        run_frame(
-            &egui_ctx,
-            vec![egui::Event::Text("point".to_string())],
-            &mut insp,
-            &entities_snapshot,
-            &mut panel,
-        );
-        let filtered_output =
-            run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
-        let filtered = collect_rendered_texts(&filtered_output.shapes);
+        harness.click(search_pos);
+        harness.type_text("point");
+        let filtered = collect_rendered_texts(&harness.draw().shapes);
 
         assert!(
             filtered.iter().any(|text| text == "PointLight"),
@@ -1500,74 +1475,9 @@ mod tests {
         registry.register::<bsengine_core::PointLight>();
         registry.register::<bsengine_core::Camera>();
 
-        let mut insp = InspectorState::default();
-        insp.selected_id = Some(1);
+        let mut harness = PickerHarness::new(registry, Vec::new());
 
-        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
-        let mut panel = InspectorPanel;
-
-        let egui_ctx = egui::Context::default();
-        egui_ctx.set_fonts(egui::FontDefinitions::empty());
-        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
-
-        let run_frame = |egui_ctx: &egui::Context,
-                         events: Vec<egui::Event>,
-                         insp: &mut InspectorState,
-                         entities_snapshot: &[InspectorEntityInfo],
-                         panel: &mut InspectorPanel| {
-            egui_ctx.run(
-                egui::RawInput {
-                    screen_rect: Some(screen_rect),
-                    events,
-                    ..Default::default()
-                },
-                |egui_ctx| {
-                    egui::CentralPanel::default().show(egui_ctx, |ui| {
-                        let mut ctx = EditorPanelContext {
-                            insp,
-                            entities_snapshot,
-                            cursor_pos: (0.0, 0.0),
-                            type_registry: Some(&registry),
-                        };
-                        panel.ui(ui, &mut ctx);
-                    });
-                },
-            )
-        };
-        let click_events = |pos: egui::Pos2| {
-            vec![
-                egui::Event::PointerMoved(pos),
-                egui::Event::PointerButton {
-                    pos,
-                    button: egui::PointerButton::Primary,
-                    pressed: true,
-                    modifiers: egui::Modifiers::default(),
-                },
-                egui::Event::PointerButton {
-                    pos,
-                    button: egui::PointerButton::Primary,
-                    pressed: false,
-                    modifiers: egui::Modifiers::default(),
-                },
-            ]
-        };
-
-        // Open the picker: draw, click the button where it rendered, settle.
-        let closed = run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
-        let button_pos = collect_rendered_texts_with_pos(&closed.shapes)
-            .into_iter()
-            .find(|(text, _)| text.contains("Add Component"))
-            .map(|(_, pos)| pos)
-            .expect("the Add Component button must render");
-        run_frame(
-            &egui_ctx,
-            click_events(button_pos),
-            &mut insp,
-            &entities_snapshot,
-            &mut panel,
-        );
-        let opened = run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
-
+        let opened = harness.open_picker().open;
         let unfiltered = collect_rendered_texts(&opened.shapes);
         assert!(
             unfiltered.iter().any(|text| text == "PointLight")
@@ -1578,16 +1488,8 @@ mod tests {
         // Type without ever clicking the search field. This is the whole
         // point of the test -- the sibling test clicks it first, which would
         // mask a missing autofocus.
-        run_frame(
-            &egui_ctx,
-            vec![egui::Event::Text("point".to_string())],
-            &mut insp,
-            &entities_snapshot,
-            &mut panel,
-        );
-        let filtered_output =
-            run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
-        let filtered = collect_rendered_texts(&filtered_output.shapes);
+        harness.type_text("point");
+        let filtered = collect_rendered_texts(&harness.draw().shapes);
 
         // `Camera` vanishing is the assertion that actually proves focus:
         // with no focus the keystrokes go nowhere, nothing filters, and
@@ -2232,5 +2134,296 @@ mod tests {
                 panel.ui(ui, &mut ctx);
             });
         }
+    }
+
+    /// `count` `Transform` values under invented type paths, for a test
+    /// that needs the component list to occupy space rather than to hold
+    /// anything in particular.
+    ///
+    /// Follows `component_list_handles_multiple_counts_without_panicking`:
+    /// distinct paths are what give each entry its own collapsing-header
+    /// id, and none of them is ever registered, so none can also turn up as
+    /// a picker row.
+    fn filler_components(count: usize) -> Vec<(String, Box<dyn bevy_reflect::Reflect>)> {
+        (0..count)
+            .map(|i| {
+                (
+                    format!("test_module::Component{i}"),
+                    Box::new(bsengine_core::Transform::default()) as Box<dyn bevy_reflect::Reflect>,
+                )
+            })
+            .collect()
+    }
+
+    /// Where the Add Component button's own label and the open picker's
+    /// search hint rendered in `output`.
+    ///
+    /// Both come from the one frame, so the two are comparable; taking one
+    /// from an earlier frame would quietly assume the button had not moved.
+    /// The hint is what marks where the popup went -- an empty `TextEdit`
+    /// paints nothing of its own, so its placeholder is the only text
+    /// drawn there.
+    fn button_and_hint_ys(output: &egui::FullOutput) -> (f32, f32) {
+        let texts = collect_rendered_texts_with_pos(&output.shapes);
+        let button_y = texts
+            .iter()
+            .find(|(text, _)| text.contains("Add Component"))
+            .map(|(_, pos)| pos.y)
+            .expect("the Add Component button must still render while the picker is open");
+        let hint_y = texts
+            .iter()
+            .find(|(text, _)| text == SEARCH_HINT)
+            .map(|(_, pos)| pos.y)
+            .expect("the search field's hint text must render while the picker is open");
+        (button_y, hint_y)
+    }
+
+    #[test]
+    fn picker_opens_below_a_button_that_sits_high() {
+        // An entity with no components leaves the button just under the
+        // header, with almost the whole screen free below it and next to
+        // nothing above. A hardcoded `AboveOrBelow::Above` cannot honour
+        // that: the popup doesn't fit above, so `Area`'s screen-clamping
+        // pushes it back down over the button and everything above it --
+        // still clickable, but it reads as broken. So the direction has to
+        // be chosen from the space actually available.
+        //
+        // Asserted through the render rather than by inspecting the chosen
+        // `AboveOrBelow` (a local inside the panel): the search hint is the
+        // empty field's only painted content, so its position is where the
+        // popup went.
+        let mut registry = bevy_reflect::TypeRegistry::default();
+        registry.register::<bsengine_core::PointLight>();
+        registry.register::<bsengine_core::Camera>();
+        // No components at all: this is what leaves the button high.
+        let mut harness = PickerHarness::new(registry, Vec::new());
+
+        let frames = harness.open_picker();
+        let (button_y, hint_y) = button_and_hint_ys(&frames.open);
+        let screen = harness.screen_rect();
+
+        assert!(
+            button_y < screen.center().y,
+            "this scenario is only meaningful with the button in the upper half of the \
+             screen; got button y={button_y} against screen {screen:?}"
+        );
+        assert!(
+            hint_y > button_y,
+            "with the button high on screen the picker must open downward, so the search \
+             field must render below the button's label; got hint y={hint_y} vs button \
+             y={button_y}"
+        );
+    }
+
+    #[test]
+    fn picker_opens_above_a_button_that_sits_low() {
+        // The common case: the button follows the component list, so on an
+        // entity with a few components it sits near the bottom edge and the
+        // room is all above it. Three filler components is what puts it
+        // there on this 400x400 screen -- measured with a throwaway sweep of
+        // counts 0..=6, which put the button at y=59, 152, 245 and 338, and
+        // then stopped rendering it at all from 4 on (the panel's ScrollArea
+        // clips it once the content outgrows the viewport, and a button that
+        // never renders can't be clicked or measured).
+        let mut registry = bevy_reflect::TypeRegistry::default();
+        registry.register::<bsengine_core::PointLight>();
+        registry.register::<bsengine_core::Camera>();
+        let mut harness = PickerHarness::new(registry, filler_components(3));
+
+        let frames = harness.open_picker();
+        let (button_y, hint_y) = button_and_hint_ys(&frames.open);
+        let screen = harness.screen_rect();
+
+        assert!(
+            button_y > screen.center().y,
+            "this scenario is only meaningful with the button in the lower half of the \
+             screen; got button y={button_y} against screen {screen:?}"
+        );
+        assert!(
+            hint_y < button_y,
+            "with the button low on screen the picker must open upward, so the search \
+             field must render above the button's label; got hint y={hint_y} vs button \
+             y={button_y}"
+        );
+    }
+
+    #[test]
+    fn picker_keeps_its_side_when_the_geometry_changes_while_open() {
+        // The side is latched when the popup opens rather than recomputed
+        // per frame, so an open picker cannot jump across the button.
+        //
+        // Driven by a window resize, not a scroll, and that is worth
+        // explaining because scrolling is the case the latch was written
+        // for. Scrolling cannot show it *in this harness*: the button is
+        // the panel's last widget, so whenever the content is tall enough
+        // to scroll at all, the button sits at or below the viewport's
+        // bottom edge and is never in the screen's upper half. Probed
+        // rather than assumed -- a throwaway sweep drove wheel events at
+        // 4, 6 and 8 components and the button reported y=383 of 400 at
+        // every offset where it rendered, and was culled entirely at the
+        // rest, so the rule returns `Above` throughout and a scroll test
+        // would pass with or without the latch. (The flip is still real in
+        // the shipped editor, where the Inspector is a dock tab whose
+        // viewport is a sub-rect of the screen: a short tab docked high
+        // can hold the button in the screen's upper half and still
+        // scroll.) A resize reaches the same invariant here -- the
+        // direction rule's answer changes underneath an open popup -- with
+        // no second harness.
+        //
+        // Three components put the button low on the 400px screen, so it
+        // opens `Above`; growing the screen to 800 leaves the button where
+        // it is (its y comes from the component list, not the window) but
+        // gives `space_below` the larger value, so a per-frame rule would
+        // now answer `Below`.
+        let mut registry = bevy_reflect::TypeRegistry::default();
+        registry.register::<bsengine_core::PointLight>();
+        registry.register::<bsengine_core::Camera>();
+        let mut harness = PickerHarness::new(registry, filler_components(3));
+
+        let frames = harness.open_picker();
+        let (button_y, hint_y) = button_and_hint_ys(&frames.open);
+        assert!(
+            hint_y < button_y,
+            "the picker must start out opening upward for this test to be about anything; \
+             got hint y={hint_y} vs button y={button_y}"
+        );
+
+        harness.set_screen_rect(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(400.0, 800.0),
+        ));
+        let resized = harness.draw();
+        let (resized_button_y, resized_hint_y) = button_and_hint_ys(&resized);
+
+        // The resize has to actually change what the rule would answer,
+        // otherwise the assertion below proves nothing. Measured off the
+        // button's label, which sits at the centre of its rect in this
+        // zero-sized-galley harness (see `collect_rendered_texts_with_pos`),
+        // so it stands in for the rect either side is measured from.
+        let screen = harness.screen_rect();
+        assert!(
+            screen.bottom() - resized_button_y > resized_button_y - screen.top(),
+            "the enlarged screen must be one where the rule now prefers opening downward, \
+             or this test cannot tell a latched side from a recomputed one; got button \
+             y={resized_button_y} in screen {screen:?}"
+        );
+        assert!(
+            resized_hint_y < resized_button_y,
+            "the side is chosen when the picker opens and held while it stays open, so a \
+             resize that would now favour opening downward must not move the popup across \
+             the button; got hint y={resized_hint_y} vs button y={resized_button_y}"
+        );
+    }
+
+    #[test]
+    fn picker_explains_itself_when_every_component_is_already_attached() {
+        // The picker filters out types the entity already has, so on an
+        // entity holding all of them it listed nothing at all -- a search
+        // box over blank space, with no way to tell "nothing to add" from
+        // "the list failed to draw".
+        //
+        // Both types are attached under the registry's own type paths,
+        // asked of `TypePath` rather than spelled out, since matching those
+        // exact strings is what makes the already-attached filter fire.
+        let mut registry = bevy_reflect::TypeRegistry::default();
+        registry.register::<bsengine_core::PointLight>();
+        registry.register::<bsengine_core::Camera>();
+        let point_light_path =
+            <bsengine_core::PointLight as bevy_reflect::TypePath>::type_path().to_string();
+        let camera_path =
+            <bsengine_core::Camera as bevy_reflect::TypePath>::type_path().to_string();
+
+        let mut harness = PickerHarness::new(
+            registry,
+            vec![
+                (
+                    point_light_path,
+                    Box::new(bsengine_core::PointLight::default())
+                        as Box<dyn bevy_reflect::Reflect>,
+                ),
+                (
+                    camera_path,
+                    Box::new(bsengine_core::Camera::default()) as Box<dyn bevy_reflect::Reflect>,
+                ),
+            ],
+        );
+
+        let frames = harness.open_picker();
+        let closed_texts = collect_rendered_texts(&frames.closed.shapes);
+        let opened_texts = collect_rendered_texts(&frames.open.shapes);
+
+        assert!(
+            !closed_texts.iter().any(|text| text == ALL_ATTACHED_LABEL),
+            "the empty-state label belongs to the picker, so it must not render before the \
+             picker is open, got: {closed_texts:?}"
+        );
+        assert!(
+            opened_texts.iter().any(|text| text == ALL_ATTACHED_LABEL),
+            "with every registered type already attached the picker must say so rather than \
+             show an empty list, got: {opened_texts:?}"
+        );
+
+        // Both types render as component headers in the list above, so
+        // their mere presence proves nothing. What must hold is that
+        // opening the picker added no further occurrence of either -- i.e.
+        // listed neither as a row.
+        for short_name in ["PointLight", "Camera"] {
+            assert_eq!(
+                occurrences(&opened_texts, short_name),
+                occurrences(&closed_texts, short_name),
+                "an already-attached type must not be offered as a picker row, so opening the \
+                 picker must not add an occurrence of {short_name}; got open: {opened_texts:?} \
+                 vs closed: {closed_texts:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn picker_says_no_matches_when_the_search_matches_nothing() {
+        // The other half of the empty state: the list can also come up
+        // empty because of what was typed, and that needs a different
+        // answer -- clear the search, rather than nothing to do.
+        let mut registry = bevy_reflect::TypeRegistry::default();
+        registry.register::<bsengine_core::PointLight>();
+        registry.register::<bsengine_core::Camera>();
+
+        let mut harness = PickerHarness::new(registry, Vec::new());
+
+        let unfiltered = collect_rendered_texts(&harness.open_picker().open.shapes);
+
+        // Nothing is attached here, so both types must be listed first --
+        // otherwise the assertions below would pass on an empty picker.
+        assert!(
+            unfiltered.iter().any(|text| text == "PointLight")
+                && unfiltered.iter().any(|text| text == "Camera"),
+            "both types must be listed before typing, got: {unfiltered:?}"
+        );
+        assert!(
+            !unfiltered.iter().any(|text| text == NO_MATCHES_LABEL),
+            "a picker with rows in it must not claim there are no matches, got: {unfiltered:?}"
+        );
+
+        // Type a needle no short name contains, relying on the search
+        // field's autofocus the same way
+        // `picker_search_field_is_focused_on_open` does.
+        harness.type_text("zzz");
+        let filtered = collect_rendered_texts(&harness.draw().shapes);
+
+        assert!(
+            filtered.iter().any(|text| text == NO_MATCHES_LABEL),
+            "a search that matches nothing must say so rather than leave the list blank, \
+             got: {filtered:?}"
+        );
+        assert!(
+            !filtered.iter().any(|text| text == "PointLight")
+                && !filtered.iter().any(|text| text == "Camera"),
+            "neither type matches the typed text, so neither may still be listed, got: \
+             {filtered:?}"
+        );
+        assert!(
+            !filtered.iter().any(|text| text == ALL_ATTACHED_LABEL),
+            "nothing is attached here -- an empty list caused by the search must not be \
+             explained as everything being attached, got: {filtered:?}"
+        );
     }
 }

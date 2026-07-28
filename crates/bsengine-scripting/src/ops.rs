@@ -5878,7 +5878,12 @@ deno_core::extension!(
 /// JS source injected into every script runtime that defines the `Bsengine` global,
 /// mapping its camelCase methods onto the `bsengine_*` ops registered above.
 pub const BOOTSTRAP_JS: &str = r#"
-const Bsengine = {
+// `var`, not `const`: scene reload re-runs this bootstrap in the SAME V8
+// isolate/global scope (see handle_scene_load in bsengine-runtime) rather
+// than spinning up a new isolate. `const`/`let` at top level would throw
+// "Identifier 'Bsengine' has already been declared" on the second run;
+// `var` (and plain reassignment) is redeclaration-safe.
+var Bsengine = {
     log:            (msg)                  => Deno.core.ops.bsengine_log(msg),
     version:        ()                     => Deno.core.ops.bsengine_version(),
     getTransform:      (name)                 => Deno.core.ops.bsengine_get_transform(name),

@@ -153,6 +153,7 @@ impl EditorPanel for InspectorPanel {
                 }
 
                 let popup_id = ui.make_persistent_id("add_component_popup");
+                let filter_id = ui.make_persistent_id("add_component_filter");
                 // Unity insets this button rather than filling the panel
                 // width. The explicit width also keeps
                 // `popup_above_or_below_widget`'s debug_assert satisfied: it
@@ -190,7 +191,16 @@ impl EditorPanel for InspectorPanel {
                     .inner;
 
                 if button_response.clicked() {
+                    // Checked before toggling: if it was closed, this click
+                    // opens it, and the picker should start with an empty
+                    // search box (matching Unity). Clearing unconditionally
+                    // would also fire on the click that *closes* it, which
+                    // is harmless but muddles the intent.
+                    let was_open = ui.memory(|m| m.is_popup_open(popup_id));
                     ui.memory_mut(|m| m.toggle_popup(popup_id));
+                    if !was_open {
+                        ui.memory_mut(|m| m.data.insert_temp(filter_id, String::new()));
+                    }
                 }
 
                 let mut to_attach: Option<String> = None;
@@ -209,6 +219,24 @@ impl EditorPanel for InspectorPanel {
                     egui::popup::PopupCloseBehavior::CloseOnClickOutside,
                     |ui| {
                         ui.set_min_width(200.0);
+                        // Transient, panel-local UI state: egui memory keeps
+                        // it out of InspectorState (a cross-crate type that
+                        // PRs #1727/#1728 deliberately pruned of UI-only
+                        // fields) and off InspectorPanel (a unit struct
+                        // built at ~26 sites, nearly all tests).
+                        let mut filter: String =
+                            ui.memory(|m| m.data.get_temp(filter_id).unwrap_or_default());
+                        // The hint doubles as the field's only painted
+                        // content while empty, which is what lets a test
+                        // locate it -- an empty TextEdit draws no text of
+                        // its own.
+                        if ui
+                            .add(egui::TextEdit::singleline(&mut filter).hint_text("Search"))
+                            .changed()
+                        {
+                            ui.memory_mut(|m| m.data.insert_temp(filter_id, filter.clone()));
+                        }
+                        let needle = filter.to_lowercase();
                         egui::ScrollArea::vertical()
                             .max_height(240.0)
                             .show(ui, |ui| {
@@ -236,6 +264,13 @@ impl EditorPanel for InspectorPanel {
                                     }
                                     let short_name =
                                         short_component_name(&type_path, Some(registry));
+                                    // Match on the short name -- what the user
+                                    // actually sees -- not the full type_path.
+                                    if !needle.is_empty()
+                                        && !short_name.to_lowercase().contains(&needle)
+                                    {
+                                        continue;
+                                    }
                                     if ui.selectable_label(false, &short_name).clicked() {
                                         to_attach = Some(type_path);
                                     }
@@ -1276,6 +1311,131 @@ mod tests {
         assert!(
             opened_texts.iter().any(|text| text == "PointLight"),
             "clicking the button must reveal the picker's rows, got: {opened_texts:?}"
+        );
+    }
+
+    #[test]
+    fn picker_search_field_filters_the_component_list() {
+        // Unity's Add Component picker has a search box. Typing must narrow
+        // the list by short name -- the text the user actually sees -- and
+        // must not dismiss the popup (which is why the popup uses
+        // CloseOnClickOutside rather than ComboBox's CloseOnClick).
+        let mut registry = bevy_reflect::TypeRegistry::default();
+        registry.register::<bsengine_core::PointLight>();
+        registry.register::<bsengine_core::Camera>();
+
+        let mut insp = InspectorState::default();
+        insp.selected_id = Some(1);
+
+        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
+        let mut panel = InspectorPanel;
+
+        let egui_ctx = egui::Context::default();
+        egui_ctx.set_fonts(egui::FontDefinitions::empty());
+        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
+
+        let run_frame = |egui_ctx: &egui::Context,
+                         events: Vec<egui::Event>,
+                         insp: &mut InspectorState,
+                         entities_snapshot: &[InspectorEntityInfo],
+                         panel: &mut InspectorPanel| {
+            egui_ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(screen_rect),
+                    events,
+                    ..Default::default()
+                },
+                |egui_ctx| {
+                    egui::CentralPanel::default().show(egui_ctx, |ui| {
+                        let mut ctx = EditorPanelContext {
+                            insp,
+                            entities_snapshot,
+                            cursor_pos: (0.0, 0.0),
+                            type_registry: Some(&registry),
+                        };
+                        panel.ui(ui, &mut ctx);
+                    });
+                },
+            )
+        };
+        let click_events = |pos: egui::Pos2| {
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::default(),
+                },
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::default(),
+                },
+            ]
+        };
+
+        // Open the picker: draw, click the button where it rendered, settle.
+        let closed = run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
+        let button_pos = collect_rendered_texts_with_pos(&closed.shapes)
+            .into_iter()
+            .find(|(text, _)| text.contains("Add Component"))
+            .map(|(_, pos)| pos)
+            .expect("the Add Component button must render");
+        run_frame(
+            &egui_ctx,
+            click_events(button_pos),
+            &mut insp,
+            &entities_snapshot,
+            &mut panel,
+        );
+        let opened = run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
+
+        let unfiltered = collect_rendered_texts(&opened.shapes);
+        assert!(
+            unfiltered.iter().any(|text| text == "PointLight")
+                && unfiltered.iter().any(|text| text == "Camera"),
+            "both types must be listed before filtering, got: {unfiltered:?}"
+        );
+
+        // Click the search field, located by its hint text. An empty
+        // TextEdit paints no content of its own, so the hint is the only
+        // thing that marks where the field is -- which is exactly why the
+        // implementation gives it one (Unity's picker shows a placeholder
+        // too). Deriving the position from a neighbouring row instead
+        // would mean guessing a row height.
+        let search_pos = collect_rendered_texts_with_pos(&opened.shapes)
+            .into_iter()
+            .find(|(text, _)| text == "Search")
+            .map(|(_, pos)| pos)
+            .expect("the search field's hint text must render while the picker is open");
+        run_frame(
+            &egui_ctx,
+            click_events(search_pos),
+            &mut insp,
+            &entities_snapshot,
+            &mut panel,
+        );
+        run_frame(
+            &egui_ctx,
+            vec![egui::Event::Text("point".to_string())],
+            &mut insp,
+            &entities_snapshot,
+            &mut panel,
+        );
+        let filtered_output =
+            run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
+        let filtered = collect_rendered_texts(&filtered_output.shapes);
+
+        assert!(
+            filtered.iter().any(|text| text == "PointLight"),
+            "a case-insensitive match on the short name must survive filtering, got: \
+             {filtered:?}"
+        );
+        assert!(
+            !filtered.iter().any(|text| text == "Camera"),
+            "a non-matching type must be filtered out, got: {filtered:?}"
         );
     }
 

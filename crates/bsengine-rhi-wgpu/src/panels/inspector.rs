@@ -28,9 +28,13 @@ impl EditorPanel for InspectorPanel {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, ctx: &mut EditorPanelContext) {
-        // Hoisted out of `ctx` before `insp` mutably borrows `ctx.insp`, so
-        // the ScrollArea closure below captures plain locals rather than
-        // overlapping borrows of the same struct. Both are Copy.
+        // Hoisted for readability, not because the borrow checker demands
+        // it: Rust 2021 captures disjoint fields individually, so the
+        // ScrollArea closure below could name `ctx.type_registry` and
+        // `ctx.entities_snapshot` directly alongside its use of
+        // `ctx.insp`, and dropping this hoist in favour of the fields at
+        // all six use sites compiles. Naming them once here just spares
+        // the closure body six repetitions of `ctx.`. Both are Copy.
         let type_registry = ctx.type_registry;
         let entities_snapshot = ctx.entities_snapshot;
         let insp = &mut *ctx.insp;
@@ -192,6 +196,13 @@ const SEARCH_HINT: &str = "Search";
 /// (the other panels use associated fns precisely because they need
 /// `&mut self`), and `component_header_id` below is this file's existing
 /// free-fn precedent.
+///
+/// That the component-list block above stays inline is history, not a
+/// judgement that it resists the same treatment: it already defers its
+/// `cmd_queue` pushes until after the iteration via `to_apply`/
+/// `to_remove`, so it would factor out on a shape much like this one (a
+/// mutable slice in, collected edits out). It simply was not in the scope
+/// of the change that moved and rebuilt the Add Component control.
 ///
 /// Two things worth knowing about this signature:
 ///
@@ -540,7 +551,7 @@ mod tests {
     #[test]
     fn reflected_fields_section_renders_without_panicking_for_a_real_camera_clone() {
         // The manual smoke test (launching the editor with no entity
-        // selected) never exercises this panel's "Reflected Fields" branch
+        // selected) never exercises this panel's component-list branch
         // at all, since it's gated on `has_visible_components` -- the
         // non-hidden subset of `reflected_components` -- and an empty scene
         // has nothing selected. This test closes that gap
@@ -870,43 +881,7 @@ mod tests {
     }
 
     #[test]
-    fn add_component_menu_filters_out_already_attached_types() {
-        let mut registry = bevy_reflect::TypeRegistry::default();
-        registry.register::<bsengine_core::Camera>();
-        registry.register::<bsengine_core::PointLight>();
-
-        let mut insp = InspectorState::default();
-        insp.selected_id = Some(1);
-        // Camera is already attached (present in reflected_components) --
-        // it must not also appear as a pickable entry in the Add Component
-        // menu, or picking it would be a confusing no-op duplicate-attach.
-        insp.reflected_components = vec![(
-            "bsengine_core::camera::Camera".to_string(),
-            Box::new(bsengine_core::Camera::default()) as Box<dyn bevy_reflect::Reflect>,
-        )];
-
-        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
-        let mut panel = InspectorPanel;
-
-        with_test_ui(|ui| {
-            let mut ctx = EditorPanelContext {
-                insp: &mut insp,
-                entities_snapshot: &entities_snapshot,
-                cursor_pos: (0.0, 0.0),
-                type_registry: Some(&registry),
-            };
-            panel.ui(ui, &mut ctx);
-        });
-
-        // No interaction was simulated (headless single frame), so this
-        // doesn't test clicking the menu -- it's a smoke test that the
-        // panel renders without panicking with a registry containing an
-        // already-attached type.
-        assert!(insp.cmd_queue.is_empty());
-    }
-
-    #[test]
-    fn add_component_menu_click_only_offers_the_not_yet_attached_type() {
+    fn add_component_picker_click_only_offers_the_not_yet_attached_type() {
         // Regression test that genuinely drives `InspectorPanel::ui()`'s Add
         // Component picker, mirroring the click-simulation technique in
         // `reflect_ui.rs`'s `enum_variant_combo_switches_to_a_default_instance_
@@ -1101,8 +1076,8 @@ mod tests {
     }
 
     #[test]
-    fn add_component_menu_shows_short_names_not_full_type_paths() {
-        // Mirrors add_component_menu_click_only_offers_the_not_yet_attached_type's
+    fn add_component_picker_shows_short_names_not_full_type_paths() {
+        // Mirrors add_component_picker_click_only_offers_the_not_yet_attached_type's
         // setup (Camera already attached, PointLight registered and not
         // attached) but checks *rendered text* after opening the picker,
         // rather than the resulting command -- this test would fail if the
@@ -1172,7 +1147,7 @@ mod tests {
         // output says the button's label actually rendered at -- the
         // coordinate is read out of the render rather than hardcoded,
         // exactly as in
-        // add_component_menu_click_only_offers_the_not_yet_attached_type
+        // add_component_picker_click_only_offers_the_not_yet_attached_type
         // (which drives this identical scenario: Camera attached, PointLight
         // not). The position is used as-is -- see
         // collect_rendered_texts_with_pos's doc comment for why adding a
@@ -1193,7 +1168,7 @@ mod tests {
         );
 
         // Frame 3 ("settle"): redraw with no input. Per
-        // add_component_menu_click_only_offers_the_not_yet_attached_type's
+        // add_component_picker_click_only_offers_the_not_yet_attached_type's
         // own "settle frame" comment (and enum_variant_combo_switches_..._'s
         // longer explanation in reflect_ui.rs), the popup's first-ever frame
         // (frame 2, just above) sizes its Area/ScrollArea from a placeholder

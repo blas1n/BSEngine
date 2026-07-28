@@ -702,8 +702,9 @@ mod tests {
         // `already_attached` filter in place, the combo has exactly one
         // candidate row (PointLight) -- clicking it must queue
         // `AttachComponentByType` for PointLight, never Camera. If the filter
-        // were a no-op, Camera would also be offered as a row, which this
-        // test's row-count and type_path assertions below would catch.
+        // were a no-op, Camera would also be offered as a row -- caught below
+        // by asserting on the open popup's rendered row text directly (the
+        // invariant itself) as well as on the queued command's type_path.
         let mut registry = bevy_reflect::TypeRegistry::default();
         registry.register::<bsengine_core::Camera>();
         registry.register::<bsengine_core::PointLight>();
@@ -807,6 +808,45 @@ mod tests {
         // this is needed).
         let settled = run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
 
+        // The filter's actual effect, asserted directly rather than probed
+        // by clicking where a filtered-out row would have been: opening the
+        // menu must add a PointLight row and no Camera row. Checking the
+        // render can't fail open the way a hand-measured "click empty space
+        // and expect nothing" coordinate can.
+        //
+        // This compares the closed frame against the open one instead of
+        // just scanning the open one, because "Camera" is legitimately on
+        // screen either way: it is already attached, so the Reflected
+        // Fields list below draws its component header (and its fields)
+        // every frame. A bare `!open.contains("Camera")` would fire on that
+        // header and fail a correct build. What the filter guarantees is
+        // narrower -- that *opening the menu contributes* no Camera row.
+        //
+        // Counting rather than set-differencing is load-bearing: with the
+        // filter regressed to a no-op, "Camera" appears twice on the open
+        // frame (attached header + menu row), and a set difference against
+        // the closed frame would cancel it against the header and pass
+        // regardless. Comparing counts catches the added row.
+        let closed_rows = collect_rendered_texts(&frame1.shapes);
+        let open_rows = collect_rendered_texts(&settled.shapes);
+        let count = |texts: &[String], needle: &str| {
+            texts.iter().filter(|text| text.as_str() == needle).count()
+        };
+        assert_eq!(
+            count(&open_rows, "PointLight"),
+            count(&closed_rows, "PointLight") + 1,
+            "opening the menu must add exactly one PointLight row -- it is registered and \
+             not yet attached, so it must be offered. closed: {closed_rows:?}, open: \
+             {open_rows:?}"
+        );
+        assert_eq!(
+            count(&open_rows, "Camera"),
+            count(&closed_rows, "Camera"),
+            "Camera is already attached, so opening the menu must add no Camera row -- an \
+             extra one here means the already_attached filter regressed. closed: \
+             {closed_rows:?}, open: {open_rows:?}"
+        );
+
         // Frame 4: click the popup's only row.
         //
         // Likewise for the popup's only row: the settle frame is the first
@@ -852,45 +892,6 @@ mod tests {
                 std::mem::discriminant(other)
             ),
         }
-
-        // Frame 5: reopen the combo and click y=130 -- just past the
-        // PointLight row's range (y=[104,120]), the row position Camera
-        // would occupy as a second entry if the `already_attached` filter
-        // regressed to a no-op. With the real filter active, there is no
-        // second row there, so this must add nothing to the queue: the
-        // length must stay at 1 from frame 4, not grow to 2. (Before the
-        // Mesh section was removed, this was y=183.)
-        //
-        // Unlike combo_pos and point_light_row_pos above, this coordinate
-        // cannot be read out of the render: the whole point is that Camera
-        // draws no row here, so there is no text to locate. It therefore
-        // stays a hand-measured constant and must be re-checked by hand
-        // whenever this section moves -- note that a stale value fails
-        // *open*, passing vacuously by clicking empty space rather than
-        // reporting the miss.
-        run_frame(
-            &egui_ctx,
-            click_events(combo_pos),
-            &mut insp,
-            &entities_snapshot,
-            &mut panel,
-        );
-        run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
-        let camera_row_pos = egui::Pos2::new(30.0, 130.0);
-        run_frame(
-            &egui_ctx,
-            click_events(camera_row_pos),
-            &mut insp,
-            &entities_snapshot,
-            &mut panel,
-        );
-        assert_eq!(
-            insp.cmd_queue.len(),
-            1,
-            "clicking where Camera's row would sit if it weren't filtered out must not \
-             queue a second command -- a length of 2 here means the already_attached \
-             filter regressed and Camera became clickable again"
-        );
     }
 
     #[test]

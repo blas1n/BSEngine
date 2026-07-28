@@ -420,8 +420,9 @@ mod tests {
     fn reflected_fields_section_renders_without_panicking_for_a_real_camera_clone() {
         // The manual smoke test (launching the editor with no entity
         // selected) never exercises this panel's "Reflected Fields" branch
-        // at all, since it's gated on `!insp.reflected_components.is_empty()`
-        // and an empty scene has nothing selected. This test closes that gap
+        // at all, since it's gated on `has_visible_components` -- the
+        // non-hidden subset of `reflected_components` -- and an empty scene
+        // has nothing selected. This test closes that gap
         // by feeding the panel a real, populated `reflected_components`
         // entry (mirroring what `populate_reflected_component_snapshot`
         // would produce for a selected Camera) and confirming the whole
@@ -1743,14 +1744,36 @@ mod tests {
         // (GlobalTransform is normally paired with a present, non-hidden
         // Transform), but nothing in the ECS structurally prevents it.
         //
-        // Fixed by checking emptiness on the filtered set instead. Verified
-        // here by rendering two scenarios -- reflected_components empty vs.
-        // containing only hidden entries -- and asserting their rendered
-        // shape counts are identical, proving the hidden-only case draws
-        // nothing extra (no dangling separator) beyond what the truly-empty
-        // case draws.
+        // Fixed by checking emptiness on the filtered set instead
+        // (`has_visible_components`). Verified here by rendering two
+        // scenarios -- reflected_components empty vs. containing only hidden
+        // entries -- and asserting their rendered shape counts are
+        // identical, proving the hidden-only case draws nothing extra (no
+        // dangling separator) beyond what the truly-empty case draws.
+        //
+        // Run twice, because the predicate is consulted at two sites and
+        // only one of them is still observable.
+        //
+        // The component-list block it originally guarded no longer opens
+        // with a separator -- that rule was deleted when Add Component moved
+        // to the bottom, the Visible toggle's own separator having taken
+        // over the job -- and the loop inside it was always filtered. So
+        // with a hidden-only entity that block now renders nothing either
+        // way, and the two predicate forms are genuinely indistinguishable
+        // there: mutating it changes no rendered shape and fails no test,
+        // because there is nothing left to observe.
+        //
+        // The rule above the Add Component button is where the choice still
+        // decides something, and reaching it needs a type_registry -- without
+        // one the whole `if let Some(registry) = type_registry` block is
+        // skipped. That is exactly how this site went uncovered until a
+        // mutation check caught it: regressing it to `!is_empty()` changed
+        // no test result at all. `None` keeps the original scenario on the
+        // record; `Some(&registry)` is the case that actually pins the
+        // invariant.
         fn render_shape_count(
             reflected_components: Vec<(String, Box<dyn bevy_reflect::Reflect>)>,
+            type_registry: Option<&bevy_reflect::TypeRegistry>,
         ) -> usize {
             let mut insp = InspectorState::default();
             insp.selected_id = Some(1);
@@ -1774,7 +1797,7 @@ mod tests {
                             insp: &mut insp,
                             entities_snapshot: &entities_snapshot,
                             cursor_pos: (0.0, 0.0),
-                            type_registry: None,
+                            type_registry,
                         };
                         panel.ui(ui, &mut ctx);
                     });
@@ -1784,24 +1807,39 @@ mod tests {
             full_output.shapes.len()
         }
 
-        let empty_count = render_shape_count(vec![]);
-        let hidden_only_count = render_shape_count(vec![
-            (
-                "bsengine_core::global_transform::GlobalTransform".to_string(),
-                Box::new(bsengine_core::GlobalTransform::default())
-                    as Box<dyn bevy_reflect::Reflect>,
-            ),
-            (
-                "bsengine_core::visible::Visible".to_string(),
-                Box::new(bsengine_core::Visible::default()) as Box<dyn bevy_reflect::Reflect>,
-            ),
-        ]);
+        // A registered type so the button's picker has something it could
+        // list; an entirely empty registry would render the same either way
+        // and weaken the comparison.
+        let mut registry = bevy_reflect::TypeRegistry::default();
+        registry.register::<bsengine_core::PointLight>();
 
-        assert_eq!(
-            empty_count, hidden_only_count,
-            "an entity with only hidden reflected components must render exactly like an \
-             entity with none -- no dangling separator or empty section left behind"
-        );
+        let hidden_only = || -> Vec<(String, Box<dyn bevy_reflect::Reflect>)> {
+            vec![
+                (
+                    "bsengine_core::global_transform::GlobalTransform".to_string(),
+                    Box::new(bsengine_core::GlobalTransform::default())
+                        as Box<dyn bevy_reflect::Reflect>,
+                ),
+                (
+                    "bsengine_core::visible::Visible".to_string(),
+                    Box::new(bsengine_core::Visible::default()) as Box<dyn bevy_reflect::Reflect>,
+                ),
+            ]
+        };
+
+        for type_registry in [None, Some(&registry)] {
+            let empty_count = render_shape_count(vec![], type_registry);
+            let hidden_only_count = render_shape_count(hidden_only(), type_registry);
+
+            assert_eq!(
+                empty_count,
+                hidden_only_count,
+                "an entity with only hidden reflected components must render exactly like an \
+                 entity with none -- no dangling separator or empty section left behind \
+                 (with a type_registry: {})",
+                type_registry.is_some()
+            );
+        }
     }
 
     #[test]

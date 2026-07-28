@@ -1819,9 +1819,8 @@ impl WgpuSurface {
                                                 // state, discarding whatever the
                                                 // previous session's physics/scripts
                                                 // did to it (e.g. a fallen ball).
-                                                insp.cmd_queue.push(
-                                                    bsengine_core::InspectorCmd::ReloadScene,
-                                                );
+                                                insp.cmd_queue
+                                                    .push(bsengine_core::InspectorCmd::ReloadScene);
                                             }
                                         }
                                         let mode_label = if insp.play_state

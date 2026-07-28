@@ -5,5 +5,6 @@
 //! current implementation, built on `wgpu`.
 #![warn(missing_docs)]
 
+/// Core RHI trait definitions (`RHI`, `RHIMesh`, `RHIShader`, `RHITexture`).
 pub mod traits;
 pub use traits::{RHIMesh, RHIShader, RHITexture, RHI};

@@ -8,6 +8,7 @@ use bevy_reflect::Reflect;
 #[derive(Component, Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Component, Default)]
 pub struct Damping {
+    /// Per-second linear drag coefficient applied to `Velocity.linear`.
     pub linear: f32,
 }
 
@@ -18,6 +19,7 @@ impl Default for Damping {
 }
 
 impl Damping {
+    /// Creates a damping component with the given linear drag coefficient.
     pub fn new(linear: f32) -> Self {
         Self { linear }
     }

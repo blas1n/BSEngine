@@ -16,10 +16,12 @@ pub struct Bloom {
     /// Controls the softness of the threshold knee.
     /// 0.0 = hard cutoff, 1.0 = smooth transition.
     pub softness: f32,
+    /// Whether the effect is applied at all.
     pub enabled: bool,
 }
 
 impl Bloom {
+    /// Creates a bloom setting with the given intensity (clamped to non-negative) and default threshold/radius/softness.
     pub fn new(intensity: f32) -> Self {
         Self {
             intensity: intensity.max(0.0),
@@ -30,21 +32,25 @@ impl Bloom {
         }
     }
 
+    /// Sets the luminance threshold, clamped to be non-negative.
     pub fn with_threshold(mut self, threshold: f32) -> Self {
         self.threshold = threshold.max(0.0);
         self
     }
 
+    /// Sets the bloom spread radius in screen pixels, clamped to be non-negative.
     pub fn with_radius(mut self, radius: f32) -> Self {
         self.radius = radius.max(0.0);
         self
     }
 
+    /// Sets the threshold knee softness, clamped to `[0, 1]`.
     pub fn with_softness(mut self, softness: f32) -> Self {
         self.softness = softness.clamp(0.0, 1.0);
         self
     }
 
+    /// Turns the effect off while keeping its other settings.
     pub fn disabled(mut self) -> Self {
         self.enabled = false;
         self

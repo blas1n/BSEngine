@@ -3,32 +3,51 @@ use gltf::image::Format as GltfFormat;
 
 use crate::animation::{AnimationChannel, AnimationClip, Interpolation, KeyframeValues};
 
+/// A single mesh primitive extracted from a GLTF file, ready for GPU upload.
 pub struct MeshData {
+    /// The mesh's name, as given in the GLTF file (or a fallback if unnamed).
     pub name: String,
+    /// Vertex buffer data (position, color, normal, uv).
     pub vertices: Vec<Vertex>,
+    /// Index buffer data, referencing into `vertices`.
     pub indices: Vec<u32>,
 }
 
+/// A decoded texture image, converted to raw RGBA8 pixel data.
 pub struct GltfImageData {
+    /// Image width in pixels.
     pub width: u32,
+    /// Image height in pixels.
     pub height: u32,
+    /// Raw pixel data in RGBA8 order, `width * height * 4` bytes.
     pub rgba: Vec<u8>,
 }
 
+/// The full result of loading a GLTF/GLB file: meshes, images, and animations.
 pub struct LoadedGltf {
+    /// All mesh primitives found in the file, in document order.
     pub meshes: Vec<MeshData>,
+    /// All decoded images found in the file, in document order.
     pub images: Vec<GltfImageData>,
+    /// For each entry in `meshes`, the index into `images` of its base color
+    /// texture, if any.
     pub mesh_tex_indices: Vec<Option<usize>>,
+    /// All animation clips found in the file.
     pub animations: Vec<AnimationClip>,
 }
 
+/// Loads GLTF/GLB files from disk into engine-native mesh and animation data.
 pub struct GltfLoader;
 
 impl GltfLoader {
+    /// Loads a GLTF/GLB file and returns just its meshes, discarding images
+    /// and animations.
     pub fn load(path: &str) -> Result<Vec<MeshData>, String> {
         Ok(Self::load_full(path)?.meshes)
     }
 
+    /// Loads a GLTF/GLB file, parsing its meshes, textures, and animations
+    /// into engine-native data.
     pub fn load_full(path: &str) -> Result<LoadedGltf, String> {
         let (doc, buffers, raw_images) = gltf::import(path).map_err(|e| format!("gltf: {e}"))?;
 

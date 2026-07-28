@@ -14,6 +14,7 @@
 //! the type alone is what tells the UI which widget to use.
 use bevy_reflect::{impl_reflect_value, prelude::ReflectDefault};
 
+/// Reflectable RGB color wrapper around a `glam::Vec3` (linear space, 0.0-1.0 per channel).
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct ReflectColor(pub glam::Vec3);
 

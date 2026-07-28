@@ -13,11 +13,14 @@ use glam::Vec3;
 #[derive(Component, Debug, Clone, Copy, PartialEq, Default, Reflect)]
 #[reflect(Component, Default)]
 pub struct ExternalImpulse {
+    /// Pending linear impulse (kg·m/s), applied then cleared each physics step.
     pub linear: ReflectVec3,
+    /// Pending angular impulse (kg·m²/s), applied then cleared each physics step.
     pub angular: ReflectVec3,
 }
 
 impl ExternalImpulse {
+    /// Creates an impulse with only a linear component set.
     pub fn linear(linear: Vec3) -> Self {
         Self {
             linear: linear.into(),
@@ -25,6 +28,7 @@ impl ExternalImpulse {
         }
     }
 
+    /// Creates an impulse with only an angular component set.
     pub fn angular(angular: Vec3) -> Self {
         Self {
             linear: Vec3::ZERO.into(),
@@ -32,19 +36,23 @@ impl ExternalImpulse {
         }
     }
 
+    /// Accumulates an additional linear impulse onto the pending value.
     pub fn add_linear(&mut self, impulse: Vec3) {
         self.linear.0 += impulse;
     }
 
+    /// Accumulates an additional angular impulse onto the pending value.
     pub fn add_angular(&mut self, impulse: Vec3) {
         self.angular.0 += impulse;
     }
 
+    /// Resets both linear and angular impulses to zero.
     pub fn clear(&mut self) {
         self.linear = Vec3::ZERO.into();
         self.angular = Vec3::ZERO.into();
     }
 
+    /// Returns true if both linear and angular impulses are exactly zero.
     pub fn is_zero(&self) -> bool {
         self.linear.0 == Vec3::ZERO && self.angular.0 == Vec3::ZERO
     }

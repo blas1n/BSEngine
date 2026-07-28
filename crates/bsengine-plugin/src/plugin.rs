@@ -2,9 +2,11 @@ use crate::registry::PluginRegistry;
 use bevy_app::{App, Plugin};
 use bsengine_ecs::Resource;
 
+/// ECS resource wrapper exposing the `PluginRegistry` to Bevy systems.
 #[derive(Resource)]
 pub struct PluginRegistryResource(pub PluginRegistry);
 
+/// Bevy plugin that inserts an empty `PluginRegistryResource` into the app.
 pub struct PluginSystemPlugin;
 
 impl Plugin for PluginSystemPlugin {

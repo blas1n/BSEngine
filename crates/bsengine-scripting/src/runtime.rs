@@ -19,11 +19,15 @@ fn ensure_v8_flags() {
     });
 }
 
+/// A single V8 isolate wrapping a `deno_core::JsRuntime`, used to execute
+/// script-defined behavior for one entity or subsystem.
 pub struct ScriptRuntime {
     runtime: JsRuntime,
 }
 
 impl ScriptRuntime {
+    /// Create a bare runtime with no BSEngine ops registered (useful for
+    /// plain JS evaluation in tests).
     pub fn new() -> Self {
         ensure_v8_flags();
         let runtime = JsRuntime::new(RuntimeOptions {
@@ -32,6 +36,8 @@ impl ScriptRuntime {
         Self { runtime }
     }
 
+    /// Create a runtime with the full `bsengine_ops` extension registered,
+    /// exposing ECS operations to scripts.
     pub fn new_with_ops() -> Self {
         ensure_v8_flags();
         let runtime = JsRuntime::new(RuntimeOptions {
@@ -41,6 +47,7 @@ impl ScriptRuntime {
         Self { runtime }
     }
 
+    /// Evaluate a JS expression and return its result stringified.
     pub fn eval(&mut self, src: &str) -> Result<String, String> {
         let result = self
             .runtime

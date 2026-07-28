@@ -7,6 +7,7 @@ use bevy_reflect::Reflect;
 #[derive(Component, Debug, Clone, PartialEq, Eq, Reflect)]
 #[reflect(Component, Default)]
 pub struct Visible {
+    /// Whether the entity is currently drawn.
     pub is_visible: bool,
 }
 
@@ -17,6 +18,7 @@ impl Default for Visible {
 }
 
 impl Visible {
+    /// Creates a `Visible` component that hides the entity.
     pub fn hidden() -> Self {
         Self { is_visible: false }
     }

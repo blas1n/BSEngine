@@ -2,6 +2,10 @@ use std::sync::OnceLock;
 
 static LOGGING_INIT: OnceLock<()> = OnceLock::new();
 
+/// Initializes the global `tracing` subscriber for the engine, writing to
+/// stderr with a `bsengine=debug,warn` default filter (overridable via the
+/// standard `RUST_LOG` env var). Safe to call more than once; only the first
+/// call takes effect.
 pub fn init_logging() {
     LOGGING_INIT.get_or_init(|| {
         use tracing_subscriber::{fmt, EnvFilter};

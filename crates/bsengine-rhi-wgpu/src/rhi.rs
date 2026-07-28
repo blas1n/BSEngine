@@ -1,6 +1,9 @@
 use bsengine_rhi::{RHIMesh, RHIShader, RHITexture, RHI};
 use wgpu::{Device, Queue};
 
+/// The `wgpu`-backed `RHI` implementation, holding the GPU device/queue used
+/// for headless (surfaceless) rendering — e.g. tests and tooling that don't
+/// need an on-screen swapchain.
 #[allow(dead_code)]
 pub struct WgpuRHI {
     pub(crate) device: Device,
@@ -8,6 +11,7 @@ pub struct WgpuRHI {
 }
 
 impl WgpuRHI {
+    /// Creates a `WgpuRHI` with no window surface, requesting any available adapter.
     pub async fn new_headless() -> Result<Self, String> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),

@@ -37,6 +37,8 @@ pub struct SessionRegistry {
 }
 
 impl SessionRegistry {
+    /// Creates a registry with no active sessions, using `runtime_bin` to
+    /// spawn `bsengine-runtime` and resolving game paths under `games_root`.
     pub fn new(runtime_bin: PathBuf, games_root: PathBuf) -> Self {
         Self {
             runtime_bin,

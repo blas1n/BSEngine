@@ -3,11 +3,14 @@ use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use std::sync::{Arc, Mutex};
 
+/// JSON-RPC 2.0 MCP server that dispatches `initialize`/`tools/list`/`tools/call`
+/// requests against a shared `McpToolRegistry`.
 pub struct McpServer {
     registry: Arc<Mutex<McpToolRegistry>>,
 }
 
 impl McpServer {
+    /// Creates a server that serves the tools in the given registry.
     pub fn new(registry: Arc<Mutex<McpToolRegistry>>) -> Self {
         Self { registry }
     }
@@ -44,6 +47,9 @@ impl McpServer {
         }))
     }
 
+    /// Reads newline-delimited JSON-RPC requests from stdin, dispatches each
+    /// through `handle_message`, and writes any response to stdout. Runs
+    /// until stdin is closed.
     pub fn run_stdio(&self) {
         let stdin = std::io::stdin();
         let mut stdout = std::io::stdout();

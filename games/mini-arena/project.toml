@@ -1,0 +1,8 @@
+[project]
+name = "Mini Arena (verification)"
+entry_scene = "assets/scenes/main.ron"
+
+[window]
+title = "Mini Arena — skinning verification"
+width = 1280
+height = 720

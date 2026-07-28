@@ -1,0 +1,19 @@
+{
+  "game": "tilt-run",
+  "scene": "assets/scenes/level4.ron",
+  "actions": [
+    { "cmd": "step", "frames": 1300 },
+    { "cmd": "press_key", "key": "W" },
+    { "cmd": "step", "frames": 20 },
+    { "cmd": "release_key", "key": "W" },
+    { "cmd": "step", "frames": 300 },
+    {
+      "cmd": "assert",
+      "query": { "tool": "get_transform", "args": { "name": "Ball" } },
+      "path": "z",
+      "op": ">",
+      "value": 11.0,
+      "label": "ball timed the moving obstacle, goal collision fired, and loadScene respawned Ball at level 5's start (z=12)"
+    }
+  ]
+}

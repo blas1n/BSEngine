@@ -1,0 +1,35 @@
+{
+  "game": "tilt-run",
+  "scene": "assets/scenes/level5.ron",
+  "actions": [
+    { "cmd": "step", "frames": 600 },
+    { "cmd": "press_key", "key": "W" },
+    { "cmd": "step", "frames": 20 },
+    { "cmd": "release_key", "key": "W" },
+    { "cmd": "step", "frames": 330 },
+    {
+      "cmd": "assert",
+      "query": { "tool": "get_transform", "args": { "name": "Ball" } },
+      "path": "z",
+      "op": "<",
+      "value": -6.5,
+      "label": "ball crossed the moving platform, dodged the moving obstacle, and reached goal area in level 5"
+    },
+    {
+      "cmd": "assert",
+      "query": { "tool": "get_transform", "args": { "name": "Ball" } },
+      "path": "x",
+      "op": ">",
+      "value": -1.5,
+      "label": "ball stayed near the goal's x position (not deflected off the obstacle) in level 5"
+    },
+    {
+      "cmd": "assert",
+      "query": { "tool": "get_hud_text", "args": { "id": "1" } },
+      "path": "",
+      "op": "==",
+      "value": "All Clear!",
+      "label": "goal collision fired and set the final-level HUD message"
+    }
+  ]
+}

@@ -1021,6 +1021,12 @@ pub enum ScriptCommand {
         /// Z coordinate of the point the force/impulse is applied at.
         pz: f32,
     },
+    /// Clears any force/torque accumulated via `AddForce`/`AddTorque` on a
+    /// rigid body, so it doesn't keep being applied on subsequent steps.
+    ResetForces {
+        /// Name of the entity to modify.
+        name: String,
+    },
     /// Set a rigid body's linear velocity.
     SetVelocity {
         /// Name of the entity to modify.
@@ -4879,6 +4885,13 @@ pub fn bsengine_add_force_at_point(
 
 /// Queue setting a rigid body's linear velocity.
 #[op2(fast)]
+pub fn bsengine_reset_forces(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::ResetForces { name });
+    });
+}
+
+#[op2(fast)]
 pub fn bsengine_set_velocity(#[string] name: String, vx: f32, vy: f32, vz: f32) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
@@ -5755,6 +5768,7 @@ deno_core::extension!(
         bsengine_apply_impulse_at_point,
         bsengine_add_force,
         bsengine_add_force_at_point,
+        bsengine_reset_forces,
         bsengine_set_velocity,
         bsengine_set_velocity_x,
         bsengine_set_velocity_y,
@@ -6213,6 +6227,11 @@ var Bsengine = {
     applyImpulseAtPoint: (name, fx, fy, fz, px, py, pz) => Deno.core.ops.bsengine_apply_impulse_at_point(name, fx, fy, fz, px, py, pz),
     addForce:         (name, fx, fy, fz) => Deno.core.ops.bsengine_add_force(name, fx, fy, fz),
     addForceAtPoint:  (name, fx, fy, fz, px, py, pz) => Deno.core.ops.bsengine_add_force_at_point(name, fx, fy, fz, px, py, pz),
+    // Clears any force/torque accumulated via addForce/addTorque — those
+    // persist across steps until explicitly cleared (Rapier's documented
+    // behavior), so stopping a body needs this alongside setVelocity(0,0,0)
+    // or a held-over force reintroduces motion on the next physics step.
+    resetForces:      (name) => Deno.core.ops.bsengine_reset_forces(name),
     setVelocity:      (name, vx, vy, vz) => Deno.core.ops.bsengine_set_velocity(name, vx, vy, vz),
     setVelocityX:     (name, vx) => Deno.core.ops.bsengine_set_velocity_x(name, vx),
     setVelocityY:     (name, vy) => Deno.core.ops.bsengine_set_velocity_y(name, vy),
@@ -6266,8 +6285,13 @@ var Bsengine = {
     seekSound:            (id, pos)     => Deno.core.ops.bsengine_seek_sound(id, pos),
     getSoundState:        (id)          => Deno.core.ops.bsengine_get_sound_state(id),
     getSoundPosition:     (id)          => Deno.core.ops.bsengine_get_sound_position(id),
-    setHudText:     (id, text)             => Deno.core.ops.bsengine_set_hud_text(id, String(text)),
-    clearHudText:   (id)                   => Deno.core.ops.bsengine_clear_hud_text(id),
+    // `id` is coerced to a string here: this op's Rust side takes a
+    // #[string] id, and callers (see player.js/goal_levelN.js) pass a
+    // plain numeric literal like `setHudText(1, ...)` — without this,
+    // deno_core silently turns a non-string argument into an empty
+    // string, so every numeric-id HUD slot collides on the same "" key.
+    setHudText:     (id, text)             => Deno.core.ops.bsengine_set_hud_text(String(id), String(text)),
+    clearHudText:   (id)                   => Deno.core.ops.bsengine_clear_hud_text(String(id)),
 
     // UI widgets — immediate-mode overlay (egui-backed)
     // Each call sets or replaces the widget with the given id.

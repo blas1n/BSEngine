@@ -1,0 +1,41 @@
+SceneDescriptor(entities: [
+    EntityDescriptor(
+        name: "Camera",
+        camera: true,
+        transform: Some((translation: (0.0, 4.0, 12.0))),
+        script: Some("assets/scripts/camera.js"),
+    ),
+    EntityDescriptor(
+        name: "Sun",
+        directional_light: Some((
+            direction: (-0.3, -0.8, -0.2),
+            ambient: (0.35, 0.35, 0.35),
+        )),
+    ),
+    EntityDescriptor(
+        name: "Floor",
+        primitive: Some(Cube),
+        transform: Some((translation: (0.0, -0.25, 0.0), scale: (12.0, 0.5, 32.0))),
+        rigidbody: Some(Static),
+        collider: Some((shape: Box(hx: 6.0, hy: 0.25, hz: 16.0), friction: 0.8)),
+    ),
+    EntityDescriptor(
+        name: "Ball",
+        primitive: Some(Sphere),
+        transform: Some((translation: (0.0, 1.0, 8.0), scale: (0.5, 0.5, 0.5))),
+        color: Some((0.9, 0.3, 0.1)),
+        rigidbody: Some(Dynamic),
+        collider: Some((shape: Sphere(radius: 0.5), restitution: 0.1, friction: 0.6)),
+        script: Some("assets/scripts/player.js"),
+    ),
+    EntityDescriptor(
+        name: "Goal",
+        primitive: Some(Sphere),
+        transform: Some((translation: (0.0, 0.5, -8.0), scale: (1.0, 1.0, 1.0))),
+        color: Some((0.2, 0.9, 0.3)),
+        emissive: Some((0.1, 0.4, 0.1)),
+        rigidbody: Some(Static),
+        collider: Some((shape: Sphere(radius: 1.0), sensor: true)),
+        script: Some("assets/scripts/goal_level1.js"),
+    ),
+])

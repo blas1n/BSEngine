@@ -4,7 +4,7 @@
 //! `Bsengine.*` JS getters for consistency.
 
 use bevy_ecs::world::World;
-use bsengine_core::{Transform, Visible};
+use bsengine_core::{HudTexts, Transform, Visible};
 use bsengine_scene::Name;
 use serde_json::{json, Value};
 
@@ -38,6 +38,20 @@ pub fn get_entity_names(world: &mut World) -> Value {
     json!(names)
 }
 
+/// Reads a HUD text slot (as set by `Bsengine.setHudText(id, text)`) by its
+/// string `id`. Returns `null` if that slot is unset — lets a replay assert
+/// on-screen feedback (e.g. "Level Complete!") directly, instead of only
+/// inferring it indirectly from entity positions.
+pub fn get_hud_text(world: &mut World, id: &str) -> Value {
+    match world.get_resource::<HudTexts>() {
+        Some(hud) => match hud.0.get(id) {
+            Some(text) => json!(text),
+            None => Value::Null,
+        },
+        None => Value::Null,
+    }
+}
+
 pub fn run_query(world: &mut World, tool: &str, args: &Value) -> Result<Value, String> {
     match tool {
         "get_transform" => {
@@ -55,6 +69,13 @@ pub fn run_query(world: &mut World, tool: &str, args: &Value) -> Result<Value, S
             Ok(get_visible(world, name))
         }
         "get_entity_names" => Ok(get_entity_names(world)),
+        "get_hud_text" => {
+            let id = args
+                .get("id")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| "get_hud_text requires string 'id'".to_string())?;
+            Ok(get_hud_text(world, id))
+        }
         other => Err(format!("unknown query tool: {other}")),
     }
 }
@@ -134,6 +155,38 @@ mod tests {
             Visible { is_visible: false },
         ));
         assert_eq!(get_visible(&mut world, "Player"), json!(false));
+    }
+
+    #[test]
+    fn get_hud_text_returns_null_when_slot_unset() {
+        let mut world = World::new();
+        world.insert_resource(HudTexts::default());
+        assert_eq!(get_hud_text(&mut world, "1"), Value::Null);
+    }
+
+    #[test]
+    fn get_hud_text_returns_null_when_resource_missing() {
+        let mut world = World::new();
+        assert_eq!(get_hud_text(&mut world, "1"), Value::Null);
+    }
+
+    #[test]
+    fn get_hud_text_returns_set_text() {
+        let mut world = World::new();
+        let mut hud = HudTexts::default();
+        hud.0.insert("1".to_string(), "Level Complete!".to_string());
+        world.insert_resource(hud);
+        assert_eq!(get_hud_text(&mut world, "1"), json!("Level Complete!"));
+    }
+
+    #[test]
+    fn run_query_dispatches_get_hud_text() {
+        let mut world = World::new();
+        let mut hud = HudTexts::default();
+        hud.0.insert("0".to_string(), "Fell! Retry".to_string());
+        world.insert_resource(hud);
+        let result = run_query(&mut world, "get_hud_text", &json!({"id": "0"})).unwrap();
+        assert_eq!(result, json!("Fell! Retry"));
     }
 
     #[test]

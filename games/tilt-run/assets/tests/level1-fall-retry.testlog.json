@@ -1,0 +1,42 @@
+{
+  "game": "tilt-run",
+  "scene": "assets/scenes/level1.ron",
+  "actions": [
+    { "cmd": "press_key", "key": "D" },
+    { "cmd": "step", "frames": 25 },
+    { "cmd": "release_key", "key": "D" },
+    { "cmd": "step", "frames": 225 },
+    {
+      "cmd": "assert",
+      "query": { "tool": "get_transform", "args": { "name": "Ball" } },
+      "path": "x",
+      "op": "<",
+      "value": 0.5,
+      "label": "ball rolled off the floor edge and teleported back near its start x (0.0) after falling"
+    },
+    {
+      "cmd": "assert",
+      "query": { "tool": "get_transform", "args": { "name": "Ball" } },
+      "path": "z",
+      "op": ">",
+      "value": 7.5,
+      "label": "ball teleported back near its start z (8.0) after falling"
+    },
+    {
+      "cmd": "assert",
+      "query": { "tool": "get_transform", "args": { "name": "Ball" } },
+      "path": "rw",
+      "op": ">",
+      "value": 0.999,
+      "label": "ball's roll/tilt rotation reset to identity along with its position (was previously left mid-roll)"
+    },
+    {
+      "cmd": "assert",
+      "query": { "tool": "get_hud_text", "args": { "id": "0" } },
+      "path": "",
+      "op": "==",
+      "value": "Fell! Retry",
+      "label": "fall was reported on the HUD"
+    }
+  ]
+}

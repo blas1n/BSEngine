@@ -1,0 +1,18 @@
+{
+  "game": "tilt-run",
+  "scene": "assets/scenes/level1.ron",
+  "actions": [
+    { "cmd": "press_key", "key": "W" },
+    { "cmd": "step", "frames": 160 },
+    { "cmd": "release_key", "key": "W" },
+    { "cmd": "step", "frames": 30 },
+    {
+      "cmd": "assert",
+      "query": { "tool": "get_transform", "args": { "name": "Ball" } },
+      "path": "z",
+      "op": ">",
+      "value": 9.0,
+      "label": "goal collision fired and loadScene respawned Ball at level 2's start (z=10)"
+    }
+  ]
+}

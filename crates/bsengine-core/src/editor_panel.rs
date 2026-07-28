@@ -13,15 +13,21 @@ pub trait EditorPanel: Send {
     /// persistence. Must not change across versions once shipped, or saved
     /// layouts referencing it silently drop the tab.
     fn id(&self) -> &str;
+    /// Human-readable label shown on the panel's dock tab.
     fn title(&self) -> String;
+    /// Draws the panel's contents for this frame.
     fn ui(&mut self, ui: &mut egui::Ui, ctx: &mut EditorPanelContext);
 }
 
 /// Shared state every panel's `ui()` call gets access to.
 pub struct EditorPanelContext<'a> {
+    /// Mutable inspector state (selection, gizmo mode, pending commands, ...).
     pub insp: &'a mut InspectorState,
+    /// Read-only snapshot of all entities visible to the editor this frame.
     pub entities_snapshot: &'a [InspectorEntityInfo],
+    /// Current cursor position within the viewport, in logical pixels.
     pub cursor_pos: (f32, f32),
+    /// Reflection type registry, when available, for generic component editing.
     pub type_registry: Option<&'a bevy_reflect::TypeRegistry>,
 }
 

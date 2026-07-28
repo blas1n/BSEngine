@@ -10,6 +10,7 @@ bsengine-ecs.workspace = true
 bsengine-gltf.workspace = true
 bevy_app.workspace = true
 bevy_ecs.workspace = true
+bevy_reflect.workspace = true
 glam.workspace = true
 ron.workspace = true
 serde.workspace = true

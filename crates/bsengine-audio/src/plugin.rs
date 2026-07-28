@@ -7,6 +7,7 @@ use crate::{
     world::AudioWorld,
 };
 
+/// Registers the [`AudioWorld`] resource and the systems that start and track sound playback.
 pub struct AudioPlugin;
 
 impl Plugin for AudioPlugin {

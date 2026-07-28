@@ -1,8 +1,11 @@
 /// How keyframe values are interpolated between keyframe times.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Interpolation {
+    /// Straight-line interpolation between adjacent keyframes.
     Linear,
+    /// Hold the previous keyframe's value until the next keyframe time.
     Step,
+    /// Cubic Hermite spline interpolation using in/out tangents.
     CubicSpline,
 }
 
@@ -12,8 +15,11 @@ pub enum Interpolation {
 /// Rotations are `[x, y, z, w]` (quaternion).
 #[derive(Debug, Clone)]
 pub enum KeyframeValues {
+    /// Per-keyframe translation vectors.
     Translations(Vec<[f32; 3]>),
+    /// Per-keyframe rotation quaternions.
     Rotations(Vec<[f32; 4]>),
+    /// Per-keyframe scale vectors.
     Scales(Vec<[f32; 3]>),
 }
 
@@ -24,14 +30,18 @@ pub struct AnimationChannel {
     pub node_index: usize,
     /// Keyframe timestamps in seconds.
     pub times: Vec<f32>,
+    /// The animated values, one per keyframe time.
     pub values: KeyframeValues,
+    /// How to interpolate between the keyframe values.
     pub interpolation: Interpolation,
 }
 
 /// A named sequence of animation channels loaded from a GLTF file.
 #[derive(Debug, Clone)]
 pub struct AnimationClip {
+    /// The clip's name, as given in the GLTF file (or a fallback if unnamed).
     pub name: String,
+    /// The animated channels that make up this clip.
     pub channels: Vec<AnimationChannel>,
     /// Duration in seconds (= time of the last keyframe across all channels).
     pub duration: f32,

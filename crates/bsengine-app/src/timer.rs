@@ -2,6 +2,7 @@ use bevy_app::{App, Plugin, Update};
 use bsengine_core::{Time, Timer};
 use bsengine_ecs::{Query, Res};
 
+/// Ticks every entity's `Timer` component by the frame's `delta_seconds`.
 pub struct TimerPlugin;
 
 impl Plugin for TimerPlugin {

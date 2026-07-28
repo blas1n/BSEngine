@@ -23,13 +23,16 @@ pub enum ToneMappingMode {
 #[derive(Component, Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Component, Default)]
 pub struct ToneMap {
+    /// Which HDR-to-LDR mapping curve is applied.
     pub mode: ToneMappingMode,
     /// Camera exposure in EV (exposure value). 0.0 = no change; positive = brighter.
     pub exposure: f32,
+    /// Whether the effect is applied at all.
     pub enabled: bool,
 }
 
 impl ToneMap {
+    /// Creates an enabled tone mapper using the given mode with zero exposure adjustment.
     pub fn new(mode: ToneMappingMode) -> Self {
         Self {
             mode,
@@ -38,11 +41,13 @@ impl ToneMap {
         }
     }
 
+    /// Sets the exposure adjustment, in EV.
     pub fn with_exposure(mut self, ev: f32) -> Self {
         self.exposure = ev;
         self
     }
 
+    /// Turns the effect off while keeping its other settings.
     pub fn disabled(mut self) -> Self {
         self.enabled = false;
         self

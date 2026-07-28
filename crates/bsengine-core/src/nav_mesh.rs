@@ -6,9 +6,13 @@ use glam::Vec3;
 /// Uniform-grid navigation mesh for A* pathfinding. Cells lie in the XZ plane.
 #[derive(Resource, Debug, Clone)]
 pub struct NavMesh {
+    /// Number of cells along the X axis.
     pub width: u32,
+    /// Number of cells along the Z axis.
     pub depth: u32,
+    /// World-space size of one grid cell, along both axes.
     pub cell_size: f32,
+    /// World-space position of the grid's cell (0, 0) corner.
     pub origin: Vec3,
     walkable: Vec<bool>,
 }
@@ -20,6 +24,7 @@ impl Default for NavMesh {
 }
 
 impl NavMesh {
+    /// Creates a `width` x `depth` grid of the given cell size at `origin`, all cells walkable.
     pub fn new(width: u32, depth: u32, cell_size: f32, origin: Vec3) -> Self {
         let total = (width as usize).saturating_mul(depth as usize);
         Self {
@@ -31,12 +36,14 @@ impl NavMesh {
         }
     }
 
+    /// Marks a grid cell as walkable or blocked. Out-of-bounds coordinates are ignored.
     pub fn set_walkable(&mut self, x: u32, z: u32, walkable: bool) {
         if x < self.width && z < self.depth {
             self.walkable[(z * self.width + x) as usize] = walkable;
         }
     }
 
+    /// Returns whether the given cell is walkable; out-of-bounds coordinates are never walkable.
     pub fn is_walkable(&self, x: i32, z: i32) -> bool {
         if x < 0 || z < 0 || x as u32 >= self.width || z as u32 >= self.depth {
             return false;
@@ -44,6 +51,7 @@ impl NavMesh {
         self.walkable[(z as u32 * self.width + x as u32) as usize]
     }
 
+    /// Converts a world-space position to its containing grid cell coordinates.
     pub fn world_to_cell(&self, pos: Vec3) -> (i32, i32) {
         let dx = pos.x - self.origin.x;
         let dz = pos.z - self.origin.z;
@@ -53,6 +61,7 @@ impl NavMesh {
         )
     }
 
+    /// Returns the world-space center of the given grid cell.
     pub fn cell_center(&self, x: i32, z: i32) -> Vec3 {
         Vec3::new(
             self.origin.x + x as f32 * self.cell_size + self.cell_size * 0.5,

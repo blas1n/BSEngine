@@ -3,6 +3,7 @@ use bsengine_core::{AngularVelocity, Time, Transform};
 use bsengine_ecs::{Query, Res};
 use glam::Quat;
 
+/// Rotates entities each frame based on their `AngularVelocity` component.
 pub struct AngularVelocityPlugin;
 
 impl Plugin for AngularVelocityPlugin {

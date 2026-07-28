@@ -5,6 +5,8 @@ use bsengine_core::{NavAgentState, NavMesh, NavMeshAgent, Time, Transform};
 use bsengine_ecs::{Entity, Query, Res, ResMut, Resource};
 use glam::Vec3;
 
+/// Paths `NavMeshAgent` entities across the `NavMesh` resource, moving them toward
+/// their destination each frame with basic separation-based obstacle avoidance.
 pub struct NavMeshPlugin;
 
 /// Per-entity cached A* path. Keyed by Entity; value is (waypoints, index, destination_it_was_computed_for).

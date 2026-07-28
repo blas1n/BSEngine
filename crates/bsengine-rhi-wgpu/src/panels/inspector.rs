@@ -152,135 +152,9 @@ impl EditorPanel for InspectorPanel {
                     ui.separator();
                 }
 
-                let popup_id = ui.make_persistent_id("add_component_popup");
-                let filter_id = ui.make_persistent_id("add_component_filter");
-                // Unity insets this button rather than filling the panel
-                // width. The explicit width also keeps
-                // `popup_above_or_below_widget`'s debug_assert satisfied: it
-                // sizes the popup as `button.rect.width() - Frame::popup's
-                // margin` and requires that to be >= 0 (egui-0.29.1
-                // popup.rs:410 -> ui.rs:896). A shrink-wrapped button would
-                // measure only `2 * button_padding.x` (~8px) against a ~12px
-                // margin in these headless tests, where
-                // `FontDefinitions::empty()` gives every label zero width --
-                // a real font never gets near that, but the tests would
-                // panic.
-                //
-                // 160 approximates Unity's inset button width; 48 is roughly
-                // 4x that ~12px frame margin, i.e. comfortably clear of it.
-                // Note the bounds conflict once available width drops below
-                // 48, and the lower one deliberately wins: the button
-                // overflows rather than shrinking further. That is cosmetic,
-                // and preferable to slipping under the popup's margin, which
-                // panics.
-                //
-                // Read on the `ScrollArea`'s child `Ui` -- outside
-                // `vertical_centered`'s closure, but still within the scroll
-                // body, so it is net of the scrollbar once one appears.
-                let button_width = ui.available_width().clamp(48.0, 160.0);
-                let button_response = ui
-                    .vertical_centered(|ui| {
-                        ui.add_sized(
-                            [button_width, ui.spacing().interact_size.y],
-                            egui::Button::new(format!(
-                                "{} Add Component",
-                                egui_phosphor::regular::PLUS
-                            )),
-                        )
-                    })
-                    .inner;
-
-                if button_response.clicked() {
-                    // Checked before toggling: if it was closed, this click
-                    // opens it, and the picker should start with an empty
-                    // search box (matching Unity). Clearing unconditionally
-                    // would also fire on the click that *closes* it, which
-                    // is harmless but muddles the intent.
-                    let was_open = ui.memory(|m| m.is_popup_open(popup_id));
-                    ui.memory_mut(|m| m.toggle_popup(popup_id));
-                    if !was_open {
-                        ui.memory_mut(|m| m.data.insert_temp(filter_id, String::new()));
-                    }
-                }
-
-                let mut to_attach: Option<String> = None;
-                egui::popup::popup_above_or_below_widget(
-                    ui,
-                    popup_id,
-                    &button_response,
-                    // Above: the button sits at the end of the content, so
-                    // opening downward would collide with `Area`'s
-                    // screen-clamping near the bottom edge and land back on
-                    // top of the button.
-                    egui::AboveOrBelow::Above,
-                    // Not CloseOnClick (what ComboBox uses) -- Task 4 puts a
-                    // search field in here, and that must survive being
-                    // clicked and typed into. Escape still closes.
-                    egui::popup::PopupCloseBehavior::CloseOnClickOutside,
-                    |ui| {
-                        ui.set_min_width(200.0);
-                        // Transient, panel-local UI state: egui memory keeps
-                        // it out of InspectorState (a cross-crate type that
-                        // PRs #1727/#1728 deliberately pruned of UI-only
-                        // fields) and off InspectorPanel (a unit struct
-                        // built at ~26 sites, nearly all tests).
-                        let mut filter: String =
-                            ui.memory(|m| m.data.get_temp(filter_id).unwrap_or_default());
-                        // The hint doubles as the field's only painted
-                        // content while empty, which is what lets a test
-                        // locate it -- an empty TextEdit draws no text of
-                        // its own.
-                        if ui
-                            .add(egui::TextEdit::singleline(&mut filter).hint_text("Search"))
-                            .changed()
-                        {
-                            ui.memory_mut(|m| m.data.insert_temp(filter_id, filter.clone()));
-                        }
-                        let needle = filter.to_lowercase();
-                        egui::ScrollArea::vertical()
-                            .max_height(240.0)
-                            .show(ui, |ui| {
-                                for registration in registry.iter() {
-                                    if registration
-                                        .data::<bevy_ecs::reflect::ReflectComponent>()
-                                        .is_none()
-                                    {
-                                        continue;
-                                    }
-                                    if registration
-                                        .data::<bevy_reflect::std_traits::ReflectDefault>()
-                                        .is_none()
-                                    {
-                                        continue;
-                                    }
-                                    let type_path =
-                                        registration.type_info().type_path().to_string();
-                                    let already_attached = insp
-                                        .reflected_components
-                                        .iter()
-                                        .any(|(existing_path, _)| existing_path == &type_path);
-                                    if already_attached {
-                                        continue;
-                                    }
-                                    let short_name =
-                                        short_component_name(&type_path, Some(registry));
-                                    // Match on the short name -- what the user
-                                    // actually sees -- not the full type_path.
-                                    if !needle.is_empty()
-                                        && !short_name.to_lowercase().contains(&needle)
-                                    {
-                                        continue;
-                                    }
-                                    if ui.selectable_label(false, &short_name).clicked() {
-                                        to_attach = Some(type_path);
-                                    }
-                                }
-                            });
-                    },
-                );
-
-                if let Some(type_path) = to_attach {
-                    ui.memory_mut(|m| m.close_popup());
+                if let Some(type_path) =
+                    draw_add_component(ui, registry, &insp.reflected_components)
+                {
                     insp.cmd_queue.push(InspectorCmd::AttachComponentByType {
                         id: sel_id,
                         type_path,
@@ -289,6 +163,161 @@ impl EditorPanel for InspectorPanel {
             }
         });
     }
+}
+
+/// Draws the Add Component button and, when it is open, the picker popup
+/// above it. Returns the `type_path` of the component type the user chose
+/// this frame, if any; the caller is what turns that into an
+/// `InspectorCmd`.
+///
+/// `attached` is the selected entity's current component list, used only to
+/// filter already-present types out of the picker (offering them would
+/// invite a confusing duplicate-attach).
+///
+/// Extracted from [`InspectorPanel::ui`] to match this module's neighbours
+/// -- `hierarchy.rs` and `asset_browser.rs` each pull five helpers out of
+/// their panel body -- and to bring the picker's row loop back from ten
+/// levels of nesting. A free fn rather than an associated one:
+/// `InspectorPanel` is a unit struct with no `&self` state to reach for
+/// (the other panels use associated fns precisely because they need
+/// `&mut self`), and `component_header_id` below is this file's existing
+/// free-fn precedent.
+///
+/// Two things this signature quietly depends on:
+///
+/// - **The caller's borrow only works because the fields are disjoint.**
+///   `attached` borrows `InspectorState::reflected_components` while the
+///   caller's `if let` body pushes to `InspectorState::cmd_queue`, and an
+///   `if let` extends its scrutinee's temporaries to the end of the block --
+///   so those two borrows genuinely overlap. Field-level borrow splitting
+///   is what makes it compile. Passing the whole `&mut InspectorState` here
+///   instead would force a clone or a restructure.
+/// - **The popup's ids stay stable only because this takes the caller's own
+///   `ui`.** `make_persistent_id` derives from that `Ui`'s id, so wrapping
+///   this call in a child `Ui` (a `group`, a `Frame`, a `horizontal`)
+///   silently shifts every id below, which would reset the popup's
+///   open/closed state and break the tests that read these ids out of
+///   egui's memory from outside the panel.
+fn draw_add_component(
+    ui: &mut egui::Ui,
+    registry: &bevy_reflect::TypeRegistry,
+    attached: &[(String, Box<dyn bevy_reflect::Reflect>)],
+) -> Option<String> {
+    let popup_id = ui.make_persistent_id("add_component_popup");
+    let filter_id = ui.make_persistent_id("add_component_filter");
+    // Unity insets this button rather than filling the panel width. The
+    // explicit width also keeps `popup_above_or_below_widget`'s
+    // debug_assert satisfied: it sizes the popup as `button.rect.width() -
+    // Frame::popup's margin` and requires that to be >= 0 (egui-0.29.1
+    // popup.rs:410 -> ui.rs:896). A shrink-wrapped button would measure
+    // only `2 * button_padding.x` (~8px) against a ~12px margin in these
+    // headless tests, where `FontDefinitions::empty()` gives every label
+    // zero width -- a real font never gets near that, but the tests would
+    // panic.
+    //
+    // 160 approximates Unity's inset button width; 48 is roughly 4x that
+    // ~12px frame margin, i.e. comfortably clear of it. Note the bounds
+    // conflict once available width drops below 48, and the lower one
+    // deliberately wins: the button overflows rather than shrinking
+    // further. That is cosmetic, and preferable to slipping under the
+    // popup's margin, which panics.
+    //
+    // Read on the caller's `Ui` -- outside `vertical_centered`'s closure,
+    // but still within the panel's scroll body, so it is net of the
+    // scrollbar once one appears.
+    let button_width = ui.available_width().clamp(48.0, 160.0);
+    let button_response = ui
+        .vertical_centered(|ui| {
+            ui.add_sized(
+                [button_width, ui.spacing().interact_size.y],
+                egui::Button::new(format!("{} Add Component", egui_phosphor::regular::PLUS)),
+            )
+        })
+        .inner;
+
+    if button_response.clicked() {
+        // Checked before toggling: if it was closed, this click opens it,
+        // and the picker should start with an empty search box (matching
+        // Unity). Clearing unconditionally would also fire on the click
+        // that *closes* it, which is harmless but muddles the intent.
+        let was_open = ui.memory(|m| m.is_popup_open(popup_id));
+        ui.memory_mut(|m| m.toggle_popup(popup_id));
+        if !was_open {
+            ui.memory_mut(|m| m.data.insert_temp(filter_id, String::new()));
+        }
+    }
+
+    let mut to_attach: Option<String> = None;
+    egui::popup::popup_above_or_below_widget(
+        ui,
+        popup_id,
+        &button_response,
+        // Above: the button sits at the end of the content, so opening
+        // downward would collide with `Area`'s screen-clamping near the
+        // bottom edge and land back on top of the button.
+        egui::AboveOrBelow::Above,
+        // Not CloseOnClick (what ComboBox uses) -- the search field below
+        // must survive being clicked and typed into. Escape still closes.
+        egui::popup::PopupCloseBehavior::CloseOnClickOutside,
+        |ui| {
+            ui.set_min_width(200.0);
+            // Transient, panel-local UI state: egui memory keeps it out of
+            // InspectorState (a cross-crate type that PRs #1727/#1728
+            // deliberately pruned of UI-only fields) and off
+            // InspectorPanel (a unit struct built at ~26 sites, nearly all
+            // tests).
+            let mut filter: String = ui.memory(|m| m.data.get_temp(filter_id).unwrap_or_default());
+            // The hint doubles as the field's only painted content while
+            // empty, which is what lets a test locate it -- an empty
+            // TextEdit draws no text of its own.
+            if ui
+                .add(egui::TextEdit::singleline(&mut filter).hint_text("Search"))
+                .changed()
+            {
+                ui.memory_mut(|m| m.data.insert_temp(filter_id, filter.clone()));
+            }
+            let needle = filter.to_lowercase();
+            egui::ScrollArea::vertical()
+                .max_height(240.0)
+                .show(ui, |ui| {
+                    for registration in registry.iter() {
+                        if registration
+                            .data::<bevy_ecs::reflect::ReflectComponent>()
+                            .is_none()
+                        {
+                            continue;
+                        }
+                        if registration
+                            .data::<bevy_reflect::std_traits::ReflectDefault>()
+                            .is_none()
+                        {
+                            continue;
+                        }
+                        let type_path = registration.type_info().type_path().to_string();
+                        let already_attached = attached
+                            .iter()
+                            .any(|(existing_path, _)| existing_path == &type_path);
+                        if already_attached {
+                            continue;
+                        }
+                        let short_name = short_component_name(&type_path, Some(registry));
+                        // Match on the short name -- what the user actually
+                        // sees -- not the full type_path.
+                        if !needle.is_empty() && !short_name.to_lowercase().contains(&needle) {
+                            continue;
+                        }
+                        if ui.selectable_label(false, &short_name).clicked() {
+                            to_attach = Some(type_path);
+                        }
+                    }
+                });
+        },
+    );
+
+    if to_attach.is_some() {
+        ui.memory_mut(|m| m.close_popup());
+    }
+    to_attach
 }
 
 /// The persistent id of one component block's collapsing header.

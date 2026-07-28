@@ -3,6 +3,7 @@ use bsengine_core::{Shield, Time};
 use bsengine_ecs::Query;
 use bsengine_ecs::Res;
 
+/// Recharges every entity's `Shield` component (after its cooldown elapses) each frame.
 pub struct ShieldPlugin;
 
 impl Plugin for ShieldPlugin {

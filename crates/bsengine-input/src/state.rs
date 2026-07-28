@@ -25,14 +25,17 @@ impl<T: Eq + Hash> Default for Input<T> {
 }
 
 impl<T: Eq + Hash + Clone> Input<T> {
+    /// Returns `true` if `key` is currently held down.
     pub fn is_pressed(&self, key: &T) -> bool {
         self.pressed.contains(key)
     }
 
+    /// Returns `true` if `key` transitioned to pressed on this frame.
     pub fn just_pressed(&self, key: &T) -> bool {
         self.just_pressed.contains(key)
     }
 
+    /// Returns `true` if `key` transitioned to released on this frame.
     pub fn just_released(&self, key: &T) -> bool {
         self.just_released.contains(key)
     }

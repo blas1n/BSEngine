@@ -7,16 +7,19 @@ use bevy_reflect::Reflect;
 #[derive(Component, Debug, Clone, Reflect)]
 #[reflect(Component, Default)]
 pub struct Lifetime {
+    /// Time left before this entity despawns, in seconds.
     pub remaining: f32,
 }
 
 impl Lifetime {
+    /// Creates a lifetime counting down from `seconds`, clamped to be non-negative.
     pub fn from_seconds(seconds: f32) -> Self {
         Self {
             remaining: seconds.max(0.0),
         }
     }
 
+    /// Returns true once `remaining` has counted down to zero or below.
     pub fn is_expired(&self) -> bool {
         self.remaining <= 0.0
     }

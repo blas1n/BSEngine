@@ -1,3 +1,4 @@
+/// Texture format used for the HDR scene-color render target, before tonemapping.
 pub const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 const BLOOM_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 const AO_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
@@ -222,31 +223,53 @@ fn fs_composite(in: FullscreenOut) -> @location(0) vec4<f32> {
 }
 "#;
 
+/// GPU-uniform-buffer layout for bloom/tonemap/SSAO settings, matching the
+/// `PostProcessConfig` struct declared in the WGSL shaders above.
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PostProcessConfigGpu {
+    /// Luminance level above which pixels start contributing to bloom.
     pub bloom_threshold: f32,
+    /// Width of the soft knee around `bloom_threshold`.
     pub bloom_softness: f32,
+    /// Multiplier applied to the bloom contribution during composite.
     pub bloom_intensity: f32,
+    /// Blur sample radius in pixels for the bloom pass.
     pub bloom_radius: f32,
+    /// Nonzero to enable the bloom pass; zero disables it.
     pub bloom_enabled: u32,
+    /// Selects the tonemap curve (0=clamp, 1=Reinhard, 2=Reinhard-luminance, 4=filmic, else ACES).
     pub tonemap_mode: u32,
+    /// Exposure adjustment (stops, applied as `2^exposure`) before tonemapping.
     pub tonemap_exposure: f32,
+    /// Nonzero to enable tonemapping; zero passes color through clamped but linear.
     pub tonemap_enabled: u32,
+    /// World/view-space sample radius for SSAO occlusion checks.
     pub ssao_radius: f32,
+    /// Depth bias added to avoid SSAO self-occlusion artifacts.
     pub ssao_bias: f32,
+    /// Multiplier applied to the computed occlusion amount.
     pub ssao_intensity: f32,
+    /// Number of hemisphere samples to take per pixel (capped at 8 in the shader).
     pub ssao_sample_count: u32,
+    /// Nonzero to enable the SSAO pass; zero always returns full visibility.
     pub ssao_enabled: u32,
+    /// Padding to satisfy uniform buffer alignment; unused.
     pub _pad0: f32,
+    /// Padding to satisfy uniform buffer alignment; unused.
     pub _pad1: f32,
+    /// Padding to satisfy uniform buffer alignment; unused.
     pub _pad2: f32,
 }
 
+/// GPU-uniform-buffer layout for the camera matrices the SSAO pass needs to
+/// reconstruct view-space position from depth.
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct SsaoCameraGpu {
+    /// Camera projection matrix.
     pub proj: [[f32; 4]; 4],
+    /// Inverse of `proj`, used to unproject depth back to view space.
     pub inv_proj: [[f32; 4]; 4],
 }
 
@@ -263,7 +286,10 @@ struct PostProcessTargets {
     depth_bg: wgpu::BindGroup,
 }
 
+/// Owns the render targets, bind groups, and pipelines for the post-process
+/// chain (bloom -> SSAO -> tonemapped composite onto the swapchain).
 pub struct PostProcessState {
+    /// View of the HDR scene-color render target the main pass writes into.
     pub hdr_view: wgpu::TextureView,
     _hdr_texture: wgpu::Texture,
     bloom_view: wgpu::TextureView,
@@ -279,14 +305,19 @@ pub struct PostProcessState {
     config_bg: wgpu::BindGroup,
     ssao_cam_buffer: wgpu::Buffer,
     ssao_cam_bg: wgpu::BindGroup,
+    /// Pipeline for the bright-pass bloom extraction shader.
     pub bloom_pipeline: wgpu::RenderPipeline,
+    /// Pipeline for the SSAO occlusion shader.
     pub ssao_pipeline: wgpu::RenderPipeline,
+    /// Pipeline for the final composite (HDR + bloom + AO, tonemapped) shader.
     pub composite_pipeline: wgpu::RenderPipeline,
     tex2d_bgl: wgpu::BindGroupLayout,
     depth_bgl: wgpu::BindGroupLayout,
 }
 
 impl PostProcessState {
+    /// Builds every pipeline, bind group layout, and sized render target needed
+    /// for the post-process chain at the given resolution.
     pub fn new(
         device: &wgpu::Device,
         width: u32,
@@ -634,6 +665,8 @@ impl PostProcessState {
         })
     }
 
+    /// Recreates the sized render targets (HDR/bloom/AO/depth bind group) for
+    /// a new surface resolution, leaving pipelines and samplers untouched.
     pub fn resize_targets(
         &mut self,
         device: &wgpu::Device,
@@ -662,14 +695,18 @@ impl PostProcessState {
         self.depth_bg = t.depth_bg;
     }
 
+    /// Uploads new bloom/tonemap/SSAO settings to the config uniform buffer.
     pub fn update_config(&self, queue: &wgpu::Queue, config: PostProcessConfigGpu) {
         queue.write_buffer(&self.config_buffer, 0, bytemuck::cast_slice(&[config]));
     }
 
+    /// Uploads the current frame's camera projection matrices for SSAO depth reconstruction.
     pub fn update_ssao_camera(&self, queue: &wgpu::Queue, cam: SsaoCameraGpu) {
         queue.write_buffer(&self.ssao_cam_buffer, 0, bytemuck::cast_slice(&[cam]));
     }
 
+    /// Runs the bloom, SSAO, and composite passes in sequence, writing the
+    /// final tonemapped result into `surface_view`.
     pub fn apply(&self, encoder: &mut wgpu::CommandEncoder, surface_view: &wgpu::TextureView) {
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

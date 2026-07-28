@@ -7,8 +7,11 @@
 //! `Transform` component.
 #![warn(missing_docs)]
 
+/// ECS components exchanged between the engine and the physics simulation.
 pub mod components;
+/// The Bevy plugin that drives spawning, stepping, and syncing physics bodies.
 pub mod plugin;
+/// The Rapier-backed physics world resource and its query/mutation API.
 pub mod world;
 
 pub use components::{

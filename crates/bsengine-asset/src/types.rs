@@ -1,11 +1,18 @@
+/// Decoded texture pixel data, ready to be uploaded to the GPU.
 pub struct TextureAsset {
+    /// Width in pixels.
     pub width: u32,
+    /// Height in pixels.
     pub height: u32,
+    /// Raw pixel data, laid out row by row.
     pub data: Vec<u8>,
 }
 
+/// A raw mesh's geometry: flat vertex attributes and triangle indices.
 pub struct MeshAsset {
+    /// Flattened per-vertex attribute data (e.g. positions).
     pub vertices: Vec<f32>,
+    /// Indices into `vertices` describing triangle winding.
     pub indices: Vec<u32>,
 }
 

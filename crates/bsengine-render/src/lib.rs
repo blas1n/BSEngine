@@ -11,7 +11,9 @@
 #![allow(clippy::type_complexity)]
 #![warn(missing_docs)]
 
+/// ECS components describing renderable entities (currently `MeshRenderer`).
 pub mod components;
+/// The Bevy `Plugin` wiring transform propagation and frame rendering into the app schedule.
 pub mod plugin;
 
 pub use components::MeshRenderer;

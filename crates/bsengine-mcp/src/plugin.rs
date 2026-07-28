@@ -5,9 +5,13 @@ use bsengine_ecs::Resource;
 use serde_json::json;
 use std::sync::{Arc, Mutex};
 
+/// ECS resource wrapping the shared `McpToolRegistry`, giving systems access
+/// to the tools registered by `McpPlugin`.
 #[derive(Resource, Clone)]
 pub struct McpRegistryResource(pub Arc<Mutex<McpToolRegistry>>);
 
+/// Bevy plugin that builds an `McpToolRegistry` with the built-in engine
+/// tools and inserts it into the `App` as an `McpRegistryResource`.
 pub struct McpPlugin;
 
 impl Plugin for McpPlugin {

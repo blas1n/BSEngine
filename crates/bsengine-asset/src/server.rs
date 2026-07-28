@@ -1,18 +1,22 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+/// Loads asset bytes from disk, caching results by path for reuse across loads.
 #[derive(Clone)]
 pub struct AssetServer {
     cache: Arc<Mutex<HashMap<String, Vec<u8>>>>,
 }
 
 impl AssetServer {
+    /// Creates an `AssetServer` with an empty cache.
     pub fn new() -> Self {
         Self {
             cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
+    /// Returns the raw bytes at `path`, reading from disk on first access and
+    /// serving from the cache on subsequent calls.
     pub fn load_bytes(&self, path: &str) -> Result<Vec<u8>, String> {
         let mut cache = self.cache.lock().unwrap();
         if let Some(cached) = cache.get(path) {

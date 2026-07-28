@@ -1,3 +1,18 @@
+// `#[op2]` rewrites every annotated `pub fn` into a `pub const fn ... -> OpDecl`;
+// any `///` doc comment (or other non-special attribute) written above the
+// `#[op2]` line is forwarded only to a private helper struct/method nested
+// inside that generated function body, never to the actual public item the
+// macro emits. `missing_docs` therefore always fires on op2-annotated
+// functions no matter what doc comment precedes them — see
+// `deno_ops::op2::generate_op2` (attrs are only spliced into the inner
+// `#rust_name` struct/`call` impl, never onto the outer `#vis const fn`).
+// Each op below still has a `///` comment for readers of this source file;
+// this allow only accounts for the lint's inability to see it.
+#![allow(
+    missing_docs,
+    reason = "see comment above: #[op2] never forwards doc comments to the public item it generates"
+)]
+
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
@@ -5,296 +20,512 @@ use deno_core::op2;
 use glam::{Quat, Vec3};
 use serde::{Deserialize, Serialize};
 
+/// JS-provided parameters for spawning a new entity via `Bsengine.spawn`.
 #[derive(Clone, Deserialize)]
 pub struct SpawnParams {
+    /// Name to assign the spawned entity.
     pub name: String,
+    /// Primitive mesh shape to spawn (e.g. "Cube", "Sphere"); defaults to "Cube".
     #[serde(default = "default_primitive")]
     pub primitive: String,
+    /// Initial X position.
     #[serde(default)]
     pub x: f32,
+    /// Initial Y position.
     #[serde(default)]
     pub y: f32,
+    /// Initial Z position.
     #[serde(default)]
     pub z: f32,
+    /// Initial rotation quaternion X component.
     #[serde(default)]
     pub rx: f32,
+    /// Initial rotation quaternion Y component.
     #[serde(default)]
     pub ry: f32,
+    /// Initial rotation quaternion Z component.
     #[serde(default)]
     pub rz: f32,
+    /// Initial rotation quaternion W component; defaults to 1 (identity).
     #[serde(default = "default_one")]
     pub rw: f32,
+    /// Initial X scale; defaults to 1.
     #[serde(default = "default_one")]
     pub sx: f32,
+    /// Initial Y scale; defaults to 1.
     #[serde(default = "default_one")]
     pub sy: f32,
+    /// Initial Z scale; defaults to 1.
     #[serde(default = "default_one")]
     pub sz: f32,
+    /// Optional base material color as `[r, g, b]`.
     pub color: Option<[f32; 3]>,
+    /// Optional emissive material color as `[r, g, b]`.
     pub emissive: Option<[f32; 3]>,
+    /// Optional path to a script to attach to the spawned entity.
     pub script: Option<String>,
 }
 
+/// Default primitive shape used by `SpawnParams` when none is specified.
 fn default_primitive() -> String {
     "Cube".to_string()
 }
+/// Default value (`1.0`) used for `SpawnParams` scale/rotation-w fields.
 fn default_one() -> f32 {
     1.0
 }
 
+/// Deferred world-mutating command produced by a `Bsengine.*` script call; queued and applied to the ECS world on the next update.
 #[derive(Clone)]
 pub enum ScriptCommand {
+    /// Set an entity's absolute world position.
     SetTransform {
+        /// Name of the entity to modify.
         name: String,
+        /// New absolute X position.
         x: f32,
+        /// New absolute Y position.
         y: f32,
+        /// New absolute Z position.
         z: f32,
     },
+    /// Set an entity's absolute rotation, as a quaternion.
     SetRotation {
+        /// Name of the entity to modify.
         name: String,
+        /// Rotation quaternion X component.
         rx: f32,
+        /// Rotation quaternion Y component.
         ry: f32,
+        /// Rotation quaternion Z component.
         rz: f32,
+        /// Rotation quaternion W component.
         rw: f32,
     },
+    /// Set an entity's absolute scale.
     SetScale {
+        /// Name of the entity to modify.
         name: String,
+        /// New X scale factor.
         sx: f32,
+        /// New Y scale factor.
         sy: f32,
+        /// New Z scale factor.
         sz: f32,
     },
+    /// Add a world-space offset to an entity's position.
     AddPosition {
+        /// Name of the entity to modify.
         name: String,
+        /// Position delta along X.
         dx: f32,
+        /// Position delta along Y.
         dy: f32,
+        /// Position delta along Z.
         dz: f32,
     },
+    /// Add a local-space (entity-relative) offset to an entity's position.
     AddPositionLocal {
+        /// Name of the entity to modify.
         name: String,
+        /// Position delta along X.
         dx: f32,
+        /// Position delta along Y.
         dy: f32,
+        /// Position delta along Z.
         dz: f32,
     },
+    /// Set an entity's emissive material color.
     SetEmissive {
+        /// Name of the entity to modify.
         name: String,
+        /// Red channel (0-1).
         r: f32,
+        /// Green channel (0-1).
         g: f32,
+        /// Blue channel (0-1).
         b: f32,
     },
+    /// Set an entity's base material color.
     SetColor {
+        /// Name of the entity to modify.
         name: String,
+        /// Red channel (0-1).
         r: f32,
+        /// Green channel (0-1).
         g: f32,
+        /// Blue channel (0-1).
         b: f32,
     },
+    /// Set an entity's material metallic factor.
     SetMetallic {
+        /// Name of the entity to modify.
         name: String,
+        /// New metallic factor (0 = dielectric, 1 = fully metallic).
         value: f32,
     },
+    /// Set an entity's material roughness factor.
     SetRoughness {
+        /// Name of the entity to modify.
         name: String,
+        /// New roughness factor (0 = mirror-smooth, 1 = fully rough).
         value: f32,
     },
+    /// Set a point light's color.
     SetPointLightColor {
+        /// Name of the entity to modify.
         name: String,
+        /// Red channel (0-1).
         r: f32,
+        /// Green channel (0-1).
         g: f32,
+        /// Blue channel (0-1).
         b: f32,
     },
+    /// Set a point light's intensity.
     SetPointLightIntensity {
+        /// Name of the entity to modify.
         name: String,
+        /// New light intensity.
         value: f32,
     },
+    /// Set a point light's maximum range.
     SetPointLightRange {
+        /// Name of the entity to modify.
         name: String,
+        /// New maximum light range, in world units.
         value: f32,
     },
+    /// Set a spot light's color.
     SetSpotLightColor {
+        /// Name of the entity to modify.
         name: String,
+        /// Red channel (0-1).
         r: f32,
+        /// Green channel (0-1).
         g: f32,
+        /// Blue channel (0-1).
         b: f32,
     },
+    /// Set a spot light's intensity.
     SetSpotLightIntensity {
+        /// Name of the entity to modify.
         name: String,
+        /// New light intensity.
         value: f32,
     },
+    /// Set a spot light's maximum range.
     SetSpotLightRange {
+        /// Name of the entity to modify.
         name: String,
+        /// New maximum light range, in world units.
         value: f32,
     },
+    /// Set a spot light's inner cone angle.
     SetSpotLightInnerAngle {
+        /// Name of the entity to modify.
         name: String,
+        /// Angle, in degrees.
         deg: f32,
     },
+    /// Set a spot light's outer cone angle.
     SetSpotLightOuterAngle {
+        /// Name of the entity to modify.
         name: String,
+        /// Angle, in degrees.
         deg: f32,
     },
+    /// Set a directional light's color.
     SetDirectionalLightColor {
+        /// Name of the entity to modify.
         name: String,
+        /// Red channel (0-1).
         r: f32,
+        /// Green channel (0-1).
         g: f32,
+        /// Blue channel (0-1).
         b: f32,
     },
+    /// Set a directional light's ambient color contribution.
     SetDirectionalLightAmbient {
+        /// Name of the entity to modify.
         name: String,
+        /// Red channel (0-1).
         r: f32,
+        /// Green channel (0-1).
         g: f32,
+        /// Blue channel (0-1).
         b: f32,
     },
+    /// Set a directional light's direction vector.
     SetDirectionalLightDirection {
+        /// Name of the entity to modify.
         name: String,
+        /// New absolute X position.
         x: f32,
+        /// New absolute Y position.
         y: f32,
+        /// New absolute Z position.
         z: f32,
     },
+    /// Set a camera's vertical field of view.
     SetCameraFov {
+        /// Name of the entity to modify.
         name: String,
+        /// Angle, in degrees.
         deg: f32,
     },
+    /// Set a camera's near clip plane distance.
     SetCameraNear {
+        /// Name of the entity to modify.
         name: String,
+        /// New near clip plane distance.
         value: f32,
     },
+    /// Set a camera's far clip plane distance.
     SetCameraFar {
+        /// Name of the entity to modify.
         name: String,
+        /// New far clip plane distance.
         value: f32,
     },
+    /// Set a generic damping coefficient on an entity.
     SetDamping {
+        /// Name of the entity to modify.
         name: String,
+        /// New damping coefficient.
         value: f32,
     },
+    /// Subtract damage from an entity's shield value.
     DamageShield {
+        /// Name of the entity to modify.
         name: String,
+        /// Amount of damage to subtract from the shield.
         amount: f32,
     },
+    /// Restore some of an entity's shield value.
     RestoreShield {
+        /// Name of the entity to modify.
         name: String,
+        /// Amount of shield to restore.
         amount: f32,
     },
+    /// Set an entity's maximum shield capacity.
     SetMaxShield {
+        /// Name of the entity to modify.
         name: String,
+        /// New maximum shield capacity.
         value: f32,
     },
+    /// Reset a named entity's gameplay timer back to zero.
     ResetTimer {
+        /// Name of the entity to modify.
         name: String,
     },
+    /// Set the destination point for an entity's nav-mesh agent.
     SetNavDestination {
+        /// Name of the entity to modify.
         name: String,
+        /// New absolute X position.
         x: f32,
+        /// New absolute Y position.
         y: f32,
+        /// New absolute Z position.
         z: f32,
     },
+    /// Clear an entity's current nav-mesh destination, halting movement.
     ClearNavDestination {
+        /// Name of the entity to modify.
         name: String,
     },
+    /// Set an entity's nav-mesh agent movement speed.
     SetNavSpeed {
+        /// Name of the entity to modify.
         name: String,
+        /// New speed value.
         speed: f32,
     },
+    /// Set an entity's nav-mesh agent turning speed.
     SetNavAngularSpeed {
+        /// Name of the entity to modify.
         name: String,
+        /// New speed value.
         speed: f32,
     },
+    /// Set how close an entity's nav-mesh agent must get before it stops.
     SetNavStoppingDistance {
+        /// Name of the entity to modify.
         name: String,
+        /// Stopping distance from the destination, in world units.
         distance: f32,
     },
+    /// Enable or disable an entity's nav-mesh agent.
     SetNavEnabled {
+        /// Name of the entity to modify.
         name: String,
+        /// Whether the effect is enabled.
         enabled: bool,
     },
+    /// Set the bloom post-process effect intensity.
     SetBloomIntensity {
+        /// Name of the entity to modify.
         name: String,
+        /// New intensity/strength value.
         intensity: f32,
     },
+    /// Set the brightness threshold above which bloom is applied.
     SetBloomThreshold {
+        /// Name of the entity to modify.
         name: String,
+        /// New threshold value.
         threshold: f32,
     },
+    /// Set the blur radius of the bloom effect.
     SetBloomRadius {
+        /// Name of the entity to modify.
         name: String,
+        /// New radius, in world units.
         radius: f32,
     },
+    /// Set the softness of the bloom threshold falloff.
     SetBloomSoftness {
+        /// Name of the entity to modify.
         name: String,
+        /// New softness of the falloff.
         softness: f32,
     },
+    /// Enable or disable the bloom post-process effect.
     SetBloomEnabled {
+        /// Name of the entity to modify.
         name: String,
+        /// Whether the effect is enabled.
         enabled: bool,
     },
+    /// Set the sampling radius of the ambient occlusion effect.
     SetAoRadius {
+        /// Name of the entity to modify.
         name: String,
+        /// New radius, in world units.
         radius: f32,
     },
+    /// Set the ambient occlusion bias, used to reduce self-shadowing artifacts.
     SetAoBias {
+        /// Name of the entity to modify.
         name: String,
+        /// New bias value, used to reduce artifacts.
         bias: f32,
     },
+    /// Set the strength of the ambient occlusion effect.
     SetAoIntensity {
+        /// Name of the entity to modify.
         name: String,
+        /// New intensity/strength value.
         intensity: f32,
     },
+    /// Set the number of samples used by the ambient occlusion effect.
     SetAoSampleCount {
+        /// Name of the entity to modify.
         name: String,
+        /// Number of samples to take per pixel.
         count: u32,
     },
+    /// Enable or disable the ambient occlusion effect.
     SetAoEnabled {
+        /// Name of the entity to modify.
         name: String,
+        /// Whether the effect is enabled.
         enabled: bool,
     },
+    /// Set the tone-mapping operator used by the render pipeline.
     SetToneMapMode {
+        /// Name of the entity to modify.
         name: String,
+        /// Tone-mapping mode, encoded as an integer.
         mode: u32,
     },
+    /// Set the exposure applied before tone mapping.
     SetToneMapExposure {
+        /// Name of the entity to modify.
         name: String,
+        /// New exposure value.
         exposure: f32,
     },
+    /// Enable or disable tone mapping.
     SetToneMapEnabled {
+        /// Name of the entity to modify.
         name: String,
+        /// Whether the effect is enabled.
         enabled: bool,
     },
+    /// Set the duration of a running tween.
     SetTweenDuration {
+        /// Name of the entity to modify.
         name: String,
+        /// New duration, in seconds.
         duration: f32,
     },
+    /// Set the easing function used by a running tween.
     SetTweenEasing {
+        /// Name of the entity to modify.
         name: String,
+        /// Easing function, encoded as an integer.
         easing: u32,
     },
+    /// Set the repeat count of a running tween.
     SetTweenRepeat {
+        /// Name of the entity to modify.
         name: String,
+        /// Number of times the tween should repeat.
         repeat: u32,
     },
+    /// Set the elapsed time of a running tween.
     SetTweenElapsed {
+        /// Name of the entity to modify.
         name: String,
+        /// New elapsed time, in seconds.
         elapsed: f32,
     },
+    /// Set the entity a camera/follow-behavior should track.
     SetFollowTarget {
+        /// Name of the entity to modify.
         name: String,
+        /// Name of the entity to target.
         target: String,
     },
+    /// Set the offset a follow-behavior maintains from its target.
     SetFollowOffset {
+        /// Name of the entity to modify.
         name: String,
+        /// New absolute X position.
         x: f32,
+        /// New absolute Y position.
         y: f32,
+        /// New absolute Z position.
         z: f32,
     },
+    /// Set how quickly a follow-behavior catches up to its target.
     SetFollowSpeed {
+        /// Name of the entity to modify.
         name: String,
+        /// New speed value.
         speed: f32,
     },
+    /// Set the entity a look-at behavior should aim towards.
     SetLookAtTarget {
+        /// Name of the entity to modify.
         name: String,
+        /// Name of the entity to target.
         target: String,
     },
+    /// Set the up vector used by a look-at behavior.
     SetLookAtUp {
+        /// Name of the entity to modify.
         name: String,
+        /// New absolute X position.
         x: f32,
+        /// New absolute Y position.
         y: f32,
+        /// New absolute Z position.
         z: f32,
     },
     // ── Scald ────────────────────────────────────────────────────────────────
@@ -491,437 +722,774 @@ pub enum ScriptCommand {
     // ── Rot ──────────────────────────────────────────────────────────────────
     // ── Rout ─────────────────────────────────────────────────────────────────
     // ── Rupture ──────────────────────────────────────────────────────────────
+    /// Play an animation clip on an entity.
     PlayAnimation {
+        /// Name of the entity to modify.
         name: String,
+        /// Name of the animation clip to play.
         clip: String,
     },
+    /// Pause an entity's currently playing animation.
     PauseAnimation {
+        /// Name of the entity to modify.
         name: String,
     },
+    /// Resume an entity's paused animation.
     ResumeAnimation {
+        /// Name of the entity to modify.
         name: String,
     },
+    /// Reset an entity's animation back to its first frame.
     ResetAnimation {
+        /// Name of the entity to modify.
         name: String,
     },
+    /// Set the playback speed multiplier of an entity's animation.
     SetAnimationSpeed {
+        /// Name of the entity to modify.
         name: String,
+        /// New speed value.
         speed: f32,
     },
+    /// Set whether an entity's animation loops.
     SetAnimationLooping {
+        /// Name of the entity to modify.
         name: String,
+        /// Whether the animation should loop.
         looping: bool,
     },
+    /// Fire a trigger on an entity's animation state machine.
     AsmSetTrigger {
+        /// Name of the entity to modify.
         name: String,
+        /// Name of the animation-state-machine trigger to fire.
         trigger: String,
     },
+    /// Set a float parameter on an entity's animation state machine.
     AsmSetFloat {
+        /// Name of the entity to modify.
         name: String,
+        /// Name of the animation-state-machine parameter to set.
         param: String,
+        /// New float value for the parameter.
         value: f32,
     },
+    /// Set a boolean parameter on an entity's animation state machine.
     AsmSetBool {
+        /// Name of the entity to modify.
         name: String,
+        /// Name of the animation-state-machine parameter to set.
         param: String,
+        /// New boolean value for the parameter.
         value: bool,
     },
+    /// Set a countdown after which the entity is automatically destroyed.
     SetLifetime {
+        /// Name of the entity to modify.
         name: String,
+        /// Remaining lifetime, in seconds, before the entity is destroyed.
         seconds: f32,
     },
+    /// Spawn a new entity from the given parameters.
     Spawn(SpawnParams),
+    /// Destroy a named entity.
     Destroy {
+        /// Name of the entity to modify.
         name: String,
     },
+    /// Show or hide an entity.
     SetVisible {
+        /// Name of the entity to modify.
         name: String,
+        /// Whether the entity is visible.
         visible: bool,
     },
+    /// Start playing a sound.
     PlaySound {
+        /// Identifier of the sound or UI widget to target.
         id: u32,
+        /// Filesystem path of the resource to load.
         path: String,
+        /// Playback volume (0-1).
         volume: f32,
+        /// Whether the sound should loop.
         loop_: bool,
     },
+    /// Stop a playing sound.
     StopSound {
+        /// Identifier of the sound or UI widget to target.
         id: u32,
     },
+    /// Pause a playing sound.
     PauseSound {
+        /// Identifier of the sound or UI widget to target.
         id: u32,
     },
+    /// Resume a paused sound.
     ResumeSound {
+        /// Identifier of the sound or UI widget to target.
         id: u32,
     },
+    /// Set the volume of a playing sound.
     SetSoundVolume {
+        /// Identifier of the sound or UI widget to target.
         id: u32,
+        /// Volume, in decibels.
         db: f32,
     },
+    /// Set the stereo pan of a playing sound.
     SetSoundPanning {
+        /// Identifier of the sound or UI widget to target.
         id: u32,
+        /// Stereo pan position, from -1 (left) to 1 (right).
         panning: f32,
     },
+    /// Set the playback rate (pitch/speed) of a playing sound.
     SetSoundPlaybackRate {
+        /// Identifier of the sound or UI widget to target.
         id: u32,
+        /// Playback rate multiplier (1 = normal speed).
         rate: f32,
     },
+    /// Seek a playing sound to a specific position.
     SeekSound {
+        /// Identifier of the sound or UI widget to target.
         id: u32,
+        /// Playback position, in seconds, to seek to.
         position: f64,
     },
+    /// Set the text content of a HUD element.
     SetHudText {
+        /// Identifier of the sound or UI widget to target.
         id: String,
+        /// Text content to display.
         text: String,
     },
+    /// Remove a HUD text element.
     ClearHudText {
+        /// Identifier of the sound or UI widget to target.
         id: String,
     },
+    /// Create or update a UI text label.
     SetUiLabel {
+        /// Identifier of the sound or UI widget to target.
         id: String,
+        /// Text content to display.
         text: String,
+        /// New absolute X position.
         x: f32,
+        /// New absolute Y position.
         y: f32,
+        /// Font size, in points.
         font_size: f32,
     },
+    /// Create or update a UI button.
     SetUiButton {
+        /// Identifier of the sound or UI widget to target.
         id: String,
+        /// Button label text.
         label: String,
+        /// New absolute X position.
         x: f32,
+        /// New absolute Y position.
         y: f32,
+        /// Widget width, in pixels.
         width: f32,
+        /// Widget height, in pixels.
         height: f32,
     },
+    /// Create or update a UI panel.
     SetUiPanel {
+        /// Identifier of the sound or UI widget to target.
         id: String,
+        /// Panel title text.
         title: String,
+        /// New absolute X position.
         x: f32,
+        /// New absolute Y position.
         y: f32,
+        /// Widget width, in pixels.
         width: f32,
+        /// Widget height, in pixels.
         height: f32,
     },
+    /// Create or update a UI text input field.
     SetUiTextInput {
+        /// Identifier of the sound or UI widget to target.
         id: String,
+        /// Placeholder hint text shown when the input is empty.
         hint: String,
+        /// New absolute X position.
         x: f32,
+        /// New absolute Y position.
         y: f32,
+        /// Widget width, in pixels.
         width: f32,
     },
+    /// Remove a UI widget by id.
     RemoveUiWidget {
+        /// Identifier of the sound or UI widget to target.
         id: String,
     },
+    /// Remove all UI widgets.
     ClearUiWidgets,
+    /// Load a scene from a file, replacing the current world.
     LoadScene {
+        /// Filesystem path of the resource to load.
         path: String,
     },
+    /// Set the skybox texture used for the background/environment.
     SetSkybox {
+        /// Filesystem path of the resource to load.
         path: String,
     },
+    /// Attach an entity as the child of another entity.
     SetParent {
+        /// Name of the child entity.
         child: String,
+        /// Name of the new parent entity.
         parent: String,
     },
+    /// Detach an entity from its parent.
     ClearParent {
+        /// Name of the child entity.
         child: String,
     },
+    /// Show or hide the mouse cursor.
     SetCursorVisible {
+        /// Whether the entity is visible.
         visible: bool,
     },
+    /// Lock or unlock the mouse cursor to the window.
     SetCursorLocked {
+        /// Whether the cursor is locked to the window.
         locked: bool,
     },
+    /// Apply an instantaneous impulse to a rigid body's center of mass.
     AddImpulse {
+        /// Name of the entity to modify.
         name: String,
+        /// X component of the force/impulse.
         fx: f32,
+        /// Y component of the force/impulse.
         fy: f32,
+        /// Z component of the force/impulse.
         fz: f32,
     },
+    /// Apply an instantaneous impulse to a rigid body at a specific world point.
     AddImpulseAtPoint {
+        /// Name of the entity to modify.
         name: String,
+        /// X component of the force/impulse.
         fx: f32,
+        /// Y component of the force/impulse.
         fy: f32,
+        /// Z component of the force/impulse.
         fz: f32,
+        /// X coordinate of the point the force/impulse is applied at.
         px: f32,
+        /// Y coordinate of the point the force/impulse is applied at.
         py: f32,
+        /// Z coordinate of the point the force/impulse is applied at.
         pz: f32,
     },
+    /// Apply a continuous force to a rigid body's center of mass.
     AddForce {
+        /// Name of the entity to modify.
         name: String,
+        /// X component of the force/impulse.
         fx: f32,
+        /// Y component of the force/impulse.
         fy: f32,
+        /// Z component of the force/impulse.
         fz: f32,
     },
+    /// Apply a continuous force to a rigid body at a specific world point.
     AddForceAtPoint {
+        /// Name of the entity to modify.
         name: String,
+        /// X component of the force/impulse.
         fx: f32,
+        /// Y component of the force/impulse.
         fy: f32,
+        /// Z component of the force/impulse.
         fz: f32,
+        /// X coordinate of the point the force/impulse is applied at.
         px: f32,
+        /// Y coordinate of the point the force/impulse is applied at.
         py: f32,
+        /// Z coordinate of the point the force/impulse is applied at.
         pz: f32,
     },
+    /// Clears any force/torque accumulated via `AddForce`/`AddTorque` on a
+    /// rigid body, so it doesn't keep being applied on subsequent steps.
     ResetForces {
+        /// Name of the entity to modify.
         name: String,
     },
+    /// Set a rigid body's linear velocity.
     SetVelocity {
+        /// Name of the entity to modify.
         name: String,
+        /// X component of the velocity.
         vx: f32,
+        /// Y component of the velocity.
         vy: f32,
+        /// Z component of the velocity.
         vz: f32,
     },
+    /// Set the X component of a rigid body's linear velocity.
     SetVelocityX {
+        /// Name of the entity to modify.
         name: String,
+        /// X component of the velocity.
         vx: f32,
     },
+    /// Set the Y component of a rigid body's linear velocity.
     SetVelocityY {
+        /// Name of the entity to modify.
         name: String,
+        /// Y component of the velocity.
         vy: f32,
     },
+    /// Set the Z component of a rigid body's linear velocity.
     SetVelocityZ {
+        /// Name of the entity to modify.
         name: String,
+        /// Z component of the velocity.
         vz: f32,
     },
+    /// Set the world's global gravity magnitude.
     SetGravity {
+        /// World gravity magnitude.
         magnitude: f32,
     },
+    /// Set a rigid body's angular velocity.
     SetAngularVelocity {
+        /// Name of the entity to modify.
         name: String,
+        /// X component of the velocity.
         vx: f32,
+        /// Y component of the velocity.
         vy: f32,
+        /// Z component of the velocity.
         vz: f32,
     },
+    /// Set the X component of a rigid body's angular velocity.
     SetAngularVelocityX {
+        /// Name of the entity to modify.
         name: String,
+        /// X component of the velocity.
         vx: f32,
     },
+    /// Set the Y component of a rigid body's angular velocity.
     SetAngularVelocityY {
+        /// Name of the entity to modify.
         name: String,
+        /// Y component of the velocity.
         vy: f32,
     },
+    /// Set the Z component of a rigid body's angular velocity.
     SetAngularVelocityZ {
+        /// Name of the entity to modify.
         name: String,
+        /// Z component of the velocity.
         vz: f32,
     },
+    /// Add to a rigid body's linear velocity.
     AddVelocity {
+        /// Name of the entity to modify.
         name: String,
+        /// X component of the velocity.
         vx: f32,
+        /// Y component of the velocity.
         vy: f32,
+        /// Z component of the velocity.
         vz: f32,
     },
+    /// Add to a rigid body's angular velocity.
     AddAngularVelocity {
+        /// Name of the entity to modify.
         name: String,
+        /// X component of the velocity.
         vx: f32,
+        /// Y component of the velocity.
         vy: f32,
+        /// Z component of the velocity.
         vz: f32,
     },
+    /// Apply an instantaneous angular impulse to a rigid body.
     AddAngularImpulse {
+        /// Name of the entity to modify.
         name: String,
+        /// X component of the velocity.
         vx: f32,
+        /// Y component of the velocity.
         vy: f32,
+        /// Z component of the velocity.
         vz: f32,
     },
+    /// Apply a continuous torque to a rigid body.
     AddTorque {
+        /// Name of the entity to modify.
         name: String,
+        /// X component of the velocity.
         vx: f32,
+        /// Y component of the velocity.
         vy: f32,
+        /// Z component of the velocity.
         vz: f32,
     },
+    /// Enable or disable continuous collision detection on a rigid body.
     SetCCDEnabled {
+        /// Name of the entity to modify.
         name: String,
+        /// Whether the effect is enabled.
         enabled: bool,
     },
+    /// Set a rigid body's linear damping (velocity decay over time).
     SetLinearDamping {
+        /// Name of the entity to modify.
         name: String,
+        /// New damping coefficient.
         damping: f32,
     },
+    /// Set a rigid body's angular damping (angular velocity decay over time).
     SetAngularDamping {
+        /// Name of the entity to modify.
         name: String,
+        /// New damping coefficient.
         damping: f32,
     },
+    /// Set a rigid body's mass.
     SetMass {
+        /// Name of the entity to modify.
         name: String,
+        /// New mass, in kilograms.
         mass: f32,
     },
+    /// Set whether a rigid body is kinematic.
     SetKinematic {
+        /// Name of the entity to modify.
         name: String,
+        /// Whether the body is kinematic (unaffected by physics forces).
         kinematic: bool,
     },
+    /// Set a rigid body's gravity scale multiplier.
     SetGravityScale {
+        /// Name of the entity to modify.
         name: String,
+        /// Gravity scale multiplier applied to the body.
         scale: f32,
     },
+    /// Set whether an entity's collider acts as a sensor.
     SetColliderSensor {
+        /// Name of the entity to modify.
         name: String,
+        /// Whether the collider acts as a sensor (detects overlap without a physical response).
         sensor: bool,
     },
+    /// Set a collider's restitution (bounciness).
     SetRestitution {
+        /// Name of the entity to modify.
         name: String,
+        /// Bounciness of the collider (0 = no bounce, 1 = perfectly elastic).
         restitution: f32,
     },
+    /// Set a collider's surface friction.
     SetFriction {
+        /// Name of the entity to modify.
         name: String,
+        /// Surface friction coefficient.
         friction: f32,
     },
+    /// Lock a rigid body's rotation on one or more axes.
     LockRotation {
+        /// Name of the entity to modify.
         name: String,
+        /// Whether the X axis is locked.
         lock_x: bool,
+        /// Whether the Y axis is locked.
         lock_y: bool,
+        /// Whether the Z axis is locked.
         lock_z: bool,
     },
+    /// Lock a rigid body's translation on one or more axes.
     LockTranslation {
+        /// Name of the entity to modify.
         name: String,
+        /// Whether the X axis is locked.
         lock_x: bool,
+        /// Whether the Y axis is locked.
         lock_y: bool,
+        /// Whether the Z axis is locked.
         lock_z: bool,
     },
+    /// Wake a sleeping rigid body so physics resumes simulating it.
     WakeUp {
+        /// Name of the entity to modify.
         name: String,
     },
+    /// Force a rigid body to sleep, pausing physics simulation for it.
     PutToSleep {
+        /// Name of the entity to modify.
         name: String,
     },
+    /// Set the X component of an entity's position.
     SetPositionX {
+        /// Name of the entity to modify.
         name: String,
+        /// New absolute X position.
         x: f32,
     },
+    /// Set the Y component of an entity's position.
     SetPositionY {
+        /// Name of the entity to modify.
         name: String,
+        /// New absolute Y position.
         y: f32,
     },
+    /// Set the Z component of an entity's position.
     SetPositionZ {
+        /// Name of the entity to modify.
         name: String,
+        /// New absolute Z position.
         z: f32,
     },
+    /// Add to the X component of an entity's position.
     AddPositionX {
+        /// Name of the entity to modify.
         name: String,
+        /// Position delta along X.
         dx: f32,
     },
+    /// Add to the Y component of an entity's position.
     AddPositionY {
+        /// Name of the entity to modify.
         name: String,
+        /// Position delta along Y.
         dy: f32,
     },
+    /// Add to the Z component of an entity's position.
     AddPositionZ {
+        /// Name of the entity to modify.
         name: String,
+        /// Position delta along Z.
         dz: f32,
     },
+    /// Compose an additional rotation onto an entity's current rotation.
     RotateBy {
+        /// Name of the entity to modify.
         name: String,
+        /// Rotation quaternion X component.
         rx: f32,
+        /// Rotation quaternion Y component.
         ry: f32,
+        /// Rotation quaternion Z component.
         rz: f32,
+        /// Rotation quaternion W component.
         rw: f32,
     },
+    /// Rotate an entity around an arbitrary axis by an angle.
     RotateAroundAxis {
+        /// Name of the entity to modify.
         name: String,
+        /// X component of the rotation axis.
         ax: f32,
+        /// Y component of the rotation axis.
         ay: f32,
+        /// Z component of the rotation axis.
         az: f32,
+        /// Rotation angle, in degrees.
         angle_deg: f32,
     },
+    /// Add Euler-angle rotation deltas (in degrees) to an entity.
     AddRotationEuler {
+        /// Name of the entity to modify.
         name: String,
+        /// Pitch delta, in degrees.
         pitch: f32,
+        /// Yaw delta, in degrees.
         yaw: f32,
+        /// Roll delta, in degrees.
         roll: f32,
     },
+    /// Add a rotation delta around the X axis, in degrees.
     AddRotationEulerX {
+        /// Name of the entity to modify.
         name: String,
+        /// Angle, in degrees.
         deg: f32,
     },
+    /// Add a rotation delta around the Y axis, in degrees.
     AddRotationEulerY {
+        /// Name of the entity to modify.
         name: String,
+        /// Angle, in degrees.
         deg: f32,
     },
+    /// Add a rotation delta around the Z axis, in degrees.
     AddRotationEulerZ {
+        /// Name of the entity to modify.
         name: String,
+        /// Angle, in degrees.
         deg: f32,
     },
+    /// Set the X component of an entity's scale.
     SetScaleX {
+        /// Name of the entity to modify.
         name: String,
+        /// New absolute X position.
         x: f32,
     },
+    /// Set the Y component of an entity's scale.
     SetScaleY {
+        /// Name of the entity to modify.
         name: String,
+        /// New absolute Y position.
         y: f32,
     },
+    /// Set the Z component of an entity's scale.
     SetScaleZ {
+        /// Name of the entity to modify.
         name: String,
+        /// New absolute Z position.
         z: f32,
     },
+    /// Add to the X component of an entity's scale.
     AddScaleX {
+        /// Name of the entity to modify.
         name: String,
+        /// Position delta along X.
         dx: f32,
     },
+    /// Add to the Y component of an entity's scale.
     AddScaleY {
+        /// Name of the entity to modify.
         name: String,
+        /// Position delta along Y.
         dy: f32,
     },
+    /// Add to the Z component of an entity's scale.
     AddScaleZ {
+        /// Name of the entity to modify.
         name: String,
+        /// Position delta along Z.
         dz: f32,
     },
+    /// Set an entity's absolute rotation from Euler angles, in degrees.
     SetRotationEuler {
+        /// Name of the entity to modify.
         name: String,
+        /// Absolute pitch angle, in degrees.
         pitch_deg: f32,
+        /// Absolute yaw angle, in degrees.
         yaw_deg: f32,
+        /// Absolute roll angle, in degrees.
         roll_deg: f32,
     },
+    /// Add to all three components of an entity's scale.
     AddScale {
+        /// Name of the entity to modify.
         name: String,
+        /// New X scale factor.
         sx: f32,
+        /// New Y scale factor.
         sy: f32,
+        /// New Z scale factor.
         sz: f32,
     },
+    /// Set the pitch component of an entity's rotation, in degrees.
     SetRotationEulerX {
+        /// Name of the entity to modify.
         name: String,
+        /// Angle, in degrees.
         deg: f32,
     },
+    /// Set the yaw component of an entity's rotation, in degrees.
     SetRotationEulerY {
+        /// Name of the entity to modify.
         name: String,
+        /// Angle, in degrees.
         deg: f32,
     },
+    /// Set the roll component of an entity's rotation, in degrees.
     SetRotationEulerZ {
+        /// Name of the entity to modify.
         name: String,
+        /// Angle, in degrees.
         deg: f32,
     },
+    /// Multiply an entity's current scale by the given factors.
     MultiplyScale {
+        /// Name of the entity to modify.
         name: String,
+        /// New X scale factor.
         sx: f32,
+        /// New Y scale factor.
         sy: f32,
+        /// New Z scale factor.
         sz: f32,
     },
+    /// (Re)initialize the nav-mesh grid used for pathfinding.
     NavmeshInit {
+        /// Grid width, in cells.
         width: u32,
+        /// Grid depth, in cells.
         depth: u32,
+        /// Size of one grid cell, in world units.
         cell_size: f32,
+        /// World-space X coordinate of the grid origin.
         origin_x: f32,
+        /// World-space Y coordinate of the grid origin.
         origin_y: f32,
+        /// World-space Z coordinate of the grid origin.
         origin_z: f32,
     },
+    /// Mark a nav-mesh grid cell as walkable or blocked.
     NavmeshSetWalkable {
+        /// Grid cell X coordinate.
         x: u32,
+        /// Grid cell Z coordinate.
         z: u32,
+        /// Whether the navmesh cell is walkable.
         walkable: bool,
     },
+    /// Serialize the current world state to a save file.
     SaveGame {
+        /// Filesystem path of the resource to load.
         path: String,
     },
+    /// Load world state from a save file.
     LoadGame {
+        /// Filesystem path of the resource to load.
         path: String,
     },
+    /// Assign a custom shader to an entity's material.
     SetCustomShader {
+        /// Name of the entity to modify.
         name: String,
+        /// Filesystem path of the resource to load.
         path: String,
     },
+    /// Remove an entity's custom shader, reverting to the default.
     ClearCustomShader {
+        /// Name of the entity to modify.
         name: String,
     },
+    /// Start hosting a network server on the given port.
     NetworkStartServer {
+        /// Network port number.
         port: u16,
     },
+    /// Connect to a network server as a client.
     NetworkConnect {
+        /// Hostname or IP address to connect to.
         host: String,
+        /// Network port number.
         port: u16,
     },
+    /// Disconnect from the current network session.
     NetworkDisconnect,
 }
 
@@ -1658,17 +2226,20 @@ struct RaycastHitJson {
     distance: f32,
 }
 
+/// Write a message to the engine log at info level, tagged as coming from a script.
 #[op2(fast)]
 pub fn bsengine_log(#[string] msg: String) {
     tracing::info!("[script] {}", msg);
 }
 
+/// Get the scripting API version string.
 #[op2]
 #[string]
 pub fn bsengine_version() -> String {
     "0.1.0".to_string()
 }
 
+/// Get an entity's local position, rotation, and scale, or `None` if it doesn't exist.
 #[op2]
 #[serde]
 pub fn bsengine_get_transform(#[string] name: String) -> Option<TransformJson> {
@@ -1690,6 +2261,7 @@ pub fn bsengine_get_transform(#[string] name: String) -> Option<TransformJson> {
     })
 }
 
+/// Get the world-space forward direction vector of an entity's rotation.
 #[op2]
 #[serde]
 pub fn bsengine_get_forward_vector(#[string] name: String) -> Option<Vec<f32>> {
@@ -1701,6 +2273,7 @@ pub fn bsengine_get_forward_vector(#[string] name: String) -> Option<Vec<f32>> {
     })
 }
 
+/// Get the world-space right direction vector of an entity's rotation.
 #[op2]
 #[serde]
 pub fn bsengine_get_right_vector(#[string] name: String) -> Option<Vec<f32>> {
@@ -1712,6 +2285,7 @@ pub fn bsengine_get_right_vector(#[string] name: String) -> Option<Vec<f32>> {
     })
 }
 
+/// Get the world-space up direction vector of an entity's rotation.
 #[op2]
 #[serde]
 pub fn bsengine_get_up_vector(#[string] name: String) -> Option<Vec<f32>> {
@@ -1723,6 +2297,7 @@ pub fn bsengine_get_up_vector(#[string] name: String) -> Option<Vec<f32>> {
     })
 }
 
+/// Get an entity's world-space position, rotation, and scale, or `None` if it doesn't exist.
 #[op2]
 #[serde]
 pub fn bsengine_get_world_transform(#[string] name: String) -> Option<TransformJson> {
@@ -1744,6 +2319,7 @@ pub fn bsengine_get_world_transform(#[string] name: String) -> Option<TransformJ
     })
 }
 
+/// Get the distance between two named entities.
 #[op2(fast)]
 pub fn bsengine_distance_to(#[string] name_a: String, #[string] name_b: String) -> f32 {
     TRANSFORM_SNAPSHOT.with(|s| {
@@ -1757,6 +2333,7 @@ pub fn bsengine_distance_to(#[string] name_a: String, #[string] name_b: String) 
     })
 }
 
+/// Get the distance from a named entity to a world-space point.
 #[op2(fast)]
 pub fn bsengine_distance_to_point(#[string] name: String, x: f32, y: f32, z: f32) -> f32 {
     TRANSFORM_SNAPSHOT.with(|s| {
@@ -1767,6 +2344,7 @@ pub fn bsengine_distance_to_point(#[string] name: String, x: f32, y: f32, z: f32
     })
 }
 
+/// Queue setting an entity's absolute position.
 #[op2(fast)]
 pub fn bsengine_set_transform(#[string] name: String, x: f32, y: f32, z: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -1775,6 +2353,7 @@ pub fn bsengine_set_transform(#[string] name: String, x: f32, y: f32, z: f32) {
     });
 }
 
+/// Queue setting an entity's absolute rotation, as a quaternion.
 #[op2(fast)]
 pub fn bsengine_set_rotation(#[string] name: String, rx: f32, ry: f32, rz: f32, rw: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -1788,6 +2367,7 @@ pub fn bsengine_set_rotation(#[string] name: String, rx: f32, ry: f32, rz: f32, 
     });
 }
 
+/// Queue setting an entity's absolute rotation from Euler angles, in degrees.
 #[op2(fast)]
 pub fn bsengine_set_rotation_euler(
     #[string] name: String,
@@ -1805,6 +2385,7 @@ pub fn bsengine_set_rotation_euler(
     });
 }
 
+/// Queue setting an entity's absolute scale.
 #[op2(fast)]
 pub fn bsengine_set_scale(#[string] name: String, sx: f32, sy: f32, sz: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -1813,6 +2394,7 @@ pub fn bsengine_set_scale(#[string] name: String, sx: f32, sy: f32, sz: f32) {
     });
 }
 
+/// Queue a world-space position offset for an entity.
 #[op2(fast)]
 pub fn bsengine_add_position(#[string] name: String, dx: f32, dy: f32, dz: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -1821,6 +2403,7 @@ pub fn bsengine_add_position(#[string] name: String, dx: f32, dy: f32, dz: f32) 
     });
 }
 
+/// Queue composing an additional rotation onto an entity's current rotation.
 #[op2(fast)]
 pub fn bsengine_rotate_by(#[string] name: String, rx: f32, ry: f32, rz: f32, rw: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -1834,6 +2417,7 @@ pub fn bsengine_rotate_by(#[string] name: String, rx: f32, ry: f32, rz: f32, rw:
     });
 }
 
+/// Queue a local-space (entity-relative) position offset for an entity.
 #[op2(fast)]
 pub fn bsengine_add_position_local(#[string] name: String, dx: f32, dy: f32, dz: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -1842,6 +2426,7 @@ pub fn bsengine_add_position_local(#[string] name: String, dx: f32, dy: f32, dz:
     });
 }
 
+/// Queue setting the X component of an entity's position.
 #[op2(fast)]
 pub fn bsengine_set_position_x(#[string] name: String, x: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -1849,6 +2434,7 @@ pub fn bsengine_set_position_x(#[string] name: String, x: f32) {
     });
 }
 
+/// Queue setting the Y component of an entity's position.
 #[op2(fast)]
 pub fn bsengine_set_position_y(#[string] name: String, y: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -1856,6 +2442,7 @@ pub fn bsengine_set_position_y(#[string] name: String, y: f32) {
     });
 }
 
+/// Queue setting the Z component of an entity's position.
 #[op2(fast)]
 pub fn bsengine_set_position_z(#[string] name: String, z: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -1863,6 +2450,7 @@ pub fn bsengine_set_position_z(#[string] name: String, z: f32) {
     });
 }
 
+/// Queue adding to the X component of an entity's position.
 #[op2(fast)]
 pub fn bsengine_add_position_x(#[string] name: String, dx: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -1871,6 +2459,7 @@ pub fn bsengine_add_position_x(#[string] name: String, dx: f32) {
     });
 }
 
+/// Queue adding to the Y component of an entity's position.
 #[op2(fast)]
 pub fn bsengine_add_position_y(#[string] name: String, dy: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -1879,6 +2468,7 @@ pub fn bsengine_add_position_y(#[string] name: String, dy: f32) {
     });
 }
 
+/// Queue adding to the Z component of an entity's position.
 #[op2(fast)]
 pub fn bsengine_add_position_z(#[string] name: String, dz: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -1887,6 +2477,7 @@ pub fn bsengine_add_position_z(#[string] name: String, dz: f32) {
     });
 }
 
+/// Queue rotating an entity around an arbitrary axis by an angle, in degrees.
 #[op2(fast)]
 pub fn bsengine_rotate_around_axis(
     #[string] name: String,
@@ -1906,6 +2497,7 @@ pub fn bsengine_rotate_around_axis(
     });
 }
 
+/// Queue adding Euler-angle rotation deltas (in degrees) to an entity.
 #[op2(fast)]
 pub fn bsengine_add_rotation_euler(#[string] name: String, pitch: f32, yaw: f32, roll: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -1918,6 +2510,7 @@ pub fn bsengine_add_rotation_euler(#[string] name: String, pitch: f32, yaw: f32,
     });
 }
 
+/// Queue a rotation delta around the X axis, in degrees.
 #[op2(fast)]
 pub fn bsengine_add_rotation_euler_x(#[string] name: String, deg: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -1926,6 +2519,7 @@ pub fn bsengine_add_rotation_euler_x(#[string] name: String, deg: f32) {
     });
 }
 
+/// Queue a rotation delta around the Y axis, in degrees.
 #[op2(fast)]
 pub fn bsengine_add_rotation_euler_y(#[string] name: String, deg: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -1934,6 +2528,7 @@ pub fn bsengine_add_rotation_euler_y(#[string] name: String, deg: f32) {
     });
 }
 
+/// Queue a rotation delta around the Z axis, in degrees.
 #[op2(fast)]
 pub fn bsengine_add_rotation_euler_z(#[string] name: String, deg: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -1942,6 +2537,7 @@ pub fn bsengine_add_rotation_euler_z(#[string] name: String, deg: f32) {
     });
 }
 
+/// Queue setting the X component of an entity's scale.
 #[op2(fast)]
 pub fn bsengine_set_scale_x(#[string] name: String, x: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -1949,6 +2545,7 @@ pub fn bsengine_set_scale_x(#[string] name: String, x: f32) {
     });
 }
 
+/// Queue setting the Y component of an entity's scale.
 #[op2(fast)]
 pub fn bsengine_set_scale_y(#[string] name: String, y: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -1956,6 +2553,7 @@ pub fn bsengine_set_scale_y(#[string] name: String, y: f32) {
     });
 }
 
+/// Queue setting the Z component of an entity's scale.
 #[op2(fast)]
 pub fn bsengine_set_scale_z(#[string] name: String, z: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -1963,6 +2561,7 @@ pub fn bsengine_set_scale_z(#[string] name: String, z: f32) {
     });
 }
 
+/// Queue adding to the X component of an entity's scale.
 #[op2(fast)]
 pub fn bsengine_add_scale_x(#[string] name: String, dx: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -1970,6 +2569,7 @@ pub fn bsengine_add_scale_x(#[string] name: String, dx: f32) {
     });
 }
 
+/// Queue adding to the Y component of an entity's scale.
 #[op2(fast)]
 pub fn bsengine_add_scale_y(#[string] name: String, dy: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -1977,6 +2577,7 @@ pub fn bsengine_add_scale_y(#[string] name: String, dy: f32) {
     });
 }
 
+/// Queue adding to the Z component of an entity's scale.
 #[op2(fast)]
 pub fn bsengine_add_scale_z(#[string] name: String, dz: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -1984,36 +2585,43 @@ pub fn bsengine_add_scale_z(#[string] name: String, dz: f32) {
     });
 }
 
+/// Get the X component of an entity's position.
 #[op2(fast)]
 pub fn bsengine_get_position_x(#[string] name: String) -> f32 {
     TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |t| t.0.x))
 }
 
+/// Get the Y component of an entity's position.
 #[op2(fast)]
 pub fn bsengine_get_position_y(#[string] name: String) -> f32 {
     TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |t| t.0.y))
 }
 
+/// Get the Z component of an entity's position.
 #[op2(fast)]
 pub fn bsengine_get_position_z(#[string] name: String) -> f32 {
     TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |t| t.0.z))
 }
 
+/// Get the X component of an entity's scale.
 #[op2(fast)]
 pub fn bsengine_get_scale_x(#[string] name: String) -> f32 {
     TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |t| t.2.x))
 }
 
+/// Get the Y component of an entity's scale.
 #[op2(fast)]
 pub fn bsengine_get_scale_y(#[string] name: String) -> f32 {
     TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |t| t.2.y))
 }
 
+/// Get the Z component of an entity's scale.
 #[op2(fast)]
 pub fn bsengine_get_scale_z(#[string] name: String) -> f32 {
     TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |t| t.2.z))
 }
 
+/// Get the pitch component of an entity's rotation, in degrees.
 #[op2(fast)]
 pub fn bsengine_get_rotation_euler_x(#[string] name: String) -> f32 {
     TRANSFORM_SNAPSHOT.with(|s| {
@@ -2024,6 +2632,7 @@ pub fn bsengine_get_rotation_euler_x(#[string] name: String) -> f32 {
     })
 }
 
+/// Get the yaw component of an entity's rotation, in degrees.
 #[op2(fast)]
 pub fn bsengine_get_rotation_euler_y(#[string] name: String) -> f32 {
     TRANSFORM_SNAPSHOT.with(|s| {
@@ -2034,6 +2643,7 @@ pub fn bsengine_get_rotation_euler_y(#[string] name: String) -> f32 {
     })
 }
 
+/// Get the roll component of an entity's rotation, in degrees.
 #[op2(fast)]
 pub fn bsengine_get_rotation_euler_z(#[string] name: String) -> f32 {
     TRANSFORM_SNAPSHOT.with(|s| {
@@ -2044,6 +2654,7 @@ pub fn bsengine_get_rotation_euler_z(#[string] name: String) -> f32 {
     })
 }
 
+/// Queue adding to all three components of an entity's scale.
 #[op2(fast)]
 pub fn bsengine_add_scale(#[string] name: String, sx: f32, sy: f32, sz: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2052,6 +2663,7 @@ pub fn bsengine_add_scale(#[string] name: String, sx: f32, sy: f32, sz: f32) {
     });
 }
 
+/// Queue setting the pitch component of an entity's rotation, in degrees.
 #[op2(fast)]
 pub fn bsengine_set_rotation_euler_x(#[string] name: String, deg: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2060,6 +2672,7 @@ pub fn bsengine_set_rotation_euler_x(#[string] name: String, deg: f32) {
     });
 }
 
+/// Queue setting the yaw component of an entity's rotation, in degrees.
 #[op2(fast)]
 pub fn bsengine_set_rotation_euler_y(#[string] name: String, deg: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2068,6 +2681,7 @@ pub fn bsengine_set_rotation_euler_y(#[string] name: String, deg: f32) {
     });
 }
 
+/// Queue setting the roll component of an entity's rotation, in degrees.
 #[op2(fast)]
 pub fn bsengine_set_rotation_euler_z(#[string] name: String, deg: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2076,6 +2690,7 @@ pub fn bsengine_set_rotation_euler_z(#[string] name: String, deg: f32) {
     });
 }
 
+/// Queue multiplying an entity's current scale by the given factors.
 #[op2(fast)]
 pub fn bsengine_multiply_scale(#[string] name: String, sx: f32, sy: f32, sz: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2084,21 +2699,25 @@ pub fn bsengine_multiply_scale(#[string] name: String, sx: f32, sy: f32, sz: f32
     });
 }
 
+/// Check whether a keyboard key was pressed this frame.
 #[op2(fast)]
 pub fn bsengine_is_key_pressed(#[string] key: String) -> bool {
     KEY_SNAPSHOT.with(|k| k.borrow().contains(&key))
 }
 
+/// Check whether a keyboard key is currently held down.
 #[op2(fast)]
 pub fn bsengine_is_key_down(#[string] key: String) -> bool {
     KEY_JUST_PRESSED_SNAPSHOT.with(|k| k.borrow().contains(&key))
 }
 
+/// Check whether a keyboard key was released this frame.
 #[op2(fast)]
 pub fn bsengine_is_key_up(#[string] key: String) -> bool {
     KEY_JUST_RELEASED_SNAPSHOT.with(|k| k.borrow().contains(&key))
 }
 
+/// Get the names of all named entities, as a JSON array string.
 #[op2]
 #[string]
 pub fn bsengine_get_entity_names() -> String {
@@ -2106,16 +2725,19 @@ pub fn bsengine_get_entity_names() -> String {
         .with(|s| serde_json::to_string(&*s.borrow()).unwrap_or_else(|_| "[]".to_string()))
 }
 
+/// Check whether a named entity currently exists.
 #[op2(fast)]
 pub fn bsengine_entity_exists(#[string] name: String) -> bool {
     ENTITY_NAMES_SNAPSHOT.with(|s| s.borrow().contains(&name))
 }
 
+/// Get the total number of named entities.
 #[op2(fast)]
 pub fn bsengine_get_entity_count() -> u32 {
     ENTITY_NAMES_SNAPSHOT.with(|s| s.borrow().len() as u32)
 }
 
+/// Get the names of all entities within a radius of a world-space point, as a JSON array string.
 #[op2]
 #[string]
 pub fn bsengine_get_entities_in_radius(x: f32, y: f32, z: f32, radius: f32) -> String {
@@ -2132,6 +2754,7 @@ pub fn bsengine_get_entities_in_radius(x: f32, y: f32, z: f32, radius: f32) -> S
     })
 }
 
+/// Get the name of the entity closest to a world-space point.
 #[op2]
 #[string]
 pub fn bsengine_get_closest_entity(x: f32, y: f32, z: f32) -> String {
@@ -2149,6 +2772,7 @@ pub fn bsengine_get_closest_entity(x: f32, y: f32, z: f32) -> String {
     })
 }
 
+/// Queue setting an entity's emissive material color.
 #[op2(fast)]
 pub fn bsengine_set_emissive(#[string] name: String, r: f32, g: f32, b: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2157,6 +2781,7 @@ pub fn bsengine_set_emissive(#[string] name: String, r: f32, g: f32, b: f32) {
     });
 }
 
+/// Queue setting an entity's base material color.
 #[op2(fast)]
 pub fn bsengine_set_color(#[string] name: String, r: f32, g: f32, b: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2165,16 +2790,19 @@ pub fn bsengine_set_color(#[string] name: String, r: f32, g: f32, b: f32) {
     });
 }
 
+/// Queue spawning a new entity from the given parameters.
 #[op2]
 pub fn bsengine_spawn(#[serde] params: SpawnParams) {
     COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::Spawn(params)));
 }
 
+/// Queue destroying a named entity.
 #[op2(fast)]
 pub fn bsengine_destroy(#[string] name: String) {
     COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::Destroy { name }));
 }
 
+/// Queue showing or hiding an entity.
 #[op2(fast)]
 pub fn bsengine_set_visible(#[string] name: String, visible: bool) {
     COMMAND_BUFFER.with(|c| {
@@ -2183,23 +2811,27 @@ pub fn bsengine_set_visible(#[string] name: String, visible: bool) {
     });
 }
 
+/// Check whether an entity is currently visible.
 #[op2(fast)]
 pub fn bsengine_get_visible(#[string] name: String) -> bool {
     VISIBLE_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(true))
 }
 
+/// Get an entity's base material color as `[r, g, b]`, or `None` if it has no material.
 #[op2]
 #[serde]
 pub fn bsengine_get_material_color(#[string] name: String) -> Option<Vec<f32>> {
     MATERIAL_COLOR_SNAPSHOT.with(|s| s.borrow().get(&name).map(|c| c.to_vec()))
 }
 
+/// Get an entity's emissive material color as `[r, g, b]`, or `None` if it has no material.
 #[op2]
 #[serde]
 pub fn bsengine_get_material_emissive(#[string] name: String) -> Option<Vec<f32>> {
     MATERIAL_EMISSIVE_SNAPSHOT.with(|s| s.borrow().get(&name).map(|c| c.to_vec()))
 }
 
+/// Queue setting an entity's material metallic factor.
 #[op2(fast)]
 pub fn bsengine_set_metallic(#[string] name: String, value: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2208,11 +2840,13 @@ pub fn bsengine_set_metallic(#[string] name: String, value: f32) {
     });
 }
 
+/// Get an entity's material metallic factor.
 #[op2(fast)]
 pub fn bsengine_get_metallic(#[string] name: String) -> f32 {
     MATERIAL_METALLIC_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(f32::NAN))
 }
 
+/// Queue setting an entity's material roughness factor.
 #[op2(fast)]
 pub fn bsengine_set_roughness(#[string] name: String, value: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2221,11 +2855,13 @@ pub fn bsengine_set_roughness(#[string] name: String, value: f32) {
     });
 }
 
+/// Get an entity's material roughness factor.
 #[op2(fast)]
 pub fn bsengine_get_roughness(#[string] name: String) -> f32 {
     MATERIAL_ROUGHNESS_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(f32::NAN))
 }
 
+/// Queue setting a point light's color.
 #[op2(fast)]
 pub fn bsengine_set_point_light_color(#[string] name: String, r: f32, g: f32, b: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2234,6 +2870,7 @@ pub fn bsengine_set_point_light_color(#[string] name: String, r: f32, g: f32, b:
     });
 }
 
+/// Queue setting a point light's intensity.
 #[op2(fast)]
 pub fn bsengine_set_point_light_intensity(#[string] name: String, value: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2242,6 +2879,7 @@ pub fn bsengine_set_point_light_intensity(#[string] name: String, value: f32) {
     });
 }
 
+/// Queue setting a point light's maximum range.
 #[op2(fast)]
 pub fn bsengine_set_point_light_range(#[string] name: String, value: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2250,6 +2888,7 @@ pub fn bsengine_set_point_light_range(#[string] name: String, value: f32) {
     });
 }
 
+/// Queue setting a spot light's color.
 #[op2(fast)]
 pub fn bsengine_set_spot_light_color(#[string] name: String, r: f32, g: f32, b: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2258,6 +2897,7 @@ pub fn bsengine_set_spot_light_color(#[string] name: String, r: f32, g: f32, b: 
     });
 }
 
+/// Queue setting a spot light's intensity.
 #[op2(fast)]
 pub fn bsengine_set_spot_light_intensity(#[string] name: String, value: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2266,6 +2906,7 @@ pub fn bsengine_set_spot_light_intensity(#[string] name: String, value: f32) {
     });
 }
 
+/// Queue setting a spot light's maximum range.
 #[op2(fast)]
 pub fn bsengine_set_spot_light_range(#[string] name: String, value: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2274,6 +2915,7 @@ pub fn bsengine_set_spot_light_range(#[string] name: String, value: f32) {
     });
 }
 
+/// Queue setting a spot light's inner cone angle.
 #[op2(fast)]
 pub fn bsengine_set_spot_light_inner_angle(#[string] name: String, deg: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2282,6 +2924,7 @@ pub fn bsengine_set_spot_light_inner_angle(#[string] name: String, deg: f32) {
     });
 }
 
+/// Queue setting a spot light's outer cone angle.
 #[op2(fast)]
 pub fn bsengine_set_spot_light_outer_angle(#[string] name: String, deg: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2290,6 +2933,7 @@ pub fn bsengine_set_spot_light_outer_angle(#[string] name: String, deg: f32) {
     });
 }
 
+/// Queue setting a directional light's color.
 #[op2(fast)]
 pub fn bsengine_set_directional_light_color(#[string] name: String, r: f32, g: f32, b: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2298,6 +2942,7 @@ pub fn bsengine_set_directional_light_color(#[string] name: String, r: f32, g: f
     });
 }
 
+/// Queue setting a directional light's ambient color contribution.
 #[op2(fast)]
 pub fn bsengine_set_directional_light_ambient(#[string] name: String, r: f32, g: f32, b: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2306,6 +2951,7 @@ pub fn bsengine_set_directional_light_ambient(#[string] name: String, r: f32, g:
     });
 }
 
+/// Queue setting a directional light's direction vector.
 #[op2(fast)]
 pub fn bsengine_set_directional_light_direction(#[string] name: String, x: f32, y: f32, z: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2314,6 +2960,7 @@ pub fn bsengine_set_directional_light_direction(#[string] name: String, x: f32, 
     });
 }
 
+/// Queue setting a camera's vertical field of view, in degrees.
 #[op2(fast)]
 pub fn bsengine_set_camera_fov(#[string] name: String, deg: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2322,6 +2969,7 @@ pub fn bsengine_set_camera_fov(#[string] name: String, deg: f32) {
     });
 }
 
+/// Queue setting a camera's near clip plane distance.
 #[op2(fast)]
 pub fn bsengine_set_camera_near(#[string] name: String, value: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2330,6 +2978,7 @@ pub fn bsengine_set_camera_near(#[string] name: String, value: f32) {
     });
 }
 
+/// Queue setting a camera's far clip plane distance.
 #[op2(fast)]
 pub fn bsengine_set_camera_far(#[string] name: String, value: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2338,6 +2987,7 @@ pub fn bsengine_set_camera_far(#[string] name: String, value: f32) {
     });
 }
 
+/// Queue setting a generic damping coefficient on an entity.
 #[op2(fast)]
 pub fn bsengine_set_damping(#[string] name: String, value: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2346,6 +2996,7 @@ pub fn bsengine_set_damping(#[string] name: String, value: f32) {
     });
 }
 
+/// Queue playing an animation clip on an entity.
 #[op2(fast)]
 pub fn bsengine_play_animation(#[string] name: String, #[string] clip: String) {
     COMMAND_BUFFER.with(|c| {
@@ -2354,21 +3005,25 @@ pub fn bsengine_play_animation(#[string] name: String, #[string] clip: String) {
     });
 }
 
+/// Queue pausing an entity's currently playing animation.
 #[op2(fast)]
 pub fn bsengine_pause_animation(#[string] name: String) {
     COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::PauseAnimation { name }));
 }
 
+/// Queue resuming an entity's paused animation.
 #[op2(fast)]
 pub fn bsengine_resume_animation(#[string] name: String) {
     COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ResumeAnimation { name }));
 }
 
+/// Queue resetting an entity's animation back to its first frame.
 #[op2(fast)]
 pub fn bsengine_reset_animation(#[string] name: String) {
     COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ResetAnimation { name }));
 }
 
+/// Queue setting the playback speed multiplier of an entity's animation.
 #[op2(fast)]
 pub fn bsengine_set_animation_speed(#[string] name: String, speed: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2377,6 +3032,7 @@ pub fn bsengine_set_animation_speed(#[string] name: String, speed: f32) {
     });
 }
 
+/// Queue setting whether an entity's animation loops.
 #[op2(fast)]
 pub fn bsengine_set_animation_looping(#[string] name: String, looping: bool) {
     COMMAND_BUFFER.with(|c| {
@@ -2385,6 +3041,7 @@ pub fn bsengine_set_animation_looping(#[string] name: String, looping: bool) {
     });
 }
 
+/// Queue firing a trigger on an entity's animation state machine.
 #[op2(fast)]
 pub fn bsengine_anim_set_trigger(#[string] name: String, #[string] trigger: String) {
     COMMAND_BUFFER.with(|c| {
@@ -2393,6 +3050,7 @@ pub fn bsengine_anim_set_trigger(#[string] name: String, #[string] trigger: Stri
     });
 }
 
+/// Queue setting a float parameter on an entity's animation state machine.
 #[op2(fast)]
 pub fn bsengine_anim_set_float(#[string] name: String, #[string] param: String, value: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2401,6 +3059,7 @@ pub fn bsengine_anim_set_float(#[string] name: String, #[string] param: String, 
     });
 }
 
+/// Queue setting a boolean parameter on an entity's animation state machine.
 #[op2(fast)]
 pub fn bsengine_anim_set_bool(#[string] name: String, #[string] param: String, value: bool) {
     COMMAND_BUFFER.with(|c| {
@@ -2409,12 +3068,14 @@ pub fn bsengine_anim_set_bool(#[string] name: String, #[string] param: String, v
     });
 }
 
+/// Get the current state name of an entity's animation state machine.
 #[op2]
 #[string]
 pub fn bsengine_anim_get_state(#[string] name: String) -> String {
     ASM_STATE_SNAPSHOT.with(|s| s.borrow().get(&name).cloned().unwrap_or_default())
 }
 
+/// Get the name of the animation clip currently playing on an entity.
 #[op2]
 #[string]
 pub fn bsengine_get_animation_clip(#[string] name: String) -> String {
@@ -2426,6 +3087,7 @@ pub fn bsengine_get_animation_clip(#[string] name: String) -> String {
     })
 }
 
+/// Get the current playback time of an entity's animation, in seconds.
 #[op2(fast)]
 pub fn bsengine_get_animation_time(#[string] name: String) -> f32 {
     ANIMATION_SNAPSHOT.with(|s| {
@@ -2436,6 +3098,7 @@ pub fn bsengine_get_animation_time(#[string] name: String) -> f32 {
     })
 }
 
+/// Get the playback speed multiplier of an entity's animation.
 #[op2(fast)]
 pub fn bsengine_get_animation_speed(#[string] name: String) -> f32 {
     ANIMATION_SNAPSHOT.with(|s| {
@@ -2446,6 +3109,7 @@ pub fn bsengine_get_animation_speed(#[string] name: String) -> f32 {
     })
 }
 
+/// Check whether an entity's animation is currently playing.
 #[op2(fast)]
 pub fn bsengine_is_animation_playing(#[string] name: String) -> bool {
     ANIMATION_SNAPSHOT.with(|s| {
@@ -2456,6 +3120,7 @@ pub fn bsengine_is_animation_playing(#[string] name: String) -> bool {
     })
 }
 
+/// Check whether an entity's animation is set to loop.
 #[op2(fast)]
 pub fn bsengine_is_animation_looping(#[string] name: String) -> bool {
     ANIMATION_SNAPSHOT.with(|s| {
@@ -2466,6 +3131,7 @@ pub fn bsengine_is_animation_looping(#[string] name: String) -> bool {
     })
 }
 
+/// Queue a countdown after which an entity is automatically destroyed.
 #[op2(fast)]
 pub fn bsengine_set_lifetime(#[string] name: String, seconds: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2474,11 +3140,13 @@ pub fn bsengine_set_lifetime(#[string] name: String, seconds: f32) {
     });
 }
 
+/// Get the remaining lifetime of an entity, in seconds.
 #[op2(fast)]
 pub fn bsengine_get_lifetime(#[string] name: String) -> f32 {
     LIFETIME_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(0.0))
 }
 
+/// Queue subtracting damage from an entity's shield value.
 #[op2(fast)]
 pub fn bsengine_damage_shield(#[string] name: String, amount: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2487,6 +3155,7 @@ pub fn bsengine_damage_shield(#[string] name: String, amount: f32) {
     });
 }
 
+/// Queue restoring some of an entity's shield value.
 #[op2(fast)]
 pub fn bsengine_restore_shield(#[string] name: String, amount: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2495,6 +3164,7 @@ pub fn bsengine_restore_shield(#[string] name: String, amount: f32) {
     });
 }
 
+/// Queue setting an entity's maximum shield capacity.
 #[op2(fast)]
 pub fn bsengine_set_max_shield(#[string] name: String, value: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2875,16 +3545,19 @@ pub fn bsengine_set_max_shield(#[string] name: String, value: f32) {
 // ── Smoke ────────────────────────────────────────────────────────────────────
 // ── Snare ────────────────────────────────────────────────────────────────────
 // ── Soak ─────────────────────────────────────────────────────────────────────
+/// Get an entity's current shield value.
 #[op2(fast)]
 pub fn bsengine_get_shield(#[string] name: String) -> f32 {
     SHIELD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(cur, _)| *cur).unwrap_or(0.0))
 }
 
+/// Get an entity's maximum shield capacity.
 #[op2(fast)]
 pub fn bsengine_get_max_shield(#[string] name: String) -> f32 {
     SHIELD_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, max)| *max).unwrap_or(0.0))
 }
 
+/// Get an entity's current shield value as a fraction of its maximum.
 #[op2(fast)]
 pub fn bsengine_get_shield_fraction(#[string] name: String) -> f32 {
     SHIELD_SNAPSHOT.with(|s| {
@@ -2901,6 +3574,7 @@ pub fn bsengine_get_shield_fraction(#[string] name: String) -> f32 {
     })
 }
 
+/// Check whether an entity's shield is fully depleted.
 #[op2(fast)]
 pub fn bsengine_is_shield_depleted(#[string] name: String) -> bool {
     SHIELD_SNAPSHOT.with(|s| {
@@ -2911,11 +3585,13 @@ pub fn bsengine_is_shield_depleted(#[string] name: String) -> bool {
     })
 }
 
+/// Queue resetting a named entity's gameplay timer back to zero.
 #[op2(fast)]
 pub fn bsengine_reset_timer(#[string] name: String) {
     COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ResetTimer { name }));
 }
 
+/// Get the elapsed time of an entity's gameplay timer, in seconds.
 #[op2(fast)]
 pub fn bsengine_get_timer_elapsed(#[string] name: String) -> f32 {
     TIMER_SNAPSHOT.with(|s| {
@@ -2926,6 +3602,7 @@ pub fn bsengine_get_timer_elapsed(#[string] name: String) -> f32 {
     })
 }
 
+/// Get the configured duration of an entity's gameplay timer, in seconds.
 #[op2(fast)]
 pub fn bsengine_get_timer_duration(#[string] name: String) -> f32 {
     TIMER_SNAPSHOT.with(|s| {
@@ -2936,6 +3613,7 @@ pub fn bsengine_get_timer_duration(#[string] name: String) -> f32 {
     })
 }
 
+/// Get the elapsed fraction (0-1) of an entity's gameplay timer.
 #[op2(fast)]
 pub fn bsengine_get_timer_fraction(#[string] name: String) -> f32 {
     TIMER_SNAPSHOT.with(|s| {
@@ -2946,6 +3624,7 @@ pub fn bsengine_get_timer_fraction(#[string] name: String) -> f32 {
     })
 }
 
+/// Check whether an entity's gameplay timer has finished.
 #[op2(fast)]
 pub fn bsengine_is_timer_finished(#[string] name: String) -> bool {
     TIMER_SNAPSHOT.with(|s| {
@@ -2956,6 +3635,7 @@ pub fn bsengine_is_timer_finished(#[string] name: String) -> bool {
     })
 }
 
+/// Check whether an entity's gameplay timer finished on this exact frame.
 #[op2(fast)]
 pub fn bsengine_is_timer_just_finished(#[string] name: String) -> bool {
     TIMER_SNAPSHOT.with(|s| {
@@ -2966,6 +3646,7 @@ pub fn bsengine_is_timer_just_finished(#[string] name: String) -> bool {
     })
 }
 
+/// Queue setting the destination point for an entity's nav-mesh agent.
 #[op2(fast)]
 pub fn bsengine_set_nav_destination(#[string] name: String, x: f32, y: f32, z: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2974,6 +3655,7 @@ pub fn bsengine_set_nav_destination(#[string] name: String, x: f32, y: f32, z: f
     });
 }
 
+/// Queue clearing an entity's current nav-mesh destination, halting movement.
 #[op2(fast)]
 pub fn bsengine_clear_nav_destination(#[string] name: String) {
     COMMAND_BUFFER.with(|c| {
@@ -2982,6 +3664,7 @@ pub fn bsengine_clear_nav_destination(#[string] name: String) {
     });
 }
 
+/// Queue setting an entity's nav-mesh agent movement speed.
 #[op2(fast)]
 pub fn bsengine_set_nav_speed(#[string] name: String, speed: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2990,6 +3673,7 @@ pub fn bsengine_set_nav_speed(#[string] name: String, speed: f32) {
     });
 }
 
+/// Queue setting an entity's nav-mesh agent turning speed.
 #[op2(fast)]
 pub fn bsengine_set_nav_angular_speed(#[string] name: String, speed: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -2998,6 +3682,7 @@ pub fn bsengine_set_nav_angular_speed(#[string] name: String, speed: f32) {
     });
 }
 
+/// Queue setting how close an entity's nav-mesh agent must get before it stops.
 #[op2(fast)]
 pub fn bsengine_set_nav_stopping_distance(#[string] name: String, distance: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -3006,6 +3691,7 @@ pub fn bsengine_set_nav_stopping_distance(#[string] name: String, distance: f32)
     });
 }
 
+/// Queue enabling or disabling an entity's nav-mesh agent.
 #[op2(fast)]
 pub fn bsengine_set_nav_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
@@ -3014,6 +3700,7 @@ pub fn bsengine_set_nav_enabled(#[string] name: String, enabled: bool) {
     });
 }
 
+/// Get an entity's nav-mesh agent movement speed.
 #[op2(fast)]
 pub fn bsengine_get_nav_speed(#[string] name: String) -> f32 {
     NAV_SNAPSHOT.with(|s| {
@@ -3024,6 +3711,7 @@ pub fn bsengine_get_nav_speed(#[string] name: String) -> f32 {
     })
 }
 
+/// Get an entity's nav-mesh agent turning speed.
 #[op2(fast)]
 pub fn bsengine_get_nav_angular_speed(#[string] name: String) -> f32 {
     NAV_SNAPSHOT.with(|s| {
@@ -3034,6 +3722,7 @@ pub fn bsengine_get_nav_angular_speed(#[string] name: String) -> f32 {
     })
 }
 
+/// Get an entity's nav-mesh agent stopping distance.
 #[op2(fast)]
 pub fn bsengine_get_nav_stopping_distance(#[string] name: String) -> f32 {
     NAV_SNAPSHOT.with(|s| {
@@ -3044,6 +3733,7 @@ pub fn bsengine_get_nav_stopping_distance(#[string] name: String) -> f32 {
     })
 }
 
+/// Check whether an entity's nav-mesh agent is currently moving.
 #[op2(fast)]
 pub fn bsengine_is_nav_moving(#[string] name: String) -> bool {
     NAV_SNAPSHOT.with(|s| {
@@ -3054,6 +3744,7 @@ pub fn bsengine_is_nav_moving(#[string] name: String) -> bool {
     })
 }
 
+/// Check whether an entity's nav-mesh agent has reached its destination.
 #[op2(fast)]
 pub fn bsengine_has_nav_arrived(#[string] name: String) -> bool {
     NAV_SNAPSHOT.with(|s| {
@@ -3064,6 +3755,7 @@ pub fn bsengine_has_nav_arrived(#[string] name: String) -> bool {
     })
 }
 
+/// Check whether an entity's nav-mesh agent has no destination set.
 #[op2(fast)]
 pub fn bsengine_is_nav_idle(#[string] name: String) -> bool {
     NAV_SNAPSHOT.with(|s| {
@@ -3074,6 +3766,7 @@ pub fn bsengine_is_nav_idle(#[string] name: String) -> bool {
     })
 }
 
+/// Check whether an entity's nav-mesh agent failed to find a path to its destination.
 #[op2(fast)]
 pub fn bsengine_nav_has_no_path(#[string] name: String) -> bool {
     NAV_SNAPSHOT.with(|s| {
@@ -3084,6 +3777,7 @@ pub fn bsengine_nav_has_no_path(#[string] name: String) -> bool {
     })
 }
 
+/// Check whether an entity's nav-mesh agent is enabled.
 #[op2(fast)]
 pub fn bsengine_is_nav_enabled(#[string] name: String) -> bool {
     NAV_SNAPSHOT.with(|s| {
@@ -3094,6 +3788,7 @@ pub fn bsengine_is_nav_enabled(#[string] name: String) -> bool {
     })
 }
 
+/// Queue (re)initializing the nav-mesh grid used for pathfinding.
 #[op2(fast)]
 pub fn bsengine_navmesh_init(width: u32, depth: u32, cell_size: f32, ox: f32, oy: f32, oz: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -3108,6 +3803,7 @@ pub fn bsengine_navmesh_init(width: u32, depth: u32, cell_size: f32, ox: f32, oy
     });
 }
 
+/// Queue marking a nav-mesh grid cell as walkable or blocked.
 #[op2(fast)]
 pub fn bsengine_navmesh_set_walkable(x: u32, z: u32, walkable: bool) {
     COMMAND_BUFFER.with(|c| {
@@ -3116,6 +3812,7 @@ pub fn bsengine_navmesh_set_walkable(x: u32, z: u32, walkable: bool) {
     });
 }
 
+/// Get the current nav-mesh grid state, as a JSON string.
 #[op2]
 #[string]
 pub fn bsengine_navmesh_get_state(#[string] name: String) -> String {
@@ -3133,16 +3830,19 @@ pub fn bsengine_navmesh_get_state(#[string] name: String) -> String {
     })
 }
 
+/// Queue serializing the current world state to a save file.
 #[op2(fast)]
 pub fn bsengine_save_game(#[string] path: String) {
     COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SaveGame { path }));
 }
 
+/// Queue loading world state from a save file.
 #[op2(fast)]
 pub fn bsengine_load_game(#[string] path: String) {
     COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::LoadGame { path }));
 }
 
+/// Queue assigning a custom shader to an entity's material.
 #[op2(fast)]
 pub fn bsengine_material_set_shader(#[string] name: String, #[string] path: String) {
     COMMAND_BUFFER.with(|c| {
@@ -3151,6 +3851,7 @@ pub fn bsengine_material_set_shader(#[string] name: String, #[string] path: Stri
     });
 }
 
+/// Queue removing an entity's custom shader, reverting to the default.
 #[op2(fast)]
 pub fn bsengine_material_clear_shader(#[string] name: String) {
     COMMAND_BUFFER.with(|c| {
@@ -3159,6 +3860,7 @@ pub fn bsengine_material_clear_shader(#[string] name: String) {
     });
 }
 
+/// Queue setting the bloom post-process effect intensity.
 #[op2(fast)]
 pub fn bsengine_set_bloom_intensity(#[string] name: String, intensity: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -3167,6 +3869,7 @@ pub fn bsengine_set_bloom_intensity(#[string] name: String, intensity: f32) {
     });
 }
 
+/// Queue setting the brightness threshold above which bloom is applied.
 #[op2(fast)]
 pub fn bsengine_set_bloom_threshold(#[string] name: String, threshold: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -3175,6 +3878,7 @@ pub fn bsengine_set_bloom_threshold(#[string] name: String, threshold: f32) {
     });
 }
 
+/// Queue setting the blur radius of the bloom effect.
 #[op2(fast)]
 pub fn bsengine_set_bloom_radius(#[string] name: String, radius: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -3183,6 +3887,7 @@ pub fn bsengine_set_bloom_radius(#[string] name: String, radius: f32) {
     });
 }
 
+/// Queue setting the softness of the bloom threshold falloff.
 #[op2(fast)]
 pub fn bsengine_set_bloom_softness(#[string] name: String, softness: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -3191,6 +3896,7 @@ pub fn bsengine_set_bloom_softness(#[string] name: String, softness: f32) {
     });
 }
 
+/// Queue enabling or disabling the bloom post-process effect.
 #[op2(fast)]
 pub fn bsengine_set_bloom_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
@@ -3199,6 +3905,7 @@ pub fn bsengine_set_bloom_enabled(#[string] name: String, enabled: bool) {
     });
 }
 
+/// Get the current bloom post-process effect intensity.
 #[op2(fast)]
 pub fn bsengine_get_bloom_intensity(#[string] name: String) -> f32 {
     BLOOM_SNAPSHOT.with(|s| {
@@ -3209,6 +3916,7 @@ pub fn bsengine_get_bloom_intensity(#[string] name: String) -> f32 {
     })
 }
 
+/// Get the current bloom brightness threshold.
 #[op2(fast)]
 pub fn bsengine_get_bloom_threshold(#[string] name: String) -> f32 {
     BLOOM_SNAPSHOT.with(|s| {
@@ -3219,6 +3927,7 @@ pub fn bsengine_get_bloom_threshold(#[string] name: String) -> f32 {
     })
 }
 
+/// Get the current bloom blur radius.
 #[op2(fast)]
 pub fn bsengine_get_bloom_radius(#[string] name: String) -> f32 {
     BLOOM_SNAPSHOT.with(|s| {
@@ -3229,6 +3938,7 @@ pub fn bsengine_get_bloom_radius(#[string] name: String) -> f32 {
     })
 }
 
+/// Get the current bloom threshold falloff softness.
 #[op2(fast)]
 pub fn bsengine_get_bloom_softness(#[string] name: String) -> f32 {
     BLOOM_SNAPSHOT.with(|s| {
@@ -3239,6 +3949,7 @@ pub fn bsengine_get_bloom_softness(#[string] name: String) -> f32 {
     })
 }
 
+/// Check whether the bloom post-process effect is enabled.
 #[op2(fast)]
 pub fn bsengine_is_bloom_enabled(#[string] name: String) -> bool {
     BLOOM_SNAPSHOT.with(|s| {
@@ -3249,6 +3960,7 @@ pub fn bsengine_is_bloom_enabled(#[string] name: String) -> bool {
     })
 }
 
+/// Queue setting the sampling radius of the ambient occlusion effect.
 #[op2(fast)]
 pub fn bsengine_set_ao_radius(#[string] name: String, radius: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -3257,11 +3969,13 @@ pub fn bsengine_set_ao_radius(#[string] name: String, radius: f32) {
     });
 }
 
+/// Queue setting the ambient occlusion bias, used to reduce self-shadowing artifacts.
 #[op2(fast)]
 pub fn bsengine_set_ao_bias(#[string] name: String, bias: f32) {
     COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SetAoBias { name, bias }));
 }
 
+/// Queue setting the strength of the ambient occlusion effect.
 #[op2(fast)]
 pub fn bsengine_set_ao_intensity(#[string] name: String, intensity: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -3270,6 +3984,7 @@ pub fn bsengine_set_ao_intensity(#[string] name: String, intensity: f32) {
     });
 }
 
+/// Queue setting the number of samples used by the ambient occlusion effect.
 #[op2(fast)]
 pub fn bsengine_set_ao_sample_count(#[string] name: String, count: u32) {
     COMMAND_BUFFER.with(|c| {
@@ -3278,6 +3993,7 @@ pub fn bsengine_set_ao_sample_count(#[string] name: String, count: u32) {
     });
 }
 
+/// Queue enabling or disabling the ambient occlusion effect.
 #[op2(fast)]
 pub fn bsengine_set_ao_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
@@ -3286,6 +4002,7 @@ pub fn bsengine_set_ao_enabled(#[string] name: String, enabled: bool) {
     });
 }
 
+/// Get the current ambient occlusion sampling radius.
 #[op2(fast)]
 pub fn bsengine_get_ao_radius(#[string] name: String) -> f32 {
     AMBIENT_OCCLUSION_SNAPSHOT.with(|s| {
@@ -3296,6 +4013,7 @@ pub fn bsengine_get_ao_radius(#[string] name: String) -> f32 {
     })
 }
 
+/// Get the current ambient occlusion bias.
 #[op2(fast)]
 pub fn bsengine_get_ao_bias(#[string] name: String) -> f32 {
     AMBIENT_OCCLUSION_SNAPSHOT.with(|s| {
@@ -3306,6 +4024,7 @@ pub fn bsengine_get_ao_bias(#[string] name: String) -> f32 {
     })
 }
 
+/// Get the current ambient occlusion strength.
 #[op2(fast)]
 pub fn bsengine_get_ao_intensity(#[string] name: String) -> f32 {
     AMBIENT_OCCLUSION_SNAPSHOT.with(|s| {
@@ -3316,6 +4035,7 @@ pub fn bsengine_get_ao_intensity(#[string] name: String) -> f32 {
     })
 }
 
+/// Get the current ambient occlusion sample count.
 #[op2(fast)]
 pub fn bsengine_get_ao_sample_count(#[string] name: String) -> u32 {
     AMBIENT_OCCLUSION_SNAPSHOT.with(|s| {
@@ -3326,6 +4046,7 @@ pub fn bsengine_get_ao_sample_count(#[string] name: String) -> u32 {
     })
 }
 
+/// Check whether the ambient occlusion effect is enabled.
 #[op2(fast)]
 pub fn bsengine_is_ao_enabled(#[string] name: String) -> bool {
     AMBIENT_OCCLUSION_SNAPSHOT.with(|s| {
@@ -3336,6 +4057,7 @@ pub fn bsengine_is_ao_enabled(#[string] name: String) -> bool {
     })
 }
 
+/// Queue setting the tone-mapping operator used by the render pipeline.
 #[op2(fast)]
 pub fn bsengine_set_tone_map_mode(#[string] name: String, mode: u32) {
     COMMAND_BUFFER.with(|c| {
@@ -3344,6 +4066,7 @@ pub fn bsengine_set_tone_map_mode(#[string] name: String, mode: u32) {
     });
 }
 
+/// Queue setting the exposure applied before tone mapping.
 #[op2(fast)]
 pub fn bsengine_set_tone_map_exposure(#[string] name: String, exposure: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -3352,6 +4075,7 @@ pub fn bsengine_set_tone_map_exposure(#[string] name: String, exposure: f32) {
     });
 }
 
+/// Queue enabling or disabling tone mapping.
 #[op2(fast)]
 pub fn bsengine_set_tone_map_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
@@ -3360,21 +4084,25 @@ pub fn bsengine_set_tone_map_enabled(#[string] name: String, enabled: bool) {
     });
 }
 
+/// Get the current tone-mapping operator, encoded as an integer.
 #[op2(fast)]
 pub fn bsengine_get_tone_map_mode(#[string] name: String) -> u32 {
     TONE_MAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(m, _, _)| *m).unwrap_or(0))
 }
 
+/// Get the current tone-mapping exposure value.
 #[op2(fast)]
 pub fn bsengine_get_tone_map_exposure(#[string] name: String) -> f32 {
     TONE_MAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, e, _)| *e).unwrap_or(0.0))
 }
 
+/// Check whether tone mapping is enabled.
 #[op2(fast)]
 pub fn bsengine_is_tone_map_enabled(#[string] name: String) -> bool {
     TONE_MAP_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, _, en)| *en).unwrap_or(true))
 }
 
+/// Queue setting the duration of a running tween.
 #[op2(fast)]
 pub fn bsengine_set_tween_duration(#[string] name: String, duration: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -3383,6 +4111,7 @@ pub fn bsengine_set_tween_duration(#[string] name: String, duration: f32) {
     });
 }
 
+/// Queue setting the easing function used by a running tween.
 #[op2(fast)]
 pub fn bsengine_set_tween_easing(#[string] name: String, easing: u32) {
     COMMAND_BUFFER.with(|c| {
@@ -3391,6 +4120,7 @@ pub fn bsengine_set_tween_easing(#[string] name: String, easing: u32) {
     });
 }
 
+/// Queue setting the repeat count of a running tween.
 #[op2(fast)]
 pub fn bsengine_set_tween_repeat(#[string] name: String, repeat: u32) {
     COMMAND_BUFFER.with(|c| {
@@ -3399,6 +4129,7 @@ pub fn bsengine_set_tween_repeat(#[string] name: String, repeat: u32) {
     });
 }
 
+/// Queue setting the elapsed time of a running tween.
 #[op2(fast)]
 pub fn bsengine_set_tween_elapsed(#[string] name: String, elapsed: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -3407,6 +4138,7 @@ pub fn bsengine_set_tween_elapsed(#[string] name: String, elapsed: f32) {
     });
 }
 
+/// Get the kind of property a running tween is animating, encoded as an integer.
 #[op2(fast)]
 pub fn bsengine_get_tween_target_type(#[string] name: String) -> u32 {
     TWEEN_SNAPSHOT.with(|s| {
@@ -3417,6 +4149,7 @@ pub fn bsengine_get_tween_target_type(#[string] name: String) -> u32 {
     })
 }
 
+/// Get the duration of a running tween, in seconds.
 #[op2(fast)]
 pub fn bsengine_get_tween_duration(#[string] name: String) -> f32 {
     TWEEN_SNAPSHOT.with(|s| {
@@ -3427,6 +4160,7 @@ pub fn bsengine_get_tween_duration(#[string] name: String) -> f32 {
     })
 }
 
+/// Get the easing function of a running tween, encoded as an integer.
 #[op2(fast)]
 pub fn bsengine_get_tween_easing(#[string] name: String) -> u32 {
     TWEEN_SNAPSHOT.with(|s| {
@@ -3437,6 +4171,7 @@ pub fn bsengine_get_tween_easing(#[string] name: String) -> u32 {
     })
 }
 
+/// Get the repeat count of a running tween.
 #[op2(fast)]
 pub fn bsengine_get_tween_repeat(#[string] name: String) -> u32 {
     TWEEN_SNAPSHOT.with(|s| {
@@ -3447,6 +4182,7 @@ pub fn bsengine_get_tween_repeat(#[string] name: String) -> u32 {
     })
 }
 
+/// Get the elapsed time of a running tween, in seconds.
 #[op2(fast)]
 pub fn bsengine_get_tween_elapsed(#[string] name: String) -> f32 {
     TWEEN_SNAPSHOT.with(|s| {
@@ -3457,6 +4193,7 @@ pub fn bsengine_get_tween_elapsed(#[string] name: String) -> f32 {
     })
 }
 
+/// Get the elapsed fraction (0-1) of a running tween.
 #[op2(fast)]
 pub fn bsengine_get_tween_progress(#[string] name: String) -> f32 {
     TWEEN_SNAPSHOT.with(|s| {
@@ -3473,6 +4210,7 @@ pub fn bsengine_get_tween_progress(#[string] name: String) -> f32 {
     })
 }
 
+/// Check whether a running tween has finished.
 #[op2(fast)]
 pub fn bsengine_is_tween_finished(#[string] name: String) -> bool {
     TWEEN_SNAPSHOT.with(|s| {
@@ -3483,6 +4221,7 @@ pub fn bsengine_is_tween_finished(#[string] name: String) -> bool {
     })
 }
 
+/// Check whether a running tween is currently playing in reverse.
 #[op2(fast)]
 pub fn bsengine_is_tween_reversed(#[string] name: String) -> bool {
     TWEEN_SNAPSHOT.with(|s| {
@@ -3493,6 +4232,7 @@ pub fn bsengine_is_tween_reversed(#[string] name: String) -> bool {
     })
 }
 
+/// Queue setting the entity a camera/follow-behavior should track.
 #[op2(fast)]
 pub fn bsengine_set_follow_target(#[string] name: String, #[string] target: String) {
     COMMAND_BUFFER.with(|b| {
@@ -3501,6 +4241,7 @@ pub fn bsengine_set_follow_target(#[string] name: String, #[string] target: Stri
     });
 }
 
+/// Queue setting the offset a follow-behavior maintains from its target.
 #[op2(fast)]
 pub fn bsengine_set_follow_offset(#[string] name: String, x: f32, y: f32, z: f32) {
     COMMAND_BUFFER.with(|b| {
@@ -3509,6 +4250,7 @@ pub fn bsengine_set_follow_offset(#[string] name: String, x: f32, y: f32, z: f32
     });
 }
 
+/// Queue setting how quickly a follow-behavior catches up to its target.
 #[op2(fast)]
 pub fn bsengine_set_follow_speed(#[string] name: String, speed: f32) {
     COMMAND_BUFFER.with(|b| {
@@ -3517,6 +4259,7 @@ pub fn bsengine_set_follow_speed(#[string] name: String, speed: f32) {
     });
 }
 
+/// Get the name of the entity a follow-behavior is currently tracking.
 #[op2]
 #[string]
 pub fn bsengine_get_follow_target(#[string] name: String) -> String {
@@ -3528,6 +4271,7 @@ pub fn bsengine_get_follow_target(#[string] name: String) -> String {
     })
 }
 
+/// Get the X component of a follow-behavior's target offset.
 #[op2(fast)]
 pub fn bsengine_get_follow_offset_x(#[string] name: String) -> f32 {
     FOLLOW_SNAPSHOT.with(|s| {
@@ -3538,6 +4282,7 @@ pub fn bsengine_get_follow_offset_x(#[string] name: String) -> f32 {
     })
 }
 
+/// Get the Y component of a follow-behavior's target offset.
 #[op2(fast)]
 pub fn bsengine_get_follow_offset_y(#[string] name: String) -> f32 {
     FOLLOW_SNAPSHOT.with(|s| {
@@ -3548,6 +4293,7 @@ pub fn bsengine_get_follow_offset_y(#[string] name: String) -> f32 {
     })
 }
 
+/// Get the Z component of a follow-behavior's target offset.
 #[op2(fast)]
 pub fn bsengine_get_follow_offset_z(#[string] name: String) -> f32 {
     FOLLOW_SNAPSHOT.with(|s| {
@@ -3558,6 +4304,7 @@ pub fn bsengine_get_follow_offset_z(#[string] name: String) -> f32 {
     })
 }
 
+/// Get a follow-behavior's catch-up speed.
 #[op2(fast)]
 pub fn bsengine_get_follow_speed(#[string] name: String) -> f32 {
     FOLLOW_SNAPSHOT.with(|s| {
@@ -3568,6 +4315,7 @@ pub fn bsengine_get_follow_speed(#[string] name: String) -> f32 {
     })
 }
 
+/// Queue setting the entity a look-at behavior should aim towards.
 #[op2(fast)]
 pub fn bsengine_set_look_at_target(#[string] name: String, #[string] target: String) {
     COMMAND_BUFFER.with(|b| {
@@ -3576,6 +4324,7 @@ pub fn bsengine_set_look_at_target(#[string] name: String, #[string] target: Str
     });
 }
 
+/// Queue setting the up vector used by a look-at behavior.
 #[op2(fast)]
 pub fn bsengine_set_look_at_up(#[string] name: String, x: f32, y: f32, z: f32) {
     COMMAND_BUFFER.with(|b| {
@@ -3584,6 +4333,7 @@ pub fn bsengine_set_look_at_up(#[string] name: String, x: f32, y: f32, z: f32) {
     });
 }
 
+/// Get the name of the entity a look-at behavior is aiming towards.
 #[op2]
 #[string]
 pub fn bsengine_get_look_at_target(#[string] name: String) -> String {
@@ -3595,16 +4345,19 @@ pub fn bsengine_get_look_at_target(#[string] name: String) -> String {
     })
 }
 
+/// Get the X component of a look-at behavior's up vector.
 #[op2(fast)]
 pub fn bsengine_get_look_at_up_x(#[string] name: String) -> f32 {
     LOOK_AT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, x, _, _)| *x).unwrap_or(0.0))
 }
 
+/// Get the Y component of a look-at behavior's up vector.
 #[op2(fast)]
 pub fn bsengine_get_look_at_up_y(#[string] name: String) -> f32 {
     LOOK_AT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, _, y, _)| *y).unwrap_or(1.0))
 }
 
+/// Get the Z component of a look-at behavior's up vector.
 #[op2(fast)]
 pub fn bsengine_get_look_at_up_z(#[string] name: String) -> f32 {
     LOOK_AT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, _, _, z)| *z).unwrap_or(0.0))
@@ -3764,6 +4517,7 @@ pub fn bsengine_get_look_at_up_z(#[string] name: String) -> f32 {
 
 // ── NetworkId ─────────────────────────────────────────────────────────────────
 
+/// Get an entity's replicated network id string.
 #[op2]
 #[string]
 pub fn bsengine_get_network_id(#[string] name: String) -> String {
@@ -3775,11 +4529,13 @@ pub fn bsengine_get_network_id(#[string] name: String) -> String {
     })
 }
 
+/// Get the authority kind (server/client/local) that owns an entity, encoded as an integer.
 #[op2(fast)]
 pub fn bsengine_get_network_authority(#[string] name: String) -> u32 {
     NETWORK_ID_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, auth, _)| *auth).unwrap_or(0))
 }
 
+/// Get the peer id string that owns an entity over the network.
 #[op2]
 #[string]
 pub fn bsengine_get_network_peer_id(#[string] name: String) -> String {
@@ -3791,6 +4547,7 @@ pub fn bsengine_get_network_peer_id(#[string] name: String) -> String {
     })
 }
 
+/// Check whether an entity is replicated over the network.
 #[op2(fast)]
 pub fn bsengine_is_network_replicated(#[string] name: String) -> bool {
     NETWORK_ID_SNAPSHOT.with(|s| {
@@ -3803,6 +4560,7 @@ pub fn bsengine_is_network_replicated(#[string] name: String) -> bool {
 
 // ── Network session ───────────────────────────────────────────────────────────
 
+/// Queue starting a network server on the given port.
 #[op2(fast)]
 pub fn bsengine_network_start_server(port: u32) {
     COMMAND_BUFFER.with(|c| {
@@ -3811,6 +4569,7 @@ pub fn bsengine_network_start_server(port: u32) {
     });
 }
 
+/// Queue connecting to a network server as a client.
 #[op2(fast)]
 pub fn bsengine_network_connect(#[string] host: String, port: u32) {
     COMMAND_BUFFER.with(|c| {
@@ -3821,6 +4580,7 @@ pub fn bsengine_network_connect(#[string] host: String, port: u32) {
     });
 }
 
+/// Queue disconnecting from the current network session.
 #[op2(fast)]
 pub fn bsengine_network_disconnect() {
     COMMAND_BUFFER.with(|c| {
@@ -3828,22 +4588,26 @@ pub fn bsengine_network_disconnect() {
     });
 }
 
+/// Check whether this instance is currently hosting a network server.
 #[op2(fast)]
 pub fn bsengine_network_is_server() -> bool {
     NETWORK_STATE_SNAPSHOT.with(|s| s.borrow().0)
 }
 
+/// Check whether this instance is currently connected to a network session.
 #[op2(fast)]
 pub fn bsengine_network_is_connected() -> bool {
     NETWORK_STATE_SNAPSHOT.with(|s| s.borrow().1)
 }
 
+/// Get this instance's own network peer id.
 #[op2]
 #[string]
 pub fn bsengine_network_get_my_peer_id() -> String {
     NETWORK_STATE_SNAPSHOT.with(|s| s.borrow().2.to_string())
 }
 
+/// Get the number of connected network peers.
 #[op2(fast)]
 pub fn bsengine_network_get_peer_count() -> u32 {
     NETWORK_STATE_SNAPSHOT.with(|s| s.borrow().3)
@@ -3937,6 +4701,7 @@ pub fn bsengine_network_get_peer_count() -> u32 {
 
 // ── Rupture ───────────────────────────────────────────────────────────────────
 
+/// Get the world transform an entity would need to face a target point (query only; does not move the entity).
 #[op2(fast)]
 pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     let origin = TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(pos, _, _)| *pos));
@@ -3958,16 +4723,19 @@ pub fn bsengine_look_at(#[string] name: String, tx: f32, ty: f32, tz: f32) {
     }
 }
 
+/// Get the total elapsed application time, in seconds.
 #[op2(fast)]
 pub fn bsengine_get_time() -> f32 {
     TIME_ELAPSED_SNAPSHOT.with(|s| *s.borrow())
 }
 
+/// Get the duration of the last frame, in seconds.
 #[op2(fast)]
 pub fn bsengine_get_delta_time() -> f32 {
     TIME_DELTA_SNAPSHOT.with(|s| *s.borrow())
 }
 
+/// Get the current window/render surface size, as `[width, height]`.
 #[op2]
 #[serde]
 pub fn bsengine_get_screen_size() -> Vec<u32> {
@@ -3977,6 +4745,7 @@ pub fn bsengine_get_screen_size() -> Vec<u32> {
     })
 }
 
+/// Queue attaching an entity as the child of another entity.
 #[op2(fast)]
 pub fn bsengine_set_parent(#[string] child: String, #[string] parent: String) {
     COMMAND_BUFFER.with(|c| {
@@ -3985,6 +4754,7 @@ pub fn bsengine_set_parent(#[string] child: String, #[string] parent: String) {
     });
 }
 
+/// Queue detaching an entity from its parent.
 #[op2(fast)]
 pub fn bsengine_clear_parent(#[string] child: String) {
     COMMAND_BUFFER.with(|c| {
@@ -3992,6 +4762,7 @@ pub fn bsengine_clear_parent(#[string] child: String) {
     });
 }
 
+/// Get the name of an entity's parent, or `None` if it has none.
 #[op2]
 #[string]
 pub fn bsengine_get_parent(#[string] name: String) -> String {
@@ -4004,6 +4775,7 @@ pub fn bsengine_get_parent(#[string] name: String) -> String {
     })
 }
 
+/// Get the names of an entity's children, as a JSON array string.
 #[op2]
 #[string]
 pub fn bsengine_get_children(#[string] name: String) -> String {
@@ -4013,33 +4785,39 @@ pub fn bsengine_get_children(#[string] name: String) -> String {
     })
 }
 
+/// Get a rigid body's linear velocity, as `[x, y, z]`.
 #[op2]
 #[serde]
 pub fn bsengine_get_velocity(#[string] name: String) -> Option<Vec<f32>> {
     VELOCITY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| vec![v.x, v.y, v.z]))
 }
 
+/// Get the magnitude of a rigid body's linear velocity.
 #[op2]
 #[serde]
 pub fn bsengine_get_linear_speed(#[string] name: String) -> Option<Vec<f32>> {
     VELOCITY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| vec![v.length()]))
 }
 
+/// Get the X component of a rigid body's linear velocity.
 #[op2(fast)]
 pub fn bsengine_get_velocity_x(#[string] name: String) -> f32 {
     VELOCITY_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |v| v.x))
 }
 
+/// Get the Y component of a rigid body's linear velocity.
 #[op2(fast)]
 pub fn bsengine_get_velocity_y(#[string] name: String) -> f32 {
     VELOCITY_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |v| v.y))
 }
 
+/// Get the Z component of a rigid body's linear velocity.
 #[op2(fast)]
 pub fn bsengine_get_velocity_z(#[string] name: String) -> f32 {
     VELOCITY_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |v| v.z))
 }
 
+/// Queue applying an instantaneous impulse to a rigid body's center of mass.
 #[op2(fast)]
 pub fn bsengine_add_impulse(#[string] name: String, fx: f32, fy: f32, fz: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -4048,6 +4826,7 @@ pub fn bsengine_add_impulse(#[string] name: String, fx: f32, fy: f32, fz: f32) {
     });
 }
 
+/// Queue applying an instantaneous impulse to a rigid body at a specific world point.
 #[op2(fast)]
 pub fn bsengine_apply_impulse_at_point(
     #[string] name: String,
@@ -4071,6 +4850,7 @@ pub fn bsengine_apply_impulse_at_point(
     });
 }
 
+/// Queue applying a continuous force to a rigid body's center of mass.
 #[op2(fast)]
 pub fn bsengine_add_force(#[string] name: String, fx: f32, fy: f32, fz: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -4079,6 +4859,7 @@ pub fn bsengine_add_force(#[string] name: String, fx: f32, fy: f32, fz: f32) {
     });
 }
 
+/// Queue applying a continuous force to a rigid body at a specific world point.
 #[op2(fast)]
 pub fn bsengine_add_force_at_point(
     #[string] name: String,
@@ -4102,6 +4883,7 @@ pub fn bsengine_add_force_at_point(
     });
 }
 
+/// Queue setting a rigid body's linear velocity.
 #[op2(fast)]
 pub fn bsengine_reset_forces(#[string] name: String) {
     COMMAND_BUFFER.with(|c| {
@@ -4117,6 +4899,7 @@ pub fn bsengine_set_velocity(#[string] name: String, vx: f32, vy: f32, vz: f32) 
     });
 }
 
+/// Queue setting the X component of a rigid body's linear velocity.
 #[op2(fast)]
 pub fn bsengine_set_velocity_x(#[string] name: String, vx: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -4125,6 +4908,7 @@ pub fn bsengine_set_velocity_x(#[string] name: String, vx: f32) {
     });
 }
 
+/// Queue setting the Y component of a rigid body's linear velocity.
 #[op2(fast)]
 pub fn bsengine_set_velocity_y(#[string] name: String, vy: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -4133,6 +4917,7 @@ pub fn bsengine_set_velocity_y(#[string] name: String, vy: f32) {
     });
 }
 
+/// Queue setting the Z component of a rigid body's linear velocity.
 #[op2(fast)]
 pub fn bsengine_set_velocity_z(#[string] name: String, vz: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -4141,11 +4926,13 @@ pub fn bsengine_set_velocity_z(#[string] name: String, vz: f32) {
     });
 }
 
+/// Get the world's global gravity magnitude.
 #[op2(fast)]
 pub fn bsengine_get_gravity() -> f32 {
     GRAVITY_SNAPSHOT.with(|s| *s.borrow())
 }
 
+/// Queue setting the world's global gravity magnitude.
 #[op2(fast)]
 pub fn bsengine_set_gravity(magnitude: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -4153,27 +4940,32 @@ pub fn bsengine_set_gravity(magnitude: f32) {
     });
 }
 
+/// Get a rigid body's angular velocity, as `[x, y, z]`.
 #[op2]
 #[serde]
 pub fn bsengine_get_angular_velocity(#[string] name: String) -> Option<Vec<f32>> {
     ANGULAR_VELOCITY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| vec![v.x, v.y, v.z]))
 }
 
+/// Get the X component of a rigid body's angular velocity.
 #[op2(fast)]
 pub fn bsengine_get_angular_velocity_x(#[string] name: String) -> f32 {
     ANGULAR_VELOCITY_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |v| v.x))
 }
 
+/// Get the Y component of a rigid body's angular velocity.
 #[op2(fast)]
 pub fn bsengine_get_angular_velocity_y(#[string] name: String) -> f32 {
     ANGULAR_VELOCITY_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |v| v.y))
 }
 
+/// Get the Z component of a rigid body's angular velocity.
 #[op2(fast)]
 pub fn bsengine_get_angular_velocity_z(#[string] name: String) -> f32 {
     ANGULAR_VELOCITY_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |v| v.z))
 }
 
+/// Queue setting a rigid body's angular velocity.
 #[op2(fast)]
 pub fn bsengine_set_angular_velocity(#[string] name: String, vx: f32, vy: f32, vz: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -4182,6 +4974,7 @@ pub fn bsengine_set_angular_velocity(#[string] name: String, vx: f32, vy: f32, v
     });
 }
 
+/// Queue setting the X component of a rigid body's angular velocity.
 #[op2(fast)]
 pub fn bsengine_set_angular_velocity_x(#[string] name: String, vx: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -4190,6 +4983,7 @@ pub fn bsengine_set_angular_velocity_x(#[string] name: String, vx: f32) {
     });
 }
 
+/// Queue setting the Y component of a rigid body's angular velocity.
 #[op2(fast)]
 pub fn bsengine_set_angular_velocity_y(#[string] name: String, vy: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -4198,6 +4992,7 @@ pub fn bsengine_set_angular_velocity_y(#[string] name: String, vy: f32) {
     });
 }
 
+/// Queue setting the Z component of a rigid body's angular velocity.
 #[op2(fast)]
 pub fn bsengine_set_angular_velocity_z(#[string] name: String, vz: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -4206,6 +5001,7 @@ pub fn bsengine_set_angular_velocity_z(#[string] name: String, vz: f32) {
     });
 }
 
+/// Queue adding to a rigid body's linear velocity.
 #[op2(fast)]
 pub fn bsengine_add_velocity(#[string] name: String, vx: f32, vy: f32, vz: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -4214,6 +5010,7 @@ pub fn bsengine_add_velocity(#[string] name: String, vx: f32, vy: f32, vz: f32) 
     });
 }
 
+/// Queue adding to a rigid body's angular velocity.
 #[op2(fast)]
 pub fn bsengine_add_angular_velocity(#[string] name: String, vx: f32, vy: f32, vz: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -4222,6 +5019,7 @@ pub fn bsengine_add_angular_velocity(#[string] name: String, vx: f32, vy: f32, v
     });
 }
 
+/// Queue applying an instantaneous angular impulse to a rigid body.
 #[op2(fast)]
 pub fn bsengine_add_angular_impulse(#[string] name: String, vx: f32, vy: f32, vz: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -4230,6 +5028,7 @@ pub fn bsengine_add_angular_impulse(#[string] name: String, vx: f32, vy: f32, vz
     });
 }
 
+/// Queue applying a continuous torque to a rigid body.
 #[op2(fast)]
 pub fn bsengine_add_torque(#[string] name: String, vx: f32, vy: f32, vz: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -4238,6 +5037,7 @@ pub fn bsengine_add_torque(#[string] name: String, vx: f32, vy: f32, vz: f32) {
     });
 }
 
+/// Queue enabling or disabling continuous collision detection on a rigid body.
 #[op2(fast)]
 pub fn bsengine_set_ccd_enabled(#[string] name: String, enabled: bool) {
     COMMAND_BUFFER.with(|c| {
@@ -4246,6 +5046,7 @@ pub fn bsengine_set_ccd_enabled(#[string] name: String, enabled: bool) {
     });
 }
 
+/// Queue setting a rigid body's linear damping (velocity decay over time).
 #[op2(fast)]
 pub fn bsengine_set_linear_damping(#[string] name: String, damping: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -4254,6 +5055,7 @@ pub fn bsengine_set_linear_damping(#[string] name: String, damping: f32) {
     });
 }
 
+/// Queue setting a rigid body's angular damping (angular velocity decay over time).
 #[op2(fast)]
 pub fn bsengine_set_angular_damping(#[string] name: String, damping: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -4262,56 +5064,67 @@ pub fn bsengine_set_angular_damping(#[string] name: String, damping: f32) {
     });
 }
 
+/// Get a rigid body's mass.
 #[op2(fast)]
 pub fn bsengine_get_mass(#[string] name: String) -> f32 {
     MASS_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(0.0))
 }
 
+/// Get a rigid body's gravity scale multiplier.
 #[op2(fast)]
 pub fn bsengine_get_gravity_scale(#[string] name: String) -> f32 {
     GRAVITY_SCALE_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(1.0))
 }
 
+/// Check whether a rigid body is kinematic.
 #[op2(fast)]
 pub fn bsengine_is_kinematic(#[string] name: String) -> bool {
     BODY_TYPE_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(false))
 }
 
+/// Check whether a rigid body is currently asleep (not being simulated).
 #[op2(fast)]
 pub fn bsengine_is_sleeping(#[string] name: String) -> bool {
     SLEEP_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(false))
 }
 
+/// Queue waking a sleeping rigid body so physics resumes simulating it.
 #[op2(fast)]
 pub fn bsengine_wake_up(#[string] name: String) {
     COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::WakeUp { name }));
 }
 
+/// Queue forcing a rigid body to sleep, pausing physics simulation for it.
 #[op2(fast)]
 pub fn bsengine_sleep(#[string] name: String) {
     COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::PutToSleep { name }));
 }
 
+/// Check whether an entity's collider acts as a sensor.
 #[op2(fast)]
 pub fn bsengine_is_collider_sensor(#[string] name: String) -> bool {
     COLLIDER_SENSOR_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(false))
 }
 
+/// Get a rigid body's linear damping coefficient.
 #[op2(fast)]
 pub fn bsengine_get_linear_damping(#[string] name: String) -> f32 {
     LINEAR_DAMPING_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(0.0))
 }
 
+/// Get a rigid body's angular damping coefficient.
 #[op2(fast)]
 pub fn bsengine_get_angular_damping(#[string] name: String) -> f32 {
     ANGULAR_DAMPING_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(0.0))
 }
 
+/// Get a collider's restitution (bounciness).
 #[op2(fast)]
 pub fn bsengine_get_restitution(#[string] name: String) -> f32 {
     RESTITUTION_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(0.0))
 }
 
+/// Queue setting a collider's restitution (bounciness).
 #[op2(fast)]
 pub fn bsengine_set_restitution(#[string] name: String, restitution: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -4320,11 +5133,13 @@ pub fn bsengine_set_restitution(#[string] name: String, restitution: f32) {
     });
 }
 
+/// Get a collider's surface friction coefficient.
 #[op2(fast)]
 pub fn bsengine_get_friction(#[string] name: String) -> f32 {
     FRICTION_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(0.0))
 }
 
+/// Queue setting a collider's surface friction.
 #[op2(fast)]
 pub fn bsengine_set_friction(#[string] name: String, friction: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -4333,6 +5148,7 @@ pub fn bsengine_set_friction(#[string] name: String, friction: f32) {
     });
 }
 
+/// Queue setting a rigid body's mass.
 #[op2(fast)]
 pub fn bsengine_set_mass(#[string] name: String, mass: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -4340,6 +5156,7 @@ pub fn bsengine_set_mass(#[string] name: String, mass: f32) {
     });
 }
 
+/// Queue setting whether a rigid body is kinematic.
 #[op2(fast)]
 pub fn bsengine_set_kinematic(#[string] name: String, kinematic: bool) {
     COMMAND_BUFFER.with(|c| {
@@ -4348,6 +5165,7 @@ pub fn bsengine_set_kinematic(#[string] name: String, kinematic: bool) {
     });
 }
 
+/// Queue setting a rigid body's gravity scale multiplier.
 #[op2(fast)]
 pub fn bsengine_set_gravity_scale(#[string] name: String, scale: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -4356,6 +5174,7 @@ pub fn bsengine_set_gravity_scale(#[string] name: String, scale: f32) {
     });
 }
 
+/// Queue setting whether an entity's collider acts as a sensor.
 #[op2(fast)]
 pub fn bsengine_set_collider_sensor(#[string] name: String, sensor: bool) {
     COMMAND_BUFFER.with(|c| {
@@ -4364,6 +5183,7 @@ pub fn bsengine_set_collider_sensor(#[string] name: String, sensor: bool) {
     });
 }
 
+/// Queue locking a rigid body's rotation on one or more axes.
 #[op2(fast)]
 pub fn bsengine_lock_rotation(#[string] name: String, lock_x: bool, lock_y: bool, lock_z: bool) {
     COMMAND_BUFFER.with(|c| {
@@ -4376,6 +5196,7 @@ pub fn bsengine_lock_rotation(#[string] name: String, lock_x: bool, lock_y: bool
     });
 }
 
+/// Queue locking a rigid body's translation on one or more axes.
 #[op2(fast)]
 pub fn bsengine_lock_translation(#[string] name: String, lock_x: bool, lock_y: bool, lock_z: bool) {
     COMMAND_BUFFER.with(|c| {
@@ -4388,6 +5209,7 @@ pub fn bsengine_lock_translation(#[string] name: String, lock_x: bool, lock_y: b
     });
 }
 
+/// Queue showing or hiding the mouse cursor.
 #[op2(fast)]
 pub fn bsengine_set_cursor_visible(visible: bool) {
     COMMAND_BUFFER.with(|c| {
@@ -4396,6 +5218,7 @@ pub fn bsengine_set_cursor_visible(visible: bool) {
     });
 }
 
+/// Queue locking or unlocking the mouse cursor to the window.
 #[op2(fast)]
 pub fn bsengine_set_cursor_locked(locked: bool) {
     COMMAND_BUFFER.with(|c| {
@@ -4404,6 +5227,7 @@ pub fn bsengine_set_cursor_locked(locked: bool) {
     });
 }
 
+/// Queue starting playback of a sound.
 #[op2(fast)]
 pub fn bsengine_play_sound(#[string] path: String, volume: f32, loop_: bool) -> u32 {
     let id = SOUND_ID_COUNTER.with(|c| {
@@ -4422,21 +5246,25 @@ pub fn bsengine_play_sound(#[string] path: String, volume: f32, loop_: bool) -> 
     id
 }
 
+/// Queue stopping a playing sound.
 #[op2(fast)]
 pub fn bsengine_stop_sound(id: u32) {
     COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::StopSound { id }));
 }
 
+/// Queue pausing a playing sound.
 #[op2(fast)]
 pub fn bsengine_pause_sound(id: u32) {
     COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::PauseSound { id }));
 }
 
+/// Queue resuming a paused sound.
 #[op2(fast)]
 pub fn bsengine_resume_sound(id: u32) {
     COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ResumeSound { id }));
 }
 
+/// Queue setting the volume of a playing sound.
 #[op2(fast)]
 pub fn bsengine_set_sound_volume(id: u32, db: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -4445,6 +5273,7 @@ pub fn bsengine_set_sound_volume(id: u32, db: f32) {
     });
 }
 
+/// Queue setting the stereo pan of a playing sound.
 #[op2(fast)]
 pub fn bsengine_set_sound_panning(id: u32, panning: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -4453,6 +5282,7 @@ pub fn bsengine_set_sound_panning(id: u32, panning: f32) {
     });
 }
 
+/// Queue setting the playback rate (pitch/speed) of a playing sound.
 #[op2(fast)]
 pub fn bsengine_set_sound_playback_rate(id: u32, rate: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -4461,6 +5291,7 @@ pub fn bsengine_set_sound_playback_rate(id: u32, rate: f32) {
     });
 }
 
+/// Queue seeking a playing sound to a specific position.
 #[op2(fast)]
 pub fn bsengine_seek_sound(id: u32, position: f64) {
     COMMAND_BUFFER.with(|c| {
@@ -4469,6 +5300,7 @@ pub fn bsengine_seek_sound(id: u32, position: f64) {
     });
 }
 
+/// Get a sound's playback state (e.g. playing/paused/stopped), encoded as an integer.
 #[op2]
 #[string]
 pub fn bsengine_get_sound_state(id: u32) -> String {
@@ -4477,16 +5309,19 @@ pub fn bsengine_get_sound_state(id: u32) -> String {
         .unwrap_or_default()
 }
 
+/// Get a sound's current playback position, in seconds.
 #[op2(fast)]
 pub fn bsengine_get_sound_position(id: u32) -> f64 {
     SOUND_POSITION_SNAPSHOT.with(|s| s.borrow().get(&id).copied().unwrap_or(0.0))
 }
 
+/// Queue setting the text content of a HUD element.
 #[op2(fast)]
 pub fn bsengine_set_hud_text(#[string] id: String, #[string] text: String) {
     COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SetHudText { id, text }));
 }
 
+/// Queue removing a HUD text element.
 #[op2(fast)]
 pub fn bsengine_clear_hud_text(#[string] id: String) {
     COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearHudText { id }));
@@ -4494,6 +5329,7 @@ pub fn bsengine_clear_hud_text(#[string] id: String) {
 
 // --- UI widget ops ---
 
+/// Queue creating or updating a UI text label.
 #[op2(fast)]
 pub fn bsengine_ui_set_label(
     #[string] id: String,
@@ -4513,6 +5349,7 @@ pub fn bsengine_ui_set_label(
     });
 }
 
+/// Queue creating or updating a UI button.
 #[op2(fast)]
 pub fn bsengine_ui_set_button(
     #[string] id: String,
@@ -4534,6 +5371,7 @@ pub fn bsengine_ui_set_button(
     });
 }
 
+/// Queue creating or updating a UI panel.
 #[op2(fast)]
 pub fn bsengine_ui_set_panel(
     #[string] id: String,
@@ -4555,6 +5393,7 @@ pub fn bsengine_ui_set_panel(
     });
 }
 
+/// Queue creating or updating a UI text input field.
 #[op2(fast)]
 pub fn bsengine_ui_set_text_input(
     #[string] id: String,
@@ -4574,26 +5413,31 @@ pub fn bsengine_ui_set_text_input(
     });
 }
 
+/// Queue removing a UI widget by id.
 #[op2(fast)]
 pub fn bsengine_ui_remove_widget(#[string] id: String) {
     COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::RemoveUiWidget { id }));
 }
 
+/// Queue removing all UI widgets.
 #[op2(fast)]
 pub fn bsengine_ui_clear() {
     COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::ClearUiWidgets));
 }
 
+/// Check whether a UI widget was clicked this frame.
 #[op2(fast)]
 pub fn bsengine_ui_is_clicked(#[string] id: String) -> bool {
     UI_CLICKED_SNAPSHOT.with(|s| s.borrow().iter().any(|v| v == &id))
 }
 
+/// Queue loading a scene from a file, replacing the current world.
 #[op2(fast)]
 pub fn bsengine_load_scene(#[string] path: String) {
     COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::LoadScene { path }));
 }
 
+/// Queue setting the skybox texture used for the background/environment.
 #[op2(fast)]
 pub fn bsengine_set_skybox(#[string] path: String) {
     COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SetSkybox { path }));
@@ -4601,6 +5445,7 @@ pub fn bsengine_set_skybox(#[string] path: String) {
 
 // --- Mouse ops ---
 
+/// Check whether a mouse button was pressed this frame.
 #[op2(fast)]
 pub fn bsengine_is_mouse_pressed(button: u32) -> bool {
     if button > 7 {
@@ -4609,6 +5454,7 @@ pub fn bsengine_is_mouse_pressed(button: u32) -> bool {
     MOUSE_PRESSED_SNAPSHOT.with(|s| ((*s.borrow()) >> button) & 1 != 0)
 }
 
+/// Check whether a mouse button is currently held down.
 #[op2(fast)]
 pub fn bsengine_is_mouse_down(button: u32) -> bool {
     if button > 7 {
@@ -4617,6 +5463,7 @@ pub fn bsengine_is_mouse_down(button: u32) -> bool {
     MOUSE_JUST_PRESSED_SNAPSHOT.with(|s| ((*s.borrow()) >> button) & 1 != 0)
 }
 
+/// Check whether a mouse button was released this frame.
 #[op2(fast)]
 pub fn bsengine_is_mouse_up(button: u32) -> bool {
     if button > 7 {
@@ -4625,6 +5472,7 @@ pub fn bsengine_is_mouse_up(button: u32) -> bool {
     MOUSE_JUST_RELEASED_SNAPSHOT.with(|s| ((*s.borrow()) >> button) & 1 != 0)
 }
 
+/// Get the current mouse cursor position, as `[x, y]`.
 #[op2]
 #[serde]
 pub fn bsengine_get_mouse_pos() -> Vec<f64> {
@@ -4634,6 +5482,7 @@ pub fn bsengine_get_mouse_pos() -> Vec<f64> {
     })
 }
 
+/// Get the mouse movement delta since the last frame, as `[dx, dy]`.
 #[op2]
 #[serde]
 pub fn bsengine_get_mouse_delta() -> Vec<f64> {
@@ -4645,6 +5494,7 @@ pub fn bsengine_get_mouse_delta() -> Vec<f64> {
 
 // --- Raycast op ---
 
+/// Cast a ray into the world and return the closest hit, if any, as JSON.
 #[op2]
 #[serde]
 pub fn bsengine_raycast(
@@ -4684,6 +5534,7 @@ pub fn bsengine_raycast(
     })
 }
 
+/// Check whether a gamepad button was pressed this frame.
 #[op2(fast)]
 pub fn bsengine_is_gamepad_button(button: u32) -> bool {
     if button > 15 {
@@ -4692,6 +5543,7 @@ pub fn bsengine_is_gamepad_button(button: u32) -> bool {
     GAMEPAD_BUTTON_SNAPSHOT.with(|s| ((*s.borrow()) >> button) & 1 != 0)
 }
 
+/// Check whether a gamepad button is currently held down.
 #[op2(fast)]
 pub fn bsengine_is_gamepad_button_down(button: u32) -> bool {
     if button > 15 {
@@ -4700,6 +5552,7 @@ pub fn bsengine_is_gamepad_button_down(button: u32) -> bool {
     GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT.with(|s| ((*s.borrow()) >> button) & 1 != 0)
 }
 
+/// Check whether a gamepad button was released this frame.
 #[op2(fast)]
 pub fn bsengine_is_gamepad_button_up(button: u32) -> bool {
     if button > 15 {
@@ -4708,6 +5561,7 @@ pub fn bsengine_is_gamepad_button_up(button: u32) -> bool {
     GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT.with(|s| ((*s.borrow()) >> button) & 1 != 0)
 }
 
+/// Get the gamepad's left analog stick position, as `[x, y]`.
 #[op2]
 #[serde]
 pub fn bsengine_get_left_stick() -> Vec<f32> {
@@ -4717,6 +5571,7 @@ pub fn bsengine_get_left_stick() -> Vec<f32> {
     })
 }
 
+/// Get the gamepad's right analog stick position, as `[x, y]`.
 #[op2]
 #[serde]
 pub fn bsengine_get_right_stick() -> Vec<f32> {
@@ -4726,6 +5581,7 @@ pub fn bsengine_get_right_stick() -> Vec<f32> {
     })
 }
 
+/// Get the pull amount (0-1) of a gamepad analog trigger.
 #[op2(fast)]
 pub fn bsengine_get_gamepad_trigger(side: u32) -> f32 {
     GAMEPAD_STICKS_SNAPSHOT.with(|s| {
@@ -5033,6 +5889,8 @@ deno_core::extension!(
     ],
 );
 
+/// JS source injected into every script runtime that defines the `Bsengine` global,
+/// mapping its camelCase methods onto the `bsengine_*` ops registered above.
 pub const BOOTSTRAP_JS: &str = r#"
 // `var`, not `const`: scene reload re-runs this bootstrap in the SAME V8
 // isolate/global scope (see handle_scene_load in bsengine-runtime) rather

@@ -21,6 +21,8 @@
 //! degrees internally.
 use bevy_reflect::{impl_reflect_value, prelude::ReflectDefault};
 
+/// Reflectable `f32` wrapper representing an angle in degrees, used to signal
+/// to the generic reflected-field editor that a field should render as an angle.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct ReflectDegrees(pub f32);
 

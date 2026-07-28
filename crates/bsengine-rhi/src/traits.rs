@@ -1,11 +1,18 @@
+/// Entry point a concrete GPU backend implements to create RHI resources.
 pub trait RHI: Send + Sync {
+    /// Creates a new, backend-specific mesh resource.
     fn create_mesh(&self) -> Box<dyn RHIMesh>;
+    /// Compiles `src` into a backend-specific shader resource.
     fn create_shader(&self, src: &str) -> Box<dyn RHIShader>;
+    /// Creates a new, backend-specific texture resource.
     fn create_texture(&self) -> Box<dyn RHITexture>;
 }
 
+/// Opaque handle to a GPU mesh resource owned by a backend implementation.
 pub trait RHIMesh: Send + Sync {}
+/// Opaque handle to a compiled GPU shader resource owned by a backend implementation.
 pub trait RHIShader: Send + Sync {}
+/// Opaque handle to a GPU texture resource owned by a backend implementation.
 pub trait RHITexture: Send + Sync {}
 
 #[cfg(test)]

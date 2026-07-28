@@ -1,6 +1,8 @@
 use bevy_ecs::prelude::{Component, Entity, ReflectComponent};
 use bevy_reflect::Reflect;
 
+/// Reference to this entity's parent, used to build transform hierarchies
+/// consumed by [`crate::propagate_global_transforms`].
 #[derive(Component, Debug, Clone, Copy, Reflect)]
 #[reflect(Component)]
 pub struct Parent(pub Entity);

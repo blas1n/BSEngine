@@ -12,10 +12,14 @@ use glam::Vec3;
 // for "which way is this thing facing" across all light/entity types, so
 // the existing move/rotate gizmos, Inspector Rot fields, and undo/redo all
 // work on directional lights for free.
+/// Parallel-ray light source (e.g. sunlight) with no position or falloff;
+/// its direction comes from the entity's `Transform` rotation.
 #[derive(Component, Debug, Clone, Reflect)]
 #[reflect(Component, Default)]
 pub struct DirectionalLight {
+    /// Light color, applied to all surfaces facing the light direction.
     pub color: ReflectColor,
+    /// Constant ambient light color added regardless of surface orientation.
     pub ambient: ReflectColor,
 }
 
@@ -28,11 +32,16 @@ impl Default for DirectionalLight {
     }
 }
 
+/// Omnidirectional light source radiating equally in all directions from the
+/// entity's position, falling off to zero at `range`.
 #[derive(Component, Debug, Clone, Reflect)]
 #[reflect(Component, Default)]
 pub struct PointLight {
+    /// Light color.
     pub color: ReflectColor,
+    /// Overall brightness multiplier.
     pub intensity: f32,
+    /// Distance at which the light's contribution falls off to zero.
     pub range: f32,
 }
 
@@ -46,11 +55,17 @@ impl Default for PointLight {
     }
 }
 
+/// Cone-shaped light source radiating from the entity's position in the
+/// direction of its `Transform` rotation, falling off between the inner and
+/// outer cone angles and to zero at `range`.
 #[derive(Component, Debug, Clone, Reflect)]
 #[reflect(Component, Default, Validate)]
 pub struct SpotLight {
+    /// Light color.
     pub color: ReflectColor,
+    /// Overall brightness multiplier.
     pub intensity: f32,
+    /// Distance at which the light's contribution falls off to zero.
     pub range: f32,
     /// Inner cone half-angle (degrees) — full brightness inside.
     pub inner_angle_degrees: ReflectDegrees,

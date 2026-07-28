@@ -6,7 +6,9 @@
 //! (`PointLightDescriptor`, `RigidBodyDesc`, `TransformDescriptor`, ...).
 #![warn(missing_docs)]
 
+/// `ScenePlugin` and the entity-spawning logic that turns a `SceneDescriptor` into ECS entities.
 pub mod plugin;
+/// Serde/RON descriptor types that make up the on-disk scene file format.
 pub mod types;
 
 pub use plugin::{spawn_scene_entities, Name, ScenePlugin};

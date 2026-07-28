@@ -1,5 +1,6 @@
 use bsengine_core::{EditorPanel, EditorPanelContext, InspectorCmd, InspectorEntityInfo};
 
+/// The Hierarchy panel: shows the entity tree with selection, drag-to-reparent, and inline rename.
 pub struct HierarchyPanel;
 
 /// Which row is currently being renamed inline (double-click target), and
@@ -50,17 +51,30 @@ impl EditorPanel for HierarchyPanel {
         let mut duplicate: Option<u64> = None;
         let mut rename_commit: Option<(u64, String)> = None;
         let mut despawn_ids: Vec<u64> = Vec::new();
+        let mut attach_script: Option<(u64, String)> = None;
 
         ui.horizontal(|ui| {
-            if ui.button("＋").clicked() {
+            if ui
+                .button(egui_phosphor::regular::PLUS)
+                .on_hover_text("Spawn Entity")
+                .clicked()
+            {
                 spawn_entity = true;
             }
             if ui
-                .add_enabled(current_sel.is_some(), egui::Button::new("－"))
+                .add_enabled(
+                    current_sel.is_some(),
+                    egui::Button::new(egui_phosphor::regular::MINUS),
+                )
+                .on_hover_text("Despawn Selected")
                 .clicked()
             {
                 despawn_entity = true;
             }
+        });
+        ui.horizontal(|ui| {
+            ui.label(egui_phosphor::regular::MAGNIFYING_GLASS);
+            ui.text_edit_singleline(&mut insp.hierarchy_search);
         });
         ui.label("Ctrl+click: toggle · Shift+click: range · double-click: rename · right-click: menu · drag onto a row to reparent");
         ui.separator();
@@ -80,29 +94,48 @@ impl EditorPanel for HierarchyPanel {
         };
 
         egui::ScrollArea::vertical().show(ui, |ui| {
-            for root in entities_snapshot.iter().filter(|e| e.parent_id.is_none()) {
-                Self::draw_row(
-                    ui,
-                    root,
-                    &tree,
-                    &mut new_selection,
-                    &mut new_sel,
-                    &mut set_parent,
-                    &mut remove_parent,
-                    &mut duplicate,
-                    &mut despawn_ids,
-                    &mut rename_state,
-                    &mut rename_commit,
-                    0,
-                );
-            }
+            if insp.hierarchy_search.is_empty() {
+                for root in entities_snapshot.iter().filter(|e| e.parent_id.is_none()) {
+                    Self::draw_row(
+                        ui,
+                        root,
+                        &tree,
+                        &mut new_selection,
+                        &mut new_sel,
+                        &mut set_parent,
+                        &mut remove_parent,
+                        &mut duplicate,
+                        &mut despawn_ids,
+                        &mut rename_state,
+                        &mut rename_commit,
+                        &mut attach_script,
+                        0,
+                    );
+                }
 
-            // Root drop zone: drag a row here to unparent it. Occupies the
-            // remaining empty space below the tree.
-            let (_, root_drop_response) = ui
-                .allocate_exact_size(egui::vec2(ui.available_width(), 40.0), egui::Sense::hover());
-            if let Some(dropped_id) = root_drop_response.dnd_release_payload::<u64>() {
-                remove_parent = Some(*dropped_id);
+                // Root drop zone: drag a row here to unparent it. Occupies
+                // the remaining empty space below the tree.
+                let (_, root_drop_response) = ui.allocate_exact_size(
+                    egui::vec2(ui.available_width(), 40.0),
+                    egui::Sense::hover(),
+                );
+                if let Some(dropped_id) = root_drop_response.dnd_release_payload::<u64>() {
+                    remove_parent = Some(*dropped_id);
+                }
+            } else {
+                // Filtered mode: a flat list of matches, no tree/DnD/rename —
+                // clear the search box to return to the full tree.
+                for info in entities_snapshot
+                    .iter()
+                    .filter(|e| Self::matches_search(e.name.as_deref(), &insp.hierarchy_search))
+                {
+                    let label = info.name.as_deref().unwrap_or("(unnamed)");
+                    let text = format!("{} [{}] {}", Self::icon_for(info), info.id, label);
+                    if ui.selectable_label(info.selected, text).clicked() {
+                        new_selection = Some(vec![info.id]);
+                        new_sel = Some(info.id);
+                    }
+                }
             }
         });
 
@@ -191,6 +224,9 @@ impl EditorPanel for HierarchyPanel {
                 insp.cmd_queue.push(InspectorCmd::RenameEntity { id, name });
             }
         }
+        if let Some((id, path)) = attach_script {
+            insp.cmd_queue.push(InspectorCmd::AttachScript { id, path });
+        }
     }
 }
 
@@ -242,6 +278,33 @@ impl HierarchyPanel {
         order
     }
 
+    /// Case-insensitive substring match used by the Hierarchy search box. An
+    /// empty `query` matches every entity (including unnamed ones), so the
+    /// panel shows the full tree when the search box is empty.
+    fn matches_search(name: Option<&str>, query: &str) -> bool {
+        if query.is_empty() {
+            return true;
+        }
+        name.unwrap_or("")
+            .to_lowercase()
+            .contains(&query.to_lowercase())
+    }
+
+    /// Icon shown next to each Hierarchy row, chosen by the first matching
+    /// component on the entity: camera, light, primitive mesh, else a
+    /// generic node icon (used for group/empty entities like "Environment").
+    fn icon_for(info: &InspectorEntityInfo) -> &'static str {
+        if info.camera_fov.is_some() {
+            egui_phosphor::regular::CAMERA
+        } else if info.light_type.is_some() {
+            egui_phosphor::regular::LIGHTBULB
+        } else if info.primitive.is_some() {
+            egui_phosphor::regular::CUBE
+        } else {
+            egui_phosphor::regular::TREE_STRUCTURE
+        }
+    }
+
     fn push_dfs(
         info: &InspectorEntityInfo,
         all_entities: &[InspectorEntityInfo],
@@ -270,6 +333,7 @@ impl HierarchyPanel {
         despawn_ids: &mut Vec<u64>,
         rename_state: &mut Option<RenameState>,
         rename_commit: &mut Option<(u64, String)>,
+        attach_script: &mut Option<(u64, String)>,
         depth: usize,
     ) {
         let children: Vec<&InspectorEntityInfo> = tree
@@ -278,7 +342,7 @@ impl HierarchyPanel {
             .filter(|e| e.parent_id == Some(info.id))
             .collect();
         let label = info.name.as_deref().unwrap_or("(unnamed)");
-        let text = format!("[{}] {}", info.id, label);
+        let text = format!("{} [{}] {}", Self::icon_for(info), info.id, label);
         let is_renaming = rename_state
             .as_ref()
             .is_some_and(|r| r.entity_id == info.id);
@@ -318,6 +382,7 @@ impl HierarchyPanel {
                                 despawn_ids,
                                 rename_state,
                                 rename_commit,
+                                attach_script,
                                 depth + 1,
                             );
                         }
@@ -337,8 +402,22 @@ impl HierarchyPanel {
             // becomes an actual DnD source without disturbing its existing
             // click/double-click behavior (`Response::union` ORs
             // `clicked`/`double_clicked`/`drag_started`/`dragged`).
+            //
+            // This second interact MUST also sense `click` (not `Sense::drag()`
+            // alone): it's added after (i.e. on top of, in hit-test z-order)
+            // the row's own click-sensing widget on the *exact same rect*.
+            // egui's hit-test (`hit_test_on_close` in egui's `hit_test.rs`)
+            // deliberately nulls out the click hit whenever the topmost of two
+            // perfectly-overlapping widgets senses only drag — "the top thing
+            // senses only drags, so we ignore the click-widget below it" — so
+            // with `Sense::drag()` here, every row's click was permanently
+            // swallowed regardless of `Response::union`'s own (correct) OR
+            // logic. `Sense::click_and_drag()` keeps this topmost widget's
+            // click hit intact, since egui special-cases "topmost widget
+            // senses both" to report both hits.
             let drag_id = ui.id().with(("hierarchy_row_drag", info.id));
-            let drag_response = ui.interact(row_response.rect, drag_id, egui::Sense::drag());
+            let drag_response =
+                ui.interact(row_response.rect, drag_id, egui::Sense::click_and_drag());
             let row_response = drag_response | row_response;
 
             if row_response.clicked() {
@@ -394,6 +473,14 @@ impl HierarchyPanel {
                 // vanish from the panel with no error.
                 if !Self::would_create_cycle(tree.all_entities, dropped_id, info.id) {
                     *set_parent = Some((dropped_id, info.id));
+                }
+            }
+
+            if let Some(payload) =
+                row_response.dnd_release_payload::<crate::panels::AssetDragPayload>()
+            {
+                if payload.kind == crate::panels::AssetKind::Script {
+                    *attach_script = Some((info.id, payload.path.to_string_lossy().to_string()));
                 }
             }
 
@@ -476,6 +563,137 @@ mod tests {
             order,
             vec![1, 2],
             "duplicate id must not appear twice in the output"
+        );
+    }
+
+    #[test]
+    fn matches_search_is_case_insensitive_substring() {
+        assert!(HierarchyPanel::matches_search(
+            Some("PlayerCharacter"),
+            "player"
+        ));
+        assert!(HierarchyPanel::matches_search(
+            Some("PlayerCharacter"),
+            "CHAR"
+        ));
+        assert!(!HierarchyPanel::matches_search(
+            Some("PlayerCharacter"),
+            "zzz"
+        ));
+    }
+
+    #[test]
+    fn matches_search_empty_query_matches_everything() {
+        assert!(HierarchyPanel::matches_search(Some("Anything"), ""));
+        assert!(HierarchyPanel::matches_search(None, ""));
+    }
+
+    #[test]
+    fn matches_search_unnamed_entity_only_matches_empty_query() {
+        assert!(!HierarchyPanel::matches_search(None, "x"));
+    }
+
+    #[test]
+    fn icon_for_prefers_camera_over_light_and_mesh() {
+        let mut info = entity(1, None);
+        info.camera_fov = Some(60.0);
+        info.light_type = Some("point".to_string());
+        info.primitive = Some("cube".to_string());
+        assert_eq!(
+            HierarchyPanel::icon_for(&info),
+            egui_phosphor::regular::CAMERA
+        );
+    }
+
+    #[test]
+    fn icon_for_falls_back_to_generic_node_icon() {
+        let info = entity(1, None);
+        assert_eq!(
+            HierarchyPanel::icon_for(&info),
+            egui_phosphor::regular::TREE_STRUCTURE
+        );
+    }
+
+    /// Regression test for the tree-view row click failing to register.
+    ///
+    /// egui hit-tests using the *previous* frame's widget rects
+    /// (`Context::begin_pass` reads `viewport.prev_pass.widgets`), so this
+    /// needs two `Context::run` passes: the first establishes the row's
+    /// rect, the second delivers a press+release at that rect and observes
+    /// whether `.clicked()` fires.
+    ///
+    /// `draw_row` unions a same-rect `ui.interact(.., Sense::drag())` onto
+    /// the row's own click-sensing response to enable DnD-reparent. Per
+    /// egui's `hit_test_on_close` (Some click hit, Some drag hit branch),
+    /// when the *topmost* of two perfectly-overlapping widgets senses only
+    /// drag, egui deliberately reports `click: None` for the pair ("the top
+    /// thing senses only drags, so we ignore the click-widget below it") —
+    /// so `.clicked()` never fires, regardless of `Response::union`'s
+    /// otherwise-correct OR-merge. Using `Sense::click_and_drag()` for the
+    /// unioned interact keeps that topmost widget's own click hit intact.
+    #[test]
+    fn row_click_registers_despite_unioned_drag_sense_interact() {
+        let ctx = egui::Context::default();
+        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
+
+        let mut row_rect = egui::Rect::NOTHING;
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen_rect),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let row_response = ui.selectable_label(false, "row");
+                    let drag_id = ui.id().with("row_drag");
+                    let _drag_response =
+                        ui.interact(row_response.rect, drag_id, egui::Sense::click_and_drag());
+                    row_rect = row_response.rect;
+                });
+            },
+        );
+
+        let pos = row_rect.center();
+        let click_events = vec![
+            egui::Event::PointerMoved(pos),
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::default(),
+            },
+            egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::default(),
+            },
+        ];
+
+        let mut clicked = false;
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen_rect),
+                events: click_events,
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let row_response = ui.selectable_label(false, "row");
+                    let drag_id = ui.id().with("row_drag");
+                    let drag_response =
+                        ui.interact(row_response.rect, drag_id, egui::Sense::click_and_drag());
+                    let row_response = drag_response | row_response;
+                    if row_response.clicked() {
+                        clicked = true;
+                    }
+                });
+            },
+        );
+
+        assert!(
+            clicked,
+            "row click must register even with a same-rect drag-sense interact unioned in"
         );
     }
 }

@@ -2,6 +2,8 @@ use crate::types::{ElementState, KeyCode};
 use winit::event::ElementState as WinitState;
 use winit::keyboard::{KeyCode as WinitKeyCode, PhysicalKey};
 
+/// Maps a winit physical key code to BSEngine's `KeyCode`, returning `KeyCode::Unknown`
+/// for unmapped or unidentified keys.
 pub fn convert_key_code(key: PhysicalKey) -> KeyCode {
     match key {
         PhysicalKey::Code(code) => match code {
@@ -69,6 +71,7 @@ pub fn convert_key_code(key: PhysicalKey) -> KeyCode {
     }
 }
 
+/// Maps a winit `ElementState` (pressed/released) to BSEngine's own `ElementState`.
 pub fn convert_element_state(state: WinitState) -> ElementState {
     match state {
         WinitState::Pressed => ElementState::Pressed,

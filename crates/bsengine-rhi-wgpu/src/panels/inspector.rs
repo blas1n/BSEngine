@@ -191,21 +191,52 @@ mod tests {
         result.expect("add_contents must run exactly once per test frame")
     }
 
-    /// Like [`collect_rendered_texts`], but also reports each string's
-    /// rendered y coordinate (the top of its galley). Used to assert on
-    /// vertical ordering, and to derive click coordinates from where a
-    /// widget *actually* rendered this frame rather than hardcoding pixel
-    /// positions -- the latter had to be re-measured by hand three times
-    /// across PRs #1727/#1728 every time a section moved.
+    /// Returns every literal string egui actually rendered as text in one
+    /// frame's output shapes, paired with the position it was drawn at.
     ///
-    /// `Shape::Text`'s `galley.text()` gives the exact rendered string and
-    /// its `pos` the top-left it was placed at; `Shape::Vec` nests
-    /// recursively and must be walked.
-    fn collect_rendered_texts_with_y(shapes: &[egui::epaint::ClippedShape]) -> Vec<(String, f32)> {
-        fn walk(shape: &egui::Shape, out: &mut Vec<(String, f32)>) {
+    /// Walking the output shapes is how these tests assert on rendered
+    /// content directly (e.g. "the header shows 'Transform', never the
+    /// full type_path") without egui's `accesskit` feature, which this
+    /// workspace does not enable. `Shape::Text`'s `galley.text()` gives
+    /// the exact rendered string; `Shape::Vec` nests and must be walked
+    /// recursively.
+    ///
+    /// The position lets tests assert on vertical ordering and, more
+    /// usefully, derive click coordinates from where a widget *actually*
+    /// rendered this frame instead of hardcoding pixel positions -- those
+    /// had to be re-measured by hand three times over the course of
+    /// PR #1727 whenever a section moved.
+    ///
+    /// **Click the returned `pos` as-is; do not add a half-row offset to
+    /// "reach the centre".** These tests build fonts from
+    /// `FontDefinitions::empty()`, which gives every galley `row_height:
+    /// 0.0` (`epaint`'s `Font::new` early-returns on empty fonts) and so
+    /// zero size. A button places its text at
+    /// `align_size_within_rect(galley.size(), rect.shrink2(padding)).min`,
+    /// and a top-down `Ui` aligns vertically with `Align::Center`, so a
+    /// zero-sized galley lands on the *vertical centre* of the padded
+    /// rect, not its top edge. Widgets here are only as tall as their
+    /// padding, so adding an offset like `reflect_ui.rs`'s
+    /// `row_half_height = 9.0` would land outside the widget entirely.
+    /// For the same reason the galley carries no usable height, so a
+    /// row's extent cannot be derived from it.
+    ///
+    /// Returns `Pos2` rather than a `Rect` deliberately:
+    /// `TextShape::visual_bounding_rect()` is `galley.mesh_bounds`
+    /// translated by `pos`, and with no glyphs to mesh `mesh_bounds` is
+    /// `Rect::NOTHING`, whose `center()` is `NaN` -- the click-swallowing
+    /// trap documented at length in `reflect_ui.rs`.
+    ///
+    /// Note that `ClippedShape::clip_rect` is ignored: a shape scrolled
+    /// out of view inside a `ScrollArea` still reports a position, and a
+    /// coordinate taken from one would mis-click.
+    fn collect_rendered_texts_with_pos(
+        shapes: &[egui::epaint::ClippedShape],
+    ) -> Vec<(String, egui::Pos2)> {
+        fn walk(shape: &egui::Shape, out: &mut Vec<(String, egui::Pos2)>) {
             match shape {
                 egui::Shape::Text(text_shape) => {
-                    out.push((text_shape.galley.text().to_string(), text_shape.pos.y))
+                    out.push((text_shape.galley.text().to_string(), text_shape.pos))
                 }
                 egui::Shape::Vec(nested) => {
                     for s in nested {
@@ -222,12 +253,10 @@ mod tests {
         out
     }
 
-    /// Every literal string egui actually rendered as text in one frame's
-    /// output shapes -- used to assert on rendered content directly (e.g.
-    /// "the header shows 'Transform', never the full type_path"), without
-    /// needing egui's `accesskit` feature (not enabled in this workspace).
+    /// String-only view of [`collect_rendered_texts_with_pos`], for tests
+    /// that assert on rendered content without caring where it landed.
     fn collect_rendered_texts(shapes: &[egui::epaint::ClippedShape]) -> Vec<String> {
-        collect_rendered_texts_with_y(shapes)
+        collect_rendered_texts_with_pos(shapes)
             .into_iter()
             .map(|(text, _)| text)
             .collect()

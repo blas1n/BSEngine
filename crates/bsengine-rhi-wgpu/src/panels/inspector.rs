@@ -179,6 +179,21 @@ impl EditorPanel for InspectorPanel {
 /// compile-time one instead of a documentary one.
 const SEARCH_HINT: &str = "Search";
 
+/// Shown in the Add Component picker in place of the row list when the
+/// search text matched no component type.
+///
+/// A `const` for the same reason as [`SEARCH_HINT`]: it is what the tests
+/// look for in the rendered output, and a duplicated literal there could
+/// drift from this one without anything failing.
+const NO_MATCHES_LABEL: &str = "No matches";
+
+/// Shown in the Add Component picker in place of the row list when nothing
+/// is listed and nothing was typed -- i.e. every registered, constructible
+/// component type is already attached to this entity, so there is nothing
+/// left to add. Distinct from [`NO_MATCHES_LABEL`] because the two states
+/// call for different reactions: clear the search, versus nothing to do.
+const ALL_ATTACHED_LABEL: &str = "All components attached";
+
 /// Draws the Add Component button and, when it is open, the picker popup
 /// on whichever side of the button has more room (see the direction choice
 /// at the `popup_above_or_below_widget` call). Returns the `type_path` of
@@ -346,6 +361,12 @@ fn draw_add_component(
             egui::ScrollArea::vertical()
                 .max_height(240.0)
                 .show(ui, |ui| {
+                    // Whether the loop below drew a single row. Tracked
+                    // rather than pre-computed: the three `continue`s are
+                    // the only definition of "listable", and a separate
+                    // count would be a second copy of that predicate, free
+                    // to drift from it.
+                    let mut listed_any = false;
                     for registration in registry.iter() {
                         if registration
                             .data::<bevy_ecs::reflect::ReflectComponent>()
@@ -381,9 +402,31 @@ fn draw_add_component(
                         if !needle.is_empty() && !short_name.to_lowercase().contains(&needle) {
                             continue;
                         }
+                        listed_any = true;
                         if ui.selectable_label(false, &short_name).clicked() {
                             to_attach = Some(type_path);
                         }
+                    }
+                    // Without this the popup is a search box over blank
+                    // space, which reads as a rendering failure rather than
+                    // as an answer. Dimmed and drawn as a plain label, so it
+                    // is visibly not a row you can click.
+                    //
+                    // `TEXT_DIM` is the palette's own "placeholder /
+                    // disabled text" entry (theme.rs), reached the way the
+                    // component headers above reach `TEXT` -- via
+                    // `colored_label`, since this workspace's panels take
+                    // their colours from that one table rather than from
+                    // egui's derived weak-text grey.
+                    if !listed_any {
+                        ui.colored_label(
+                            crate::theme::TEXT_DIM,
+                            if needle.is_empty() {
+                                ALL_ATTACHED_LABEL
+                            } else {
+                                NO_MATCHES_LABEL
+                            },
+                        );
                     }
                 });
         },
@@ -2436,6 +2479,254 @@ mod tests {
              field must render above the button's label; got hint y={} vs button y={}",
             layout.hint_y,
             layout.button_y
+        );
+    }
+
+    #[test]
+    fn picker_explains_itself_when_every_component_is_already_attached() {
+        // The picker filters out types the entity already has, so on an
+        // entity holding all of them it listed nothing at all -- a search
+        // box over blank space, with no way to tell "nothing to add" from
+        // "the list failed to draw".
+        //
+        // Both types are attached under the registry's own type paths,
+        // asked of `TypePath` rather than spelled out, since matching those
+        // exact strings is what makes the already-attached filter fire.
+        let mut registry = bevy_reflect::TypeRegistry::default();
+        registry.register::<bsengine_core::PointLight>();
+        registry.register::<bsengine_core::Camera>();
+        let point_light_path =
+            <bsengine_core::PointLight as bevy_reflect::TypePath>::type_path().to_string();
+        let camera_path =
+            <bsengine_core::Camera as bevy_reflect::TypePath>::type_path().to_string();
+
+        let mut insp = InspectorState::default();
+        insp.selected_id = Some(1);
+        insp.reflected_components = vec![
+            (
+                point_light_path.clone(),
+                Box::new(bsengine_core::PointLight::default()) as Box<dyn bevy_reflect::Reflect>,
+            ),
+            (
+                camera_path.clone(),
+                Box::new(bsengine_core::Camera::default()) as Box<dyn bevy_reflect::Reflect>,
+            ),
+        ];
+
+        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
+        let mut panel = InspectorPanel;
+
+        let egui_ctx = egui::Context::default();
+        egui_ctx.set_fonts(egui::FontDefinitions::empty());
+        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
+
+        let run_frame = |egui_ctx: &egui::Context,
+                         events: Vec<egui::Event>,
+                         insp: &mut InspectorState,
+                         entities_snapshot: &[InspectorEntityInfo],
+                         panel: &mut InspectorPanel| {
+            egui_ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(screen_rect),
+                    events,
+                    ..Default::default()
+                },
+                |egui_ctx| {
+                    egui::CentralPanel::default().show(egui_ctx, |ui| {
+                        let mut ctx = EditorPanelContext {
+                            insp,
+                            entities_snapshot,
+                            cursor_pos: (0.0, 0.0),
+                            type_registry: Some(&registry),
+                        };
+                        panel.ui(ui, &mut ctx);
+                    });
+                },
+            )
+        };
+        let click_events = |pos: egui::Pos2| {
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::default(),
+                },
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::default(),
+                },
+            ]
+        };
+
+        // Open the picker: draw, click the button where it rendered, settle.
+        let closed = run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
+        let closed_texts = collect_rendered_texts(&closed.shapes);
+        let button_pos = collect_rendered_texts_with_pos(&closed.shapes)
+            .into_iter()
+            .find(|(text, _)| text.contains("Add Component"))
+            .map(|(_, pos)| pos)
+            .expect("the Add Component button must render");
+        run_frame(
+            &egui_ctx,
+            click_events(button_pos),
+            &mut insp,
+            &entities_snapshot,
+            &mut panel,
+        );
+        let opened = run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
+        let opened_texts = collect_rendered_texts(&opened.shapes);
+
+        assert!(
+            !closed_texts.iter().any(|text| text == ALL_ATTACHED_LABEL),
+            "the empty-state label belongs to the picker, so it must not render before the \
+             picker is open, got: {closed_texts:?}"
+        );
+        assert!(
+            opened_texts.iter().any(|text| text == ALL_ATTACHED_LABEL),
+            "with every registered type already attached the picker must say so rather than \
+             show an empty list, got: {opened_texts:?}"
+        );
+
+        // Both types render as component headers in the list above, so
+        // their mere presence proves nothing. What must hold is that
+        // opening the picker added no further occurrence of either -- i.e.
+        // listed neither as a row.
+        let occurrences =
+            |texts: &[String], needle: &str| texts.iter().filter(|text| *text == needle).count();
+        for short_name in ["PointLight", "Camera"] {
+            assert_eq!(
+                occurrences(&opened_texts, short_name),
+                occurrences(&closed_texts, short_name),
+                "an already-attached type must not be offered as a picker row, so opening the \
+                 picker must not add an occurrence of {short_name}; got open: {opened_texts:?} \
+                 vs closed: {closed_texts:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn picker_says_no_matches_when_the_search_matches_nothing() {
+        // The other half of the empty state: the list can also come up
+        // empty because of what was typed, and that needs a different
+        // answer -- clear the search, rather than nothing to do.
+        let mut registry = bevy_reflect::TypeRegistry::default();
+        registry.register::<bsengine_core::PointLight>();
+        registry.register::<bsengine_core::Camera>();
+
+        let mut insp = InspectorState::default();
+        insp.selected_id = Some(1);
+
+        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
+        let mut panel = InspectorPanel;
+
+        let egui_ctx = egui::Context::default();
+        egui_ctx.set_fonts(egui::FontDefinitions::empty());
+        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
+
+        let run_frame = |egui_ctx: &egui::Context,
+                         events: Vec<egui::Event>,
+                         insp: &mut InspectorState,
+                         entities_snapshot: &[InspectorEntityInfo],
+                         panel: &mut InspectorPanel| {
+            egui_ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(screen_rect),
+                    events,
+                    ..Default::default()
+                },
+                |egui_ctx| {
+                    egui::CentralPanel::default().show(egui_ctx, |ui| {
+                        let mut ctx = EditorPanelContext {
+                            insp,
+                            entities_snapshot,
+                            cursor_pos: (0.0, 0.0),
+                            type_registry: Some(&registry),
+                        };
+                        panel.ui(ui, &mut ctx);
+                    });
+                },
+            )
+        };
+        let click_events = |pos: egui::Pos2| {
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::default(),
+                },
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::default(),
+                },
+            ]
+        };
+
+        // Open the picker: draw, click the button where it rendered, settle.
+        let closed = run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
+        let button_pos = collect_rendered_texts_with_pos(&closed.shapes)
+            .into_iter()
+            .find(|(text, _)| text.contains("Add Component"))
+            .map(|(_, pos)| pos)
+            .expect("the Add Component button must render");
+        run_frame(
+            &egui_ctx,
+            click_events(button_pos),
+            &mut insp,
+            &entities_snapshot,
+            &mut panel,
+        );
+        let opened = run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
+        let unfiltered = collect_rendered_texts(&opened.shapes);
+
+        // Nothing is attached here, so both types must be listed first --
+        // otherwise the assertions below would pass on an empty picker.
+        assert!(
+            unfiltered.iter().any(|text| text == "PointLight")
+                && unfiltered.iter().any(|text| text == "Camera"),
+            "both types must be listed before typing, got: {unfiltered:?}"
+        );
+        assert!(
+            !unfiltered.iter().any(|text| text == NO_MATCHES_LABEL),
+            "a picker with rows in it must not claim there are no matches, got: {unfiltered:?}"
+        );
+
+        // Type a needle no short name contains, relying on the search
+        // field's autofocus the same way
+        // `picker_search_field_is_focused_on_open` does.
+        run_frame(
+            &egui_ctx,
+            vec![egui::Event::Text("zzz".to_string())],
+            &mut insp,
+            &entities_snapshot,
+            &mut panel,
+        );
+        let filtered_output =
+            run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
+        let filtered = collect_rendered_texts(&filtered_output.shapes);
+
+        assert!(
+            filtered.iter().any(|text| text == NO_MATCHES_LABEL),
+            "a search that matches nothing must say so rather than leave the list blank, \
+             got: {filtered:?}"
+        );
+        assert!(
+            !filtered.iter().any(|text| text == "PointLight")
+                && !filtered.iter().any(|text| text == "Camera"),
+            "neither type matches the typed text, so neither may still be listed, got: \
+             {filtered:?}"
+        );
+        assert!(
+            !filtered.iter().any(|text| text == ALL_ATTACHED_LABEL),
+            "nothing is attached here -- an empty list caused by the search must not be \
+             explained as everything being attached, got: {filtered:?}"
         );
     }
 }

@@ -246,6 +246,7 @@ fn draw_add_component(
     let popup_id = ui.make_persistent_id("add_component_popup");
     let filter_id = ui.make_persistent_id("add_component_filter");
     let focus_search_id = ui.make_persistent_id("add_component_focus_search");
+    let direction_id = ui.make_persistent_id("add_component_popup_direction");
     // Unity insets this button rather than filling the panel width. The
     // explicit width also keeps `popup_above_or_below_widget`'s
     // debug_assert satisfied: it sizes the popup as `button.rect.width() -
@@ -284,6 +285,7 @@ fn draw_add_component(
         let was_open = ui.memory(|m| m.is_popup_open(popup_id));
         ui.memory_mut(|m| m.toggle_popup(popup_id));
         if !was_open {
+            let direction_at_open = picker_direction(ui.ctx().screen_rect(), button_response.rect);
             ui.memory_mut(|m| {
                 m.data.insert_temp(filter_id, String::new());
                 // Unity focuses the search box on open so you can type
@@ -291,28 +293,30 @@ fn draw_add_component(
                 // popup closure below to consume -- see the comment there
                 // for why focus cannot be granted from this point.
                 m.data.insert_temp(focus_search_id, true);
+                // The side is decided once, here, and held for as long as
+                // the popup stays up. It cannot simply be recomputed at
+                // render time: `popup_above_or_below_widget` rebuilds
+                // `Area::fixed_pos` from the button's rect every frame, so
+                // an open popup already tracks the button as the Inspector
+                // scrolls, and a per-frame direction would make it *flip*
+                // from one side of the button to the other the moment the
+                // button crossed the screen's midpoint. Sliding is the
+                // pre-existing behaviour; jumping across the button would
+                // be new. Open time is also the only moment the choice has
+                // to be right, and the button's rect is already in hand.
+                m.data.insert_temp(direction_id, direction_at_open);
             });
         }
     }
 
-    // Open toward whichever side of the button has more room, re-measured
-    // every frame against the screen. Neither direction is safe as a fixed
-    // choice, and each fails at its own edge: the popup's `Area` clamps
-    // itself to `ctx.screen_rect()` (`area.rs` defaults `constrain: true`),
-    // so one that does not fit on the chosen side is pushed back across the
-    // button, covering it and everything past it. `Below` does that with
-    // the button near the bottom -- the common case, since it sits at the
-    // end of the component list -- and `Above` does exactly the same with
-    // the button near the top, which is where an entity with no components
-    // leaves it. Ties favour `Above`, which is the common case's answer.
-    let screen = ui.ctx().screen_rect();
-    let space_above = button_response.rect.top() - screen.top();
-    let space_below = screen.bottom() - button_response.rect.bottom();
-    let direction = if space_above >= space_below {
-        egui::AboveOrBelow::Above
-    } else {
-        egui::AboveOrBelow::Below
-    };
+    // Falls back to a fresh measurement only if no latched side is found,
+    // which normally cannot happen -- the popup is opened by the branch
+    // above, which always stores one. It matters if egui's temp store is
+    // ever cleared under an open popup, where recomputing is a better
+    // answer than defaulting to a fixed side.
+    let direction = ui
+        .memory(|m| m.data.get_temp::<egui::AboveOrBelow>(direction_id))
+        .unwrap_or_else(|| picker_direction(ui.ctx().screen_rect(), button_response.rect));
 
     let mut to_attach: Option<String> = None;
     egui::popup::popup_above_or_below_widget(
@@ -436,6 +440,49 @@ fn draw_add_component(
         ui.memory_mut(|m| m.close_popup());
     }
     to_attach
+}
+
+/// Which side of `button_rect` the Add Component picker opens on: the side
+/// with more room against `screen`, ties going to `Above`.
+///
+/// The popup's `Area` clamps itself to `ctx.screen_rect()` (`area.rs`
+/// defaults `constrain: true`), so one that does not fit on the side it was
+/// told to use gets pushed back across the button, covering it and
+/// everything past it. Both fixed choices fail that way at their own edge,
+/// which is why the side is measured from the geometry instead of being
+/// written into the source. It is measured once per opening, not once per
+/// frame -- see the `insert_temp` that latches it in `draw_add_component`.
+///
+/// **What this works out to in practice is not what the tie rule suggests.**
+/// The button's y is set by the component list, not by the window: it lands
+/// at roughly 59, 152, 245 and 338 px for zero through three components, and
+/// does not move as the window grows. So on any real editor window -- 720px
+/// tall and up -- `space_below` wins for every entity anyone will select,
+/// and the picker opens *downward*. That is the opposite of the fixed
+/// `Above` that PR #1729 shipped, and it is correct: there is genuinely more
+/// room below, and the ~290px popup fits in it. `Above` is now the rare
+/// case, reached only when the button sits past the screen's midpoint --
+/// a window around 400px tall, or a short docked Inspector.
+///
+/// One consequence worth knowing when reading the tests: the `Above` branch
+/// is only reachable in a geometry that does not occur at production window
+/// sizes, so `picker_opens_above_a_button_that_sits_low` is a valid unit
+/// test of this rule but does not guard the common case.
+///
+/// This is also only a best effort, because it compares free space without
+/// knowing what has to fit in it: `popup_above_or_below_widget` never
+/// exposes the popup's measured height. When neither side has room the
+/// popup is still clamped -- choosing the larger side minimises the overlap
+/// rather than removing it. The 400px test screen with two components is
+/// exactly that: `Above` wins with 245px of room and is clamped anyway.
+fn picker_direction(screen: egui::Rect, button_rect: egui::Rect) -> egui::AboveOrBelow {
+    let space_above = button_rect.top() - screen.top();
+    let space_below = screen.bottom() - button_rect.bottom();
+    if space_above >= space_below {
+        egui::AboveOrBelow::Above
+    } else {
+        egui::AboveOrBelow::Below
+    }
 }
 
 /// The persistent id of one component block's collapsing header.
@@ -622,6 +669,17 @@ mod tests {
         /// naming a pixel.
         fn screen_rect(&self) -> egui::Rect {
             self.screen_rect
+        }
+
+        /// Resizes the screen for every later frame, i.e. the user dragging
+        /// the editor window's edge.
+        ///
+        /// Only interesting between frames: it moves the button relative to
+        /// the screen's midpoint without moving it in the panel, which is
+        /// how a test can change the answer the direction rule would give
+        /// while a popup is already open.
+        fn set_screen_rect(&mut self, screen_rect: egui::Rect) {
+            self.screen_rect = screen_rect;
         }
 
         /// Runs one frame with `events` delivered to it.
@@ -2186,6 +2244,74 @@ mod tests {
             "with the button low on screen the picker must open upward, so the search \
              field must render above the button's label; got hint y={hint_y} vs button \
              y={button_y}"
+        );
+    }
+
+    #[test]
+    fn picker_keeps_its_side_when_the_geometry_changes_while_open() {
+        // The side is latched when the popup opens rather than recomputed
+        // per frame, so an open picker cannot jump across the button.
+        //
+        // Driven by a window resize, not a scroll, and that is worth
+        // explaining because scrolling is the case the latch was written
+        // for. Scrolling cannot show it *in this harness*: the button is
+        // the panel's last widget, so whenever the content is tall enough
+        // to scroll at all, the button sits at or below the viewport's
+        // bottom edge and is never in the screen's upper half. Probed
+        // rather than assumed -- a throwaway sweep drove wheel events at
+        // 4, 6 and 8 components and the button reported y=383 of 400 at
+        // every offset where it rendered, and was culled entirely at the
+        // rest, so the rule returns `Above` throughout and a scroll test
+        // would pass with or without the latch. (The flip is still real in
+        // the shipped editor, where the Inspector is a dock tab whose
+        // viewport is a sub-rect of the screen: a short tab docked high
+        // can hold the button in the screen's upper half and still
+        // scroll.) A resize reaches the same invariant here -- the
+        // direction rule's answer changes underneath an open popup -- with
+        // no second harness.
+        //
+        // Three components put the button low on the 400px screen, so it
+        // opens `Above`; growing the screen to 800 leaves the button where
+        // it is (its y comes from the component list, not the window) but
+        // gives `space_below` the larger value, so a per-frame rule would
+        // now answer `Below`.
+        let mut registry = bevy_reflect::TypeRegistry::default();
+        registry.register::<bsengine_core::PointLight>();
+        registry.register::<bsengine_core::Camera>();
+        let mut harness = PickerHarness::new(registry, filler_components(3));
+
+        let frames = harness.open_picker();
+        let (button_y, hint_y) = button_and_hint_ys(&frames.open);
+        assert!(
+            hint_y < button_y,
+            "the picker must start out opening upward for this test to be about anything; \
+             got hint y={hint_y} vs button y={button_y}"
+        );
+
+        harness.set_screen_rect(egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(400.0, 800.0),
+        ));
+        let resized = harness.draw();
+        let (resized_button_y, resized_hint_y) = button_and_hint_ys(&resized);
+
+        // The resize has to actually change what the rule would answer,
+        // otherwise the assertion below proves nothing. Measured off the
+        // button's label, which sits at the centre of its rect in this
+        // zero-sized-galley harness (see `collect_rendered_texts_with_pos`),
+        // so it stands in for the rect either side is measured from.
+        let screen = harness.screen_rect();
+        assert!(
+            screen.bottom() - resized_button_y > resized_button_y - screen.top(),
+            "the enlarged screen must be one where the rule now prefers opening downward, \
+             or this test cannot tell a latched side from a recomputed one; got button \
+             y={resized_button_y} in screen {screen:?}"
+        );
+        assert!(
+            resized_hint_y < resized_button_y,
+            "the side is chosen when the picker opens and held while it stays open, so a \
+             resize that would now favour opening downward must not move the popup across \
+             the button; got hint y={resized_hint_y} vs button y={resized_button_y}"
         );
     }
 

@@ -139,8 +139,8 @@ impl EditorPanel for InspectorPanel {
                 }
             }
 
-            // Add Component -- a button with a centred label at the very
-            // bottom (Unity's placement) that opens a picker listing every
+            // Add Component -- a centred, inset button at the very bottom
+            // (Unity's placement) that opens a picker listing every
             // registered, ReflectDefault-constructible component type not
             // already attached (filtering prevents a confusing
             // duplicate-attach).
@@ -153,20 +153,31 @@ impl EditorPanel for InspectorPanel {
                 }
 
                 let popup_id = ui.make_persistent_id("add_component_popup");
-                // Justified (full-width), not merely centred: the popup
-                // helper below sizes itself as `button.rect.width() -
-                // Frame::popup's total margin` and asserts that is >= 0
-                // (egui-0.29.1 popup.rs:410 -> ui.rs:897). A shrink-wrapped
-                // button is only `2 * button_padding.x` = 8px wide against a
-                // 12px menu_margin whenever the label galley reports no
-                // width -- which is exactly what the headless tests below
-                // see with `FontDefinitions::empty()`. Filling the width
-                // removes the dependency on how wide the label measures,
-                // and keeps the button from ever overflowing a narrowed
-                // panel the way a hardcoded min width would.
+                // Unity insets this button rather than filling the panel
+                // width. The explicit width also keeps
+                // `popup_above_or_below_widget`'s debug_assert satisfied: it
+                // sizes the popup as `button.rect.width() - Frame::popup's
+                // margin` and requires that to be >= 0 (egui-0.29.1
+                // popup.rs:410 -> ui.rs:896). A shrink-wrapped button would
+                // measure only `2 * button_padding.x` (~8px) against a ~12px
+                // margin in these headless tests, where
+                // `FontDefinitions::empty()` gives every label zero width --
+                // a real font never gets near that, but the tests would
+                // panic. The upper bound is the inset look; the lower bound
+                // keeps a very narrow panel from re-triggering the assert,
+                // and clamping to the available width keeps a merely narrow
+                // one from overflowing. Measured on the outer `ui`, which is
+                // the panel's own width.
+                let button_width = ui.available_width().clamp(48.0, 160.0);
                 let button_response = ui
-                    .vertical_centered_justified(|ui| {
-                        ui.button(format!("{} Add Component", egui_phosphor::regular::PLUS))
+                    .vertical_centered(|ui| {
+                        ui.add_sized(
+                            [button_width, ui.spacing().interact_size.y],
+                            egui::Button::new(format!(
+                                "{} Add Component",
+                                egui_phosphor::regular::PLUS
+                            )),
+                        )
                     })
                     .inner;
 

@@ -174,11 +174,15 @@ impl GltfLoader {
                     .ok_or("primitive has no positions")?
                     .collect();
 
-                let indices: Vec<u32> = reader
-                    .read_indices()
-                    .ok_or("primitive has no indices")?
-                    .into_u32()
-                    .collect();
+                // Some valid glTF primitives omit the indices accessor entirely
+                // (a flat, non-indexed triangle list -- legal per the glTF spec,
+                // and used by real-world assets, e.g. Khronos's own Fox sample
+                // model). Fall back to a sequential 0..N index buffer rather
+                // than rejecting the whole file.
+                let indices: Vec<u32> = match reader.read_indices() {
+                    Some(indices) => indices.into_u32().collect(),
+                    None => (0..positions.len() as u32).collect(),
+                };
 
                 let colors: Vec<[f32; 3]> = reader
                     .read_colors(0)

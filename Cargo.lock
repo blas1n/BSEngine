@@ -767,6 +767,7 @@ dependencies = [
  "bsengine-core",
  "bsengine-ecs",
  "bsengine-editor",
+ "bsengine-gltf",
  "bsengine-input",
  "bsengine-network",
  "bsengine-physics",

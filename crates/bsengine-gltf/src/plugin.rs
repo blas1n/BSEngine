@@ -84,6 +84,15 @@ fn load_gltf_assets(
                                 .next()
                                 .cloned()
                                 .unwrap_or_default();
+                            // AnimationPlayer::new defaults duration to 0.0, and
+                            // AnimationPlayer::tick is a no-op whenever duration <= 0.0
+                            // -- without this, the player's `time` would never
+                            // advance and the clip would appear frozen forever.
+                            let duration = clip_library
+                                .clips
+                                .get(&first_clip_name)
+                                .map(|c| c.duration)
+                                .unwrap_or(0.0);
                             e.insert((
                                 SkinnedMesh {
                                     mesh_id,
@@ -93,7 +102,7 @@ fn load_gltf_assets(
                                     nodes: loaded.nodes.clone(),
                                 },
                                 clip_library,
-                                AnimationPlayer::new(first_clip_name),
+                                AnimationPlayer::new(first_clip_name).with_duration(duration),
                             ));
                         }
                         e.remove::<GltfAsset>();

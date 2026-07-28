@@ -1,9 +1,10 @@
 use std::env;
 
-use bsengine_app::new_app;
+use bsengine_app::{new_app, AnimationPlugin, AnimationStateMachinePlugin, TimePlugin};
 use bsengine_audio::AudioPlugin;
 use bsengine_core::{EditorPlayState, InspectorState};
 use bsengine_editor::EditorPlugin;
+use bsengine_gltf::{GltfPlugin, SkinnedMeshPlugin};
 use bsengine_input::InputPlugin;
 use bsengine_network::NetworkPlugin;
 use bsengine_physics::PhysicsPlugin;
@@ -59,7 +60,8 @@ fn run_windowed(project_dir: &str) {
         .unwrap_or_else(|| manifest.project.name.clone());
 
     let mut app = new_app();
-    app.add_plugins(WgpuRHIPlugin)
+    app.add_plugins(TimePlugin)
+        .add_plugins(WgpuRHIPlugin)
         .add_plugins(WindowPlugin {
             descriptor: WindowDescriptor {
                 title,
@@ -74,6 +76,10 @@ fn run_windowed(project_dir: &str) {
         .add_plugins(NetworkPlugin)
         .add_plugins(EditorPlugin)
         .add_plugins(RenderPlugin)
+        .add_plugins(GltfPlugin)
+        .add_plugins(SkinnedMeshPlugin)
+        .add_plugins(AnimationPlugin)
+        .add_plugins(AnimationStateMachinePlugin)
         .add_plugins(ScenePlugin::from_file(&scene_path))
         .add_plugins(ScriptingPlugin {
             project_dir: project_dir.to_string(),

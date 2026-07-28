@@ -15,6 +15,7 @@ bsengine-app       = { workspace = true }
 bsengine-audio     = { workspace = true }
 bsengine-core      = { workspace = true }
 bsengine-ecs       = { workspace = true }
+bsengine-gltf      = { workspace = true }
 bsengine-input     = { workspace = true }
 bsengine-physics   = { workspace = true }
 bsengine-render    = { workspace = true }

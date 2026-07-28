@@ -4,16 +4,23 @@ use bevy_reflect::prelude::ReflectDefault;
 use bevy_reflect::Reflect;
 use glam::Mat4;
 
+/// Perspective camera component holding the field of view and clip planes
+/// used to build a right-handed projection matrix each frame.
 #[derive(Component, Debug, Clone, Reflect)]
 #[reflect(Component, Default)]
 pub struct Camera {
+    /// Vertical field of view.
     pub fov_y_degrees: ReflectDegrees,
+    /// Viewport width divided by height.
     pub aspect_ratio: f32,
+    /// Distance to the near clip plane.
     pub near: f32,
+    /// Distance to the far clip plane.
     pub far: f32,
 }
 
 impl Camera {
+    /// Creates a perspective camera with the given vertical FOV and aspect ratio, and default near/far planes.
     pub fn perspective(fov_y_degrees: f32, aspect_ratio: f32) -> Self {
         Self {
             fov_y_degrees: fov_y_degrees.into(),
@@ -23,6 +30,7 @@ impl Camera {
         }
     }
 
+    /// Builds the right-handed perspective projection matrix for this camera.
     pub fn projection_matrix(&self) -> Mat4 {
         Mat4::perspective_rh(
             self.fov_y_degrees.to_radians(),
@@ -32,6 +40,7 @@ impl Camera {
         )
     }
 
+    /// Recomputes `aspect_ratio` from a viewport size, ignoring zero-height viewports.
     pub fn update_aspect_ratio(&mut self, width: u32, height: u32) {
         if height > 0 {
             self.aspect_ratio = width as f32 / height as f32;

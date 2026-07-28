@@ -79,14 +79,17 @@ impl Timer {
         (self.elapsed / self.duration).clamp(0.0, 1.0)
     }
 
+    /// Returns the time accumulated since the timer last started (or last looped, if repeating).
     pub fn elapsed(&self) -> f32 {
         self.elapsed
     }
 
+    /// Returns the configured duration, in seconds.
     pub fn duration(&self) -> f32 {
         self.duration
     }
 
+    /// Returns true if this timer loops instead of stopping when it finishes.
     pub fn is_repeating(&self) -> bool {
         self.repeating
     }

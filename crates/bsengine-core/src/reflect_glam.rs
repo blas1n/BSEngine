@@ -22,7 +22,8 @@
 use bevy_reflect::{impl_reflect_value, prelude::ReflectDefault};
 
 macro_rules! reflect_glam_wrapper {
-    ($wrapper:ident, $inner:ty) => {
+    ($doc:expr, $wrapper:ident, $inner:ty) => {
+        #[doc = $doc]
         #[derive(Debug, Clone, Copy, PartialEq, Default)]
         pub struct $wrapper(pub $inner);
 
@@ -54,10 +55,26 @@ macro_rules! reflect_glam_wrapper {
     };
 }
 
-reflect_glam_wrapper!(ReflectVec2, glam::Vec2);
-reflect_glam_wrapper!(ReflectVec3, glam::Vec3);
-reflect_glam_wrapper!(ReflectVec4, glam::Vec4);
-reflect_glam_wrapper!(ReflectQuat, glam::Quat);
+reflect_glam_wrapper!(
+    "Reflectable wrapper around a `glam::Vec2`.",
+    ReflectVec2,
+    glam::Vec2
+);
+reflect_glam_wrapper!(
+    "Reflectable wrapper around a `glam::Vec3`.",
+    ReflectVec3,
+    glam::Vec3
+);
+reflect_glam_wrapper!(
+    "Reflectable wrapper around a `glam::Vec4`.",
+    ReflectVec4,
+    glam::Vec4
+);
+reflect_glam_wrapper!(
+    "Reflectable wrapper around a `glam::Quat`.",
+    ReflectQuat,
+    glam::Quat
+);
 
 impl_reflect_value!((in bsengine_core::reflect_glam) ReflectVec2(Debug, PartialEq, Default));
 impl_reflect_value!((in bsengine_core::reflect_glam) ReflectVec3(Debug, PartialEq, Default));

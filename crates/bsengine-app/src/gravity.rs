@@ -2,6 +2,8 @@ use bevy_app::{App, Plugin, Update};
 use bsengine_core::{Gravity, GravityScale, Time, Velocity};
 use bsengine_ecs::{Query, Res};
 
+/// Inserts the global `Gravity` resource and applies its acceleration (scaled by
+/// each entity's optional `GravityScale`) to `Velocity` every frame.
 pub struct GravityPlugin;
 
 impl Plugin for GravityPlugin {

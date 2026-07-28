@@ -1,17 +1,20 @@
 use std::marker::PhantomData;
 
+/// A lightweight, typed reference to an asset stored elsewhere (e.g. in an `AssetServer`).
 pub struct Handle<T> {
     id: u64,
     _phantom: PhantomData<T>,
 }
 
 impl<T> Handle<T> {
+    /// Wraps a raw asset id in a typed handle.
     pub fn new(id: u64) -> Self {
         Self {
             id,
             _phantom: PhantomData,
         }
     }
+    /// Returns the raw id this handle refers to.
     pub fn id(&self) -> u64 {
         self.id
     }

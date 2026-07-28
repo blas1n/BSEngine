@@ -2,6 +2,7 @@ use bevy_app::{App, Plugin, Update};
 use bsengine_core::{Lifetime, Time};
 use bsengine_ecs::{Commands, Entity, Query, Res};
 
+/// Counts down each entity's `Lifetime` and despawns it once the remaining time hits zero.
 pub struct LifetimePlugin;
 
 impl Plugin for LifetimePlugin {

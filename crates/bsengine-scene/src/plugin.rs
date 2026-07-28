@@ -8,14 +8,17 @@ use bsengine_core::{
 use bsengine_gltf::GltfAsset;
 use glam::{Quat, Vec3};
 
+/// Human-readable name assigned to a spawned scene entity, taken from `EntityDescriptor::name`.
 #[derive(Component, Debug, Clone)]
 pub struct Name(pub String);
 
+/// Bevy plugin that loads a scene file at startup and spawns its entities into the world.
 pub struct ScenePlugin {
     path: String,
 }
 
 impl ScenePlugin {
+    /// Creates a plugin that will load and spawn the scene at `path` when added to an `App`.
     pub fn from_file(path: &str) -> Self {
         Self {
             path: path.to_string(),

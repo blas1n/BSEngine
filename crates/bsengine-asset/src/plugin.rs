@@ -2,9 +2,11 @@ use crate::server::AssetServer;
 use bevy_app::{App, Plugin};
 use bsengine_ecs::Resource;
 
+/// ECS resource wrapper exposing the shared `AssetServer` to systems.
 #[derive(Resource, Clone)]
 pub struct AssetServerResource(pub AssetServer);
 
+/// App plugin that installs an `AssetServerResource` for asset loading.
 pub struct AssetPlugin;
 
 impl Plugin for AssetPlugin {

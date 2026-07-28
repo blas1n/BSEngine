@@ -15,34 +15,41 @@ pub struct AmbientOcclusion {
     pub intensity: f32,
     /// Number of hemisphere samples per pixel. Higher = quality; lower = performance.
     pub sample_count: u32,
+    /// Whether the effect is applied at all.
     pub enabled: bool,
 }
 
 impl AmbientOcclusion {
+    /// Creates an ambient occlusion setting with the default radius, bias, intensity, and sample count.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Sets the occluder sampling radius, clamped to be non-negative.
     pub fn with_radius(mut self, radius: f32) -> Self {
         self.radius = radius.max(0.0);
         self
     }
 
+    /// Sets the depth bias, clamped to be non-negative.
     pub fn with_bias(mut self, bias: f32) -> Self {
         self.bias = bias.max(0.0);
         self
     }
 
+    /// Sets the effect intensity, clamped to `[0, 1]`.
     pub fn with_intensity(mut self, intensity: f32) -> Self {
         self.intensity = intensity.clamp(0.0, 1.0);
         self
     }
 
+    /// Sets the hemisphere sample count, clamped to at least 1.
     pub fn with_sample_count(mut self, count: u32) -> Self {
         self.sample_count = count.max(1);
         self
     }
 
+    /// Turns the effect off while keeping its other settings.
     pub fn disabled(mut self) -> Self {
         self.enabled = false;
         self

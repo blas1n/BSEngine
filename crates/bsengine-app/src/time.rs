@@ -2,6 +2,8 @@ use bevy_app::prelude::*;
 use bsengine_core::Time;
 use bsengine_ecs::ResMut;
 
+/// Inserts the `Time` resource and ticks it in `PreUpdate` so every other system
+/// sees an up-to-date `delta_seconds` for the current frame.
 pub struct TimePlugin;
 
 impl Plugin for TimePlugin {

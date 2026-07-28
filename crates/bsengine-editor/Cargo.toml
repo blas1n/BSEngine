@@ -13,6 +13,7 @@ bsengine-mcp    = { workspace = true }
 bsengine-scene  = { workspace = true }
 bsengine-core   = { workspace = true }
 bsengine-render = { workspace = true }
+bsengine-gltf   = { workspace = true }
 bevy_app        = { workspace = true }
 bevy_ecs        = { workspace = true }
 bevy_reflect    = { workspace = true }

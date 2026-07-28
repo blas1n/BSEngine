@@ -290,9 +290,13 @@ struct CameraUniformData {
 
 /// Material parameters uploaded per draw call.
 pub struct MaterialParams {
+    /// 0 = fully dielectric, 1 = fully metallic, PBR-style.
     pub metallic: f32,
+    /// Surface microfacet roughness, 0 = mirror-smooth, 1 = fully rough.
     pub roughness: f32,
+    /// Self-illumination color added regardless of lighting.
     pub emissive: Vec3,
+    /// Base albedo color multiplied with the surface texture (if any).
     pub base_color: Vec3,
 }
 
@@ -323,29 +327,45 @@ struct ModelUniformData {
 
 /// A single point light entry for the GPU buffer.
 pub struct PointLightEntry {
+    /// World-space position of the light.
     pub position: Vec3,
+    /// Light color (linear RGB, unclamped so intensity can exceed 1.0 per channel).
     pub color: Vec3,
+    /// Brightness multiplier applied to `color`.
     pub intensity: f32,
+    /// Distance at which the light's contribution falls off to zero.
     pub range: f32,
 }
 
 /// A single spot light entry for the GPU buffer.
 pub struct SpotLightEntry {
+    /// World-space position of the light.
     pub position: Vec3,
+    /// World-space direction the cone points toward.
     pub direction: Vec3,
+    /// Light color (linear RGB, unclamped so intensity can exceed 1.0 per channel).
     pub color: Vec3,
+    /// Brightness multiplier applied to `color`.
     pub intensity: f32,
+    /// Distance at which the light's contribution falls off to zero.
     pub range: f32,
+    /// Half-angle (radians) of the cone's fully-lit inner core.
     pub inner_angle: f32,
+    /// Half-angle (radians) of the cone's outer falloff edge.
     pub outer_angle: f32,
 }
 
 /// Light parameters passed per frame.
 pub struct LightData {
+    /// Directional (sun) light's world-space direction.
     pub direction: Vec3,
+    /// Directional (sun) light's color.
     pub color: Vec3,
+    /// Flat ambient light added to every surface regardless of direction.
     pub ambient: Vec3,
+    /// Active point lights this frame (uploaded up to a fixed GPU-side cap).
     pub point_lights: Vec<PointLightEntry>,
+    /// Active spot lights this frame (uploaded up to a fixed GPU-side cap).
     pub spot_lights: Vec<SpotLightEntry>,
 }
 
@@ -491,6 +511,8 @@ fn map_keycode_to_egui(code: bsengine_input::KeyCode) -> Option<egui::Key> {
     })
 }
 
+/// Owns the wgpu swapchain, all GPU pipelines/buffers for the main scene and
+/// shadow passes, the egui renderer, and per-frame render state for one window.
 pub struct WgpuSurface {
     _window: Arc<winit::window::Window>,
     pub(crate) surface: wgpu::Surface<'static>,
@@ -526,6 +548,8 @@ pub struct WgpuSurface {
 }
 
 impl WgpuSurface {
+    /// Initializes the wgpu adapter/device/swapchain for `window` and builds
+    /// every pipeline, buffer, and bind group the main render loop needs.
     pub async fn new(window: Arc<winit::window::Window>) -> Result<Self, String> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
@@ -853,6 +877,7 @@ impl WgpuSurface {
         });
 
         let egui_ctx = egui::Context::default();
+        crate::theme::apply(&egui_ctx);
         let egui_renderer = egui_wgpu::Renderer::new(&device, format, None, 1, false);
 
         let post_process = crate::post_process::PostProcessState::new(
@@ -1182,19 +1207,25 @@ impl WgpuSurface {
         Ok(())
     }
 
+    /// Unloads the current skybox, if any, reverting to no skybox rendering.
     pub fn clear_skybox(&mut self) {
         self.skybox = None;
         self.loaded_skybox_path = None;
     }
 
+    /// Whether a skybox is currently loaded and will be rendered.
     pub fn has_skybox(&self) -> bool {
         self.skybox.is_some()
     }
 
+    /// Path of the currently loaded skybox texture, if any.
     pub fn loaded_skybox_path(&self) -> Option<&str> {
         self.loaded_skybox_path.as_deref()
     }
 
+    /// Renders one full frame: shadow map, main scene pass, post-processing,
+    /// skybox, and the game/editor UI overlay, then presents the swapchain.
+    /// Returns the ids of any `UiWidget::Button`s clicked this frame.
     #[allow(clippy::too_many_arguments)] // one frame's worth of render inputs; splitting into a struct is a larger refactor
     pub fn render_frame(
         &mut self,
@@ -1685,13 +1716,6 @@ impl WgpuSurface {
                 // Runtime inspector panels / full editor layout
                 if let Some(insp) = inspector.as_deref_mut() {
                     if insp.editor_mode {
-                        let play_label =
-                            if insp.play_state == bsengine_core::EditorPlayState::Playing {
-                                "■  Stop"
-                            } else {
-                                "▶  Play"
-                            };
-
                         // Keyboard shortcuts. Ignored while an egui widget (e.g. a
                         // DragValue or text field) has focus, so Ctrl+Z etc. don't
                         // get stolen from in-progress text editing.
@@ -1760,59 +1784,94 @@ impl WgpuSurface {
 
                             egui::TopBottomPanel::top("bse_editor_toolbar").show(ctx, |ui| {
                                 ui.horizontal(|ui| {
-                                    if ui.button(play_label).clicked() {
-                                        insp.play_state = if insp.play_state
+                                    ui.horizontal(|ui| {
+                                        if ui
+                                            .button(format!(
+                                                "{} Play",
+                                                egui_phosphor::regular::PLAY
+                                            ))
+                                            .on_hover_text("Play (toggles editor/play mode)")
+                                            .clicked()
+                                        {
+                                            insp.play_state = if insp.play_state
+                                                == bsengine_core::EditorPlayState::Playing
+                                            {
+                                                bsengine_core::EditorPlayState::Stopped
+                                            } else {
+                                                bsengine_core::EditorPlayState::Playing
+                                            };
+                                        }
+                                        let mode_label = if insp.play_state
                                             == bsengine_core::EditorPlayState::Playing
                                         {
-                                            bsengine_core::EditorPlayState::Stopped
+                                            "● Playing"
                                         } else {
-                                            bsengine_core::EditorPlayState::Playing
+                                            "◆ Editor"
                                         };
-                                    }
+                                        ui.label(mode_label);
+                                    });
                                     ui.separator();
-                                    let mode_label = if insp.play_state
-                                        == bsengine_core::EditorPlayState::Playing
-                                    {
-                                        "● Playing"
-                                    } else {
-                                        "◆ Editor"
-                                    };
-                                    ui.label(mode_label);
+                                    ui.horizontal(|ui| {
+                                        if ui
+                                            .button(egui_phosphor::regular::ARROW_COUNTER_CLOCKWISE)
+                                            .on_hover_text("Undo (Ctrl+Z)")
+                                            .clicked()
+                                        {
+                                            insp.request_undo = true;
+                                        }
+                                        if ui
+                                            .button(egui_phosphor::regular::ARROW_CLOCKWISE)
+                                            .on_hover_text("Redo (Ctrl+Y)")
+                                            .clicked()
+                                        {
+                                            insp.request_redo = true;
+                                        }
+                                        let save_enabled = insp.current_scene_path.is_some();
+                                        if ui
+                                            .add_enabled(
+                                                save_enabled,
+                                                egui::Button::new(
+                                                    egui_phosphor::regular::FLOPPY_DISK,
+                                                ),
+                                            )
+                                            .on_hover_text("Save Scene (Ctrl+S)")
+                                            .on_disabled_hover_text("No scene file loaded")
+                                            .clicked()
+                                        {
+                                            insp.cmd_queue
+                                                .push(bsengine_core::InspectorCmd::SaveScene);
+                                        }
+                                    });
                                     ui.separator();
-                                    if ui.button("↩ Undo").clicked() {
-                                        insp.request_undo = true;
-                                    }
-                                    if ui.button("↪ Redo").clicked() {
-                                        insp.request_redo = true;
-                                    }
-                                    ui.separator();
-                                    let save_enabled = insp.current_scene_path.is_some();
-                                    if ui
-                                        .add_enabled(save_enabled, egui::Button::new("💾 Save"))
-                                        .on_disabled_hover_text("No scene file loaded")
-                                        .clicked()
-                                    {
-                                        insp.cmd_queue.push(bsengine_core::InspectorCmd::SaveScene);
-                                    }
-                                    ui.separator();
-                                    if ui
-                                        .selectable_label(
-                                            insp.gizmo_mode == bsengine_core::GizmoMode::Translate,
-                                            "Move (W)",
-                                        )
-                                        .clicked()
-                                    {
-                                        insp.gizmo_mode = bsengine_core::GizmoMode::Translate;
-                                    }
-                                    if ui
-                                        .selectable_label(
-                                            insp.gizmo_mode == bsengine_core::GizmoMode::Rotate,
-                                            "Rotate (E)",
-                                        )
-                                        .clicked()
-                                    {
-                                        insp.gizmo_mode = bsengine_core::GizmoMode::Rotate;
-                                    }
+                                    ui.horizontal(|ui| {
+                                        if ui
+                                            .selectable_label(
+                                                insp.gizmo_mode
+                                                    == bsengine_core::GizmoMode::Translate,
+                                                format!(
+                                                    "{} Move",
+                                                    egui_phosphor::regular::ARROWS_OUT_CARDINAL
+                                                ),
+                                            )
+                                            .on_hover_text("Move (W)")
+                                            .clicked()
+                                        {
+                                            insp.gizmo_mode = bsengine_core::GizmoMode::Translate;
+                                        }
+                                        if ui
+                                            .selectable_label(
+                                                insp.gizmo_mode == bsengine_core::GizmoMode::Rotate,
+                                                format!(
+                                                    "{} Rotate",
+                                                    egui_phosphor::regular::ARROWS_CLOCKWISE
+                                                ),
+                                            )
+                                            .on_hover_text("Rotate (E)")
+                                            .clicked()
+                                        {
+                                            insp.gizmo_mode = bsengine_core::GizmoMode::Rotate;
+                                        }
+                                    });
                                     ui.separator();
                                     crate::panels::window_menu_ui(ui, &mut dock_state, registry);
                                 });
@@ -1828,7 +1887,23 @@ impl WgpuSurface {
                                 panels: &mut panels_guard,
                                 type_registry: type_registry_guard.as_deref(),
                             };
-                            egui_dock::DockArea::new(&mut dock_state).show(ctx, &mut tab_viewer);
+                            let mut dock_style = egui_dock::Style::from_egui(ctx.style().as_ref());
+                            // `Style::from_egui` derives the tab-bar's "focused"/"hovered"/
+                            // "*_with_kb_focus" text colors from `Visuals::strong_text_color()`,
+                            // which resolves to `widgets.active.fg_stroke` — this theme
+                            // deliberately makes that near-black (dark text on the bright
+                            // accent-colored Play/active-button background), which egui_dock's
+                            // reuse of the same field turns into near-invisible dark-on-dark
+                            // text for whichever tab is currently focused or hovered. Override
+                            // just those tab-text colors back to the theme's normal bright text.
+                            dock_style.tab.focused.text_color = crate::theme::TEXT;
+                            dock_style.tab.focused_with_kb_focus.text_color = crate::theme::TEXT;
+                            dock_style.tab.hovered.text_color = crate::theme::TEXT;
+                            dock_style.tab.active_with_kb_focus.text_color = crate::theme::TEXT;
+                            dock_style.tab.inactive_with_kb_focus.text_color = crate::theme::TEXT;
+                            egui_dock::DockArea::new(&mut dock_state)
+                                .style(dock_style)
+                                .show(ctx, &mut tab_viewer);
                             drop(panels_guard);
 
                             let layout_json =
@@ -1881,106 +1956,49 @@ impl WgpuSurface {
                                 .and_then(|e| e.name.as_deref().map(String::from))
                                 .unwrap_or_else(|| format!("Entity {sel_id}"));
 
-                            let mut pos_changed = false;
-                            let mut rot_changed = false;
-                            let mut scale_changed = false;
+                            let type_registry_guard = type_registry.map(|r| r.read());
+                            let reflect_ctx = crate::panels::reflect_ui::ReflectUiCtx {
+                                entities: &entities_snapshot,
+                                type_registry: type_registry_guard.as_deref(),
+                            };
+                            let mut to_apply: Vec<(String, Box<dyn bevy_reflect::Reflect>)> =
+                                Vec::new();
 
                             egui::SidePanel::right("bse_insp_props")
                                 .default_width(220.0)
                                 .show(ctx, |ui| {
                                     ui.heading(&entity_name);
                                     ui.separator();
-                                    ui.strong("Transform");
-                                    ui.horizontal(|ui| {
-                                        ui.label("Pos");
-                                        pos_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut insp.edit_pos[0])
-                                                    .speed(0.05),
-                                            )
-                                            .changed();
-                                        pos_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut insp.edit_pos[1])
-                                                    .speed(0.05),
-                                            )
-                                            .changed();
-                                        pos_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut insp.edit_pos[2])
-                                                    .speed(0.05),
-                                            )
-                                            .changed();
-                                    });
-                                    ui.horizontal(|ui| {
-                                        ui.label("Rot°");
-                                        rot_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut insp.edit_rot[0])
-                                                    .speed(0.5),
-                                            )
-                                            .changed();
-                                        rot_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut insp.edit_rot[1])
-                                                    .speed(0.5),
-                                            )
-                                            .changed();
-                                        rot_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut insp.edit_rot[2])
-                                                    .speed(0.5),
-                                            )
-                                            .changed();
-                                    });
-                                    ui.horizontal(|ui| {
-                                        ui.label("Scale");
-                                        scale_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut insp.edit_scale[0])
-                                                    .speed(0.01),
-                                            )
-                                            .changed();
-                                        scale_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut insp.edit_scale[1])
-                                                    .speed(0.01),
-                                            )
-                                            .changed();
-                                        scale_changed |= ui
-                                            .add(
-                                                egui::DragValue::new(&mut insp.edit_scale[2])
-                                                    .speed(0.01),
-                                            )
-                                            .changed();
-                                    });
+                                    for (type_path, value) in
+                                        insp.reflected_components.iter_mut().filter(|(p, _)| {
+                                            !crate::panels::reflect_ui::is_hidden_reflected_type(p)
+                                        })
+                                    {
+                                        ui.colored_label(crate::theme::TEXT, type_path.as_str());
+                                        if crate::panels::reflect_ui::draw_reflect_ui(
+                                            ui,
+                                            value.as_mut(),
+                                            &reflect_ctx,
+                                        ) {
+                                            crate::panels::reflect_ui::validate_after_edit(
+                                                type_path,
+                                                value.as_mut(),
+                                                type_registry_guard.as_deref(),
+                                            );
+                                            to_apply.push((type_path.clone(), value.clone_value()));
+                                        }
+                                        ui.separator();
+                                    }
                                 });
 
-                            if pos_changed {
-                                insp.cmd_queue
-                                    .push(bsengine_core::InspectorCmd::SetPosition {
+                            for (type_path, value) in to_apply {
+                                insp.cmd_queue.push(
+                                    bsengine_core::InspectorCmd::ApplyReflectedComponent {
                                         id: sel_id,
-                                        x: insp.edit_pos[0],
-                                        y: insp.edit_pos[1],
-                                        z: insp.edit_pos[2],
-                                    });
-                            }
-                            if rot_changed {
-                                insp.cmd_queue
-                                    .push(bsengine_core::InspectorCmd::SetRotation {
-                                        id: sel_id,
-                                        rx: insp.edit_rot[0],
-                                        ry: insp.edit_rot[1],
-                                        rz: insp.edit_rot[2],
-                                    });
-                            }
-                            if scale_changed {
-                                insp.cmd_queue.push(bsengine_core::InspectorCmd::SetScale {
-                                    id: sel_id,
-                                    sx: insp.edit_scale[0],
-                                    sy: insp.edit_scale[1],
-                                    sz: insp.edit_scale[2],
-                                });
+                                        type_path,
+                                        value,
+                                    },
+                                );
                             }
                         }
                     }
@@ -2036,6 +2054,8 @@ impl WgpuSurface {
         Ok(clicked)
     }
 
+    /// Reconfigures the swapchain and depth/post-process targets for a new
+    /// window size; a no-op if either dimension is zero (e.g. minimized).
     pub fn resize(&mut self, width: u32, height: u32) {
         if width == 0 || height == 0 {
             return;
@@ -2050,6 +2070,8 @@ impl WgpuSurface {
             .resize_targets(&self.device, &self.depth_view, width, height);
     }
 
+    /// Compiles a WGSL custom shader and stores it as a render pipeline keyed
+    /// by `path`, replacing any previously compiled pipeline for that path.
     pub fn compile_and_store_shader(&mut self, path: &str, wgsl: &str) {
         let shader = self
             .device
@@ -2125,10 +2147,13 @@ impl WgpuSurface {
         self.custom_pipelines.insert(path.to_string(), pipeline);
     }
 
+    /// Whether a custom shader has already been compiled and stored for `path`.
     pub fn has_custom_shader(&self, path: &str) -> bool {
         self.custom_pipelines.contains_key(path)
     }
 
+    /// Compiles a standalone WGSL source string into a shader module, without
+    /// building a pipeline or storing it.
     pub fn compile_shader(device: &wgpu::Device, src: &str) -> wgpu::ShaderModule {
         device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("wgsl shader"),
@@ -2137,6 +2162,7 @@ impl WgpuSurface {
     }
 }
 
+/// ECS resource wrapping the app's [`WgpuSurface`].
 #[derive(Resource)]
 pub struct WgpuSurfaceResource(pub WgpuSurface);
 

@@ -191,16 +191,22 @@ mod tests {
         result.expect("add_contents must run exactly once per test frame")
     }
 
-    /// Recursively collects every literal string egui actually rendered as
-    /// text in one frame's output shapes -- used to assert on rendered
-    /// content directly (e.g. "the header shows 'Transform', never the full
-    /// type_path"), without needing egui's `accesskit` feature (not enabled
-    /// in this workspace). `Shape::Text`'s `galley.text()` gives the exact
-    /// rendered string; `Shape::Vec` nests recursively and must be walked.
-    fn collect_rendered_texts(shapes: &[egui::epaint::ClippedShape]) -> Vec<String> {
-        fn walk(shape: &egui::Shape, out: &mut Vec<String>) {
+    /// Like [`collect_rendered_texts`], but also reports each string's
+    /// rendered y coordinate (the top of its galley). Used to assert on
+    /// vertical ordering, and to derive click coordinates from where a
+    /// widget *actually* rendered this frame rather than hardcoding pixel
+    /// positions -- the latter had to be re-measured by hand three times
+    /// across PRs #1727/#1728 every time a section moved.
+    ///
+    /// `Shape::Text`'s `galley.text()` gives the exact rendered string and
+    /// its `pos` the top-left it was placed at; `Shape::Vec` nests
+    /// recursively and must be walked.
+    fn collect_rendered_texts_with_y(shapes: &[egui::epaint::ClippedShape]) -> Vec<(String, f32)> {
+        fn walk(shape: &egui::Shape, out: &mut Vec<(String, f32)>) {
             match shape {
-                egui::Shape::Text(text_shape) => out.push(text_shape.galley.text().to_string()),
+                egui::Shape::Text(text_shape) => {
+                    out.push((text_shape.galley.text().to_string(), text_shape.pos.y))
+                }
                 egui::Shape::Vec(nested) => {
                     for s in nested {
                         walk(s, out);
@@ -214,6 +220,17 @@ mod tests {
             walk(&clipped.shape, &mut out);
         }
         out
+    }
+
+    /// Every literal string egui actually rendered as text in one frame's
+    /// output shapes -- used to assert on rendered content directly (e.g.
+    /// "the header shows 'Transform', never the full type_path"), without
+    /// needing egui's `accesskit` feature (not enabled in this workspace).
+    fn collect_rendered_texts(shapes: &[egui::epaint::ClippedShape]) -> Vec<String> {
+        collect_rendered_texts_with_y(shapes)
+            .into_iter()
+            .map(|(text, _)| text)
+            .collect()
     }
 
     #[test]

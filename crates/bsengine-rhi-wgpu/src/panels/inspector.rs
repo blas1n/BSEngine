@@ -180,9 +180,10 @@ impl EditorPanel for InspectorPanel {
 const SEARCH_HINT: &str = "Search";
 
 /// Draws the Add Component button and, when it is open, the picker popup
-/// above it. Returns the `type_path` of the component type the user chose
-/// this frame, if any; the caller is what turns that into an
-/// `InspectorCmd`.
+/// on whichever side of the button has more room (see the direction choice
+/// at the `popup_above_or_below_widget` call). Returns the `type_path` of
+/// the component type the user chose this frame, if any; the caller is what
+/// turns that into an `InspectorCmd`.
 ///
 /// `attached` is the selected entity's current component list, used only to
 /// filter already-present types out of the picker (offering them would
@@ -279,15 +280,31 @@ fn draw_add_component(
         }
     }
 
+    // Open toward whichever side of the button has more room, re-measured
+    // every frame against the screen. Neither direction is safe as a fixed
+    // choice, and each fails at its own edge: the popup's `Area` clamps
+    // itself to `ctx.screen_rect()` (`area.rs` defaults `constrain: true`),
+    // so one that does not fit on the chosen side is pushed back across the
+    // button, covering it and everything past it. `Below` does that with
+    // the button near the bottom -- the common case, since it sits at the
+    // end of the component list -- and `Above` does exactly the same with
+    // the button near the top, which is where an entity with no components
+    // leaves it. Ties favour `Above`, which is the common case's answer.
+    let screen = ui.ctx().screen_rect();
+    let space_above = button_response.rect.top() - screen.top();
+    let space_below = screen.bottom() - button_response.rect.bottom();
+    let direction = if space_above >= space_below {
+        egui::AboveOrBelow::Above
+    } else {
+        egui::AboveOrBelow::Below
+    };
+
     let mut to_attach: Option<String> = None;
     egui::popup::popup_above_or_below_widget(
         ui,
         popup_id,
         &button_response,
-        // Above: the button sits at the end of the content, so opening
-        // downward would collide with `Area`'s screen-clamping near the
-        // bottom edge and land back on top of the button.
-        egui::AboveOrBelow::Above,
+        direction,
         // Not CloseOnClick (what ComboBox uses) -- the search field below
         // must survive being clicked and typed into. Escape still closes.
         egui::popup::PopupCloseBehavior::CloseOnClickOutside,
@@ -2232,5 +2249,193 @@ mod tests {
                 panel.ui(ui, &mut ctx);
             });
         }
+    }
+
+    /// What [`open_picker_and_measure`] found: where the Add Component
+    /// button's own label and the open picker's search hint landed, plus the
+    /// screen they were laid out in -- so a test can say "the button sat in
+    /// the top half" without naming a pixel.
+    struct PickerLayout {
+        screen: egui::Rect,
+        button_y: f32,
+        hint_y: f32,
+    }
+
+    /// Opens the Add Component picker on an entity carrying `filler_count`
+    /// reflected components and reports where the button and the picker's
+    /// search hint rendered, both read from the same settled frame.
+    ///
+    /// `filler_count` is the knob that decides where the button lands: the
+    /// panel lays out top-down, so every extra component pushes it further
+    /// down the fixed-size screen. The two callers below use it to put the
+    /// button near the top and near the bottom respectively; the counts they
+    /// pass were measured, not assumed.
+    ///
+    /// The filler components are `Transform` values under invented type
+    /// paths, following `component_list_handles_multiple_counts_without_
+    /// panicking`: distinct paths are what give each one its own collapsing
+    /// header id, and none of them is registered, so none can also appear as
+    /// a picker row.
+    fn open_picker_and_measure(filler_count: usize) -> PickerLayout {
+        let mut registry = bevy_reflect::TypeRegistry::default();
+        registry.register::<bsengine_core::PointLight>();
+        registry.register::<bsengine_core::Camera>();
+
+        let mut insp = InspectorState::default();
+        insp.selected_id = Some(1);
+        insp.reflected_components = (0..filler_count)
+            .map(|i| {
+                (
+                    format!("test_module::Component{i}"),
+                    Box::new(bsengine_core::Transform::default()) as Box<dyn bevy_reflect::Reflect>,
+                )
+            })
+            .collect();
+
+        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
+        let mut panel = InspectorPanel;
+
+        let egui_ctx = egui::Context::default();
+        egui_ctx.set_fonts(egui::FontDefinitions::empty());
+        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
+
+        let run_frame = |egui_ctx: &egui::Context,
+                         events: Vec<egui::Event>,
+                         insp: &mut InspectorState,
+                         entities_snapshot: &[InspectorEntityInfo],
+                         panel: &mut InspectorPanel| {
+            egui_ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(screen_rect),
+                    events,
+                    ..Default::default()
+                },
+                |egui_ctx| {
+                    egui::CentralPanel::default().show(egui_ctx, |ui| {
+                        let mut ctx = EditorPanelContext {
+                            insp,
+                            entities_snapshot,
+                            cursor_pos: (0.0, 0.0),
+                            type_registry: Some(&registry),
+                        };
+                        panel.ui(ui, &mut ctx);
+                    });
+                },
+            )
+        };
+        let click_events = |pos: egui::Pos2| {
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::default(),
+                },
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::default(),
+                },
+            ]
+        };
+
+        // Open the picker: draw, click the button where it rendered, settle.
+        let closed = run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
+        let button_pos = collect_rendered_texts_with_pos(&closed.shapes)
+            .into_iter()
+            .find(|(text, _)| text.contains("Add Component"))
+            .map(|(_, pos)| pos)
+            .expect("the Add Component button must render");
+        run_frame(
+            &egui_ctx,
+            click_events(button_pos),
+            &mut insp,
+            &entities_snapshot,
+            &mut panel,
+        );
+        let opened = run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
+        let opened_texts = collect_rendered_texts_with_pos(&opened.shapes);
+
+        // Both read from the settled frame, so the two ys are comparable
+        // even if the button moved between frames (it doesn't, but taking
+        // one of them from an earlier frame would make that an assumption).
+        let button_y = opened_texts
+            .iter()
+            .find(|(text, _)| text.contains("Add Component"))
+            .map(|(_, pos)| pos.y)
+            .expect("the Add Component button must still render while the picker is open");
+        let hint_y = opened_texts
+            .iter()
+            .find(|(text, _)| text == SEARCH_HINT)
+            .map(|(_, pos)| pos.y)
+            .expect("the search field's hint text must render while the picker is open");
+
+        PickerLayout {
+            screen: screen_rect,
+            button_y,
+            hint_y,
+        }
+    }
+
+    #[test]
+    fn picker_opens_below_a_button_that_sits_high() {
+        // An entity with no components leaves the button just under the
+        // header, with almost the whole screen free below it and next to
+        // nothing above. A hardcoded `AboveOrBelow::Above` cannot honour
+        // that: the popup doesn't fit above, so `Area`'s screen-clamping
+        // pushes it back down over the button and everything above it --
+        // still clickable, but it reads as broken. So the direction has to
+        // be chosen from the space actually available.
+        //
+        // Asserted through the render rather than by inspecting the chosen
+        // `AboveOrBelow` (a local inside the panel): the search hint is the
+        // empty field's only painted content, so its position is where the
+        // popup went.
+        let layout = open_picker_and_measure(0);
+
+        assert!(
+            layout.button_y < layout.screen.center().y,
+            "this scenario is only meaningful with the button in the upper half of the \
+             screen; got button y={} against screen {:?}",
+            layout.button_y,
+            layout.screen
+        );
+        assert!(
+            layout.hint_y > layout.button_y,
+            "with the button high on screen the picker must open downward, so the search \
+             field must render below the button's label; got hint y={} vs button y={}",
+            layout.hint_y,
+            layout.button_y
+        );
+    }
+
+    #[test]
+    fn picker_opens_above_a_button_that_sits_low() {
+        // The common case: the button follows the component list, so on an
+        // entity with a few components it sits near the bottom edge and the
+        // room is all above it. Three filler components is what puts it
+        // there on this 400x400 screen -- measured with a throwaway sweep of
+        // counts 0..=6, which put the button at y=59, 152, 245 and 338, and
+        // then stopped rendering it at all from 4 on (the panel's ScrollArea
+        // clips it once the content outgrows the viewport, and a button that
+        // never renders can't be clicked or measured).
+        let layout = open_picker_and_measure(3);
+
+        assert!(
+            layout.button_y > layout.screen.center().y,
+            "this scenario is only meaningful with the button in the lower half of the \
+             screen; got button y={} against screen {:?}",
+            layout.button_y,
+            layout.screen
+        );
+        assert!(
+            layout.hint_y < layout.button_y,
+            "with the button low on screen the picker must open upward, so the search \
+             field must render above the button's label; got hint y={} vs button y={}",
+            layout.hint_y,
+            layout.button_y
+        );
     }
 }

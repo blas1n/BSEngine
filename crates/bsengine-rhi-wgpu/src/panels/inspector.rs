@@ -5,16 +5,17 @@ use crate::panels::reflect_ui::{
 use bsengine_core::{EditorPanel, EditorPanelContext, InspectorCmd};
 
 /// The Inspector panel: renders a header (entity name + Visible toggle), a
-/// unified Add Component menu for attaching any registered, reflectable
-/// component not already present, and a generic component list (no
-/// wrapping section label -- each attached component is its own block,
-/// separated by a thin rule, matching Unity's Inspector convention) that
-/// renders and edits every reflectable component currently attached to the
-/// selected entity via `draw_reflect_ui`, showing each one's short type
-/// name rather than its full namespace-qualified path. No component type
-/// gets bespoke, hand-built UI here anymore -- Transform, Tags, Script, and
-/// Mesh (the former hardcoded sections) all now render exclusively through
-/// this generic list, same as every other reflected component.
+/// generic component list (no wrapping section label -- each attached
+/// component is its own block, separated by a thin rule, matching Unity's
+/// Inspector convention) that renders and edits every reflectable
+/// component currently attached to the selected entity via
+/// `draw_reflect_ui`, showing each one's short type name rather than its
+/// full namespace-qualified path, and finally an Add Component button that
+/// opens a picker of every registered, reflectable component not already
+/// present. No component type gets bespoke, hand-built UI here anymore --
+/// Transform, Tags, Script, and Mesh (the former hardcoded sections) all
+/// now render exclusively through this generic list, same as every other
+/// reflected component.
 pub struct InspectorPanel;
 
 impl EditorPanel for InspectorPanel {
@@ -27,13 +28,18 @@ impl EditorPanel for InspectorPanel {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, ctx: &mut EditorPanelContext) {
+        // Hoisted out of `ctx` before `insp` mutably borrows `ctx.insp`, so
+        // the ScrollArea closure below captures plain locals rather than
+        // overlapping borrows of the same struct. Both are Copy.
+        let type_registry = ctx.type_registry;
+        let entities_snapshot = ctx.entities_snapshot;
         let insp = &mut *ctx.insp;
+
         let Some(sel_id) = insp.selected_id else {
             ui.label("No entity selected.");
             return;
         };
-        let sel_info = ctx
-            .entities_snapshot
+        let sel_info = entities_snapshot
             .iter()
             .find(|e| e.id == sel_id)
             .cloned()
@@ -46,127 +52,206 @@ impl EditorPanel for InspectorPanel {
         let label = sel_info.name.as_deref().unwrap_or("(unnamed)");
         let entity_name = format!("[{sel_id}] {label}");
 
-        ui.heading(&entity_name);
-        ui.separator();
+        // The panel had no scrolling at all until now (unlike hierarchy.rs
+        // and asset_browser.rs, which both wrap their bodies this way, and
+        // unlike the tab host in dock.rs, which adds none). That was
+        // survivable while Add Component sat at the top and was always
+        // visible; with it moved below the component list, scrolling is
+        // what keeps it reachable on an entity with many components.
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            ui.heading(&entity_name);
+            ui.separator();
 
-        // Visible toggle
-        if ui.checkbox(&mut insp.edit_visible, "Visible").changed() {
-            insp.cmd_queue.push(InspectorCmd::SetVisible {
-                id: sel_id,
-                visible: insp.edit_visible,
-            });
-        }
-        ui.separator();
-
-        // Add Component -- a single menu listing every registered,
-        // ReflectDefault-constructible component type not already attached
-        // to this entity (filtering prevents a confusing duplicate-attach).
-        if let Some(registry) = ctx.type_registry {
-            ui.horizontal(|ui| {
-                ui.colored_label(crate::theme::ACCENT, egui_phosphor::regular::PLUS);
-                ui.colored_label(crate::theme::TEXT, "Add Component");
-            });
-            let mut to_attach: Option<String> = None;
-            egui::ComboBox::from_id_salt("reflect_add_component")
-                .selected_text("Select type...")
-                .show_ui(ui, |ui| {
-                    for registration in registry.iter() {
-                        if registration
-                            .data::<bevy_ecs::reflect::ReflectComponent>()
-                            .is_none()
-                        {
-                            continue;
-                        }
-                        if registration
-                            .data::<bevy_reflect::std_traits::ReflectDefault>()
-                            .is_none()
-                        {
-                            continue;
-                        }
-                        let type_path = registration.type_info().type_path().to_string();
-                        let already_attached = insp
-                            .reflected_components
-                            .iter()
-                            .any(|(existing_path, _)| existing_path == &type_path);
-                        if already_attached {
-                            continue;
-                        }
-                        let short_name = short_component_name(&type_path, Some(registry));
-                        if ui.selectable_label(false, &short_name).clicked() {
-                            to_attach = Some(type_path);
-                        }
-                    }
-                });
-            if let Some(type_path) = to_attach {
-                insp.cmd_queue.push(InspectorCmd::AttachComponentByType {
+            // Visible toggle
+            if ui.checkbox(&mut insp.edit_visible, "Visible").changed() {
+                insp.cmd_queue.push(InspectorCmd::SetVisible {
                     id: sel_id,
-                    type_path,
+                    visible: insp.edit_visible,
                 });
             }
-        }
-
-        if insp
-            .reflected_components
-            .iter()
-            .any(|(p, _)| !is_hidden_reflected_type(p))
-        {
             ui.separator();
-            let type_registry = ctx.type_registry;
-            let reflect_ctx = ReflectUiCtx {
-                entities: ctx.entities_snapshot,
-                type_registry,
-            };
-            let mut to_apply: Vec<(String, Box<dyn bevy_reflect::Reflect>)> = Vec::new();
-            let mut to_remove: Option<String> = None;
-            for (i, (type_path, value)) in insp
+
+            // Whether any component will actually render. Drives both the
+            // list itself and whether the Add Component button needs a rule
+            // above it -- deliberately the same `is_hidden_reflected_type`
+            // predicate the list filters on, not `reflected_components
+            // .is_empty()`. PR #1728 fixed exactly that mismatch: an entity
+            // holding only hidden components satisfied `!is_empty()` but
+            // rendered nothing, leaving a separator with nothing under it.
+            let has_visible_components = insp
                 .reflected_components
-                .iter_mut()
-                .filter(|(p, _)| !is_hidden_reflected_type(p))
-                .enumerate()
-            {
-                if i > 0 {
-                    ui.separator();
-                }
-                let header_id = ui.make_persistent_id(type_path.as_str());
-                egui::containers::collapsing_header::CollapsingState::load_with_default_open(
-                    ui.ctx(),
-                    header_id,
-                    true,
-                )
-                .show_header(ui, |ui| {
-                    ui.colored_label(
-                        crate::theme::TEXT,
-                        short_component_name(type_path.as_str(), type_registry),
-                    );
-                    ui.menu_button(egui_phosphor::regular::DOTS_THREE, |ui| {
-                        if ui.button("Remove Component").clicked() {
-                            to_remove = Some(type_path.clone());
-                            ui.close_menu();
+                .iter()
+                .any(|(p, _)| !is_hidden_reflected_type(p));
+
+            if has_visible_components {
+                let reflect_ctx = ReflectUiCtx {
+                    entities: entities_snapshot,
+                    type_registry,
+                };
+                let mut to_apply: Vec<(String, Box<dyn bevy_reflect::Reflect>)> = Vec::new();
+                let mut to_remove: Option<String> = None;
+                for (i, (type_path, value)) in insp
+                    .reflected_components
+                    .iter_mut()
+                    .filter(|(p, _)| !is_hidden_reflected_type(p))
+                    .enumerate()
+                {
+                    if i > 0 {
+                        ui.separator();
+                    }
+                    let header_id = component_header_id(type_path.as_str());
+                    egui::containers::collapsing_header::CollapsingState::load_with_default_open(
+                        ui.ctx(),
+                        header_id,
+                        true,
+                    )
+                    .show_header(ui, |ui| {
+                        ui.colored_label(
+                            crate::theme::TEXT,
+                            short_component_name(type_path.as_str(), type_registry),
+                        );
+                        ui.menu_button(egui_phosphor::regular::DOTS_THREE, |ui| {
+                            if ui.button("Remove Component").clicked() {
+                                to_remove = Some(type_path.clone());
+                                ui.close_menu();
+                            }
+                        });
+                    })
+                    .body(|ui| {
+                        if draw_reflect_ui(ui, value.as_mut(), &reflect_ctx) {
+                            validate_after_edit(type_path, value.as_mut(), type_registry);
+                            to_apply.push((type_path.clone(), value.clone_value()));
                         }
                     });
-                })
-                .body(|ui| {
-                    if draw_reflect_ui(ui, value.as_mut(), &reflect_ctx) {
-                        validate_after_edit(type_path, value.as_mut(), type_registry);
-                        to_apply.push((type_path.clone(), value.clone_value()));
-                    }
-                });
+                }
+                for (type_path, value) in to_apply {
+                    insp.cmd_queue.push(InspectorCmd::ApplyReflectedComponent {
+                        id: sel_id,
+                        type_path,
+                        value,
+                    });
+                }
+                if let Some(type_path) = to_remove {
+                    insp.cmd_queue.push(InspectorCmd::RemoveComponentByType {
+                        id: sel_id,
+                        type_path,
+                    });
+                }
             }
-            for (type_path, value) in to_apply {
-                insp.cmd_queue.push(InspectorCmd::ApplyReflectedComponent {
-                    id: sel_id,
-                    type_path,
-                    value,
-                });
+
+            // Add Component -- a button with a centred label at the very
+            // bottom (Unity's placement) that opens a picker listing every
+            // registered, ReflectDefault-constructible component type not
+            // already attached (filtering prevents a confusing
+            // duplicate-attach).
+            if let Some(registry) = type_registry {
+                // Only when the list above actually drew something; the
+                // Visible toggle's own separator already precedes the button
+                // otherwise, and a second one would stack two rules.
+                if has_visible_components {
+                    ui.separator();
+                }
+
+                let popup_id = ui.make_persistent_id("add_component_popup");
+                // Justified (full-width), not merely centred: the popup
+                // helper below sizes itself as `button.rect.width() -
+                // Frame::popup's total margin` and asserts that is >= 0
+                // (egui-0.29.1 popup.rs:410 -> ui.rs:897). A shrink-wrapped
+                // button is only `2 * button_padding.x` = 8px wide against a
+                // 12px menu_margin whenever the label galley reports no
+                // width -- which is exactly what the headless tests below
+                // see with `FontDefinitions::empty()`. Filling the width
+                // removes the dependency on how wide the label measures,
+                // and keeps the button from ever overflowing a narrowed
+                // panel the way a hardcoded min width would.
+                let button_response = ui
+                    .vertical_centered_justified(|ui| {
+                        ui.button(format!("{} Add Component", egui_phosphor::regular::PLUS))
+                    })
+                    .inner;
+
+                if button_response.clicked() {
+                    ui.memory_mut(|m| m.toggle_popup(popup_id));
+                }
+
+                let mut to_attach: Option<String> = None;
+                egui::popup::popup_above_or_below_widget(
+                    ui,
+                    popup_id,
+                    &button_response,
+                    // Above: the button sits at the end of the content, so
+                    // opening downward would collide with `Area`'s
+                    // screen-clamping near the bottom edge and land back on
+                    // top of the button.
+                    egui::AboveOrBelow::Above,
+                    // Not CloseOnClick (what ComboBox uses) -- Task 4 puts a
+                    // search field in here, and that must survive being
+                    // clicked and typed into. Escape still closes.
+                    egui::popup::PopupCloseBehavior::CloseOnClickOutside,
+                    |ui| {
+                        ui.set_min_width(200.0);
+                        egui::ScrollArea::vertical()
+                            .max_height(240.0)
+                            .show(ui, |ui| {
+                                for registration in registry.iter() {
+                                    if registration
+                                        .data::<bevy_ecs::reflect::ReflectComponent>()
+                                        .is_none()
+                                    {
+                                        continue;
+                                    }
+                                    if registration
+                                        .data::<bevy_reflect::std_traits::ReflectDefault>()
+                                        .is_none()
+                                    {
+                                        continue;
+                                    }
+                                    let type_path =
+                                        registration.type_info().type_path().to_string();
+                                    let already_attached = insp
+                                        .reflected_components
+                                        .iter()
+                                        .any(|(existing_path, _)| existing_path == &type_path);
+                                    if already_attached {
+                                        continue;
+                                    }
+                                    let short_name =
+                                        short_component_name(&type_path, Some(registry));
+                                    if ui.selectable_label(false, &short_name).clicked() {
+                                        to_attach = Some(type_path);
+                                    }
+                                }
+                            });
+                    },
+                );
+
+                if let Some(type_path) = to_attach {
+                    ui.memory_mut(|m| m.close_popup());
+                    insp.cmd_queue.push(InspectorCmd::AttachComponentByType {
+                        id: sel_id,
+                        type_path,
+                    });
+                }
             }
-            if let Some(type_path) = to_remove {
-                insp.cmd_queue.push(InspectorCmd::RemoveComponentByType {
-                    id: sel_id,
-                    type_path,
-                });
-            }
-        }
+        });
     }
+}
+
+/// The persistent id of one component block's collapsing header.
+///
+/// Derived from the type path alone rather than via
+/// `ui.make_persistent_id`, which mixes in the enclosing `Ui`'s own id:
+/// the panel body now sits inside a `ScrollArea`, whose child `Ui`
+/// generates an id of its own, so a `Ui`-relative id would silently change
+/// whenever the surrounding container structure changes. That would both
+/// reset every header's expanded/collapsed state and break the tests that
+/// verify which components rendered, since they look this id up in egui's
+/// memory from outside the panel. Each component type can be attached to
+/// an entity at most once, so the type path alone is unique here; the
+/// tuple's constant prefix keeps it from colliding with any other id built
+/// from the same string.
+fn component_header_id(type_path: &str) -> egui::Id {
+    egui::Id::new(("inspector_component_header", type_path))
 }
 
 #[cfg(test)]
@@ -601,11 +686,10 @@ mod tests {
             panel.ui(ui, &mut ctx);
             // Re-derive which type paths actually rendered a collapsible
             // header by checking egui's per-id "open" memory state -- each
-            // reflected entry's header uses
-            // `ui.make_persistent_id(type_path.as_str())` as its collapsing
-            // header id (see the production code below), so a header
-            // genuinely rendered iff that persistent id has recorded
-            // open/closed state in memory.
+            // reflected entry's header uses `component_header_id(type_path)`
+            // as its collapsing header id (see the production code above),
+            // so a header genuinely rendered iff that persistent id has
+            // recorded open/closed state in memory.
             [
                 "bsengine_core::transform::Transform",
                 "bsengine_core::global_transform::GlobalTransform",
@@ -613,7 +697,7 @@ mod tests {
             ]
             .into_iter()
             .filter(|type_path| {
-                let id = ui.make_persistent_id(*type_path);
+                let id = component_header_id(type_path);
                 egui::containers::collapsing_header::CollapsingState::load(ui.ctx(), id).is_some()
             })
             .collect::<Vec<_>>()
@@ -691,15 +775,15 @@ mod tests {
     #[test]
     fn add_component_menu_click_only_offers_the_not_yet_attached_type() {
         // Regression test that genuinely drives `InspectorPanel::ui()`'s Add
-        // Component combo, mirroring the click-simulation technique in
+        // Component picker, mirroring the click-simulation technique in
         // `reflect_ui.rs`'s `enum_variant_combo_switches_to_a_default_instance_
-        // of_the_chosen_variant` test (open combo, settle frame, click a row)
-        // adapted to `panel.ui(ui, &mut ctx)`'s call shape instead of
+        // of_the_chosen_variant` test (open the popup, settle frame, click a
+        // row) adapted to `panel.ui(ui, &mut ctx)`'s call shape instead of
         // `draw_reflect_ui(ui, value, &ctx)`.
         //
         // Camera is registered AND already attached (in reflected_components);
         // PointLight is registered and NOT attached. With the real
-        // `already_attached` filter in place, the combo has exactly one
+        // `already_attached` filter in place, the picker has exactly one
         // candidate row (PointLight) -- clicking it must queue
         // `AttachComponentByType` for PointLight, never Camera. If the filter
         // were a no-op, Camera would also be offered as a row -- caught below
@@ -765,38 +849,24 @@ mod tests {
             ]
         };
 
-        // Frame 1: draw the panel once (combo closed) so its widgets exist
+        // Frame 1: draw the panel once (picker closed) so its widgets exist
         // in egui's id/layout cache before anything is clicked.
         let frame1 = run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
 
-        // Frame 2: click the combo box to open its popup.
-        //
-        // Frame 1's output tells us where the combo's placeholder text
-        // actually landed, so the click coordinate comes from this run
-        // rather than a hardcoded constant. The position is used as-is:
-        // this harness runs with FontDefinitions::empty(), so galleys are
-        // zero-sized and a widget's text is placed at the centre of its
-        // padded rect -- adding a half-row offset would land outside it.
-        //
-        // This used to be a hand-measured constant, found for this exact
-        // scenario (fixed 400x400 headless screen rect,
-        // `FontDefinitions::empty()`, this panel's fixed section order up
-        // to "Add Component") by scanning candidate y values and watching
-        // `ctx.memory(|mem| mem.any_popup_open())` flip to true. It had to
-        // be re-derived by hand every time a section above it moved: y=190
-        // while the Script section still had its text edit + "Attach"
-        // button, y=140 while the hardcoded Mesh section was still there
-        // (behind that section's own primitive combo), then y=88 once both
-        // were gone. Reading the position out of the render removes that
-        // maintenance burden entirely.
-        let combo_pos = collect_rendered_texts_with_pos(&frame1.shapes)
+        // Frame 2: click the Add Component button to open the picker, at
+        // the position frame 1's output says the button's label actually
+        // rendered at -- the click coordinate comes from this run rather
+        // than a hardcoded constant. It is used as-is; see
+        // collect_rendered_texts_with_pos's doc comment for why adding a
+        // half-row offset would land outside the widget here.
+        let button_pos = collect_rendered_texts_with_pos(&frame1.shapes)
             .into_iter()
-            .find(|(text, _)| text.contains("Select type"))
+            .find(|(text, _)| text.contains("Add Component"))
             .map(|(_, pos)| pos)
-            .expect("the Add Component combo must render its placeholder text");
+            .expect("the Add Component button must render");
         run_frame(
             &egui_ctx,
-            click_events(combo_pos),
+            click_events(button_pos),
             &mut insp,
             &entities_snapshot,
             &mut panel,
@@ -810,55 +880,56 @@ mod tests {
 
         // The filter's actual effect, asserted directly rather than probed
         // by clicking where a filtered-out row would have been: opening the
-        // menu must add a PointLight row and no Camera row. Checking the
+        // picker must add a PointLight row and no Camera row. Checking the
         // render can't fail open the way a hand-measured "click empty space
         // and expect nothing" coordinate can.
         //
         // This compares the closed frame against the open one instead of
         // just scanning the open one, because "Camera" is legitimately on
-        // screen either way: it is already attached, so the Reflected
-        // Fields list below draws its component header (and its fields)
+        // screen either way: it is already attached, so the component list
+        // above the button draws its component header (and its fields)
         // every frame. A bare `!open.contains("Camera")` would fire on that
         // header and fail a correct build. What the filter guarantees is
-        // narrower -- that *opening the menu contributes* no Camera row.
+        // narrower -- that *opening the picker contributes* no Camera row.
         //
-        // Counting rather than set-differencing is load-bearing: with the
-        // filter regressed to a no-op, "Camera" appears twice on the open
-        // frame (attached header + menu row), and a set difference against
-        // the closed frame would cancel it against the header and pass
-        // regardless. Comparing counts catches the added row.
-        let closed_rows = collect_rendered_texts(&frame1.shapes);
-        let open_rows = collect_rendered_texts(&settled.shapes);
+        // Counts, not a set difference -- see 432a35c7's commit message for
+        // why the latter would pass on a regressed filter.
+        //
+        // The PointLight assertion doubles as the vacuity guard for the
+        // Camera one: if the picker ever stops opening, PointLight's +1
+        // fails first, so "Camera gained no row" can never pass merely
+        // because nothing rendered.
+        //
+        // These hold every string the frame rendered -- entity heading,
+        // "Visible", field labels, the attached component's header -- not
+        // just picker rows.
+        let closed_texts = collect_rendered_texts(&frame1.shapes);
+        let open_texts = collect_rendered_texts(&settled.shapes);
         let count = |texts: &[String], needle: &str| {
             texts.iter().filter(|text| text.as_str() == needle).count()
         };
         assert_eq!(
-            count(&open_rows, "PointLight"),
-            count(&closed_rows, "PointLight") + 1,
-            "opening the menu must add exactly one PointLight row -- it is registered and \
-             not yet attached, so it must be offered. closed: {closed_rows:?}, open: \
-             {open_rows:?}"
+            count(&open_texts, "PointLight"),
+            count(&closed_texts, "PointLight") + 1,
+            "opening the picker must add exactly one PointLight row -- it is registered and \
+             not yet attached, so it must be offered. closed: {closed_texts:?}, open: \
+             {open_texts:?}"
         );
         assert_eq!(
-            count(&open_rows, "Camera"),
-            count(&closed_rows, "Camera"),
-            "Camera is already attached, so opening the menu must add no Camera row -- an \
+            count(&open_texts, "Camera"),
+            count(&closed_texts, "Camera"),
+            "Camera is already attached, so opening the picker must add no Camera row -- an \
              extra one here means the already_attached filter regressed. closed: \
-             {closed_rows:?}, open: {open_rows:?}"
+             {closed_texts:?}, open: {open_texts:?}"
         );
 
-        // Frame 4: click the popup's only row.
+        // Frame 4: click the picker's only row.
         //
-        // Likewise for the popup's only row: the settle frame is the first
-        // one that actually paints row content (a popup's opening frame
-        // sizes its Area from a placeholder and paints nothing -- see this
-        // file's and reflect_ui.rs's existing notes on why a settle frame
-        // is required), so its output is where the row position comes from.
-        // This was also a hand-measured constant once (y=112, and y=165
-        // before the hardcoded Mesh section was removed), found by observing
-        // that with the real `already_attached` filter active a click
-        // anywhere in y=[104,120] queued PointLight while nothing outside
-        // that range queued anything at all -- there is no second row.
+        // Likewise for that row: the settle frame is the first one that
+        // actually paints row content (a popup's opening frame sizes its
+        // Area from a placeholder and paints nothing -- see this file's and
+        // reflect_ui.rs's existing notes on why a settle frame is
+        // required), so its output is where the row position comes from.
         let point_light_row_pos = collect_rendered_texts_with_pos(&settled.shapes)
             .into_iter()
             .find(|(text, _)| text == "PointLight")
@@ -898,9 +969,9 @@ mod tests {
     fn add_component_menu_shows_short_names_not_full_type_paths() {
         // Mirrors add_component_menu_click_only_offers_the_not_yet_attached_type's
         // setup (Camera already attached, PointLight registered and not
-        // attached) but checks *rendered text* after opening the combo,
+        // attached) but checks *rendered text* after opening the picker,
         // rather than the resulting command -- this test would fail if the
-        // dropdown's selectable rows went back to showing the raw type_path.
+        // picker's selectable rows went back to showing the raw type_path.
         let mut registry = bevy_reflect::TypeRegistry::default();
         registry.register::<bsengine_core::Camera>();
         registry.register::<bsengine_core::PointLight>();
@@ -961,27 +1032,26 @@ mod tests {
             ]
         };
 
-        // Frame 1: draw once (combo closed). Frame 2: click the combo to
-        // open its popup, at the position frame 1's output says the combo's
-        // placeholder text actually rendered at -- the coordinate is read
-        // out of the render rather than hardcoded, exactly as in
+        // Frame 1: draw once (picker closed). Frame 2: click the Add
+        // Component button to open the picker, at the position frame 1's
+        // output says the button's label actually rendered at -- the
+        // coordinate is read out of the render rather than hardcoded,
+        // exactly as in
         // add_component_menu_click_only_offers_the_not_yet_attached_type
         // (which drives this identical scenario: Camera attached, PointLight
-        // not). It used to be an empirically-found constant shared between
-        // the two tests that had to be re-measured by hand whenever a
-        // section above the combo moved; see that test for the history.
-        // The position is used as-is -- see collect_rendered_texts_with_pos's
-        // doc comment for why adding a half-row offset would land outside
-        // the widget in this zero-sized-galley harness.
+        // not). The position is used as-is -- see
+        // collect_rendered_texts_with_pos's doc comment for why adding a
+        // half-row offset would land outside the widget in this
+        // zero-sized-galley harness.
         let frame1 = run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
-        let combo_pos = collect_rendered_texts_with_pos(&frame1.shapes)
+        let button_pos = collect_rendered_texts_with_pos(&frame1.shapes)
             .into_iter()
-            .find(|(text, _)| text.contains("Select type"))
+            .find(|(text, _)| text.contains("Add Component"))
             .map(|(_, pos)| pos)
-            .expect("the Add Component combo must render its placeholder text");
+            .expect("the Add Component button must render");
         let _ = run_frame(
             &egui_ctx,
-            click_events(combo_pos),
+            click_events(button_pos),
             &mut insp,
             &entities_snapshot,
             &mut panel,
@@ -1012,7 +1082,176 @@ mod tests {
                 .iter()
                 .any(|t| t.contains("bsengine_core::light::PointLight")),
             "the full, namespace-qualified type_path must never be rendered as visible text \
-             in the dropdown, got: {rendered_texts:?}"
+             in the picker, got: {rendered_texts:?}"
+        );
+    }
+
+    #[test]
+    fn add_component_button_renders_below_the_component_list() {
+        // Unity puts Add Component at the very bottom, after every
+        // component. Verified positionally against the real render rather
+        // than by assuming source order, since the two are only the same
+        // if the panel actually lays out top-down as intended.
+        let mut registry = bevy_reflect::TypeRegistry::default();
+        registry.register::<bsengine_core::Transform>();
+
+        let mut insp = InspectorState::default();
+        insp.selected_id = Some(1);
+        insp.reflected_components = vec![(
+            "bsengine_core::transform::Transform".to_string(),
+            Box::new(bsengine_core::Transform::default()) as Box<dyn bevy_reflect::Reflect>,
+        )];
+
+        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
+        let mut panel = InspectorPanel;
+
+        let egui_ctx = egui::Context::default();
+        egui_ctx.set_fonts(egui::FontDefinitions::empty());
+        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
+
+        let full_output = egui_ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen_rect),
+                ..Default::default()
+            },
+            |egui_ctx| {
+                egui::CentralPanel::default().show(egui_ctx, |ui| {
+                    let mut ctx = EditorPanelContext {
+                        insp: &mut insp,
+                        entities_snapshot: &entities_snapshot,
+                        cursor_pos: (0.0, 0.0),
+                        type_registry: Some(&registry),
+                    };
+                    panel.ui(ui, &mut ctx);
+                });
+            },
+        );
+
+        let texts = collect_rendered_texts_with_pos(&full_output.shapes);
+        let transform_y = texts
+            .iter()
+            .find(|(text, _)| text == "Transform")
+            .map(|(_, pos)| pos.y)
+            .expect("the Transform component's header must render");
+        // `contains`, not `==`: the button's label is the PLUS icon glyph
+        // followed by the words, so the galley text isn't exactly
+        // "Add Component".
+        let button_y = texts
+            .iter()
+            .find(|(text, _)| text.contains("Add Component"))
+            .map(|(_, pos)| pos.y)
+            .expect("the Add Component button must render");
+
+        assert!(
+            button_y > transform_y,
+            "Add Component must render below the component list, got button y={button_y} \
+             vs Transform y={transform_y}"
+        );
+    }
+
+    #[test]
+    fn component_picker_only_appears_after_clicking_the_button() {
+        // The old UI was an always-visible ComboBox. Unity shows a plain
+        // button and only reveals the picker on click -- so before any
+        // click, no component-type name may render at all.
+        let mut registry = bevy_reflect::TypeRegistry::default();
+        registry.register::<bsengine_core::PointLight>();
+
+        let mut insp = InspectorState::default();
+        insp.selected_id = Some(1);
+
+        let entities_snapshot: Vec<InspectorEntityInfo> = Vec::new();
+        let mut panel = InspectorPanel;
+
+        let egui_ctx = egui::Context::default();
+        egui_ctx.set_fonts(egui::FontDefinitions::empty());
+        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0));
+
+        let run_frame = |egui_ctx: &egui::Context,
+                         events: Vec<egui::Event>,
+                         insp: &mut InspectorState,
+                         entities_snapshot: &[InspectorEntityInfo],
+                         panel: &mut InspectorPanel| {
+            egui_ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(screen_rect),
+                    events,
+                    ..Default::default()
+                },
+                |egui_ctx| {
+                    egui::CentralPanel::default().show(egui_ctx, |ui| {
+                        let mut ctx = EditorPanelContext {
+                            insp,
+                            entities_snapshot,
+                            cursor_pos: (0.0, 0.0),
+                            type_registry: Some(&registry),
+                        };
+                        panel.ui(ui, &mut ctx);
+                    });
+                },
+            )
+        };
+        let click_events = |pos: egui::Pos2| {
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::default(),
+                },
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::default(),
+                },
+            ]
+        };
+
+        // Frame 1: nothing clicked yet -- the button shows, the picker doesn't.
+        let closed = run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
+        let closed_texts = collect_rendered_texts_with_pos(&closed.shapes);
+        assert!(
+            closed_texts
+                .iter()
+                .any(|(text, _)| text.contains("Add Component")),
+            "the Add Component button must render, got: {closed_texts:?}"
+        );
+        assert!(
+            !closed_texts.iter().any(|(text, _)| text == "PointLight"),
+            "no component-type name may render before the button is clicked, got: \
+             {closed_texts:?}"
+        );
+
+        // Frame 2: click the button where it actually rendered. The label's
+        // own position is the click point -- with zero-sized galleys it
+        // sits at the centre of the button's padded rect, so both axes are
+        // correct as-is, including x, which moves with the panel width
+        // because the button is centred.
+        let button_pos = closed_texts
+            .iter()
+            .find(|(text, _)| text.contains("Add Component"))
+            .map(|(_, pos)| *pos)
+            .expect("the Add Component button must render");
+        run_frame(
+            &egui_ctx,
+            click_events(button_pos),
+            &mut insp,
+            &entities_snapshot,
+            &mut panel,
+        );
+
+        // Frame 3 ("settle"): a popup's opening frame sizes its Area from a
+        // placeholder and paints no row content -- the same quirk this
+        // file's other popup tests and reflect_ui.rs already document. The
+        // frame after it is the first with real rows.
+        let opened = run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
+        let opened_texts = collect_rendered_texts(&opened.shapes);
+
+        assert!(
+            opened_texts.iter().any(|text| text == "PointLight"),
+            "clicking the button must reveal the picker's rows, got: {opened_texts:?}"
         );
     }
 
@@ -1356,7 +1595,7 @@ mod tests {
                 type_registry: None,
             };
             panel.ui(ui, &mut ctx);
-            let id = ui.make_persistent_id("bsengine_editor::snapshot::Tags");
+            let id = component_header_id("bsengine_editor::snapshot::Tags");
             egui::containers::collapsing_header::CollapsingState::load(ui.ctx(), id).is_some()
         });
 
@@ -1394,7 +1633,7 @@ mod tests {
                 type_registry: None,
             };
             panel.ui(ui, &mut ctx);
-            let id = ui.make_persistent_id("bsengine_scene::types::PrimitiveMesh");
+            let id = component_header_id("bsengine_scene::types::PrimitiveMesh");
             egui::containers::collapsing_header::CollapsingState::load(ui.ctx(), id).is_some()
         });
 
@@ -1560,9 +1799,9 @@ mod tests {
         // 2026-07-27 brainstorm): no framed box per component, just a thin
         // ui.separator() between each pair -- drawn *before* each component
         // except the first, since a separator already precedes the whole
-        // list (ending the Add Component section), which serves as the rule
-        // before the first component. With N components there must be
-        // exactly N-1 *additional* separators drawn by the loop itself.
+        // list (the Visible toggle's), which serves as the rule before the
+        // first component. With N components there must be exactly N-1
+        // *additional* separators drawn by the loop itself.
         //
         // egui doesn't expose "shapes drawn by ui.separator()" as a
         // distinct, directly-queryable shape variant (a separator paints a

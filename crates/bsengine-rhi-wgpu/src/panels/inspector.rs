@@ -727,7 +727,7 @@ mod tests {
                          insp: &mut InspectorState,
                          entities_snapshot: &[InspectorEntityInfo],
                          panel: &mut InspectorPanel| {
-            let _ = egui_ctx.run(
+            egui_ctx.run(
                 egui::RawInput {
                     screen_rect: Some(screen_rect),
                     events,
@@ -744,7 +744,7 @@ mod tests {
                         panel.ui(ui, &mut ctx);
                     });
                 },
-            );
+            )
         };
         let click_events = |pos: egui::Pos2| {
             vec![
@@ -766,22 +766,33 @@ mod tests {
 
         // Frame 1: draw the panel once (combo closed) so its widgets exist
         // in egui's id/layout cache before anything is clicked.
-        run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
+        let frame1 = run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
 
-        // Frame 2: click the combo box to open its popup. Its position was
-        // found empirically for this exact scenario (fixed 400x400 headless
-        // screen rect, `FontDefinitions::empty()`, this panel's fixed
-        // section order up to "Add Component") by scanning candidate y
-        // values and observing `ctx.memory(|mem| mem.any_popup_open())`
-        // flip to true -- with the hardcoded Mesh section now also removed
-        // (this task), the Add Component combo is the *first* combo box in
-        // the panel, opening a popup for y=[76,100], so its vertical center
-        // (88) is used here. (Before this task removed the Mesh section's
-        // header row + combo row + trailing separator, this was y=140,
-        // sitting behind the now-gone mesh primitive combo, which used to
-        // open a popup for y=[66,94]; before Task 4 removed the Script
-        // section's text edit + "Attach" button, this was y=190.)
-        let combo_pos = egui::Pos2::new(20.0, 88.0);
+        // Frame 2: click the combo box to open its popup.
+        //
+        // Frame 1's output tells us where the combo's placeholder text
+        // actually landed, so the click coordinate comes from this run
+        // rather than a hardcoded constant. The position is used as-is:
+        // this harness runs with FontDefinitions::empty(), so galleys are
+        // zero-sized and a widget's text is placed at the centre of its
+        // padded rect -- adding a half-row offset would land outside it.
+        //
+        // This used to be a hand-measured constant, found for this exact
+        // scenario (fixed 400x400 headless screen rect,
+        // `FontDefinitions::empty()`, this panel's fixed section order up
+        // to "Add Component") by scanning candidate y values and watching
+        // `ctx.memory(|mem| mem.any_popup_open())` flip to true. It had to
+        // be re-derived by hand every time a section above it moved: y=190
+        // while the Script section still had its text edit + "Attach"
+        // button, y=140 while the hardcoded Mesh section was still there
+        // (behind that section's own primitive combo), then y=88 once both
+        // were gone. Reading the position out of the render removes that
+        // maintenance burden entirely.
+        let combo_pos = collect_rendered_texts_with_pos(&frame1.shapes)
+            .into_iter()
+            .find(|(text, _)| text.contains("Select type"))
+            .map(|(_, pos)| pos)
+            .expect("the Add Component combo must render its placeholder text");
         run_frame(
             &egui_ctx,
             click_events(combo_pos),
@@ -794,14 +805,25 @@ mod tests {
         // size/id sequence stabilizes before anything tries to click into
         // it (see reflect_ui.rs's identical settle-frame comment for why
         // this is needed).
-        run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
+        let settled = run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
 
-        // Frame 4: click the popup's only row (y=112, likewise found
-        // empirically: with the real `already_attached` filter active,
-        // clicking anywhere in y=[104,120] queues PointLight, and nothing at
-        // all is queued outside that range -- there is no second row).
-        // (Before this task removed the Mesh section, this was y=165.)
-        let point_light_row_pos = egui::Pos2::new(30.0, 112.0);
+        // Frame 4: click the popup's only row.
+        //
+        // Likewise for the popup's only row: the settle frame is the first
+        // one that actually paints row content (a popup's opening frame
+        // sizes its Area from a placeholder and paints nothing -- see this
+        // file's and reflect_ui.rs's existing notes on why a settle frame
+        // is required), so its output is where the row position comes from.
+        // This was also a hand-measured constant once (y=112, and y=165
+        // before the hardcoded Mesh section was removed), found by observing
+        // that with the real `already_attached` filter active a click
+        // anywhere in y=[104,120] queued PointLight while nothing outside
+        // that range queued anything at all -- there is no second row.
+        let point_light_row_pos = collect_rendered_texts_with_pos(&settled.shapes)
+            .into_iter()
+            .find(|(text, _)| text == "PointLight")
+            .map(|(_, pos)| pos)
+            .expect("the popup's PointLight row must render on the settle frame");
         run_frame(
             &egui_ctx,
             click_events(point_light_row_pos),
@@ -836,8 +858,16 @@ mod tests {
         // would occupy as a second entry if the `already_attached` filter
         // regressed to a no-op. With the real filter active, there is no
         // second row there, so this must add nothing to the queue: the
-        // length must stay at 1 from frame 4, not grow to 2. (Before this
-        // task removed the Mesh section, this was y=183.)
+        // length must stay at 1 from frame 4, not grow to 2. (Before the
+        // Mesh section was removed, this was y=183.)
+        //
+        // Unlike combo_pos and point_light_row_pos above, this coordinate
+        // cannot be read out of the render: the whole point is that Camera
+        // draws no row here, so there is no text to locate. It therefore
+        // stays a hand-measured constant and must be re-checked by hand
+        // whenever this section moves -- note that a stale value fails
+        // *open*, passing vacuously by clicking empty space rather than
+        // reporting the miss.
         run_frame(
             &egui_ctx,
             click_events(combo_pos),
@@ -931,17 +961,23 @@ mod tests {
         };
 
         // Frame 1: draw once (combo closed). Frame 2: click the combo to
-        // open its popup, at the same empirically-found position the
-        // existing add_component_menu_click_only_offers_the_not_yet_attached_type
-        // test uses for this identical scenario (Camera attached, PointLight
-        // not) -- check that test's own comment for the coordinate's
-        // derivation history and confirm it's still accurate for the
-        // current file before reusing it here (if the coordinate has since
-        // changed in that test, use whatever its CURRENT value is instead
-        // of the one shown here, since that test is the source of truth
-        // for this exact scenario's combo position).
-        run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
-        let combo_pos = egui::Pos2::new(20.0, 88.0);
+        // open its popup, at the position frame 1's output says the combo's
+        // placeholder text actually rendered at -- the coordinate is read
+        // out of the render rather than hardcoded, exactly as in
+        // add_component_menu_click_only_offers_the_not_yet_attached_type
+        // (which drives this identical scenario: Camera attached, PointLight
+        // not). It used to be an empirically-found constant shared between
+        // the two tests that had to be re-measured by hand whenever a
+        // section above the combo moved; see that test for the history.
+        // The position is used as-is -- see collect_rendered_texts_with_pos's
+        // doc comment for why adding a half-row offset would land outside
+        // the widget in this zero-sized-galley harness.
+        let frame1 = run_frame(&egui_ctx, vec![], &mut insp, &entities_snapshot, &mut panel);
+        let combo_pos = collect_rendered_texts_with_pos(&frame1.shapes)
+            .into_iter()
+            .find(|(text, _)| text.contains("Select type"))
+            .map(|(_, pos)| pos)
+            .expect("the Add Component combo must render its placeholder text");
         let _ = run_frame(
             &egui_ctx,
             click_events(combo_pos),

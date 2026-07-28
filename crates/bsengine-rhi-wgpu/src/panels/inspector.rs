@@ -163,11 +163,19 @@ impl EditorPanel for InspectorPanel {
                 // margin in these headless tests, where
                 // `FontDefinitions::empty()` gives every label zero width --
                 // a real font never gets near that, but the tests would
-                // panic. The upper bound is the inset look; the lower bound
-                // keeps a very narrow panel from re-triggering the assert,
-                // and clamping to the available width keeps a merely narrow
-                // one from overflowing. Measured on the outer `ui`, which is
-                // the panel's own width.
+                // panic.
+                //
+                // 160 approximates Unity's inset button width; 48 is roughly
+                // 4x that ~12px frame margin, i.e. comfortably clear of it.
+                // Note the bounds conflict once available width drops below
+                // 48, and the lower one deliberately wins: the button
+                // overflows rather than shrinking further. That is cosmetic,
+                // and preferable to slipping under the popup's margin, which
+                // panics.
+                //
+                // Read on the `ScrollArea`'s child `Ui` -- outside
+                // `vertical_centered`'s closure, but still within the scroll
+                // body, so it is net of the scrollbar once one appears.
                 let button_width = ui.available_width().clamp(48.0, 160.0);
                 let button_response = ui
                     .vertical_centered(|ui| {
@@ -257,8 +265,10 @@ impl EditorPanel for InspectorPanel {
 /// whenever the surrounding container structure changes. That would both
 /// reset every header's expanded/collapsed state and break the tests that
 /// verify which components rendered, since they look this id up in egui's
-/// memory from outside the panel. Each component type can be attached to
-/// an entity at most once, so the type path alone is unique here; the
+/// memory from outside the panel. The id is process-global, so what makes
+/// it unique is not per-entity attachment but that `dock.rs` builds exactly
+/// one `InspectorPanel` (an `or_insert_with` keyed by panel id) -- no
+/// second panel can render a competing header for the same type. The
 /// tuple's constant prefix keeps it from colliding with any other id built
 /// from the same string.
 fn component_header_id(type_path: &str) -> egui::Id {
@@ -904,8 +914,10 @@ mod tests {
         // header and fail a correct build. What the filter guarantees is
         // narrower -- that *opening the picker contributes* no Camera row.
         //
-        // Counts, not a set difference -- see 432a35c7's commit message for
-        // why the latter would pass on a regressed filter.
+        // Counts, not a set difference: with the filter regressed to a
+        // no-op, "Camera" renders twice on the open frame (attached header +
+        // picker row), so a set difference against the closed frame would
+        // cancel it against the header and pass regardless.
         //
         // The PointLight assertion doubles as the vacuity guard for the
         // Camera one: if the picker ever stops opening, PointLight's +1
@@ -1807,13 +1819,16 @@ mod tests {
             full_output.shapes.len()
         }
 
-        // A registered type so the button's picker has something it could
-        // list; an entirely empty registry would render the same either way
-        // and weaken the comparison.
+        // Only `Some` vs `None` matters here: this test never clicks, so the
+        // popup never opens and the picker closure never runs, which means
+        // the registry's *contents* cannot reach the rendered shapes. What
+        // `Some` buys is entry into the `if let Some(registry)` block that
+        // holds the separator under test. A type is registered anyway so the
+        // scenario resembles a real one.
         let mut registry = bevy_reflect::TypeRegistry::default();
         registry.register::<bsengine_core::PointLight>();
 
-        let hidden_only = || -> Vec<(String, Box<dyn bevy_reflect::Reflect>)> {
+        fn hidden_only() -> Vec<(String, Box<dyn bevy_reflect::Reflect>)> {
             vec![
                 (
                     "bsengine_core::global_transform::GlobalTransform".to_string(),
@@ -1825,7 +1840,7 @@ mod tests {
                     Box::new(bsengine_core::Visible::default()) as Box<dyn bevy_reflect::Reflect>,
                 ),
             ]
-        };
+        }
 
         for type_registry in [None, Some(&registry)] {
             let empty_count = render_shape_count(vec![], type_registry);

@@ -14,5 +14,7 @@ pub mod loader;
 pub mod plugin;
 
 pub use animation::{AnimationChannel, AnimationClip, Interpolation, KeyframeValues};
-pub use loader::{GltfImageData, GltfLoader, LoadedGltf, MeshData};
+pub use loader::{
+    GltfImageData, GltfLoader, LoadedGltf, MeshData, NodeTransform, SkinData, VertexSkin,
+};
 pub use plugin::{GltfAsset, GltfPlugin};

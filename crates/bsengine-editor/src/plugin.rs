@@ -6,6 +6,7 @@ use crate::snapshot::{
 };
 use bevy_app::{App, Plugin, Update};
 use bevy_ecs::prelude::{Commands, Entity, IntoSystemConfigs, ParamSet, Query, ResMut, World};
+use bevy_ecs::reflect::ReflectCommandExt;
 use bsengine_core::{
     Camera, DirectionalLight, EditorPanelRegistry, GlobalTransform, InspectorCmd,
     InspectorEntityInfo, InspectorState,
@@ -91,6 +92,7 @@ fn update_editor_snapshot(
                     tags: tags.map(|t| t.0.clone()).unwrap_or_default(),
                     visible: vis.map(|v| v.is_visible).unwrap_or(true),
                     selected: selection.contains(&(e.index() as u64)),
+                    extra_components: Vec::new(),
                 }
             },
         )
@@ -103,6 +105,7 @@ fn process_editor_commands(
     queue_res: Res<EditorCommandQueueResource>,
     snapshot_res: Res<EditorSnapshotResource>,
     history_res: Res<EditorHistoryResource>,
+    type_registry_res: Res<bevy_ecs::reflect::AppTypeRegistry>,
     mut inspector: Option<ResMut<InspectorState>>,
     mut params: ParamSet<(
         Query<Entity>,
@@ -672,6 +675,35 @@ fn process_editor_commands(
                             ..Default::default()
                         });
                     }
+                    for (type_path, value_ron) in &entity.components {
+                        let registry = type_registry_res.read();
+                        let Some(registration) = registry.get_with_type_path(type_path) else {
+                            tracing::warn!(
+                                "load_scene: unknown reflected type path '{type_path}'"
+                            );
+                            continue;
+                        };
+                        let de = bevy_reflect::serde::TypedReflectDeserializer::new(
+                            registration,
+                            &registry,
+                        );
+                        match ron::de::Deserializer::from_str(value_ron) {
+                            Ok(mut deserializer) => {
+                                match serde::de::DeserializeSeed::deserialize(de, &mut deserializer)
+                                {
+                                    Ok(value) => {
+                                        eb.insert_reflect(value);
+                                    }
+                                    Err(e) => tracing::warn!(
+                                        "load_scene: component '{type_path}' RON value doesn't match its shape: {e}"
+                                    ),
+                                }
+                            }
+                            Err(e) => tracing::warn!(
+                                "load_scene: component '{type_path}' RON parse error: {e}"
+                            ),
+                        }
+                    }
                 }
             }
             EditorCommand::SaveScene { path } => {
@@ -1012,7 +1044,7 @@ fn build_entity_descriptors(entities: &[EntityInfo]) -> Vec<EntityDescriptor> {
                 };
                 EntityDescriptor {
                     name: name.clone(),
-                    components: Vec::new(),
+                    components: e.extra_components.clone(),
                     transform,
                     gltf: None,
                     camera: e.camera_fov.is_some(),
@@ -1152,6 +1184,109 @@ fn populate_reflected_component_snapshot(world: &mut World) {
 
     if let Some(mut insp) = world.get_resource_mut::<InspectorState>() {
         insp.reflected_components = cloned;
+    }
+}
+
+/// Component types excluded from `populate_snapshot_extra_components`'s
+/// generic capture: `Transform`/`Camera`/`PointLight`/`DirectionalLight`/
+/// `SpotLight`/`Material` already have a dedicated `EntityInfo` field above,
+/// and `Parent`/`Follow`/`LookAt` hold a raw `Entity` reference that would
+/// point at the wrong entity after a scene reload reassigns indices (unlike
+/// `ReflectCommand::ApplyComponentValue`'s `fixup_entity_fields`, there is
+/// no live world to re-resolve against during a scene *load*, since the
+/// referenced entity may not have spawned yet). `GlobalTransform` is
+/// recomputed every frame by `propagate_global_transforms`, not authored
+/// state.
+fn excluded_from_extra_components() -> std::collections::HashSet<std::any::TypeId> {
+    [
+        std::any::TypeId::of::<Transform>(),
+        std::any::TypeId::of::<GlobalTransform>(),
+        std::any::TypeId::of::<Camera>(),
+        std::any::TypeId::of::<PointLight>(),
+        std::any::TypeId::of::<DirectionalLight>(),
+        std::any::TypeId::of::<SpotLight>(),
+        std::any::TypeId::of::<Material>(),
+        std::any::TypeId::of::<Parent>(),
+        std::any::TypeId::of::<bsengine_core::Follow>(),
+        std::any::TypeId::of::<bsengine_core::LookAt>(),
+        std::any::TypeId::of::<Visible>(),
+        std::any::TypeId::of::<Tags>(),
+        std::any::TypeId::of::<PrimitiveMesh>(),
+        std::any::TypeId::of::<bsengine_scene::ScriptPath>(),
+    ]
+    .into_iter()
+    .collect()
+}
+
+/// Serializes every other registered reflected component attached to each
+/// entity (skipping `excluded_from_extra_components`) into
+/// `EntityInfo.extra_components`, so both the `save_scene` MCP tool (which
+/// reads the cached snapshot directly) and `EditorCommand::SaveScene` can
+/// round-trip components with no dedicated field -- e.g. `NavMeshAgent`,
+/// `Shield`, `Bloom` -- through `EntityDescriptor.components`. Only ordered
+/// `.after(update_editor_snapshot)`, which rebuilds `snapshot.entities` from
+/// scratch every frame (this system would otherwise be wiped by that
+/// overwrite) -- deliberately left unordered against
+/// `process_editor_commands`/`process_reflect_commands` so it doesn't
+/// invert this codebase's existing (implicit, tie-break-order) expectation
+/// that a queued command's effect on `Transform` et al. is visible in the
+/// snapshot after a single `app.update()`; a component attached this frame
+/// via `ReflectCommand` similarly needs one more `app.update()` before it
+/// shows up in `extra_components`, exactly like `set_reflected_component`
+/// already needs a second `app.update()` before the component is visible on
+/// the entity at all. Exclusive (`world: &mut World`) for the same reason
+/// `populate_reflected_component_snapshot` is: reading a component
+/// generically by `TypeRegistry` entry needs `ReflectComponent::reflect`,
+/// which takes an entity reference obtained from the world.
+fn populate_snapshot_extra_components(world: &mut World) {
+    let Some(snapshot_res) = world.get_resource::<EditorSnapshotResource>() else {
+        return;
+    };
+    let Some(app_registry) = world.get_resource::<bevy_ecs::reflect::AppTypeRegistry>().cloned()
+    else {
+        return;
+    };
+    let excluded = excluded_from_extra_components();
+    let registry = app_registry.read();
+    let mut snapshot = snapshot_res.0.lock().unwrap();
+
+    let index_by_id: std::collections::HashMap<u64, usize> = snapshot
+        .entities
+        .iter()
+        .enumerate()
+        .map(|(idx, e)| (e.id, idx))
+        .collect();
+
+    for entity_ref in world.iter_entities() {
+        let id = entity_ref.id().index() as u64;
+        let Some(&idx) = index_by_id.get(&id) else {
+            continue;
+        };
+        let mut extra = Vec::new();
+        for registration in registry.iter() {
+            if excluded.contains(&registration.type_id()) {
+                continue;
+            }
+            let Some(reflect_component) =
+                registration.data::<bevy_ecs::reflect::ReflectComponent>()
+            else {
+                continue;
+            };
+            let Some(value) = reflect_component.reflect(entity_ref) else {
+                continue;
+            };
+            let serializer = bevy_reflect::serde::TypedReflectSerializer::new(value, &registry);
+            match ron::ser::to_string(&serializer) {
+                Ok(ron_str) => {
+                    extra.push((registration.type_info().type_path().to_string(), ron_str));
+                }
+                Err(e) => tracing::warn!(
+                    "editor snapshot: failed to serialize component '{}' on entity {id}: {e}",
+                    registration.type_info().type_path()
+                ),
+            }
+        }
+        snapshot.entities[idx].extra_components = extra;
     }
 }
 
@@ -1641,8 +1776,12 @@ impl Plugin for EditorPlugin {
         // needs its value-kind ReflectDeserialize registered explicitly, or JSON
         // authoring via set_reflected_component fails with "doesn't have
         // ReflectDeserialize" even for an empty `[]` (confirmed via a throwaway probe
-        // test during design research).
+        // test during design research). Same story for ReflectSerialize on the save
+        // side: populate_snapshot_extra_components's TypedReflectSerializer fails the
+        // same way ("did not register ReflectSerialize") without this, which would
+        // silently drop AnimationStateMachine out of saved scenes entirely.
         app.register_type_data::<std::collections::HashSet<String>, bevy_reflect::ReflectDeserialize>();
+        app.register_type_data::<std::collections::HashSet<String>, bevy_reflect::ReflectSerialize>();
         app.register_type::<bsengine_core::Tween>();
         app.register_type::<Tags>();
         app.register_type::<bsengine_scene::Primitive>();
@@ -1664,6 +1803,10 @@ impl Plugin for EditorPlugin {
         app.add_systems(Update, update_editor_camera);
         app.add_systems(Update, populate_inspector.after(update_editor_snapshot));
         app.add_systems(Update, populate_reflected_component_snapshot);
+        app.add_systems(
+            Update,
+            populate_snapshot_extra_components.after(update_editor_snapshot),
+        );
         app.add_systems(Update, apply_inspector_cmds.before(process_editor_commands));
         app.add_systems(Update, process_editor_commands);
         app.add_systems(Update, process_reflect_commands.after(process_editor_commands));
@@ -90850,6 +90993,176 @@ mod tests {
                 .find(|(name, _)| *name == "Tower")
                 .expect("Tower not found after load");
             assert!((found.1.x - 3.0).abs() < 1e-4, "wrong x: {}", found.1.x);
+        }
+    }
+
+    #[test]
+    fn mcp_save_load_scene_round_trip_preserves_reflected_component_attached_via_set_reflected_component()
+     {
+        let path = std::env::temp_dir()
+            .join("bsengine_test_roundtrip_reflected_component.ron")
+            .to_string_lossy()
+            .to_string();
+
+        // Save: an entity with a NavMeshAgent attached only via
+        // set_reflected_component -- no dedicated EntityInfo field carries
+        // this data, so it can only survive save/load through
+        // EntityInfo.extra_components/EntityDescriptor.components.
+        {
+            let mut app = new_app();
+            app.add_plugins(McpPlugin);
+            app.add_plugins(EditorPlugin);
+            let eid = app.world_mut().spawn(Name("Enemy".to_string())).id();
+            app.update();
+
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                let registry = mcp.0.lock().unwrap();
+                let out = registry
+                    .execute(
+                        "set_reflected_component",
+                        json!({
+                            "entity_id": eid.index() as u64,
+                            "type_path": "bsengine_core::nav_mesh_agent::NavMeshAgent",
+                            "value_json": r#"{"destination": null, "speed": 3.5, "angular_speed": 2.0, "acceleration": 8.0, "stopping_distance": 0.1, "radius": 0.3, "height": 1.8, "state": "Idle", "enabled": true}"#,
+                        }),
+                    )
+                    .expect("tool should be registered");
+                assert!(out.is_ok(), "{:?}", out.error);
+            }
+            // First update() drains the ReflectCommand queue and attaches
+            // NavMeshAgent to the world (process_reflect_commands runs last
+            // in the frame, after this same frame's snapshot capture). A
+            // second update() is needed so populate_snapshot_extra_components
+            // captures it into the snapshot save_scene reads from.
+            app.update();
+            app.update();
+
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let r = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("save_scene", json!({"path": path}))
+                .unwrap();
+            assert!(r.is_ok(), "{:?}", r.error);
+        }
+
+        // Load in a new app; the NavMeshAgent should reappear without any
+        // further set_reflected_component call.
+        {
+            let mut app = new_app();
+            app.add_plugins(McpPlugin);
+            app.add_plugins(EditorPlugin);
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0
+                    .lock()
+                    .unwrap()
+                    .execute("load_scene", json!({"path": path}))
+                    .expect("load_scene not found");
+            }
+            app.update();
+
+            let mut q = app
+                .world_mut()
+                .query::<(&Name, &bsengine_core::NavMeshAgent)>();
+            let results: Vec<_> = q.iter(app.world()).collect();
+            assert_eq!(results.len(), 1, "NavMeshAgent missing after load");
+            assert_eq!(results[0].0 .0, "Enemy");
+            assert!((results[0].1.speed - 3.5).abs() < 1e-4);
+            assert!(results[0].1.enabled);
+        }
+    }
+
+    #[test]
+    fn mcp_save_load_scene_round_trip_preserves_animation_state_machine() {
+        // AnimationStateMachine::triggers is a HashSet<String>; the generic
+        // save-side serializer (TypedReflectSerializer) needs ReflectSerialize
+        // registered for HashSet<String> or it fails ("did not register
+        // ReflectSerialize") and silently drops the whole component from the
+        // saved scene. Regression test for that specific failure mode.
+        let path = std::env::temp_dir()
+            .join("bsengine_test_roundtrip_animation_state_machine.ron")
+            .to_string_lossy()
+            .to_string();
+
+        let value_json = r#"{
+            "states": {
+                "idle": {"clip": "idle_clip", "looping": true, "speed": 1.0, "duration": 1.0},
+                "walk": {"clip": "walk_clip", "looping": true, "speed": 1.0, "duration": 1.0}
+            },
+            "transitions": [
+                {"from": "idle", "to": "walk", "condition": {"FloatGreater": {"param": "speed", "threshold": 0.1}}, "blend_duration": 0.2}
+            ],
+            "current_state": "idle",
+            "params_float": {"speed": 0.0},
+            "params_bool": {},
+            "triggers": [],
+            "blend_from": null,
+            "blend_weight": 1.0,
+            "blend_duration": 0.0,
+            "blend_elapsed": 0.0
+        }"#;
+
+        {
+            let mut app = new_app();
+            app.add_plugins(McpPlugin);
+            app.add_plugins(EditorPlugin);
+            let eid = app.world_mut().spawn(Name("Player".to_string())).id();
+            app.update();
+
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                let registry = mcp.0.lock().unwrap();
+                let out = registry
+                    .execute(
+                        "set_reflected_component",
+                        json!({
+                            "entity_id": eid.index() as u64,
+                            "type_path": "bsengine_core::animation_state_machine::AnimationStateMachine",
+                            "value_json": value_json,
+                        }),
+                    )
+                    .expect("tool should be registered");
+                assert!(out.is_ok(), "{:?}", out.error);
+            }
+            app.update();
+            app.update();
+
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let r = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("save_scene", json!({"path": path}))
+                .unwrap();
+            assert!(r.is_ok(), "{:?}", r.error);
+        }
+
+        {
+            let mut app = new_app();
+            app.add_plugins(McpPlugin);
+            app.add_plugins(EditorPlugin);
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0
+                    .lock()
+                    .unwrap()
+                    .execute("load_scene", json!({"path": path}))
+                    .expect("load_scene not found");
+            }
+            app.update();
+
+            let mut q = app
+                .world_mut()
+                .query::<(&Name, &bsengine_core::AnimationStateMachine)>();
+            let results: Vec<_> = q.iter(app.world()).collect();
+            assert_eq!(results.len(), 1, "AnimationStateMachine missing after load");
+            assert_eq!(results[0].0 .0, "Player");
+            assert_eq!(results[0].1.current_state, "idle");
+            assert!(results[0].1.states.contains_key("walk"));
+            assert_eq!(results[0].1.transitions.len(), 1);
         }
     }
 

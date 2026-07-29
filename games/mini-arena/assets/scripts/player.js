@@ -1,7 +1,15 @@
 const MOVE_SPEED = 4.5;
 const RUN_MULTIPLIER = 1.8;
+const ATTACK_RANGE = 2.0;
+const ATTACK_DAMAGE = 15.0;
+let attackKeyWasDown = false;
 
 function onUpdate(self) {
+    if (Bsengine.getShield(self) <= 0.0) {
+        Bsengine.setHudText("status", "You died. Press Enter to reload checkpoint.");
+        return;
+    }
+
     let dx = 0.0;
     let dz = 0.0;
     if (Bsengine.isKeyDown("W")) dz -= 1.0;
@@ -29,4 +37,26 @@ function onUpdate(self) {
     }
 
     Bsengine.asmSetFloat(self, "speed", speed);
+
+    const attackDown = Bsengine.isKeyDown("Space");
+    if (attackDown && !attackKeyWasDown) {
+        const pos = Bsengine.getPosition(self);
+        const fwd = Bsengine.getForwardVector(self);
+        if (pos && fwd) {
+            const hit = Bsengine.raycast(
+                { x: pos.x, y: pos.y + 0.9, z: pos.z },
+                { x: fwd[0], y: fwd[1], z: fwd[2] },
+                ATTACK_RANGE
+            );
+            if (hit && hit.entityName === "Enemy") {
+                Bsengine.damageShield("Enemy", ATTACK_DAMAGE);
+                Bsengine.sendMessage("Enemy", "hit", { dirX: fwd[0], dirZ: fwd[2] });
+                if (Bsengine.getShield("Enemy") <= 0.0) {
+                    Bsengine.destroy("Enemy");
+                    Bsengine.sendMessage("Hud", "score", { amount: 100 });
+                }
+            }
+        }
+    }
+    attackKeyWasDown = attackDown;
 }

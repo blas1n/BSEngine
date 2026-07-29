@@ -2,6 +2,10 @@ let navReady = false;
 const CHASE_RANGE = 12.0;
 const REPATH_INTERVAL = 0.5;
 let repathTimer = 0.0;
+const CONTACT_RANGE = 1.2;
+const CONTACT_DAMAGE = 5.0;
+const CONTACT_COOLDOWN = 1.0;
+let contactCooldown = 0.0;
 
 let knockbackTimer = 0.0;
 let knockbackDir = { x: 0.0, z: 0.0 };
@@ -50,5 +54,11 @@ function onUpdate(self) {
     if (repathTimer <= 0.0) {
         Bsengine.navmesh.setDestination(self, player.x, player.y, player.z);
         repathTimer = REPATH_INTERVAL;
+    }
+
+    contactCooldown = Math.max(0.0, contactCooldown - dt);
+    if (dist < CONTACT_RANGE && contactCooldown <= 0.0) {
+        Bsengine.damageShield("Player", CONTACT_DAMAGE);
+        contactCooldown = CONTACT_COOLDOWN;
     }
 }

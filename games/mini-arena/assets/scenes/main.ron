@@ -66,4 +66,8 @@ SceneDescriptor(entities: [
             ("bsengine_core::shield::Shield", "(current: 30.0, max: 30.0, recharge_rate: 0.0, recharge_delay: 0.0, recharge_cooldown: 0.0)"),
         ],
     ),
+    EntityDescriptor(
+        name: "Hud",
+        script: Some("assets/scripts/hud.js"),
+    ),
 ])

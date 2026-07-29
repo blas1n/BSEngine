@@ -181,6 +181,20 @@
 
 ---
 
+### 13. 장면 직렬화 — 임의 리플렉트 컴포넌트 저장/로드 ✅
+
+**목표:** `set_reflected_component`로 붙인 AnimationStateMachine/NavMeshAgent/Shield/Bloom/ToneMap 등이 `save_scene` 이후에도 살아남도록 (기존엔 이런 컴포넌트를 위한 저장 경로가 아예 없어서, 재시작하면 사라졌음)
+
+**완료 조건:**
+- [x] `bsengine-scene`: `EntityDescriptor.components`(타입 경로 + RON 값 페어)를 `TypedReflectDeserializer` + `ReflectComponent::apply_or_insert`로 로드 시 적용 — 알 수 없는 타입/파싱 실패는 로그 후 스킵, fatal 아님
+- [x] `bsengine-editor`: 신규 `EntityInfo.extra_components` 필드 + `populate_snapshot_extra_components` 시스템 — 전용 필드가 이미 있는 Transform/Camera/PointLight/DirectionalLight/SpotLight/Material과, 리로드 시 Entity 인덱스가 재할당되어 깨지는 raw `Entity` 참조 보유 타입(Parent/Follow/LookAt)은 제외
+- [x] `build_entity_descriptors`가 `extra_components`를 저장 시 `EntityDescriptor.components`에 반영; 에디터 자체 `EditorCommand::LoadScene` 핸들러(= `bsengine-scene::ScenePlugin`과 별개인 두 번째 씬 로딩 경로)도 `EntityCommands::insert_reflect`로 동일하게 적용
+- [x] 작업 중 발견한 잠재 버그 수정: `HashSet<String>`(`AnimationStateMachine::triggers`)에 `ReflectDeserialize`만 등록되어 있고 `ReflectSerialize`가 빠져 있어, 저장 시 AnimationStateMachine 컴포넌트 전체가 조용히 누락되던 문제
+- [x] `set_reflected_component`로 부착한 NavMeshAgent/AnimationStateMachine의 저장→재로드 라운드트립 실제 검증
+- [x] CI 통과
+
+---
+
 ## 완료 이력
 
 | 항목 | 완료일 | PR |
@@ -227,3 +241,5 @@
 | 11. `set_reflected_component` generic reflect MCP tool | 2026-07-29 | [#1731](https://github.com/blas1n/BSEngine/pull/1731) |
 | 12. CPU skeletal skinning pipeline (glTF skin parsing, SkinnedMesh/AnimationClipLibrary, per-frame LBS system, GltfPlugin auto-attach) | 2026-07-29 | [#1731](https://github.com/blas1n/BSEngine/pull/1731) |
 | 12. Fix: wire GltfPlugin/TimePlugin/AnimationPlugin/AnimationStateMachinePlugin into bsengine-runtime (none were ever registered before this — glTF loading and any time-driven component were silently inert in the real runtime binary), handle non-indexed glTF primitives, seed AnimationPlayer.duration from its clip | 2026-07-29 | [#1731](https://github.com/blas1n/BSEngine/pull/1731) |
+| 13. Scene serialization saves/loads arbitrary reflected components (bsengine-scene load-side apply_or_insert + bsengine-editor extra_components capture/EditorCommand::LoadScene apply) | 2026-07-29 | [#1733](https://github.com/blas1n/BSEngine/pull/1733) |
+| 13. Fix: HashSet\<String\> missing ReflectSerialize (only ReflectDeserialize was registered), which silently dropped AnimationStateMachine from every saved scene | 2026-07-29 | [#1733](https://github.com/blas1n/BSEngine/pull/1733) |

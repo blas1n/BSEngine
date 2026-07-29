@@ -1742,47 +1742,12 @@ impl Plugin for EditorPlugin {
         app.insert_resource(EditorHistoryResource(history.clone()));
         app.insert_resource(InspectorState::editor());
         app.insert_resource(EditorPanelRegistry::default());
-        app.register_type::<bsengine_core::Camera>();
-        app.register_type::<bsengine_core::PointLight>();
-        app.register_type::<bsengine_core::DirectionalLight>();
-        app.register_type::<bsengine_core::SpotLight>();
-        app.register_type::<bsengine_core::Material>();
-        app.register_type::<bsengine_core::AmbientOcclusion>();
-        app.register_type::<bsengine_core::AnimationPlayer>();
-        app.register_type::<bsengine_core::Bloom>();
-        app.register_type::<bsengine_core::CustomShader>();
-        app.register_type::<bsengine_core::Damping>();
-        app.register_type::<bsengine_core::GravityScale>();
-        app.register_type::<bsengine_core::Lifetime>();
-        app.register_type::<bsengine_core::Mass>();
-        app.register_type::<bsengine_core::NetworkId>();
-        app.register_type::<bsengine_core::Shield>();
-        app.register_type::<bsengine_core::Skybox>();
-        app.register_type::<bsengine_core::Timer>();
-        app.register_type::<bsengine_core::ToneMap>();
-        app.register_type::<bsengine_core::Visible>();
-        app.register_type::<bsengine_core::AngularVelocity>();
-        app.register_type::<bsengine_core::ExternalImpulse>();
-        app.register_type::<bsengine_core::Follow>();
-        app.register_type::<bsengine_core::LookAt>();
-        app.register_type::<bsengine_core::NavMeshAgent>();
-        app.register_type::<bsengine_core::Velocity>();
-        app.register_type::<bsengine_core::Transform>();
-        app.register_type::<bsengine_core::GlobalTransform>();
-        app.register_type::<bsengine_core::Parent>();
-        app.register_type::<bsengine_core::AnimationStateMachine>();
-        // AnimationStateMachine::triggers is a HashSet<String>; unlike Map/List/Struct
-        // fields, HashSet isn't structurally recursed by TypedReflectDeserializer and
-        // needs its value-kind ReflectDeserialize registered explicitly, or JSON
-        // authoring via set_reflected_component fails with "doesn't have
-        // ReflectDeserialize" even for an empty `[]` (confirmed via a throwaway probe
-        // test during design research). Same story for ReflectSerialize on the save
-        // side: populate_snapshot_extra_components's TypedReflectSerializer fails the
-        // same way ("did not register ReflectSerialize") without this, which would
-        // silently drop AnimationStateMachine out of saved scenes entirely.
-        app.register_type_data::<std::collections::HashSet<String>, bevy_reflect::ReflectDeserialize>();
-        app.register_type_data::<std::collections::HashSet<String>, bevy_reflect::ReflectSerialize>();
-        app.register_type::<bsengine_core::Tween>();
+        // Shared with the headless test runtime (`bsengine-runtime --test`'s
+        // `build_test_app`) so reflected `components:` entries (Shield,
+        // SaveData, AnimationStateMachine, NavMeshAgent, Bloom, ToneMap, ...)
+        // deserialize identically in both -- see its doc comment in
+        // bsengine-scene for the headless-mode gap this fixed.
+        bsengine_scene::register_gameplay_reflect_types(app);
         app.register_type::<Tags>();
         app.register_type::<bsengine_scene::Primitive>();
         app.register_type::<bsengine_scene::PrimitiveMesh>();

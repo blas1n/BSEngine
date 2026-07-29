@@ -2,24 +2,96 @@ SceneDescriptor(entities: [
     EntityDescriptor(
         name: "Camera",
         camera: true,
-        transform: Some((translation: (0.0, 1.5, 4.0))),
+        camera_fov: Some(60.0),
+        transform: Some((translation: (0.0, 4.0, 7.0))),
         look_at: Some((0.0, 0.5, 0.0)),
+        script: Some("assets/scripts/camera.js"),
+        components: [
+            ("bsengine_core::bloom::Bloom", "(intensity: 0.6, threshold: 1.0, radius: 4.0, softness: 0.5, enabled: true)"),
+            ("bsengine_core::tone_map::ToneMap", "(mode: Aces, exposure: 0.0, enabled: true)"),
+        ],
     ),
     EntityDescriptor(
         name: "Sun",
-        directional_light: Some((direction: (-0.4, -0.8, -0.4))),
+        directional_light: Some((direction: (-0.4, -0.8, -0.4), color: (1.0, 0.95, 0.85), ambient: (0.15, 0.15, 0.18))),
     ),
     EntityDescriptor(
-        name: "TestFox",
-        // NOTE: unlike `script` paths (which ScriptingPlugin resolves relative
-        // to the project dir), `gltf` paths are NOT resolved relative to the
-        // project dir anywhere in the current loader -- they're read as-is
-        // relative to the process's current working directory. This path only
-        // works when running via `cargo run -p bsengine-runtime -- ./games/mini-arena`
-        // from the repo root. This is a known, logged gap (not fixed here --
-        // out of scope for the skinning pipeline this scene exists to verify),
-        // not a typo.
+        name: "Ground",
+        primitive: Some(Cube),
+        transform: Some((translation: (0.0, -0.5, 0.0), scale: (20.0, 1.0, 20.0))),
+        color: Some((0.25, 0.28, 0.22)),
+        rigidbody: Some(Static),
+        collider: Some((shape: Box(hx: 10.0, hy: 0.5, hz: 10.0), friction: 0.7)),
+    ),
+    EntityDescriptor(
+        name: "Player",
+        // NOTE: `gltf:` paths resolve relative to the process CWD, not the
+        // project dir (pre-existing, logged gap). Only run via
+        // `cargo run -p bsengine-runtime -- ./games/mini-arena` from the repo root.
         gltf: Some("games/mini-arena/assets/models/fox.glb"),
-        transform: Some((translation: (0.0, 0.0, 0.0), scale: (0.03, 0.03, 0.03))),
+        transform: Some((translation: (0.0, 0.0, 0.0), scale: (0.02, 0.02, 0.02))),
+        rigidbody: Some(Kinematic),
+        collider: Some((shape: Capsule(half_height: 0.5, radius: 0.35), friction: 0.3)),
+        script: Some("assets/scripts/player.js"),
+        components: [
+            ("bsengine_core::animation_state_machine::AnimationStateMachine", r#"(
+                states: {
+                    "idle": (clip: "Survey", looping: true, speed: 1.0, duration: 1.0),
+                    "walk": (clip: "Walk", looping: true, speed: 1.0, duration: 1.0),
+                    "run": (clip: "Run", looping: true, speed: 1.0, duration: 1.0),
+                },
+                transitions: [
+                    (from: "idle", to: "walk", condition: FloatGreater(param: "speed", threshold: 0.1), blend_duration: 0.15),
+                    (from: "walk", to: "idle", condition: FloatLess(param: "speed", threshold: 0.1), blend_duration: 0.15),
+                    (from: "walk", to: "run", condition: FloatGreater(param: "speed", threshold: 3.0), blend_duration: 0.2),
+                    (from: "run", to: "walk", condition: FloatLess(param: "speed", threshold: 3.0), blend_duration: 0.2),
+                ],
+                current_state: "idle",
+                params_float: {"speed": 0.0},
+                params_bool: {},
+                triggers: [],
+                blend_from: None,
+                blend_weight: 1.0,
+                blend_duration: 0.0,
+                blend_elapsed: 0.0,
+            )"#),
+            ("bsengine_core::shield::Shield", "(current: 100.0, max: 100.0, recharge_rate: 0.0, recharge_delay: 0.0, recharge_cooldown: 0.0)"),
+            ("bsengine_core::save_data::SaveData", "(slot: 0, fields: {}, last_saved_at: 0, dirty: false, enabled: true)"),
+        ],
+    ),
+    EntityDescriptor(
+        name: "Enemy",
+        gltf: Some("games/mini-arena/assets/models/fox.glb"),
+        transform: Some((translation: (5.0, 0.0, 5.0), scale: (0.02, 0.02, 0.02))),
+        rigidbody: Some(Kinematic),
+        collider: Some((shape: Capsule(half_height: 0.5, radius: 0.35), friction: 0.3)),
+        script: Some("assets/scripts/enemy.js"),
+        components: [
+            ("bsengine_core::nav_mesh_agent::NavMeshAgent", "(destination: None, speed: 3.0, angular_speed: 2.0, acceleration: 8.0, stopping_distance: 1.2, radius: 0.4, height: 1.8, state: Idle, enabled: true)"),
+            ("bsengine_core::shield::Shield", "(current: 30.0, max: 30.0, recharge_rate: 0.0, recharge_delay: 0.0, recharge_cooldown: 0.0)"),
+        ],
+    ),
+    EntityDescriptor(
+        name: "Hud",
+        script: Some("assets/scripts/hud.js"),
+    ),
+    EntityDescriptor(
+        name: "Pickup",
+        primitive: Some(Sphere),
+        transform: Some((translation: (2.0, 0.8, -2.0), scale: (0.4, 0.4, 0.4))),
+        color: Some((0.2, 0.6, 1.0)),
+        emissive: Some((0.2, 0.6, 1.0)),
+        script: Some("assets/scripts/pickup.js"),
+        rigidbody: Some(Static),
+        collider: Some((shape: Sphere(radius: 0.4), sensor: true)),
+    ),
+    EntityDescriptor(
+        name: "ArenaLight",
+        transform: Some((translation: (0.0, 5.0, 0.0))),
+        point_light: Some((color: (1.0, 0.9, 0.8), intensity: 15.0, range: 20.0)),
+    ),
+    EntityDescriptor(
+        name: "Pause",
+        script: Some("assets/scripts/pause.js"),
     ),
 ])

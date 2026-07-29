@@ -317,6 +317,15 @@ pub enum ScriptCommand {
         /// New maximum shield capacity.
         value: f32,
     },
+    /// Write a UTF-8 key/value field into an entity's `SaveData`.
+    SetSaveField {
+        /// Entity to target.
+        name: String,
+        /// Field key.
+        key: String,
+        /// UTF-8 field value.
+        value: String,
+    },
     /// Reset a named entity's gameplay timer back to zero.
     ResetTimer {
         /// Name of the entity to modify.
@@ -1924,6 +1933,9 @@ thread_local! {
     pub(crate) static SHIELD_SNAPSHOT: RefCell<HashMap<String, (f32, f32)>> =
         RefCell::new(HashMap::new());
 
+    pub(crate) static SAVE_DATA_SNAPSHOT: RefCell<HashMap<String, HashMap<String, String>>> =
+        RefCell::new(HashMap::new());
+
     // entity name → (level, current_xp, progress, is_max)
 
     // entity name → (current, max, prestige, is_max, progress_fraction)
@@ -2218,7 +2230,17 @@ struct TransformJson {
     sz: f32,
 }
 
+// `rename_all = "camelCase"` matters here: every other Bsengine.* JS API
+// (isKeyDown, getForwardVector, setHudText, ...) exposes camelCase property
+// names, but this struct's field was left as plain Rust snake_case, so
+// `Bsengine.raycast(...)` returned `{ entity_name: ... }`, not `{ entityName:
+// ... }`. A caller checking `hit.entityName` (matching the engine's own
+// convention, and the only sensible name to guess) always got `undefined`
+// -- a silent, always-false comparison with no error anywhere. Found via
+// mini-arena's melee attack combat, which used exactly that check and could
+// never register a hit as a result, no matter how correctly it aimed.
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct RaycastHitJson {
     entity_name: Option<String>,
     point: [f32; 3],
@@ -3173,6 +3195,19 @@ pub fn bsengine_set_max_shield(#[string] name: String, value: f32) {
     });
 }
 
+/// Queue writing a key/value field into an entity's SaveData.
+#[op2(fast)]
+pub fn bsengine_set_save_field(
+    #[string] name: String,
+    #[string] key: String,
+    #[string] value: String,
+) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetSaveField { name, key, value })
+    });
+}
+
 // ── Scald ────────────────────────────────────────────────────────────────────
 // ── Scan ─────────────────────────────────────────────────────────────────────
 // ── Scar ─────────────────────────────────────────────────────────────────────
@@ -3582,6 +3617,20 @@ pub fn bsengine_is_shield_depleted(#[string] name: String) -> bool {
             .get(&name)
             .map(|(cur, _)| *cur <= 0.0)
             .unwrap_or(true)
+    })
+}
+
+/// Get a UTF-8 field value from an entity's SaveData, or an empty string if
+/// the entity, its SaveData, or the field don't exist.
+#[op2]
+#[string]
+pub fn bsengine_get_save_field(#[string] name: String, #[string] key: String) -> String {
+    SAVE_DATA_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .and_then(|fields| fields.get(&key))
+            .cloned()
+            .unwrap_or_default()
     })
 }
 
@@ -5708,6 +5757,8 @@ deno_core::extension!(
         bsengine_get_max_shield,
         bsengine_get_shield_fraction,
         bsengine_is_shield_depleted,
+        bsengine_set_save_field,
+        bsengine_get_save_field,
         bsengine_reset_timer,
         bsengine_get_timer_elapsed,
         bsengine_get_timer_duration,
@@ -6015,6 +6066,8 @@ var Bsengine = {
     getMaxShield:           (name)          => Deno.core.ops.bsengine_get_max_shield(name),
     getShieldFraction:      (name)          => Deno.core.ops.bsengine_get_shield_fraction(name),
     isShieldDepleted:       (name)          => Deno.core.ops.bsengine_is_shield_depleted(name),
+    setSaveField:           (name, key, value) => Deno.core.ops.bsengine_set_save_field(name, key, String(value)),
+    getSaveField:           (name, key)        => Deno.core.ops.bsengine_get_save_field(name, key),
     resetTimer:             (name)          => Deno.core.ops.bsengine_reset_timer(name),
     getTimerElapsed:        (name)          => Deno.core.ops.bsengine_get_timer_elapsed(name),
     getTimerDuration:       (name)          => Deno.core.ops.bsengine_get_timer_duration(name),
@@ -9755,6 +9808,35 @@ JSON.stringify(received)
             assert!(found, "DamageShield not in buffer");
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_save_field_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setSaveField("Hero", "score", "42");"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let found = c.borrow().iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetSaveField { name, key, value }
+                    if name == "Hero" && key == "score" && value == "42")
+            });
+            assert!(found, "SetSaveField not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn get_save_field_returns_empty_for_unknown() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt
+            .eval(r#"Bsengine.getSaveField("Unknown", "score");"#)
+            .unwrap();
+        assert!(
+            r.trim().is_empty() || r.trim() == "\"\"",
+            "expected empty, got {r}"
+        );
     }
 
     #[test]

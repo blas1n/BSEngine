@@ -195,6 +195,46 @@
 
 ---
 
+### 14. Unity/Unreal 비교 검증 데모 ("Mini Action Arena") ✅
+
+**목표:** 실제 소규모 게임을 엔진으로 만들어보며 여러 시스템이 동시에 맞물릴 때의
+격차를 검증하고 기록
+
+**완료 조건:**
+- [x] `games/mini-arena/` 프로젝트, 콘텐츠는 최대한 에디터 워크플로우로 제작
+- [x] CC0 스키닝 애니메이션 캐릭터 임포트 + AnimationStateMachine idle/walk/run 전환
+- [x] NavMeshAgent 기반 적 추적 AI 1종 이상
+- [x] Rapier 물리 기반 전투/피격/넉백
+- [x] 커스텀 WGSL 셰이더 오브젝트 1종 이상
+- [x] 포스트프로세싱(bloom/tone-mapping) 적용
+- [x] HUD(체력/점수) + 일시정지 메뉴 (Bsengine.ui)
+- [x] 체크포인트 세이브/로드
+- [x] AI E2E 테스트로 플레이스루 recording 확보 + replay 통과
+- [x] 갭 로그 작성
+- [x] CI 통과
+
+<!--
+E2E 테스트 작성 과정에서 발견한 10개의 실제 버그(엔진 5개 + player.js 콘텐츠 5개)를
+모두 즉시 수정: (1) 리플렉트 타입 등록이 EditorPlugin에만 있어 헤드리스 테스트 모드에서
+Shield 등 모든 컴포넌트가 조용히 누락됨 (bsengine-scene::register_gameplay_reflect_types
+공유 함수로 추출), (2) test_mode.rs의 PressKey/ReleaseKey가 Input<T>를 직접 mutate해
+edge-triggered 입력(isKeyDown/isKeyUp)이 프로토콜을 통해 절대 관측 불가능했음
+(Events<KeyInput>/Events<MouseInput> 경유로 수정), (3) NavMeshPlugin이 bsengine-runtime
+어디에도 등록된 적이 없어 실제 빌드에서 적 추적 AI가 한 번도 동작한 적이 없었음
+(main.rs/test_mode.rs 양쪽에 추가, 헤드리스 쪽엔 TimePlugin도 함께 필요),
+(4) Bsengine.raycast()가 entity_name(snake_case)을 반환해 관례상 entityName을
+기대하는 모든 호출이 항상 undefined 비교였음 (RaycastHitJson에 camelCase rename 추가),
+(5) player.js: 이동에 isKeyDown(edge) 사용 — 다른 모든 게임은 isKeyPressed(held) 사용,
+(6) player.js: yaw 부호가 반대라 forward 벡터가 이동 방향과 정반대,
+(7) player.js: 공격 레이캐스트 origin이 자기 자신의 콜라이더 내부에서 시작해 즉시
+self-hit, (8) player.js: 레이캐스트 origin 높이(+0.9)가 콜라이더 상단(0.85)보다 높아
+항상 헛스윙, (9) player.js: damageShield 직후 getShield로 즉시 재확인해 스테일 스냅샷을
+읽음 — 30/15 데미지 Enemy가 의도한 2타가 아니라 3타 필요했음. 자세한 근거는
+`games/mini-arena/GAP_LOG.md` 참고.
+-->
+
+---
+
 ## 완료 이력
 
 | 항목 | 완료일 | PR |
@@ -243,3 +283,6 @@
 | 12. Fix: wire GltfPlugin/TimePlugin/AnimationPlugin/AnimationStateMachinePlugin into bsengine-runtime (none were ever registered before this — glTF loading and any time-driven component were silently inert in the real runtime binary), handle non-indexed glTF primitives, seed AnimationPlayer.duration from its clip | 2026-07-29 | [#1731](https://github.com/blas1n/BSEngine/pull/1731) |
 | 13. Scene serialization saves/loads arbitrary reflected components (bsengine-scene load-side apply_or_insert + bsengine-editor extra_components capture/EditorCommand::LoadScene apply) | 2026-07-29 | [#1733](https://github.com/blas1n/BSEngine/pull/1733) |
 | 13. Fix: HashSet\<String\> missing ReflectSerialize (only ReflectDeserialize was registered), which silently dropped AnimationStateMachine from every saved scene | 2026-07-29 | [#1733](https://github.com/blas1n/BSEngine/pull/1733) |
+| 14. Mini Action Arena demo (`games/mini-arena/`) — arena/player/enemy, AnimationStateMachine idle/walk/run, NavMeshAgent pursuit, Rapier combat/knockback, custom WGSL glow shader, bloom/tone-map, HUD + pause menu, checkpoint save/load | 2026-07-29 | branch `feat/mini-arena` (PR #TBD) |
+| 14. Fix: 5 engine bugs found authoring the headless E2E test — reflect-type registration reachable only from EditorPlugin (not headless test mode), test_mode.rs PressKey/ReleaseKey bypassing the input event queue (broke all edge-triggered isKeyDown/isKeyUp), NavMeshPlugin never wired into bsengine-runtime at all (enemy pursuit never worked in any real build), Bsengine.raycast() returning entity_name instead of entityName | 2026-07-29 | branch `feat/mini-arena` (PR #TBD) |
+| 14. Fix: 5 content bugs in player.js found the same way — isKeyDown instead of isKeyPressed for held movement, 180°-backwards yaw/forward vector, attack raycast self-hit + wrong height, stale getShield() read after damageShield() (Enemy took 3 hits instead of the documented 2); see `games/mini-arena/GAP_LOG.md` for full detail | 2026-07-29 | branch `feat/mini-arena` (PR #TBD) |

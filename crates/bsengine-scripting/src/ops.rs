@@ -2230,7 +2230,17 @@ struct TransformJson {
     sz: f32,
 }
 
+// `rename_all = "camelCase"` matters here: every other Bsengine.* JS API
+// (isKeyDown, getForwardVector, setHudText, ...) exposes camelCase property
+// names, but this struct's field was left as plain Rust snake_case, so
+// `Bsengine.raycast(...)` returned `{ entity_name: ... }`, not `{ entityName:
+// ... }`. A caller checking `hit.entityName` (matching the engine's own
+// convention, and the only sensible name to guess) always got `undefined`
+// -- a silent, always-false comparison with no error anywhere. Found via
+// mini-arena's melee attack combat, which used exactly that check and could
+// never register a hit as a result, no matter how correctly it aimed.
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct RaycastHitJson {
     entity_name: Option<String>,
     point: [f32; 3],

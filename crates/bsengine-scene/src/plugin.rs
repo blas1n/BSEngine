@@ -210,6 +210,67 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
     }
 }
 
+/// Registers every `bsengine_core` component type an `EntityDescriptor`'s
+/// `components:` field (arbitrary reflected components, e.g. `Shield`,
+/// `SaveData`, `AnimationStateMachine`, `NavMeshAgent`, `Bloom`, `ToneMap`)
+/// may reference, so [`spawn_scene_entities`]'s reflection-based
+/// deserialization above can actually find and attach them.
+///
+/// Previously these registrations lived only inline in `EditorPlugin::build`
+/// (`bsengine-editor`), which the headless test runtime
+/// (`bsengine-runtime --test`'s `build_test_app`) never adds -- it can't,
+/// since `EditorPlugin` requires the render/window stack a headless app
+/// doesn't have. That meant every reflected `components:` entry was silently
+/// dropped in headless test mode (logged only as a `tracing::warn!`
+/// "unknown reflected type path", easy to miss), so any gameplay gated on
+/// one of these components -- e.g. a `Shield`-based death check -- was
+/// unexercisable via `bsengine-runtime --test`, even though the identical
+/// scene loaded and played correctly in the windowed editor runtime. Call
+/// this from both `EditorPlugin::build` and the headless test app's setup so
+/// the two stay in parity.
+pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
+    app.register_type::<bsengine_core::Camera>();
+    app.register_type::<bsengine_core::PointLight>();
+    app.register_type::<bsengine_core::DirectionalLight>();
+    app.register_type::<bsengine_core::SpotLight>();
+    app.register_type::<bsengine_core::Material>();
+    app.register_type::<bsengine_core::AmbientOcclusion>();
+    app.register_type::<bsengine_core::AnimationPlayer>();
+    app.register_type::<bsengine_core::Bloom>();
+    app.register_type::<bsengine_core::CustomShader>();
+    app.register_type::<bsengine_core::Damping>();
+    app.register_type::<bsengine_core::GravityScale>();
+    app.register_type::<bsengine_core::Lifetime>();
+    app.register_type::<bsengine_core::Mass>();
+    app.register_type::<bsengine_core::NetworkId>();
+    app.register_type::<bsengine_core::SaveData>();
+    app.register_type::<bsengine_core::Shield>();
+    app.register_type::<bsengine_core::Skybox>();
+    app.register_type::<bsengine_core::Timer>();
+    app.register_type::<bsengine_core::ToneMap>();
+    app.register_type::<bsengine_core::Visible>();
+    app.register_type::<bsengine_core::AngularVelocity>();
+    app.register_type::<bsengine_core::ExternalImpulse>();
+    app.register_type::<bsengine_core::Follow>();
+    app.register_type::<bsengine_core::LookAt>();
+    app.register_type::<bsengine_core::NavMeshAgent>();
+    app.register_type::<bsengine_core::Velocity>();
+    app.register_type::<bsengine_core::Transform>();
+    app.register_type::<bsengine_core::GlobalTransform>();
+    app.register_type::<bsengine_core::Parent>();
+    app.register_type::<bsengine_core::AnimationStateMachine>();
+    // AnimationStateMachine::triggers is a HashSet<String>; unlike Map/List/Struct
+    // fields, HashSet isn't structurally recursed by TypedReflectDeserializer and
+    // needs its value-kind ReflectDeserialize registered explicitly, or JSON/RON
+    // authoring fails with "doesn't have ReflectDeserialize" even for an empty
+    // `[]`. Same story for ReflectSerialize on the save side. See
+    // `bsengine-editor`'s prior inline copy of this registration for the fuller
+    // history (design-research probe that found this).
+    app.register_type_data::<std::collections::HashSet<String>, bevy_reflect::ReflectDeserialize>();
+    app.register_type_data::<std::collections::HashSet<String>, bevy_reflect::ReflectSerialize>();
+    app.register_type::<bsengine_core::Tween>();
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Name, ScenePlugin};

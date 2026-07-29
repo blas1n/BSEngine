@@ -11,7 +11,7 @@ pub mod plugin;
 /// Serde/RON descriptor types that make up the on-disk scene file format.
 pub mod types;
 
-pub use plugin::{spawn_scene_entities, Name, ScenePlugin};
+pub use plugin::{register_gameplay_reflect_types, spawn_scene_entities, Name, ScenePlugin};
 pub use types::{
     ColliderDesc, ColliderShapeDesc, DirectionalLightDescriptor, EntityDescriptor,
     PendingSceneLoad, PhysicsBodyDesc, PointLightDescriptor, Primitive, PrimitiveMesh,

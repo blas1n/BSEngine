@@ -1,0 +1,48 @@
+{
+  "game": "mini-arena",
+  "scene": "assets/scenes/main.ron",
+  "actions": [
+    { "cmd": "step", "frames": 5 },
+    { "cmd": "press_key", "key": "S" },
+    { "cmd": "press_key", "key": "D" },
+    { "cmd": "step", "frames": 900 },
+    { "cmd": "release_key", "key": "S" },
+    { "cmd": "release_key", "key": "D" },
+    { "cmd": "step", "frames": 2 },
+    { "cmd": "press_key", "key": "Space" },
+    { "cmd": "release_key", "key": "Space" },
+    { "cmd": "step", "frames": 5 },
+    { "cmd": "press_key", "key": "Space" },
+    { "cmd": "release_key", "key": "Space" },
+    { "cmd": "step", "frames": 5 },
+    {
+      "cmd": "assert",
+      "query": { "tool": "get_transform", "args": { "name": "Enemy" } },
+      "path": "x",
+      "op": "==",
+      "value": null,
+      "label": "Enemy destroyed after two raycast melee hits (30 max shield, 15 dmg each)"
+    },
+    { "cmd": "press_key", "key": "W" },
+    { "cmd": "step", "frames": 1400 },
+    { "cmd": "release_key", "key": "W" },
+    { "cmd": "step", "frames": 2 },
+    {
+      "cmd": "assert",
+      "query": { "tool": "get_transform", "args": { "name": "Pickup" } },
+      "path": "x",
+      "op": "==",
+      "value": null,
+      "label": "Pickup collected (proximity trigger fired while walking toward and past it)"
+    },
+    {
+      "cmd": "assert",
+      "query": { "tool": "get_transform", "args": { "name": "Player" } },
+      "path": "z",
+      "op": "<",
+      "value": -1.0,
+      "label": "Player walked from the origin, through the Enemy engagement at (~2.4, ~2.4), to past the Pickup's z=-2.0"
+    },
+    { "cmd": "shutdown" }
+  ]
+}

@@ -6,9 +6,11 @@
 use std::io::{self, BufRead, Write};
 
 use bevy_app::App;
+use bevy_ecs::event::Events;
+use bsengine_app::{NavMeshPlugin, TimePlugin};
 use bsengine_audio::AudioPlugin;
 use bsengine_core::{EditorPlayState, InspectorState};
-use bsengine_input::{Input, InputPlugin, KeyCode, MouseButton};
+use bsengine_input::{ElementState, InputPlugin, KeyCode, KeyInput, MouseButton, MouseInput};
 use bsengine_physics::PhysicsPlugin;
 use bsengine_scene::ScenePlugin;
 use bsengine_scripting::{ScriptingPlugin, KEY_MAPPINGS};
@@ -34,14 +36,27 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>) -> App {
     let scene_path = format!("{project_dir}/{relative_scene}");
 
     let mut app = bsengine_app::new_app();
-    app.add_plugins(InputPlugin)
+    app.add_plugins(TimePlugin)
+        .add_plugins(InputPlugin)
         .add_plugins(AudioPlugin)
         .add_plugins(PhysicsPlugin)
+        .add_plugins(NavMeshPlugin)
         .add_plugins(ScenePlugin::from_file(&scene_path))
         .add_plugins(ScriptingPlugin {
             project_dir: project_dir.to_string(),
         });
     register_scene_systems(&mut app);
+
+    // Same reflect-type registrations EditorPlugin does (again, not the full
+    // plugin -- see below), needed so `spawn_scene_entities` can actually
+    // deserialize a scene's `components:` entries (Shield, SaveData,
+    // AnimationStateMachine, NavMeshAgent, Bloom, ToneMap, ...) instead of
+    // silently dropping every one of them (logged only as a `tracing::warn!`
+    // "unknown reflected type path"). Without this, e.g. a Shield-gated dead
+    // check reads a permanently-0 shield in headless mode and the entity
+    // never behaves as scripted, even though the identical scene plays
+    // correctly in the windowed runtime.
+    bsengine_scene::register_gameplay_reflect_types(&mut app);
 
     // The windowed runtime (main.rs's run_windowed) always runs with
     // EditorPlugin, which gates script execution behind `editor_mode &&
@@ -131,9 +146,33 @@ pub fn execute_command(
             }
             (CommandResponse::ok(json!({"frame": *frame})), false)
         }
+        // PressKey/ReleaseKey/PressMouse/ReleaseMouse send through the same
+        // `Events<KeyInput>`/`Events<MouseInput>` queue the real windowed
+        // runtime's window-event handler uses, rather than mutating
+        // `Input<T>` directly. That distinction matters: `Input<T>`'s
+        // `just_pressed`/`just_released` ("edge") state is cleared every
+        // frame by `clear_input_state`, which runs first in `PreUpdate`
+        // ahead of the event-draining systems, precisely so that ordering
+        // (clear old edge state, then set new edge state from this frame's
+        // events) gives scripts a one-frame-wide, correctly-timed window to
+        // observe `isKeyDown`/`isKeyUp`. A direct `.press()`/`.release()`
+        // call happens outside any schedule, strictly *before* the next
+        // `Step`'s first `app.update()` -- so that same `clear_input_state`
+        // wipes the edge flag before `run_scripts` (in `Update`, which runs
+        // after `PreUpdate`) ever sees it. The held/level `is_pressed` state
+        // isn't cleared this way, so continuous-movement scripts using
+        // `isKeyPressed` never noticed; only edge-triggered `isKeyDown`/
+        // `isKeyUp` checks (attack, pause toggle, checkpoint reload, ...)
+        // were silently untestable through this protocol until this fix.
         Command::PressKey { key } => match key_from_str(&key) {
             Some(code) => {
-                app.world_mut().resource_mut::<Input<KeyCode>>().press(code);
+                app.world_mut()
+                    .resource_mut::<Events<KeyInput>>()
+                    .send(KeyInput {
+                        key_code: code,
+                        state: ElementState::Pressed,
+                        text: None,
+                    });
                 (CommandResponse::ok(json!({})), false)
             }
             None => (CommandResponse::err(format!("unknown key: {key}")), false),
@@ -141,8 +180,12 @@ pub fn execute_command(
         Command::ReleaseKey { key } => match key_from_str(&key) {
             Some(code) => {
                 app.world_mut()
-                    .resource_mut::<Input<KeyCode>>()
-                    .release(code);
+                    .resource_mut::<Events<KeyInput>>()
+                    .send(KeyInput {
+                        key_code: code,
+                        state: ElementState::Released,
+                        text: None,
+                    });
                 (CommandResponse::ok(json!({})), false)
             }
             None => (CommandResponse::err(format!("unknown key: {key}")), false),
@@ -150,8 +193,11 @@ pub fn execute_command(
         Command::PressMouse { button } => match mouse_button_from_u8(button) {
             Some(b) => {
                 app.world_mut()
-                    .resource_mut::<Input<MouseButton>>()
-                    .press(b);
+                    .resource_mut::<Events<MouseInput>>()
+                    .send(MouseInput {
+                        button: b,
+                        state: ElementState::Pressed,
+                    });
                 (CommandResponse::ok(json!({})), false)
             }
             None => (
@@ -162,8 +208,11 @@ pub fn execute_command(
         Command::ReleaseMouse { button } => match mouse_button_from_u8(button) {
             Some(b) => {
                 app.world_mut()
-                    .resource_mut::<Input<MouseButton>>()
-                    .release(b);
+                    .resource_mut::<Events<MouseInput>>()
+                    .send(MouseInput {
+                        button: b,
+                        state: ElementState::Released,
+                    });
                 (CommandResponse::ok(json!({})), false)
             }
             None => (
@@ -278,6 +327,7 @@ pub fn run_replay_mode(project_dir: &str, log_path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bsengine_input::Input;
 
     fn write_two_scene_project() -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();

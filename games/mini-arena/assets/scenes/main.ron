@@ -56,6 +56,7 @@ SceneDescriptor(entities: [
                 blend_elapsed: 0.0,
             )"#),
             ("bsengine_core::shield::Shield", "(current: 100.0, max: 100.0, recharge_rate: 0.0, recharge_delay: 0.0, recharge_cooldown: 0.0)"),
+            ("bsengine_core::save_data::SaveData", "(slot: 0, fields: {}, last_saved_at: 0, dirty: false, enabled: true)"),
         ],
     ),
     EntityDescriptor(
@@ -88,5 +89,9 @@ SceneDescriptor(entities: [
         name: "ArenaLight",
         transform: Some((translation: (0.0, 5.0, 0.0))),
         point_light: Some((color: (1.0, 0.9, 0.8), intensity: 15.0, range: 20.0)),
+    ),
+    EntityDescriptor(
+        name: "Pause",
+        script: Some("assets/scripts/pause.js"),
     ),
 ])

@@ -154,6 +154,33 @@
 
 ---
 
+### 11. 범용 리플렉션 MCP 컴포넌트 부착 툴 ✅
+
+**목표:** AnimationStateMachine/NavMeshAgent 등 attach 경로가 없는 컴포넌트를 AI/MCP가 직접 붙일 수 있게
+
+**완료 조건:**
+- [x] `set_reflected_component(entity_id, type_path, value_json)` MCP 툴 — 기존 `ReflectCommand::ApplyComponentValue` 경로 재사용, `process_reflect_commands` 무변경
+- [x] `TypedReflectDeserializer` 기반 JSON → `Box<dyn Reflect>` 변환
+- [x] AnimationStateMachine(HashMap/Vec/Enum 필드 포함)·NavMeshAgent 실제 부착 검증
+- [x] CI 통과
+
+---
+
+### 12. CPU 스켈레탈 스키닝 파이프라인 ✅
+
+**목표:** glTF로 임포트한 스킨드 캐릭터가 실제로 화면에서 애니메이션되도록 (기존엔 애니메이션 클립이 파싱만 되고 버려졌고, 스키닝 렌더링 자체가 없었음)
+
+**완료 조건:**
+- [x] glTF skin/joint/노드 계층 파싱 (`NodeTransform`/`SkinData`/`VertexSkin`)
+- [x] `SkinnedMesh`/`AnimationClipLibrary` 컴포넌트
+- [x] 매 프레임 클립 샘플링 → 조인트 매트릭스 합성 → 버텍스 블렌딩(LBS) → GPU 버텍스 버퍼 재업로드 (`GpuMeshRegistry::update_vertices`, 신규 `GpuQueueResource`)
+- [x] `GltfPlugin`이 스킨 있는 glTF 로드 시 자동 부착
+- [x] 실제 CC0 애셋(Khronos Fox)으로 수동 검증 — `AnimationPlayer.time`이 프레임마다 전진/루프, 크래시 없음
+- [x] 검증 과정에서 발견된 4개의 기존(이번 기능과 무관한) 블로킹 버그 수정: `bsengine-runtime`에 GltfPlugin/TimePlugin/AnimationPlugin/AnimationStateMachinePlugin이 애초에 등록되어 있지 않았음, 인덱스 없는 프리미티브 거부, AnimationPlayer duration 미설정으로 tick 무동작
+- [x] CI 통과
+
+---
+
 ## 완료 이력
 
 | 항목 | 완료일 | PR |
@@ -197,3 +224,6 @@
 | Remove hand-built Light Inspector section (last of the 3), reusing ReflectColor for light colors; completes the Camera/Material/Light generic-reflected-path migration | 2026-07-16 | [#1703](https://github.com/blas1n/BSEngine/pull/1703) |
 | Add generic Validate/ReflectValidate cross-field hook (bevy_reflect #[reflect_trait]), restoring SpotLight inner/outer angle clamping lost when the hand-built Light section was removed | 2026-07-17 | [#1704](https://github.com/blas1n/BSEngine/pull/1704) |
 | Delete 229 zoo components confirmed to have zero reference anywhere in the workspace (resumes the 2026-07-13 zoo-component cleanup; the much larger 664-module scripting-wired tier is still deferred) | 2026-07-19 | [#1705](https://github.com/blas1n/BSEngine/pull/1705) |
+| 11. `set_reflected_component` generic reflect MCP tool | 2026-07-29 | [#1731](https://github.com/blas1n/BSEngine/pull/1731) |
+| 12. CPU skeletal skinning pipeline (glTF skin parsing, SkinnedMesh/AnimationClipLibrary, per-frame LBS system, GltfPlugin auto-attach) | 2026-07-29 | [#1731](https://github.com/blas1n/BSEngine/pull/1731) |
+| 12. Fix: wire GltfPlugin/TimePlugin/AnimationPlugin/AnimationStateMachinePlugin into bsengine-runtime (none were ever registered before this — glTF loading and any time-driven component were silently inert in the real runtime binary), handle non-indexed glTF primitives, seed AnimationPlayer.duration from its clip | 2026-07-29 | [#1731](https://github.com/blas1n/BSEngine/pull/1731) |

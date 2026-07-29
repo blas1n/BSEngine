@@ -49,6 +49,14 @@ impl Plugin for ScenePlugin {
 /// Spawn entities from a list of descriptors into the given world.
 /// Called at startup by ScenePlugin and at runtime for scene transitions.
 pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
+    // Cloned once up front (cheap Arc clone) rather than re-fetched per
+    // entity, since `world.spawn(..)` below holds an exclusive sub-borrow of
+    // `world` for the rest of the loop body and a `Res`/`world.resource()`
+    // call can't be interleaved with it.
+    let app_registry = world
+        .get_resource::<bevy_ecs::reflect::AppTypeRegistry>()
+        .cloned();
+
     for entity in entities {
         let mut builder = world.spawn(Name(entity.name.clone()));
 
@@ -151,6 +159,53 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
                 rigidbody: rb.clone(),
                 collider: col.clone(),
             });
+        }
+
+        if !entity.components.is_empty() {
+            if let Some(app_registry) = &app_registry {
+                let registry = app_registry.read();
+                for (type_path, value_ron) in &entity.components {
+                    let Some(registration) = registry.get_with_type_path(type_path) else {
+                        tracing::warn!(
+                            "scene: entity '{}' references unknown reflected type path '{type_path}'",
+                            entity.name
+                        );
+                        continue;
+                    };
+                    let Some(reflect_component) =
+                        registration.data::<bevy_ecs::reflect::ReflectComponent>()
+                    else {
+                        tracing::warn!(
+                            "scene: entity '{}' type path '{type_path}' is not a registered Component",
+                            entity.name
+                        );
+                        continue;
+                    };
+                    let de =
+                        bevy_reflect::serde::TypedReflectDeserializer::new(registration, &registry);
+                    match ron::de::Deserializer::from_str(value_ron) {
+                        Ok(mut deserializer) => {
+                            match serde::de::DeserializeSeed::deserialize(de, &mut deserializer) {
+                                Ok(value) => {
+                                    reflect_component.apply_or_insert(
+                                        &mut builder,
+                                        value.as_ref(),
+                                        &registry,
+                                    );
+                                }
+                                Err(e) => tracing::warn!(
+                                    "scene: entity '{}' component '{type_path}' RON value doesn't match its shape: {e}",
+                                    entity.name
+                                ),
+                            }
+                        }
+                        Err(e) => tracing::warn!(
+                            "scene: entity '{}' component '{type_path}' RON parse error: {e}",
+                            entity.name
+                        ),
+                    }
+                }
+            }
         }
     }
 }
@@ -270,6 +325,52 @@ mod tests {
         assert_eq!(name.0, "Sun");
         let derived_dir = transform.rotation.0 * Vec3::NEG_Z;
         assert!((derived_dir.y - (-1.0)).abs() < 1e-5);
+    }
+
+    #[test]
+    fn scene_plugin_applies_reflected_component_from_ron_value() {
+        let ron = r#"SceneDescriptor(entities: [
+            EntityDescriptor(
+                name: "Enemy",
+                components: [
+                    ("bsengine_core::nav_mesh_agent::NavMeshAgent", "(destination: None, speed: 3.5, angular_speed: 2.0, acceleration: 8.0, stopping_distance: 0.1, radius: 0.3, height: 1.8, state: Idle, enabled: true)"),
+                ],
+            )
+        ])"#;
+        let path = write_temp_scene("test_reflected_component.ron", ron);
+
+        let mut app = new_app();
+        app.register_type::<bsengine_core::NavMeshAgent>();
+        app.add_plugins(ScenePlugin::from_file(&path));
+        app.update();
+
+        let mut q = app
+            .world_mut()
+            .query::<(&Name, &bsengine_core::NavMeshAgent)>();
+        let results: Vec<_> = q.iter(app.world()).collect();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0 .0, "Enemy");
+        assert!((results[0].1.speed - 3.5).abs() < 1e-5);
+        assert!(results[0].1.enabled);
+    }
+
+    #[test]
+    fn scene_plugin_unknown_reflected_type_path_is_skipped_not_fatal() {
+        let ron = r#"SceneDescriptor(entities: [
+            EntityDescriptor(
+                name: "Ghost",
+                components: [("not::a::real::Type", "()")],
+            )
+        ])"#;
+        let path = write_temp_scene("test_unknown_type.ron", ron);
+
+        let mut app = new_app();
+        app.add_plugins(ScenePlugin::from_file(&path));
+        app.update();
+
+        let mut q = app.world_mut().query::<&Name>();
+        let names: Vec<String> = q.iter(app.world()).map(|n| n.0.clone()).collect();
+        assert!(names.contains(&"Ghost".to_string()));
     }
 
     #[test]

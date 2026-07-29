@@ -68,6 +68,16 @@ pub struct EntityInfo {
     pub visible: bool,
     /// Whether the entity is in the editor's current selection set.
     pub selected: bool,
+    /// Every other registered reflected component attached to this entity,
+    /// as `(fully-qualified type path, RON-encoded value)` pairs, captured
+    /// by `populate_snapshot_extra_components`. Excludes types that already
+    /// have a dedicated field above (e.g. `Transform`, `Camera`) and types
+    /// that hold a raw `Entity` reference (e.g. `Parent`), which would
+    /// point at the wrong entity after a scene reload reassigns indices.
+    /// Round-tripped into `EntityDescriptor.components` on save/load so
+    /// components with no dedicated field (e.g. `NavMeshAgent`, `Shield`)
+    /// still persist.
+    pub extra_components: Vec<(String, String)>,
 }
 
 /// Full flattened capture of every tracked entity in the world, taken once

@@ -800,6 +800,7 @@ dependencies = [
  "glam 0.29.3",
  "ron",
  "serde",
+ "tracing",
 ]
 
 [[package]]

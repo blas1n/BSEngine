@@ -31,6 +31,10 @@ function onUpdate(self) {
             Bsengine.sendMessage("Hud", "scoreLoaded", { value: parseInt(restoredScore || "0", 10) });
             const restoredHealth = parseFloat(Bsengine.getSaveField(self, "health") || "100");
             Bsengine.restoreShield(self, restoredHealth - Bsengine.getShield(self));
+            // Without this, "You died..." stays on screen indefinitely after
+            // a successful reload -- nothing else ever clears the "status"
+            // HUD slot once the death branch stops running each frame.
+            Bsengine.clearHudText("status");
         }
         enterKeyWasDown = enterDown;
         return;

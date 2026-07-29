@@ -212,6 +212,18 @@ observations from actually doing it:
   write it back with `setTransform`.
 - No scripting op to close the game process — a pause menu's "Quit" button
   can only ask the player to close the window themselves.
+- The pause menu (`pause.js`) only shows/hides a UI overlay — it does not
+  actually pause the simulation. `paused` is a variable local to `pause.js`'s
+  own closure; no other script, and no engine system (`run_scripts`,
+  `PhysicsPlugin`, `NavMeshPlugin`), is aware of it. The Enemy keeps chasing
+  and dealing contact damage, and the Player keeps responding to WASD/attack
+  input, while the "Paused" panel is on screen — a real gap versus Unity/
+  Unreal, where pausing typically also stops `Time.timeScale`-driven
+  simulation. There's no `Bsengine.pause()`/`setTimeScale()`-style op to
+  build a real pause on top of. `ENGINE_ROADMAP.md`'s completion checklist
+  for this item only asks for "일시정지 메뉴 (Bsengine.ui)" (a pause *menu*,
+  literally), which this satisfies — but it's worth flagging here explicitly
+  since "pause menu" reasonably implies "pauses" to most readers.
 - Enemy knockback is a scripted position offset, not a real Rapier impulse,
   because the enemy's `Kinematic` rigidbody (required for `NavMeshAgent` to
   own its `Transform`) ignores physics impulses by definition.

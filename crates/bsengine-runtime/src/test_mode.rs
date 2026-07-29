@@ -429,4 +429,71 @@ mod tests {
             "Player should be back at its authored z=0.0 after reload, got {z}"
         );
     }
+
+    // Regression test for the PressKey/ReleaseKey protocol commands: they
+    // must route through Events<KeyInput>, not mutate Input<KeyCode>
+    // directly, or edge-triggered checks (just_pressed/just_released --
+    // what Bsengine.isKeyDown/isKeyUp read) are never observable through
+    // this protocol (see execute_command's PressKey doc comment for why).
+    // Exercises execute_command exactly as run_test_mode/run_replay_mode
+    // do -- one command at a time, with an explicit Step between a key
+    // event and the point where its effect is checked.
+    #[test]
+    fn press_key_is_observable_as_pressed_and_just_pressed_after_one_step() {
+        let dir = write_two_scene_project();
+        let mut app = build_test_app(dir.path().to_str().unwrap(), None);
+        let mut frame: u64 = 0;
+
+        let (resp, _) = execute_command(
+            &mut app,
+            &mut frame,
+            Command::PressKey {
+                key: "W".to_string(),
+            },
+        );
+        assert!(resp.ok, "PressKey should succeed: {:?}", resp.error);
+
+        let (resp, _) = execute_command(&mut app, &mut frame, Command::Step { frames: 1 });
+        assert!(resp.ok);
+
+        let input = app.world().resource::<Input<KeyCode>>();
+        assert!(
+            input.is_pressed(&KeyCode::W),
+            "W should be held after PressKey + one step"
+        );
+        assert!(
+            input.just_pressed(&KeyCode::W),
+            "W should be just_pressed on the exact frame after PressKey"
+        );
+
+        // A second step with no new key event: just_pressed's one-frame
+        // window has closed (clear_input_state ran again), but the level
+        // "pressed" state persists until an explicit ReleaseKey.
+        let (resp, _) = execute_command(&mut app, &mut frame, Command::Step { frames: 1 });
+        assert!(resp.ok);
+        let input = app.world().resource::<Input<KeyCode>>();
+        assert!(input.is_pressed(&KeyCode::W), "W should still be held");
+        assert!(
+            !input.just_pressed(&KeyCode::W),
+            "just_pressed should not still be true one frame later"
+        );
+
+        let (resp, _) = execute_command(
+            &mut app,
+            &mut frame,
+            Command::ReleaseKey {
+                key: "W".to_string(),
+            },
+        );
+        assert!(resp.ok, "ReleaseKey should succeed: {:?}", resp.error);
+        let (resp, _) = execute_command(&mut app, &mut frame, Command::Step { frames: 1 });
+        assert!(resp.ok);
+
+        let input = app.world().resource::<Input<KeyCode>>();
+        assert!(!input.is_pressed(&KeyCode::W), "W should no longer be held");
+        assert!(
+            input.just_released(&KeyCode::W),
+            "W should be just_released on the exact frame after ReleaseKey"
+        );
+    }
 }

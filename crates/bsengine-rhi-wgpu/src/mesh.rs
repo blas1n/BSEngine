@@ -76,7 +76,7 @@ impl GpuMeshRegistry {
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("mesh vbo"),
                 contents: bytemuck::cast_slice(vertices),
-                usage: wgpu::BufferUsages::VERTEX,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             });
         let index_buffer = self
             .device
@@ -107,6 +107,16 @@ impl GpuMeshRegistry {
     /// Looks up a previously registered mesh's local-space bounding sphere by id.
     pub fn get_bounds(&self, id: u64) -> Option<(Vec3, f32)> {
         self.meshes.get(&id).map(|m| m.bounds)
+    }
+
+    /// Overwrites a previously registered mesh's vertex buffer contents in place
+    /// (same vertex count as at `register` time — this does not resize the
+    /// buffer). Used by CPU-side skeletal skinning to re-upload deformed
+    /// vertex positions/normals each frame without re-registering a new mesh id.
+    pub fn update_vertices(&mut self, queue: &wgpu::Queue, id: u64, vertices: &[Vertex]) {
+        if let Some(mesh) = self.meshes.get(&id) {
+            queue.write_buffer(&mesh.vertex_buffer, 0, bytemuck::cast_slice(vertices));
+        }
     }
 }
 
@@ -417,5 +427,24 @@ mod tests {
         assert!(radius > 0.0, "radius should be positive");
         // cube goes from -0.5 to 0.5, max distance is sqrt(3)*0.5 ≈ 0.866
         assert!(radius < 1.0, "radius for unit cube should be < 1.0");
+    }
+
+    #[test]
+    fn update_vertices_overwrites_existing_buffer_contents() {
+        use crate::rhi::WgpuRHI;
+        let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless device");
+        let device = std::sync::Arc::new(rhi.device);
+        let mut registry = GpuMeshRegistry::new(device);
+        let (verts, indices) = triangle_vertices();
+        let id = registry.register(&verts, &indices);
+
+        let mut moved = verts.clone();
+        moved[0].position[1] += 5.0;
+        registry.update_vertices(&rhi.queue, id, &moved);
+
+        // No direct GPU read-back API exists; this test's job is to prove
+        // update_vertices doesn't panic against a real buffer/queue and that
+        // the mesh is still registered afterward with the same id.
+        assert!(registry.get(id).is_some());
     }
 }

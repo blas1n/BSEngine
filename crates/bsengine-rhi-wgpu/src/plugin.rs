@@ -13,6 +13,12 @@ use std::sync::Arc;
 #[derive(Resource)]
 pub struct RhiResource(pub Arc<dyn RHI>);
 
+/// ECS resource exposing the wgpu command queue, so systems outside this
+/// crate (e.g. CPU-side skeletal skinning in `bsengine-gltf`) can call
+/// `queue.write_buffer` without needing crate-private access to `WgpuSurface`.
+#[derive(Resource)]
+pub struct GpuQueueResource(pub Arc<wgpu::Queue>);
+
 /// Bevy plugin that initializes the wgpu RHI, creates the swapchain surface,
 /// and wires up window-resize handling.
 pub struct WgpuRHIPlugin;
@@ -36,6 +42,7 @@ fn create_surface_system(world: &mut World) {
                 let registry = GpuMeshRegistry::new(surface.device.clone());
                 let tex_registry =
                     GpuTextureRegistry::new(surface.device.clone(), surface.queue.clone());
+                world.insert_resource(GpuQueueResource(surface.queue.clone()));
                 world.insert_resource(WgpuSurfaceResource(surface));
                 world.insert_resource(registry);
                 world.insert_resource(tex_registry);

@@ -11,6 +11,8 @@ pub struct MeshData {
     pub vertices: Vec<Vertex>,
     /// Index buffer data, referencing into `vertices`.
     pub indices: Vec<u32>,
+    /// Per-vertex joint/weight skinning data, one entry per `vertices` entry, if this mesh's primitive had a skin.
+    pub skin: Option<Vec<VertexSkin>>,
 }
 
 /// A decoded texture image, converted to raw RGBA8 pixel data.
@@ -23,7 +25,56 @@ pub struct GltfImageData {
     pub rgba: Vec<u8>,
 }
 
-/// The full result of loading a GLTF/GLB file: meshes, images, and animations.
+/// Per-node local rest-pose transform plus its parent, as decomposed straight
+/// from the glTF document — the "bind pose" a skinned mesh returns to for any
+/// node/joint not overridden by the currently-sampled animation clip.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NodeTransform {
+    /// Local-space translation.
+    pub translation: [f32; 3],
+    /// Local-space rotation quaternion, [x, y, z, w].
+    pub rotation: [f32; 4],
+    /// Local-space scale.
+    pub scale: [f32; 3],
+    /// Index of this node's parent in the same `nodes` list, or `None` for a root.
+    pub parent: Option<usize>,
+}
+
+impl Default for NodeTransform {
+    fn default() -> Self {
+        Self {
+            translation: [0.0, 0.0, 0.0],
+            rotation: [0.0, 0.0, 0.0, 1.0],
+            scale: [1.0, 1.0, 1.0],
+            parent: None,
+        }
+    }
+}
+
+/// Joint data for one glTF skin: which nodes are joints (in "joint order",
+/// matching vertex `JOINTS_0` indices) and each joint's inverse bind matrix
+/// (column-major 4x4, as glTF stores it).
+#[derive(Debug, Clone)]
+pub struct SkinData {
+    /// Index (into `LoadedGltf::nodes`) of each joint, in joint order.
+    pub joint_node_indices: Vec<usize>,
+    /// One inverse bind matrix per joint, same order as `joint_node_indices`.
+    pub inverse_bind_matrices: Vec<[[f32; 4]; 4]>,
+}
+
+/// Per-vertex skinning data: up to 4 joint indices (into a `SkinData`'s
+/// `joint_node_indices`, i.e. 0..joint_count, NOT node indices) and their
+/// blend weights, straight from glTF's `JOINTS_0`/`WEIGHTS_0` accessors.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct VertexSkin {
+    /// Up to 4 joint indices this vertex is bound to.
+    pub joints: [u16; 4],
+    /// Blend weight per joint in `joints`, same order, should sum to ~1.0.
+    pub weights: [f32; 4],
+}
+
+/// The full result of loading a GLTF/GLB file: meshes, images, animations,
+/// and the raw node/skin hierarchy.
 pub struct LoadedGltf {
     /// All mesh primitives found in the file, in document order.
     pub meshes: Vec<MeshData>,
@@ -34,6 +85,10 @@ pub struct LoadedGltf {
     pub mesh_tex_indices: Vec<Option<usize>>,
     /// All animation clips found in the file.
     pub animations: Vec<AnimationClip>,
+    /// Every node's local rest-pose transform and parent, indexed by glTF node index.
+    pub nodes: Vec<NodeTransform>,
+    /// Every skin defined in the file, in document order.
+    pub skins: Vec<SkinData>,
 }
 
 /// Loads GLTF/GLB files from disk into engine-native mesh and animation data.
@@ -63,6 +118,43 @@ impl GltfLoader {
             })
             .collect();
 
+        let nodes: Vec<NodeTransform> = {
+            let mut out = vec![NodeTransform::default(); doc.nodes().count()];
+            for node in doc.nodes() {
+                let (t, r, s) = node.transform().decomposed();
+                out[node.index()] = NodeTransform {
+                    translation: t,
+                    rotation: r,
+                    scale: s,
+                    parent: None,
+                };
+            }
+            for node in doc.nodes() {
+                for child in node.children() {
+                    out[child.index()].parent = Some(node.index());
+                }
+            }
+            out
+        };
+
+        let skins: Vec<SkinData> = doc
+            .skins()
+            .map(|skin| {
+                let reader = skin.reader(|b| Some(&buffers[b.index()]));
+                let joint_node_indices: Vec<usize> = skin.joints().map(|j| j.index()).collect();
+                let inverse_bind_matrices: Vec<[[f32; 4]; 4]> = reader
+                    .read_inverse_bind_matrices()
+                    .map(|m| m.collect())
+                    .unwrap_or_else(|| {
+                        vec![glam::Mat4::IDENTITY.to_cols_array_2d(); joint_node_indices.len()]
+                    });
+                SkinData {
+                    joint_node_indices,
+                    inverse_bind_matrices,
+                }
+            })
+            .collect();
+
         let mut meshes = Vec::new();
         let mut mesh_tex_indices = Vec::new();
 
@@ -82,11 +174,15 @@ impl GltfLoader {
                     .ok_or("primitive has no positions")?
                     .collect();
 
-                let indices: Vec<u32> = reader
-                    .read_indices()
-                    .ok_or("primitive has no indices")?
-                    .into_u32()
-                    .collect();
+                // Some valid glTF primitives omit the indices accessor entirely
+                // (a flat, non-indexed triangle list -- legal per the glTF spec,
+                // and used by real-world assets, e.g. Khronos's own Fox sample
+                // model). Fall back to a sequential 0..N index buffer rather
+                // than rejecting the whole file.
+                let indices: Vec<u32> = match reader.read_indices() {
+                    Some(indices) => indices.into_u32().collect(),
+                    None => (0..positions.len() as u32).collect(),
+                };
 
                 let colors: Vec<[f32; 3]> = reader
                     .read_colors(0)
@@ -102,6 +198,22 @@ impl GltfLoader {
                     .read_tex_coords(0)
                     .map(|t| t.into_f32().collect())
                     .unwrap_or_else(|| vec![[0.0, 0.0]; positions.len()]);
+
+                let skin: Option<Vec<VertexSkin>> = {
+                    let joints_u16: Option<Vec<[u16; 4]>> =
+                        reader.read_joints(0).map(|j| j.into_u16().collect());
+                    let weights_f32: Option<Vec<[f32; 4]>> =
+                        reader.read_weights(0).map(|w| w.into_f32().collect());
+                    match (joints_u16, weights_f32) {
+                        (Some(js), Some(ws)) => Some(
+                            js.into_iter()
+                                .zip(ws)
+                                .map(|(joints, weights)| VertexSkin { joints, weights })
+                                .collect(),
+                        ),
+                        _ => None,
+                    }
+                };
 
                 let vertices: Vec<Vertex> = positions
                     .into_iter()
@@ -120,6 +232,7 @@ impl GltfLoader {
                     name: name.clone(),
                     vertices,
                     indices,
+                    skin,
                 });
                 mesh_tex_indices.push(tex_idx);
             }
@@ -132,6 +245,8 @@ impl GltfLoader {
             images,
             mesh_tex_indices,
             animations,
+            skins,
+            nodes,
         })
     }
 }
@@ -233,8 +348,35 @@ mod tests {
             images: vec![],
             mesh_tex_indices: vec![],
             animations: vec![],
+            skins: vec![],
+            nodes: vec![],
         };
         assert_eq!(loaded.animations.len(), 0);
+    }
+
+    #[test]
+    fn skin_joint_and_node_data_default_empty_for_unskinned_asset() {
+        let result = GltfLoader::load_full("nonexistent.gltf");
+        assert!(result.is_err());
+        let loaded = LoadedGltf {
+            meshes: vec![],
+            images: vec![],
+            mesh_tex_indices: vec![],
+            animations: vec![],
+            skins: vec![],
+            nodes: vec![],
+        };
+        assert!(loaded.skins.is_empty());
+        assert!(loaded.nodes.is_empty());
+    }
+
+    #[test]
+    fn node_transform_decomposes_identity_by_default() {
+        let n = NodeTransform::default();
+        assert_eq!(n.translation, [0.0, 0.0, 0.0]);
+        assert_eq!(n.rotation, [0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(n.scale, [1.0, 1.0, 1.0]);
+        assert_eq!(n.parent, None);
     }
 
     #[test]

@@ -1,11 +1,12 @@
 use bevy_app::{App, Plugin, Update};
 use bevy_ecs::prelude::*;
-use bsengine_core::{GlobalTransform, Material, Transform};
+use bsengine_core::{AnimationPlayer, GlobalTransform, Material, Transform};
 use bsengine_render::MeshRenderer;
 use bsengine_rhi_wgpu::{GpuMeshRegistry, GpuTextureRegistry};
 use tracing::warn;
 
 use crate::loader::GltfLoader;
+use crate::skinned_mesh::{AnimationClipLibrary, SkinnedMesh};
 
 /// Marker component requesting that a GLTF/GLB file be loaded onto this
 /// entity; replaced by `MeshRenderer`/`Material` once loading completes.
@@ -71,6 +72,39 @@ fn load_gltf_assets(
                     if first {
                         let mut e = commands.entity(entity);
                         e.insert((MeshRenderer { mesh_id }, mat));
+                        if let Some(skin_verts) =
+                            mesh_data.skin.clone().filter(|_| !loaded.skins.is_empty())
+                        {
+                            let skin_data = loaded.skins[0].clone();
+                            let clip_library =
+                                AnimationClipLibrary::from_clips(loaded.animations.clone());
+                            let first_clip_name = clip_library
+                                .clips
+                                .keys()
+                                .next()
+                                .cloned()
+                                .unwrap_or_default();
+                            // AnimationPlayer::new defaults duration to 0.0, and
+                            // AnimationPlayer::tick is a no-op whenever duration <= 0.0
+                            // -- without this, the player's `time` would never
+                            // advance and the clip would appear frozen forever.
+                            let duration = clip_library
+                                .clips
+                                .get(&first_clip_name)
+                                .map(|c| c.duration)
+                                .unwrap_or(0.0);
+                            e.insert((
+                                SkinnedMesh {
+                                    mesh_id,
+                                    rest_vertices: mesh_data.vertices.clone(),
+                                    skin: skin_verts,
+                                    skin_data,
+                                    nodes: loaded.nodes.clone(),
+                                },
+                                clip_library,
+                                AnimationPlayer::new(first_clip_name).with_duration(duration),
+                            ));
+                        }
                         e.remove::<GltfAsset>();
                         if existing_transform.is_none() {
                             e.insert((Transform::default(), GlobalTransform::default()));
@@ -137,5 +171,23 @@ mod tests {
         let e = app.world_mut().spawn(GltfAsset::new("bad.gltf")).id();
         app.update();
         assert!(app.world().get::<GltfAsset>(e).is_some());
+    }
+
+    #[test]
+    fn unskinned_gltf_asset_does_not_attach_skinning_components() {
+        // Reuses the existing missing-file error path: even before hitting
+        // the skin-attach branch, a load failure or an empty-skins result
+        // must never insert SkinnedMesh. This is a smoke test that the new
+        // branch is correctly gated, not a full skinned-asset test (that's
+        // Task 7, once a real .glb fixture exists).
+        let mut app = new_app();
+        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(GltfPlugin);
+        let e = app.world_mut().spawn(GltfAsset::new("missing.gltf")).id();
+        app.update();
+        assert!(app
+            .world()
+            .get::<crate::skinned_mesh::SkinnedMesh>(e)
+            .is_none());
     }
 }

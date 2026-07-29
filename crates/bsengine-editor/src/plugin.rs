@@ -1636,6 +1636,13 @@ impl Plugin for EditorPlugin {
         app.register_type::<bsengine_core::GlobalTransform>();
         app.register_type::<bsengine_core::Parent>();
         app.register_type::<bsengine_core::AnimationStateMachine>();
+        // AnimationStateMachine::triggers is a HashSet<String>; unlike Map/List/Struct
+        // fields, HashSet isn't structurally recursed by TypedReflectDeserializer and
+        // needs its value-kind ReflectDeserialize registered explicitly, or JSON
+        // authoring via set_reflected_component fails with "doesn't have
+        // ReflectDeserialize" even for an empty `[]` (confirmed via a throwaway probe
+        // test during design research).
+        app.register_type_data::<std::collections::HashSet<String>, bevy_reflect::ReflectDeserialize>();
         app.register_type::<bsengine_core::Tween>();
         app.register_type::<Tags>();
         app.register_type::<bsengine_scene::Primitive>();
@@ -1661,6 +1668,15 @@ impl Plugin for EditorPlugin {
         app.add_systems(Update, process_editor_commands);
         app.add_systems(Update, process_reflect_commands.after(process_editor_commands));
         app.add_systems(Update, apply_history_action.after(process_editor_commands));
+
+        // Captured once here (rather than inside the `if let` below) and cloned
+        // per-tool like `snapshot`/`cmd_queue` are -- `app.world_mut()` backs the
+        // `mcp` binding for the rest of this function, so `app.world()` can't be
+        // called again inside that block without a borrow conflict.
+        let type_registry = app
+            .world()
+            .resource::<bevy_ecs::reflect::AppTypeRegistry>()
+            .clone();
 
         if let Some(mcp) = app.world_mut().get_resource_mut::<McpRegistryResource>() {
             // list_entities
@@ -29028,6 +29044,88 @@ impl Plugin for EditorPlugin {
                     McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
                 }),
             });
+
+            // set_reflected_component — generic attach-or-update for any
+            // #[derive(Reflect, Component)] type, from a JSON value matching its
+            // field shape. Closes the gap where AnimationStateMachine/NavMeshAgent/
+            // Shield/Bloom/ToneMap have no attach path anywhere in the ~700-tool
+            // MCP surface (their scripting setters are no-ops on a missing
+            // component; only the native GUI's "Add Component" picker could attach
+            // them before this). Reuses the exact ApplyComponentValue path the
+            // GUI's own reflected field editor already goes through.
+            let reflect_queue_for_set = reflect_cmd_queue.clone();
+            let type_registry_for_set = type_registry.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "set_reflected_component".to_string(),
+                description: "Attach (if missing) or update a reflected component on an \
+                    entity by its fully-qualified type path, from a JSON value matching \
+                    the component's field shape. Applied next frame via the same path \
+                    the Inspector's generic reflected field editor uses. Works for any \
+                    type registered with app.register_type -- including \
+                    AnimationStateMachine, NavMeshAgent, Shield, Bloom, ToneMap, and any \
+                    other component with no dedicated attach tool. Example value_json for \
+                    NavMeshAgent: {\"destination\": null, \"speed\": 3.5, \"angular_speed\": \
+                    2.0, \"acceleration\": 8.0, \"stopping_distance\": 0.1, \"radius\": 0.3, \
+                    \"height\": 1.8, \"state\": \"Idle\", \"enabled\": true}"
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer" },
+                        "type_path": {
+                            "type": "string",
+                            "description": "e.g. bsengine_core::nav_mesh_agent::NavMeshAgent"
+                        },
+                        "value_json": {
+                            "type": "string",
+                            "description": "JSON object matching the component's fields"
+                        },
+                    },
+                    "required": ["entity_id", "type_path", "value_json"],
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(v) => v,
+                        None => return McpToolOutput::error("missing entity_id"),
+                    };
+                    let type_path = match input["type_path"].as_str() {
+                        Some(v) => v.to_string(),
+                        None => return McpToolOutput::error("missing type_path"),
+                    };
+                    let value_json = match input["value_json"].as_str() {
+                        Some(v) => v.to_string(),
+                        None => return McpToolOutput::error("missing value_json"),
+                    };
+                    let registry = type_registry_for_set.read();
+                    let Some(registration) = registry.get_with_type_path(&type_path) else {
+                        return McpToolOutput::error(&format!(
+                            "unknown type path '{type_path}'"
+                        ));
+                    };
+                    let de = bevy_reflect::serde::TypedReflectDeserializer::new(
+                        registration,
+                        &registry,
+                    );
+                    let mut deserializer = serde_json::Deserializer::from_str(&value_json);
+                    let value =
+                        match serde::de::DeserializeSeed::deserialize(de, &mut deserializer) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                return McpToolOutput::error(&format!(
+                                    "value_json doesn't match '{type_path}': {e}"
+                                ))
+                            }
+                        };
+                    reflect_queue_for_set.lock().unwrap().push(
+                        ReflectCommand::ApplyComponentValue {
+                            entity_id,
+                            type_path,
+                            value,
+                        },
+                    );
+                    McpToolOutput::success(json!({ "queued": true }))
+                }),
+            });
         }
     }
 }
@@ -29049,7 +29147,7 @@ mod tests {
     use super::EditorPlugin;
     use bsengine_app::new_app;
     use bsengine_core::{InspectorCmd, InspectorState, Parent, Transform};
-    use bsengine_mcp::McpPlugin;
+    use bsengine_mcp::{McpPlugin, McpRegistryResource};
     use bsengine_scene::Name;
     use glam::Vec3;
     use serde_json::json;
@@ -91280,5 +91378,122 @@ mod tests {
                  enum-variant-switch UI features to work in the real app"
             );
         }
+    }
+
+    #[test]
+    fn set_reflected_component_attaches_nav_mesh_agent_with_given_speed() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app.world_mut().spawn(Name("Enemy".to_string())).id();
+        app.update();
+
+        let out = {
+            let mcp = app.world().resource::<McpRegistryResource>();
+            let registry = mcp.0.lock().unwrap();
+            registry.execute("set_reflected_component", json!({
+                "entity_id": eid.index() as u64,
+                "type_path": "bsengine_core::nav_mesh_agent::NavMeshAgent",
+                "value_json": r#"{"destination": null, "speed": 3.5, "angular_speed": 2.0, "acceleration": 8.0, "stopping_distance": 0.1, "radius": 0.3, "height": 1.8, "state": "Idle", "enabled": true}"#,
+            })).expect("tool should be registered")
+        };
+        assert!(out.is_ok(), "{:?}", out.error);
+
+        app.update();
+
+        let agent = app
+            .world()
+            .get::<bsengine_core::NavMeshAgent>(eid)
+            .expect("NavMeshAgent should now be attached");
+        assert!((agent.speed - 3.5).abs() < 0.001);
+        assert!(agent.enabled);
+    }
+
+    #[test]
+    fn set_reflected_component_attaches_animation_state_machine_with_states() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app.world_mut().spawn(Name("Player".to_string())).id();
+        app.update();
+
+        let value_json = r#"{
+            "states": {
+                "idle": {"clip": "idle_clip", "looping": true, "speed": 1.0, "duration": 1.0},
+                "walk": {"clip": "walk_clip", "looping": true, "speed": 1.0, "duration": 1.0}
+            },
+            "transitions": [
+                {"from": "idle", "to": "walk", "condition": {"FloatGreater": {"param": "speed", "threshold": 0.1}}, "blend_duration": 0.2}
+            ],
+            "current_state": "idle",
+            "params_float": {"speed": 0.0},
+            "params_bool": {},
+            "triggers": [],
+            "blend_from": null,
+            "blend_weight": 1.0,
+            "blend_duration": 0.0,
+            "blend_elapsed": 0.0
+        }"#;
+        let out = {
+            let mcp = app.world().resource::<McpRegistryResource>();
+            let registry = mcp.0.lock().unwrap();
+            registry.execute("set_reflected_component", json!({
+                "entity_id": eid.index() as u64,
+                "type_path": "bsengine_core::animation_state_machine::AnimationStateMachine",
+                "value_json": value_json,
+            })).expect("tool should be registered")
+        };
+        assert!(out.is_ok(), "{:?}", out.error);
+
+        app.update();
+
+        let asm = app
+            .world()
+            .get::<bsengine_core::AnimationStateMachine>(eid)
+            .expect("AnimationStateMachine should now be attached");
+        assert_eq!(asm.current_state, "idle");
+        assert!(asm.states.contains_key("walk"));
+        assert_eq!(asm.transitions.len(), 1);
+    }
+
+    #[test]
+    fn set_reflected_component_rejects_unknown_type_path() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app.world_mut().spawn(Name("X".to_string())).id();
+        app.update();
+
+        let out = {
+            let mcp = app.world().resource::<McpRegistryResource>();
+            let registry = mcp.0.lock().unwrap();
+            registry.execute("set_reflected_component", json!({
+                "entity_id": eid.index() as u64,
+                "type_path": "not::a::real::Type",
+                "value_json": "{}",
+            })).expect("tool should be registered")
+        };
+        assert!(!out.is_ok());
+        assert!(out.error.unwrap().contains("unknown type path"));
+    }
+
+    #[test]
+    fn set_reflected_component_rejects_json_not_matching_the_type() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app.world_mut().spawn(Name("X".to_string())).id();
+        app.update();
+
+        let out = {
+            let mcp = app.world().resource::<McpRegistryResource>();
+            let registry = mcp.0.lock().unwrap();
+            registry.execute("set_reflected_component", json!({
+                "entity_id": eid.index() as u64,
+                "type_path": "bsengine_core::nav_mesh_agent::NavMeshAgent",
+                "value_json": r#"{"speed": "not a number"}"#,
+            })).expect("tool should be registered")
+        };
+        assert!(!out.is_ok());
     }
 }

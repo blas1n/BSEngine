@@ -1756,6 +1756,7 @@ impl Plugin for EditorPlugin {
         app.register_type::<bsengine_core::Lifetime>();
         app.register_type::<bsengine_core::Mass>();
         app.register_type::<bsengine_core::NetworkId>();
+        app.register_type::<bsengine_core::SaveData>();
         app.register_type::<bsengine_core::Shield>();
         app.register_type::<bsengine_core::Skybox>();
         app.register_type::<bsengine_core::Timer>();

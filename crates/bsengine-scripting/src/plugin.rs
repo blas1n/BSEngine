@@ -27,10 +27,10 @@ use crate::ops::{
     MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT,
     MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, NAV_SNAPSHOT, NETWORK_ID_SNAPSHOT,
     NETWORK_STATE_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, RESTITUTION_SNAPSHOT,
-    SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT,
-    SOUND_STATE_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT,
-    TONE_MAP_SNAPSHOT, TRANSFORM_SNAPSHOT, TWEEN_SNAPSHOT, UI_CLICKED_SNAPSHOT, VELOCITY_SNAPSHOT,
-    VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
+    SAVE_DATA_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT,
+    SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT,
+    TIME_ELAPSED_SNAPSHOT, TONE_MAP_SNAPSHOT, TRANSFORM_SNAPSHOT, TWEEN_SNAPSHOT,
+    UI_CLICKED_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -770,6 +770,18 @@ fn run_scripts(world: &mut World) {
                     if let Some(mut sh) = world.get_mut::<Shield>(e) {
                         sh.max = value.max(0.0);
                         sh.current = sh.current.min(sh.max);
+                    }
+                }
+            }
+            ScriptCommand::SetSaveField { name, key, value } => {
+                use bsengine_core::SaveData;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut sd) = world.get_mut::<SaveData>(e) {
+                        sd.set(key, value.into_bytes());
                     }
                 }
             }
@@ -2541,6 +2553,20 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
         SHIELD_SNAPSHOT.with(|s| *s.borrow_mut() = shield_map);
     }
     {
+        use bsengine_core::SaveData;
+        let mut save_map = std::collections::HashMap::new();
+        let mut q = world.query::<(&Name, &SaveData)>();
+        for (name, sd) in q.iter(world) {
+            let fields: std::collections::HashMap<String, String> = sd
+                .fields
+                .iter()
+                .filter_map(|(k, v)| String::from_utf8(v.clone()).ok().map(|s| (k.clone(), s)))
+                .collect();
+            save_map.insert(name.0.clone(), fields);
+        }
+        SAVE_DATA_SNAPSHOT.with(|s| *s.borrow_mut() = save_map);
+    }
+    {
         use bsengine_core::Timer;
         let mut timer_map = std::collections::HashMap::new();
         let mut q = world.query::<(&Name, &Timer)>();
@@ -2733,7 +2759,7 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
 
 #[cfg(test)]
 mod tests {
-    use super::{ScriptRuntimeResource, ScriptingPlugin};
+    use super::{Name, ScriptPath, ScriptRuntimeResource, ScriptingPlugin};
     use bsengine_app::new_app;
 
     #[test]
@@ -2759,5 +2785,43 @@ mod tests {
             .eval("40 + 2");
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "42");
+    }
+
+    #[test]
+    fn set_save_field_round_trips_through_world() {
+        use bsengine_core::SaveData;
+
+        let script_path = std::env::temp_dir().join(format!(
+            "bsengine_test_set_save_field_{}.js",
+            std::process::id()
+        ));
+        std::fs::write(
+            &script_path,
+            "function onUpdate(name) { Bsengine.setSaveField(name, \"score\", \"99\"); }",
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(ScriptingPlugin {
+            project_dir: String::new(),
+        });
+        app.world_mut().spawn((
+            Name("Hero".to_string()),
+            SaveData::new(0),
+            ScriptPath(script_path.to_string_lossy().to_string()),
+        ));
+
+        app.update();
+        app.update();
+
+        let world = app.world_mut();
+        let mut q = world.query::<(&Name, &SaveData)>();
+        let (_, save) = q
+            .iter(world)
+            .find(|(n, _)| n.0 == "Hero")
+            .expect("Hero entity with SaveData not found");
+        assert_eq!(save.get("score"), Some(b"99".as_slice()));
+
+        let _ = std::fs::remove_file(&script_path);
     }
 }

@@ -1,9 +1,11 @@
-use bevy_ecs::prelude::Component;
+use bevy_ecs::prelude::{Component, ReflectComponent};
+use bevy_reflect::Reflect;
 use std::collections::HashMap;
 
 /// A simple key-value save slot attached to a player entity.
 /// Values are stored as raw bytes; higher-level systems serialize/deserialize them.
-#[derive(Component, Debug, Clone, PartialEq)]
+#[derive(Component, Debug, Clone, PartialEq, Reflect)]
+#[reflect(Component)]
 pub struct SaveData {
     /// Which save slot this data belongs to.
     pub slot: u32,

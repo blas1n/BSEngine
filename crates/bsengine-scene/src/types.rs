@@ -92,7 +92,14 @@ pub struct EntityDescriptor {
     /// Collision shape and material; requires `rigidbody` to also be set to take effect.
     #[serde(default)]
     pub collider: Option<ColliderDesc>,
-    /// Legacy (name, json) component pairs, kept for backwards compatibility.
+    /// Reflected components not covered by this struct's own typed fields
+    /// (e.g. `AnimationStateMachine`, `NavMeshAgent`, `Shield`, `Bloom`,
+    /// `ToneMap`), as (fully-qualified type path, RON-encoded value) pairs.
+    /// Applied via `bevy_reflect`'s `TypedReflectDeserializer` against the
+    /// app's registered types — the same mechanism `set_reflected_component`
+    /// (the MCP tool) and the Inspector's generic reflected-field editor use.
+    /// An unknown type path or a value that doesn't match the type's shape
+    /// logs a warning and is skipped, not a hard load failure.
     #[serde(default)]
     pub components: Vec<(String, String)>,
 }

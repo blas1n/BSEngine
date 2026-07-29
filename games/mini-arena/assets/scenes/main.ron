@@ -29,6 +29,29 @@ SceneDescriptor(entities: [
         rigidbody: Some(Kinematic),
         collider: Some((shape: Capsule(half_height: 0.5, radius: 0.35), friction: 0.3)),
         script: Some("assets/scripts/player.js"),
+        components: [
+            ("bsengine_core::animation_state_machine::AnimationStateMachine", r#"(
+                states: {
+                    "idle": (clip: "Survey", looping: true, speed: 1.0, duration: 1.0),
+                    "walk": (clip: "Walk", looping: true, speed: 1.0, duration: 1.0),
+                    "run": (clip: "Run", looping: true, speed: 1.0, duration: 1.0),
+                },
+                transitions: [
+                    (from: "idle", to: "walk", condition: FloatGreater(param: "speed", threshold: 0.1), blend_duration: 0.15),
+                    (from: "walk", to: "idle", condition: FloatLess(param: "speed", threshold: 0.1), blend_duration: 0.15),
+                    (from: "walk", to: "run", condition: FloatGreater(param: "speed", threshold: 3.0), blend_duration: 0.2),
+                    (from: "run", to: "walk", condition: FloatLess(param: "speed", threshold: 3.0), blend_duration: 0.2),
+                ],
+                current_state: "idle",
+                params_float: {"speed": 0.0},
+                params_bool: {},
+                triggers: [],
+                blend_from: None,
+                blend_weight: 1.0,
+                blend_duration: 0.0,
+                blend_elapsed: 0.0,
+            )"#),
+        ],
     ),
     EntityDescriptor(
         name: "Enemy",

@@ -25,10 +25,7 @@ SceneDescriptor(entities: [
     ),
     EntityDescriptor(
         name: "Player",
-        // NOTE: `gltf:` paths resolve relative to the process CWD, not the
-        // project dir (pre-existing, logged gap). Only run via
-        // `cargo run -p bsengine-runtime -- ./games/mini-arena` from the repo root.
-        gltf: Some("games/mini-arena/assets/models/fox.glb"),
+        gltf: Some("assets/models/fox.glb"),
         transform: Some((translation: (0.0, 0.0, 0.0), scale: (0.02, 0.02, 0.02))),
         rigidbody: Some(Kinematic),
         collider: Some((shape: Capsule(half_height: 0.5, radius: 0.35), friction: 0.3)),
@@ -61,7 +58,7 @@ SceneDescriptor(entities: [
     ),
     EntityDescriptor(
         name: "Enemy",
-        gltf: Some("games/mini-arena/assets/models/fox.glb"),
+        gltf: Some("assets/models/fox.glb"),
         transform: Some((translation: (5.0, 0.0, 5.0), scale: (0.02, 0.02, 0.02))),
         rigidbody: Some(Kinematic),
         collider: Some((shape: Capsule(half_height: 0.5, radius: 0.35), friction: 0.3)),

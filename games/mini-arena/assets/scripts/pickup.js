@@ -5,11 +5,7 @@ const BASE_R = 0.2, BASE_G = 0.6, BASE_B = 1.0;
 
 function onUpdate(self) {
     if (!shaderAssigned) {
-        // CWD-relative, same as `gltf:` scene paths -- NOT project-dir-relative
-        // like `script:` paths. Confirmed against ScriptCommand::SetCustomShader
-        // in bsengine-scripting/src/plugin.rs (no ProjectDir join) and the
-        // std::fs::read_to_string call in bsengine-render/src/plugin.rs.
-        Bsengine.setShader(self, "games/mini-arena/assets/shaders/glow.wgsl");
+        Bsengine.setShader(self, "assets/shaders/glow.wgsl");
         shaderAssigned = true;
     }
 

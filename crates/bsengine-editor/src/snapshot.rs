@@ -78,6 +78,8 @@ pub struct EntityInfo {
     /// components with no dedicated field (e.g. `NavMeshAgent`, `Shield`)
     /// still persist.
     pub extra_components: Vec<(String, String)>,
+    /// Physics body (rigidbody + collider), if the entity has one.
+    pub physics_body: Option<bsengine_scene::PhysicsBodyDesc>,
 }
 
 /// Full flattened capture of every tracked entity in the world, taken once

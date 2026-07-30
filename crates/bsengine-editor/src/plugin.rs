@@ -38,6 +38,7 @@ fn update_editor_snapshot(
         (
             Option<&PrimitiveMesh>,
             Option<&bsengine_scene::ScriptPath>,
+            Option<&bsengine_scene::PhysicsBodyDesc>,
         ),
     )>,
 ) {
@@ -46,7 +47,7 @@ fn update_editor_snapshot(
     snapshot.entities = query
         .iter()
         .map(
-            |(e, name, transform, mesh, pt, dir, spot, cam, parent, tags, vis, mat, (prim, script))| {
+            |(e, name, transform, mesh, pt, dir, spot, cam, parent, tags, vis, mat, (prim, script, physics_body))| {
                 let light_type = if pt.is_some() {
                     Some("point".to_string())
                 } else if dir.is_some() {
@@ -93,6 +94,7 @@ fn update_editor_snapshot(
                     visible: vis.map(|v| v.is_visible).unwrap_or(true),
                     selected: selection.contains(&(e.index() as u64)),
                     extra_components: Vec::new(),
+                    physics_body: physics_body.cloned(),
                 }
             },
         )
@@ -698,6 +700,12 @@ fn process_editor_commands(
                             ..Default::default()
                         });
                     }
+                    if let (Some(rb), Some(col)) = (&entity.rigidbody, &entity.collider) {
+                        eb.insert(bsengine_scene::PhysicsBodyDesc {
+                            rigidbody: rb.clone(),
+                            collider: col.clone(),
+                        });
+                    }
                     for (type_path, value_ron) in &entity.components {
                         let registry = type_registry_res.read();
                         let Some(registration) = registry.get_with_type_path(type_path) else {
@@ -1007,8 +1015,8 @@ fn spawn_entity_from_info(world: &mut World, info: &EntityInfo) -> Entity {
 
 /// Builds RON-serializable `EntityDescriptor`s from tracked snapshot entities.
 /// Only named entities are included (unnamed entities aren't addressable in
-/// scene files). GLTF paths and physics rigidbody/collider are not tracked by
-/// `EntityInfo` and are intentionally left `None` here.
+/// scene files). GLTF paths are not tracked by `EntityInfo` and are
+/// intentionally left `None` here.
 fn build_entity_descriptors(entities: &[EntityInfo]) -> Vec<EntityDescriptor> {
     entities
         .iter()
@@ -1080,8 +1088,8 @@ fn build_entity_descriptors(entities: &[EntityInfo]) -> Vec<EntityDescriptor> {
                     emissive: e.material_emissive,
                     color: e.material_base_color,
                     look_at: None,
-                    rigidbody: None,
-                    collider: None,
+                    rigidbody: e.physics_body.as_ref().map(|p| p.rigidbody.clone()),
+                    collider: e.physics_body.as_ref().map(|p| p.collider.clone()),
                 }
             })
         })
@@ -91238,6 +91246,81 @@ mod tests {
             assert_eq!(results[0].0 .0, "Enemy");
             assert!((results[0].1.speed - 3.5).abs() < 1e-4);
             assert!(results[0].1.enabled);
+        }
+    }
+
+    #[test]
+    fn mcp_save_load_scene_round_trip_preserves_physics_body_attached_via_mcp() {
+        let path = std::env::temp_dir()
+            .join("bsengine_test_roundtrip_physics_body.ron")
+            .to_string_lossy()
+            .to_string();
+
+        {
+            let mut app = new_app();
+            app.add_plugins(McpPlugin);
+            app.add_plugins(EditorPlugin);
+            let eid = app
+                .world_mut()
+                .spawn((
+                    Name("Crate".to_string()),
+                    Transform::from_translation(Vec3::new(2.0, 0.0, 0.0)),
+                ))
+                .id();
+            app.update();
+
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                let out = mcp
+                    .0
+                    .lock()
+                    .unwrap()
+                    .execute(
+                        "attach_physics_body",
+                        json!({
+                            "entity_id": eid.index() as u64,
+                            "rigidbody": "Static",
+                            "collider_shape": "Box",
+                            "hx": 1.0, "hy": 1.0, "hz": 1.0,
+                        }),
+                    )
+                    .expect("attach_physics_body not found");
+                assert!(out.is_ok(), "{:?}", out.error);
+            }
+            app.update();
+            app.update();
+
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let r = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("save_scene", json!({"path": path}))
+                .unwrap();
+            assert!(r.is_ok(), "{:?}", r.error);
+        }
+
+        {
+            let mut app = new_app();
+            app.add_plugins(McpPlugin);
+            app.add_plugins(EditorPlugin);
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0
+                    .lock()
+                    .unwrap()
+                    .execute("load_scene", json!({"path": path}))
+                    .expect("load_scene not found");
+            }
+            app.update();
+
+            let mut q = app
+                .world_mut()
+                .query::<(&Name, &bsengine_scene::PhysicsBodyDesc)>();
+            let results: Vec<_> = q.iter(app.world()).collect();
+            assert_eq!(results.len(), 1, "PhysicsBodyDesc missing after load");
+            assert_eq!(results[0].0 .0, "Crate");
+            assert_eq!(results[0].1.rigidbody, bsengine_scene::RigidBodyDesc::Static);
         }
     }
 

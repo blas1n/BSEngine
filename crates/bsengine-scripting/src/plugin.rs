@@ -920,7 +920,8 @@ fn run_scripts(world: &mut World) {
                     q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
                 };
                 if let Some(e) = entity {
-                    world.entity_mut(e).insert(CustomShader { path });
+                    let resolved = resolve_project_path(world.get_resource::<ProjectDir>(), &path);
+                    world.entity_mut(e).insert(CustomShader { path: resolved });
                 }
             }
             ScriptCommand::NetworkStartServer { port } => {
@@ -2905,5 +2906,53 @@ mod tests {
         );
 
         let _ = std::fs::remove_file(&script_path);
+    }
+
+    #[test]
+    fn set_shader_resolves_path_against_project_dir() {
+        use bsengine_core::CustomShader;
+
+        // `load_scripts` also resolves `ScriptPath` against `ProjectDir` (see
+        // its doc comment above), so an absolute `ScriptPath` combined with a
+        // non-empty `project_dir` would make script loading itself fail
+        // (project_dir gets prefixed onto an already-absolute path). Using a
+        // real temp directory as `project_dir` with a project-relative
+        // `ScriptPath`, mirroring how a real game's `project_dir` +
+        // `assets/scripts/...` are related, keeps both resolutions valid.
+        let project_dir = std::env::temp_dir().join(format!(
+            "bsengine_test_set_shader_project_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&project_dir).unwrap();
+        std::fs::write(
+            project_dir.join("set_shader.js"),
+            "function onUpdate(name) { Bsengine.setShader(name, \"shaders/glow.wgsl\"); }",
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(ScriptingPlugin {
+            project_dir: project_dir.to_string_lossy().to_string(),
+        });
+        app.world_mut().spawn((
+            Name("Hero".to_string()),
+            ScriptPath("set_shader.js".to_string()),
+        ));
+
+        app.update();
+        app.update();
+
+        let world = app.world_mut();
+        let mut q = world.query::<(&Name, &CustomShader)>();
+        let (_, shader) = q
+            .iter(world)
+            .find(|(n, _)| n.0 == "Hero")
+            .expect("Hero entity with CustomShader not found");
+        assert_eq!(
+            shader.path,
+            format!("{}/shaders/glow.wgsl", project_dir.to_string_lossy())
+        );
+
+        let _ = std::fs::remove_dir_all(&project_dir);
     }
 }

@@ -14,7 +14,7 @@ struct CameraUniform {
     view_proj: mat4x4<f32>,
     light_view_proj: mat4x4<f32>,
     cam_pos: vec3<f32>,
-    _pad: f32,
+    time: f32,
 };
 struct ModelUniform {
     model: mat4x4<f32>,
@@ -285,7 +285,10 @@ struct CameraUniformData {
     view_proj: [[f32; 4]; 4],
     light_view_proj: [[f32; 4]; 4],
     cam_pos: [f32; 3],
-    _pad: f32,
+    /// Seconds elapsed since app startup — was an unused padding field
+    /// (`cam_pos: vec3<f32>` needs 16-byte alignment; this fills the
+    /// remaining 4 bytes), now exposed to shaders as `camera.time`.
+    time: f32,
 }
 
 /// Material parameters uploaded per draw call.
@@ -1254,12 +1257,13 @@ impl WgpuSurface {
         alt_held: bool,
         editor_panels: Option<&bsengine_core::EditorPanelRegistry>,
         type_registry: Option<&bevy_ecs::reflect::AppTypeRegistry>,
+        elapsed_seconds: f32,
     ) -> Result<std::collections::HashSet<String>, String> {
         let camera_data = CameraUniformData {
             view_proj: view_proj.to_cols_array_2d(),
             light_view_proj: light_view_proj.to_cols_array_2d(),
             cam_pos: cam_pos.to_array(),
-            _pad: 0.0,
+            time: elapsed_seconds,
         };
         self.queue
             .write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[camera_data]));
@@ -2197,6 +2201,28 @@ mod tests {
     fn mesh_shader_compiles() {
         let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless rhi");
         let _module = WgpuSurface::compile_shader(&rhi.device, MESH_WGSL);
+    }
+
+    #[test]
+    fn camera_uniform_data_time_field_at_correct_byte_offset() {
+        let data = CameraUniformData {
+            view_proj: [[0.0; 4]; 4],
+            light_view_proj: [[0.0; 4]; 4],
+            cam_pos: [1.0, 2.0, 3.0],
+            time: 42.5,
+        };
+        assert_eq!(
+            std::mem::size_of::<CameraUniformData>(),
+            CAMERA_UNIFORM_SIZE as usize
+        );
+        let bytes = bytemuck::bytes_of(&data);
+        // view_proj(64) + light_view_proj(64) + cam_pos(12) = 140, time starts at 140... but
+        // cam_pos:vec3<f32> requires 16-byte alignment in the uniform buffer layout this struct
+        // mirrors, so time actually lands at offset 140 within this Rust repr(C) struct (no
+        // padding is inserted by Rust here since f32 has 4-byte alignment) -- what matters for
+        // the GPU is CAMERA_UNIFORM_SIZE staying 144 and this field being the last 4 bytes.
+        let time_bytes = &bytes[140..144];
+        assert_eq!(f32::from_ne_bytes(time_bytes.try_into().unwrap()), 42.5);
     }
 
     #[test]

@@ -3,7 +3,7 @@ use bevy_ecs::prelude::{Entity, EventReader, IntoSystemConfigs, ParamSet, Query,
 use bsengine_core::{
     AmbientOcclusion, Bloom, Camera, CustomShader, DirectionalLight, EditorPanelRegistry,
     EditorPlayState, GlobalTransform, HudTexts, InspectorState, Material, Parent, PointLight,
-    SkyboxPath, SpotLight, ToneMap, Transform, UiState, Visible,
+    SkyboxPath, SpotLight, Time, ToneMap, Transform, UiState, Visible,
 };
 use bsengine_ecs::Res;
 use bsengine_input::{Input, KeyCode, KeyInput, MouseButton, MouseState};
@@ -102,6 +102,7 @@ fn propagate_children(
 #[allow(clippy::too_many_arguments)] // Bevy system params; splitting into a struct is a larger refactor
 fn render_frame(
     surface: Option<ResMut<WgpuSurfaceResource>>,
+    time: Option<Res<Time>>,
     registry: Option<Res<GpuMeshRegistry>>,
     tex_registry: Option<Res<GpuTextureRegistry>>,
     hud_texts: Option<Res<HudTexts>>,
@@ -354,6 +355,7 @@ fn render_frame(
         alt_held,
         editor_panels.as_deref(),
         type_registry.as_deref(),
+        time.as_deref().map(|t| t.elapsed_seconds).unwrap_or(0.0),
     ) {
         Ok(clicked) => {
             if let Some(ref mut state) = ui_state {

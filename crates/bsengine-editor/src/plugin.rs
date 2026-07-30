@@ -38,6 +38,7 @@ fn update_editor_snapshot(
         (
             Option<&PrimitiveMesh>,
             Option<&bsengine_scene::ScriptPath>,
+            Option<&bsengine_scene::PhysicsBodyDesc>,
         ),
     )>,
 ) {
@@ -46,7 +47,7 @@ fn update_editor_snapshot(
     snapshot.entities = query
         .iter()
         .map(
-            |(e, name, transform, mesh, pt, dir, spot, cam, parent, tags, vis, mat, (prim, script))| {
+            |(e, name, transform, mesh, pt, dir, spot, cam, parent, tags, vis, mat, (prim, script, physics_body))| {
                 let light_type = if pt.is_some() {
                     Some("point".to_string())
                 } else if dir.is_some() {
@@ -93,6 +94,7 @@ fn update_editor_snapshot(
                     visible: vis.map(|v| v.is_visible).unwrap_or(true),
                     selected: selection.contains(&(e.index() as u64)),
                     extra_components: Vec::new(),
+                    physics_body: physics_body.cloned(),
                 }
             },
         )
@@ -168,6 +170,29 @@ fn process_editor_commands(
                 let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
                 if let Some(entity) = target {
                     commands.entity(entity).remove::<MeshRenderer>();
+                }
+            }
+            EditorCommand::AttachPhysicsBody {
+                entity_id,
+                rigidbody,
+                collider,
+            } => {
+                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                if let Some(entity) = target {
+                    commands
+                        .entity(entity)
+                        .insert(bsengine_scene::PhysicsBodyDesc { rigidbody, collider });
+                }
+            }
+            EditorCommand::DetachPhysicsBody { entity_id } => {
+                let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
+                if let Some(entity) = target {
+                    commands
+                        .entity(entity)
+                        .remove::<bsengine_scene::PhysicsBodyDesc>()
+                        .remove::<bsengine_physics::RigidBody>()
+                        .remove::<bsengine_physics::Collider>()
+                        .remove::<bsengine_physics::PhysicsInput>();
                 }
             }
             EditorCommand::SpawnPointLight {
@@ -675,6 +700,12 @@ fn process_editor_commands(
                             ..Default::default()
                         });
                     }
+                    if let (Some(rb), Some(col)) = (&entity.rigidbody, &entity.collider) {
+                        eb.insert(bsengine_scene::PhysicsBodyDesc {
+                            rigidbody: rb.clone(),
+                            collider: col.clone(),
+                        });
+                    }
                     for (type_path, value_ron) in &entity.components {
                         let registry = type_registry_res.read();
                         let Some(registration) = registry.get_with_type_path(type_path) else {
@@ -984,8 +1015,8 @@ fn spawn_entity_from_info(world: &mut World, info: &EntityInfo) -> Entity {
 
 /// Builds RON-serializable `EntityDescriptor`s from tracked snapshot entities.
 /// Only named entities are included (unnamed entities aren't addressable in
-/// scene files). GLTF paths and physics rigidbody/collider are not tracked by
-/// `EntityInfo` and are intentionally left `None` here.
+/// scene files). GLTF paths are not tracked by `EntityInfo` and are
+/// intentionally left `None` here.
 fn build_entity_descriptors(entities: &[EntityInfo]) -> Vec<EntityDescriptor> {
     entities
         .iter()
@@ -1057,8 +1088,8 @@ fn build_entity_descriptors(entities: &[EntityInfo]) -> Vec<EntityDescriptor> {
                     emissive: e.material_emissive,
                     color: e.material_base_color,
                     look_at: None,
-                    rigidbody: None,
-                    collider: None,
+                    rigidbody: e.physics_body.as_ref().map(|p| p.rigidbody.clone()),
+                    collider: e.physics_body.as_ref().map(|p| p.collider.clone()),
                 }
             })
         })
@@ -2047,6 +2078,101 @@ impl Plugin for EditorPlugin {
                         .lock()
                         .unwrap()
                         .push(EditorCommand::DetachMeshRenderer { entity_id });
+                    McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
+                }),
+            });
+
+            // attach_physics_body
+            let queue_phys_attach = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "attach_physics_body".to_string(),
+                description: "Attach a physics body (rigidbody + collider) to an entity by ID (applied next frame)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id":     { "type": "number", "description": "Entity ID" },
+                        "rigidbody":     { "type": "string", "enum": ["Dynamic", "Static", "Kinematic"] },
+                        "collider_shape":{ "type": "string", "enum": ["Box", "Sphere", "Capsule"] },
+                        "hx":            { "type": "number", "description": "Box half-extent X" },
+                        "hy":            { "type": "number", "description": "Box half-extent Y" },
+                        "hz":            { "type": "number", "description": "Box half-extent Z" },
+                        "radius":        { "type": "number", "description": "Sphere/Capsule radius" },
+                        "half_height":   { "type": "number", "description": "Capsule half-height" },
+                        "restitution":   { "type": "number", "description": "Bounciness, 0-1 (default 0.0)" },
+                        "friction":      { "type": "number", "description": "Surface friction (default 0.5)" },
+                        "sensor":        { "type": "boolean", "description": "Overlap-only, no physical collision (default false)" }
+                    },
+                    "required": ["entity_id", "rigidbody", "collider_shape"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(v) => v,
+                        None => return McpToolOutput::error("missing numeric 'entity_id' field"),
+                    };
+                    let rigidbody = match input["rigidbody"].as_str() {
+                        Some("Dynamic") => bsengine_scene::RigidBodyDesc::Dynamic,
+                        Some("Static") => bsengine_scene::RigidBodyDesc::Static,
+                        Some("Kinematic") => bsengine_scene::RigidBodyDesc::Kinematic,
+                        _ => return McpToolOutput::error(
+                            "'rigidbody' must be one of \"Dynamic\", \"Static\", \"Kinematic\"",
+                        ),
+                    };
+                    let shape = match input["collider_shape"].as_str() {
+                        Some("Box") => {
+                            let hx = input["hx"].as_f64().unwrap_or(0.5) as f32;
+                            let hy = input["hy"].as_f64().unwrap_or(0.5) as f32;
+                            let hz = input["hz"].as_f64().unwrap_or(0.5) as f32;
+                            bsengine_scene::ColliderShapeDesc::Box { hx, hy, hz }
+                        }
+                        Some("Sphere") => {
+                            let radius = input["radius"].as_f64().unwrap_or(0.5) as f32;
+                            bsengine_scene::ColliderShapeDesc::Sphere { radius }
+                        }
+                        Some("Capsule") => {
+                            let half_height = input["half_height"].as_f64().unwrap_or(0.5) as f32;
+                            let radius = input["radius"].as_f64().unwrap_or(0.3) as f32;
+                            bsengine_scene::ColliderShapeDesc::Capsule { half_height, radius }
+                        }
+                        _ => return McpToolOutput::error(
+                            "'collider_shape' must be one of \"Box\", \"Sphere\", \"Capsule\"",
+                        ),
+                    };
+                    let collider = bsengine_scene::ColliderDesc {
+                        shape,
+                        restitution: input["restitution"].as_f64().unwrap_or(0.0) as f32,
+                        friction: input["friction"].as_f64().unwrap_or(0.5) as f32,
+                        sensor: input["sensor"].as_bool().unwrap_or(false),
+                    };
+                    queue_phys_attach.lock().unwrap().push(EditorCommand::AttachPhysicsBody {
+                        entity_id,
+                        rigidbody,
+                        collider,
+                    });
+                    McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
+                }),
+            });
+
+            // detach_physics_body
+            let queue_phys_detach = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "detach_physics_body".to_string(),
+                description: "Remove an entity's physics body by ID (applied next frame)".to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "number", "description": "Entity ID" }
+                    },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(v) => v,
+                        None => return McpToolOutput::error("missing numeric 'entity_id' field"),
+                    };
+                    queue_phys_detach
+                        .lock()
+                        .unwrap()
+                        .push(EditorCommand::DetachPhysicsBody { entity_id });
                     McpToolOutput::success(json!({"status": "queued", "entity_id": entity_id}))
                 }),
             });
@@ -30475,6 +30601,53 @@ mod tests {
             .iter(app.world())
             .any(|(n, m)| n.0 == "Cube" && m.mesh_id == 42);
         assert!(found, "MeshRenderer not attached");
+    }
+
+    #[test]
+    fn mcp_attach_physics_body_adds_physics_body_desc() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app
+            .world_mut()
+            .spawn((
+                Name("Box".to_string()),
+                Transform::from_translation(Vec3::ZERO),
+            ))
+            .id();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let result = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "attach_physics_body",
+                    json!({
+                        "entity_id": eid.index() as u64,
+                        "rigidbody": "Dynamic",
+                        "collider_shape": "Sphere",
+                        "radius": 0.75,
+                    }),
+                )
+                .expect("attach_physics_body not found");
+            assert!(result.is_ok(), "{:?}", result.error);
+        }
+        app.update();
+
+        let desc = app
+            .world()
+            .get::<bsengine_scene::PhysicsBodyDesc>(eid)
+            .expect("PhysicsBodyDesc should be attached");
+        assert_eq!(desc.rigidbody, bsengine_scene::RigidBodyDesc::Dynamic);
+        match &desc.collider.shape {
+            bsengine_scene::ColliderShapeDesc::Sphere { radius } => {
+                assert!((radius - 0.75).abs() < 1e-5);
+            }
+            other => panic!("expected Sphere shape, got {other:?}"),
+        }
     }
 
     #[test]
@@ -90879,6 +91052,42 @@ mod tests {
     }
 
     #[test]
+    fn mcp_detach_physics_body_removes_physics_body_desc() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let eid = app
+            .world_mut()
+            .spawn((
+                Name("Box".to_string()),
+                Transform::from_translation(Vec3::ZERO),
+                bsengine_scene::PhysicsBodyDesc {
+                    rigidbody: bsengine_scene::RigidBodyDesc::Static,
+                    collider: bsengine_scene::ColliderDesc {
+                        shape: bsengine_scene::ColliderShapeDesc::Box { hx: 1.0, hy: 1.0, hz: 1.0 },
+                        restitution: 0.0,
+                        friction: 0.5,
+                        sensor: false,
+                    },
+                },
+            ))
+            .id();
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("detach_physics_body", json!({"entity_id": eid.index() as u64}))
+                .expect("detach_physics_body not found");
+        }
+        app.update();
+
+        assert!(app.world().get::<bsengine_scene::PhysicsBodyDesc>(eid).is_none());
+    }
+
+    #[test]
     fn mcp_save_scene_writes_ron_file() {
         let mut app = new_app();
         app.add_plugins(McpPlugin);
@@ -91037,6 +91246,81 @@ mod tests {
             assert_eq!(results[0].0 .0, "Enemy");
             assert!((results[0].1.speed - 3.5).abs() < 1e-4);
             assert!(results[0].1.enabled);
+        }
+    }
+
+    #[test]
+    fn mcp_save_load_scene_round_trip_preserves_physics_body_attached_via_mcp() {
+        let path = std::env::temp_dir()
+            .join("bsengine_test_roundtrip_physics_body.ron")
+            .to_string_lossy()
+            .to_string();
+
+        {
+            let mut app = new_app();
+            app.add_plugins(McpPlugin);
+            app.add_plugins(EditorPlugin);
+            let eid = app
+                .world_mut()
+                .spawn((
+                    Name("Crate".to_string()),
+                    Transform::from_translation(Vec3::new(2.0, 0.0, 0.0)),
+                ))
+                .id();
+            app.update();
+
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                let out = mcp
+                    .0
+                    .lock()
+                    .unwrap()
+                    .execute(
+                        "attach_physics_body",
+                        json!({
+                            "entity_id": eid.index() as u64,
+                            "rigidbody": "Static",
+                            "collider_shape": "Box",
+                            "hx": 1.0, "hy": 1.0, "hz": 1.0,
+                        }),
+                    )
+                    .expect("attach_physics_body not found");
+                assert!(out.is_ok(), "{:?}", out.error);
+            }
+            app.update();
+            app.update();
+
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let r = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute("save_scene", json!({"path": path}))
+                .unwrap();
+            assert!(r.is_ok(), "{:?}", r.error);
+        }
+
+        {
+            let mut app = new_app();
+            app.add_plugins(McpPlugin);
+            app.add_plugins(EditorPlugin);
+            {
+                let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+                mcp.0
+                    .lock()
+                    .unwrap()
+                    .execute("load_scene", json!({"path": path}))
+                    .expect("load_scene not found");
+            }
+            app.update();
+
+            let mut q = app
+                .world_mut()
+                .query::<(&Name, &bsengine_scene::PhysicsBodyDesc)>();
+            let results: Vec<_> = q.iter(app.world()).collect();
+            assert_eq!(results.len(), 1, "PhysicsBodyDesc missing after load");
+            assert_eq!(results[0].0 .0, "Crate");
+            assert_eq!(results[0].1.rigidbody, bsengine_scene::RigidBodyDesc::Static);
         }
     }
 

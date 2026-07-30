@@ -5537,13 +5537,19 @@ pub fn bsengine_ui_set_progress_bar(
 /// Queue pausing gameplay simulation.
 #[op2(fast)]
 pub fn bsengine_pause() {
-    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SetPaused { paused: true }));
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPaused { paused: true })
+    });
 }
 
 /// Queue resuming gameplay simulation.
 #[op2(fast)]
 pub fn bsengine_resume() {
-    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SetPaused { paused: false }));
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPaused { paused: false })
+    });
 }
 
 /// Check whether gameplay simulation is currently paused.

@@ -32,9 +32,11 @@ impl Plugin for PhysicsPlugin {
                 sync_transform_from_physics,
             )
                 .chain()
-                .run_if(|paused: Option<bevy_ecs::prelude::Res<bsengine_core::PauseState>>| {
-                    !paused.map(|p| p.paused).unwrap_or(false)
-                }),
+                .run_if(
+                    |paused: Option<bevy_ecs::prelude::Res<bsengine_core::PauseState>>| {
+                        !paused.map(|p| p.paused).unwrap_or(false)
+                    },
+                ),
         );
     }
 }

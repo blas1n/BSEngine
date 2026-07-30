@@ -311,6 +311,24 @@ self-hit, (8) player.js: 레이캐스트 origin 높이(+0.9)가 콜라이더 상
 
 ---
 
+### 19. 커스텀 셰이더 시간(time) 유니폼 ✅
+
+**목표:** 커스텀 WGSL 셰이더가 `Bsengine.setEmissive()` 같은 매 프레임 JS
+왕복 없이 자체적으로 시간 기반 애니메이션(pulse 등)을 계산할 수 있게
+
+**완료 조건:**
+- [x] `CameraUniformData`의 기존 미사용 패딩 필드(`_pad`)를 `time`으로 재활용 —
+  버퍼 크기/정렬 변경 없음
+- [x] `bsengine_core::Time`(이미 매 프레임 tick)을 `bsengine-render`의
+  `render_frame` 시스템 → `bsengine-rhi-wgpu`의 `WgpuSurface::render_frame`
+  → GPU 유니폼 버퍼까지 연결
+- [x] Mini Action Arena의 `glow.wgsl`/`pickup.js`를 실제로 전환 — 셰이더가
+  `camera.time`으로 직접 pulse 계산, `pickup.js`의 매 프레임
+  `Bsengine.setEmissive()` 폴링 제거
+- [x] CI 통과
+
+---
+
 ## 완료 이력
 
 | 항목 | 완료일 | PR |
@@ -365,4 +383,5 @@ self-hit, (8) player.js: 레이캐스트 origin 높이(+0.9)가 콜라이더 상
 | 15. `Bsengine.moveEntity` relative-move scripting op; mini-arena's player.js/enemy.js migrated to it from manual get-add-set position math | 2026-07-30 | [#1736](https://github.com/blas1n/BSEngine/pull/1736) |
 | 16. `Bsengine.quit()` scripting op sending `AppExit`; winit runner now honors `AppExit` (previously only `WindowEvent::CloseRequested`); mini-arena's pause menu Quit button wired to it | 2026-07-30 | [#1737](https://github.com/blas1n/BSEngine/pull/1737) |
 | 17. `attach_physics_body`/`detach_physics_body` MCP tools; `EntityInfo`/`build_entity_descriptors` extended so physics bodies survive `save_scene` (were always dropped); fixed `EditorCommand::LoadScene`'s own separate scene-loading path, which never spawned `PhysicsBodyDesc` from loaded rigidbody/collider RON at all | 2026-07-30 | [#1738](https://github.com/blas1n/BSEngine/pull/1738) |
-| 18. `gltf:`/`CustomShader.path` project-relative resolution via shared `bsengine_core::ProjectDir`/`resolve_project_path`; fixed `EditorCommand::LoadScene` never spawning `GltfAsset` for gltf entities at all; mini-arena content migrated off its CWD-relative workaround | 2026-07-30 | branch `feat/gltf-shader-project-paths` (PR #TBD) |
+| 18. `gltf:`/`CustomShader.path` project-relative resolution via shared `bsengine_core::ProjectDir`/`resolve_project_path`; fixed `EditorCommand::LoadScene` never spawning `GltfAsset` for gltf entities at all; mini-arena content migrated off its CWD-relative workaround | 2026-07-30 | [#1739](https://github.com/blas1n/BSEngine/pull/1739) |
+| 19. Exposed elapsed time to custom WGSL shaders via `CameraUniform.time` (reusing an existing unused padding field, zero buffer layout change); mini-arena's `glow.wgsl`/`pickup.js` migrated from per-frame JS-driven emissive pulsing to a GPU-computed one | 2026-07-30 | branch `feat/custom-shader-time-uniform` (PR #TBD) |

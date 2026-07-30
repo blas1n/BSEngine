@@ -159,6 +159,18 @@ impl ApplicationHandler for BsWinitApp {
             }
             WindowEvent::RedrawRequested => {
                 self.ecs_app.update();
+
+                let quit_requested = self
+                    .ecs_app
+                    .world()
+                    .get_resource::<Events<AppExit>>()
+                    .map(|events| events.iter_current_update_events().next().is_some())
+                    .unwrap_or(false);
+                if quit_requested {
+                    event_loop.exit();
+                    return;
+                }
+
                 if let Some(w) = &self.window {
                     w.request_redraw();
                 }

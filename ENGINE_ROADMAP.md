@@ -329,6 +329,22 @@ self-hit, (8) player.js: 레이캐스트 origin 높이(+0.9)가 콜라이더 상
 
 ---
 
+### 20. 프로그레스 바 / 체력 바 UI 위젯 ✅
+
+**목표:** `Bsengine.ui.*`에 `setLabel`/`setButton`/`setPanel`/`setTextInput`와
+동급인 프로그레스/체력 바 위젯 추가 (기존엔 텍스트로만 흉내 낼 수 있었음)
+
+**완료 조건:**
+- [x] `UiWidget::ProgressBar` 추가, `Bsengine.ui.setProgressBar(id, x, y,
+  width, height, fraction)` 스크립팅 API로 노출 — 기존 5개 위젯과 동일한
+  파이프라인(ScriptCommand → op → JS 바인딩 → 핸들러 → egui 렌더)
+- [x] `egui::ProgressBar`로 렌더링
+- [x] Mini Action Arena의 `hud.js`가 실제로 전환 — 체력 표시가 평문 텍스트
+  대신 진짜 바 위젯 사용
+- [x] CI 통과
+
+---
+
 ## 완료 이력
 
 | 항목 | 완료일 | PR |
@@ -384,4 +400,5 @@ self-hit, (8) player.js: 레이캐스트 origin 높이(+0.9)가 콜라이더 상
 | 16. `Bsengine.quit()` scripting op sending `AppExit`; winit runner now honors `AppExit` (previously only `WindowEvent::CloseRequested`); mini-arena's pause menu Quit button wired to it | 2026-07-30 | [#1737](https://github.com/blas1n/BSEngine/pull/1737) |
 | 17. `attach_physics_body`/`detach_physics_body` MCP tools; `EntityInfo`/`build_entity_descriptors` extended so physics bodies survive `save_scene` (were always dropped); fixed `EditorCommand::LoadScene`'s own separate scene-loading path, which never spawned `PhysicsBodyDesc` from loaded rigidbody/collider RON at all | 2026-07-30 | [#1738](https://github.com/blas1n/BSEngine/pull/1738) |
 | 18. `gltf:`/`CustomShader.path` project-relative resolution via shared `bsengine_core::ProjectDir`/`resolve_project_path`; fixed `EditorCommand::LoadScene` never spawning `GltfAsset` for gltf entities at all; mini-arena content migrated off its CWD-relative workaround | 2026-07-30 | [#1739](https://github.com/blas1n/BSEngine/pull/1739) |
-| 19. Exposed elapsed time to custom WGSL shaders via `CameraUniform.time` (reusing an existing unused padding field, zero buffer layout change); mini-arena's `glow.wgsl`/`pickup.js` migrated from per-frame JS-driven emissive pulsing to a GPU-computed one | 2026-07-30 | branch `feat/custom-shader-time-uniform` (PR #TBD) |
+| 19. Exposed elapsed time to custom WGSL shaders via `CameraUniform.time` (reusing an existing unused padding field, zero buffer layout change); mini-arena's `glow.wgsl`/`pickup.js` migrated from per-frame JS-driven emissive pulsing to a GPU-computed one | 2026-07-30 | [#1740](https://github.com/blas1n/BSEngine/pull/1740) |
+| 20. Added `UiWidget::ProgressBar` / `Bsengine.ui.setProgressBar`, rendered via `egui::ProgressBar`; mini-arena's `hud.js` migrated from a plain-text HP readout to a real health bar | 2026-07-30 | branch `feat/health-bar-ui-widget` (PR #TBD) |

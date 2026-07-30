@@ -1427,6 +1427,25 @@ fn run_scripts(world: &mut World) {
                     });
                 }
             }
+            ScriptCommand::SetUiProgressBar {
+                id,
+                x,
+                y,
+                width,
+                height,
+                fraction,
+            } => {
+                if let Some(mut ui) = world.get_resource_mut::<UiState>() {
+                    ui.set_widget(UiWidget::ProgressBar {
+                        id,
+                        x,
+                        y,
+                        width,
+                        height,
+                        fraction,
+                    });
+                }
+            }
             ScriptCommand::RemoveUiWidget { id } => {
                 if let Some(mut ui) = world.get_resource_mut::<UiState>() {
                     ui.remove_widget(&id);

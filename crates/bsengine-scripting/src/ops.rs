@@ -948,6 +948,21 @@ pub enum ScriptCommand {
         /// Widget width, in pixels.
         width: f32,
     },
+    /// Create or update a UI progress/health bar.
+    SetUiProgressBar {
+        /// Identifier of the sound or UI widget to target.
+        id: String,
+        /// New absolute X position.
+        x: f32,
+        /// New absolute Y position.
+        y: f32,
+        /// Widget width, in pixels.
+        width: f32,
+        /// Widget height, in pixels.
+        height: f32,
+        /// Fill fraction, expected in 0.0..=1.0.
+        fraction: f32,
+    },
     /// Remove a UI widget by id.
     RemoveUiWidget {
         /// Identifier of the sound or UI widget to target.
@@ -5490,6 +5505,28 @@ pub fn bsengine_ui_set_text_input(
     });
 }
 
+/// Queue creating or updating a UI progress/health bar.
+#[op2(fast)]
+pub fn bsengine_ui_set_progress_bar(
+    #[string] id: String,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    fraction: f32,
+) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetUiProgressBar {
+            id,
+            x,
+            y,
+            width,
+            height,
+            fraction,
+        })
+    });
+}
+
 /// Queue removing a UI widget by id.
 #[op2(fast)]
 pub fn bsengine_ui_remove_widget(#[string] id: String) {
@@ -5905,6 +5942,7 @@ deno_core::extension!(
         bsengine_ui_set_button,
         bsengine_ui_set_panel,
         bsengine_ui_set_text_input,
+        bsengine_ui_set_progress_bar,
         bsengine_ui_remove_widget,
         bsengine_ui_clear,
         bsengine_ui_is_clicked,
@@ -6381,13 +6419,14 @@ var Bsengine = {
     // UI widgets — immediate-mode overlay (egui-backed)
     // Each call sets or replaces the widget with the given id.
     ui: {
-        setLabel:    (id, text, x, y, fontSize)       => Deno.core.ops.bsengine_ui_set_label(id, String(text), x, y, fontSize ?? 20),
-        setButton:   (id, label, x, y, width, height) => Deno.core.ops.bsengine_ui_set_button(id, label, x, y, width, height),
-        setPanel:    (id, title, x, y, width, height) => Deno.core.ops.bsengine_ui_set_panel(id, title ?? '', x, y, width, height),
-        setTextInput:(id, hint, x, y, width)          => Deno.core.ops.bsengine_ui_set_text_input(id, hint ?? '', x, y, width),
-        remove:      (id)                             => Deno.core.ops.bsengine_ui_remove_widget(id),
-        clear:       ()                               => Deno.core.ops.bsengine_ui_clear(),
-        isClicked:   (id)                             => Deno.core.ops.bsengine_ui_is_clicked(id),
+        setLabel:       (id, text, x, y, fontSize)          => Deno.core.ops.bsengine_ui_set_label(id, String(text), x, y, fontSize ?? 20),
+        setButton:      (id, label, x, y, width, height)    => Deno.core.ops.bsengine_ui_set_button(id, label, x, y, width, height),
+        setPanel:       (id, title, x, y, width, height)    => Deno.core.ops.bsengine_ui_set_panel(id, title ?? '', x, y, width, height),
+        setTextInput:   (id, hint, x, y, width)             => Deno.core.ops.bsengine_ui_set_text_input(id, hint ?? '', x, y, width),
+        setProgressBar: (id, x, y, width, height, fraction) => Deno.core.ops.bsengine_ui_set_progress_bar(id, x, y, width, height, fraction),
+        remove:         (id)                                => Deno.core.ops.bsengine_ui_remove_widget(id),
+        clear:          ()                                  => Deno.core.ops.bsengine_ui_clear(),
+        isClicked:      (id)                                => Deno.core.ops.bsengine_ui_is_clicked(id),
     },
 
     // NavMesh pathfinding — call navmesh.init() first to build the grid
@@ -10655,6 +10694,28 @@ JSON.stringify(received)
             "3"
         );
         super::NETWORK_STATE_SNAPSHOT.with(|s| *s.borrow_mut() = (false, false, 0, 0));
+    }
+
+    #[test]
+    fn test_ui_set_progress_bar_queues_command() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(
+            r#"Bsengine.ui.setProgressBar("hp", 10, 20, 200, 24, 0.75);"#,
+            "<test>",
+        )
+        .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetUiProgressBar { id, x, y, width, height, fraction }
+                    if id == "hp" && *x == 10.0 && *y == 20.0 && *width == 200.0
+                    && *height == 24.0 && *fraction == 0.75
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }
 
     #[test]

@@ -345,6 +345,24 @@ self-hit, (8) player.js: 레이캐스트 origin 높이(+0.9)가 콜라이더 상
 
 ---
 
+### 21. 실제 일시정지 / 타임스케일 시스템 ✅
+
+**목표:** 일시정지 메뉴가 UI만 띄우는 게 아니라 실제로 시뮬레이션을 멈추게 함
+(기존엔 Enemy 추적/피격, Player WASD/공격이 일시정지 중에도 계속 동작했음)
+
+**완료 조건:**
+- [x] `bsengine_core::PauseState` 리소스 추가
+- [x] `PhysicsPlugin`/`NavMeshPlugin`의 게임플레이 시스템이 `PauseState`로
+  실제 게이트됨 (엔진 차원에서 실제로 멈춤)
+- [x] `Bsengine.pause()`/`resume()`/`isPaused()` 스크립팅 API 추가 — 이 엔진엔
+  모든 시스템이 공유하는 단일 델타타임이 없어(`Time`과 스크립트
+  `getDeltaTime()`은 서로 다른 클럭, Rapier는 자체 고정 스텝) 스크립트 쪽
+  게임플레이 로직은 명시적으로 이 API를 확인해야 함
+- [x] Mini Action Arena의 `pause.js`/`player.js`/`enemy.js`를 실제로 전환
+- [x] CI 통과
+
+---
+
 ## 완료 이력
 
 | 항목 | 완료일 | PR |
@@ -401,4 +419,5 @@ self-hit, (8) player.js: 레이캐스트 origin 높이(+0.9)가 콜라이더 상
 | 17. `attach_physics_body`/`detach_physics_body` MCP tools; `EntityInfo`/`build_entity_descriptors` extended so physics bodies survive `save_scene` (were always dropped); fixed `EditorCommand::LoadScene`'s own separate scene-loading path, which never spawned `PhysicsBodyDesc` from loaded rigidbody/collider RON at all | 2026-07-30 | [#1738](https://github.com/blas1n/BSEngine/pull/1738) |
 | 18. `gltf:`/`CustomShader.path` project-relative resolution via shared `bsengine_core::ProjectDir`/`resolve_project_path`; fixed `EditorCommand::LoadScene` never spawning `GltfAsset` for gltf entities at all; mini-arena content migrated off its CWD-relative workaround | 2026-07-30 | [#1739](https://github.com/blas1n/BSEngine/pull/1739) |
 | 19. Exposed elapsed time to custom WGSL shaders via `CameraUniform.time` (reusing an existing unused padding field, zero buffer layout change); mini-arena's `glow.wgsl`/`pickup.js` migrated from per-frame JS-driven emissive pulsing to a GPU-computed one | 2026-07-30 | [#1740](https://github.com/blas1n/BSEngine/pull/1740) |
-| 20. Added `UiWidget::ProgressBar` / `Bsengine.ui.setProgressBar`, rendered via `egui::ProgressBar`; mini-arena's `hud.js` migrated from a plain-text HP readout to a real health bar | 2026-07-30 | branch `feat/health-bar-ui-widget` (PR #TBD) |
+| 20. Added `UiWidget::ProgressBar` / `Bsengine.ui.setProgressBar`, rendered via `egui::ProgressBar`; mini-arena's `hud.js` migrated from a plain-text HP readout to a real health bar | 2026-07-30 | [#1741](https://github.com/blas1n/BSEngine/pull/1741) |
+| 21. Real pause: `bsengine_core::PauseState` actually gates `PhysicsPlugin`/`NavMeshPlugin`; `Bsengine.pause`/`resume`/`isPaused` scripting API; mini-arena's pause menu now actually stops the Enemy and Player instead of just showing a panel | 2026-07-30 | branch `feat/pause-timescale-system` (PR #TBD) |

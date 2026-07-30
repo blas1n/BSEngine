@@ -963,6 +963,11 @@ pub enum ScriptCommand {
         /// Fill fraction, expected in 0.0..=1.0.
         fraction: f32,
     },
+    /// Set or clear whether gameplay simulation is paused.
+    SetPaused {
+        /// `true` to pause, `false` to resume.
+        paused: bool,
+    },
     /// Remove a UI widget by id.
     RemoveUiWidget {
         /// Identifier of the sound or UI widget to target.
@@ -1598,6 +1603,8 @@ thread_local! {
 
     pub(crate) static TIME_ELAPSED_SNAPSHOT: RefCell<f32> = const { RefCell::new(0.0) };
     pub(crate) static TIME_DELTA_SNAPSHOT: RefCell<f32> = const { RefCell::new(0.0) };
+
+    pub(crate) static PAUSED_SNAPSHOT: RefCell<bool> = const { RefCell::new(false) };
 
     pub(crate) static SCREEN_SIZE_SNAPSHOT: RefCell<(u32, u32)> = const { RefCell::new((1280, 720)) };
 
@@ -5527,6 +5534,30 @@ pub fn bsengine_ui_set_progress_bar(
     });
 }
 
+/// Queue pausing gameplay simulation.
+#[op2(fast)]
+pub fn bsengine_pause() {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPaused { paused: true })
+    });
+}
+
+/// Queue resuming gameplay simulation.
+#[op2(fast)]
+pub fn bsengine_resume() {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetPaused { paused: false })
+    });
+}
+
+/// Check whether gameplay simulation is currently paused.
+#[op2(fast)]
+pub fn bsengine_is_paused() -> bool {
+    PAUSED_SNAPSHOT.with(|p| *p.borrow())
+}
+
 /// Queue removing a UI widget by id.
 #[op2(fast)]
 pub fn bsengine_ui_remove_widget(#[string] id: String) {
@@ -5943,6 +5974,9 @@ deno_core::extension!(
         bsengine_ui_set_panel,
         bsengine_ui_set_text_input,
         bsengine_ui_set_progress_bar,
+        bsengine_pause,
+        bsengine_resume,
+        bsengine_is_paused,
         bsengine_ui_remove_widget,
         bsengine_ui_clear,
         bsengine_ui_is_clicked,
@@ -6073,6 +6107,9 @@ var Bsengine = {
     isKeyPressed:   (key)                  => Deno.core.ops.bsengine_is_key_pressed(key),
     isKeyDown:      (key)                  => Deno.core.ops.bsengine_is_key_down(key),
     isKeyUp:        (key)                  => Deno.core.ops.bsengine_is_key_up(key),
+    pause:          ()                     => Deno.core.ops.bsengine_pause(),
+    resume:         ()                     => Deno.core.ops.bsengine_resume(),
+    isPaused:       ()                     => Deno.core.ops.bsengine_is_paused(),
     getEntityNames:      ()    => JSON.parse(Deno.core.ops.bsengine_get_entity_names()),
     entityExists:        (name) => Deno.core.ops.bsengine_entity_exists(name),
     getEntityCount:      ()    => Deno.core.ops.bsengine_get_entity_count(),
@@ -10694,6 +10731,36 @@ JSON.stringify(received)
             "3"
         );
         super::NETWORK_STATE_SNAPSHOT.with(|s| *s.borrow_mut() = (false, false, 0, 0));
+    }
+
+    #[test]
+    fn test_pause_queues_command() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.pause();"#, "<test>").unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf
+                .iter()
+                .any(|cmd| matches!(cmd, super::ScriptCommand::SetPaused { paused } if *paused)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn test_resume_queues_command() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(r#"Bsengine.resume();"#, "<test>").unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf
+                .iter()
+                .any(|cmd| matches!(cmd, super::ScriptCommand::SetPaused { paused } if !*paused)));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }
 
     #[test]

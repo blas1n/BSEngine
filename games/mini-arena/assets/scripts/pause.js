@@ -20,7 +20,7 @@ function onUpdate(self) {
     const escDown = Bsengine.isKeyDown("Escape");
     if (escDown && !escKeyWasDown) {
         paused = !paused;
-        if (paused) buildMenu(); else teardownMenu();
+        if (paused) { buildMenu(); Bsengine.pause(); } else { teardownMenu(); Bsengine.resume(); }
     }
     escKeyWasDown = escDown;
 
@@ -29,6 +29,7 @@ function onUpdate(self) {
     if (Bsengine.ui.isClicked("resumeBtn")) {
         paused = false;
         teardownMenu();
+        Bsengine.resume();
     }
     if (Bsengine.ui.isClicked("quitBtn")) {
         Bsengine.quit();

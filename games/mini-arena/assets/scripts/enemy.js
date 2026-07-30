@@ -18,6 +18,8 @@ Bsengine.onMessage("Enemy", "hit", (data) => {
 });
 
 function onUpdate(self) {
+    if (Bsengine.isPaused()) return;
+
     if (knockbackTimer > 0.0) {
         const dt = Bsengine.getDeltaTime();
         const step = KNOCKBACK_SPEED * dt;

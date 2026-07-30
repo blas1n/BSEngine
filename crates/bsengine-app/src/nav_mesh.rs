@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use bevy_app::{App, Plugin, Update};
 use bsengine_core::{NavAgentState, NavMesh, NavMeshAgent, Time, Transform};
-use bsengine_ecs::{Entity, Query, Res, ResMut, Resource};
+use bsengine_ecs::{Entity, IntoSystemConfigs, Query, Res, ResMut, Resource};
 use glam::Vec3;
 
 /// Paths `NavMeshAgent` entities across the `NavMesh` resource, moving them toward
@@ -17,7 +17,14 @@ impl Plugin for NavMeshPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<NavMesh>()
             .init_resource::<NavCache>()
-            .add_systems(Update, navigate_agents);
+            .add_systems(
+                Update,
+                navigate_agents.run_if(
+                    |paused: Option<bevy_ecs::prelude::Res<bsengine_core::PauseState>>| {
+                        !paused.map(|p| p.paused).unwrap_or(false)
+                    },
+                ),
+            );
     }
 }
 
@@ -191,6 +198,30 @@ mod tests {
             .unwrap()
             .state;
         assert_eq!(state, NavAgentState::Idle);
+    }
+
+    #[test]
+    fn does_not_move_while_paused() {
+        let mut app = open_app();
+        app.insert_resource(bsengine_core::PauseState { paused: true });
+        app.world_mut().spawn((
+            NavMeshAgent::new(5.0).with_destination(Vec3::new(3.0, 0.0, 0.0)),
+            Transform::from_translation(Vec3::ZERO),
+        ));
+        app.update();
+
+        let transform = app
+            .world_mut()
+            .query::<&Transform>()
+            .iter(app.world())
+            .next()
+            .unwrap();
+        assert_eq!(
+            transform.translation.0,
+            Vec3::ZERO,
+            "expected the agent to stay in place while paused, got {:?}",
+            transform.translation.0
+        );
     }
 
     #[test]

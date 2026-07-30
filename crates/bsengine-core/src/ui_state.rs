@@ -76,6 +76,21 @@ pub enum UiWidget {
         /// Image height, in pixels.
         height: f32,
     },
+    /// A horizontal fill bar, e.g. for health/progress display.
+    ProgressBar {
+        /// Unique widget identifier.
+        id: String,
+        /// X position, in screen-space pixels.
+        x: f32,
+        /// Y position, in screen-space pixels.
+        y: f32,
+        /// Bar width, in pixels.
+        width: f32,
+        /// Bar height, in pixels.
+        height: f32,
+        /// Fill fraction, expected in 0.0..=1.0 (egui clamps out-of-range values).
+        fraction: f32,
+    },
 }
 
 impl UiWidget {
@@ -86,7 +101,8 @@ impl UiWidget {
             | Self::Button { id, .. }
             | Self::Panel { id, .. }
             | Self::TextInput { id, .. }
-            | Self::Image { id, .. } => id,
+            | Self::Image { id, .. }
+            | Self::ProgressBar { id, .. } => id,
         }
     }
 }
@@ -131,6 +147,38 @@ impl UiState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn set_widget_inserts_progress_bar() {
+        let mut state = UiState::default();
+        state.set_widget(UiWidget::ProgressBar {
+            id: "hp".into(),
+            x: 10.0,
+            y: 10.0,
+            width: 200.0,
+            height: 20.0,
+            fraction: 0.75,
+        });
+        assert_eq!(state.widgets.len(), 1);
+        if let UiWidget::ProgressBar { fraction, .. } = &state.widgets[0] {
+            assert_eq!(*fraction, 0.75);
+        } else {
+            panic!("wrong variant");
+        }
+    }
+
+    #[test]
+    fn progress_bar_id_returns_its_id() {
+        let widget = UiWidget::ProgressBar {
+            id: "hp".into(),
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 10.0,
+            fraction: 0.5,
+        };
+        assert_eq!(widget.id(), "hp");
+    }
 
     #[test]
     fn set_widget_inserts_new() {

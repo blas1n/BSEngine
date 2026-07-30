@@ -1,4 +1,5 @@
-// Custom shader for the Pickup entity: a Fresnel-style rim glow.
+// Custom shader for the Pickup entity: a Fresnel-style rim glow that pulses
+// over time, driven entirely by the GPU via camera.time.
 //
 // Bind group layout below mirrors the standard mesh shader's CameraUniform
 // (@group(0)) and ModelUniform (@group(1)) structs exactly -- both are
@@ -14,7 +15,7 @@ struct CameraUniform {
     view_proj: mat4x4<f32>,
     light_view_proj: mat4x4<f32>,
     cam_pos: vec3<f32>,
-    _pad: f32,
+    time: f32,
 };
 struct ModelUniform {
     model: mat4x4<f32>,
@@ -60,14 +61,14 @@ fn vs_main(in: VertIn) -> VertOut {
 @fragment
 fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
     // Fresnel-style rim glow: brightest at grazing angles relative to the
-    // camera. A time-based pulse isn't possible here -- no time/clock
-    // uniform is exposed to custom shaders in this bind group layout.
-    // The "alive-looking pulse" comes from pickup.js driving
-    // model_data.emissive via Bsengine.setEmissive() every frame instead.
+    // camera, pulsing over time via camera.time (matches pickup.js's old
+    // PULSE_SPEED=3.0 / 0.6+0.4*sin(...) formula, now computed on the GPU
+    // instead of being pushed from JS every frame).
     let n = normalize(in.world_normal);
     let v = normalize(camera.cam_pos - in.world_pos);
     let rim = pow(1.0 - clamp(dot(n, v), 0.0, 1.0), 2.5);
+    let pulse = 0.6 + 0.4 * sin(camera.time * 3.0);
     let base = model_data.base_color * 0.3;
-    let glow = model_data.emissive * (0.5 + rim);
+    let glow = model_data.emissive * pulse * (0.5 + rim);
     return vec4<f32>(base + glow, 1.0);
 }

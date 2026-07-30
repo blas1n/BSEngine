@@ -58,10 +58,7 @@ function onUpdate(self) {
         speed = running ? MOVE_SPEED * RUN_MULTIPLIER : MOVE_SPEED;
 
         const dt = Bsengine.getDeltaTime();
-        const pos = Bsengine.getPosition(self);
-        if (pos) {
-            Bsengine.setTransform(self, pos.x + dx * speed * dt, pos.y, pos.z + dz * speed * dt);
-        }
+        Bsengine.moveEntity(self, dx * speed * dt, 0.0, dz * speed * dt);
 
         // Bsengine.getForwardVector() returns rotation * (0,0,-1). Setting
         // yaw from atan2(dx, dz) directly (this component's original code)

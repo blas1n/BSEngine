@@ -21,10 +21,7 @@ function onUpdate(self) {
     if (knockbackTimer > 0.0) {
         const dt = Bsengine.getDeltaTime();
         const step = KNOCKBACK_SPEED * dt;
-        const pos = Bsengine.getPosition(self);
-        if (pos) {
-            Bsengine.setTransform(self, pos.x + knockbackDir.x * step, pos.y, pos.z + knockbackDir.z * step);
-        }
+        Bsengine.moveEntity(self, knockbackDir.x * step, 0.0, knockbackDir.z * step);
         knockbackTimer -= dt;
         return;
     }

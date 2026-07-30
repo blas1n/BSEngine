@@ -1,18 +1,10 @@
 let shaderAssigned = false;
-let elapsed = 0.0;
-const PULSE_SPEED = 3.0;
-const BASE_R = 0.2, BASE_G = 0.6, BASE_B = 1.0;
 
 function onUpdate(self) {
     if (!shaderAssigned) {
         Bsengine.setShader(self, "assets/shaders/glow.wgsl");
         shaderAssigned = true;
     }
-
-    const dt = Bsengine.getDeltaTime();
-    elapsed += dt;
-    const pulse = 0.6 + 0.4 * Math.sin(elapsed * PULSE_SPEED);
-    Bsengine.setEmissive(self, BASE_R * pulse, BASE_G * pulse, BASE_B * pulse);
 
     const pos = Bsengine.getPosition(self);
     const player = Bsengine.getPosition("Player");

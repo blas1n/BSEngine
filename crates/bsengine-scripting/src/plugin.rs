@@ -27,7 +27,7 @@ use crate::ops::{
     MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT, MATERIAL_ROUGHNESS_SNAPSHOT,
     MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT,
     MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, NAV_SNAPSHOT, NETWORK_ID_SNAPSHOT,
-    NETWORK_STATE_SNAPSHOT, PARENT_SNAPSHOT, PHYSICS_WORLD_PTR, RESTITUTION_SNAPSHOT,
+    NETWORK_STATE_SNAPSHOT, PARENT_SNAPSHOT, PAUSED_SNAPSHOT, PHYSICS_WORLD_PTR, RESTITUTION_SNAPSHOT,
     SAVE_DATA_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT,
     SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT,
     TIME_ELAPSED_SNAPSHOT, TONE_MAP_SNAPSHOT, TRANSFORM_SNAPSHOT, TWEEN_SNAPSHOT,
@@ -1446,6 +1446,9 @@ fn run_scripts(world: &mut World) {
                     });
                 }
             }
+            ScriptCommand::SetPaused { paused } => {
+                world.insert_resource(bsengine_core::PauseState { paused });
+            }
             ScriptCommand::RemoveUiWidget { id } => {
                 if let Some(mut ui) = world.get_resource_mut::<UiState>() {
                     ui.remove_widget(&id);
@@ -2366,6 +2369,11 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
         };
     TIME_ELAPSED_SNAPSHOT.with(|s| *s.borrow_mut() = elapsed_secs);
     TIME_DELTA_SNAPSHOT.with(|s| *s.borrow_mut() = delta_secs);
+    let is_paused = world
+        .get_resource::<bsengine_core::PauseState>()
+        .map(|p| p.paused)
+        .unwrap_or(false);
+    PAUSED_SNAPSHOT.with(|p| *p.borrow_mut() = is_paused);
     if let Some(ss) = world.get_resource::<ScreenSize>() {
         SCREEN_SIZE_SNAPSHOT.with(|s| *s.borrow_mut() = (ss.width, ss.height));
     }
@@ -2893,6 +2901,45 @@ mod tests {
             "z: {}",
             t.translation.z
         );
+
+        let _ = std::fs::remove_file(&script_path);
+    }
+
+    #[test]
+    fn pause_then_is_paused_reports_true_next_frame() {
+        let script_path = std::env::temp_dir()
+            .join(format!("bsengine_test_pause_{}.js", std::process::id()));
+        std::fs::write(
+            &script_path,
+            "let called = false;\n\
+             function onUpdate(name) {\n\
+                 if (!called) { Bsengine.pause(); called = true; return; }\n\
+                 Bsengine.setSaveField(name, \"paused\", String(Bsengine.isPaused()));\n\
+             }",
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(ScriptingPlugin {
+            project_dir: String::new(),
+        });
+        app.world_mut().spawn((
+            Name("Hero".to_string()),
+            bsengine_core::SaveData::new(0),
+            ScriptPath(script_path.to_string_lossy().to_string()),
+        ));
+
+        app.update();
+        app.update();
+        app.update();
+
+        let world = app.world_mut();
+        let mut q = world.query::<(&Name, &bsengine_core::SaveData)>();
+        let (_, save) = q
+            .iter(world)
+            .find(|(n, _)| n.0 == "Hero")
+            .expect("Hero entity with SaveData not found");
+        assert_eq!(save.get("paused"), Some(b"true".as_slice()));
 
         let _ = std::fs::remove_file(&script_path);
     }

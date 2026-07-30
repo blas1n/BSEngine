@@ -103,11 +103,13 @@ fn update_editor_snapshot(
 
 const MAX_UNDO_HISTORY: usize = 100;
 
+#[allow(clippy::too_many_arguments)] // Bevy system params; splitting into a struct is a larger refactor
 fn process_editor_commands(
     queue_res: Res<EditorCommandQueueResource>,
     snapshot_res: Res<EditorSnapshotResource>,
     history_res: Res<EditorHistoryResource>,
     type_registry_res: Res<bevy_ecs::reflect::AppTypeRegistry>,
+    project_dir: Option<Res<bsengine_core::ProjectDir>>,
     mut inspector: Option<ResMut<InspectorState>>,
     mut params: ParamSet<(
         Query<Entity>,
@@ -142,7 +144,8 @@ fn process_editor_commands(
                 commands.spawn(Name(name));
             }
             EditorCommand::SpawnMeshAsset { name, path } => {
-                commands.spawn((Name(name), bsengine_gltf::GltfAsset::new(path)));
+                let resolved = bsengine_core::resolve_project_path(project_dir.as_deref(), &path);
+                commands.spawn((Name(name), bsengine_gltf::GltfAsset::new(resolved)));
             }
             EditorCommand::Despawn { entity_id } => {
                 let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
@@ -631,6 +634,11 @@ fn process_editor_commands(
                     }
                     if let Some(prim) = &entity.primitive {
                         eb.insert(PrimitiveMesh(prim.clone()));
+                    }
+                    if let Some(gltf_path) = &entity.gltf {
+                        let resolved =
+                            bsengine_core::resolve_project_path(project_dir.as_deref(), gltf_path);
+                        eb.insert(bsengine_gltf::GltfAsset::new(resolved));
                     }
                     if entity.camera {
                         match entity.camera_fov {
@@ -91898,6 +91906,71 @@ mod tests {
             .expect("expected one entity with Name + GltfAsset");
         assert_eq!(name.0, "Rock");
         assert_eq!(gltf_asset.path, "assets/models/rock.glb");
+    }
+
+    #[test]
+    fn spawn_mesh_asset_command_resolves_path_against_project_dir() {
+        let mut app = new_app();
+        app.insert_resource(bsengine_core::ProjectDir("games/demo".to_string()));
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.update();
+
+        {
+            let queue = app.world().resource::<EditorCommandQueueResource>();
+            queue.0.lock().unwrap().push(EditorCommand::SpawnMeshAsset {
+                name: "Rock".to_string(),
+                path: "assets/models/rock.glb".to_string(),
+            });
+        }
+        app.update();
+
+        let mut query = app.world_mut().query::<(&Name, &bsengine_gltf::GltfAsset)>();
+        let (name, gltf_asset) = query
+            .iter(app.world())
+            .next()
+            .expect("expected one entity with Name + GltfAsset");
+        assert_eq!(name.0, "Rock");
+        assert_eq!(gltf_asset.path, "games/demo/assets/models/rock.glb");
+    }
+
+    #[test]
+    fn load_scene_spawns_gltf_asset_for_entity_with_gltf_field() {
+        let path = std::env::temp_dir()
+            .join("bsengine_test_load_scene_gltf.ron")
+            .to_string_lossy()
+            .to_string();
+        std::fs::write(
+            &path,
+            r#"SceneDescriptor(entities: [
+                EntityDescriptor(name: "Player", gltf: Some("models/hero.glb")),
+            ])"#,
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.insert_resource(bsengine_core::ProjectDir("games/demo".to_string()));
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("load_scene", json!({"path": path}))
+                .expect("load_scene not found");
+        }
+        app.update();
+
+        let mut query = app.world_mut().query::<(&Name, &bsengine_gltf::GltfAsset)>();
+        let (name, gltf_asset) = query
+            .iter(app.world())
+            .find(|(n, _)| n.0 == "Player")
+            .expect("expected Player entity with GltfAsset after load_scene");
+        assert_eq!(name.0, "Player");
+        assert_eq!(gltf_asset.path, "games/demo/models/hero.glb");
     }
 
     /// Verifies the property List-append/enum-variant-switch actually

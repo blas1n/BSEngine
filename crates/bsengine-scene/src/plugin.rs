@@ -56,6 +56,7 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
     let app_registry = world
         .get_resource::<bevy_ecs::reflect::AppTypeRegistry>()
         .cloned();
+    let project_dir = world.get_resource::<bsengine_core::ProjectDir>().cloned();
 
     for entity in entities {
         let mut builder = world.spawn(Name(entity.name.clone()));
@@ -81,7 +82,10 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
         }
 
         if let Some(path) = &entity.gltf {
-            builder.insert(GltfAsset::new(path.clone()));
+            builder.insert(GltfAsset::new(bsengine_core::resolve_project_path(
+                project_dir.as_ref(),
+                path,
+            )));
         }
 
         if entity.camera {
@@ -432,6 +436,46 @@ mod tests {
         let mut q = app.world_mut().query::<&Name>();
         let names: Vec<String> = q.iter(app.world()).map(|n| n.0.clone()).collect();
         assert!(names.contains(&"Ghost".to_string()));
+    }
+
+    #[test]
+    fn scene_plugin_gltf_path_resolves_against_project_dir() {
+        let ron = r#"SceneDescriptor(entities: [
+            EntityDescriptor(name: "Player", gltf: Some("models/hero.glb")),
+        ])"#;
+        let path = write_temp_scene("test_gltf_project_dir.ron", ron);
+
+        let mut app = new_app();
+        app.insert_resource(bsengine_core::ProjectDir("games/demo".to_string()));
+        app.add_plugins(ScenePlugin::from_file(&path));
+        app.update();
+
+        let mut q = app
+            .world_mut()
+            .query::<(&Name, &bsengine_gltf::GltfAsset)>();
+        let results: Vec<_> = q.iter(app.world()).collect();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0 .0, "Player");
+        assert_eq!(results[0].1.path, "games/demo/models/hero.glb");
+    }
+
+    #[test]
+    fn scene_plugin_gltf_path_unchanged_without_project_dir() {
+        let ron = r#"SceneDescriptor(entities: [
+            EntityDescriptor(name: "Player", gltf: Some("models/hero.glb")),
+        ])"#;
+        let path = write_temp_scene("test_gltf_no_project_dir.ron", ron);
+
+        let mut app = new_app();
+        app.add_plugins(ScenePlugin::from_file(&path));
+        app.update();
+
+        let mut q = app
+            .world_mut()
+            .query::<(&Name, &bsengine_gltf::GltfAsset)>();
+        let results: Vec<_> = q.iter(app.world()).collect();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].1.path, "models/hero.glb");
     }
 
     #[test]

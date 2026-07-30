@@ -291,6 +291,26 @@ self-hit, (8) player.js: 레이캐스트 origin 높이(+0.9)가 콜라이더 상
 
 ---
 
+### 18. `gltf:`/`CustomShader.path` 프로젝트 상대 경로 해석 ✅
+
+**목표:** `gltf:` 씬 RON 필드와 `Bsengine.setShader`의 `CustomShader.path`가
+`script:`/`loadScene`/`setSkybox`처럼 프로젝트 디렉터리 기준 상대 경로로
+해석되게 함 (기존에는 프로세스 CWD 기준이라 리포 루트에서만 실행 가능했음)
+
+**완료 조건:**
+- [x] `ProjectDir`/`resolve_project_path`를 `bsengine-core`로 이동 (scripting/
+  scene/gltf/editor가 공유하는 크레이트이므로)
+- [x] `bsengine-scene::spawn_scene_entities`의 `gltf:` 필드, `bsengine-scripting`의
+  `SetCustomShader` 핸들러가 새 helper로 경로 해석
+- [x] 구현 중 발견한 관련 버그 수정: `EditorCommand::LoadScene`(에디터 자체의
+  별도 씬 로딩 경로)가 `entity.gltf`를 아예 처리하지 않아 `load_scene` MCP
+  툴로 불러온 씬은 gltf 엔티티의 메시가 통째로 빠졌음
+- [x] Mini Action Arena 콘텐츠(`main.ron`, `pickup.js`)를 CWD 상대 경로
+  워크어라운드에서 프로젝트 상대 경로로 전환
+- [x] CI 통과
+
+---
+
 ## 완료 이력
 
 | 항목 | 완료일 | PR |
@@ -344,4 +364,5 @@ self-hit, (8) player.js: 레이캐스트 origin 높이(+0.9)가 콜라이더 상
 | 14. Fix: 5 content bugs in player.js found the same way — isKeyDown instead of isKeyPressed for held movement, 180°-backwards yaw/forward vector, attack raycast self-hit + wrong height, stale getShield() read after damageShield() (Enemy took 3 hits instead of the documented 2); see `games/mini-arena/GAP_LOG.md` for full detail | 2026-07-29 | [#1735](https://github.com/blas1n/BSEngine/pull/1735) |
 | 15. `Bsengine.moveEntity` relative-move scripting op; mini-arena's player.js/enemy.js migrated to it from manual get-add-set position math | 2026-07-30 | [#1736](https://github.com/blas1n/BSEngine/pull/1736) |
 | 16. `Bsengine.quit()` scripting op sending `AppExit`; winit runner now honors `AppExit` (previously only `WindowEvent::CloseRequested`); mini-arena's pause menu Quit button wired to it | 2026-07-30 | [#1737](https://github.com/blas1n/BSEngine/pull/1737) |
-| 17. `attach_physics_body`/`detach_physics_body` MCP tools; `EntityInfo`/`build_entity_descriptors` extended so physics bodies survive `save_scene` (were always dropped); fixed `EditorCommand::LoadScene`'s own separate scene-loading path, which never spawned `PhysicsBodyDesc` from loaded rigidbody/collider RON at all | 2026-07-30 | branch `feat/physics-body-mcp` (PR #TBD) |
+| 17. `attach_physics_body`/`detach_physics_body` MCP tools; `EntityInfo`/`build_entity_descriptors` extended so physics bodies survive `save_scene` (were always dropped); fixed `EditorCommand::LoadScene`'s own separate scene-loading path, which never spawned `PhysicsBodyDesc` from loaded rigidbody/collider RON at all | 2026-07-30 | [#1738](https://github.com/blas1n/BSEngine/pull/1738) |
+| 18. `gltf:`/`CustomShader.path` project-relative resolution via shared `bsengine_core::ProjectDir`/`resolve_project_path`; fixed `EditorCommand::LoadScene` never spawning `GltfAsset` for gltf entities at all; mini-arena content migrated off its CWD-relative workaround | 2026-07-30 | branch `feat/gltf-shader-project-paths` (PR #TBD) |

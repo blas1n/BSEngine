@@ -4,8 +4,9 @@ use bevy_app::{App, AppExit, Plugin, PostStartup, Update};
 use bevy_ecs::prelude::*;
 use bsengine_audio::AudioWorld;
 use bsengine_core::{
-    CursorConfig, CustomShader, EditorPlayState, GlobalTransform, HudTexts, InspectorState,
-    Material, Parent, ScreenSize, SkyboxPath, Transform, UiState, UiWidget, Visible,
+    resolve_project_path, CursorConfig, CustomShader, EditorPlayState, GlobalTransform, HudTexts,
+    InspectorState, Material, Parent, ProjectDir, ScreenSize, SkyboxPath, Transform, UiState,
+    UiWidget, Visible,
 };
 use bsengine_input::{GamepadButton, GamepadSticks, Input, KeyCode, MouseButton, MouseState};
 use bsengine_network::NetworkSession;
@@ -33,10 +34,6 @@ use crate::ops::{
     UI_CLICKED_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
-
-/// Root directory of the current project — used to resolve relative script paths.
-#[derive(Resource, Default)]
-pub struct ProjectDir(pub String);
 
 /// Loaded JS source for a scripted entity.
 #[derive(Component)]
@@ -923,7 +920,8 @@ fn run_scripts(world: &mut World) {
                     q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
                 };
                 if let Some(e) = entity {
-                    world.entity_mut(e).insert(CustomShader { path });
+                    let resolved = resolve_project_path(world.get_resource::<ProjectDir>(), &path);
+                    world.entity_mut(e).insert(CustomShader { path: resolved });
                 }
             }
             ScriptCommand::NetworkStartServer { port } => {
@@ -1448,10 +1446,7 @@ fn run_scripts(world: &mut World) {
                 // already carry. Without this, loadScene only works by
                 // accident when the process's CWD happens to equal
                 // project_dir.
-                let full_path = match world.get_resource::<ProjectDir>() {
-                    Some(pd) if !pd.0.is_empty() => format!("{}/{path}", pd.0),
-                    _ => path,
-                };
+                let full_path = resolve_project_path(world.get_resource::<ProjectDir>(), &path);
                 world.insert_resource(PendingSceneLoad { path: full_path });
             }
             ScriptCommand::SetVisible { name, visible } => {
@@ -1464,15 +1459,7 @@ fn run_scripts(world: &mut World) {
                 }
             }
             ScriptCommand::SetSkybox { path } => {
-                let project_dir = world
-                    .get_resource::<ProjectDir>()
-                    .map(|pd| pd.0.clone())
-                    .unwrap_or_default();
-                let full_path = if project_dir.is_empty() {
-                    path
-                } else {
-                    format!("{}/{}", project_dir, path)
-                };
+                let full_path = resolve_project_path(world.get_resource::<ProjectDir>(), &path);
                 world.insert_resource(SkyboxPath(Some(full_path)));
             }
             ScriptCommand::SetParent { child, parent } => {
@@ -2919,5 +2906,53 @@ mod tests {
         );
 
         let _ = std::fs::remove_file(&script_path);
+    }
+
+    #[test]
+    fn set_shader_resolves_path_against_project_dir() {
+        use bsengine_core::CustomShader;
+
+        // `load_scripts` also resolves `ScriptPath` against `ProjectDir` (see
+        // its doc comment above), so an absolute `ScriptPath` combined with a
+        // non-empty `project_dir` would make script loading itself fail
+        // (project_dir gets prefixed onto an already-absolute path). Using a
+        // real temp directory as `project_dir` with a project-relative
+        // `ScriptPath`, mirroring how a real game's `project_dir` +
+        // `assets/scripts/...` are related, keeps both resolutions valid.
+        let project_dir = std::env::temp_dir().join(format!(
+            "bsengine_test_set_shader_project_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&project_dir).unwrap();
+        std::fs::write(
+            project_dir.join("set_shader.js"),
+            "function onUpdate(name) { Bsengine.setShader(name, \"shaders/glow.wgsl\"); }",
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(ScriptingPlugin {
+            project_dir: project_dir.to_string_lossy().to_string(),
+        });
+        app.world_mut().spawn((
+            Name("Hero".to_string()),
+            ScriptPath("set_shader.js".to_string()),
+        ));
+
+        app.update();
+        app.update();
+
+        let world = app.world_mut();
+        let mut q = world.query::<(&Name, &CustomShader)>();
+        let (_, shader) = q
+            .iter(world)
+            .find(|(n, _)| n.0 == "Hero")
+            .expect("Hero entity with CustomShader not found");
+        assert_eq!(
+            shader.path,
+            format!("{}/shaders/glow.wgsl", project_dir.to_string_lossy())
+        );
+
+        let _ = std::fs::remove_dir_all(&project_dir);
     }
 }

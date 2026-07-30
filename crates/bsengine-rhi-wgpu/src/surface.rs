@@ -1726,6 +1726,23 @@ impl WgpuSurface {
                                     );
                                 });
                         }
+                        UiWidget::ProgressBar {
+                            id,
+                            x,
+                            y,
+                            width,
+                            height,
+                            fraction,
+                        } => {
+                            egui::Area::new(egui::Id::new(id.as_str()))
+                                .fixed_pos(egui::pos2(*x, *y))
+                                .show(ctx, |ui| {
+                                    ui.add_sized(
+                                        egui::vec2(*width, *height),
+                                        egui::ProgressBar::new(*fraction),
+                                    );
+                                });
+                        }
                     }
                 }
 

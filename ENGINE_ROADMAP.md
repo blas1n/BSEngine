@@ -249,6 +249,26 @@ self-hit, (8) player.js: 레이캐스트 origin 높이(+0.9)가 콜라이더 상
 
 ---
 
+### 16. `Bsengine.quit()` 스크립팅 op ✅
+
+**목표:** 스크립트에서 게임 프로세스를 깔끔하게 종료할 방법 제공 — 지금까지는
+일시정지 메뉴의 Quit 버튼이 창을 직접 닫으라는 안내만 표시했음 (Mini Action Arena
+갭 로그에서 발견)
+
+**완료 조건:**
+- [x] `Bsengine.quit()` op 추가 — `AppExit` 이벤트 전송
+- [x] `bsengine-window`의 winit 러너가 `AppExit`를 실제로 처리하도록 수정
+  (기존엔 `WindowEvent::CloseRequested`만 처리했음)
+- [x] `games/mini-arena`의 일시정지 메뉴 Quit 버튼을 새 op로 교체
+- [x] 두 절반(스크립팅 op가 `AppExit` 전송 / 러너가 `AppExit` 수신 시
+  `event_loop.exit()` 호출) 각각 독립적으로 자동 테스트 검증 — 단, 실제 GUI
+  클릭으로 창이 닫히는 end-to-end 수동 확인은 수행하지 않음(클릭 자동화 도구
+  없음); 두 절반이 각각 검증되었고 연결 로직이 한 줄이라 간접 근거로 충분하다고
+  판단, 사용자 확인함
+- [x] CI 통과
+
+---
+
 ## 완료 이력
 
 | 항목 | 완료일 | PR |
@@ -300,4 +320,5 @@ self-hit, (8) player.js: 레이캐스트 origin 높이(+0.9)가 콜라이더 상
 | 14. Mini Action Arena demo (`games/mini-arena/`) — arena/player/enemy, AnimationStateMachine idle/walk/run, NavMeshAgent pursuit, Rapier combat/knockback, custom WGSL glow shader, bloom/tone-map, HUD + pause menu, checkpoint save/load | 2026-07-29 | [#1735](https://github.com/blas1n/BSEngine/pull/1735) |
 | 14. Fix: 5 engine bugs found authoring the headless E2E test — reflect-type registration reachable only from EditorPlugin (not headless test mode), test_mode.rs PressKey/ReleaseKey bypassing the input event queue (broke all edge-triggered isKeyDown/isKeyUp), NavMeshPlugin never wired into bsengine-runtime at all (enemy pursuit never worked in any real build), Bsengine.raycast() returning entity_name instead of entityName | 2026-07-29 | [#1735](https://github.com/blas1n/BSEngine/pull/1735) |
 | 14. Fix: 5 content bugs in player.js found the same way — isKeyDown instead of isKeyPressed for held movement, 180°-backwards yaw/forward vector, attack raycast self-hit + wrong height, stale getShield() read after damageShield() (Enemy took 3 hits instead of the documented 2); see `games/mini-arena/GAP_LOG.md` for full detail | 2026-07-29 | [#1735](https://github.com/blas1n/BSEngine/pull/1735) |
-| 15. `Bsengine.moveEntity` relative-move scripting op; mini-arena's player.js/enemy.js migrated to it from manual get-add-set position math | 2026-07-30 | branch `feat/move-entity-op` (PR #TBD) |
+| 15. `Bsengine.moveEntity` relative-move scripting op; mini-arena's player.js/enemy.js migrated to it from manual get-add-set position math | 2026-07-30 | [#1736](https://github.com/blas1n/BSEngine/pull/1736) |
+| 16. `Bsengine.quit()` scripting op sending `AppExit`; winit runner now honors `AppExit` (previously only `WindowEvent::CloseRequested`); mini-arena's pause menu Quit button wired to it | 2026-07-30 | branch `feat/quit-op` (PR #TBD) |

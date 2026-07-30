@@ -317,6 +317,17 @@ pub enum ScriptCommand {
         /// New maximum shield capacity.
         value: f32,
     },
+    /// Move a named entity by a world-space delta.
+    MoveEntity {
+        /// Entity to move.
+        name: String,
+        /// Delta along X.
+        dx: f32,
+        /// Delta along Y.
+        dy: f32,
+        /// Delta along Z.
+        dz: f32,
+    },
     /// Write a UTF-8 key/value field into an entity's `SaveData`.
     SetSaveField {
         /// Entity to target.
@@ -3177,6 +3188,15 @@ pub fn bsengine_damage_shield(#[string] name: String, amount: f32) {
     });
 }
 
+/// Queue moving a named entity by a world-space delta.
+#[op2(fast)]
+pub fn bsengine_move_entity(#[string] name: String, dx: f32, dy: f32, dz: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::MoveEntity { name, dx, dy, dz })
+    });
+}
+
 /// Queue restoring some of an entity's shield value.
 #[op2(fast)]
 pub fn bsengine_restore_shield(#[string] name: String, amount: f32) {
@@ -5751,6 +5771,7 @@ deno_core::extension!(
         bsengine_set_lifetime,
         bsengine_get_lifetime,
         bsengine_damage_shield,
+        bsengine_move_entity,
         bsengine_restore_shield,
         bsengine_set_max_shield,
         bsengine_get_shield,
@@ -6060,6 +6081,7 @@ var Bsengine = {
     setLifetime:            (name, seconds) => Deno.core.ops.bsengine_set_lifetime(name, seconds),
     getLifetime:            (name)          => Deno.core.ops.bsengine_get_lifetime(name),
     damageShield:           (name, amount)  => Deno.core.ops.bsengine_damage_shield(name, amount),
+    moveEntity:             (name, dx, dy, dz) => Deno.core.ops.bsengine_move_entity(name, dx, dy, dz),
     restoreShield:          (name, amount)  => Deno.core.ops.bsengine_restore_shield(name, amount),
     setMaxShield:           (name, value)   => Deno.core.ops.bsengine_set_max_shield(name, value),
     getShield:              (name)          => Deno.core.ops.bsengine_get_shield(name),
@@ -9782,6 +9804,22 @@ JSON.stringify(received)
                     if name == "Bullet" && (*seconds - 3.0).abs() < 1e-5)
             });
             assert!(found, "SetLifetime not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn move_entity_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.moveEntity("Hero", 1.0, 2.0, 3.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let found = c.borrow().iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::MoveEntity { name, dx, dy, dz }
+                    if name == "Hero" && (*dx - 1.0).abs() < 1e-6 && (*dy - 2.0).abs() < 1e-6 && (*dz - 3.0).abs() < 1e-6)
+            });
+            assert!(found, "MoveEntity not in buffer");
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

@@ -773,6 +773,19 @@ fn run_scripts(world: &mut World) {
                     }
                 }
             }
+            ScriptCommand::MoveEntity { name, dx, dy, dz } => {
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut t) = world.get_mut::<Transform>(e) {
+                        t.translation.x += dx;
+                        t.translation.y += dy;
+                        t.translation.z += dz;
+                    }
+                }
+            }
             ScriptCommand::SetSaveField { name, key, value } => {
                 use bsengine_core::SaveData;
                 let entity = {
@@ -2759,7 +2772,7 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
 
 #[cfg(test)]
 mod tests {
-    use super::{Name, ScriptPath, ScriptRuntimeResource, ScriptingPlugin};
+    use super::{Name, ScriptPath, ScriptRuntimeResource, ScriptingPlugin, Transform, Vec3};
     use bsengine_app::new_app;
 
     #[test]
@@ -2821,6 +2834,56 @@ mod tests {
             .find(|(n, _)| n.0 == "Hero")
             .expect("Hero entity with SaveData not found");
         assert_eq!(save.get("score"), Some(b"99".as_slice()));
+
+        let _ = std::fs::remove_file(&script_path);
+    }
+
+    #[test]
+    fn move_entity_moves_transform_by_delta() {
+        let script_path = std::env::temp_dir().join(format!(
+            "bsengine_test_move_entity_{}.js",
+            std::process::id()
+        ));
+        std::fs::write(
+            &script_path,
+            "function onUpdate(name) { Bsengine.moveEntity(name, 1.0, 0.0, 2.0); }",
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(ScriptingPlugin {
+            project_dir: String::new(),
+        });
+        app.world_mut().spawn((
+            Name("Hero".to_string()),
+            Transform::from_translation(Vec3::new(5.0, 0.0, 5.0)),
+            ScriptPath(script_path.to_string_lossy().to_string()),
+        ));
+
+        app.update();
+        app.update();
+
+        let world = app.world_mut();
+        let mut q = world.query::<(&Name, &Transform)>();
+        let (_, t) = q
+            .iter(world)
+            .find(|(n, _)| n.0 == "Hero")
+            .expect("Hero entity with Transform not found");
+        // `load_scripts` runs at `PostStartup`, which executes during the *first*
+        // `app.update()` call, immediately before that same call's `Update` schedule
+        // (which runs `run_scripts`/`onUpdate`). So two `app.update()` calls invoke
+        // `onUpdate` twice total (once during update #1, once during update #2), and
+        // the (1.0, 0.0, 2.0) delta from `moveEntity` is applied twice: (2.0, 0.0, 4.0).
+        assert!(
+            (t.translation.x - 7.0).abs() < 1e-4,
+            "x: {}",
+            t.translation.x
+        );
+        assert!(
+            (t.translation.z - 9.0).abs() < 1e-4,
+            "z: {}",
+            t.translation.z
+        );
 
         let _ = std::fs::remove_file(&script_path);
     }

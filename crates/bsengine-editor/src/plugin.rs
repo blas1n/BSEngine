@@ -103,6 +103,7 @@ fn update_editor_snapshot(
 
 const MAX_UNDO_HISTORY: usize = 100;
 
+#[allow(clippy::too_many_arguments)] // Bevy system params; splitting into a struct is a larger refactor
 fn process_editor_commands(
     queue_res: Res<EditorCommandQueueResource>,
     snapshot_res: Res<EditorSnapshotResource>,

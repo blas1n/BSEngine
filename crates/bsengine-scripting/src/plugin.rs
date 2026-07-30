@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use bevy_app::{App, Plugin, PostStartup, Update};
+use bevy_app::{App, AppExit, Plugin, PostStartup, Update};
 use bevy_ecs::prelude::*;
 use bsengine_audio::AudioWorld;
 use bsengine_core::{
@@ -772,6 +772,9 @@ fn run_scripts(world: &mut World) {
                         sh.current = sh.current.min(sh.max);
                     }
                 }
+            }
+            ScriptCommand::Quit => {
+                world.send_event(AppExit::Success);
             }
             ScriptCommand::MoveEntity { name, dx, dy, dz } => {
                 let entity = {
@@ -2883,6 +2886,36 @@ mod tests {
             (t.translation.z - 9.0).abs() < 1e-4,
             "z: {}",
             t.translation.z
+        );
+
+        let _ = std::fs::remove_file(&script_path);
+    }
+
+    #[test]
+    fn quit_sends_app_exit_event() {
+        use bevy_app::AppExit;
+        use bevy_ecs::event::Events;
+
+        let script_path =
+            std::env::temp_dir().join(format!("bsengine_test_quit_{}.js", std::process::id()));
+        std::fs::write(&script_path, "function onUpdate(name) { Bsengine.quit(); }").unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(ScriptingPlugin {
+            project_dir: String::new(),
+        });
+        app.world_mut().spawn((
+            Name("Hero".to_string()),
+            ScriptPath(script_path.to_string_lossy().to_string()),
+        ));
+
+        app.update();
+        app.update();
+
+        let events = app.world().resource::<Events<AppExit>>();
+        assert!(
+            events.iter_current_update_events().next().is_some(),
+            "AppExit should have been sent"
         );
 
         let _ = std::fs::remove_file(&script_path);

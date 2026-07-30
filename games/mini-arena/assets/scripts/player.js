@@ -21,6 +21,8 @@ let attackKeyWasDown = false;
 let enterKeyWasDown = false;
 
 function onUpdate(self) {
+    if (Bsengine.isPaused()) return;
+
     const enterDown = Bsengine.isKeyDown("Enter");
     const dead = Bsengine.getShield(self) <= 0.0;
     if (dead) {

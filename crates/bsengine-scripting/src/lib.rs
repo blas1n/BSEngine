@@ -20,8 +20,8 @@ pub mod plugin;
 pub mod runtime;
 /// Script-driven save-game serialization to/from JSON.
 pub mod save;
+pub use bsengine_core::ProjectDir;
 pub use plugin::{
-    load_scripts, ProjectDir, Script, ScriptRuntimeResource, ScriptingPlugin, SoundHandles,
-    KEY_MAPPINGS,
+    load_scripts, Script, ScriptRuntimeResource, ScriptingPlugin, SoundHandles, KEY_MAPPINGS,
 };
 pub use runtime::ScriptRuntime;

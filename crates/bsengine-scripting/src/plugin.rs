@@ -4,8 +4,9 @@ use bevy_app::{App, AppExit, Plugin, PostStartup, Update};
 use bevy_ecs::prelude::*;
 use bsengine_audio::AudioWorld;
 use bsengine_core::{
-    CursorConfig, CustomShader, EditorPlayState, GlobalTransform, HudTexts, InspectorState,
-    Material, Parent, ScreenSize, SkyboxPath, Transform, UiState, UiWidget, Visible,
+    resolve_project_path, CursorConfig, CustomShader, EditorPlayState, GlobalTransform, HudTexts,
+    InspectorState, Material, Parent, ProjectDir, ScreenSize, SkyboxPath, Transform, UiState,
+    UiWidget, Visible,
 };
 use bsengine_input::{GamepadButton, GamepadSticks, Input, KeyCode, MouseButton, MouseState};
 use bsengine_network::NetworkSession;
@@ -33,10 +34,6 @@ use crate::ops::{
     UI_CLICKED_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
-
-/// Root directory of the current project — used to resolve relative script paths.
-#[derive(Resource, Default)]
-pub struct ProjectDir(pub String);
 
 /// Loaded JS source for a scripted entity.
 #[derive(Component)]
@@ -1448,10 +1445,7 @@ fn run_scripts(world: &mut World) {
                 // already carry. Without this, loadScene only works by
                 // accident when the process's CWD happens to equal
                 // project_dir.
-                let full_path = match world.get_resource::<ProjectDir>() {
-                    Some(pd) if !pd.0.is_empty() => format!("{}/{path}", pd.0),
-                    _ => path,
-                };
+                let full_path = resolve_project_path(world.get_resource::<ProjectDir>(), &path);
                 world.insert_resource(PendingSceneLoad { path: full_path });
             }
             ScriptCommand::SetVisible { name, visible } => {
@@ -1464,15 +1458,7 @@ fn run_scripts(world: &mut World) {
                 }
             }
             ScriptCommand::SetSkybox { path } => {
-                let project_dir = world
-                    .get_resource::<ProjectDir>()
-                    .map(|pd| pd.0.clone())
-                    .unwrap_or_default();
-                let full_path = if project_dir.is_empty() {
-                    path
-                } else {
-                    format!("{}/{}", project_dir, path)
-                };
+                let full_path = resolve_project_path(world.get_resource::<ProjectDir>(), &path);
                 world.insert_resource(SkyboxPath(Some(full_path)));
             }
             ScriptCommand::SetParent { child, parent } => {

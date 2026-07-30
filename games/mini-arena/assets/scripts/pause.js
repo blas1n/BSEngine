@@ -31,9 +31,6 @@ function onUpdate(self) {
         teardownMenu();
     }
     if (Bsengine.ui.isClicked("quitBtn")) {
-        // Uses its own HUD slot ("pauseStatus"), not player.js's "status" --
-        // that one shows the death/reload message, and sharing an id would
-        // let this message and the death message overwrite each other.
-        Bsengine.setHudText("pauseStatus", "Quit requested — close the window to exit (no scripting exit call exists yet).");
+        Bsengine.quit();
     }
 }

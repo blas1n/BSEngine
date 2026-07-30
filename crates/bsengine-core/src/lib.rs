@@ -62,6 +62,8 @@ pub mod nav_mesh_agent;
 pub mod network_id;
 /// Parent-entity reference for building transform hierarchies.
 pub mod parent;
+/// Whether gameplay simulation is currently paused.
+pub mod pause_state;
 /// Root directory of the current project, used to resolve project-relative asset paths.
 pub mod project_dir;
 /// `bevy_reflect`-friendly wrapper for RGBA color values.
@@ -130,6 +132,7 @@ pub use nav_mesh::NavMesh;
 pub use nav_mesh_agent::{NavAgentState, NavMeshAgent};
 pub use network_id::{NetworkAuthority, NetworkId};
 pub use parent::Parent;
+pub use pause_state::PauseState;
 pub use project_dir::{resolve_project_path, ProjectDir};
 pub use reflect_color::ReflectColor;
 pub use reflect_degrees::ReflectDegrees;

@@ -31,7 +31,10 @@ impl Plugin for PhysicsPlugin {
                 sync_from_rapier,
                 sync_transform_from_physics,
             )
-                .chain(),
+                .chain()
+                .run_if(|paused: Option<bevy_ecs::prelude::Res<bsengine_core::PauseState>>| {
+                    !paused.map(|p| p.paused).unwrap_or(false)
+                }),
         );
     }
 }
@@ -265,6 +268,36 @@ mod tests {
             transform.translation.0.y < start.y,
             "expected the dynamic body to fall under gravity and for Transform to \
              reflect it via PhysicsTransform sync, got y={}",
+            transform.translation.0.y
+        );
+    }
+
+    #[test]
+    fn dynamic_body_does_not_fall_while_paused() {
+        let mut app = new_app();
+        app.add_plugins(PhysicsPlugin);
+        app.insert_resource(bsengine_core::PauseState { paused: true });
+
+        let start = Vec3::new(0.0, 5.0, 0.0);
+        app.world_mut().spawn((
+            Transform::from_translation(start),
+            RigidBody::dynamic(),
+            Collider::ball(0.5),
+            PhysicsInput {
+                translation: start,
+                rotation: Quat::IDENTITY,
+            },
+        ));
+
+        for _ in 0..30 {
+            app.update();
+        }
+
+        let mut query = app.world_mut().query::<&Transform>();
+        let transform = query.iter(app.world()).next().unwrap();
+        assert_eq!(
+            transform.translation.0.y, start.y,
+            "expected the dynamic body to stay in place while paused, got y={}",
             transform.translation.0.y
         );
     }

@@ -235,6 +235,20 @@ self-hit, (8) player.js: 레이캐스트 origin 높이(+0.9)가 콜라이더 상
 
 ---
 
+### 15. `Bsengine.moveEntity` 상대 이동 스크립팅 op ✅
+
+**목표:** 스크립트에서 엔티티를 상대적으로 이동시킬 때마다 위치를 읽고 델타를 더해
+다시 쓰는 반복 패턴을 없애기 (Mini Action Arena 갭 로그에서 발견)
+
+**완료 조건:**
+- [x] `Bsengine.moveEntity(name, dx, dy, dz)` op 추가 — 월드 스페이스 델타를
+  `Transform.translation`에 직접 적용, 대상 없으면 조용히 no-op
+- [x] `games/mini-arena`의 `player.js`/`enemy.js`를 새 op로 교체
+- [x] E2E replay(`basic-playthrough.testlog.json`) 통과 확인
+- [x] CI 통과
+
+---
+
 ## 완료 이력
 
 | 항목 | 완료일 | PR |
@@ -283,6 +297,7 @@ self-hit, (8) player.js: 레이캐스트 origin 높이(+0.9)가 콜라이더 상
 | 12. Fix: wire GltfPlugin/TimePlugin/AnimationPlugin/AnimationStateMachinePlugin into bsengine-runtime (none were ever registered before this — glTF loading and any time-driven component were silently inert in the real runtime binary), handle non-indexed glTF primitives, seed AnimationPlayer.duration from its clip | 2026-07-29 | [#1731](https://github.com/blas1n/BSEngine/pull/1731) |
 | 13. Scene serialization saves/loads arbitrary reflected components (bsengine-scene load-side apply_or_insert + bsengine-editor extra_components capture/EditorCommand::LoadScene apply) | 2026-07-29 | [#1733](https://github.com/blas1n/BSEngine/pull/1733) |
 | 13. Fix: HashSet\<String\> missing ReflectSerialize (only ReflectDeserialize was registered), which silently dropped AnimationStateMachine from every saved scene | 2026-07-29 | [#1733](https://github.com/blas1n/BSEngine/pull/1733) |
-| 14. Mini Action Arena demo (`games/mini-arena/`) — arena/player/enemy, AnimationStateMachine idle/walk/run, NavMeshAgent pursuit, Rapier combat/knockback, custom WGSL glow shader, bloom/tone-map, HUD + pause menu, checkpoint save/load | 2026-07-29 | branch `feat/mini-arena` (PR #TBD) |
-| 14. Fix: 5 engine bugs found authoring the headless E2E test — reflect-type registration reachable only from EditorPlugin (not headless test mode), test_mode.rs PressKey/ReleaseKey bypassing the input event queue (broke all edge-triggered isKeyDown/isKeyUp), NavMeshPlugin never wired into bsengine-runtime at all (enemy pursuit never worked in any real build), Bsengine.raycast() returning entity_name instead of entityName | 2026-07-29 | branch `feat/mini-arena` (PR #TBD) |
-| 14. Fix: 5 content bugs in player.js found the same way — isKeyDown instead of isKeyPressed for held movement, 180°-backwards yaw/forward vector, attack raycast self-hit + wrong height, stale getShield() read after damageShield() (Enemy took 3 hits instead of the documented 2); see `games/mini-arena/GAP_LOG.md` for full detail | 2026-07-29 | branch `feat/mini-arena` (PR #TBD) |
+| 14. Mini Action Arena demo (`games/mini-arena/`) — arena/player/enemy, AnimationStateMachine idle/walk/run, NavMeshAgent pursuit, Rapier combat/knockback, custom WGSL glow shader, bloom/tone-map, HUD + pause menu, checkpoint save/load | 2026-07-29 | [#1735](https://github.com/blas1n/BSEngine/pull/1735) |
+| 14. Fix: 5 engine bugs found authoring the headless E2E test — reflect-type registration reachable only from EditorPlugin (not headless test mode), test_mode.rs PressKey/ReleaseKey bypassing the input event queue (broke all edge-triggered isKeyDown/isKeyUp), NavMeshPlugin never wired into bsengine-runtime at all (enemy pursuit never worked in any real build), Bsengine.raycast() returning entity_name instead of entityName | 2026-07-29 | [#1735](https://github.com/blas1n/BSEngine/pull/1735) |
+| 14. Fix: 5 content bugs in player.js found the same way — isKeyDown instead of isKeyPressed for held movement, 180°-backwards yaw/forward vector, attack raycast self-hit + wrong height, stale getShield() read after damageShield() (Enemy took 3 hits instead of the documented 2); see `games/mini-arena/GAP_LOG.md` for full detail | 2026-07-29 | [#1735](https://github.com/blas1n/BSEngine/pull/1735) |
+| 15. `Bsengine.moveEntity` relative-move scripting op; mini-arena's player.js/enemy.js migrated to it from manual get-add-set position math | 2026-07-30 | branch `feat/move-entity-op` (PR #TBD) |

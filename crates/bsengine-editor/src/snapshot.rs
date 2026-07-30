@@ -137,6 +137,20 @@ pub enum EditorCommand {
         /// Entity to detach the renderer from.
         entity_id: u64,
     },
+    /// Attach a physics body (rigidbody + collider) to an entity.
+    AttachPhysicsBody {
+        /// Entity to attach the body to.
+        entity_id: u64,
+        /// Physics simulation type.
+        rigidbody: bsengine_scene::RigidBodyDesc,
+        /// Collision shape and material.
+        collider: bsengine_scene::ColliderDesc,
+    },
+    /// Remove an entity's physics body, if any.
+    DetachPhysicsBody {
+        /// Entity to detach the body from.
+        entity_id: u64,
+    },
     /// Spawn a new point light entity.
     SpawnPointLight {
         /// Light color.

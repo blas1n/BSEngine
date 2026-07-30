@@ -269,6 +269,28 @@ self-hit, (8) player.js: 레이캐스트 origin 높이(+0.9)가 콜라이더 상
 
 ---
 
+### 17. 물리 바디(rigidbody/collider) 부착 MCP 툴 ✅
+
+**목표:** 살아있는 엔티티에 물리 바디를 AI/MCP가 직접 부착할 수 있게 (지금까지는
+수동 작성 씬 RON에서만 가능했음). 설계 중 발견한 관련 갭도 함께 수정: 에디터의
+`save_scene`이 로드된 씬의 rigidbody/collider도 항상 조용히 버리고 있었음
+(Mini Action Arena 갭 로그에서 발견)
+
+**완료 조건:**
+- [x] `attach_physics_body`/`detach_physics_body` MCP 툴 추가 — 기존
+  `resolve_physics_bodies` 시스템이 `PhysicsBodyDesc` 삽입을 감지해 실제 Rapier
+  컴포넌트로 변환하므로 물리 로직 중복 없음
+- [x] `EntityInfo`/`update_editor_snapshot`/`build_entity_descriptors` 확장 —
+  물리 바디가 `save_scene` 이후에도 살아남도록 (부착 경로 무관하게)
+- [x] 구현 중 발견한 관련 로드측 버그 수정: `EditorCommand::LoadScene`(
+  `bsengine_scene::spawn_scene_entities`와 별개인, 에디터 자체의 두 번째 씬
+  로딩 경로)가 로드된 rigidbody/collider로부터 `PhysicsBodyDesc`를 스폰한 적이
+  없어서, 저장은 되어도 다시 로드하면 사라졌음
+- [x] 부착/해제/저장-재로드 왕복 테스트 추가
+- [x] CI 통과
+
+---
+
 ## 완료 이력
 
 | 항목 | 완료일 | PR |
@@ -321,4 +343,5 @@ self-hit, (8) player.js: 레이캐스트 origin 높이(+0.9)가 콜라이더 상
 | 14. Fix: 5 engine bugs found authoring the headless E2E test — reflect-type registration reachable only from EditorPlugin (not headless test mode), test_mode.rs PressKey/ReleaseKey bypassing the input event queue (broke all edge-triggered isKeyDown/isKeyUp), NavMeshPlugin never wired into bsengine-runtime at all (enemy pursuit never worked in any real build), Bsengine.raycast() returning entity_name instead of entityName | 2026-07-29 | [#1735](https://github.com/blas1n/BSEngine/pull/1735) |
 | 14. Fix: 5 content bugs in player.js found the same way — isKeyDown instead of isKeyPressed for held movement, 180°-backwards yaw/forward vector, attack raycast self-hit + wrong height, stale getShield() read after damageShield() (Enemy took 3 hits instead of the documented 2); see `games/mini-arena/GAP_LOG.md` for full detail | 2026-07-29 | [#1735](https://github.com/blas1n/BSEngine/pull/1735) |
 | 15. `Bsengine.moveEntity` relative-move scripting op; mini-arena's player.js/enemy.js migrated to it from manual get-add-set position math | 2026-07-30 | [#1736](https://github.com/blas1n/BSEngine/pull/1736) |
-| 16. `Bsengine.quit()` scripting op sending `AppExit`; winit runner now honors `AppExit` (previously only `WindowEvent::CloseRequested`); mini-arena's pause menu Quit button wired to it | 2026-07-30 | branch `feat/quit-op` (PR #TBD) |
+| 16. `Bsengine.quit()` scripting op sending `AppExit`; winit runner now honors `AppExit` (previously only `WindowEvent::CloseRequested`); mini-arena's pause menu Quit button wired to it | 2026-07-30 | [#1737](https://github.com/blas1n/BSEngine/pull/1737) |
+| 17. `attach_physics_body`/`detach_physics_body` MCP tools; `EntityInfo`/`build_entity_descriptors` extended so physics bodies survive `save_scene` (were always dropped); fixed `EditorCommand::LoadScene`'s own separate scene-loading path, which never spawned `PhysicsBodyDesc` from loaded rigidbody/collider RON at all | 2026-07-30 | branch `feat/physics-body-mcp` (PR #TBD) |

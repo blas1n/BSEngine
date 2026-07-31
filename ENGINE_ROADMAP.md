@@ -381,26 +381,51 @@ self-hit, (8) player.js: 레이캐스트 origin 높이(+0.9)가 콜라이더 상
 
 ---
 
-### 23. 에셋 파이프라인 실질화 (핫리로드 + 안정적 참조)
+### 23. bevy_asset 도입 + glTF/텍스처/셰이더/오디오 통합
 
-**목표:** `AssetServer`가 "경로 문자열 → 바이트 캐시"뿐인 상태(`bsengine-asset/src/server.rs`
-65줄)를 벗어나, 실행 중인 게임에 파일 변경을 자동 반영하고 참조가 리네임에 안전하게
-버티도록 함 ([BSENGINE_VS_UNITY_UNREAL.md](docs/BSENGINE_VS_UNITY_UNREAL.md)에서 가장 큰
-격차로 확인)
+**목표:** `bsengine-asset`의 `Handle`/`AssetServer`(사실상 고아 상태 — `load_bytes`를
+실제로 쓰는 곳이 에디터 인스펙터/뷰포트 텍스처 로딩과 테스트 1개뿐)를 걷어내고, 이미
+워크스페이스가 쓰고 있는 bevy 0.14 생태계의 `bevy_asset`을 도입해 glTF/텍스처(스카이박스
+포함)/커스텀 WGSL 셰이더/오디오 4종을 `Handle<T>` 기반으로 통합한다. 실제로는 9곳(씬
+RON/스크립트/셰이더/glTF/플러그인 manifest/project manifest/오디오)이 각자
+`std::fs::read`를 직접 호출하고 있었음을 조사로 확인 — item 24(핫리로드)의 전제 조건.
+설계 문서: `docs/superpowers/specs/2026-07-31-bevy-asset-pipeline-design.md`
 
 **완료 조건:**
-- [ ] 파일시스템 워처(예: `notify` crate) 기반 핫리로드 — 텍스처/glTF/WGSL 변경 시 실행
-  중인 게임/에디터에 자동 반영
-- [ ] 에셋에 안정적 식별자 부여 — 기존 경로 기반 API 하위호환 유지하면서 리네임에도
-  참조가 깨지지 않는 경로 마련
-- [ ] 로드 실패/누락 에셋에 대한 명확한 에러 전파 (현재는 `Result<Vec<u8>, String>`뿐,
-  호출부 대부분이 이를 소비하지 않음)
-- [ ] Scripting API 또는 MCP 툴로 리로드 상태 조회 가능
+- [ ] 루트 `Cargo.toml`에 `bevy_asset` 0.14 워크스페이스 의존성 추가(`file_watcher` 피처는
+  미활성 — item 24에서 켬)
+- [ ] `GltfSource`/`ShaderSource`/`AudioSource`/`TextureAsset` 4종에 대한 `AssetLoader`
+  구현 — 기존 파싱 로직(`GltfLoader::load_full`, WGSL 컴파일, `StaticSoundData::from_file`)
+  을 그대로 이전
+- [ ] `GltfAsset`/`CustomShader` 등 컴포넌트가 `path: String` 대신 `Handle<T>`를 내부적으로
+  보유하도록 전환. 씬 RON 필드/스크립팅 API/MCP 툴 파라미터는 경로 문자열 그대로 유지
+  (`AssetServer`가 경계에서 `load::<T>(path) -> Handle<T>` 변환)
+- [ ] 최초 로드는 동기 블로킹 유지(진짜 비동기 스트리밍은 범위 밖, YAGNI) — 에셋이 몇
+  프레임 늦게 나타나는 동작 변화 없음
+- [ ] `games/mini-arena`/`games/tilt-run` 기존 E2E 리플레이가 마이그레이션 후에도 통과
 - [ ] 테스트 추가, CI 통과
 
 ---
 
-### 24. 3D 포지셔널 오디오
+### 24. 파일 워처 핫리로드 + 안정적 참조 + 조회 API
+
+**목표:** item 23이 확립한 `Handle<T>` 기반 파이프라인 위에, 실행 중인 게임/에디터에 파일
+변경을 자동 반영하는 핫리로드와 로드 실패/리로드 상태 조회 기능을 얹는다 (원래 item 23
+초안의 완료 조건 중 핫리로드/에러 전파/조회 API 부분을 이관)
+
+**완료 조건:**
+- [ ] `bevy_asset`의 `file_watcher` 피처 활성화 — 텍스처/glTF/WGSL/오디오 변경 시 실행
+  중인 게임/에디터에 자동 반영
+- [ ] 에셋에 안정적 식별자 부여 — 기존 경로 기반 API 하위호환 유지하면서 리네임에도
+  참조가 깨지지 않는 경로 마련
+- [ ] 로드 실패/누락 에셋에 대한 명확한 에러 전파 (item 23에서는 `tracing::warn!` 후
+  스킵뿐이었던 것을 구조화된 조회로 확장)
+- [ ] Scripting API 또는 MCP 툴로 리로드/로드 실패 상태 조회 가능
+- [ ] 테스트 추가, CI 통과
+
+---
+
+### 25. 3D 포지셔널 오디오
 
 **목표:** `AudioWorld`가 위치 정보 없는 `play`/`stop`뿐인 상태(`bsengine-audio` 251줄)를
 벗어나, 엔티티 위치 기반 거리 감쇠·패닝을 제공
@@ -415,7 +440,7 @@ self-hit, (8) player.js: 레이캐스트 origin 높이(+0.9)가 콜라이더 상
 
 ---
 
-### 25. 폴리곤 기반 실제 NavMesh
+### 26. 폴리곤 기반 실제 NavMesh
 
 **목표:** 현재 "NavMesh"라 불리지만 실제로는 균일 XZ 그리드 위 8방향 A*인 구현
 (로드맵 item 3)을, 레벨 지오메트리에서 폴리곤 메시를 추출하는 방식으로 교체 —
@@ -432,7 +457,7 @@ self-hit, (8) player.js: 레이캐스트 origin 높이(+0.9)가 콜라이더 상
 
 ---
 
-### 26. 캐릭터 컨트롤러 + 실제 물리 넉백
+### 27. 캐릭터 컨트롤러 + 실제 물리 넉백
 
 **목표:** `NavMeshAgent`가 Transform을 소유하려면 Kinematic rigidbody가 필요하고,
 Kinematic 바디는 정의상 물리 임펄스를 무시해 "넉백"을 스크립트가 위치를 직접 미는
@@ -448,7 +473,7 @@ touched by this task" 항목에서 발견)
 
 ---
 
-### 27. 파티클 시스템
+### 28. 파티클 시스템
 
 **목표:** 피격/죽음/픽업 같은 이펙트를 커스텀 셰이더 오브젝트 수작업 없이 표현할 기본
 파티클 시스템 제공
@@ -462,7 +487,7 @@ touched by this task" 항목에서 발견)
 
 ---
 
-### 28. 애니메이션 블렌드 트리 (1D 블렌드 스페이스)
+### 29. 애니메이션 블렌드 트리 (1D 블렌드 스페이스)
 
 **목표:** 현재 `AnimationStateMachine`이 상태 간 크로스페이드만 지원하는 것(로드맵 item
 2)을 넘어, 이동 속도 같은 연속 파라미터로 여러 클립을 블렌드

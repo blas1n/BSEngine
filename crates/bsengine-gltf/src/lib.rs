@@ -8,6 +8,8 @@
 
 /// Animation clip/channel/interpolation types for skeletal animation data.
 pub mod animation;
+/// `AssetLoader` backing `LoadMode::Async` for glTF/GLB files.
+pub mod asset_loader;
 /// GLTF/GLB file parsing into mesh, image, and animation data.
 pub mod loader;
 /// The Bevy plugin that spawns loaded GLTF assets into the ECS world.
@@ -16,6 +18,7 @@ pub mod plugin;
 pub mod skinned_mesh;
 
 pub use animation::{AnimationChannel, AnimationClip, Interpolation, KeyframeValues};
+pub use asset_loader::GltfSourceLoader;
 pub use loader::{
     GltfImageData, GltfLoader, LoadedGltf, MeshData, NodeTransform, SkinData, VertexSkin,
 };

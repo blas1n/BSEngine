@@ -5,7 +5,7 @@ use bsengine_render::MeshRenderer;
 use bsengine_rhi_wgpu::{GpuMeshRegistry, GpuTextureRegistry};
 use tracing::warn;
 
-use crate::loader::GltfLoader;
+use crate::loader::{GltfLoader, LoadedGltf};
 use crate::skinned_mesh::{AnimationClipLibrary, SkinnedMesh};
 
 /// Marker component requesting that a GLTF/GLB file be loaded onto this
@@ -28,7 +28,10 @@ pub struct GltfPlugin;
 
 impl Plugin for GltfPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, load_gltf_assets);
+        use bevy_asset::AssetApp;
+        app.init_asset::<LoadedGltf>()
+            .register_asset_loader(crate::asset_loader::GltfSourceLoader)
+            .add_systems(Update, load_gltf_assets);
     }
 }
 
@@ -37,6 +40,8 @@ fn load_gltf_assets(
     query: Query<(Entity, &GltfAsset, Option<&Transform>), Without<MeshRenderer>>,
     mesh_registry: Option<ResMut<GpuMeshRegistry>>,
     tex_registry: Option<ResMut<GpuTextureRegistry>>,
+    mut gltf_assets: ResMut<bevy_asset::Assets<LoadedGltf>>,
+    asset_server: bevy_ecs::prelude::Res<bevy_asset::AssetServer>,
 ) {
     let Some(mut mesh_reg) = mesh_registry else {
         return;
@@ -44,7 +49,18 @@ fn load_gltf_assets(
     let mut tex_reg = tex_registry;
 
     for (entity, asset, existing_transform) in query.iter() {
-        match GltfLoader::load_full(&asset.path) {
+        let load_result = bsengine_asset::load(
+            bsengine_asset::LoadMode::Sync,
+            &asset_server,
+            &mut gltf_assets,
+            &asset.path,
+            GltfLoader::load_full,
+        );
+        match load_result.and_then(|handle| {
+            gltf_assets
+                .get(&handle)
+                .ok_or_else(|| "just-inserted asset missing from Assets<LoadedGltf>".to_string())
+        }) {
             Ok(loaded) => {
                 let tex_ids: Vec<Option<u64>> = if let Some(ref mut tr) = tex_reg {
                     loaded
@@ -57,10 +73,7 @@ fn load_gltf_assets(
                 };
 
                 let mut first = true;
-                for (mesh_data, tex_idx) in loaded
-                    .meshes
-                    .into_iter()
-                    .zip(loaded.mesh_tex_indices.iter())
+                for (mesh_data, tex_idx) in loaded.meshes.iter().zip(loaded.mesh_tex_indices.iter())
                 {
                     let mesh_id = mesh_reg.register(&mesh_data.vertices, &mesh_data.indices);
                     let texture_id = tex_idx.and_then(|i| tex_ids.get(i).copied().flatten());
@@ -143,6 +156,7 @@ mod tests {
     #[test]
     fn gltf_plugin_builds_and_runs() {
         let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(WgpuRHIPlugin);
         app.add_plugins(GltfPlugin);
         app.update();
@@ -151,6 +165,7 @@ mod tests {
     #[test]
     fn no_registry_leaves_gltf_asset_intact() {
         let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(GltfPlugin);
         let e = app.world_mut().spawn(GltfAsset::new("missing.gltf")).id();
         app.update();
@@ -166,6 +181,7 @@ mod tests {
         // WindowHandle (created by winit). Without a window, load_gltf_assets
         // returns early and the GltfAsset marker stays on the entity.
         let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(WgpuRHIPlugin);
         app.add_plugins(GltfPlugin);
         let e = app.world_mut().spawn(GltfAsset::new("bad.gltf")).id();
@@ -181,6 +197,7 @@ mod tests {
         // branch is correctly gated, not a full skinned-asset test (that's
         // Task 7, once a real .glb fixture exists).
         let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(WgpuRHIPlugin);
         app.add_plugins(GltfPlugin);
         let e = app.world_mut().spawn(GltfAsset::new("missing.gltf")).id();
@@ -189,5 +206,45 @@ mod tests {
             .world()
             .get::<crate::skinned_mesh::SkinnedMesh>(e)
             .is_none());
+    }
+
+    #[test]
+    fn gltf_asset_loads_async_and_becomes_available() {
+        use bevy_asset::{AssetServer, Assets};
+
+        // cargo test's working directory is this crate's own manifest
+        // directory (crates/bsengine-gltf), not the workspace root, so the
+        // fixture path must climb back up to it — matching the convention
+        // other crates use via `CARGO_MANIFEST_DIR`-relative joins (see
+        // bsengine-mcp/tests and bsengine-runtime/tests).
+        const FIXTURE_GLTF_PATH: &str = "../../games/mini-arena/assets/models/fox.glb";
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(GltfPlugin);
+
+        let handle = {
+            let server = app.world().resource::<AssetServer>();
+            server.load::<LoadedGltf>(FIXTURE_GLTF_PATH)
+        };
+
+        let mut loaded = false;
+        for _ in 0..200 {
+            app.update();
+            if app
+                .world()
+                .resource::<Assets<LoadedGltf>>()
+                .get(&handle)
+                .is_some()
+            {
+                loaded = true;
+                break;
+            }
+        }
+        assert!(
+            loaded,
+            "glTF asset did not finish loading within 200 frames"
+        );
     }
 }

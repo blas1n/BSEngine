@@ -2651,6 +2651,68 @@ mod tests {
     }
 
     #[test]
+    fn point_shadow_wgsl_face_selection_matches_view_proj_ndc() {
+        // Independently reimplements point_shadow_factor's manual cube-face
+        // selection + UV math from MESH_WGSL in Rust, and checks it agrees
+        // with the ACTUAL NDC the corresponding point_light_face_view_projs
+        // matrix produces for the same point -- that matrix is what actually
+        // gets rendered into each shadow face, so agreement here is what
+        // proves the shader samples the correct texel. Deliberately uses
+        // off-axis points (not purely along one axis) so a U/V swap or sign
+        // error would be caught -- a point exactly on-axis projects to NDC
+        // (0,0) either way and can't distinguish those bugs (see the
+        // "projects_near_center" test above, which only checks that case).
+        fn wgsl_face_uv(to_frag: Vec3) -> (usize, f32, f32) {
+            let ax = to_frag.x.abs();
+            let ay = to_frag.y.abs();
+            let az = to_frag.z.abs();
+            let (face, u, v, ma) = if ax >= ay && ax >= az {
+                if to_frag.x > 0.0 {
+                    (0, -to_frag.z, -to_frag.y, ax)
+                } else {
+                    (1, to_frag.z, -to_frag.y, ax)
+                }
+            } else if ay >= ax && ay >= az {
+                if to_frag.y > 0.0 {
+                    (2, to_frag.x, to_frag.z, ay)
+                } else {
+                    (3, to_frag.x, -to_frag.z, ay)
+                }
+            } else if to_frag.z > 0.0 {
+                (4, to_frag.x, -to_frag.y, az)
+            } else {
+                (5, -to_frag.x, -to_frag.y, az)
+            };
+            (face, u / ma, v / ma)
+        }
+
+        let light_pos = Vec3::ZERO;
+        let vps = point_light_face_view_projs(light_pos, 10.0);
+        let cases: [(Vec3, usize); 6] = [
+            (Vec3::new(3.0, 0.5, -1.0), 0),
+            (Vec3::new(-3.0, 0.5, -1.0), 1),
+            (Vec3::new(0.5, 3.0, -1.0), 2),
+            (Vec3::new(0.5, -3.0, -1.0), 3),
+            (Vec3::new(0.5, -1.0, 3.0), 4),
+            (Vec3::new(0.5, -1.0, -3.0), 5),
+        ];
+        for (to_frag, expected_face) in cases {
+            let (face, u, v) = wgsl_face_uv(to_frag);
+            assert_eq!(
+                face, expected_face,
+                "face selection mismatch for {to_frag:?}"
+            );
+            let world = light_pos + to_frag;
+            let clip = vps[face] * world.extend(1.0);
+            let ndc = clip.truncate() / clip.w;
+            assert!(
+                (ndc.x - u).abs() < 1e-4 && (ndc.y - v).abs() < 1e-4,
+                "face {face}: WGSL-equivalent uv=({u},{v}) does not match actual NDC {ndc:?} for {to_frag:?}"
+            );
+        }
+    }
+
+    #[test]
     fn mesh_shader_compiles() {
         let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless rhi");
         let _module = WgpuSurface::compile_shader(&rhi.device, MESH_WGSL);

@@ -363,6 +363,24 @@ self-hit, (8) player.js: 레이캐스트 origin 높이(+0.9)가 콜라이더 상
 
 ---
 
+### 22. 포인트 라이트 그림자 ✅
+
+**목표:** 기존엔 방향광(directional light) 하나만 그림자를 드리웠는데,
+포인트 라이트(최대 8개, `MAX_POINT_LIGHTS`)도 실제로 그림자를 드리우게 함
+
+**완료 조건:**
+- [x] 선형 거리 큐브 배열(linear-distance cube array) 방식으로 구현 — 각
+  포인트 라이트당 6면(정육면체 각 방향) 렌더 패스, `R32Float` 텍스처
+  배열(최대 48 레이어)에 광원으로부터의 선형 거리 저장
+- [x] 메인 라이팅 셰이더(`MESH_WGSL`)에서 수동 큐브 면 선택 + 저장된 거리와
+  비교하는 방식으로 그림자 적용 (depth-compare 큐브맵 대신 선택 — 면 선택
+  재구성 로직이 훨씬 단순하고 seam 버그 위험이 적음)
+- [x] Mini Action Arena의 `ArenaLight`(포인트 라이트)가 별도 콘텐츠 수정 없이
+  자동으로 그림자를 드리움 (방향광과 동일하게 옵트아웃 토글 없음)
+- [x] CI 통과
+
+---
+
 ## 완료 이력
 
 | 항목 | 완료일 | PR |
@@ -420,4 +438,5 @@ self-hit, (8) player.js: 레이캐스트 origin 높이(+0.9)가 콜라이더 상
 | 18. `gltf:`/`CustomShader.path` project-relative resolution via shared `bsengine_core::ProjectDir`/`resolve_project_path`; fixed `EditorCommand::LoadScene` never spawning `GltfAsset` for gltf entities at all; mini-arena content migrated off its CWD-relative workaround | 2026-07-30 | [#1739](https://github.com/blas1n/BSEngine/pull/1739) |
 | 19. Exposed elapsed time to custom WGSL shaders via `CameraUniform.time` (reusing an existing unused padding field, zero buffer layout change); mini-arena's `glow.wgsl`/`pickup.js` migrated from per-frame JS-driven emissive pulsing to a GPU-computed one | 2026-07-30 | [#1740](https://github.com/blas1n/BSEngine/pull/1740) |
 | 20. Added `UiWidget::ProgressBar` / `Bsengine.ui.setProgressBar`, rendered via `egui::ProgressBar`; mini-arena's `hud.js` migrated from a plain-text HP readout to a real health bar | 2026-07-30 | [#1741](https://github.com/blas1n/BSEngine/pull/1741) |
-| 21. Real pause: `bsengine_core::PauseState` actually gates `PhysicsPlugin`/`NavMeshPlugin`; `Bsengine.pause`/`resume`/`isPaused` scripting API; mini-arena's pause menu now actually stops the Enemy and Player instead of just showing a panel | 2026-07-30 | branch `feat/pause-timescale-system` (PR #TBD) |
+| 21. Real pause: `bsengine_core::PauseState` actually gates `PhysicsPlugin`/`NavMeshPlugin`; `Bsengine.pause`/`resume`/`isPaused` scripting API; mini-arena's pause menu now actually stops the Enemy and Player instead of just showing a panel | 2026-07-30 | [#1742](https://github.com/blas1n/BSEngine/pull/1742) |
+| 22. Point light shadows via linear-distance cube arrays (up to `MAX_POINT_LIGHTS`=8, 6 faces each, `R32Float` texture array), sampled in `MESH_WGSL` via manual cube-face selection; mini-arena's `ArenaLight` now casts a shadow automatically | 2026-07-31 | branch `feat/point-light-shadows` (PR #TBD) |

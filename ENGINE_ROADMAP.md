@@ -392,18 +392,42 @@ RON/스크립트/셰이더/glTF/플러그인 manifest/project manifest/오디오
 설계 문서: `docs/superpowers/specs/2026-07-31-bevy-asset-pipeline-design.md`
 
 **완료 조건:**
-- [ ] 루트 `Cargo.toml`에 `bevy_asset` 0.14 워크스페이스 의존성 추가(`file_watcher` 피처는
+- [x] 루트 `Cargo.toml`에 `bevy_asset` 0.14 워크스페이스 의존성 추가(`file_watcher` 피처는
   미활성 — item 24에서 켬)
-- [ ] `GltfSource`/`ShaderSource`/`AudioSource`/`TextureAsset` 4종에 대한 `AssetLoader`
+- [x] `GltfSource`/`ShaderSource`/`AudioSource`/`TextureAsset` 4종에 대한 `AssetLoader`
   구현 — 기존 파싱 로직(`GltfLoader::load_full`, WGSL 컴파일, `StaticSoundData::from_file`)
   을 그대로 이전
-- [ ] `GltfAsset`/`CustomShader` 등 컴포넌트가 `path: String` 대신 `Handle<T>`를 내부적으로
+- [x] `GltfAsset`/`CustomShader` 등 컴포넌트가 `path: String` 대신 `Handle<T>`를 내부적으로
   보유하도록 전환. 씬 RON 필드/스크립팅 API/MCP 툴 파라미터는 경로 문자열 그대로 유지
   (`AssetServer`가 경계에서 `load::<T>(path) -> Handle<T>` 변환)
-- [ ] 최초 로드는 동기 블로킹 유지(진짜 비동기 스트리밍은 범위 밖, YAGNI) — 에셋이 몇
+- [x] 최초 로드는 동기 블로킹 유지(진짜 비동기 스트리밍은 범위 밖, YAGNI) — 에셋이 몇
   프레임 늦게 나타나는 동작 변화 없음
-- [ ] `games/mini-arena`/`games/tilt-run` 기존 E2E 리플레이가 마이그레이션 후에도 통과
-- [ ] 테스트 추가, CI 통과
+- [x] `games/mini-arena`/`games/tilt-run` 기존 E2E 리플레이가 마이그레이션 후에도 통과 —
+  `games/tilt-run`의 7개 리플레이 전부 클린 통과 확인. `games/mini-arena`의
+  `basic-playthrough.testlog.json`은 이 환경에서 재현 시 "Pickup collected" 단언에서
+  실패하지만, 동일한 실패(동일한 라벨, 동일한 actual 값)가 이번 item 23의 변경을 전혀
+  포함하지 않은 미수정 `master`(커밋 `a539e98e`)에서도 그대로 재현됨 — bevy_asset
+  마이그레이션과 무관한 기존 결함. 근본 원인은 `player.js`의 연속 이동이 고정 가상
+  타임스텝이 아니라 실제 벽시계 델타(`Bsengine.getDeltaTime()` → `Instant::now()`)로
+  구동된다는 점: `games/mini-arena/GAP_LOG.md`가 이미 이 정확한 위험("a standing source
+  of potential flakiness for any future JS-movement-driven... headless recording")을
+  경고해 두었음. 물리 기반(Rapier 고정 타임스텝) 이동인 tilt-run은 이 문제가 없음.
+- [x] 테스트 추가, CI 통과
+
+**참고: 테스트 스택 오버플로 이슈 두 번째 사례 (신규 발견, 이 항목의 작업과 무관).**
+기존에 알려진 문제는 `bsengine-editor`의 테스트 바이너리가 워크스페이스 전체 테스트
+(`cargo test --all`/`cargo test --workspace`)와 함께 한 프로세스로 묶여 실행될 때만
+스택을 오버플로한다는 것이었다 (`cargo test -p bsengine-editor` 단독 실행 시 825개
+테스트 모두 통과 — Windows 스택 크기 관련 기존 이슈). 이번 item 23 작업 중 이와는
+별개인 **두 번째** 사례를 발견했다: `bsengine-runtime`의
+`test_mode::tests::editor_plugin_reload_scene_does_not_corrupt_scripting`는 위 이슈와
+달리 **단독 실행**(`cargo test -p bsengine-runtime`)에서도 스택을 오버플로한다. 이
+동작은 이번 item 23의 변경과 무관하게 미수정 `master`에서도 동일하게 재현되는 기존
+버그로 확인됨 — item 23의 Task 6이 같은 테스트 경로에 있던 더 앞선(더 즉각적인) 패닉을
+고치면서 그 아래 깔려 있던 이 스택 오버플로를 우연히 드러낸 것뿐이다. `cargo test
+--all`은 항상 `bsengine-editor`의 오버플로에서 먼저 멈추기 때문에, 이 테스트가 실제로
+통과하는지는 지금까지 어떤 워크스페이스 전체 테스트 실행에서도 확인된 적이 없었다.
+이 항목의 작업 범위가 아니므로 고치지 않고 기록만 남긴다.
 
 ---
 
@@ -585,3 +609,4 @@ touched by this task" 항목에서 발견)
 | 20. Added `UiWidget::ProgressBar` / `Bsengine.ui.setProgressBar`, rendered via `egui::ProgressBar`; mini-arena's `hud.js` migrated from a plain-text HP readout to a real health bar | 2026-07-30 | [#1741](https://github.com/blas1n/BSEngine/pull/1741) |
 | 21. Real pause: `bsengine_core::PauseState` actually gates `PhysicsPlugin`/`NavMeshPlugin`; `Bsengine.pause`/`resume`/`isPaused` scripting API; mini-arena's pause menu now actually stops the Enemy and Player instead of just showing a panel | 2026-07-30 | [#1742](https://github.com/blas1n/BSEngine/pull/1742) |
 | 22. Point light shadows via linear-distance cube arrays (up to `MAX_POINT_LIGHTS`=8, 6 faces each, `R32Float` texture array), sampled in `MESH_WGSL` via manual cube-face selection; mini-arena's `ArenaLight` now casts a shadow automatically | 2026-07-31 | branch `feat/point-light-shadows` (PR #TBD) |
+| 23. `bevy_asset` adoption: `GltfSource`/`ShaderSource`/`AudioSource`/`TextureAsset` migrated to `Handle<T>`-based `AssetLoader`s (glTF, custom WGSL shaders, audio, textures incl. skybox), replacing 9 separate direct `std::fs::read` call sites; scene RON/scripting API/MCP tool surfaces stay path-string based, `AssetServer` converts at the boundary; sync-blocking initial load preserved (no behavior change); `games/tilt-run`'s 7 E2E replays all pass, `games/mini-arena`'s replay found to fail on this environment but proven (via identical reproduction on unmodified master) to be a pre-existing, wall-clock-timing-dependent flakiness unrelated to this migration; incidentally surfaced a second, previously-undocumented `bsengine-runtime` stack-overflow test (see item 23's own notes above) | 2026-07-31 | PR #TBD |

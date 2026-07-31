@@ -227,6 +227,45 @@ fn vs_shadow(in: VertIn) -> @builtin(position) vec4<f32> {
 }
 "#;
 
+const POINT_SHADOW_WGSL: &str = r#"
+struct ShadowUniform {
+    view_proj: mat4x4<f32>,
+    light_pos: vec3<f32>,
+};
+@group(0) @binding(0) var<uniform> shadow_uniform: ShadowUniform;
+
+struct ModelUniform {
+    model: mat4x4<f32>,
+};
+@group(1) @binding(0) var<uniform> model_data: ModelUniform;
+
+struct VertIn {
+    @location(0) pos: vec3<f32>,
+    @location(1) col: vec3<f32>,
+    @location(2) normal: vec3<f32>,
+    @location(3) uv: vec2<f32>,
+}
+struct VertOut {
+    @builtin(position) clip_pos: vec4<f32>,
+    @location(0) world_pos: vec3<f32>,
+}
+
+@vertex
+fn vs_point_shadow(in: VertIn) -> VertOut {
+    var out: VertOut;
+    let world = model_data.model * vec4<f32>(in.pos, 1.0);
+    out.clip_pos = shadow_uniform.view_proj * world;
+    out.world_pos = world.xyz;
+    return out;
+}
+
+@fragment
+fn fs_point_shadow(in: VertOut) -> @location(0) vec4<f32> {
+    let dist = length(in.world_pos - shadow_uniform.light_pos);
+    return vec4<f32>(dist, 0.0, 0.0, 1.0);
+}
+"#;
+
 const SKYBOX_WGSL: &str = r#"
 const PI: f32 = 3.14159265358979323846;
 struct SkyUniform {
@@ -278,6 +317,14 @@ const LIGHT_UNIFORM_SIZE: u64 = 960;
 // Vertex stride: position(12) + color(12) + normal(12) + uv(8) = 44 bytes
 const VERTEX_STRIDE: u64 = 44;
 const SHADOW_MAP_SIZE: u32 = 2048;
+/// Deliberately much smaller than `SHADOW_MAP_SIZE` — at this size, 48 layers
+/// (`MAX_POINT_LIGHTS` * 6 faces) of `R32Float` is ~48 MiB; at 2048 it would be
+/// ~768 MiB, unreasonable for a secondary shadow feature.
+const POINT_SHADOW_MAP_SIZE: u32 = 512;
+/// Per-face dynamic-offset stride for `point_shadow_uniform_buffer`, mirroring
+/// `MODEL_STRIDE`'s 256-byte convention (`PointShadowUniformData` is 80 bytes;
+/// 256 satisfies wgpu's minimum uniform buffer offset alignment on every backend).
+const POINT_SHADOW_STRIDE: u64 = 256;
 
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -326,6 +373,14 @@ struct ModelUniformData {
     _pad2: f32,
     base_color: [f32; 3],
     _pad3: f32,
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct PointShadowUniformData {
+    view_proj: [[f32; 4]; 4],
+    light_pos: [f32; 3],
+    _pad: f32,
 }
 
 /// A single point light entry for the GPU buffer.
@@ -556,6 +611,13 @@ pub struct WgpuSurface {
     _shadow_map_texture: wgpu::Texture,
     shadow_map_view: wgpu::TextureView,
     _shadow_comparison_sampler: wgpu::Sampler,
+    point_shadow_pipeline: wgpu::RenderPipeline,
+    _point_shadow_color_texture: wgpu::Texture,
+    _point_shadow_depth_texture: wgpu::Texture,
+    point_shadow_depth_view: wgpu::TextureView,
+    _point_shadow_sampler: wgpu::Sampler,
+    point_shadow_uniform_buffer: wgpu::Buffer,
+    point_shadow_bind_group: wgpu::BindGroup,
     egui_ctx: egui::Context,
     egui_renderer: egui_wgpu::Renderer,
     skybox: Option<SkyboxState>,
@@ -727,6 +789,22 @@ impl WgpuSurface {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
 
@@ -761,6 +839,96 @@ impl WgpuSurface {
             ..Default::default()
         });
 
+        // --- point light shadow maps (linear-distance cube arrays) ---
+        let point_shadow_color_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("point shadow color array"),
+            size: wgpu::Extent3d {
+                width: POINT_SHADOW_MAP_SIZE,
+                height: POINT_SHADOW_MAP_SIZE,
+                depth_or_array_layers: (MAX_POINT_LIGHTS * 6) as u32,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::R32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let point_shadow_color_full_view =
+            point_shadow_color_texture.create_view(&wgpu::TextureViewDescriptor {
+                label: Some("point shadow color array view (full)"),
+                dimension: Some(wgpu::TextureViewDimension::D2Array),
+                ..Default::default()
+            });
+
+        let point_shadow_depth_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("point shadow depth"),
+            size: wgpu::Extent3d {
+                width: POINT_SHADOW_MAP_SIZE,
+                height: POINT_SHADOW_MAP_SIZE,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: DEPTH_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let point_shadow_depth_view =
+            point_shadow_depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // R32Float is not natively filterable without the FLOAT32_FILTERABLE
+        // device feature (not requested — required_features is empty()), so
+        // this must be a non-filtering sampler with Nearest filter modes,
+        // matching the directional shadow's own shadow_comparison_sampler
+        // (also Nearest) for consistency.
+        let point_shadow_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("point shadow sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
+        let point_shadow_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("point shadow uniform"),
+            size: POINT_SHADOW_STRIDE * (MAX_POINT_LIGHTS * 6) as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let point_shadow_uniform_bgl =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("point shadow uniform bgl"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: true,
+                        min_binding_size: wgpu::BufferSize::new(
+                            std::mem::size_of::<PointShadowUniformData>() as u64,
+                        ),
+                    },
+                    count: None,
+                }],
+            });
+        let point_shadow_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("point shadow uniform bg"),
+            layout: &point_shadow_uniform_bgl,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &point_shadow_uniform_buffer,
+                    offset: 0,
+                    size: wgpu::BufferSize::new(
+                        std::mem::size_of::<PointShadowUniformData>() as u64
+                    ),
+                }),
+            }],
+        });
+
         let light_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("light bg"),
             layout: &light_bgl,
@@ -776,6 +944,14 @@ impl WgpuSurface {
                 wgpu::BindGroupEntry {
                     binding: 2,
                     resource: wgpu::BindingResource::TextureView(&shadow_map_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&point_shadow_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(&point_shadow_color_full_view),
                 },
             ],
         });
@@ -848,6 +1024,54 @@ impl WgpuSurface {
             multiview: None,
             cache: None,
         });
+
+        let point_shadow_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("point shadow shader"),
+            source: wgpu::ShaderSource::Wgsl(POINT_SHADOW_WGSL.into()),
+        });
+        let point_shadow_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("point shadow pipeline layout"),
+                bind_group_layouts: &[&point_shadow_uniform_bgl, &model_bgl],
+                push_constant_ranges: &[],
+            });
+        let point_shadow_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("point shadow pipeline"),
+                layout: Some(&point_shadow_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &point_shadow_shader,
+                    entry_point: "vs_point_shadow",
+                    buffers: std::slice::from_ref(&vertex_buffer_layout),
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &point_shadow_shader,
+                    entry_point: "fs_point_shadow",
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::R32Float,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    cull_mode: Some(wgpu::Face::Back),
+                    front_face: wgpu::FrontFace::Ccw,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            });
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("mesh shader"),
@@ -931,6 +1155,13 @@ impl WgpuSurface {
             _shadow_map_texture: shadow_map_texture,
             shadow_map_view,
             _shadow_comparison_sampler: shadow_comparison_sampler,
+            point_shadow_pipeline,
+            _point_shadow_color_texture: point_shadow_color_texture,
+            _point_shadow_depth_texture: point_shadow_depth_texture,
+            point_shadow_depth_view,
+            _point_shadow_sampler: point_shadow_sampler,
+            point_shadow_uniform_buffer,
+            point_shadow_bind_group,
             egui_ctx,
             egui_renderer,
             skybox: None,
@@ -2357,5 +2588,11 @@ mod tests {
     fn shadow_shader_compiles() {
         let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless rhi");
         let _module = WgpuSurface::compile_shader(&rhi.device, SHADOW_WGSL);
+    }
+
+    #[test]
+    fn point_shadow_shader_compiles() {
+        let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless rhi");
+        let _module = WgpuSurface::compile_shader(&rhi.device, POINT_SHADOW_WGSL);
     }
 }

@@ -848,8 +848,11 @@ name = "bsengine-audio"
 version = "0.1.0"
 dependencies = [
  "bevy_app",
+ "bevy_asset",
  "bevy_ecs",
+ "bevy_reflect",
  "bsengine-app",
+ "bsengine-asset",
  "bsengine-core",
  "kira",
  "tracing",
@@ -1127,8 +1130,10 @@ name = "bsengine-scripting"
 version = "0.1.0"
 dependencies = [
  "bevy_app",
+ "bevy_asset",
  "bevy_ecs",
  "bsengine-app",
+ "bsengine-asset",
  "bsengine-audio",
  "bsengine-core",
  "bsengine-ecs",

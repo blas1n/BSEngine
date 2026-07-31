@@ -5,6 +5,11 @@
 //! `PlaybackState` tracking whether a sound is playing, paused, or stopped.
 #![warn(missing_docs)]
 
+/// Decoded audio sample data asset and its loader. Not re-exported at the
+/// crate root: its type, `audio_source::AudioSource`, would collide with
+/// [`components::AudioSource`] (an unrelated, pre-existing ECS `Component`
+/// of the same name) — refer to it via `bsengine_audio::audio_source::AudioSource`.
+pub mod audio_source;
 /// ECS components for attaching and configuring audio playback on entities.
 pub mod components;
 /// The Bevy [`AudioPlugin`] and the systems that drive playback each frame.
@@ -12,6 +17,7 @@ pub mod plugin;
 /// The [`AudioWorld`] resource wrapping the underlying `kira` audio manager.
 pub mod world;
 
+pub use audio_source::{load_audio_source, AudioSourceLoader};
 pub use components::{AudioPlayer, AudioSource, PlaybackState};
 pub use plugin::AudioPlugin;
 pub use world::AudioWorld;

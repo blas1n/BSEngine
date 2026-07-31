@@ -5,18 +5,22 @@ use kira::sound::static_sound::StaticSoundData;
 /// Decoded audio sample data, ready to play (possibly repeatedly — kira's
 /// `StaticSoundData` clones cheaply, its sample frames are reference-counted).
 ///
-/// Not re-exported at the crate root as a bare `AudioSource` — this crate
-/// already has an ECS [`Component`](bevy_ecs::prelude::Component) of that
-/// name in [`crate::components`] (pre-loaded playback data attached directly
-/// to an entity, a different concept from this `bevy_asset::Asset`). Refer to
-/// this type via its module path, `bsengine_audio::audio_source::AudioSource`.
+/// Named `AudioSourceAsset` (mirroring `bsengine_asset::TextureAsset`'s
+/// `*Asset` suffix convention) rather than the more obvious `AudioSource`,
+/// because this crate already has an ECS
+/// [`Component`](bevy_ecs::prelude::Component) named `AudioSource` in
+/// [`crate::components`] (pre-loaded playback data attached directly to an
+/// entity — a different concept from this `bevy_asset::Asset`). That
+/// component keeps its name since it predates this type and is unrelated to
+/// it; this type took the suffix instead so both remain re-exported at the
+/// crate root without a name clash.
 #[derive(Asset, TypePath, Clone)]
-pub struct AudioSource(pub StaticSoundData);
+pub struct AudioSourceAsset(pub StaticSoundData);
 
 /// Reads and decodes an audio file from disk.
-pub fn load_audio_source(path: &str) -> Result<AudioSource, String> {
+pub fn load_audio_source(path: &str) -> Result<AudioSourceAsset, String> {
     StaticSoundData::from_file(path)
-        .map(AudioSource)
+        .map(AudioSourceAsset)
         .map_err(|e| e.to_string())
 }
 
@@ -28,7 +32,7 @@ use bevy_asset::{AssetLoader, LoadContext};
 pub struct AudioSourceLoader;
 
 impl AssetLoader for AudioSourceLoader {
-    type Asset = AudioSource;
+    type Asset = AudioSourceAsset;
     type Settings = ();
     type Error = String;
 
@@ -46,7 +50,7 @@ impl AssetLoader for AudioSourceLoader {
             .map_err(|e| format!("read: {e}"))?;
         let cursor = std::io::Cursor::new(bytes);
         StaticSoundData::from_cursor(cursor)
-            .map(AudioSource)
+            .map(AudioSourceAsset)
             .map_err(|e| format!("decode: {e}"))
     }
 }
@@ -55,15 +59,33 @@ impl AssetLoader for AudioSourceLoader {
 mod tests {
     use super::*;
 
+    // Shared between `minimal_flac_silence` (which encodes them into the
+    // fixture's STREAMINFO/frame headers) and the assertions in
+    // `minimal_flac_silence_decodes_via_kira` (which check the decoded
+    // result actually matches), so a future edit to one can't silently drift
+    // from the other.
+    const FLAC_SAMPLE_RATE: u64 = 8000;
+    const FLAC_BLOCK_SIZE: u64 = 192;
+    const FLAC_BITS_PER_SAMPLE: u64 = 16;
+    // Symphonia's FLAC packet parser has no explicit frame-length field to
+    // rely on — it locates each frame's end by scanning ahead for the
+    // *next* frame's sync bytes. A single frame smaller than
+    // `FLAC_MAX_FRAME_HEADER_SIZE` (16 bytes) makes that scan wrap back
+    // over the frame's own header and misidentify it as its own
+    // successor (confirmed empirically: a 1-frame version of this
+    // fixture fails with a spurious `UnexpectedEof`/"end of stream").
+    // Four small frames give the parser genuine look-ahead room.
+    const FLAC_NUM_FRAMES: u64 = 4;
+
     #[test]
     fn load_audio_source_missing_file_errors() {
         assert!(load_audio_source("definitely/missing.wav").is_err());
     }
 
-    /// Hand-assembles the smallest possible valid FLAC file (one metadata
-    /// block + one frame, mono, 16-bit, 8kHz, 192 samples of silence via a
-    /// `CONSTANT` subframe) rather than relying on a checked-in binary
-    /// fixture.
+    /// Hand-assembles the smallest practical valid FLAC file (one metadata
+    /// block + `FLAC_NUM_FRAMES` frames, mono, 16-bit, 8kHz, `FLAC_BLOCK_SIZE`
+    /// samples of silence per frame via a `CONSTANT` subframe) rather than
+    /// relying on a checked-in binary fixture.
     ///
     /// No `.wav`/`.ogg`/`.mp3`/`.flac` file exists anywhere in this repo
     /// (`git ls-files` turns up nothing), so there is no real fixture to
@@ -137,31 +159,18 @@ mod tests {
             crc
         }
 
-        const SAMPLE_RATE: u64 = 8000;
-        const BLOCK_SIZE: u64 = 192;
-        const BITS_PER_SAMPLE: u64 = 16;
-        // Symphonia's FLAC packet parser has no explicit frame-length field to
-        // rely on — it locates each frame's end by scanning ahead for the
-        // *next* frame's sync bytes. A single frame smaller than
-        // `FLAC_MAX_FRAME_HEADER_SIZE` (16 bytes) makes that scan wrap back
-        // over the frame's own header and misidentify it as its own
-        // successor (confirmed empirically: a 1-frame version of this
-        // fixture fails with a spurious `UnexpectedEof`/"end of stream").
-        // Four small frames give the parser genuine look-ahead room.
-        const NUM_FRAMES: u64 = 4;
-
         // STREAMINFO body (34 bytes): 18 bytes of bit-packed fields, then a
         // 16-byte MD5 signature (left all-zero; decoders don't require it to
         // match to decode correctly, only to verify).
         let mut w = BitWriter::new();
-        w.push(BLOCK_SIZE, 16); // min blocksize
-        w.push(BLOCK_SIZE, 16); // max blocksize
+        w.push(FLAC_BLOCK_SIZE, 16); // min blocksize
+        w.push(FLAC_BLOCK_SIZE, 16); // max blocksize
         w.push(0, 24); // min framesize (unknown)
         w.push(0, 24); // max framesize (unknown)
-        w.push(SAMPLE_RATE, 20);
+        w.push(FLAC_SAMPLE_RATE, 20);
         w.push(0, 3); // channels - 1 (mono)
-        w.push(BITS_PER_SAMPLE - 1, 5);
-        w.push(BLOCK_SIZE * NUM_FRAMES, 36); // total samples in stream
+        w.push(FLAC_BITS_PER_SAMPLE - 1, 5);
+        w.push(FLAC_BLOCK_SIZE * FLAC_NUM_FRAMES, 36); // total samples in stream
         let mut streaminfo = w.into_bytes();
         streaminfo.extend_from_slice(&[0u8; 16]); // MD5, unset
         assert_eq!(streaminfo.len(), 34);
@@ -211,7 +220,7 @@ mod tests {
         let mut out = b"fLaC".to_vec();
         out.extend_from_slice(&metadata_block_header);
         out.extend_from_slice(&streaminfo);
-        for frame_number in 0..NUM_FRAMES as u8 {
+        for frame_number in 0..FLAC_NUM_FRAMES as u8 {
             out.extend_from_slice(&build_frame(frame_number));
         }
         out
@@ -221,11 +230,33 @@ mod tests {
     fn minimal_flac_silence_decodes_via_kira() {
         // Sanity-checks the hand-rolled fixture directly against kira's
         // synchronous loader (same decode path `load_audio_source` uses)
-        // before trusting it in the async-loader test below.
+        // before trusting it in the async-loader test below. Checks
+        // sample_rate/num_frames/duration/an actual decoded sample, not just
+        // "it decoded" — a future edit to `minimal_flac_silence` (wrong
+        // FLAC_NUM_FRAMES, a bit-packing slip in the CONSTANT subframe)
+        // should fail loudly here rather than silently corrupt the fixture.
         let bytes = minimal_flac_silence();
         let cursor = std::io::Cursor::new(bytes);
         let data = StaticSoundData::from_cursor(cursor).expect("fixture must decode");
-        assert_eq!(data.sample_rate, 8000);
+
+        assert_eq!(data.sample_rate, FLAC_SAMPLE_RATE as u32);
+
+        let expected_frames = (FLAC_NUM_FRAMES * FLAC_BLOCK_SIZE) as usize;
+        assert_eq!(data.num_frames(), expected_frames);
+
+        let expected_duration =
+            std::time::Duration::from_secs_f64(expected_frames as f64 / FLAC_SAMPLE_RATE as f64);
+        assert!(
+            (data.duration().as_secs_f64() - expected_duration.as_secs_f64()).abs() < 1e-9,
+            "duration: got {:?}, expected {:?}",
+            data.duration(),
+            expected_duration
+        );
+
+        // Every CONSTANT-subframe sample encoded is 0 (silence) — spot-check
+        // the first and last frame across the whole multi-frame stream.
+        assert_eq!(data.frames[0], kira::Frame::ZERO);
+        assert_eq!(data.frames[expected_frames - 1], kira::Frame::ZERO);
     }
 
     #[test]
@@ -243,12 +274,12 @@ mod tests {
 
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
-        app.init_asset::<AudioSource>();
+        app.init_asset::<AudioSourceAsset>();
         app.register_asset_loader(AudioSourceLoader);
 
         let handle = {
             let server = app.world().resource::<AssetServer>();
-            server.load::<AudioSource>(path.to_str().unwrap().to_owned())
+            server.load::<AudioSourceAsset>(path.to_str().unwrap().to_owned())
         };
 
         let mut loaded = false;
@@ -256,7 +287,7 @@ mod tests {
             app.update();
             if app
                 .world()
-                .resource::<Assets<AudioSource>>()
+                .resource::<Assets<AudioSourceAsset>>()
                 .get(&handle)
                 .is_some()
             {

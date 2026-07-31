@@ -74,14 +74,9 @@ impl Default for ScriptingPlugin {
 
 impl Plugin for ScriptingPlugin {
     fn build(&self, app: &mut App) {
-        // `AudioSource` here is bsengine_audio's Asset newtype
-        // (`bsengine_audio::audio_source::AudioSource`) — not re-exported at
-        // that crate's root because it collides with the pre-existing
-        // `bsengine_audio::AudioSource` ECS `Component`, so it's referred to
-        // by its full module path everywhere in this file.
         use bevy_asset::AssetApp;
-        app.init_asset::<bsengine_audio::audio_source::AudioSource>()
-            .register_asset_loader(bsengine_audio::audio_source::AudioSourceLoader);
+        app.init_asset::<bsengine_audio::AudioSourceAsset>()
+            .register_asset_loader(bsengine_audio::AudioSourceLoader);
 
         app.insert_resource(ProjectDir(self.project_dir.clone()));
         app.insert_resource(HudTexts::default());
@@ -1282,27 +1277,26 @@ fn run_scripts(world: &mut World) {
                 } else {
                     format!("{}/{}", project_dir, path)
                 };
-                let loaded = {
-                    let asset_server = world.get_resource::<bevy_asset::AssetServer>().cloned();
-                    match asset_server {
-                        Some(asset_server) => world
-                            .get_resource_mut::<bevy_asset::Assets<bsengine_audio::audio_source::AudioSource>>()
+                let loaded = world
+                    .get_resource::<bevy_asset::AssetServer>()
+                    .cloned()
+                    .and_then(|asset_server| {
+                        world
+                            .get_resource_mut::<bevy_asset::Assets<bsengine_audio::AudioSourceAsset>>()
                             .map(|mut assets| {
                                 bsengine_asset::load(
                                     bsengine_asset::LoadMode::Sync,
                                     &asset_server,
                                     &mut assets,
                                     &full_path,
-                                    bsengine_audio::audio_source::load_audio_source,
+                                    bsengine_audio::load_audio_source,
                                 )
-                            }),
-                        None => None,
-                    }
-                };
+                            })
+                    });
                 match loaded {
                     Some(Ok(handle)) => {
                         let data = world
-                            .resource::<bevy_asset::Assets<bsengine_audio::audio_source::AudioSource>>()
+                            .resource::<bevy_asset::Assets<bsengine_audio::AudioSourceAsset>>()
                             .get(&handle)
                             .map(|src| src.0.clone());
                         if let Some(data) = data {
@@ -1323,7 +1317,7 @@ fn run_scripts(world: &mut World) {
                     }
                     Some(Err(e)) => tracing::warn!("[audio] failed to load {full_path}: {e}"),
                     None => tracing::warn!(
-                        "[audio] Assets<AudioSource> resource missing (AssetPlugin not registered?)"
+                        "[audio] Assets<AudioSourceAsset> resource missing (AssetPlugin not registered?)"
                     ),
                 }
             }

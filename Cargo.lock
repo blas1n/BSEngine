@@ -876,6 +876,7 @@ version = "0.1.0"
 dependencies = [
  "bevy_ecs",
  "bsengine-app",
+ "bsengine-asset",
  "bsengine-core",
  "bsengine-gltf",
  "bsengine-render",
@@ -923,6 +924,7 @@ version = "0.1.0"
 dependencies = [
  "bevy_ecs",
  "bsengine-app",
+ "bsengine-asset",
  "bsengine-core",
  "bsengine-ecs",
  "bsengine-editor",
@@ -1085,6 +1087,7 @@ dependencies = [
  "bevy_app",
  "bevy_ecs",
  "bsengine-app",
+ "bsengine-asset",
  "bsengine-audio",
  "bsengine-core",
  "bsengine-ecs",

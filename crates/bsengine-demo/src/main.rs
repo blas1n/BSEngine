@@ -1,5 +1,6 @@
 use bevy_ecs::prelude::*;
 use bsengine_app::{new_app, Update};
+use bsengine_asset::AssetPlugin;
 use bsengine_core::{Camera, DirectionalLight, GlobalTransform, Material, Transform};
 use bsengine_gltf::GltfPlugin;
 use bsengine_render::{MeshRenderer, RenderPlugin};
@@ -61,6 +62,7 @@ fn main() {
     bsengine_core::init_logging();
 
     let mut app = new_app();
+    app.add_plugins(AssetPlugin);
     app.add_plugins(WindowPlugin {
         descriptor: WindowDescriptor {
             title: "BSEngine Demo".to_string(),

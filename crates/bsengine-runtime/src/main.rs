@@ -3,6 +3,7 @@ use std::env;
 use bsengine_app::{
     new_app, AnimationPlugin, AnimationStateMachinePlugin, NavMeshPlugin, TimePlugin,
 };
+use bsengine_asset::AssetPlugin;
 use bsengine_audio::AudioPlugin;
 use bsengine_core::{EditorPlayState, InspectorState};
 use bsengine_editor::EditorPlugin;
@@ -63,6 +64,7 @@ fn run_windowed(project_dir: &str) {
 
     let mut app = new_app();
     app.add_plugins(TimePlugin)
+        .add_plugins(AssetPlugin)
         .add_plugins(WgpuRHIPlugin)
         .add_plugins(WindowPlugin {
             descriptor: WindowDescriptor {

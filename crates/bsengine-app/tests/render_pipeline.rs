@@ -1,5 +1,6 @@
 use bevy_app::Update;
 use bsengine_app::new_app;
+use bsengine_asset::AssetPlugin;
 use bsengine_ecs::{ResMut, Resource};
 use bsengine_render::RenderPlugin;
 use bsengine_rhi_wgpu::{RhiResource, WgpuRHIPlugin};
@@ -14,7 +15,8 @@ fn count_frames(mut count: ResMut<FrameCount>) {
 #[test]
 fn render_pipeline_runs_multiple_frames() {
     let mut app = new_app();
-    app.add_plugins(WgpuRHIPlugin)
+    app.add_plugins(AssetPlugin)
+        .add_plugins(WgpuRHIPlugin)
         .add_plugins(RenderPlugin)
         .init_resource::<FrameCount>()
         .add_systems(Update, count_frames);
@@ -29,7 +31,9 @@ fn render_pipeline_runs_multiple_frames() {
 #[test]
 fn rhi_resource_accessible_after_plugin() {
     let mut app = new_app();
-    app.add_plugins(WgpuRHIPlugin).add_plugins(RenderPlugin);
+    app.add_plugins(AssetPlugin)
+        .add_plugins(WgpuRHIPlugin)
+        .add_plugins(RenderPlugin);
 
     app.update();
 

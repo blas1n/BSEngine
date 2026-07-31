@@ -514,6 +514,24 @@ fn map_keycode_to_egui(code: bsengine_input::KeyCode) -> Option<egui::Key> {
     })
 }
 
+/// Computes the 6 face view-projection matrices for a point light's cube shadow
+/// map, one per axis-aligned direction, using the standard cubemap face
+/// orientation convention (+Y/-Y up-vectors on the X/Z faces to avoid a
+/// degenerate look-at when looking straight up/down).
+fn point_light_face_view_projs(position: Vec3, range: f32) -> [Mat4; 6] {
+    let far = range.max(0.5);
+    let proj = Mat4::perspective_rh(std::f32::consts::FRAC_PI_2, 1.0, 0.05, far);
+    let dirs: [(Vec3, Vec3); 6] = [
+        (Vec3::X, Vec3::NEG_Y),
+        (Vec3::NEG_X, Vec3::NEG_Y),
+        (Vec3::Y, Vec3::Z),
+        (Vec3::NEG_Y, Vec3::NEG_Z),
+        (Vec3::Z, Vec3::NEG_Y),
+        (Vec3::NEG_Z, Vec3::NEG_Y),
+    ];
+    dirs.map(|(dir, up)| proj * Mat4::look_at_rh(position, position + dir, up))
+}
+
 /// Owns the wgpu swapchain, all GPU pipelines/buffers for the main scene and
 /// shadow passes, the egui renderer, and per-frame render state for one window.
 pub struct WgpuSurface {
@@ -2213,6 +2231,40 @@ pub struct WgpuSurfaceResource(pub WgpuSurface);
 mod tests {
     use super::*;
     use crate::rhi::WgpuRHI;
+
+    #[test]
+    fn point_light_face_view_projs_all_invertible() {
+        let vps = point_light_face_view_projs(Vec3::new(1.0, 2.0, 3.0), 10.0);
+        for (i, vp) in vps.iter().enumerate() {
+            assert!(
+                vp.determinant().abs() > 1e-6,
+                "face {i} view-proj should be invertible"
+            );
+        }
+    }
+
+    #[test]
+    fn point_light_face_view_projs_point_along_face_direction_projects_near_center() {
+        let light_pos = Vec3::ZERO;
+        let vps = point_light_face_view_projs(light_pos, 10.0);
+        let dirs = [
+            Vec3::X,
+            Vec3::NEG_X,
+            Vec3::Y,
+            Vec3::NEG_Y,
+            Vec3::Z,
+            Vec3::NEG_Z,
+        ];
+        for (vp, dir) in vps.iter().zip(dirs.iter()) {
+            let world = light_pos + *dir * 5.0;
+            let clip = *vp * world.extend(1.0);
+            let ndc = clip.truncate() / clip.w;
+            assert!(
+                ndc.x.abs() < 1e-4 && ndc.y.abs() < 1e-4,
+                "point along face direction {dir:?} should project near NDC (0,0), got {ndc:?}"
+            );
+        }
+    }
 
     #[test]
     fn mesh_shader_compiles() {

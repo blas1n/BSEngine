@@ -70,6 +70,7 @@ struct LightUniform {
 @group(3) @binding(1) var s_diffuse: sampler;
 @group(2) @binding(1) var shadow_sampler: sampler_comparison;
 @group(2) @binding(2) var shadow_map: texture_depth_2d;
+@group(2) @binding(4) var point_shadow_map: texture_2d_array<f32>;
 
 struct VertIn {
     @location(0) pos: vec3<f32>,
@@ -110,6 +111,70 @@ fn shadow_factor(lsp: vec4<f32>) -> f32 {
         return 1.0;
     }
     return textureSampleCompare(shadow_map, shadow_sampler, uv, depth - 0.003);
+}
+// Linear-distance cube shadow lookup: `to_frag` is the direction from the
+// light to the fragment (world-space, unnormalized). Selects the cube face
+// whose axis has the largest magnitude, derives that face's UV analytically
+// (matching point_light_face_view_projs's Rust-side look_at_rh/perspective
+// construction exactly -- verified by hand against glam's look_at_rh
+// convention), then compares against the stored linear distance for that
+// face/light layer instead of using a depth-compare sampler (R32Float isn't
+// natively filterable without an unrequested device feature, so this reads
+// a raw texel via textureLoad rather than textureSample).
+fn point_shadow_factor(light_index: u32, to_frag: vec3<f32>) -> f32 {
+    let ax = abs(to_frag.x);
+    let ay = abs(to_frag.y);
+    let az = abs(to_frag.z);
+    var face: u32;
+    var u: f32;
+    var v: f32;
+    var ma: f32;
+    if (ax >= ay && ax >= az) {
+        ma = ax;
+        if (to_frag.x > 0.0) {
+            face = 0u;
+            u = -to_frag.z;
+            v = -to_frag.y;
+        } else {
+            face = 1u;
+            u = to_frag.z;
+            v = -to_frag.y;
+        }
+    } else if (ay >= ax && ay >= az) {
+        ma = ay;
+        if (to_frag.y > 0.0) {
+            face = 2u;
+            u = to_frag.x;
+            v = to_frag.z;
+        } else {
+            face = 3u;
+            u = to_frag.x;
+            v = -to_frag.z;
+        }
+    } else {
+        ma = az;
+        if (to_frag.z > 0.0) {
+            face = 4u;
+            u = to_frag.x;
+            v = -to_frag.y;
+        } else {
+            face = 5u;
+            u = -to_frag.x;
+            v = -to_frag.y;
+        }
+    }
+    let ndc = vec2<f32>(u, v) / max(ma, 0.0001);
+    let uv = ndc * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5, 0.5);
+    // Must match POINT_SHADOW_MAP_SIZE in bsengine-rhi-wgpu/src/surface.rs.
+    let size = 512.0;
+    let px = vec2<i32>(clamp(uv, vec2<f32>(0.0), vec2<f32>(0.999999)) * size);
+    let layer = i32(light_index * 6u + face);
+    let stored = textureLoad(point_shadow_map, px, layer, 0).r;
+    let dist = length(to_frag);
+    if (dist - 0.1 > stored) {
+        return 0.0;
+    }
+    return 1.0;
 }
 fn distribution_ggx(n_dot_h: f32, roughness: f32) -> f32 {
     let a = roughness * roughness;
@@ -169,7 +234,8 @@ fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
             let f = fresnel_schlick(h_dot_v, f0);
             let kd = (vec3<f32>(1.0, 1.0, 1.0) - f) * (1.0 - metallic);
             let specular = (ndf * g * f) / (4.0 * n_dot_v * n_dot_l + 0.0001);
-            lo += (kd * albedo / PI + specular) * pl.color * (pl.intensity * t * t) * n_dot_l;
+            let pt_lit = point_shadow_factor(i, -to_light);
+            lo += (kd * albedo / PI + specular) * pl.color * (pl.intensity * t * t) * n_dot_l * pt_lit;
         }
     }
     for (var j: u32 = 0u; j < light.num_spot_lights; j++) {

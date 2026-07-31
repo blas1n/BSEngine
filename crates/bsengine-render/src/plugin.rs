@@ -99,6 +99,47 @@ fn propagate_children(
     }
 }
 
+/// Lazy-compiles any `CustomShader` not yet cached in the surface, reading
+/// its WGSL source through `bsengine_asset::load` (`LoadMode::Sync`) and
+/// handing the text to `compile_and_store_shader`. Split out of
+/// `render_frame` (rather than folded in as two more top-level params)
+/// because that function is already at Bevy 0.14's 16-top-level-param
+/// `SystemParamFunction` ceiling — see the comment on `render_frame`'s
+/// `render_queries` param. Scheduled in `Update`, which always runs before
+/// `PostUpdate` (where `render_frame` lives) in Bevy's default schedule
+/// order, so compiled shaders are available the same frame `render_frame`
+/// needs them.
+fn compile_pending_shaders(
+    surface: Option<ResMut<WgpuSurfaceResource>>,
+    custom_shaders: Query<&CustomShader>,
+    mut shader_assets: bevy_ecs::prelude::ResMut<
+        bevy_asset::Assets<crate::shader_asset::ShaderSource>,
+    >,
+    asset_server: bevy_ecs::prelude::Res<bevy_asset::AssetServer>,
+) {
+    let Some(mut surface) = surface else {
+        return;
+    };
+    for cs in custom_shaders.iter() {
+        if !surface.0.has_custom_shader(&cs.path) {
+            match bsengine_asset::load(
+                bsengine_asset::LoadMode::Sync,
+                &asset_server,
+                &mut shader_assets,
+                &cs.path,
+                crate::shader_asset::load_shader_source,
+            ) {
+                Ok(handle) => {
+                    if let Some(src) = shader_assets.get(&handle) {
+                        surface.0.compile_and_store_shader(&cs.path, &src.0);
+                    }
+                }
+                Err(e) => tracing::warn!("[custom_shader] cannot read '{}': {e}", cs.path),
+            }
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)] // Bevy system params; splitting into a struct is a larger refactor
 fn render_frame(
     surface: Option<ResMut<WgpuSurfaceResource>>,
@@ -232,18 +273,6 @@ fn render_frame(
     } else {
         None
     };
-
-    // Lazy-compile any custom shaders not yet cached in the surface
-    for (_, _, _, _, _, cs) in render_queries.p1().iter() {
-        if let Some(cs) = cs {
-            if !surface.0.has_custom_shader(&cs.path) {
-                match std::fs::read_to_string(&cs.path) {
-                    Ok(wgsl) => surface.0.compile_and_store_shader(&cs.path, &wgsl),
-                    Err(e) => tracing::warn!("[custom_shader] cannot read '{}': {e}", cs.path),
-                }
-            }
-        }
-    }
 
     let draw_calls: Vec<(u64, Mat4, Option<u64>, MaterialParams, Option<String>)> = render_queries
         .p1()
@@ -380,10 +409,13 @@ pub struct RenderPlugin;
 
 impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<UiState>()
+        use bevy_asset::AssetApp;
+        app.init_asset::<crate::shader_asset::ShaderSource>()
+            .register_asset_loader(crate::shader_asset::ShaderSourceLoader)
+            .init_resource::<UiState>()
             .add_event::<WindowResized>()
             .add_event::<KeyInput>()
-            .add_systems(Update, update_camera_aspect)
+            .add_systems(Update, (update_camera_aspect, compile_pending_shaders))
             .add_systems(
                 PostUpdate,
                 (propagate_roots, propagate_children, render_frame).chain(),
@@ -404,6 +436,7 @@ mod tests {
     #[test]
     fn render_plugin_runs_without_surface() {
         let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(RenderPlugin);
         app.update();
     }
@@ -412,6 +445,7 @@ mod tests {
     fn render_plugin_runs_with_rhi_headless() {
         let mut app = new_app();
         app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(RenderPlugin);
         app.update();
         app.update();
@@ -422,6 +456,7 @@ mod tests {
     fn camera_aspect_updates_on_window_resize() {
         let mut app = new_app();
         app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(RenderPlugin);
 
         let cam_entity = app.world_mut().spawn(Camera::default()).id();
@@ -440,6 +475,7 @@ mod tests {
     fn render_plugin_accepts_point_lights() {
         let mut app = new_app();
         app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(RenderPlugin);
         app.world_mut().spawn((
             PointLight {
@@ -456,6 +492,7 @@ mod tests {
     fn render_plugin_uses_pbr_material() {
         let mut app = new_app();
         app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(RenderPlugin);
         app.world_mut().spawn((
             MeshRenderer { mesh_id: 999 },
@@ -475,6 +512,7 @@ mod tests {
         use bsengine_core::SpotLight;
         let mut app = new_app();
         app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(RenderPlugin);
         app.world_mut().spawn((
             SpotLight {

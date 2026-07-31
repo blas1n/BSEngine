@@ -1024,8 +1024,11 @@ name = "bsengine-render"
 version = "0.1.0"
 dependencies = [
  "bevy_app",
+ "bevy_asset",
  "bevy_ecs",
+ "bevy_reflect",
  "bsengine-app",
+ "bsengine-asset",
  "bsengine-core",
  "bsengine-ecs",
  "bsengine-input",

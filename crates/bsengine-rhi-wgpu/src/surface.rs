@@ -1694,6 +1694,89 @@ impl WgpuSurface {
             }
         }
 
+        // --- point light shadow passes (linear-distance cube arrays) ---
+        {
+            let active_lights: Vec<_> = light.point_lights.iter().take(MAX_POINT_LIGHTS).collect();
+            for (light_idx, pl) in active_lights.iter().enumerate() {
+                let view_projs = point_light_face_view_projs(pl.position, pl.range);
+                for (face, vp) in view_projs.iter().enumerate() {
+                    let slot = light_idx * 6 + face;
+                    let data = PointShadowUniformData {
+                        view_proj: vp.to_cols_array_2d(),
+                        light_pos: pl.position.to_array(),
+                        _pad: 0.0,
+                    };
+                    self.queue.write_buffer(
+                        &self.point_shadow_uniform_buffer,
+                        slot as u64 * POINT_SHADOW_STRIDE,
+                        bytemuck::cast_slice(&[data]),
+                    );
+                }
+            }
+            for (light_idx, _pl) in active_lights.iter().enumerate() {
+                for face in 0..6usize {
+                    let slot = light_idx * 6 + face;
+                    let layer_view =
+                        self._point_shadow_color_texture.create_view(&wgpu::TextureViewDescriptor {
+                            label: Some("point shadow layer view"),
+                            dimension: Some(wgpu::TextureViewDimension::D2),
+                            base_array_layer: slot as u32,
+                            array_layer_count: Some(1),
+                            ..Default::default()
+                        });
+                    let mut point_shadow_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("point shadow pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &layer_view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color {
+                                    r: 1.0e6,
+                                    g: 0.0,
+                                    b: 0.0,
+                                    a: 1.0,
+                                }),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: &self.point_shadow_depth_view,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(1.0),
+                                store: wgpu::StoreOp::Store,
+                            }),
+                            stencil_ops: None,
+                        }),
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
+                    point_shadow_pass.set_pipeline(&self.point_shadow_pipeline);
+                    let uniform_offset = (slot as u64 * POINT_SHADOW_STRIDE) as u32;
+                    point_shadow_pass.set_bind_group(
+                        0,
+                        &self.point_shadow_bind_group,
+                        &[uniform_offset],
+                    );
+                    for (i, (mesh_id, _, _, _, _)) in draw_calls.iter().enumerate() {
+                        if i >= MAX_OBJECTS {
+                            break;
+                        }
+                        let Some(mesh) = registry.get(*mesh_id) else {
+                            continue;
+                        };
+                        let offset = (i as u64 * MODEL_STRIDE) as u32;
+                        point_shadow_pass.set_bind_group(1, &self.model_bind_group, &[offset]);
+                        point_shadow_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                        point_shadow_pass.set_index_buffer(
+                            mesh.index_buffer.slice(..),
+                            wgpu::IndexFormat::Uint32,
+                        );
+                        point_shadow_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                    }
+                }
+            }
+        }
+
         // --- main pass (into HDR buffer) ---
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

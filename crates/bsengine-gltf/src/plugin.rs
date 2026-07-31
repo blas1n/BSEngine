@@ -140,7 +140,10 @@ fn load_gltf_assets(
                 }
             }
             Err(e) => {
-                warn!("Failed to load GLTF {}: {e}", asset.path);
+                // `e` already contains the path (formatted by
+                // `bsengine_asset::load`'s Sync branch as "{path}: {error}"),
+                // so it isn't repeated here.
+                warn!("Failed to load GLTF: {e}");
                 commands.entity(entity).remove::<GltfAsset>();
             }
         }
@@ -212,12 +215,14 @@ mod tests {
     fn gltf_asset_loads_async_and_becomes_available() {
         use bevy_asset::{AssetServer, Assets};
 
-        // cargo test's working directory is this crate's own manifest
-        // directory (crates/bsengine-gltf), not the workspace root, so the
-        // fixture path must climb back up to it — matching the convention
-        // other crates use via `CARGO_MANIFEST_DIR`-relative joins (see
-        // bsengine-mcp/tests and bsengine-runtime/tests).
-        const FIXTURE_GLTF_PATH: &str = "../../games/mini-arena/assets/models/fox.glb";
+        // Joined against CARGO_MANIFEST_DIR (this crate's own directory)
+        // rather than assumed relative to the process's cwd, matching the
+        // real, working convention `bsengine-mcp/tests` and
+        // `bsengine-runtime/tests` already use for fixtures outside the
+        // crate — robust regardless of how/where the test binary is
+        // invoked from.
+        let fixture_gltf_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../games/mini-arena/assets/models/fox.glb");
 
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
@@ -226,7 +231,7 @@ mod tests {
 
         let handle = {
             let server = app.world().resource::<AssetServer>();
-            server.load::<LoadedGltf>(FIXTURE_GLTF_PATH)
+            server.load::<LoadedGltf>(fixture_gltf_path.to_str().unwrap().to_owned())
         };
 
         let mut loaded = false;

@@ -19,11 +19,10 @@ impl AssetLoader for GltfSourceLoader {
 
     async fn load<'a>(
         &'a self,
-        reader: &'a mut Reader<'_>,
+        _reader: &'a mut Reader<'_>,
         _settings: &'a Self::Settings,
         load_context: &'a mut LoadContext<'_>,
     ) -> Result<Self::Asset, Self::Error> {
-        let _ = reader;
         let path = load_context
             .path()
             .to_str()

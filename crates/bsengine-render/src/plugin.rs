@@ -105,10 +105,19 @@ fn propagate_children(
 /// `render_frame` (rather than folded in as two more top-level params)
 /// because that function is already at Bevy 0.14's 16-top-level-param
 /// `SystemParamFunction` ceiling — see the comment on `render_frame`'s
-/// `render_queries` param. Scheduled in `Update`, which always runs before
-/// `PostUpdate` (where `render_frame` lives) in Bevy's default schedule
-/// order, so compiled shaders are available the same frame `render_frame`
-/// needs them.
+/// `render_queries` param. Registered in the same `PostUpdate` `.chain()`
+/// as `render_frame` (see `RenderPlugin::build`), immediately before it, so
+/// compiled shaders are available the same frame `render_frame` needs them
+/// — an explicit, compiler-checked ordering constraint rather than relying
+/// on this being a separate schedule that merely happens to run earlier.
+///
+/// Its `Query<&CustomShader>` is intentionally broader than the old inline
+/// loop it replaces: it fires for *any* entity with a `CustomShader`
+/// component, not just ones that also match `render_frame`'s mandatory
+/// `&MeshRenderer, &Transform` query. Harmless (a shader that's never drawn
+/// just sits compiled-and-unused in the surface's cache) and arguably an
+/// improvement (a shader is ready the instant `MeshRenderer`/`Transform`
+/// are added later, rather than one frame behind).
 fn compile_pending_shaders(
     surface: Option<ResMut<WgpuSurfaceResource>>,
     custom_shaders: Query<&CustomShader>,
@@ -415,10 +424,16 @@ impl Plugin for RenderPlugin {
             .init_resource::<UiState>()
             .add_event::<WindowResized>()
             .add_event::<KeyInput>()
-            .add_systems(Update, (update_camera_aspect, compile_pending_shaders))
+            .add_systems(Update, update_camera_aspect)
             .add_systems(
                 PostUpdate,
-                (propagate_roots, propagate_children, render_frame).chain(),
+                (
+                    propagate_roots,
+                    propagate_children,
+                    compile_pending_shaders,
+                    render_frame,
+                )
+                    .chain(),
             );
     }
 }
@@ -439,6 +454,59 @@ mod tests {
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(RenderPlugin);
         app.update();
+    }
+
+    // Proves "compile_pending_shaders runs before render_frame, same frame"
+    // structurally, via the real `PostUpdate` schedule's topological system
+    // order — not via observing `WgpuSurfaceResource` state (has_custom_shader
+    // / compile_and_store_shader), which would need a real GPU surface.
+    // `WgpuSurface::new` requires a real `Arc<winit::window::Window>`, and
+    // `WgpuRHIPlugin`'s surface-creation system only runs given a
+    // `WindowHandle` resource, which is only ever produced by
+    // `bsengine_window`'s real winit event loop (`App::run`, not `#[test]`);
+    // no test anywhere in this workspace constructs a real
+    // `WgpuSurfaceResource`, and CI runners have no display. So this test
+    // verifies the same thing at the level this codebase can actually reach:
+    // `Schedule::systems()`'s iteration order is the executor's genuine
+    // topologically-sorted execution order (bevy_ecs's `ScheduleGraph`
+    // builds it from `.chain()`'s dependency edges), so finding
+    // `compile_pending_shaders` before `render_frame` in that order is a
+    // real assertion about execution order, not a restatement of the code.
+    #[test]
+    fn compile_pending_shaders_runs_before_render_frame() {
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(RenderPlugin);
+        // Schedules are only populated with their executable system list
+        // after at least one run.
+        app.update();
+
+        let schedule = app
+            .get_schedule(bevy_app::PostUpdate)
+            .expect("RenderPlugin registers systems into PostUpdate");
+        let names: Vec<String> = schedule
+            .systems()
+            .expect("schedule is initialized after app.update()")
+            .map(|(_, system)| system.name().to_string())
+            .collect();
+
+        let compile_idx = names
+            .iter()
+            .position(|n| n.contains("compile_pending_shaders"))
+            .unwrap_or_else(|| {
+                panic!("compile_pending_shaders not found in PostUpdate: {names:?}")
+            });
+        let render_idx = names
+            .iter()
+            .position(|n| n.contains("render_frame"))
+            .unwrap_or_else(|| panic!("render_frame not found in PostUpdate: {names:?}"));
+
+        assert!(
+            compile_idx < render_idx,
+            "compile_pending_shaders (index {compile_idx}) must run before render_frame \
+             (index {render_idx}) so shaders compiled this frame are available to it; \
+             actual PostUpdate order: {names:?}"
+        );
     }
 
     #[test]

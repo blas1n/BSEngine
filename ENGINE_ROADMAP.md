@@ -394,9 +394,10 @@ RON/스크립트/셰이더/glTF/플러그인 manifest/project manifest/오디오
 **완료 조건:**
 - [x] 루트 `Cargo.toml`에 `bevy_asset` 0.14 워크스페이스 의존성 추가(`file_watcher` 피처는
   미활성 — item 24에서 켬)
-- [x] `GltfSource`/`ShaderSource`/`AudioSource`/`TextureAsset` 4종에 대한 `AssetLoader`
+- [x] `LoadedGltf`/`ShaderSource`/`AudioSourceAsset`/`TextureAsset` 4종에 대한 `AssetLoader`
   구현 — 기존 파싱 로직(`GltfLoader::load_full`, WGSL 컴파일, `StaticSoundData::from_file`)
-  을 그대로 이전
+  을 그대로 이전 (`AudioSource`는 실제 구현 중 `bsengine-audio`의 기존 ECS 컴포넌트와
+  이름이 충돌해 `AudioSourceAsset`으로 리네임됨)
 - [x] `GltfAsset`/`CustomShader` 등 컴포넌트가 `path: String` 대신 `Handle<T>`를 내부적으로
   보유하도록 전환. 씬 RON 필드/스크립팅 API/MCP 툴 파라미터는 경로 문자열 그대로 유지
   (`AssetServer`가 경계에서 `load::<T>(path) -> Handle<T>` 변환)
@@ -404,14 +405,16 @@ RON/스크립트/셰이더/glTF/플러그인 manifest/project manifest/오디오
   프레임 늦게 나타나는 동작 변화 없음
 - [x] `games/mini-arena`/`games/tilt-run` 기존 E2E 리플레이가 마이그레이션 후에도 통과 —
   `games/tilt-run`의 7개 리플레이 전부 클린 통과 확인. `games/mini-arena`의
-  `basic-playthrough.testlog.json`은 이 환경에서 재현 시 "Pickup collected" 단언에서
-  실패하지만, 동일한 실패(동일한 라벨, 동일한 actual 값)가 이번 item 23의 변경을 전혀
-  포함하지 않은 미수정 `master`(커밋 `a539e98e`)에서도 그대로 재현됨 — bevy_asset
-  마이그레이션과 무관한 기존 결함. 근본 원인은 `player.js`의 연속 이동이 고정 가상
-  타임스텝이 아니라 실제 벽시계 델타(`Bsengine.getDeltaTime()` → `Instant::now()`)로
-  구동된다는 점: `games/mini-arena/GAP_LOG.md`가 이미 이 정확한 위험("a standing source
-  of potential flakiness for any future JS-movement-driven... headless recording")을
-  경고해 두었음. 물리 기반(Rapier 고정 타임스텝) 이동인 tilt-run은 이 문제가 없음.
+  `basic-playthrough.testlog.json`은 이 환경에서 재현 시 실패하지만(단언 실패 지점과
+  actual 값이 실행마다 조금씩 다름 — 최종 검증 시 미수정 `master` 10회, 이 브랜치
+  HEAD 14회 실행에서 양쪽 다 100% 재현되는 것으로 확인, 아래 참고), 이번 item 23의
+  변경을 전혀 포함하지 않은 미수정 `master`(커밋 `a539e98e`)에서도 동일한 실패
+  패턴이 그대로 재현됨 — bevy_asset 마이그레이션과 무관한 기존 결함. 근본 원인은
+  `player.js`의 연속 이동이 고정 가상 타임스텝이 아니라 실제 벽시계 델타
+  (`Bsengine.getDeltaTime()` → `Instant::now()`)로 구동된다는 점: `games/mini-arena/GAP_LOG.md`가
+  이미 이 정확한 위험("a standing source of potential flakiness for any future
+  JS-movement-driven... headless recording")을 경고해 두었음. 물리 기반(Rapier
+  고정 타임스텝) 이동인 tilt-run은 이 문제가 없음.
 - [x] 테스트 추가, CI 통과
 
 **참고: 테스트 스택 오버플로 이슈 두 번째 사례 (신규 발견, 이 항목의 작업과 무관).**
@@ -609,4 +612,4 @@ touched by this task" 항목에서 발견)
 | 20. Added `UiWidget::ProgressBar` / `Bsengine.ui.setProgressBar`, rendered via `egui::ProgressBar`; mini-arena's `hud.js` migrated from a plain-text HP readout to a real health bar | 2026-07-30 | [#1741](https://github.com/blas1n/BSEngine/pull/1741) |
 | 21. Real pause: `bsengine_core::PauseState` actually gates `PhysicsPlugin`/`NavMeshPlugin`; `Bsengine.pause`/`resume`/`isPaused` scripting API; mini-arena's pause menu now actually stops the Enemy and Player instead of just showing a panel | 2026-07-30 | [#1742](https://github.com/blas1n/BSEngine/pull/1742) |
 | 22. Point light shadows via linear-distance cube arrays (up to `MAX_POINT_LIGHTS`=8, 6 faces each, `R32Float` texture array), sampled in `MESH_WGSL` via manual cube-face selection; mini-arena's `ArenaLight` now casts a shadow automatically | 2026-07-31 | branch `feat/point-light-shadows` (PR #TBD) |
-| 23. `bevy_asset` adoption: `GltfSource`/`ShaderSource`/`AudioSource`/`TextureAsset` migrated to `Handle<T>`-based `AssetLoader`s (glTF, custom WGSL shaders, audio, textures incl. skybox), replacing 9 separate direct `std::fs::read` call sites; scene RON/scripting API/MCP tool surfaces stay path-string based, `AssetServer` converts at the boundary; sync-blocking initial load preserved (no behavior change); `games/tilt-run`'s 7 E2E replays all pass, `games/mini-arena`'s replay found to fail on this environment but proven (via identical reproduction on unmodified master) to be a pre-existing, wall-clock-timing-dependent flakiness unrelated to this migration; incidentally surfaced a second, previously-undocumented `bsengine-runtime` stack-overflow test (see item 23's own notes above) | 2026-07-31 | PR #TBD |
+| 23. `bevy_asset` adoption: `LoadedGltf`/`ShaderSource`/`AudioSourceAsset`/`TextureAsset` migrated to `Handle<T>`-based `AssetLoader`s (glTF, custom WGSL shaders, audio, textures incl. skybox), replacing 9 separate direct `std::fs::read` call sites; scene RON/scripting API/MCP tool surfaces stay path-string based, `AssetServer` converts at the boundary; sync-blocking initial load preserved (no behavior change); `games/tilt-run`'s 7 E2E replays all pass, `games/mini-arena`'s replay reliably fails on this environment (confirmed via 10 master + 14 HEAD runs) but proven — via reproduction on unmodified master — to be a pre-existing, wall-clock-timing-dependent flakiness unrelated to this migration; incidentally surfaced a second, previously-undocumented `bsengine-runtime` stack-overflow test (see item 23's own notes above) | 2026-07-31 | PR #TBD |

@@ -20,4 +20,4 @@ pub mod shader_asset;
 
 pub use components::MeshRenderer;
 pub use plugin::RenderPlugin;
-pub use shader_asset::{load_shader_source, ShaderSource};
+pub use shader_asset::{load_shader_source, ShaderSource, ShaderSourceLoader};

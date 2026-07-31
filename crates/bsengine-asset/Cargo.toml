@@ -1,6 +1,6 @@
 [package]
 name = "bsengine-asset"
-description = "Asset management — texture and mesh loading pipeline"
+description = "Asset loading — bevy_asset integration, LoadMode dispatch, texture assets"
 version.workspace = true
 edition.workspace = true
 

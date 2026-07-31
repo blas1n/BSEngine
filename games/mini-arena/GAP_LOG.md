@@ -193,37 +193,6 @@ observations from actually doing it:
 
 ### Pre-existing, not touched by this task
 
-- No dedicated MCP tool for attaching `rigidbody`/`collider` to a live
-  entity — only hand-authored scene RON.
-- No progress-bar/health-bar UI widget — `Bsengine.ui.*` only offers
-  label/button/panel/text-input, so a "health bar" has to be faked with
-  plain text (as this project did) or two overlapping panels.
-- `gltf:` scene-RON paths resolve relative to process CWD, not project dir,
-  unlike `script:` paths. `CustomShader.path` has the same CWD-relative
-  behavior despite its own doc comment claiming otherwise (a
-  documentation/implementation mismatch) — see `pickup.js`'s comment on
-  `Bsengine.setShader`.
-- Point lights cast no shadows (only the single directional light does).
-- No time/clock uniform available to custom WGSL shaders — animation of
-  shader-visible values has to be driven from JS (`setEmissive`) every frame
-  instead.
-- No relative-move scripting op (`Bsengine.moveEntity` does not exist) —
-  every scripted movement has to read current position, add a delta, and
-  write it back with `setTransform`.
-- No scripting op to close the game process — a pause menu's "Quit" button
-  can only ask the player to close the window themselves.
-- The pause menu (`pause.js`) only shows/hides a UI overlay — it does not
-  actually pause the simulation. `paused` is a variable local to `pause.js`'s
-  own closure; no other script, and no engine system (`run_scripts`,
-  `PhysicsPlugin`, `NavMeshPlugin`), is aware of it. The Enemy keeps chasing
-  and dealing contact damage, and the Player keeps responding to WASD/attack
-  input, while the "Paused" panel is on screen — a real gap versus Unity/
-  Unreal, where pausing typically also stops `Time.timeScale`-driven
-  simulation. There's no `Bsengine.pause()`/`setTimeScale()`-style op to
-  build a real pause on top of. `ENGINE_ROADMAP.md`'s completion checklist
-  for this item only asks for "일시정지 메뉴 (Bsengine.ui)" (a pause *menu*,
-  literally), which this satisfies — but it's worth flagging here explicitly
-  since "pause menu" reasonably implies "pauses" to most readers.
 - Enemy knockback is a scripted position offset, not a real Rapier impulse,
   because the enemy's `Kinematic` rigidbody (required for `NavMeshAgent` to
   own its `Transform`) ignores physics impulses by definition.

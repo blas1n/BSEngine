@@ -100,3 +100,41 @@ jobs:
         env:
           RUST_MIN_STACK: 8388608
         run: cargo test -p bsengine-editor
+
+      # Replays every checked-in E2E recording. These are the only tests that
+      # exercise a whole game end to end -- scene loading, scripting, physics,
+      # navmesh and combat together -- and nothing else in this workflow runs
+      # them, so until now a recording could rot unnoticed for months.
+      #
+      # Worth running on both runners specifically because they are loaded,
+      # shared machines: a recording that advances by a fixed frame count
+      # covers a machine-speed-dependent distance, which is exactly the bug
+      # that made mini-arena's recording fail here while passing on an idle
+      # desktop. Discovered by glob rather than listed, so a newly recorded
+      # log is covered the moment it lands.
+      - name: E2E replays
+        shell: bash
+        env:
+          RUST_MIN_STACK: 8388608
+        run: |
+          status=0
+          found=0
+          for log in games/*/assets/tests/*.testlog.json; do
+            [ -e "$log" ] || continue
+            found=$((found + 1))
+            project="$(dirname "$(dirname "$(dirname "$log")")")"
+            echo "::group::$log"
+            if cargo run -q -p bsengine-runtime -- --test "$project" --replay "$log"; then
+              echo "PASS $log"
+            else
+              echo "FAIL $log"
+              status=1
+            fi
+            echo "::endgroup::"
+          done
+          if [ "$found" -eq 0 ]; then
+            echo "no recordings matched games/*/assets/tests/*.testlog.json -- the glob is wrong"
+            exit 1
+          fi
+          echo "replayed $found recording(s)"
+          exit $status

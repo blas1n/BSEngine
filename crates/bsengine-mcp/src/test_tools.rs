@@ -108,8 +108,10 @@ fn run_replay_tool(registry: Arc<SessionRegistry>) -> McpTool {
     McpTool {
         name: "test_run_replay".to_string(),
         description: "Runs a saved recording (games/<game>/tests/<name>.testlog.json) through \
-            bsengine-runtime --test --replay with no AI involved — the same check CI runs. \
-            Lets Claude verify a recording still passes without needing a CI run."
+            bsengine-runtime --test --replay with no AI involved — the same check CI's \
+            'E2E replays' step runs over every recording under \
+            games/*/assets/tests/. Lets Claude verify a recording still passes without \
+            needing a CI run."
             .to_string(),
         input_schema: Some(json!({
             "type": "object",

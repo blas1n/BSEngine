@@ -12,7 +12,10 @@ bsengine-rhi.workspace = true
 bsengine-rhi-wgpu.workspace = true
 bsengine-window.workspace = true
 bevy_app.workspace = true
+bevy_asset.workspace = true
 bevy_ecs.workspace = true
+bevy_reflect.workspace = true
+bsengine-asset.workspace = true
 glam.workspace = true
 tracing.workspace = true
 

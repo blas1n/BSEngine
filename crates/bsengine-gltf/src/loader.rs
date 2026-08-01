@@ -1,3 +1,5 @@
+use bevy_asset::Asset;
+use bevy_reflect::TypePath;
 use bsengine_rhi_wgpu::Vertex;
 use gltf::image::Format as GltfFormat;
 
@@ -75,6 +77,7 @@ pub struct VertexSkin {
 
 /// The full result of loading a GLTF/GLB file: meshes, images, animations,
 /// and the raw node/skin hierarchy.
+#[derive(Asset, TypePath)]
 pub struct LoadedGltf {
     /// All mesh primitives found in the file, in document order.
     pub meshes: Vec<MeshData>,
@@ -391,5 +394,11 @@ mod tests {
         let rgba = vec![1u8, 2, 3, 4];
         let out = gltf_pixels_to_rgba(&rgba, GltfFormat::R8G8B8A8, 1, 1);
         assert_eq!(out, rgba);
+    }
+
+    #[test]
+    fn loaded_gltf_is_an_asset() {
+        fn assert_asset<T: bevy_asset::Asset>() {}
+        assert_asset::<LoadedGltf>();
     }
 }

@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 bsengine-app    = { workspace = true }
+bsengine-asset  = { workspace = true }
 bsengine-core   = { workspace = true }
 bsengine-ecs    = { workspace = true }
 bsengine-editor = { workspace = true }

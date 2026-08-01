@@ -15,6 +15,9 @@
 pub mod components;
 /// The Bevy `Plugin` wiring transform propagation and frame rendering into the app schedule.
 pub mod plugin;
+/// Custom WGSL shader source asset and its loader.
+pub mod shader_asset;
 
 pub use components::MeshRenderer;
 pub use plugin::RenderPlugin;
+pub use shader_asset::{load_shader_source, ShaderSource, ShaderSourceLoader};

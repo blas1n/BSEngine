@@ -74,6 +74,10 @@ impl Default for ScriptingPlugin {
 
 impl Plugin for ScriptingPlugin {
     fn build(&self, app: &mut App) {
+        use bevy_asset::AssetApp;
+        app.init_asset::<bsengine_audio::AudioSourceAsset>()
+            .register_asset_loader(bsengine_audio::AudioSourceLoader);
+
         app.insert_resource(ProjectDir(self.project_dir.clone()));
         app.insert_resource(HudTexts::default());
         app.insert_resource(SoundHandles::default());
@@ -1273,22 +1277,48 @@ fn run_scripts(world: &mut World) {
                 } else {
                     format!("{}/{}", project_dir, path)
                 };
-                match kira::sound::static_sound::StaticSoundData::from_file(&full_path) {
-                    Ok(data) => {
-                        use kira::Decibels;
-                        let volume_db = 20.0_f32 * volume.max(1e-10_f32).log10();
-                        let data = data.volume(Decibels(volume_db));
-                        let data = if loop_ { data.loop_region(..) } else { data };
-                        if let Some(mut audio) = world.get_resource_mut::<AudioWorld>() {
-                            if let Some(handle) = audio.play(data) {
-                                if let Some(mut handles) = world.get_resource_mut::<SoundHandles>()
-                                {
-                                    handles.0.insert(id, handle);
+                let loaded = world
+                    .get_resource::<bevy_asset::AssetServer>()
+                    .cloned()
+                    .and_then(|asset_server| {
+                        world
+                            .get_resource_mut::<bevy_asset::Assets<bsengine_audio::AudioSourceAsset>>()
+                            .map(|mut assets| {
+                                bsengine_asset::load(
+                                    bsengine_asset::LoadMode::Sync,
+                                    &asset_server,
+                                    &mut assets,
+                                    &full_path,
+                                    bsengine_audio::load_audio_source,
+                                )
+                            })
+                    });
+                match loaded {
+                    Some(Ok(handle)) => {
+                        let data = world
+                            .resource::<bevy_asset::Assets<bsengine_audio::AudioSourceAsset>>()
+                            .get(&handle)
+                            .map(|src| src.0.clone());
+                        if let Some(data) = data {
+                            use kira::Decibels;
+                            let volume_db = 20.0_f32 * volume.max(1e-10_f32).log10();
+                            let data = data.volume(Decibels(volume_db));
+                            let data = if loop_ { data.loop_region(..) } else { data };
+                            if let Some(mut audio) = world.get_resource_mut::<AudioWorld>() {
+                                if let Some(handle) = audio.play(data) {
+                                    if let Some(mut handles) =
+                                        world.get_resource_mut::<SoundHandles>()
+                                    {
+                                        handles.0.insert(id, handle);
+                                    }
                                 }
                             }
                         }
                     }
-                    Err(e) => tracing::warn!("[audio] failed to load {full_path}: {e}"),
+                    Some(Err(e)) => tracing::warn!("[audio] failed to load {full_path}: {e}"),
+                    None => tracing::warn!(
+                        "[audio] Assets<AudioSourceAsset> resource missing (AssetPlugin not registered?)"
+                    ),
                 }
             }
             ScriptCommand::StopSound { id } => {
@@ -2796,6 +2826,7 @@ mod tests {
     #[test]
     fn scripting_plugin_registers_runtime() {
         let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(ScriptingPlugin::default());
         assert!(app
             .world()
@@ -2806,6 +2837,7 @@ mod tests {
     #[test]
     fn scripting_plugin_runtime_can_eval() {
         let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(ScriptingPlugin::default());
 
         let result = app
@@ -2833,6 +2865,7 @@ mod tests {
         .unwrap();
 
         let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(ScriptingPlugin {
             project_dir: String::new(),
         });
@@ -2869,6 +2902,7 @@ mod tests {
         .unwrap();
 
         let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(ScriptingPlugin {
             project_dir: String::new(),
         });
@@ -2921,6 +2955,7 @@ mod tests {
         .unwrap();
 
         let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(ScriptingPlugin {
             project_dir: String::new(),
         });
@@ -2955,6 +2990,7 @@ mod tests {
         std::fs::write(&script_path, "function onUpdate(name) { Bsengine.quit(); }").unwrap();
 
         let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(ScriptingPlugin {
             project_dir: String::new(),
         });
@@ -2998,6 +3034,7 @@ mod tests {
         .unwrap();
 
         let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(ScriptingPlugin {
             project_dir: project_dir.to_string_lossy().to_string(),
         });

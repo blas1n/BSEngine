@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 bevy_app           = { workspace = true }
 bsengine-app       = { workspace = true }
+bsengine-asset     = { workspace = true }
 bsengine-audio     = { workspace = true }
 bsengine-core      = { workspace = true }
 bsengine-ecs       = { workspace = true }

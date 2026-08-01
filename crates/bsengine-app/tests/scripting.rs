@@ -1,9 +1,11 @@
 use bsengine_app::new_app;
+use bsengine_asset::AssetPlugin;
 use bsengine_scripting::{ScriptRuntimeResource, ScriptingPlugin};
 
 #[test]
 fn scripting_plugin_in_full_app() {
     let mut app = new_app();
+    app.add_plugins(AssetPlugin);
     app.add_plugins(ScriptingPlugin::default());
     app.update();
 
@@ -20,6 +22,7 @@ fn scripting_plugin_in_full_app() {
 #[test]
 fn log_op_callable_in_full_app() {
     let mut app = new_app();
+    app.add_plugins(AssetPlugin);
     app.add_plugins(ScriptingPlugin::default());
     app.update();
 

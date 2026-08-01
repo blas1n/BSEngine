@@ -1348,19 +1348,14 @@ impl WgpuSurface {
         (texture, sampler, bgl, bind_group)
     }
 
-    /// Load an equirectangular skybox image from `path` and build the GPU pipeline.
-    /// Called by the render system when `SkyboxPath` changes.
-    pub fn set_skybox(&mut self, path: &str) -> Result<(), String> {
-        let img = image::open(path)
-            .map_err(|e| format!("skybox image load failed '{path}': {e}"))?
-            .to_rgba8();
-        let (w, h) = img.dimensions();
-
+    /// Uploads already-decoded RGBA8 pixel data as the active skybox
+    /// texture, rebuilding the sampler/bind groups/pipeline around it.
+    pub fn set_skybox_from_rgba(&mut self, width: u32, height: u32, rgba: &[u8]) {
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("skybox texture"),
             size: wgpu::Extent3d {
-                width: w,
-                height: h,
+                width,
+                height,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -1372,15 +1367,15 @@ impl WgpuSurface {
         });
         self.queue.write_texture(
             texture.as_image_copy(),
-            &img,
+            rgba,
             wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: Some(4 * w),
-                rows_per_image: Some(h),
+                bytes_per_row: Some(4 * width),
+                rows_per_image: Some(height),
             },
             wgpu::Extent3d {
-                width: w,
-                height: h,
+                width,
+                height,
                 depth_or_array_layers: 1,
             },
         );
@@ -1521,6 +1516,17 @@ impl WgpuSurface {
             _texture: texture,
             _sampler: sampler,
         });
+    }
+
+    /// Loads a skybox texture from a file path (`image::open`, unchanged
+    /// from before this refactor) and uploads it via
+    /// [`set_skybox_from_rgba`].
+    pub fn set_skybox(&mut self, path: &str) -> Result<(), String> {
+        let img = image::open(path)
+            .map_err(|e| format!("skybox image load failed '{path}': {e}"))?
+            .to_rgba8();
+        let (w, h) = img.dimensions();
+        self.set_skybox_from_rgba(w, h, &img);
         self.loaded_skybox_path = Some(path.to_string());
         Ok(())
     }

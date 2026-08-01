@@ -5,6 +5,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+bsengine-asset.workspace = true
 bsengine-audio.workspace = true
 bsengine-core.workspace = true
 bsengine-network.workspace = true
@@ -14,6 +15,7 @@ bsengine-physics.workspace = true
 bsengine-scene.workspace = true
 kira = { workspace = true }
 bevy_app.workspace = true
+bevy_asset.workspace = true
 bevy_ecs.workspace = true
 deno_core.workspace = true
 glam.workspace = true

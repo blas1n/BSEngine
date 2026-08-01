@@ -381,26 +381,91 @@ self-hit, (8) player.js: 레이캐스트 origin 높이(+0.9)가 콜라이더 상
 
 ---
 
-### 23. 에셋 파이프라인 실질화 (핫리로드 + 안정적 참조)
+### 23. bevy_asset 도입 + glTF/텍스처/셰이더/오디오 통합
 
-**목표:** `AssetServer`가 "경로 문자열 → 바이트 캐시"뿐인 상태(`bsengine-asset/src/server.rs`
-65줄)를 벗어나, 실행 중인 게임에 파일 변경을 자동 반영하고 참조가 리네임에 안전하게
-버티도록 함 ([BSENGINE_VS_UNITY_UNREAL.md](docs/BSENGINE_VS_UNITY_UNREAL.md)에서 가장 큰
-격차로 확인)
+**목표:** `bsengine-asset`의 `Handle`/`AssetServer`(사실상 고아 상태 — `load_bytes`를
+실제로 쓰는 곳이 에디터 인스펙터/뷰포트 텍스처 로딩과 테스트 1개뿐)를 걷어내고, 이미
+워크스페이스가 쓰고 있는 bevy 0.14 생태계의 `bevy_asset`을 도입해 glTF/텍스처(스카이박스
+포함)/커스텀 WGSL 셰이더/오디오 4종을 `Handle<T>` 기반으로 통합한다. 실제로는 9곳(씬
+RON/스크립트/셰이더/glTF/플러그인 manifest/project manifest/오디오)이 각자
+`std::fs::read`를 직접 호출하고 있었음을 조사로 확인 — item 24(핫리로드)의 전제 조건.
+설계 문서: `docs/superpowers/specs/2026-07-31-bevy-asset-pipeline-design.md`
 
 **완료 조건:**
-- [ ] 파일시스템 워처(예: `notify` crate) 기반 핫리로드 — 텍스처/glTF/WGSL 변경 시 실행
+- [x] 루트 `Cargo.toml`에 `bevy_asset` 0.14 워크스페이스 의존성 추가(`file_watcher` 피처는
+  미활성 — item 24에서 켬)
+- [x] `LoadedGltf`/`ShaderSource`/`AudioSourceAsset`/`TextureAsset` 4종에 대한 `AssetLoader`
+  구현 — 기존 파싱 로직(`GltfLoader::load_full`, WGSL 컴파일, `StaticSoundData::from_file`)
+  을 그대로 이전 (`AudioSource`는 실제 구현 중 `bsengine-audio`의 기존 ECS 컴포넌트와
+  이름이 충돌해 `AudioSourceAsset`으로 리네임됨)
+- [x] `GltfAsset`/`CustomShader` 등 컴포넌트가 `path: String` 대신 `Handle<T>`를 내부적으로
+  보유하도록 전환. 씬 RON 필드/스크립팅 API/MCP 툴 파라미터는 경로 문자열 그대로 유지
+  (`AssetServer`가 경계에서 `load::<T>(path) -> Handle<T>` 변환)
+- [x] 최초 로드는 동기 블로킹 유지(진짜 비동기 스트리밍은 범위 밖, YAGNI) — 에셋이 몇
+  프레임 늦게 나타나는 동작 변화 없음
+- [x] `games/mini-arena`/`games/tilt-run` 기존 E2E 리플레이가 마이그레이션 후에도 통과 —
+  `games/tilt-run`의 7개 리플레이 전부 클린 통과 확인. `games/mini-arena`의
+  `basic-playthrough.testlog.json`은 이 환경에서 재현 시 실패하지만(단언 실패 지점과
+  actual 값이 실행마다 조금씩 다름 — 최종 검증 시 미수정 `master` 10회, 이 브랜치
+  HEAD 14회 실행에서 양쪽 다 100% 재현되는 것으로 확인, 아래 참고), 이번 item 23의
+  변경을 전혀 포함하지 않은 미수정 `master`(커밋 `a539e98e`)에서도 동일한 실패
+  패턴이 그대로 재현됨 — bevy_asset 마이그레이션과 무관한 기존 결함. 근본 원인은
+  `player.js`의 연속 이동이 고정 가상 타임스텝이 아니라 실제 벽시계 델타
+  (`Bsengine.getDeltaTime()` → `Instant::now()`)로 구동된다는 점: `games/mini-arena/GAP_LOG.md`가
+  이미 이 정확한 위험("a standing source of potential flakiness for any future
+  JS-movement-driven... headless recording")을 경고해 두었음. 물리 기반(Rapier
+  고정 타임스텝) 이동인 tilt-run은 이 문제가 없음.
+- [x] 테스트 추가, CI 통과
+
+**참고: 로컬 테스트 스택 오버플로 — 이 항목의 작업과 무관한 별개 이슈이며, 이후
+근본 원인 규명 후 별도 브랜치(`fix/test-thread-stack-size`)에서 수정 완료.**
+
+item 23 작업 중 로컬 `cargo test --workspace`가 스택 오버플로로 죽는 현상을 겪었다
+(`bsengine-editor`의 테스트 바이너리, 그리고 `bsengine-runtime`의
+`test_mode::tests::editor_plugin_reload_scene_does_not_corrupt_scripting`). 이 문서에는
+처음에 서로 다른 두 개의 원인 불명 기존 버그로 기록했으나, 이후 조사에서 **둘 다 동일한
+하나의 원인**이고 애초에 **로컬 전용 설정 누락**이었음이 확인됐다:
+
+`.cargo/config.toml`의 `/STACK:67108864` 링커 플래그는 **메인 스레드만** 키운다. 반면
+libtest는 모든 `#[test]`를 spawn된 스레드에서 실행하고, Rust는 그 스레드에 PE 헤더 값이
+아니라 자체 기본값 **2 MiB**를 넘긴다 — 그래서 테스트는 그 64MB를 한 번도 본 적이 없다.
+2 MiB는 V8(deno_core, 스크립팅 테스트면 무조건 경유)이나 `bsengine-editor`의 리플렉션
+테스트에는 부족하다. (`--test-threads=1`로도 해결되지 않는 것으로 spawn 스레드 문제임을
+확인.)
+
+**초기 기록의 오류 정정:** 이 문서에는 "이 테스트가 실제로 통과하는지 어떤 워크스페이스
+전체 실행에서도 확인된 적이 없었다"고 적었으나 이는 **사실이 아니다**. CI는
+`.github/workflows/ci.yml`에서 두 테스트 스텝 모두에 `RUST_MIN_STACK: 8388608`을
+설정하고 있고, `bsengine-runtime`은 CI에서 제외 대상이 아니므로 해당 테스트는 **CI에서
+매번 통과해 왔다**. 실패하는 것은 이 설정이 없는 로컬 실행뿐이었다.
+
+**수정:** 동일한 8 MiB 값을 `.cargo/config.toml`의 `[env]`로 옮겨 로컬과 CI를 일치시켰다
+(환경변수 없이 `cargo test --workspace` exit 0 확인). 2026-07-13 플랜 문서들이 모든 테스트
+명령에 `RUST_MIN_STACK=8388608`을 수동으로 붙이던 관행도 이걸로 대체된다. CI의
+`--exclude bsengine-editor` 분리 스텝은 CI 특유의 이유(V8이 큰 VA 영역을 예약해 editor
+테스트 스레드 스택 확장을 막음)가 있어 그대로 둔다.
+
+---
+
+### 24. 파일 워처 핫리로드 + 안정적 참조 + 조회 API
+
+**목표:** item 23이 확립한 `Handle<T>` 기반 파이프라인 위에, 실행 중인 게임/에디터에 파일
+변경을 자동 반영하는 핫리로드와 로드 실패/리로드 상태 조회 기능을 얹는다 (원래 item 23
+초안의 완료 조건 중 핫리로드/에러 전파/조회 API 부분을 이관)
+
+**완료 조건:**
+- [ ] `bevy_asset`의 `file_watcher` 피처 활성화 — 텍스처/glTF/WGSL/오디오 변경 시 실행
   중인 게임/에디터에 자동 반영
 - [ ] 에셋에 안정적 식별자 부여 — 기존 경로 기반 API 하위호환 유지하면서 리네임에도
   참조가 깨지지 않는 경로 마련
-- [ ] 로드 실패/누락 에셋에 대한 명확한 에러 전파 (현재는 `Result<Vec<u8>, String>`뿐,
-  호출부 대부분이 이를 소비하지 않음)
-- [ ] Scripting API 또는 MCP 툴로 리로드 상태 조회 가능
+- [ ] 로드 실패/누락 에셋에 대한 명확한 에러 전파 (item 23에서는 `tracing::warn!` 후
+  스킵뿐이었던 것을 구조화된 조회로 확장)
+- [ ] Scripting API 또는 MCP 툴로 리로드/로드 실패 상태 조회 가능
 - [ ] 테스트 추가, CI 통과
 
 ---
 
-### 24. 3D 포지셔널 오디오
+### 25. 3D 포지셔널 오디오
 
 **목표:** `AudioWorld`가 위치 정보 없는 `play`/`stop`뿐인 상태(`bsengine-audio` 251줄)를
 벗어나, 엔티티 위치 기반 거리 감쇠·패닝을 제공
@@ -415,7 +480,7 @@ self-hit, (8) player.js: 레이캐스트 origin 높이(+0.9)가 콜라이더 상
 
 ---
 
-### 25. 폴리곤 기반 실제 NavMesh
+### 26. 폴리곤 기반 실제 NavMesh
 
 **목표:** 현재 "NavMesh"라 불리지만 실제로는 균일 XZ 그리드 위 8방향 A*인 구현
 (로드맵 item 3)을, 레벨 지오메트리에서 폴리곤 메시를 추출하는 방식으로 교체 —
@@ -432,7 +497,7 @@ self-hit, (8) player.js: 레이캐스트 origin 높이(+0.9)가 콜라이더 상
 
 ---
 
-### 26. 캐릭터 컨트롤러 + 실제 물리 넉백
+### 27. 캐릭터 컨트롤러 + 실제 물리 넉백
 
 **목표:** `NavMeshAgent`가 Transform을 소유하려면 Kinematic rigidbody가 필요하고,
 Kinematic 바디는 정의상 물리 임펄스를 무시해 "넉백"을 스크립트가 위치를 직접 미는
@@ -448,7 +513,7 @@ touched by this task" 항목에서 발견)
 
 ---
 
-### 27. 파티클 시스템
+### 28. 파티클 시스템
 
 **목표:** 피격/죽음/픽업 같은 이펙트를 커스텀 셰이더 오브젝트 수작업 없이 표현할 기본
 파티클 시스템 제공
@@ -462,7 +527,7 @@ touched by this task" 항목에서 발견)
 
 ---
 
-### 28. 애니메이션 블렌드 트리 (1D 블렌드 스페이스)
+### 29. 애니메이션 블렌드 트리 (1D 블렌드 스페이스)
 
 **목표:** 현재 `AnimationStateMachine`이 상태 간 크로스페이드만 지원하는 것(로드맵 item
 2)을 넘어, 이동 속도 같은 연속 파라미터로 여러 클립을 블렌드
@@ -560,3 +625,4 @@ touched by this task" 항목에서 발견)
 | 20. Added `UiWidget::ProgressBar` / `Bsengine.ui.setProgressBar`, rendered via `egui::ProgressBar`; mini-arena's `hud.js` migrated from a plain-text HP readout to a real health bar | 2026-07-30 | [#1741](https://github.com/blas1n/BSEngine/pull/1741) |
 | 21. Real pause: `bsengine_core::PauseState` actually gates `PhysicsPlugin`/`NavMeshPlugin`; `Bsengine.pause`/`resume`/`isPaused` scripting API; mini-arena's pause menu now actually stops the Enemy and Player instead of just showing a panel | 2026-07-30 | [#1742](https://github.com/blas1n/BSEngine/pull/1742) |
 | 22. Point light shadows via linear-distance cube arrays (up to `MAX_POINT_LIGHTS`=8, 6 faces each, `R32Float` texture array), sampled in `MESH_WGSL` via manual cube-face selection; mini-arena's `ArenaLight` now casts a shadow automatically | 2026-07-31 | branch `feat/point-light-shadows` (PR #TBD) |
+| 23. `bevy_asset` adoption: `LoadedGltf`/`ShaderSource`/`AudioSourceAsset`/`TextureAsset` migrated to `Handle<T>`-based `AssetLoader`s (glTF, custom WGSL shaders, audio, textures incl. skybox), replacing 9 separate direct `std::fs::read` call sites; scene RON/scripting API/MCP tool surfaces stay path-string based, `AssetServer` converts at the boundary; sync-blocking initial load preserved (no behavior change); `games/tilt-run`'s 7 E2E replays all pass, `games/mini-arena`'s replay reliably fails on this environment (confirmed via 10 master + 14 HEAD runs) but proven — via reproduction on unmodified master — to be a pre-existing, wall-clock-timing-dependent flakiness unrelated to this migration; also surfaced local-only test stack overflows, later root-caused (libtest runs tests on spawned threads that never saw the `/STACK:` main-thread setting) and fixed on branch `fix/test-thread-stack-size` — see item 23's own notes above | 2026-07-31 | PR #TBD |

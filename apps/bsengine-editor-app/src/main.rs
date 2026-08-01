@@ -1,4 +1,5 @@
 use bsengine_app::{new_app, Startup, Update};
+use bsengine_asset::AssetPlugin;
 use bsengine_core::{Camera, DirectionalLight, GlobalTransform, InspectorState, Transform};
 use bsengine_ecs::{Added, Commands, Entity, Query, ResMut};
 use bsengine_editor::EditorPlugin;
@@ -40,7 +41,8 @@ fn main() {
     inspector_state.current_scene_path = scene_path.clone();
 
     let mut app = new_app();
-    app.add_plugins(WgpuRHIPlugin)
+    app.add_plugins(AssetPlugin)
+        .add_plugins(WgpuRHIPlugin)
         .add_plugins(WindowPlugin {
             descriptor: WindowDescriptor {
                 title: "BSEngine Editor".to_string(),

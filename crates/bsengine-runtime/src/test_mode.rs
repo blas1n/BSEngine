@@ -8,6 +8,7 @@ use std::io::{self, BufRead, Write};
 use bevy_app::App;
 use bevy_ecs::event::Events;
 use bsengine_app::{NavMeshPlugin, TimePlugin};
+use bsengine_asset::AssetPlugin;
 use bsengine_audio::AudioPlugin;
 use bsengine_core::{EditorPlayState, InspectorState};
 use bsengine_input::{ElementState, InputPlugin, KeyCode, KeyInput, MouseButton, MouseInput};
@@ -37,6 +38,7 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>) -> App {
 
     let mut app = bsengine_app::new_app();
     app.add_plugins(TimePlugin)
+        .add_plugins(AssetPlugin)
         .add_plugins(InputPlugin)
         .add_plugins(AudioPlugin)
         .add_plugins(PhysicsPlugin)

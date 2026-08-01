@@ -5,7 +5,15 @@
     { "cmd": "step", "frames": 5 },
     { "cmd": "press_key", "key": "S" },
     { "cmd": "press_key", "key": "D" },
-    { "cmd": "step", "frames": 900 },
+    {
+      "cmd": "wait_until",
+      "query": { "tool": "get_transform", "args": { "name": "Player" } },
+      "path": "z",
+      "op": ">=",
+      "value": 2.4,
+      "max_frames": 6000,
+      "label": "Player walked diagonally (S+D) into Enemy engagement range at z>=2.4"
+    },
     { "cmd": "release_key", "key": "S" },
     { "cmd": "release_key", "key": "D" },
     { "cmd": "step", "frames": 2 },
@@ -23,8 +31,24 @@
       "value": null,
       "label": "Enemy destroyed after two raycast melee hits (30 max shield, 15 dmg each)"
     },
+    {
+      "cmd": "assert",
+      "query": { "tool": "get_transform", "args": { "name": "Pickup" } },
+      "path": "x",
+      "op": "exists",
+      "value": null,
+      "label": "Pickup exists before the walk (guards the wait below from passing vacuously)"
+    },
     { "cmd": "press_key", "key": "W" },
-    { "cmd": "step", "frames": 1400 },
+    {
+      "cmd": "wait_until",
+      "query": { "tool": "get_transform", "args": { "name": "Pickup" } },
+      "path": "x",
+      "op": "==",
+      "value": null,
+      "max_frames": 8000,
+      "label": "Player walked north far enough to collect the Pickup (proximity trigger destroys it)"
+    },
     { "cmd": "release_key", "key": "W" },
     { "cmd": "step", "frames": 2 },
     {

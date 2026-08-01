@@ -287,10 +287,18 @@ pub fn execute_command(
                     // make wait_until unusable for the case it exists for.
                     // Keep stepping; if the predicate is still not
                     // evaluable once the frame budget is gone (a genuinely
-                    // bad op or path), the error surfaces then.
+                    // bad op or path, or an entity destroyed mid-wait), the
+                    // error surfaces then -- carrying the label and frame
+                    // count, without which a replay failure reads as a bare
+                    // type error with no clue which wait produced it.
                     Err(e) => {
                         if waited >= max_frames {
-                            return (CommandResponse::err(e), false);
+                            return (
+                                CommandResponse::err(format!(
+                                    "{label}: predicate never became evaluable after {waited} frames: {e}"
+                                )),
+                                false,
+                            );
                         }
                     }
                 }
@@ -574,6 +582,97 @@ mod tests {
             data["actual"]
         );
         assert_eq!(frame, 3, "frame counter must advance by the frames stepped");
+    }
+
+    // Pins the deviation this handler makes deliberately: an eval_op error
+    // (here, a numeric comparison against a not-yet-spawned entity's null)
+    // means "not satisfied yet", not "abort". Scene entities appear in a
+    // Startup system, so before the first app.update() every query is null
+    // -- if that errored out, wait_until could never be used to wait for
+    // something to appear, which is its main purpose.
+    #[test]
+    fn wait_until_waits_through_a_not_yet_evaluable_predicate() {
+        let project_dir = format!("{}/../../games/cube-evader", env!("CARGO_MANIFEST_DIR"));
+        let mut app = build_test_app(&project_dir, None);
+        let mut frame: u64 = 0;
+
+        let (response, _) = execute_command(
+            &mut app,
+            &mut frame,
+            Command::WaitUntil {
+                query: crate::test_protocol::QuerySpec {
+                    tool: "get_transform".to_string(),
+                    args: json!({"name": "Player"}),
+                },
+                path: "x".to_string(),
+                // Any real number satisfies this; the only way to reach it
+                // is to get past the pre-Startup null that errors.
+                op: ">".to_string(),
+                value: json!(-1.0e9),
+                max_frames: 50,
+                label: "player spawns and has a numeric x".to_string(),
+            },
+        );
+
+        assert!(
+            response.ok,
+            "should not abort on the pre-Startup null: {response:?}"
+        );
+        let data = response.data.expect("wait_until returns data");
+        assert_eq!(data["passed"], json!(true));
+        assert!(
+            data["waited_frames"].as_u64().unwrap() > 0,
+            "must have stepped at least one frame to get past the null, got {}",
+            data["waited_frames"]
+        );
+    }
+
+    // The other half of that deviation: waiting through a non-evaluable
+    // predicate must not bury a genuinely broken one. A path that never
+    // becomes numeric (the transform JSON has no "name" field, so it is
+    // always null) has to surface as a hard error once the budget is gone,
+    // not as a silent passed:false timeout that reads like the game simply
+    // didn't get there in time.
+    #[test]
+    fn wait_until_errors_when_predicate_is_still_not_evaluable_at_timeout() {
+        let project_dir = format!("{}/../../games/cube-evader", env!("CARGO_MANIFEST_DIR"));
+        let mut app = build_test_app(&project_dir, None);
+        let mut frame: u64 = 0;
+
+        let (response, _) = execute_command(
+            &mut app,
+            &mut frame,
+            Command::WaitUntil {
+                query: crate::test_protocol::QuerySpec {
+                    tool: "get_transform".to_string(),
+                    args: json!({"name": "Player"}),
+                },
+                path: "name".to_string(),
+                op: ">".to_string(),
+                value: json!(1.0),
+                max_frames: 2,
+                label: "never-evaluable path".to_string(),
+            },
+        );
+
+        assert!(
+            !response.ok,
+            "a permanently non-evaluable predicate must be an error, not a timeout: {response:?}"
+        );
+        assert!(
+            response.data.is_none(),
+            "an error response carries no data payload"
+        );
+        let error = response.error.expect("error response carries a message");
+        assert!(
+            error.contains("never-evaluable path"),
+            "error must name which wait failed, got {error:?}"
+        );
+        assert!(
+            error.contains('2'),
+            "error must report how many frames were consumed, got {error:?}"
+        );
+        assert_eq!(frame, 2, "frames stepped before giving up must be counted");
     }
 
     // Regression test for the PressKey/ReleaseKey protocol commands: they

@@ -263,7 +263,12 @@ pub fn execute_command(
                 // start succeeding by waiting -- report it immediately.
                 let result = match run_query(app.world_mut(), &query.tool, &query.args) {
                     Ok(result) => result,
-                    Err(e) => return (CommandResponse::err(e), false),
+                    // Named, for the same reason the budget-exhausted error
+                    // below is: a recording can hold many waits, and a bare
+                    // "unknown query tool" says nothing about which one.
+                    Err(e) => {
+                        return (CommandResponse::err(format!("{label}: {e}")), false);
+                    }
                 };
                 let actual = eval_path(&result, &path).cloned().unwrap_or(Value::Null);
                 match eval_op(&actual, &op, &value) {

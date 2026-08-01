@@ -16,6 +16,14 @@
     },
     { "cmd": "release_key", "key": "S" },
     { "cmd": "release_key", "key": "D" },
+    {
+      "cmd": "assert",
+      "query": { "tool": "get_transform", "args": { "name": "Player" } },
+      "path": "x",
+      "op": "<",
+      "value": 2.55,
+      "label": "Player stopped inside the Pickup's x-band (Pickup sits at x=2.0 with a 0.6 radius, so anything past x=2.6 can never collect it — this catches an overshoot here rather than as an unexplained timeout 8000 frames later)"
+    },
     { "cmd": "step", "frames": 2 },
     { "cmd": "press_key", "key": "Space" },
     { "cmd": "release_key", "key": "Space" },
@@ -53,19 +61,11 @@
     { "cmd": "step", "frames": 2 },
     {
       "cmd": "assert",
-      "query": { "tool": "get_transform", "args": { "name": "Pickup" } },
-      "path": "x",
-      "op": "==",
-      "value": null,
-      "label": "Pickup collected (proximity trigger fired while walking toward and past it)"
-    },
-    {
-      "cmd": "assert",
       "query": { "tool": "get_transform", "args": { "name": "Player" } },
       "path": "z",
       "op": "<",
       "value": -1.0,
-      "label": "Player walked from the origin, through the Enemy engagement at (~2.4, ~2.4), to past the Pickup's z=-2.0"
+      "label": "Player ended north of the origin, having walked from (0,0) through the Enemy engagement at (~2.4, ~2.4) to the Pickup's z-band (stops near z=-1.56, where the 0.6 collection radius is first reached)"
     },
     { "cmd": "shutdown" }
   ]

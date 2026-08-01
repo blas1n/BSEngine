@@ -9,3 +9,17 @@ target-dir = "C:\\BSEngine-target"
 # wgpu Vulkan layer enumeration exceeds Windows' default 1MB main-thread stack
 # in debug builds. 64MB gives ample headroom for both debug and release.
 rustflags = ["-C", "link-args=/STACK:67108864"]
+
+[env]
+# The /STACK: link arg above only sizes the *main* thread. libtest runs every
+# #[test] on a spawned thread instead, and Rust passes its own default stack
+# size (2 MiB) to CreateThread rather than inheriting the PE header's value —
+# so tests never saw that 64MB. 2 MiB isn't enough for V8 (deno_core, reached
+# via any scripting test) or bsengine-editor's reflection-heavy suite, which
+# made `cargo test --workspace` die with STATUS_STACK_OVERFLOW locally while
+# CI stayed green: CI already sets this exact variable inline in
+# .github/workflows/ci.yml, so only local runs were affected. Setting it here
+# makes local match CI. Deliberately the same 8 MiB value CI uses, not more —
+# the point is parity, so a passing local run means a passing CI run. Not
+# `force = true`, so CI's explicit env var (and any manual override) still wins.
+RUST_MIN_STACK = "8388608"

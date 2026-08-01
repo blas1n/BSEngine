@@ -191,6 +191,28 @@ observations from actually doing it:
   as a standing source of potential flakiness for any future JS-movement-
   driven (as opposed to physics-driven) headless recording.
 
+  **Resolved 2026-08-02 (roadmap item 24, Phase 1).** The risk flagged above
+  turned into a real failure, and the "calibrated with real margin" part is
+  what gave way: the margin was ~0.11–0.23 units, and machine load eats it.
+  Measured on one machine, with no code change between runs — idle, the
+  original recording passed 5/5; with four replays running concurrently, it
+  failed 4/4. Under load each frame advances more wall-clock time, so a fixed
+  900 frames carries the player further, past the Pickup's collection radius
+  (the boundary is `x > 2.6`; runs landed 2.371–2.492 idle). That also
+  explains why the same recording was reported as failing 100% of the time
+  during item 23's verification — that work ran many build/test subagents in
+  parallel — and as passing consistently when checked later on an idle
+  machine. Both observations were correct; only the load differed.
+
+  The fix was to stop expressing intent as a duration. A new `wait_until`
+  protocol command advances until a predicate holds (up to a frame bound), so
+  the recording now waits for the player to *reach* its waypoint rather than
+  walking for a fixed time. That pins the stop position to ~2.402 ± 0.003
+  instead of 2.371–2.492 — a ~46x reduction in spread — and the migrated
+  recording passes 4/4 under the same concurrent load that broke the old one.
+  Prefer `wait_until` over `step` for anything awaiting an outcome; `step`
+  remains correct for deliberately advancing a known amount of time.
+
 ### Pre-existing, not touched by this task
 
 - Enemy knockback is a scripted position offset, not a real Rapier impulse,

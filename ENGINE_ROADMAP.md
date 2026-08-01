@@ -417,20 +417,33 @@ RON/스크립트/셰이더/glTF/플러그인 manifest/project manifest/오디오
   고정 타임스텝) 이동인 tilt-run은 이 문제가 없음.
 - [x] 테스트 추가, CI 통과
 
-**참고: 테스트 스택 오버플로 이슈 두 번째 사례 (신규 발견, 이 항목의 작업과 무관).**
-기존에 알려진 문제는 `bsengine-editor`의 테스트 바이너리가 워크스페이스 전체 테스트
-(`cargo test --all`/`cargo test --workspace`)와 함께 한 프로세스로 묶여 실행될 때만
-스택을 오버플로한다는 것이었다 (`cargo test -p bsengine-editor` 단독 실행 시 825개
-테스트 모두 통과 — Windows 스택 크기 관련 기존 이슈). 이번 item 23 작업 중 이와는
-별개인 **두 번째** 사례를 발견했다: `bsengine-runtime`의
-`test_mode::tests::editor_plugin_reload_scene_does_not_corrupt_scripting`는 위 이슈와
-달리 **단독 실행**(`cargo test -p bsengine-runtime`)에서도 스택을 오버플로한다. 이
-동작은 이번 item 23의 변경과 무관하게 미수정 `master`에서도 동일하게 재현되는 기존
-버그로 확인됨 — item 23의 Task 6이 같은 테스트 경로에 있던 더 앞선(더 즉각적인) 패닉을
-고치면서 그 아래 깔려 있던 이 스택 오버플로를 우연히 드러낸 것뿐이다. `cargo test
---all`은 항상 `bsengine-editor`의 오버플로에서 먼저 멈추기 때문에, 이 테스트가 실제로
-통과하는지는 지금까지 어떤 워크스페이스 전체 테스트 실행에서도 확인된 적이 없었다.
-이 항목의 작업 범위가 아니므로 고치지 않고 기록만 남긴다.
+**참고: 로컬 테스트 스택 오버플로 — 이 항목의 작업과 무관한 별개 이슈이며, 이후
+근본 원인 규명 후 별도 브랜치(`fix/test-thread-stack-size`)에서 수정 완료.**
+
+item 23 작업 중 로컬 `cargo test --workspace`가 스택 오버플로로 죽는 현상을 겪었다
+(`bsengine-editor`의 테스트 바이너리, 그리고 `bsengine-runtime`의
+`test_mode::tests::editor_plugin_reload_scene_does_not_corrupt_scripting`). 이 문서에는
+처음에 서로 다른 두 개의 원인 불명 기존 버그로 기록했으나, 이후 조사에서 **둘 다 동일한
+하나의 원인**이고 애초에 **로컬 전용 설정 누락**이었음이 확인됐다:
+
+`.cargo/config.toml`의 `/STACK:67108864` 링커 플래그는 **메인 스레드만** 키운다. 반면
+libtest는 모든 `#[test]`를 spawn된 스레드에서 실행하고, Rust는 그 스레드에 PE 헤더 값이
+아니라 자체 기본값 **2 MiB**를 넘긴다 — 그래서 테스트는 그 64MB를 한 번도 본 적이 없다.
+2 MiB는 V8(deno_core, 스크립팅 테스트면 무조건 경유)이나 `bsengine-editor`의 리플렉션
+테스트에는 부족하다. (`--test-threads=1`로도 해결되지 않는 것으로 spawn 스레드 문제임을
+확인.)
+
+**초기 기록의 오류 정정:** 이 문서에는 "이 테스트가 실제로 통과하는지 어떤 워크스페이스
+전체 실행에서도 확인된 적이 없었다"고 적었으나 이는 **사실이 아니다**. CI는
+`.github/workflows/ci.yml`에서 두 테스트 스텝 모두에 `RUST_MIN_STACK: 8388608`을
+설정하고 있고, `bsengine-runtime`은 CI에서 제외 대상이 아니므로 해당 테스트는 **CI에서
+매번 통과해 왔다**. 실패하는 것은 이 설정이 없는 로컬 실행뿐이었다.
+
+**수정:** 동일한 8 MiB 값을 `.cargo/config.toml`의 `[env]`로 옮겨 로컬과 CI를 일치시켰다
+(환경변수 없이 `cargo test --workspace` exit 0 확인). 2026-07-13 플랜 문서들이 모든 테스트
+명령에 `RUST_MIN_STACK=8388608`을 수동으로 붙이던 관행도 이걸로 대체된다. CI의
+`--exclude bsengine-editor` 분리 스텝은 CI 특유의 이유(V8이 큰 VA 영역을 예약해 editor
+테스트 스레드 스택 확장을 막음)가 있어 그대로 둔다.
 
 ---
 
@@ -612,4 +625,4 @@ touched by this task" 항목에서 발견)
 | 20. Added `UiWidget::ProgressBar` / `Bsengine.ui.setProgressBar`, rendered via `egui::ProgressBar`; mini-arena's `hud.js` migrated from a plain-text HP readout to a real health bar | 2026-07-30 | [#1741](https://github.com/blas1n/BSEngine/pull/1741) |
 | 21. Real pause: `bsengine_core::PauseState` actually gates `PhysicsPlugin`/`NavMeshPlugin`; `Bsengine.pause`/`resume`/`isPaused` scripting API; mini-arena's pause menu now actually stops the Enemy and Player instead of just showing a panel | 2026-07-30 | [#1742](https://github.com/blas1n/BSEngine/pull/1742) |
 | 22. Point light shadows via linear-distance cube arrays (up to `MAX_POINT_LIGHTS`=8, 6 faces each, `R32Float` texture array), sampled in `MESH_WGSL` via manual cube-face selection; mini-arena's `ArenaLight` now casts a shadow automatically | 2026-07-31 | branch `feat/point-light-shadows` (PR #TBD) |
-| 23. `bevy_asset` adoption: `LoadedGltf`/`ShaderSource`/`AudioSourceAsset`/`TextureAsset` migrated to `Handle<T>`-based `AssetLoader`s (glTF, custom WGSL shaders, audio, textures incl. skybox), replacing 9 separate direct `std::fs::read` call sites; scene RON/scripting API/MCP tool surfaces stay path-string based, `AssetServer` converts at the boundary; sync-blocking initial load preserved (no behavior change); `games/tilt-run`'s 7 E2E replays all pass, `games/mini-arena`'s replay reliably fails on this environment (confirmed via 10 master + 14 HEAD runs) but proven — via reproduction on unmodified master — to be a pre-existing, wall-clock-timing-dependent flakiness unrelated to this migration; incidentally surfaced a second, previously-undocumented `bsengine-runtime` stack-overflow test (see item 23's own notes above) | 2026-07-31 | PR #TBD |
+| 23. `bevy_asset` adoption: `LoadedGltf`/`ShaderSource`/`AudioSourceAsset`/`TextureAsset` migrated to `Handle<T>`-based `AssetLoader`s (glTF, custom WGSL shaders, audio, textures incl. skybox), replacing 9 separate direct `std::fs::read` call sites; scene RON/scripting API/MCP tool surfaces stay path-string based, `AssetServer` converts at the boundary; sync-blocking initial load preserved (no behavior change); `games/tilt-run`'s 7 E2E replays all pass, `games/mini-arena`'s replay reliably fails on this environment (confirmed via 10 master + 14 HEAD runs) but proven — via reproduction on unmodified master — to be a pre-existing, wall-clock-timing-dependent flakiness unrelated to this migration; also surfaced local-only test stack overflows, later root-caused (libtest runs tests on spawned threads that never saw the `/STACK:` main-thread setting) and fixed on branch `fix/test-thread-stack-size` — see item 23's own notes above | 2026-07-31 | PR #TBD |

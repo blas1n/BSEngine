@@ -247,6 +247,74 @@ pub fn execute_command(
             }
             Err(e) => (CommandResponse::err(e), false),
         },
+        // Evaluate first, then step -- so a predicate that already holds
+        // costs zero frames and never pads the recording's timeline.
+        Command::WaitUntil {
+            query,
+            path,
+            op,
+            value,
+            max_frames,
+            label,
+        } => {
+            let mut waited: u32 = 0;
+            loop {
+                // A failed query (unknown tool, malformed args) can never
+                // start succeeding by waiting -- report it immediately.
+                let result = match run_query(app.world_mut(), &query.tool, &query.args) {
+                    Ok(result) => result,
+                    Err(e) => return (CommandResponse::err(e), false),
+                };
+                let actual = eval_path(&result, &path).cloned().unwrap_or(Value::Null);
+                match eval_op(&actual, &op, &value) {
+                    Ok(true) => {
+                        return (
+                            CommandResponse::ok(json!({
+                                "passed": true,
+                                "actual": actual,
+                                "label": label,
+                                "waited_frames": waited,
+                            })),
+                            false,
+                        );
+                    }
+                    Ok(false) => {}
+                    // Not yet evaluable is the normal opening state of a
+                    // wait, not a protocol error: before the scene's
+                    // Startup systems have run, the entity a query names
+                    // does not exist and its value is null, which no
+                    // numeric comparison accepts. Erroring out here would
+                    // make wait_until unusable for the case it exists for.
+                    // Keep stepping; if the predicate is still not
+                    // evaluable once the frame budget is gone (a genuinely
+                    // bad op or path), the error surfaces then.
+                    Err(e) => {
+                        if waited >= max_frames {
+                            return (CommandResponse::err(e), false);
+                        }
+                    }
+                }
+
+                // `actual` is this iteration's observation, and evaluation
+                // always precedes the timeout check, so it is also the last
+                // value observed before giving up.
+                if waited >= max_frames {
+                    return (
+                        CommandResponse::ok(json!({
+                            "passed": false,
+                            "actual": actual,
+                            "label": label,
+                            "waited_frames": waited,
+                        })),
+                        false,
+                    );
+                }
+
+                app.update();
+                *frame += 1;
+                waited += 1;
+            }
+        }
         Command::Shutdown => (CommandResponse::ok(json!({})), true),
     }
 }
@@ -430,6 +498,82 @@ mod tests {
             z.abs() < 0.01,
             "Player should be back at its authored z=0.0 after reload, got {z}"
         );
+    }
+
+    // wait_until must cost zero frames when the predicate already holds --
+    // otherwise every wait in a recording would pad the frame count and
+    // slowly desynchronize everything after it.
+    #[test]
+    fn wait_until_returns_immediately_when_already_satisfied() {
+        let project_dir = format!("{}/../../games/cube-evader", env!("CARGO_MANIFEST_DIR"));
+        let mut app = build_test_app(&project_dir, None);
+        let mut frame: u64 = 0;
+        app.update();
+        frame += 1;
+
+        let (response, _) = execute_command(
+            &mut app,
+            &mut frame,
+            Command::WaitUntil {
+                query: crate::test_protocol::QuerySpec {
+                    tool: "get_transform".to_string(),
+                    args: json!({"name": "Player"}),
+                },
+                path: "x".to_string(),
+                op: "exists".to_string(),
+                value: Value::Null,
+                max_frames: 100,
+                label: "player exists".to_string(),
+            },
+        );
+
+        assert!(response.ok, "response should be ok: {response:?}");
+        let data = response.data.expect("wait_until returns data");
+        assert_eq!(data["passed"], json!(true));
+        assert_eq!(
+            data["waited_frames"],
+            json!(0),
+            "already-true predicate must not step any frames"
+        );
+        assert_eq!(frame, 1, "frame counter must not advance");
+    }
+
+    // On timeout wait_until reports passed:false rather than erroring, so
+    // run_replay_mode can render it with the same label/actual output it
+    // already uses for a failed assert.
+    #[test]
+    fn wait_until_times_out_with_last_actual_value() {
+        let project_dir = format!("{}/../../games/cube-evader", env!("CARGO_MANIFEST_DIR"));
+        let mut app = build_test_app(&project_dir, None);
+        let mut frame: u64 = 0;
+
+        let (response, _) = execute_command(
+            &mut app,
+            &mut frame,
+            Command::WaitUntil {
+                query: crate::test_protocol::QuerySpec {
+                    tool: "get_transform".to_string(),
+                    args: json!({"name": "Player"}),
+                },
+                path: "x".to_string(),
+                op: ">".to_string(),
+                value: json!(1.0e9),
+                max_frames: 3,
+                label: "player reaches an impossible x".to_string(),
+            },
+        );
+
+        assert!(response.ok, "timeout is not a protocol error: {response:?}");
+        let data = response.data.expect("wait_until returns data");
+        assert_eq!(data["passed"], json!(false));
+        assert_eq!(data["waited_frames"], json!(3));
+        assert_eq!(data["label"], json!("player reaches an impossible x"));
+        assert!(
+            data["actual"].is_number(),
+            "timeout must report the last observed value, got {}",
+            data["actual"]
+        );
+        assert_eq!(frame, 3, "frame counter must advance by the frames stepped");
     }
 
     // Regression test for the PressKey/ReleaseKey protocol commands: they

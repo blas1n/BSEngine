@@ -34,6 +34,24 @@ pub enum Command {
         value: Value,
         label: String,
     },
+    /// Advance the app until `query`'s value at `path` satisfies `op`
+    /// against `value`, or until `max_frames` frames have been stepped.
+    ///
+    /// Exists because recordings that step a fixed frame count and then
+    /// assert are only correct on the machine they were recorded on: any
+    /// gameplay driven by wall-clock delta time (this engine's JS
+    /// `getDeltaTime`) covers a different distance per frame on faster or
+    /// slower hardware. Waiting for the state itself removes that
+    /// dependency. Same query/path/op/value shape as `Assert`, so the two
+    /// read alike in a recording and share their evaluation code.
+    WaitUntil {
+        query: QuerySpec,
+        path: String,
+        op: String,
+        value: Value,
+        max_frames: u32,
+        label: String,
+    },
     Shutdown,
 }
 
@@ -114,6 +132,32 @@ mod tests {
                 assert_eq!(label, "moved");
             }
             other => panic!("expected Assert, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_wait_until_command() {
+        let cmd: Command = serde_json::from_str(
+            r#"{"cmd":"wait_until","query":{"tool":"get_transform","args":{"name":"Player"}},"path":"z","op":">=","value":2.4,"max_frames":5000,"label":"player arrived"}"#,
+        )
+        .unwrap();
+        match cmd {
+            Command::WaitUntil {
+                query,
+                path,
+                op,
+                value,
+                max_frames,
+                label,
+            } => {
+                assert_eq!(query.tool, "get_transform");
+                assert_eq!(path, "z");
+                assert_eq!(op, ">=");
+                assert_eq!(value, json!(2.4));
+                assert_eq!(max_frames, 5000);
+                assert_eq!(label, "player arrived");
+            }
+            other => panic!("expected WaitUntil, got {other:?}"),
         }
     }
 

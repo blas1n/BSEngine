@@ -361,7 +361,11 @@ pub fn run_replay_mode(project_dir: &str, log_path: &str) -> bool {
     let mut frame: u64 = 0;
 
     for command in log.actions {
-        let is_assert = matches!(command, Command::Assert { .. });
+        // wait_until reports pass/fail in exactly the same shape as assert
+        // (a timeout is passed:false, not a protocol error), so it needs the
+        // same result check — otherwise a timed-out wait would replay as a
+        // silent success.
+        let is_assert = matches!(command, Command::Assert { .. } | Command::WaitUntil { .. });
         let (response, _) = execute_command(&mut app, &mut frame, command);
 
         if !response.ok {
@@ -394,7 +398,17 @@ pub fn run_replay_mode(project_dir: &str, log_path: &str) -> bool {
                     .and_then(|d| d.get("actual"))
                     .cloned()
                     .unwrap_or(Value::Null);
-                eprintln!("REPLAY FAILED: {label} — actual: {actual}");
+                let waited = response
+                    .data
+                    .as_ref()
+                    .and_then(|d| d.get("waited_frames"))
+                    .and_then(|v| v.as_u64());
+                match waited {
+                    Some(frames) => eprintln!(
+                        "REPLAY FAILED: {label} — timed out after {frames} frames, last actual: {actual}"
+                    ),
+                    None => eprintln!("REPLAY FAILED: {label} — actual: {actual}"),
+                }
                 return false;
             }
         }

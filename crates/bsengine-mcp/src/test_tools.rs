@@ -74,9 +74,10 @@ fn stop_tool(registry: Arc<SessionRegistry>) -> McpTool {
 fn save_recording_tool(registry: Arc<SessionRegistry>) -> McpTool {
     McpTool {
         name: "test_save_recording".to_string(),
-        description: "Saves the session's accumulated commands (step/press/release/assert, in \
-            order) as games/<game>/tests/<name>.testlog.json — replayable with test_run_replay \
-            or `bsengine-runtime --test <game> --replay <file>` with no AI involved."
+        description: "Saves the session's accumulated commands (step/press/release/assert/\
+            wait_until, in order) as games/<game>/tests/<name>.testlog.json — replayable with \
+            test_run_replay or `bsengine-runtime --test <game> --replay <file>` with no AI \
+            involved."
             .to_string(),
         input_schema: Some(json!({
             "type": "object",
@@ -260,6 +261,36 @@ fn passthrough_specs() -> Vec<PassthroughSpec> {
                     "label": { "type": "string" },
                 },
                 "required": ["session_id", "query", "path", "op", "value", "label"],
+            }),
+        },
+        PassthroughSpec {
+            tool_name: "test_wait_until",
+            child_cmd: "wait_until",
+            description: "Advances the session until `query`'s `path` satisfies `op` against \
+                `value`, or until `max_frames` frames have passed. Prefer this over test_step \
+                when waiting for something to happen (a character to arrive, an entity to \
+                despawn, an asset to finish loading): a fixed frame count only reproduces on \
+                the machine that recorded it, because wall-clock-driven gameplay covers a \
+                different distance per frame on different hardware.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "session_id": { "type": "string" },
+                    "query": {
+                        "type": "object",
+                        "properties": {
+                            "tool": { "type": "string" },
+                            "args": { "type": "object" },
+                        },
+                        "required": ["tool", "args"],
+                    },
+                    "path": { "type": "string" },
+                    "op": { "type": "string" },
+                    "value": {},
+                    "max_frames": { "type": "integer", "minimum": 0 },
+                    "label": { "type": "string" },
+                },
+                "required": ["session_id", "query", "path", "op", "value", "max_frames", "label"],
             }),
         },
     ]

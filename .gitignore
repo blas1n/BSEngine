@@ -462,3 +462,8 @@ Scripts/vcpkg
 
 # Git worktrees for isolated subagent-driven development
 .worktrees/
+
+# Runtime save files written by games while they run. mini-arena's player.js
+# calls Bsengine.save() every frame, so merely running the game — or replaying
+# its E2E recording — leaves an untracked file behind.
+games/*/checkpoint.json

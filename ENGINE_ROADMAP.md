@@ -405,16 +405,24 @@ RON/스크립트/셰이더/glTF/플러그인 manifest/project manifest/오디오
   프레임 늦게 나타나는 동작 변화 없음
 - [x] `games/mini-arena`/`games/tilt-run` 기존 E2E 리플레이가 마이그레이션 후에도 통과 —
   `games/tilt-run`의 7개 리플레이 전부 클린 통과 확인. `games/mini-arena`의
-  `basic-playthrough.testlog.json`은 이 환경에서 재현 시 실패하지만(단언 실패 지점과
-  actual 값이 실행마다 조금씩 다름 — 최종 검증 시 미수정 `master` 10회, 이 브랜치
-  HEAD 14회 실행에서 양쪽 다 100% 재현되는 것으로 확인, 아래 참고), 이번 item 23의
-  변경을 전혀 포함하지 않은 미수정 `master`(커밋 `a539e98e`)에서도 동일한 실패
-  패턴이 그대로 재현됨 — bevy_asset 마이그레이션과 무관한 기존 결함. 근본 원인은
-  `player.js`의 연속 이동이 고정 가상 타임스텝이 아니라 실제 벽시계 델타
-  (`Bsengine.getDeltaTime()` → `Instant::now()`)로 구동된다는 점: `games/mini-arena/GAP_LOG.md`가
-  이미 이 정확한 위험("a standing source of potential flakiness for any future
-  JS-movement-driven... headless recording")을 경고해 두었음. 물리 기반(Rapier
-  고정 타임스텝) 이동인 tilt-run은 이 문제가 없음.
+  `basic-playthrough.testlog.json`은 item 23 검증 당시 실패했고, 이번 item 23의 변경을
+  전혀 포함하지 않은 미수정 `master`(커밋 `a539e98e`)에서도 동일하게 재현되어
+  bevy_asset 마이그레이션과 무관한 기존 결함으로 확인됨. 근본 원인은 `player.js`의
+  연속 이동이 고정 가상 타임스텝이 아니라 실제 벽시계 델타(`Bsengine.getDeltaTime()`
+  → `Instant::now()`)로 구동된다는 점: `games/mini-arena/GAP_LOG.md`가 이미 이 정확한
+  위험("a standing source of potential flakiness for any future JS-movement-driven...
+  headless recording")을 경고해 두었음. 물리 기반(Rapier 고정 타임스텝) 이동인
+  tilt-run은 이 문제가 없음.
+
+  **정정(2026-08-02, item 24 Phase 1에서 측정):** 위 서술이 "이 환경에서는 항상 실패"로
+  읽히도록 쓰였으나(당시 `master` 10회·HEAD 14회 모두 실패 관측), 실제로는 **머신 부하에
+  의존**한다. 유휴 상태에서는 같은 파일이 5회 연속 통과하고, 리플레이 4개를 동시에 돌려
+  부하를 주면 4회 모두 실패한다. 부하가 높을수록 프레임당 벽시계 델타가 커져 고정 900
+  프레임 동안 플레이어가 더 멀리 이동하고, Pickup 수집 반경(경계 `x > 2.6`)을 벗어나기
+  때문이다. item 23 검증이 다수의 서브에이전트가 병렬 빌드/테스트를 돌리던 고부하
+  상황에서 이뤄져 100% 실패로 관측된 것. 이 부하 의존성 자체가 결함이며, item 24
+  Phase 1에서 고정 프레임을 `wait_until` 웨이포인트 대기로 교체해 해소했다(같은 동시
+  4회 부하에서 4/4 통과).
 - [x] 테스트 추가, CI 통과
 
 **참고: 로컬 테스트 스택 오버플로 — 이 항목의 작업과 무관한 별개 이슈이며, 이후
@@ -453,14 +461,26 @@ libtest는 모든 `#[test]`를 spawn된 스레드에서 실행하고, Rust는 �
 변경을 자동 반영하는 핫리로드와 로드 실패/리로드 상태 조회 기능을 얹는다 (원래 item 23
 초안의 완료 조건 중 핫리로드/에러 전파/조회 API 부분을 이관)
 
+설계 문서: `docs/superpowers/specs/2026-08-02-asset-hot-reload-design.md`. 그 문서가 이
+항목을 5단계로 나눈다 — (1) E2E `wait_until`, (2) 호출부 Async 전환, (3) 워처 + 소비자
+재구축, (4) 에러 전파/상태 조회, (5) 안정적 식별자. 아래 완료 조건과 대응한다.
+
 **완료 조건:**
-- [ ] `bevy_asset`의 `file_watcher` 피처 활성화 — 텍스처/glTF/WGSL/오디오 변경 시 실행
-  중인 게임/에디터에 자동 반영
-- [ ] 에셋에 안정적 식별자 부여 — 기존 경로 기반 API 하위호환 유지하면서 리네임에도
-  참조가 깨지지 않는 경로 마련
-- [ ] 로드 실패/누락 에셋에 대한 명확한 에러 전파 (item 23에서는 `tracing::warn!` 후
-  스킵뿐이었던 것을 구조화된 조회로 확장)
-- [ ] Scripting API 또는 MCP 툴로 리로드/로드 실패 상태 조회 가능
+- [x] **(Phase 1)** E2E 프로토콜에 `wait_until` 추가 — 고정 프레임 수 대신 술어 충족까지
+  진행. Async 전환(Phase 2)이 모든 기존 녹화를 불안정하게 만들기 때문에 선행 조건이며,
+  이미 부하에 따라 실패하던 `games/mini-arena` 녹화도 이걸로 복구했다(동시 4회 부하에서
+  옛 녹화 4/4 실패 → 새 녹화 4/4 통과). MCP `test_wait_until`로도 노출해 신규 녹화가
+  고정 프레임으로 되돌아가지 않게 함
+- [ ] **(Phase 2)** glTF/셰이더/텍스처/오디오 호출부를 `LoadMode::Async`로 전환
+- [ ] **(Phase 3)** `bevy_asset`의 `file_watcher` 피처 활성화 — 텍스처/glTF/WGSL/오디오
+  변경 시 실행 중인 게임/에디터에 자동 반영. 단, `AssetPlugin.file_path`가 `""`라 에셋
+  루트가 리포 전체(`target/` 포함)가 되므로, `<ProjectDir>/assets`로 스코프를 좁힌 워처가
+  `AssetServer::reload`를 호출하는 방식을 쓴다
+- [ ] **(Phase 4)** 로드 실패/누락 에셋에 대한 명확한 에러 전파 (item 23에서는
+  `tracing::warn!` 후 스킵뿐이었던 것을 구조화된 조회로 확장) + Scripting API 또는 MCP
+  툴로 리로드/로드 실패 상태 조회 가능
+- [ ] **(Phase 5)** 에셋에 안정적 식별자 부여 — 기존 경로 기반 API 하위호환 유지하면서
+  리네임에도 참조가 깨지지 않는 경로 마련
 - [ ] 테스트 추가, CI 통과
 
 ---

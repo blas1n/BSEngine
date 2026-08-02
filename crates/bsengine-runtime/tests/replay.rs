@@ -48,6 +48,35 @@ fn replay_passes_when_all_assertions_hold() {
     assert!(status.success(), "expected replay to pass: {status:?}");
 }
 
+// A wait_until timeout reports itself as ok:true with passed:false (so it
+// renders like a failed assertion rather than a protocol error), which means
+// run_replay_mode has to inspect `passed` for wait_until exactly as it does
+// for assert. Without that, this recording — waiting for an x the player can
+// never reach — would replay as a silent success.
+#[test]
+fn replay_fails_when_wait_until_times_out() {
+    let log_path = write_log(
+        r#"[
+            {"cmd":"step","frames":5},
+            {"cmd":"wait_until","query":{"tool":"get_transform","args":{"name":"Player"}},"path":"x","op":">","value":1000000000.0,"max_frames":5,"label":"player reaches an impossible x"}
+        ]"#,
+    );
+
+    let status = Command::new(env!("CARGO_BIN_EXE_bsengine-runtime"))
+        .arg("--test")
+        .arg(game_fixture_path())
+        .arg("--replay")
+        .arg(&log_path)
+        .status()
+        .expect("failed to run replay");
+
+    std::fs::remove_file(&log_path).ok();
+    assert!(
+        !status.success(),
+        "expected a timed-out wait_until to fail the replay: {status:?}"
+    );
+}
+
 #[test]
 fn replay_fails_when_assertion_does_not_hold() {
     let log_path = write_log(

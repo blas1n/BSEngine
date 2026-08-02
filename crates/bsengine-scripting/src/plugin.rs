@@ -51,10 +51,74 @@ pub struct ScriptRuntimeResource(pub ScriptRuntime);
 #[derive(Resource, Default)]
 pub struct SoundHandles(pub HashMap<u32, kira::sound::static_sound::StaticSoundHandle>);
 
-#[derive(Resource)]
-pub(crate) struct ScriptTimingState {
-    startup: std::time::Instant,
-    last_frame: std::time::Instant,
+/// Where `Bsengine.getTime()` / `getDeltaTime()` get their numbers.
+///
+/// Rapier always steps a fixed 1/60s of simulation per frame, no matter how
+/// long the frame actually took. In a real window that roughly matches the
+/// wall clock, so script-driven and physics-driven motion advance together.
+/// Headless, frames run as fast as the CPU allows — under a millisecond —
+/// while physics still advances 1/60s, so the two clocks diverge by more than
+/// an order of magnitude, and by a different factor on every machine. Anything
+/// whose correctness depends on both (a ball rolling past an obstacle that
+/// swings on `getTime()`) then behaves differently per machine, which is how
+/// `tilt-run`'s level-5 recordings passed locally and failed on CI.
+#[derive(bevy_ecs::prelude::Resource)]
+pub enum ScriptTimingState {
+    /// Real elapsed time — what a player actually experiences.
+    Wall {
+        /// When the app started; `getTime()` counts from here.
+        startup: std::time::Instant,
+        /// Previous frame's instant, subtracted to get `getDeltaTime()`.
+        last_frame: std::time::Instant,
+    },
+    /// A fixed step per frame, so N frames always means the same amount of
+    /// game time regardless of how fast the machine ran them.
+    Fixed {
+        /// Seconds of game time each frame advances.
+        dt: f32,
+        /// Game time accumulated so far; what `getTime()` reports.
+        elapsed: f32,
+    },
+}
+
+impl ScriptTimingState {
+    /// Wall-clock timing, for a real running game.
+    pub fn wall_clock() -> Self {
+        let now = std::time::Instant::now();
+        Self::Wall {
+            startup: now,
+            last_frame: now,
+        }
+    }
+
+    /// Fixed-step timing, for headless replay.
+    ///
+    /// Pass the physics timestep (Rapier's default, 1/60) so script-driven and
+    /// physics-driven motion stay on the same clock; picking anything else
+    /// reintroduces the drift this exists to remove.
+    pub fn fixed(dt: f32) -> Self {
+        Self::Fixed { dt, elapsed: 0.0 }
+    }
+
+    /// Advances one frame, returning `(elapsed_seconds, delta_seconds)`.
+    fn tick(&mut self) -> (f32, f32) {
+        match self {
+            Self::Wall {
+                startup,
+                last_frame,
+            } => {
+                let now = std::time::Instant::now();
+                let elapsed = now.duration_since(*startup).as_secs_f32();
+                let delta = now.duration_since(*last_frame).as_secs_f32();
+                *last_frame = now;
+                (elapsed, delta)
+            }
+            Self::Fixed { dt, elapsed } => {
+                *elapsed += *dt;
+                (*elapsed, *dt)
+            }
+        }
+    }
 }
 
 /// Bevy plugin that wires up the JS scripting runtime: loads scripts, runs
@@ -82,11 +146,9 @@ impl Plugin for ScriptingPlugin {
         app.insert_resource(HudTexts::default());
         app.insert_resource(SoundHandles::default());
         app.insert_non_send_resource(ScriptRuntimeResource(ScriptRuntime::new_with_ops()));
-        let now = std::time::Instant::now();
-        app.insert_resource(ScriptTimingState {
-            startup: now,
-            last_frame: now,
-        });
+        // Wall clock by default. `bsengine-runtime --test` overwrites this
+        // with `ScriptTimingState::fixed` so replays are reproducible.
+        app.insert_resource(ScriptTimingState::wall_clock());
         // Register CollisionEvent so EventReader works even without PhysicsPlugin
         app.add_event::<CollisionEvent>();
         app.add_systems(PostStartup, load_scripts);
@@ -2390,11 +2452,7 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
 
     let (elapsed_secs, delta_secs) =
         if let Some(mut timing) = world.get_resource_mut::<ScriptTimingState>() {
-            let now = std::time::Instant::now();
-            let elapsed = now.duration_since(timing.startup).as_secs_f32();
-            let delta = now.duration_since(timing.last_frame).as_secs_f32();
-            timing.last_frame = now;
-            (elapsed, delta)
+            timing.tick()
         } else {
             (0.0, 0.0)
         };

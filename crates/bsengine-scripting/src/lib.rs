@@ -22,6 +22,7 @@ pub mod runtime;
 pub mod save;
 pub use bsengine_core::ProjectDir;
 pub use plugin::{
-    load_scripts, Script, ScriptRuntimeResource, ScriptingPlugin, SoundHandles, KEY_MAPPINGS,
+    load_scripts, Script, ScriptRuntimeResource, ScriptTimingState, ScriptingPlugin, SoundHandles,
+    KEY_MAPPINGS,
 };
 pub use runtime::ScriptRuntime;

@@ -63,9 +63,9 @@ fn find<'a>(tools: &'a [McpTool], name: &str) -> &'a McpTool {
 }
 
 #[test]
-fn builds_eleven_tools() {
+fn builds_twelve_tools() {
     let tools = test_tools(test_registry());
-    assert_eq!(tools.len(), 11);
+    assert_eq!(tools.len(), 12);
 }
 
 #[test]
@@ -101,6 +101,38 @@ fn full_session_round_trip() {
     let stop = find(&tools, "test_session_stop");
     let out = (stop.handler)(json!({"session_id": session_id}));
     assert!(out.is_ok(), "{:?}", out.error);
+}
+
+// Being present in `passthrough_specs()` is not the same as reaching an MCP
+// client: the tool only works if the assembled list carries it and its
+// `child_cmd` is a command the runtime actually parses. Drive it against a
+// live session rather than asserting on the source, so a rename on either
+// side of the protocol boundary fails here. The predicate is the one
+// `full_session_round_trip` shows W reaches within 20 frames, so the
+// generous frame budget is slack, not a race.
+#[test]
+fn wait_until_reaches_a_live_session() {
+    let tools = test_tools(test_registry());
+
+    let out = (find(&tools, "test_session_start").handler)(json!({"game": "cube-evader"}));
+    assert!(out.is_ok(), "{:?}", out.error);
+    let session_id = out.content["session_id"].as_str().unwrap().to_string();
+
+    (find(&tools, "test_press_key").handler)(json!({"session_id": session_id, "key": "W"}));
+
+    let out = (find(&tools, "test_wait_until").handler)(json!({
+        "session_id": session_id,
+        "query": {"tool": "get_transform", "args": {"name": "Player"}},
+        "path": "z",
+        "op": "<",
+        "value": -1.5,
+        "max_frames": 600,
+        "label": "player moved forward",
+    }));
+    assert!(out.is_ok(), "{:?}", out.error);
+    assert_eq!(out.content["passed"], true, "{:?}", out.content);
+
+    (find(&tools, "test_session_stop").handler)(json!({"session_id": session_id}));
 }
 
 #[test]

@@ -3,10 +3,28 @@
   "scene": "assets/scenes/level5.ron",
   "actions": [
     { "cmd": "step", "frames": 600 },
+    {
+      "cmd": "wait_until",
+      "query": { "tool": "get_transform", "args": { "name": "MovingObstacle" } },
+      "path": "x",
+      "op": "<",
+      "value": -1.99,
+      "max_frames": 200,
+      "label": "waited for the obstacle to swing out to the far -x end of its lane before launching — the ball's roll from the start floor to the obstacle line takes very nearly two full swings, so launching at that end is what puts the obstacle back at that same end, clear of the ball's x~0 lane, at the moment the ball actually arrives"
+    },
     { "cmd": "press_key", "key": "W" },
-    { "cmd": "step", "frames": 20 },
+    { "cmd": "step", "frames": 18 },
     { "cmd": "release_key", "key": "W" },
-    { "cmd": "step", "frames": 330 },
+    {
+      "cmd": "wait_until",
+      "query": { "tool": "get_transform", "args": { "name": "Ball" } },
+      "path": "z",
+      "op": "<",
+      "value": -6.0,
+      "max_frames": 600,
+      "label": "waited for the ball to coast into the goal's neighbourhood rather than assuming a fixed frame count gets it there — assuming that is what stopped working once headless time was pinned to physics time"
+    },
+    { "cmd": "step", "frames": 60 },
     {
       "cmd": "assert",
       "query": { "tool": "get_hud_text", "args": { "id": "1" } },

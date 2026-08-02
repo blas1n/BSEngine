@@ -47,6 +47,26 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>) -> App {
         .add_plugins(ScriptingPlugin {
             project_dir: project_dir.to_string(),
         });
+
+    // Replays must be reproducible, so script time advances a fixed step per
+    // frame here instead of reading the wall clock. The step matches Rapier's
+    // (`IntegrationParameters::default().dt`, 1/60), which is the whole point:
+    // physics already advances exactly 1/60 per frame regardless of how long
+    // the frame took, so any script reading `getTime()` was on a different
+    // clock -- headless frames take well under a millisecond, so a
+    // `getTime()`-driven obstacle crawled while a physics-driven ball raced,
+    // by a ratio that changed with machine speed. That is what made
+    // tilt-run's level-5 recordings pass locally and fail on CI.
+    // Both clocks, not just one: `Time` drives nav-mesh agents, animation,
+    // tweens and timers, while `ScriptTimingState` drives getTime()/
+    // getDeltaTime(). Fixing only one leaves them disagreeing with each other
+    // instead of with physics, which is worse -- it made mini-arena's player
+    // (script-driven) outrun its Enemy (nav-mesh-driven) and whiff every
+    // attack.
+    const FIXED_DT: f32 = 1.0 / 60.0;
+    app.insert_resource(bsengine_core::Time::fixed(FIXED_DT));
+    app.insert_resource(bsengine_scripting::ScriptTimingState::fixed(FIXED_DT));
+
     register_scene_systems(&mut app);
 
     // Same reflect-type registrations EditorPlugin does (again, not the full

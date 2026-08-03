@@ -3,7 +3,7 @@ use std::env;
 use bsengine_app::{
     new_app, AnimationPlugin, AnimationStateMachinePlugin, NavMeshPlugin, TimePlugin,
 };
-use bsengine_asset::{AssetPlugin, AssetWatcherPlugin};
+use bsengine_asset::{AssetPlugin, AssetStatusPlugin, AssetWatcherPlugin};
 use bsengine_audio::AudioPlugin;
 use bsengine_core::{EditorPlayState, InspectorState};
 use bsengine_editor::EditorPlugin;
@@ -75,6 +75,13 @@ fn run_windowed(project_dir: &str) {
         // which ScriptingPlugin inserts below at build time — i.e. before any
         // Startup system, including this plugin's, ever runs.
         .add_plugins(AssetWatcherPlugin)
+        // Unlike the watcher above, this one is in `--test`'s plugin list
+        // too (test_mode::build_test_app) — see there for why. Without it
+        // registered *somewhere* the whole status API is inert: the resource
+        // never exists, so `AssetStatuses::get` and `Bsengine.getAssetStatus`
+        // answer `unknown` for every path forever, including the ones that
+        // just failed to load.
+        .add_plugins(AssetStatusPlugin)
         .add_plugins(WgpuRHIPlugin)
         .add_plugins(WindowPlugin {
             descriptor: WindowDescriptor {

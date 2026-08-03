@@ -483,11 +483,16 @@ mod tests {
     // tolerates, because a mismatch is a *silent* no-op -- no warning, no
     // event, the watcher simply does nothing.
     //
-    // Measured: separator direction does not matter (bevy normalises it), but a
-    // canonicalised spelling -- `..` segments resolved, plus Windows' `\\?\`
-    // verbatim prefix -- does not match. So the watcher must reconstruct the
-    // engine-form path from the event rather than handing over what the OS gave
-    // it.
+    // Measured: on Windows, where `/` and `\` are both separators, either
+    // spelling matches. A canonicalised spelling -- `..` segments resolved,
+    // plus Windows' `\\?\` verbatim prefix -- does not, on either platform. So
+    // the watcher must reconstruct the engine-form path from the event rather
+    // than handing over what the OS gave it.
+    //
+    // The separator half is asserted `#[cfg(windows)]` only. On Unix `\` is a
+    // legal filename character, so swapping separators there names a different,
+    // nonexistent file rather than respelling the same one -- CI caught this
+    // test claiming otherwise.
     //
     // If the canonicalised case ever starts matching, this test fails and that
     // is good news: the reconstruction in the watcher could then be dropped.
@@ -559,12 +564,20 @@ mod tests {
             1,
             "reloading with the exact spelling the asset was loaded with must work"
         );
+        // Windows only, and not an oversight: on Unix `\` is a perfectly legal
+        // *filename* character, so swapping `/` for it does not respell the
+        // same file -- it names a different, nonexistent one, and `reload`
+        // correctly does nothing. The claim "separator direction is free" is
+        // therefore a statement about Windows, where both are separators.
+        #[cfg(windows)]
         assert_eq!(
             modified_count(&mut app, backslashed),
             1,
-            "separator direction must not matter -- the watcher hands back native \
-             separators and normalising them is not the watcher's job"
+            "on Windows both separators name the same file, so the watcher's \
+             native backslashes must not need normalising before reload"
         );
+        #[cfg(not(windows))]
+        let _ = backslashed;
         assert_eq!(
             modified_count(&mut app, forward),
             1,

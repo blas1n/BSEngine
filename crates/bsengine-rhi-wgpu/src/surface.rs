@@ -1518,19 +1518,6 @@ impl WgpuSurface {
         });
     }
 
-    /// Loads a skybox texture from a file path (`image::open`, unchanged
-    /// from before this refactor) and uploads it via
-    /// [`set_skybox_from_rgba`].
-    pub fn set_skybox(&mut self, path: &str) -> Result<(), String> {
-        let img = image::open(path)
-            .map_err(|e| format!("skybox image load failed '{path}': {e}"))?
-            .to_rgba8();
-        let (w, h) = img.dimensions();
-        self.set_skybox_from_rgba(w, h, &img);
-        self.loaded_skybox_path = Some(path.to_string());
-        Ok(())
-    }
-
     /// Unloads the current skybox, if any, reverting to no skybox rendering.
     pub fn clear_skybox(&mut self) {
         self.skybox = None;
@@ -1545,6 +1532,13 @@ impl WgpuSurface {
     /// Path of the currently loaded skybox texture, if any.
     pub fn loaded_skybox_path(&self) -> Option<&str> {
         self.loaded_skybox_path.as_deref()
+    }
+
+    /// Records which path the currently-uploaded skybox came from, for callers
+    /// that upload via [`WgpuSurface::set_skybox_from_rgba`] and do their own
+    /// file loading.
+    pub fn set_loaded_skybox_path(&mut self, path: &str) {
+        self.loaded_skybox_path = Some(path.to_string());
     }
 
     /// Renders one full frame: shadow map, main scene pass, post-processing,

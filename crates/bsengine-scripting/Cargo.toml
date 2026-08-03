@@ -25,3 +25,7 @@ tracing.workspace = true
 
 [dev-dependencies]
 bsengine-app.workspace = true
+# Only to capture `tracing` output in tests: the audio give-up path's whole
+# point is that the warning reaches the developer, so a test that asserts on
+# state alone would not cover it.
+tracing-subscriber.workspace = true

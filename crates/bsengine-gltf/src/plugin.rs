@@ -35,117 +35,142 @@ impl Plugin for GltfPlugin {
     }
 }
 
+/// The in-flight load for a [`GltfAsset`], held so the request is made once
+/// rather than re-issued every frame.
+///
+/// Re-calling `AssetServer::load` for a path whose load has *failed* resets it
+/// to `Loading` and starts the load again (`bevy_asset` 0.14.2,
+/// `server/info.rs:216-221`). `LoadState::Failed` is set in `PreUpdate` while
+/// this system runs in `Update`, so a polling loop that re-requests erases the
+/// failure before it can observe it — retrying a missing file forever and
+/// spawning a fresh filesystem task every frame. Holding the handle also keeps
+/// it strong; nothing else does between frames.
+///
+/// Internal to this system — `GltfAsset.path` stays a plain `String`, so scene
+/// RON, the scripting API and the MCP tools are unaffected.
+#[derive(Component)]
+struct PendingGltf(bevy_asset::Handle<LoadedGltf>);
+
 fn load_gltf_assets(
     mut commands: Commands,
-    query: Query<(Entity, &GltfAsset, Option<&Transform>), Without<MeshRenderer>>,
-    mesh_registry: Option<ResMut<GpuMeshRegistry>>,
-    tex_registry: Option<ResMut<GpuTextureRegistry>>,
+    query: Query<
+        (Entity, &GltfAsset, Option<&PendingGltf>, Option<&Transform>),
+        Without<MeshRenderer>,
+    >,
+    mut mesh_registry: Option<ResMut<GpuMeshRegistry>>,
+    mut tex_registry: Option<ResMut<GpuTextureRegistry>>,
     mut gltf_assets: ResMut<bevy_asset::Assets<LoadedGltf>>,
-    asset_server: bevy_ecs::prelude::Res<bevy_asset::AssetServer>,
+    asset_server: Res<bevy_asset::AssetServer>,
 ) {
-    let Some(mut mesh_reg) = mesh_registry else {
-        return;
-    };
-    let mut tex_reg = tex_registry;
-
-    for (entity, asset, existing_transform) in query.iter() {
-        let load_result = bsengine_asset::load(
-            bsengine_asset::LoadMode::Sync,
-            &asset_server,
-            &mut gltf_assets,
-            &asset.path,
-            GltfLoader::load_full,
-        );
-        match load_result.and_then(|handle| {
-            gltf_assets
-                .get(&handle)
-                .ok_or_else(|| "just-inserted asset missing from Assets<LoadedGltf>".to_string())
-        }) {
-            Ok(loaded) => {
-                let tex_ids: Vec<Option<u64>> = if let Some(ref mut tr) = tex_reg {
-                    loaded
-                        .images
-                        .iter()
-                        .map(|img| Some(tr.load_from_rgba(img.width, img.height, &img.rgba)))
-                        .collect()
-                } else {
-                    vec![None; loaded.images.len()]
-                };
-
-                let mut first = true;
-                for (mesh_data, tex_idx) in loaded.meshes.iter().zip(loaded.mesh_tex_indices.iter())
-                {
-                    let mesh_id = mesh_reg.register(&mesh_data.vertices, &mesh_data.indices);
-                    let texture_id = tex_idx.and_then(|i| tex_ids.get(i).copied().flatten());
-                    let mat = Material {
-                        texture_id,
-                        ..Default::default()
-                    };
-
-                    if first {
-                        let mut e = commands.entity(entity);
-                        e.insert((MeshRenderer { mesh_id }, mat));
-                        if let Some(skin_verts) =
-                            mesh_data.skin.clone().filter(|_| !loaded.skins.is_empty())
-                        {
-                            let skin_data = loaded.skins[0].clone();
-                            let clip_library =
-                                AnimationClipLibrary::from_clips(loaded.animations.clone());
-                            let first_clip_name = clip_library
-                                .clips
-                                .keys()
-                                .next()
-                                .cloned()
-                                .unwrap_or_default();
-                            // AnimationPlayer::new defaults duration to 0.0, and
-                            // AnimationPlayer::tick is a no-op whenever duration <= 0.0
-                            // -- without this, the player's `time` would never
-                            // advance and the clip would appear frozen forever.
-                            let duration = clip_library
-                                .clips
-                                .get(&first_clip_name)
-                                .map(|c| c.duration)
-                                .unwrap_or(0.0);
-                            e.insert((
-                                SkinnedMesh {
-                                    mesh_id,
-                                    rest_vertices: mesh_data.vertices.clone(),
-                                    skin: skin_verts,
-                                    skin_data,
-                                    nodes: loaded.nodes.clone(),
-                                },
-                                clip_library,
-                                AnimationPlayer::new(first_clip_name).with_duration(duration),
-                            ));
-                        }
-                        e.remove::<GltfAsset>();
-                        if existing_transform.is_none() {
-                            e.insert((Transform::default(), GlobalTransform::default()));
-                        }
-                        first = false;
-                    } else {
-                        let t = existing_transform.cloned().unwrap_or_default();
-                        commands.spawn((
-                            MeshRenderer { mesh_id },
-                            mat,
-                            t,
-                            GlobalTransform::default(),
-                        ));
-                    }
+    for (entity, asset, pending, existing_transform) in query.iter() {
+        // Request exactly once, then retain the handle. See `PendingGltf`.
+        let Some(pending) = pending else {
+            match bsengine_asset::load(
+                bsengine_asset::LoadMode::Async,
+                &asset_server,
+                &mut gltf_assets,
+                &asset.path,
+                GltfLoader::load_full,
+            ) {
+                Ok(handle) => {
+                    commands.entity(entity).insert(PendingGltf(handle));
                 }
-
-                if first {
+                Err(e) => {
+                    // Unreachable: `LoadMode::Async` is infallible. This arm
+                    // exists only because the shared `load()` signature
+                    // returns `Result` for the benefit of `Sync` callers.
+                    warn!("Failed to request GLTF: {e}");
                     commands.entity(entity).remove::<GltfAsset>();
-                    warn!("GLTF {} has no meshes", asset.path);
                 }
             }
-            Err(e) => {
-                // `e` already contains the path (formatted by
-                // `bsengine_asset::load`'s Sync branch as "{path}: {error}"),
-                // so it isn't repeated here.
-                warn!("Failed to load GLTF: {e}");
-                commands.entity(entity).remove::<GltfAsset>();
+            continue;
+        };
+
+        let Some(loaded) = gltf_assets.get(&pending.0) else {
+            // Not resolved yet. A failed load never resolves, so ask whether
+            // it failed -- otherwise a missing file retries silently forever,
+            // where the old blocking path warned once and gave up.
+            if let bevy_asset::LoadState::Failed(e) = asset_server.load_state(&pending.0) {
+                warn!("Failed to load GLTF {}: {e}", asset.path);
+                commands.entity(entity).remove::<(GltfAsset, PendingGltf)>();
             }
+            continue;
+        };
+
+        // The data is here, but turning it into meshes needs the GPU. Without
+        // a registry (no window yet), keep both markers and retry next frame
+        // — the load itself is already done, so this costs nothing.
+        let Some(mesh_reg) = mesh_registry.as_mut() else {
+            continue;
+        };
+        let tex_ids: Vec<Option<u64>> = if let Some(tr) = tex_registry.as_mut() {
+            loaded
+                .images
+                .iter()
+                .map(|img| Some(tr.load_from_rgba(img.width, img.height, &img.rgba)))
+                .collect()
+        } else {
+            vec![None; loaded.images.len()]
+        };
+
+        let mut first = true;
+        for (mesh_data, tex_idx) in loaded.meshes.iter().zip(loaded.mesh_tex_indices.iter()) {
+            let mesh_id = mesh_reg.register(&mesh_data.vertices, &mesh_data.indices);
+            let texture_id = tex_idx.and_then(|i| tex_ids.get(i).copied().flatten());
+            let mat = Material {
+                texture_id,
+                ..Default::default()
+            };
+
+            if first {
+                let mut e = commands.entity(entity);
+                e.insert((MeshRenderer { mesh_id }, mat));
+                if let Some(skin_verts) =
+                    mesh_data.skin.clone().filter(|_| !loaded.skins.is_empty())
+                {
+                    let skin_data = loaded.skins[0].clone();
+                    let clip_library = AnimationClipLibrary::from_clips(loaded.animations.clone());
+                    let first_clip_name = clip_library
+                        .clips
+                        .keys()
+                        .next()
+                        .cloned()
+                        .unwrap_or_default();
+                    // AnimationPlayer::new defaults duration to 0.0, and
+                    // AnimationPlayer::tick is a no-op whenever duration <= 0.0
+                    // -- without this, the player's `time` would never
+                    // advance and the clip would appear frozen forever.
+                    let duration = clip_library
+                        .clips
+                        .get(&first_clip_name)
+                        .map(|c| c.duration)
+                        .unwrap_or(0.0);
+                    e.insert((
+                        SkinnedMesh {
+                            mesh_id,
+                            rest_vertices: mesh_data.vertices.clone(),
+                            skin: skin_verts,
+                            skin_data,
+                            nodes: loaded.nodes.clone(),
+                        },
+                        clip_library,
+                        AnimationPlayer::new(first_clip_name).with_duration(duration),
+                    ));
+                }
+                e.remove::<(GltfAsset, PendingGltf)>();
+                if existing_transform.is_none() {
+                    e.insert((Transform::default(), GlobalTransform::default()));
+                }
+                first = false;
+            } else {
+                let t = existing_transform.cloned().unwrap_or_default();
+                commands.spawn((MeshRenderer { mesh_id }, mat, t, GlobalTransform::default()));
+            }
+        }
+
+        if first {
+            commands.entity(entity).remove::<(GltfAsset, PendingGltf)>();
+            warn!("GLTF {} has no meshes", asset.path);
         }
     }
 }
@@ -250,6 +275,99 @@ mod tests {
         assert!(
             loaded,
             "glTF asset did not finish loading within 200 frames"
+        );
+    }
+
+    // The hazard that makes LoadMode::Async different from Sync: `load`
+    // hands back a Handle unconditionally, so a missing file is
+    // indistinguishable from a slow one at the call site. `load_gltf_assets`
+    // therefore has to ask the AssetServer whether the load *failed*, or a
+    // bad path would retry silently forever. This pins down that the failure
+    // really does surface as `LoadState::Failed`, and pins the exact
+    // accessor form the system uses.
+    //
+    // It exercises the dispatcher directly rather than through
+    // `load_gltf_assets`, because that system early-returns without a
+    // `GpuMeshRegistry`, which needs a real window (see
+    // `with_rhi_plugin_but_no_window_gltf_asset_stays`).
+    #[test]
+    fn async_load_of_a_missing_path_reaches_load_state_failed() {
+        use bevy_asset::{AssetServer, Assets, LoadState};
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(GltfPlugin);
+
+        let handle = {
+            let server = app.world().resource::<AssetServer>().clone();
+            let mut assets = app.world_mut().resource_mut::<Assets<LoadedGltf>>();
+            bsengine_asset::load(
+                bsengine_asset::LoadMode::Async,
+                &server,
+                &mut assets,
+                "definitely/not/a/real/file.glb",
+                GltfLoader::load_full,
+            )
+            .expect("Async load always returns a handle, even for a bad path")
+        };
+
+        let mut failed = false;
+        for _ in 0..200 {
+            app.update();
+            let server = app.world().resource::<AssetServer>();
+            if matches!(server.load_state(&handle), LoadState::Failed(_)) {
+                failed = true;
+                break;
+            }
+        }
+        assert!(
+            failed,
+            "a missing path must surface as LoadState::Failed, otherwise the \
+             not-ready branch would retry it forever"
+        );
+        // The asset must never appear in Assets<T>, which is exactly why the
+        // `gltf_assets.get(&handle)` miss cannot be treated as "still loading".
+        assert!(
+            app.world()
+                .resource::<Assets<LoadedGltf>>()
+                .get(&handle)
+                .is_none(),
+            "a failed load must never resolve into Assets<LoadedGltf>"
+        );
+    }
+
+    // Drives the real system, which is the only way to catch the failure
+    // mode the test above cannot see: re-calling `AssetServer::load` for a
+    // path whose state is already `Failed` resets it to `Loading` and
+    // restarts the load (bevy_asset 0.14.2, server/info.rs:216-221). Since
+    // `LoadState::Failed` is set in PreUpdate and this system runs in Update,
+    // a loop that re-requests every frame erases the failure before it can
+    // ever observe it -- retrying a missing file forever and spawning a fresh
+    // filesystem task each frame, which is strictly worse than the blocking
+    // path that warned once and stopped.
+    #[test]
+    fn missing_gltf_is_given_up_on_instead_of_retried_forever() {
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(GltfPlugin);
+        let e = app
+            .world_mut()
+            .spawn(GltfAsset::new("definitely/not/a/real/file.glb"))
+            .id();
+
+        let mut gave_up = false;
+        for _ in 0..200 {
+            app.update();
+            if app.world().get::<GltfAsset>(e).is_none() {
+                gave_up = true;
+                break;
+            }
+        }
+        assert!(
+            gave_up,
+            "a GltfAsset with an unloadable path must be given up on, not \
+             retried on every frame forever"
         );
     }
 }

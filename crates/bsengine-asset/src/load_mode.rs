@@ -6,16 +6,70 @@ use bevy_asset::{Asset, AssetServer, Assets, Handle};
 /// not a hint):
 ///
 /// `Sync` calls the loader function directly and inserts the result
-/// immediately (blocking, zero-latency — matches every asset load in this
-/// engine as of item 23). `Async` calls `bevy_asset`'s own
+/// immediately (blocking, zero-latency). `Async` calls `bevy_asset`'s own
 /// `AssetServer::load`, which requires a registered `AssetLoader` for `T` —
-/// multi-frame latency, but automatically tracked by the file watcher item
-/// 24 will enable. Every item-23 consumer passes `Sync` (see `load()`'s
-/// call sites in `bsengine-gltf`/`bsengine-render`/`bsengine-scripting`);
-/// `Async` is exercised only by each asset type's own
-/// `*_loads_async_and_becomes_available` test, proving the path is real and
-/// ready for a future consumer to flip a single call-site argument to use,
-/// without needing to re-plumb anything.
+/// multi-frame latency, but automatically tracked by the file watcher.
+///
+/// Nothing in the engine passes `Sync` any more. All four consumers (glTF,
+/// custom shaders, skybox, audio) load asynchronously, and the only `Sync`
+/// call sites left in the workspace are this module's own unit tests. The
+/// variant is kept, working and supported, because blocking-vs-streaming is
+/// the caller's choice to make: a game that wants to stall on a small asset
+/// behind a loading screen should not have to reimplement it.
+///
+/// # Polling an `Async` load correctly
+///
+/// `Async` returns a `Handle` unconditionally, so a missing or malformed file
+/// is indistinguishable from a slow one at the call site. A consumer must
+/// therefore:
+///
+/// 1. **Request once and retain the handle**, rather than re-requesting each
+///    frame while polling. Re-calling `AssetServer::load` for a path whose
+///    state is `Failed` resets it to `Loading` and restarts the load
+///    (`bevy_asset` 0.14.2, `server/info.rs:216-221`). Because `Failed` is set
+///    in `PreUpdate` and consumers poll in `Update`, a re-requesting loop
+///    erases the failure before it can observe it — retrying forever and
+///    spawning a fresh filesystem task every frame. Retaining the handle also
+///    keeps it strong, which nothing else does between frames.
+/// 2. **Treat "absent from `Assets<T>`" as inconclusive** and ask
+///    `asset_server.load_state(&handle)`; on `LoadState::Failed(e)`, warn and
+///    stop. Otherwise a bad path fails silently and permanently, which is
+///    worse than `Sync`'s warn-once-and-give-up.
+///
+/// The resulting shape — request once, retain the handle, poll the retained
+/// handle — is what every consumer in this engine implements:
+///
+/// ```ignore
+/// // First frame for this path: request, and keep what `load` returns
+/// // somewhere that outlives the frame (a component, or a resource keyed
+/// // by path).
+/// let handle = bsengine_asset::load(
+///     LoadMode::Async, &asset_server, &mut assets, path, sync_loader,
+/// )?;
+/// pending.insert(path.to_owned(), Pending::Loading(handle));
+///
+/// // Every later frame: poll the handle that was stored. Never call
+/// // `load` (or `AssetServer::load`) for this path again.
+/// match assets.get(&handle) {
+///     Some(asset) => { /* use it, and drop the pending entry */ }
+///     None => {
+///         if let LoadState::Failed(e) = asset_server.load_state(&handle) {
+///             warn!("{path}: {e}");
+///             // Record "gave up", so the next frame does not re-request
+///             // it and reset the failure back to `Loading`.
+///             pending.insert(path.to_owned(), Pending::GaveUp);
+///         }
+///     }
+/// }
+/// ```
+///
+/// The live implementations are `bsengine_gltf::GltfPlugin` (a per-entity
+/// pending component), `bsengine_render::RenderPlugin` (a path-keyed map for
+/// custom shaders, a single slot for the skybox) and `bsengine_scripting`'s
+/// sound loading. Their pending state is private to each system on purpose:
+/// `CustomShader.path`, `SkyboxPath` and friends stay plain `String`s, so
+/// scene RON, the scripting API and the MCP tools are unaffected by how a
+/// load is tracked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LoadMode {
     /// Load and insert synchronously, right now, on the calling thread.

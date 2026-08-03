@@ -3477,6 +3477,195 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    // Audio is the one asset consumer this phase adds no rebuild code to, and
+    // that is a claim worth pinning rather than assuming. It holds only
+    // because `SoundLoads` already retains a *strong* handle in `Ready` (for
+    // repeat plays — see the test above) and `bevy_asset` swaps the newly
+    // decoded data in under that same handle, so the next `playSound` picks
+    // up the edited file with nothing written here. Break either half and the
+    // claim collapses silently: if a reload evicted the entry, or if a future
+    // cleanup downgraded the retained handle to a weak one, `track_assets`
+    // would free the sound, the next `playSound` would go back to disk, and
+    // audio would need the same rebuild system glTF, shaders and the skybox
+    // got.
+    //
+    // No audio device is involved. `AudioWorld` no-ops here as everywhere
+    // else in these tests; every assertion is about `SoundLoads`,
+    // `Assets<AudioSourceAsset>` and the asset events, never about sound.
+    #[test]
+    fn reloading_a_resident_sound_replaces_it_rather_than_evicting_it() {
+        use bevy_asset::{AssetEvent, AssetServer, Assets};
+        use bevy_ecs::event::{Events, ManualEventReader};
+        use bsengine_audio::AudioSourceAsset;
+
+        let dir =
+            std::env::temp_dir().join(format!("bsengine_test_sound_reload_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let sound_path = dir.join("blip.flac");
+        std::fs::write(&sound_path, MINIMAL_FLAC_SILENCE).unwrap();
+        // Backslashes would be escapes inside the JS string literal below;
+        // Windows accepts forward slashes just as happily.
+        let sound_path_js = sound_path.to_string_lossy().replace('\\', "/");
+
+        let script_path = dir.join("play_once.js");
+        std::fs::write(
+            &script_path,
+            format!(
+                "var played = false;\n\
+                 function onUpdate(name) {{\n\
+                   if (played) {{ return; }}\n\
+                   played = true;\n\
+                   Bsengine.playSound(\"{sound_path_js}\", {{}});\n\
+                 }}"
+            ),
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: String::new(),
+        });
+        app.world_mut().spawn((
+            Name("Speaker".to_string()),
+            ScriptPath(script_path.to_string_lossy().to_string()),
+        ));
+
+        // Loops until the play has genuinely *resolved*, not merely until the
+        // queue looks empty: an empty queue is equally what "the script has
+        // not run yet" and "the load gave up" look like, and reloading from
+        // either of those states would make every assertion below vacuous.
+        let mut frames = 0;
+        loop {
+            app.update();
+            frames += 1;
+            let resolved = matches!(
+                app.world().resource::<SoundLoads>().0.values().next(),
+                Some(SoundLoad::Ready(_))
+            );
+            if resolved && app.world().resource::<PendingSounds>().0.is_empty() {
+                break;
+            }
+            assert!(
+                frames < 300,
+                "the sound never resolved (is MINIMAL_FLAC_SILENCE still \
+                 decodable?); SoundLoads was {:?}",
+                app.world().resource::<SoundLoads>().0
+            );
+        }
+
+        // Only the *id* is carried across the reload, never a clone of the
+        // handle: a strong clone held by the test would keep the asset alive
+        // on its own, and the liveness assertion at the end would then pass
+        // even if `SoundLoads` had stopped retaining anything at all.
+        let (resolved_path, asset_id) = {
+            let loads = app.world().resource::<SoundLoads>();
+            assert_eq!(
+                loads.0.len(),
+                1,
+                "exactly one path was played, got {:?}",
+                loads.0
+            );
+            let (path, load) = loads.0.iter().next().unwrap();
+            let SoundLoad::Ready(handle) = load else {
+                unreachable!("the loop above only exits on Ready, got {load:?}")
+            };
+            (path.clone(), handle.id())
+        };
+        assert_eq!(
+            resolved_path, sound_path_js,
+            "the map is keyed by exactly the string handed to AssetServer, so \
+             any other key here means the reload below would name a different \
+             asset and silently do nothing"
+        );
+        assert!(
+            app.world()
+                .resource::<Assets<AudioSourceAsset>>()
+                .get(asset_id)
+                .is_some(),
+            "the sound must be resident before the reload, or nothing measured \
+             after it means anything"
+        );
+
+        let mut reader: ManualEventReader<AssetEvent<AudioSourceAsset>> = app
+            .world_mut()
+            .resource_mut::<Events<AssetEvent<AudioSourceAsset>>>()
+            .get_reader();
+        // Discards the Added/LoadedWithDependencies of the original load, so
+        // only what the reload itself emits is counted.
+        {
+            let events = app
+                .world()
+                .resource::<Events<AssetEvent<AudioSourceAsset>>>();
+            let _ = reader.read(events).count();
+        }
+
+        app.world()
+            .resource::<AssetServer>()
+            .reload(resolved_path.clone());
+
+        // 60 frames is far more than the reload needs; the number is chosen
+        // for the other half of this test. `Assets::track_assets` runs every
+        // `PreUpdate` and frees an asset the frame after its last strong
+        // handle drops, so a merely-weak retained handle gets ~60 chances to
+        // be collected before the liveness assertion below runs.
+        let mut events_seen: Vec<String> = Vec::new();
+        let mut modified_ours = false;
+        for _ in 0..60 {
+            app.update();
+            let events = app
+                .world()
+                .resource::<Events<AssetEvent<AudioSourceAsset>>>();
+            for event in reader.read(events) {
+                if matches!(event, AssetEvent::Modified { id } if *id == asset_id) {
+                    modified_ours = true;
+                }
+                events_seen.push(format!("{event:?}"));
+            }
+        }
+
+        // How we know the reload was not a silent no-op: `Modified` is emitted
+        // only when the freshly decoded data is actually inserted under the
+        // existing id, and that insertion *is* "the next playSound uses the
+        // new file". Without this the remaining assertions would also hold for
+        // a reload that never happened.
+        assert!(
+            modified_ours,
+            "reloading the retained sound must emit AssetEvent::Modified for \
+             its id -- otherwise the reload did nothing and this test proves \
+             nothing; events seen were {events_seen:?}"
+        );
+
+        let loads = app.world().resource::<SoundLoads>();
+        let Some(SoundLoad::Ready(handle)) = loads.0.get(&resolved_path) else {
+            panic!(
+                "a reload must leave the path Ready, not evict or downgrade it; \
+                 got {:?}",
+                loads.0.get(&resolved_path)
+            );
+        };
+        assert_eq!(
+            handle.id(),
+            asset_id,
+            "the reload must replace the data under the existing id rather \
+             than mint a second asset the retained handle no longer names"
+        );
+        // The assertion that actually measures retention. The `Ready` check
+        // above is not enough on its own: a weak handle satisfies it while
+        // still letting `track_assets` free the sound underneath.
+        assert!(
+            app.world()
+                .resource::<Assets<AudioSourceAsset>>()
+                .get(handle)
+                .is_some(),
+            "the retained handle must still resolve after the reload -- if it \
+             does not, the next playSound goes back to disk and audio needs \
+             rebuild code after all"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     // A sound that has been asked for but has not started yet must report
     // `"loading"`, not `""`. `""` is what `getSoundState` returns for an id
     // that was never played at all, so a script polling for "has my sound

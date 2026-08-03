@@ -56,6 +56,14 @@ pub struct SoundHandles(pub HashMap<u32, kira::sound::static_sound::StaticSoundH
 /// `playSound` is fire-and-forget from the script's side, so the request has
 /// to outlive the frame it was made on. Volume and looping are captured here
 /// at request time so the queued play behaves as asked.
+///
+/// Only `stopSound` reaches entries here; `pauseSound`, `resumeSound`,
+/// `setSoundVolume`, `setSoundPanning`, `setSoundPlaybackRate` and `seekSound`
+/// still act on playing sounds only and silently no-op on a queued one. That
+/// is deliberate: they would need a full deferred-parameter set stored per
+/// entry, and a no-op is what they have always done for an id that is not
+/// playing, whereas an ignored stop actively produces the sound it was meant
+/// to prevent.
 #[derive(bevy_ecs::prelude::Resource, Default)]
 pub struct PendingSounds(
     pub  Vec<(
@@ -1394,6 +1402,14 @@ fn run_scripts(world: &mut World) {
                         use kira::Tween;
                         handle.stop(Tween::default());
                     }
+                }
+                // The queue is consulted too because a stop can arrive before
+                // the async load resolves, while the id is still only in
+                // `PendingSounds` and not yet in `SoundHandles`. Without this
+                // the stop would find nothing, and the sound would start once
+                // the load finished — the opposite of what was asked.
+                if let Some(mut pending) = world.get_resource_mut::<PendingSounds>() {
+                    pending.0.retain(|(pending_id, ..)| *pending_id != id);
                 }
             }
             ScriptCommand::PauseSound { id } => {
@@ -2940,7 +2956,8 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
 #[cfg(test)]
 mod tests {
     use super::{
-        Name, PendingSounds, ScriptPath, ScriptRuntimeResource, ScriptingPlugin, Transform, Vec3,
+        HudTexts, Name, PendingSounds, ScriptPath, ScriptRuntimeResource, ScriptingPlugin,
+        Transform, Vec3,
     };
     use bsengine_app::new_app;
 
@@ -3066,6 +3083,82 @@ mod tests {
         assert!(
             app.world().resource::<PendingSounds>().0.is_empty(),
             "a sound that can never load must be dropped from the queue, not retried forever"
+        );
+
+        let _ = std::fs::remove_file(&script_path);
+    }
+
+    // A stop that arrives before the async load resolves must still stop the
+    // sound. `playSound` only reaches `SoundHandles` once the decode finishes,
+    // so a `SoundHandles`-only stop finds nothing, does nothing, and the sound
+    // then starts anyway — the opposite of what the script asked for. Both
+    // plays and the stop happen in a single `onUpdate`, so all three commands
+    // are applied in one `run_scripts` pass before any load can resolve; the
+    // queue state below is therefore fixed, not a race. The ids are reported
+    // back through `setHudText` because the op assigns them, not the test.
+    // The second, un-stopped sound pins the other direction: a fix that
+    // cleared the whole queue would drop it too. There is no audio device here
+    // (`AudioWorld` no-ops), so the queue is the only observable.
+    #[test]
+    fn stop_sound_drops_a_still_loading_sound_from_the_queue() {
+        let script_path = std::env::temp_dir().join(format!(
+            "bsengine_test_stop_pending_sound_{}.js",
+            std::process::id()
+        ));
+        std::fs::write(
+            &script_path,
+            "var played = false;\n\
+             function onUpdate(name) {\n\
+               if (played) { return; }\n\
+               played = true;\n\
+               var stopped = Bsengine.playSound(\"definitely/not/a/real/stopped.wav\", {});\n\
+               var kept = Bsengine.playSound(\"definitely/not/a/real/kept.wav\", {});\n\
+               Bsengine.stopSound(stopped);\n\
+               Bsengine.setHudText(\"stopped\", String(stopped));\n\
+               Bsengine.setHudText(\"kept\", String(kept));\n\
+             }",
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: String::new(),
+        });
+        app.world_mut().spawn((
+            Name("Speaker".to_string()),
+            ScriptPath(script_path.to_string_lossy().to_string()),
+        ));
+
+        app.update();
+
+        let read_id = |key: &str| -> u32 {
+            app.world()
+                .resource::<HudTexts>()
+                .0
+                .get(key)
+                .unwrap_or_else(|| panic!("script did not report the {key} sound's id"))
+                .parse()
+                .expect("reported id is not a number")
+        };
+        let stopped = read_id("stopped");
+        let kept = read_id("kept");
+        assert_ne!(stopped, kept, "each play must get its own id");
+
+        let queued: Vec<u32> = app
+            .world()
+            .resource::<PendingSounds>()
+            .0
+            .iter()
+            .map(|(id, ..)| *id)
+            .collect();
+        assert!(
+            !queued.contains(&stopped),
+            "stopSound must cancel a queued play, or the sound starts after being stopped; queue held {queued:?}"
+        );
+        assert!(
+            queued.contains(&kept),
+            "stopSound must drop only the id it was given, not the whole queue; queue held {queued:?}"
         );
 
         let _ = std::fs::remove_file(&script_path);

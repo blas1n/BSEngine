@@ -5399,7 +5399,11 @@ pub fn bsengine_seek_sound(id: u32, position: f64) {
     });
 }
 
-/// Get a sound's playback state (e.g. playing/paused/stopped), encoded as an integer.
+/// Get a sound's playback state: `"loading"` while the sound is still being
+/// read from disk, then one of kira's own states (`"playing"`, `"pausing"`,
+/// `"paused"`, `"waiting_to_resume"`, `"resuming"`, `"stopping"`,
+/// `"stopped"`). `""` for an id that was never played, or one whose sound
+/// failed to load.
 #[op2]
 #[string]
 pub fn bsengine_get_sound_state(id: u32) -> String {

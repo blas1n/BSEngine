@@ -91,6 +91,12 @@ impl GpuTextureRegistry {
     /// Hot reload uses this rather than `load_from_rgba` because `Material`
     /// stores the id: replacing under the same id updates every material using
     /// the texture at once. The new image may have different dimensions.
+    ///
+    /// The returned flag is `#[must_use]` for the same reason as
+    /// `GpuMeshRegistry::replace`: `false` means an id a caller recorded at load
+    /// time is no longer loaded, and dropping it turns that into a reload that
+    /// appears to work and silently keeps the old pixels.
+    #[must_use]
     pub fn replace(&mut self, id: u64, width: u32, height: u32, rgba: &[u8]) -> bool {
         if !self.textures.contains_key(&id) {
             return false;

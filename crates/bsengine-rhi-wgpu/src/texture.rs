@@ -6,6 +6,8 @@ struct GpuTexture {
     _texture: wgpu::Texture,
     _view: wgpu::TextureView,
     bind_group: wgpu::BindGroup,
+    width: u32,
+    height: u32,
 }
 
 /// Owns every GPU texture uploaded for the running app, keyed by a registry-assigned id.
@@ -71,15 +73,34 @@ impl GpuTextureRegistry {
         let img = image::load_from_memory(bytes).map_err(|e| format!("image decode: {e}"))?;
         let rgba = img.to_rgba8();
         let (width, height) = rgba.dimensions();
-        Ok(self.upload_rgba(width, height, &rgba))
+        Ok(self.load_from_rgba(width, height, &rgba))
     }
 
     /// Uploads already-decoded RGBA8 pixel data as a new texture and returns its assigned id.
     pub fn load_from_rgba(&mut self, width: u32, height: u32, rgba: &[u8]) -> u64 {
-        self.upload_rgba(width, height, rgba)
+        let tex = self.build(width, height, rgba);
+        let id = self.next_id;
+        self.next_id += 1;
+        self.textures.insert(id, tex);
+        id
     }
 
-    fn upload_rgba(&mut self, width: u32, height: u32, rgba: &[u8]) -> u64 {
+    /// Rebuilds an already-loaded texture from new pixels, keeping its id.
+    /// Returns whether `id` was loaded.
+    ///
+    /// Hot reload uses this rather than `load_from_rgba` because `Material`
+    /// stores the id: replacing under the same id updates every material using
+    /// the texture at once. The new image may have different dimensions.
+    pub fn replace(&mut self, id: u64, width: u32, height: u32, rgba: &[u8]) -> bool {
+        if !self.textures.contains_key(&id) {
+            return false;
+        }
+        let tex = self.build(width, height, rgba);
+        self.textures.insert(id, tex);
+        true
+    }
+
+    fn build(&self, width: u32, height: u32, rgba: &[u8]) -> GpuTexture {
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("user texture"),
             size: wgpu::Extent3d {
@@ -123,22 +144,23 @@ impl GpuTextureRegistry {
                 },
             ],
         });
-        let id = self.next_id;
-        self.next_id += 1;
-        self.textures.insert(
-            id,
-            GpuTexture {
-                _texture: texture,
-                _view: view,
-                bind_group,
-            },
-        );
-        id
+        GpuTexture {
+            _texture: texture,
+            _view: view,
+            bind_group,
+            width,
+            height,
+        }
     }
 
     /// Looks up a previously loaded texture's bind group by id.
     pub fn get_bind_group(&self, id: u64) -> Option<&wgpu::BindGroup> {
         self.textures.get(&id).map(|t| &t.bind_group)
+    }
+
+    /// Looks up a previously loaded texture's pixel dimensions by id.
+    pub fn get_size(&self, id: u64) -> Option<(u32, u32)> {
+        self.textures.get(&id).map(|t| (t.width, t.height))
     }
 }
 
@@ -163,5 +185,36 @@ mod tests {
     fn load_invalid_bytes_returns_err() {
         let mut reg = make_registry();
         assert!(reg.load_from_bytes(b"not an image").is_err());
+    }
+
+    #[test]
+    fn replace_swaps_texture_contents_under_the_same_id() {
+        let mut reg = make_registry();
+
+        let id = reg.load_from_rgba(1, 1, &[255, 0, 0, 255]);
+        assert!(reg.get_bind_group(id).is_some());
+
+        assert!(
+            reg.replace(id, 2, 2, &[0u8; 16]),
+            "replace must report success for an id that exists"
+        );
+        assert!(
+            reg.get_bind_group(id).is_some(),
+            "the id must still resolve after replace -- Material.texture_id \
+             stores it and is not rewritten"
+        );
+        assert_eq!(
+            reg.get_size(id),
+            Some((2, 2)),
+            "replace must actually rebuild the texture with the new dimensions \
+             -- a no-op that returns true would leave the old 1x1 texture in place"
+        );
+    }
+
+    #[test]
+    fn replace_reports_failure_for_an_unknown_texture_id() {
+        let mut reg = make_registry();
+        assert!(!reg.replace(9999, 1, 1, &[0, 0, 0, 255]));
+        assert!(reg.get_bind_group(9999).is_none());
     }
 }

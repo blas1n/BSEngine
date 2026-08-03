@@ -100,8 +100,12 @@ fn propagate_children(
 }
 
 /// What `compile_pending_shaders` knows about one shader path.
+///
+/// Internal to this system, like `bsengine_gltf`'s `PendingGltf`:
+/// `CustomShader.path` stays a plain `String`, so scene RON, the scripting
+/// API and the MCP tools are unaffected by how a load is tracked.
 #[derive(Debug)]
-pub enum PendingShader {
+enum PendingShader {
     /// Requested; waiting for `Assets<ShaderSource>` to have it.
     Loading(bevy_asset::Handle<crate::shader_asset::ShaderSource>),
     /// The load failed. Kept so the warning fires once rather than per frame,
@@ -118,7 +122,7 @@ pub enum PendingShader {
 /// boundary item 23 established, so scene RON, the scripting API and the MCP
 /// tools are unaffected.
 #[derive(bevy_ecs::prelude::Resource, Default)]
-pub struct PendingShaders(pub std::collections::HashMap<String, PendingShader>);
+struct PendingShaders(std::collections::HashMap<String, PendingShader>);
 
 /// Lazy-compiles any `CustomShader` not yet cached in the surface, reading
 /// its WGSL source through `bsengine_asset::load` (`LoadMode::Async`) and
@@ -206,7 +210,7 @@ fn compile_pending_shaders(
 /// Whether the skybox named by [`PendingSkybox`] is still loading or was
 /// given up on.
 #[derive(Debug)]
-pub enum PendingSkyboxState {
+enum PendingSkyboxState {
     /// Requested; waiting for `Assets<TextureAsset>` to have it.
     Loading(bevy_asset::Handle<bsengine_asset::TextureAsset>),
     /// The load failed. Kept so the warning fires once and the path is never
@@ -220,15 +224,22 @@ pub enum PendingSkyboxState {
 /// One slot rather than a map: there is only ever one skybox. The path is kept
 /// alongside the state so a `SkyboxPath` change mid-load abandons the old
 /// request instead of uploading a texture nobody asked for any more.
+///
+/// Internal to this system, like `bsengine_gltf`'s `PendingGltf`: `SkyboxPath`
+/// stays a plain `String`, so scene RON, the scripting API and the MCP tools
+/// are unaffected by how a load is tracked.
 #[derive(bevy_ecs::prelude::Resource, Default)]
-pub struct PendingSkybox(pub Option<(String, PendingSkyboxState)>);
+struct PendingSkybox(Option<(String, PendingSkyboxState)>);
 
 /// Keeps the surface's skybox in sync with `SkyboxPath`, reading the image
 /// through `Assets<TextureAsset>` and uploading it with
 /// `set_skybox_from_rgba`.
 ///
-/// Item 23 split `set_skybox` into decode and upload halves; this is the
-/// consumer that split was for. It gets its own system rather than staying in
+/// Item 23 split the surface's old blocking `set_skybox` (path in, `image::open`,
+/// upload) into decode and upload halves; this is the consumer that split was
+/// for, and the blocking half has since been deleted outright — nothing in the
+/// engine may stall a frame on a file read any more. It gets its own system
+/// rather than staying in
 /// `render_frame` because that function is already at Bevy 0.14's
 /// 16-top-level-param ceiling (see the comment on its `render_queries` param),
 /// and because waiting across frames is not a render pass's job.
@@ -307,9 +318,10 @@ fn upload_pending_skybox(
             surface
                 .0
                 .set_skybox_from_rgba(tex.width, tex.height, &tex.data);
-            // `set_skybox_from_rgba` doesn't record the path (item 23 left
-            // that bookkeeping in `set_skybox`), so do it here — the dedupe
-            // check above is what stops this re-uploading every frame.
+            // `set_skybox_from_rgba` doesn't record the path (that bookkeeping
+            // lived in the now-deleted blocking `set_skybox`), so do it here —
+            // the dedupe check above is what stops this re-uploading every
+            // frame.
             surface.0.set_loaded_skybox_path(wanted);
             pending.0 = None;
         }

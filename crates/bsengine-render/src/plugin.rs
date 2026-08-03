@@ -730,6 +730,87 @@ mod tests {
         );
     }
 
+    // Changing `SkyboxPath` mid-load must abandon the in-flight request and
+    // start the new one, or the old texture lands on screen a frame after the
+    // user asked for a different sky. Two frames is the whole story: the first
+    // reaches the request arm (empty slot -> `Loading`, returns immediately),
+    // the second reaches the abandon-and-re-request branch.
+    //
+    // The handle is asserted on, not just the retained path string: the
+    // give-up arm writes the *wanted* path next to the *old* handle, so an
+    // implementation that kept polling the abandoned load can still end up
+    // with "second/sky.png" in the slot. Only the handle says which load is
+    // actually in flight.
+    #[test]
+    fn skybox_path_change_mid_load_requests_the_new_path_instead() {
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(RenderPlugin);
+        app.insert_resource(bsengine_core::SkyboxPath(Some("first/sky.png".to_string())));
+
+        app.update();
+        let pending = &app.world().resource::<PendingSkybox>().0;
+        assert!(
+            matches!(pending, Some((p, PendingSkyboxState::Loading(_))) if p == "first/sky.png"),
+            "precondition: one frame must leave the first path in flight, got {pending:?}"
+        );
+
+        app.world_mut()
+            .resource_mut::<bsengine_core::SkyboxPath>()
+            .0 = Some("second/sky.png".to_string());
+        app.update();
+
+        let pending = &app.world().resource::<PendingSkybox>().0;
+        let Some((path, PendingSkyboxState::Loading(handle))) = pending else {
+            panic!("a changed SkyboxPath must leave a load for the new path in flight, got {pending:?}");
+        };
+        assert_eq!(
+            path, "second/sky.png",
+            "the retained path must be the newly wanted one"
+        );
+        assert_eq!(
+            handle.path().map(ToString::to_string).as_deref(),
+            Some("second/sky.png"),
+            "the retained handle must be the one requested for the new path -- keeping the \
+             old path's handle means the abandoned load is still being polled and its \
+             texture can still be uploaded"
+        );
+    }
+
+    // Setting `SkyboxPath.0` to `None` mid-load must drop the in-flight
+    // request with it. Left in place, the load completes a frame or two later
+    // and uploads a sky the user has already switched off. Observable without
+    // a surface: with no `WgpuSurfaceResource` the dedupe check above can't
+    // match, so control reaches the skybox-off arm, which clears `pending`
+    // whether or not there is a surface to clear.
+    #[test]
+    fn turning_the_skybox_off_mid_load_drops_the_in_flight_request() {
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(RenderPlugin);
+        app.insert_resource(bsengine_core::SkyboxPath(Some("some/sky.png".to_string())));
+
+        app.update();
+        let pending = &app.world().resource::<PendingSkybox>().0;
+        assert!(
+            matches!(pending, Some((_, PendingSkyboxState::Loading(_)))),
+            "precondition: one frame must leave a load in flight, got {pending:?}"
+        );
+
+        app.world_mut()
+            .resource_mut::<bsengine_core::SkyboxPath>()
+            .0 = None;
+        app.update();
+
+        let pending = &app.world().resource::<PendingSkybox>().0;
+        assert!(
+            pending.is_none(),
+            "turning the skybox off must drop the in-flight request, got {pending:?}"
+        );
+    }
+
     #[test]
     fn render_plugin_runs_with_rhi_headless() {
         let mut app = new_app();

@@ -1,7 +1,22 @@
 use bevy_app::{App, Plugin};
 use bevy_asset::AssetApp;
+use bevy_ecs::prelude::Resource;
+use std::path::PathBuf;
 
 use crate::types::TextureAsset;
+
+/// The directory `bevy_asset` was actually given as its root, published so
+/// nothing else in the engine has to guess at it.
+///
+/// It is the *same value* [`AssetPlugin`] handed to `bevy_asset`, not a second
+/// reading of the CWD. That matters for [`crate::watcher`], which has to strip
+/// exactly the prefix the asset root implies: two independent
+/// `current_dir()` calls agree today only because nothing moves the CWD
+/// between them, and if they ever disagreed the symptom would be a file
+/// watcher that reports changes whose paths strip to nothing — hot reload
+/// silently doing nothing at all.
+#[derive(Resource, Debug, Clone)]
+pub struct AssetRoot(pub PathBuf);
 
 /// The directory `bevy_asset` resolves every asset path against.
 ///
@@ -40,15 +55,21 @@ use crate::types::TextureAsset;
 /// `<project_dir>/project.toml` with plain `std::fs`, scenes and scripts load
 /// the same way. This only makes `bevy_asset` agree with them.
 ///
-/// Read once, at plugin build time. A later `set_current_dir` would not move
-/// the asset root — which is the behaviour we want, since it would not move
-/// the engine's other CWD-relative reads either.
+/// Read once, at plugin build time, and that is not a choice this function
+/// gets to make: `bevy_asset::AssetPlugin::build` constructs its `AssetSource`
+/// from `file_path` there and then, so the root is fixed at build time no
+/// matter what this returns. A later `set_current_dir` would therefore move
+/// every *other* CWD-relative read in the engine — `std::fs` resolves against
+/// the live CWD at call time — while leaving the asset root behind, which is a
+/// real split-brain rather than a desirable one. It stays theoretical only
+/// because this workspace never calls `set_current_dir`; if that ever changes,
+/// this is the pairing that has to be revisited, along with
+/// [`AssetRoot`](crate::plugin::AssetRoot), which exists so that at least
+/// nothing *else* re-reads the CWD independently and disagrees.
 ///
-/// Deliberately, this also stops `BEVY_ASSET_ROOT` from having any effect.
-/// Honouring it would mean `bevy_asset` resolving from one directory while
-/// every `std::fs` read in the engine resolved from another — i.e. an opt-in
-/// switch for exactly the split-brain being fixed here. Point the CWD at the
-/// project instead; that moves all of it at once.
+/// This deliberately also stops `BEVY_ASSET_ROOT` from having any effect — see
+/// the crate-level docs, which is where someone wondering why their
+/// `BEVY_ASSET_ROOT` is ignored will actually look.
 fn asset_source_root() -> String {
     std::env::current_dir()
         .expect("cannot read the working directory, which every engine asset path is relative to")
@@ -82,10 +103,17 @@ impl Plugin for AssetPlugin {
         // convention. Passing the absolute CWD as `file_path` both suppresses
         // that convention and pins the root to the CWD; see
         // [`asset_source_root`] for why the obvious-looking `""` does neither.
+        // Read once and published as [`AssetRoot`], so that every consumer of
+        // "where is the asset root" — bevy_asset itself and the file watcher —
+        // is looking at one value rather than at two separate `current_dir()`
+        // calls that happen to agree.
+        let root = asset_source_root();
+
         app.add_plugins(bevy_asset::AssetPlugin {
-            file_path: asset_source_root(),
+            file_path: root.clone(),
             ..Default::default()
         })
+        .insert_resource(AssetRoot(PathBuf::from(root)))
         .init_asset::<TextureAsset>()
         .register_asset_loader(crate::texture_loader::TextureAssetLoader);
     }

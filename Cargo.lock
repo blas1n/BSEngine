@@ -844,6 +844,7 @@ dependencies = [
  "image",
  "notify-debouncer-full",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

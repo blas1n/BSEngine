@@ -24,10 +24,20 @@
 //! below, it is exactly `current_dir().join(watch_root)` with the OS-relative
 //! remainder appended, with no normalisation whatsoever. So the whole
 //! reconstruction is one `strip_prefix` of that absolutised root, re-joined
-//! onto the engine-form root — see [`reconstruct`].
+//! onto the engine-form root — see `reconstruct`.
+//!
+//! # What a reload is worth
+//!
+//! Spelling the path correctly is necessary and not sufficient: `reload` is
+//! also a silent no-op for a path nothing has *loaded*, however well spelled.
+//! The extension filter (`RELOADABLE_EXTENSIONS`) settles the asset's type
+//! and `AssetServer::get_path_ids` settles the path, so the `info!` line that
+//! says "reloading" is only emitted when a reload will really be dispatched;
+//! the case where it will not is reported at `debug!` rather than dropped.
 
+use crate::plugin::AssetRoot;
 use bevy_app::{App, Plugin, Startup, Update};
-use bevy_asset::AssetServer;
+use bevy_asset::{AssetPath, AssetServer};
 use bevy_ecs::prelude::{Commands, Res, Resource};
 use bsengine_core::ProjectDir;
 use notify_debouncer_full::{
@@ -39,7 +49,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::sync::Mutex;
 use std::time::Duration;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 /// How long a path must stay quiet before its change is reported.
 ///
@@ -56,13 +66,24 @@ const DEBOUNCE: Duration = Duration::from_millis(200);
 /// Extensions `bevy_asset` can actually serve in this engine, and nothing
 /// else.
 ///
-/// `AssetServer::reload` on a path no loader ever loaded is a *silent* no-op,
-/// so forwarding e.g. a `.ron` scene edit or a `.js` script edit would log a
-/// reload that provably does nothing — scenes go through
-/// `std::fs::read_to_string` and scripts through `bsengine-scripting`, neither
-/// of which involves `bevy_asset`. Filtering keeps the "reloading X" log line
-/// honest, which is the only diagnostic that makes the silent-no-op class of
-/// bug findable at all.
+/// This is a cheap early-out, not the last word. `AssetServer::reload` on a
+/// path no loader ever loaded is a *silent* no-op, and an extension match only
+/// proves the asset *type* is servable — never that this particular path was
+/// ever loaded. [`drain_asset_changes`] therefore asks `AssetServer` directly
+/// before reloading anything; this list just avoids bothering it about the
+/// `.ron` scene edits and `.js` script edits that make up most of what a save
+/// touches (scenes go through `std::fs::read_to_string` and scripts through
+/// `bsengine-scripting`, neither of which involves `bevy_asset` at all).
+///
+/// The two ways to get this list wrong are therefore **not** symmetric:
+///
+/// * An **omission** still costs a hot reload. An asset type missing from here
+///   is dropped before anything else gets a say, and the edit does nothing.
+/// * An **over-inclusion** is harmless. A `.txt` listed here would reach the
+///   `AssetServer` check, find nothing loaded under that path, and be logged
+///   and dropped there instead.
+///
+/// So when in doubt, add the extension.
 ///
 /// Every entry corresponds to a loader some plugin registers:
 ///
@@ -76,8 +97,6 @@ const DEBOUNCE: Duration = Duration::from_millis(200);
 /// None of those loaders declares `AssetLoader::extensions()` — every load
 /// site in the engine is type-directed (`AssetServer::load::<T>(path)`), so
 /// there is no registry to interrogate and this list is maintained by hand.
-/// Adding a loader without adding its extension here costs a hot reload, not
-/// correctness.
 const RELOADABLE_EXTENSIONS: &[&str] = &[
     "glb", "gltf", "png", "jpg", "jpeg", "hdr", "wgsl", "wav", "ogg", "mp3", "flac",
 ];
@@ -120,9 +139,11 @@ struct AssetWatcher {
     /// `Receiver` is `Send` but not `Sync`. Only ever `try_recv`'d, never
     /// `recv`'d, so the ECS never blocks on the watcher thread.
     events: Mutex<Receiver<DebounceEventResult>>,
-    /// `current_dir().join(<ProjectDir>/assets)` — the prefix every path
+    /// [`AssetRoot`]`.join(<ProjectDir>/assets)` — the prefix every path
     /// `notify` reports carries, and therefore the prefix [`reconstruct`]
-    /// strips.
+    /// strips. Taken from the asset root `AssetPlugin` published rather than
+    /// read from the CWD again, so it cannot drift out of agreement with the
+    /// root `AssetServer::reload` resolves against.
     strip_base: PathBuf,
     /// `<ProjectDir>/assets` in the engine's own spelling, which is what the
     /// reconstructed paths are re-joined onto.
@@ -130,9 +151,26 @@ struct AssetWatcher {
 }
 
 /// Starts the watcher, or explains once why it is not starting.
-fn start_asset_watcher(mut commands: Commands, project_dir: Option<Res<ProjectDir>>) {
+fn start_asset_watcher(
+    mut commands: Commands,
+    project_dir: Option<Res<ProjectDir>>,
+    asset_root: Option<Res<AssetRoot>>,
+) {
     let Some(project_dir) = project_dir.map(|p| p.0.clone()).filter(|p| !p.is_empty()) else {
         info!("asset hot reload: no project directory set, not watching");
+        return;
+    };
+
+    // The prefix notify's paths will carry has to be the *same* root
+    // bevy_asset resolves loads against, or every reported path strips to
+    // something AssetServer has never heard of and hot reload does nothing
+    // without saying so. Taking it from AssetPlugin rather than reading the
+    // CWD again is what makes that impossible by construction.
+    let Some(asset_root) = asset_root.map(|r| r.0.clone()) else {
+        warn!(
+            "asset hot reload: AssetPlugin has not run, so the asset root is unknown, \
+             not watching"
+        );
         return;
     };
 
@@ -148,13 +186,7 @@ fn start_asset_watcher(mut commands: Commands, project_dir: Option<Res<ProjectDi
     // Deliberately NOT canonicalize(): notify reports the CWD-absolutised
     // spelling, never the canonical one, and on Windows canonicalize() returns
     // a `\\?\` path that would never strip.
-    let strip_base = match std::env::current_dir() {
-        Ok(cwd) => cwd.join(&watch_root),
-        Err(e) => {
-            warn!("asset hot reload: cannot read the working directory ({e}), not watching");
-            return;
-        }
-    };
+    let strip_base = asset_root.join(&watch_root);
 
     let (tx, rx) = mpsc::channel();
     let mut debouncer = match new_debouncer(DEBOUNCE, None, tx) {
@@ -191,29 +223,99 @@ fn start_asset_watcher(mut commands: Commands, project_dir: Option<Res<ProjectDi
 /// is `<ProjectDir>/assets`; see the module docs for why that pair is the
 /// whole transformation.
 ///
-/// Returns `None` — meaning "do not reload this" — when the path is outside
-/// the watch root, has no extension, or has an extension no registered loader
-/// can serve. Existence is checked by the caller, not here, so this stays a
-/// pure function of its arguments.
+/// Returns `None` — meaning "do not reload this" — when the path has no
+/// extension, has an extension no registered loader can serve, or cannot be
+/// expressed relative to the watch root. Existence is checked by the caller,
+/// not here.
+///
+/// The two reasons are not equally interesting, which is why the second one
+/// warns and the first one says nothing:
+///
+/// * An unservable extension is the **normal** case. Most of what a save
+///   touches is `.ron`, `.js`, an editor swap file or a directory, and
+///   announcing each of those would bury the lines that matter.
+/// * A path that will not strip is an **anomaly**, by construction: `notify`
+///   only ever reports paths under the root it was told to watch, and
+///   [`start_asset_watcher`] builds `strip_base` from that same root. If it
+///   fires anyway the symptom is hot reload doing nothing at all, forever,
+///   with nothing in the log to say why — the exact failure this module exists
+///   to prevent. It cannot happen on the backends CI covers; it is reachable
+///   where the backend reports a *resolved* path the watch root's own spelling
+///   does not prefix (macOS FSEvents reached through a symlink). So it warns,
+///   naming both paths, because the difference between them is the whole
+///   diagnosis.
+///
+/// The extension is checked first so that only the anomaly's *relevant* half
+/// is reported: on a backend that resolves paths, everything fails to strip,
+/// and warning about each `.DS_Store` alongside the `.png` that actually
+/// mattered would drown it.
 fn reconstruct(changed: &Path, strip_base: &Path, engine_root: &str) -> Option<String> {
-    let relative = changed.strip_prefix(strip_base).ok()?;
-
     let extension = changed.extension()?.to_str()?.to_ascii_lowercase();
     if !RELOADABLE_EXTENSIONS.contains(&extension.as_str()) {
         return None;
     }
 
+    let Ok(relative) = changed.strip_prefix(strip_base) else {
+        warn!(
+            "asset hot reload: the watcher reported {}, which is not under the \
+             watched root {} and so cannot be matched to a loaded asset; this \
+             edit will not reload. Hot reload needs the two spellings to share a \
+             prefix",
+            changed.display(),
+            strip_base.display()
+        );
+        return None;
+    };
+
     // Forward slashes to match resolve_project_path exactly. bevy tolerates
     // either direction, but an identical string keeps the logs readable and
     // keeps this honest about what it is reproducing.
-    let relative = relative.to_str()?.replace('\\', "/");
+    let Some(relative) = relative.to_str().map(|r| r.replace('\\', "/")) else {
+        warn!(
+            "asset hot reload: {} is not valid UTF-8, so it cannot be spelled the \
+             way it would have been loaded; this edit will not reload",
+            changed.display()
+        );
+        return None;
+    };
     Some(format!("{engine_root}/{relative}"))
+}
+
+/// Whether `AssetServer::reload(path)` would provably do nothing.
+///
+/// The extension filter upstream of this proves the *type* is one `bevy_asset`
+/// serves; it cannot prove this particular path was ever loaded, and `reload`
+/// on a path nothing holds is a silent no-op. `get_path_ids` is the exact
+/// question: in `bevy_asset-0.14.2`, `reload` reloads the handles
+/// `get_path_ids` reports (`server/mod.rs`, via `get_path_handles`, which is
+/// `get_path_ids` filtered) and otherwise falls back to `should_reload`
+/// (`server/info.rs`), which is `is_path_alive` — that same lookup again —
+/// or a live *labeled* sub-asset. No loader in this workspace emits labeled
+/// sub-assets, so an empty result leaves `reload` with nothing to do on either
+/// branch.
+///
+/// One-way by design: empty means "definitely nothing happens", so suppressing
+/// the reload is safe. A non-empty result only means "probably reloads", and
+/// reloading anyway is the harmless direction.
+fn reload_would_do_nothing(asset_server: &AssetServer, path: &str) -> bool {
+    asset_server.get_path_ids(AssetPath::parse(path)).is_empty()
 }
 
 /// Drains everything the watcher thread has posted and reloads it. Never
 /// waits: on a frame where nothing changed this is one uncontended lock and
 /// one `try_recv` that returns `Empty`.
-fn drain_asset_changes(watcher: Option<Res<AssetWatcher>>, asset_server: Res<AssetServer>) {
+///
+/// The two ways this can stop working for good — a poisoned lock and a
+/// disconnected channel — both end by removing [`AssetWatcher`]. That is what
+/// keeps their warnings from repeating: this system's very first act is to
+/// return when the resource is absent, so each is said exactly once and the
+/// per-frame work stops with it. A bare `warn!` would fire every frame,
+/// because neither condition ever heals.
+fn drain_asset_changes(
+    mut commands: Commands,
+    watcher: Option<Res<AssetWatcher>>,
+    asset_server: Res<AssetServer>,
+) {
     let Some(watcher) = watcher else {
         return;
     };
@@ -222,9 +324,19 @@ fn drain_asset_changes(watcher: Option<Res<AssetWatcher>>, asset_server: Res<Ass
     {
         let events = match watcher.events.lock() {
             Ok(events) => events,
-            // Only reachable if a previous drain panicked mid-lock. Nothing
-            // useful to do but stop watching rather than poison every frame.
-            Err(_) => return,
+            // Only reachable if a previous drain panicked mid-lock. The poison
+            // is permanent, so there is nothing to retry — say so once and
+            // stop, rather than failing silently on every frame from here on.
+            Err(_) => {
+                warn!(
+                    "asset hot reload: the change queue was poisoned by an earlier \
+                     panic; hot reload has stopped and edits to {} will no longer \
+                     take effect until the app is restarted",
+                    watcher.engine_root
+                );
+                commands.remove_resource::<AssetWatcher>();
+                return;
+            }
         };
         loop {
             match events.try_recv() {
@@ -249,12 +361,42 @@ fn drain_asset_changes(watcher: Option<Res<AssetWatcher>>, asset_server: Res<Ass
                     }
                 }
                 Ok(Err(errors)) => warn!("asset hot reload: watcher error: {errors:?}"),
-                Err(TryRecvError::Empty) | Err(TryRecvError::Disconnected) => break,
+                Err(TryRecvError::Empty) => break,
+                // The sender lives in the debouncer's thread, so this means
+                // that thread is gone and no further change will ever arrive.
+                // Indistinguishable from `Empty` if left unsaid, which would
+                // leave hot reload looking merely idle forever.
+                Err(TryRecvError::Disconnected) => {
+                    warn!(
+                        "asset hot reload: the file watcher thread has stopped; hot \
+                         reload has stopped with it and edits to {} will no longer \
+                         take effect until the app is restarted",
+                        watcher.engine_root
+                    );
+                    commands.remove_resource::<AssetWatcher>();
+                    break;
+                }
             }
         }
     }
 
     for path in changed {
+        // The extension filter only proved this is a *kind* of file bevy_asset
+        // can serve; see `reload_would_do_nothing` for why this second gate is
+        // the exact question and the first one is not. Saying "reloading" here
+        // would otherwise be a claim about something that provably does not
+        // happen.
+        //
+        // Not silent, though: an unreferenced asset is a perfectly ordinary
+        // thing to edit, and someone asking why nothing happened deserves the
+        // reason rather than no line at all.
+        if reload_would_do_nothing(&asset_server, &path) {
+            debug!(
+                "asset hot reload: {path} changed on disk, but nothing in the scene \
+                 has loaded it, so there is nothing to reload"
+            );
+            continue;
+        }
         info!("asset hot reload: {path} changed on disk, reloading");
         asset_server.reload(path);
     }
@@ -270,6 +412,60 @@ mod tests {
     /// Hard ceiling on every wait in this module's tests. A hung test in CI is
     /// far worse than a failing one, so nothing here ever blocks unbounded.
     const HARD_TIMEOUT: Duration = Duration::from_secs(20);
+
+    /// Collects everything `tracing` emits on this thread, so a test can
+    /// assert a diagnostic actually reached the developer rather than only
+    /// that the state behind it changed. That distinction is this module's
+    /// entire subject: every bug it exists to prevent is one that fails
+    /// quietly.
+    ///
+    /// Thread-local (`tracing::subscriber::with_default`), so parallel tests
+    /// cannot see each other's output. It captures ECS systems too, because
+    /// this workspace builds `bevy_ecs` without `multi_threaded` and its
+    /// single-threaded executor runs systems on the caller's thread.
+    #[derive(Clone, Default)]
+    struct LogSink(std::sync::Arc<Mutex<Vec<u8>>>);
+
+    impl LogSink {
+        fn contents(&self) -> String {
+            String::from_utf8_lossy(&self.0.lock().unwrap()).into_owned()
+        }
+    }
+
+    impl std::io::Write for LogSink {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl tracing_subscriber::fmt::MakeWriter<'_> for LogSink {
+        type Writer = Self;
+        fn make_writer(&self) -> Self {
+            self.clone()
+        }
+    }
+
+    /// Runs `body` with every `WARN` on this thread captured.
+    ///
+    /// Deliberately capped at `WARN`: `new_app` installs a global subscriber
+    /// whose filter is the process-wide one, and pinning this to the level
+    /// that is enabled under every filter keeps these assertions independent
+    /// of `RUST_LOG`.
+    fn capture_warnings<T>(body: impl FnOnce() -> T) -> (T, String) {
+        let sink = LogSink::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(sink.clone())
+            .with_ansi(false)
+            .with_max_level(tracing::Level::WARN)
+            .finish();
+        let out = tracing::subscriber::with_default(subscriber, body);
+        let logs = sink.contents();
+        (out, logs)
+    }
 
     /// Removes its directory on drop, including when the test panics.
     struct ProbeDir(PathBuf);
@@ -838,6 +1034,201 @@ mod tests {
             ),
             None,
             "a path outside the watch root must be dropped, not mangled"
+        );
+    }
+
+    // `reconstruct` refuses paths for two very different reasons, and the
+    // difference is the whole point of this test.
+    //
+    // An unservable extension is routine -- most of what a save touches is a
+    // `.ron`, a `.js` or an editor swap file -- and logging each one would
+    // bury everything else. But a path that will not strip is an *anomaly*:
+    // notify only ever reports paths under the root it was told to watch, so
+    // by construction this cannot happen. Where it does happen -- a backend
+    // that reports the *resolved* path, i.e. macOS FSEvents reached through a
+    // symlink, which neither CI runner covers -- the symptom is hot reload
+    // doing nothing at all with not one line to say why. That is precisely the
+    // silent-failure class this module was written to make findable, so it is
+    // the one case that must never be swallowed, and the warning has to name
+    // both paths because the difference between them *is* the diagnosis.
+    #[test]
+    fn a_path_that_will_not_strip_warns_while_a_routine_rejection_stays_quiet() {
+        let engine_root = "games/mini-arena/assets";
+        let strip_base = std::env::current_dir().unwrap().join(engine_root);
+
+        // A real asset, under the watched directory, reported with a spelling
+        // that shares no prefix with the root the watcher holds.
+        let resolved = PathBuf::from(if cfg!(windows) {
+            r"D:\elsewhere\mini-arena\assets\models\fox.glb"
+        } else {
+            "/elsewhere/mini-arena/assets/models/fox.glb"
+        });
+
+        let (rebuilt, logs) = capture_warnings(|| reconstruct(&resolved, &strip_base, engine_root));
+        assert_eq!(
+            rebuilt, None,
+            "a path outside the watch root must still be refused -- warning about \
+             it is not licence to reload a guess"
+        );
+        assert!(
+            logs.contains(&resolved.display().to_string()),
+            "the warning must name the path that was reported, or there is no way \
+             to see what spelling the backend actually used -- got:\n{logs}"
+        );
+        assert!(
+            logs.contains(&strip_base.display().to_string()),
+            "the warning must name the root that was expected, or there is no way \
+             to see what it failed to match against -- got:\n{logs}"
+        );
+
+        // The routine half: refused just as firmly, and silently, because this
+        // one happens constantly and means nothing.
+        let (rebuilt, logs) = capture_warnings(|| {
+            reconstruct(&strip_base.join("scene.ron"), &strip_base, engine_root)
+        });
+        assert_eq!(rebuilt, None);
+        assert!(
+            logs.is_empty(),
+            "a file no loader serves is the normal case, not an anomaly; warning \
+             about each one would bury the anomaly above -- got:\n{logs}"
+        );
+    }
+
+    // An extension match proves the asset *type* is one bevy_asset serves. It
+    // says nothing about whether *this path* was ever loaded, and
+    // `AssetServer::reload` on a path nothing holds is a silent no-op -- so
+    // without a second gate, saving any asset the scene does not reference
+    // logs "reloading" for something that provably does not reload.
+    //
+    // Both files here are `.png` written the same way, so the extension filter
+    // cannot tell them apart; that is asserted rather than assumed below.
+    // `get_path_ids` can, and exactly: it is the same lookup `reload` itself
+    // consults on both of its branches.
+    #[test]
+    fn only_a_path_something_has_loaded_is_worth_reloading() {
+        use crate::types::TextureAsset;
+        use bevy_asset::Assets;
+        use bsengine_app::new_app;
+
+        let project = unique("gate");
+        let root = PathBuf::from(&project);
+        std::fs::create_dir_all(root.join("assets")).unwrap();
+        let _guard = ProbeDir(root.clone());
+
+        std::fs::write(
+            root.join("assets").join("used.png"),
+            png_bytes([10, 20, 30, 255]),
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("assets").join("unused.png"),
+            png_bytes([40, 50, 60, 255]),
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.insert_resource(ProjectDir(project.clone()));
+        app.add_plugins(crate::plugin::AssetPlugin);
+
+        // Only one of the two is ever referenced. The handle is held for the
+        // rest of the test: dropping it would make the asset stop being
+        // "alive", which is the very thing being measured.
+        let referenced = format!("{project}/assets/used.png");
+        let unreferenced = format!("{project}/assets/unused.png");
+        let handle = {
+            let server = app.world().resource::<AssetServer>();
+            server.load::<TextureAsset>(referenced.clone())
+        };
+        run_until(&mut app, "the referenced asset finished loading", |app| {
+            app.world()
+                .resource::<Assets<TextureAsset>>()
+                .get(&handle)
+                .is_some()
+        });
+
+        // The extension filter passes both, identically -- so it cannot be
+        // what distinguishes them.
+        let engine_root = format!("{project}/assets");
+        let strip_base = std::env::current_dir().unwrap().join(&engine_root);
+        for file in ["used.png", "unused.png"] {
+            assert_eq!(
+                reconstruct(&strip_base.join(file), &strip_base, &engine_root).as_deref(),
+                Some(format!("{engine_root}/{file}").as_str()),
+                "{file} must survive the extension filter; if it did not, the gate \
+                 below would be untested"
+            );
+        }
+
+        let server = app.world().resource::<AssetServer>();
+        assert!(
+            !reload_would_do_nothing(server, &referenced),
+            "{referenced} is loaded and alive, so a reload of it really dispatches \
+             -- suppressing that would silently break hot reload for every asset"
+        );
+        assert!(
+            reload_would_do_nothing(server, &unreferenced),
+            "nothing has ever loaded {unreferenced}, so AssetServer::reload on it \
+             does nothing at all; announcing it as a reload would be a lie, and a \
+             lie in the one log line that makes silent no-ops findable"
+        );
+    }
+
+    // A watcher thread that has died leaves a channel that returns
+    // `Disconnected` forever. Treated as `Empty` it is indistinguishable from
+    // an idle watcher, so hot reload looks fine and is dead -- but a bare
+    // `warn!` in a system that runs every frame would repeat sixty times a
+    // second, which is its own kind of useless.
+    //
+    // Retiring the resource resolves both at once: the warning is said exactly
+    // once because the system's first act is to return when the resource is
+    // absent, and the per-frame work stops with it. Asserting the second
+    // `update` is silent is what actually pins the anti-spam property.
+    #[test]
+    fn a_dead_watcher_thread_is_reported_once_and_not_every_frame() {
+        use bsengine_app::new_app;
+
+        let mut app = new_app();
+        app.add_plugins(crate::plugin::AssetPlugin);
+        app.add_plugins(AssetWatcherPlugin);
+        app.update();
+        assert!(
+            app.world().get_resource::<AssetWatcher>().is_none(),
+            "no ProjectDir, so Startup must not have installed a watcher of its own"
+        );
+
+        // Exactly the state a dead watcher thread leaves behind: a receiver
+        // whose sender is gone. The debouncer beside it is real but idle --
+        // `AssetWatcher` holds one purely for its `Drop`.
+        let (tx, rx) = mpsc::channel();
+        drop(tx);
+        let (live_tx, _live_rx) = mpsc::channel();
+        app.insert_resource(AssetWatcher {
+            _debouncer: Mutex::new(new_debouncer(DEBOUNCE, None, live_tx).unwrap()),
+            events: Mutex::new(rx),
+            strip_base: std::env::current_dir().unwrap().join("probe/assets"),
+            engine_root: "probe/assets".to_string(),
+        });
+
+        let (_, logs) = capture_warnings(|| app.update());
+        assert!(
+            logs.contains("probe/assets"),
+            "a dead watcher thread must say so, naming what is no longer being \
+             watched -- got:\n{logs}"
+        );
+        assert!(
+            app.world().get_resource::<AssetWatcher>().is_none(),
+            "the watcher must be retired once its thread is gone; leaving it in \
+             place is what would make the warning repeat every frame"
+        );
+
+        let (_, logs) = capture_warnings(|| {
+            app.update();
+            app.update();
+        });
+        assert!(
+            !logs.contains("asset hot reload"),
+            "the warning must be said once, not once per frame -- two further \
+             frames produced:\n{logs}"
         );
     }
 }

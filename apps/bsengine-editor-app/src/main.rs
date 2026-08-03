@@ -44,9 +44,12 @@ fn main() {
     app.add_plugins(AssetPlugin)
         // Hot reload matters more here than in the runtime — editing an asset
         // is what this application is for. `project_dir` above is derived from
-        // the scene path, and with no scene argument it is "." with no
-        // `./assets` beside it, so the watcher logs why it is idle and starts
-        // nothing rather than watching the repository root.
+        // the scene path; with no scene argument it falls back to ".", so what
+        // gets watched is `./assets` — which is the right directory when the
+        // editor is launched from inside a game directory, and simply does not
+        // exist when it is launched from the repository root. In that second
+        // case the watcher logs why it is idle and starts nothing, rather than
+        // falling back to watching the whole repository.
         .add_plugins(AssetWatcherPlugin)
         .add_plugins(WgpuRHIPlugin)
         .add_plugins(WindowPlugin {

@@ -2,8 +2,8 @@
 //!
 //! The scoping is the reason this exists at all rather than `bevy_asset`'s own
 //! `file_watcher` feature: that one watches `bevy_asset`'s asset root, which
-//! for this engine is the process CWD (see [`crate::plugin::AssetPlugin`]'s
-//! `file_path: ""`) — the whole repository, `target/` and `.git/` included.
+//! for this engine is the process CWD (see `plugin::asset_source_root`) — the
+//! whole repository, `target/` and `.git/` included.
 //!
 //! # The path spelling problem
 //!

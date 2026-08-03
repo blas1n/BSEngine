@@ -516,10 +516,50 @@ libtest는 모든 `#[test]`를 spawn된 스레드에서 실행하고, Rust는 �
   현재 이 필드를 제자리에서 바꾸는 코드가 없어 도달 불가. 그리고 로드 중인 엔티티에
   `MeshRenderer`가 붙거나 마지막 참조 엔티티가 despawn되면 pending 항목이 고아로 남아
   핸들을 계속 붙잡는다 — 서로 다른 경로 수만큼으로 제한되므로 무한 증가는 아니다.
-- [ ] **(Phase 3)** `bevy_asset`의 `file_watcher` 피처 활성화 — 텍스처/glTF/WGSL/오디오
-  변경 시 실행 중인 게임/에디터에 자동 반영. 단, `AssetPlugin.file_path`가 `""`라 에셋
-  루트가 리포 전체(`target/` 포함)가 되므로, `<ProjectDir>/assets`로 스코프를 좁힌 워처가
-  `AssetServer::reload`를 호출하는 방식을 쓴다
+- [x] **(Phase 3a)** 에셋 데이터가 교체되면 각 소비자가 GPU 상태를 **제자리에서** 재구축 —
+  재시작 없이, 엔티티를 하나도 건드리지 않고. 이 단계는 `AssetServer::reload`를 직접 호출해
+  구동하며, 그걸 호출해 줄 파일 워처는 Phase 3b다.
+
+  **측정된 전제 — `Modified`는 강한 핸들이 살아있는 동안에만 발생한다.** 마지막 핸들이
+  풀리면 `Assets::track_assets`(PreUpdate)가 에셋을 해제하고, 그 경로에 대한
+  `AssetServer::reload`는 **조용한 no-op**이 된다. 설계 문서는 Phase 2 이전에 쓰여 이걸
+  알 수 없었지만, Phase 2 이후 핸들을 계속 쥐고 있던 소비자는 오디오뿐이었다 — glTF·셰이더·
+  스카이박스는 로드가 끝나면 핸들을 버렸으므로, 워처를 아무리 잘 만들어도 이벤트 자체가
+  오지 않았을 것이다. 그래서 "로드 후 핸들 보관"은 최적화가 아니라 **선행 조건**이다.
+  추론이 아니라 실행으로 확인했고(`reload_emits_modified_only_while_a_handle_is_retained`,
+  `bsengine-gltf`), 핸들을 쥔 채로는 `LoadedWithDependencies` + `Modified`가 나오고
+  버린 뒤에는 이벤트가 **0개**였다.
+
+  **설계 문서보다 나은 방법을 택했다.** 문서는 "핸들을 가진 모든 엔티티에서
+  `MeshRenderer.mesh_id`를 교체"하라고 했지만, `GpuMeshRegistry::register`는 호출마다 새
+  id를 할당하고 해제 API가 없어서 리로드마다 버퍼 두 개를 영구 누수시킨다(`update_vertices`는
+  정점 수가 같아야 하고 인덱스·바운드를 갱신하지 않아 메시가 실제로 바뀐 경우엔 못 쓴다).
+  대신 registry에 **같은 id 아래 내용만 교체하는** `replace`를 추가했다. `MeshRenderer.mesh_id`와
+  `Material.texture_id`가 그대로 유효하므로 엔티티를 찾을 필요가 없고, 멀티메시 glTF가
+  추가로 스폰한 엔티티까지 공짜로 갱신된다.
+
+  소비자별로: glTF는 `GltfLoaded`(핸들 + 만들어 낸 mesh/texture id)를 엔티티에 남기고
+  `rebuild_modified_gltf`가 그 id 아래를 교체한다. 셰이더는 `PendingShader::Ready(handle)`을
+  보관하고 `compile_and_store_shader`가 경로 키로 덮어쓰므로 별도 무효화가 필요 없다.
+  스카이박스는 `PendingSkyboxState::Ready(handle)`을 보관하되, 경로 비교 단축 분기가 그
+  슬롯을 지우지 않도록 고쳤다. **오디오는 프로덕션 변경이 전혀 없다** — 이미 핸들을 쥐고
+  있고 `bevy_asset`이 그 아래 데이터를 갈아끼우므로, 다음 `playSound`가 새 데이터를 쓴다
+  (가정으로 두지 않고 테스트로 고정했다).
+
+  **한계(의도적):** 리로드된 glTF의 메시/이미지 **개수**가 달라지면 겹치는 부분만 재구축하고
+  경고한다 — 나머지 엔티티는 로드 시점에 스폰된 것이라 이 방식으로 표현할 수 없다. 재시작이
+  필요하다.
+
+  **테스트 규율:** 각 소비자의 보관 테스트는 열거형 상태만 보면 안 된다는 걸 실측했다 —
+  `clone_weak` 핸들은 `matches!(Ready(_))`를 만족시키면서도 `track_assets`가 에셋을 해제하게
+  둔다. 그래서 모든 테스트가 에셋 생존과 `Modified` 발생까지 단언하며, 각각 `clone_weak`
+  변이로 실패를 확인했다.
+- [ ] **(Phase 3b)** `<ProjectDir>/assets`로 스코프를 좁힌 파일 워처가 변경을 감지해
+  `AssetServer::reload`를 호출 — 텍스처/glTF/WGSL/오디오 변경 시 실행 중인 게임/에디터에
+  자동 반영. `bevy_asset`의 `file_watcher` 피처는 쓰지 않는다: `AssetPlugin.file_path`가
+  `""`라 에셋 루트가 리포 전체(`target/`, `.git/` 포함)가 되기 때문이다. Phase 3a에서 모든
+  재구축 경로를 `reload` 직접 호출로 이미 검증해 뒀으므로, 3b에서 문제가 나면 워처 문제로
+  범위가 좁혀진다
 - [ ] **(Phase 4)** 로드 실패/누락 에셋에 대한 명확한 에러 전파 (item 23에서는
   `tracing::warn!` 후 스킵뿐이었던 것을 구조화된 조회로 확장) + Scripting API 또는 MCP
   툴로 리로드/로드 실패 상태 조회 가능

@@ -17,6 +17,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 use bsengine_asset::AssetStatus;
+use bsengine_core::{resolve_project_path, ProjectDir};
 use deno_core::op2;
 use glam::{Quat, Vec3};
 use serde::{Deserialize, Serialize};
@@ -1683,6 +1684,25 @@ thread_local! {
     // API exists for — so entries are never inserted from the script side.
     pub(crate) static ASSET_STATUS_SNAPSHOT: RefCell<HashMap<String, String>> =
         RefCell::new(HashMap::new());
+
+    // This app's `ProjectDir`, refreshed alongside ASSET_STATUS_SNAPSHOT.
+    //
+    // The keys of that map are fully-qualified — `resolve_project_path` is
+    // `format!("{project_dir}/{path}")` and `project_dir` is whatever the host
+    // was started with, which differs between the windowed runtime, the editor
+    // and an MCP session (absolute there). A script is handed that prefix
+    // nowhere and cannot reconstruct it, so without this
+    // `getAssetStatus("assets/sounds/hit.wav")` — the same string the script
+    // just gave `playSound` — answered "unknown", i.e. "nothing ever requested
+    // that path". Keeping the prefix here lets the op resolve on a miss (see
+    // `bsengine_get_asset_status`) instead of the mirror carrying every path
+    // under two spellings, which would double a per-frame rebuild and let one
+    // path's project-relative spelling shadow another's exact key.
+    //
+    // Empty when the host has no `ProjectDir`, which `resolve_project_path`
+    // treats as "no prefix" — the same answer the load sites get.
+    pub(crate) static PROJECT_DIR: RefCell<ProjectDir> =
+        const { RefCell::new(ProjectDir(String::new())) };
 
     // entity name → (current_health, max_health)
 
@@ -5486,12 +5506,36 @@ pub fn render_asset_status(status: &AssetStatus) -> String {
 ///   misspelled path answers `"unknown"`, a real path that broke answers
 ///   `"failed: ..."`.
 ///
-/// `path` must be spelled the way the load site spelled it — project-relative
-/// and forward-slashed, e.g. `"games/mini-arena/assets/models/fox.glb"` —
-/// which for a script is the same string it would pass to `playSound`, with
-/// the project directory in front. A path spelled any other way reads
-/// `"unknown"`, because it is, as far as the engine is concerned, a path
-/// nobody mentioned.
+/// `path` may be spelled either way round:
+///
+/// * **Project-relative** — `"assets/sounds/hit.wav"`, forward-slashed: the
+///   same string the script would hand `playSound` or `setShader`, and the
+///   same form a scene's `gltf:` field uses. This is the spelling to prefer,
+///   and the only one a script can write down, since nothing tells it what
+///   project directory the host was started with.
+/// * **The exact key** — `"<project_dir>/assets/sounds/hit.wav"`, with
+///   `<project_dir>` byte-for-byte as the host was given it.
+///
+/// # Why it has to resolve and not merely look up
+///
+/// `AssetStatuses` is keyed by whatever `resolve_project_path` produced at the
+/// load site, which is `format!("{project_dir}/{path}")` — and `project_dir`
+/// is a command-line argument that differs between the windowed runtime, the
+/// editor and an MCP session (absolute there). A script is handed that prefix
+/// nowhere: there is no op that reveals it. So a lookup-only op answered
+/// `"unknown"` for the one spelling a script author can actually write — and
+/// `"unknown"` means *nothing ever requested that path*, which is the single
+/// answer that must never be wrong, because telling it apart from a failure is
+/// the whole of what this API adds to the `warn!` it replaces.
+///
+/// Resolution is tried only *after* an exact-key miss, so the exact key still
+/// answers and a project-relative path can never shadow one. Both lookups are
+/// O(1) in the number of recorded paths; the second, plus the `String` the
+/// join allocates, is paid only on a miss.
+///
+/// `bsengine_runtime::test_query::get_asset_status` — the query behind the
+/// `test_get_asset_status` MCP tool — resolves by the same rule, so an agent
+/// and a script may spell a path the same way and get the same answer.
 ///
 /// Reads a snapshot refreshed once per frame from `AssetStatuses`, so the
 /// answer is this frame's, not a stale one — but only in a host that added
@@ -5501,9 +5545,26 @@ pub fn render_asset_status(status: &AssetStatus) -> String {
 #[op2]
 #[string]
 pub fn bsengine_get_asset_status(#[string] path: String) -> String {
-    ASSET_STATUS_SNAPSHOT
-        .with(|s| s.borrow().get(&path).cloned())
-        .unwrap_or_else(|| ASSET_STATUS_UNKNOWN.to_string())
+    ASSET_STATUS_SNAPSHOT.with(|s| {
+        let snapshot = s.borrow();
+        // Exact key first, and returned even when the project-relative
+        // spelling of some *other* path would also hit: a caller that named
+        // the key the engine holds must get that key's status, or resolution
+        // would have replaced a spelling instead of adding one.
+        if let Some(status) = snapshot.get(&path) {
+            return status.clone();
+        }
+        // Same function the load sites call, rather than a second `format!`
+        // that could drift from it — including in the empty-`ProjectDir` case,
+        // where it returns `path` unchanged and this is a second lookup of the
+        // same key. Harmless: it can only miss again, and the answer is the
+        // `"unknown"` it was already going to be.
+        let resolved = PROJECT_DIR.with(|pd| resolve_project_path(Some(&pd.borrow()), &path));
+        snapshot
+            .get(&resolved)
+            .cloned()
+            .unwrap_or_else(|| ASSET_STATUS_UNKNOWN.to_string())
+    })
 }
 
 /// Queue setting the text content of a HUD element.
@@ -6542,11 +6603,14 @@ var Bsengine = {
     // "failed: <reason>" | "unknown". "unknown" means nothing ever asked for
     // that path -- deliberately *not* the same answer as a failure, so a
     // typo'd path and a genuinely broken one are told apart:
-    //   var s = Bsengine.getAssetStatus("games/mini-arena/assets/models/fox.glb");
+    //   var s = Bsengine.getAssetStatus("assets/sounds/hit.wav");
     //   if (s.startsWith("failed:")) { ... }   // broken, and s says why
     //   else if (s === "unknown")    { ... }   // nobody ever requested it
-    // `path` is spelled exactly as the load site spelled it (project-relative,
-    // forward slashes) -- any other spelling reads "unknown".
+    // `path` is project-relative and forward-slashed -- the same string you
+    // pass to playSound/setShader/loadScene, and the same form a scene's
+    // "gltf:" field uses. The engine's own fully-qualified key (the project
+    // directory this host was started with, then that path) also works, but
+    // nothing tells a script what that prefix is, so prefer the short form.
     // String() for the same reason setHudText below coerces: deno_core turns a
     // non-string argument into "" without complaint, which would silently read
     // as "unknown" for every mistyped call.
@@ -9026,6 +9090,78 @@ JSON.stringify(received)
         assert_ne!(
             failed, unknown,
             "a path that failed and a path nobody asked for must never read the same"
+        );
+    }
+
+    // The op resolves a project-relative path against `PROJECT_DIR` on a miss,
+    // and the *order* of the two lookups is what keeps that from introducing a
+    // regression of its own: an exact key must win.
+    //
+    // `plugin.rs`'s
+    // `get_asset_status_accepts_the_project_relative_path_a_script_played`
+    // drives the wiring end-to-end through a real app. What it cannot arrange
+    // is a *collision*: a path that exists as a key **and** whose resolution
+    // is a second, different key. That needs two planted entries, so it is
+    // pinned here -- and it is the case that decides between resolving in the
+    // op and keying the per-frame mirror under both spellings, since a mirror
+    // holding both would have one path's short spelling overwrite another's
+    // exact key with whichever `HashMap` iteration order happened to insert
+    // last.
+    //
+    // "wrong-if-swapped" is the bar: try the resolved key first and `exact`
+    // below reads "loaded" -- the status of an entirely different asset --
+    // instead of the failure that key actually holds.
+    #[test]
+    fn get_asset_status_prefers_an_exact_key_to_a_resolved_one() {
+        super::PROJECT_DIR
+            .with(|pd| *pd.borrow_mut() = super::ProjectDir("games/demo".to_string()));
+        super::ASSET_STATUS_SNAPSHOT.with(|s| {
+            let mut snapshot = s.borrow_mut();
+            // Reachable only by resolving: nothing spells this key itself.
+            snapshot.insert(
+                "games/demo/assets/far.png".to_string(),
+                "loaded".to_string(),
+            );
+            // The collision. "games/demo/assets/near.png" is a real key, and
+            // resolving it *again* against `games/demo` names the second key
+            // below -- a different asset with a different status. Exactly one
+            // of the two answers can be right, and it is this one.
+            snapshot.insert(
+                "games/demo/assets/near.png".to_string(),
+                "failed: broken".to_string(),
+            );
+            snapshot.insert(
+                "games/demo/games/demo/assets/near.png".to_string(),
+                "loaded".to_string(),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let resolved = rt
+            .eval(r#"Bsengine.getAssetStatus("assets/far.png");"#)
+            .unwrap();
+        let exact = rt
+            .eval(r#"Bsengine.getAssetStatus("games/demo/assets/near.png");"#)
+            .unwrap();
+        let missing = rt
+            .eval(r#"Bsengine.getAssetStatus("assets/never-mentioned.png");"#)
+            .unwrap();
+        super::ASSET_STATUS_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        super::PROJECT_DIR.with(|pd| *pd.borrow_mut() = super::ProjectDir(String::new()));
+
+        assert!(
+            resolved.contains("loaded"),
+            "a project-relative path -- the only spelling a script can write -- \
+             must resolve against the project directory: {resolved}"
+        );
+        assert!(
+            exact.contains("failed: broken"),
+            "an exact key must answer for itself; resolution is a fallback, not a \
+             rewrite, or one asset's status is reported for another: {exact}"
+        );
+        assert!(
+            missing.contains("unknown"),
+            "neither spelling exists, so nothing ever requested it: {missing}"
         );
     }
 

@@ -70,7 +70,31 @@ impl GpuMeshRegistry {
     pub fn register(&mut self, vertices: &[Vertex], indices: &[u32]) -> u64 {
         let id = self.next_id;
         self.next_id += 1;
+        let mesh = self.build(vertices, indices);
+        self.meshes.insert(id, mesh);
+        id
+    }
 
+    /// Rebuilds an already-registered mesh's buffers from new data, keeping its
+    /// id. Returns whether `id` was registered.
+    ///
+    /// Hot reload uses this rather than `register` because `MeshRenderer` stores
+    /// the id: replacing contents under the same id updates every entity drawing
+    /// that mesh at once, including the extra entities a multi-mesh glTF spawns.
+    /// `register` would also leak, since the registry never frees.
+    ///
+    /// Unlike [`GpuMeshRegistry::update_vertices`] this handles a changed vertex
+    /// or index count, and recomputes bounds.
+    pub fn replace(&mut self, id: u64, vertices: &[Vertex], indices: &[u32]) -> bool {
+        if !self.meshes.contains_key(&id) {
+            return false;
+        }
+        let mesh = self.build(vertices, indices);
+        self.meshes.insert(id, mesh);
+        true
+    }
+
+    fn build(&self, vertices: &[Vertex], indices: &[u32]) -> GpuMesh {
         let vertex_buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -85,18 +109,12 @@ impl GpuMeshRegistry {
                 contents: bytemuck::cast_slice(indices),
                 usage: wgpu::BufferUsages::INDEX,
             });
-
-        let bounds = compute_bounding_sphere(vertices);
-        self.meshes.insert(
-            id,
-            GpuMesh {
-                vertex_buffer,
-                index_buffer,
-                index_count: indices.len() as u32,
-                bounds,
-            },
-        );
-        id
+        GpuMesh {
+            vertex_buffer,
+            index_buffer,
+            index_count: indices.len() as u32,
+            bounds: compute_bounding_sphere(vertices),
+        }
     }
 
     /// Looks up a previously registered mesh by id.
@@ -446,5 +464,48 @@ mod tests {
         // update_vertices doesn't panic against a real buffer/queue and that
         // the mesh is still registered afterward with the same id.
         assert!(registry.get(id).is_some());
+    }
+
+    #[test]
+    fn replace_swaps_geometry_under_the_same_id() {
+        use crate::rhi::WgpuRHI;
+        let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless device");
+        let device = std::sync::Arc::new(rhi.device);
+        let mut reg = GpuMeshRegistry::new(device);
+
+        let (tri_v, tri_i) = triangle_vertices();
+        let id = reg.register(&tri_v, &tri_i);
+        let before = reg.get_bounds(id).expect("just registered");
+
+        let (cube_v, cube_i) = cube_vertices();
+        assert!(
+            reg.replace(id, &cube_v, &cube_i),
+            "replace must report success for an id that exists"
+        );
+
+        assert_eq!(
+            reg.get(id).map(|m| m.index_count),
+            Some(cube_i.len() as u32),
+            "replace must update index_count, or draws would use the old count"
+        );
+        let after = reg.get_bounds(id).expect("still registered after replace");
+        assert_ne!(
+            before, after,
+            "replace must recompute bounds -- stale bounds silently break culling"
+        );
+    }
+
+    #[test]
+    fn replace_reports_failure_for_an_unknown_id() {
+        use crate::rhi::WgpuRHI;
+        let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless device");
+        let device = std::sync::Arc::new(rhi.device);
+        let mut reg = GpuMeshRegistry::new(device);
+        let (v, i) = triangle_vertices();
+        assert!(
+            !reg.replace(9999, &v, &i),
+            "replace must not silently create a mesh under an id nobody allocated"
+        );
+        assert!(reg.get(9999).is_none());
     }
 }

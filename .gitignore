@@ -473,3 +473,8 @@ games/*/checkpoint.json
 # spelling they exist to measure. A Drop guard removes it, but a hard-killed
 # test run would leave it behind.
 crates/*/bsengine-watch-probe-*
+
+# Same deal for the asset-status tests: bevy_asset's root is the process CWD,
+# so a fixture that has to be reachable *as an asset path* cannot live in the
+# temp dir. Also Drop-guarded.
+crates/*/bsengine-status-probe-*

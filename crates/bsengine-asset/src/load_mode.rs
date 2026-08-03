@@ -6,16 +6,33 @@ use bevy_asset::{Asset, AssetServer, Assets, Handle};
 /// not a hint):
 ///
 /// `Sync` calls the loader function directly and inserts the result
-/// immediately (blocking, zero-latency — matches every asset load in this
-/// engine as of item 23). `Async` calls `bevy_asset`'s own
+/// immediately (blocking, zero-latency). `Async` calls `bevy_asset`'s own
 /// `AssetServer::load`, which requires a registered `AssetLoader` for `T` —
-/// multi-frame latency, but automatically tracked by the file watcher item
-/// 24 will enable. Every item-23 consumer passes `Sync` (see `load()`'s
-/// call sites in `bsengine-gltf`/`bsengine-render`/`bsengine-scripting`);
-/// `Async` is exercised only by each asset type's own
-/// `*_loads_async_and_becomes_available` test, proving the path is real and
-/// ready for a future consumer to flip a single call-site argument to use,
-/// without needing to re-plumb anything.
+/// multi-frame latency, but automatically tracked by the file watcher.
+///
+/// Consumers are migrating to `Async` (`bsengine-gltf` already has); the rest
+/// still pass `Sync`.
+///
+/// # Polling an `Async` load correctly
+///
+/// `Async` returns a `Handle` unconditionally, so a missing or malformed file
+/// is indistinguishable from a slow one at the call site. A consumer must
+/// therefore:
+///
+/// 1. **Request once and retain the handle**, rather than re-requesting each
+///    frame while polling. Re-calling `AssetServer::load` for a path whose
+///    state is `Failed` resets it to `Loading` and restarts the load
+///    (`bevy_asset` 0.14.2, `server/info.rs:216-221`). Because `Failed` is set
+///    in `PreUpdate` and consumers poll in `Update`, a re-requesting loop
+///    erases the failure before it can observe it — retrying forever and
+///    spawning a fresh filesystem task every frame. Retaining the handle also
+///    keeps it strong, which nothing else does between frames.
+/// 2. **Treat "absent from `Assets<T>`" as inconclusive** and ask
+///    `asset_server.load_state(&handle)`; on `LoadState::Failed(e)`, warn and
+///    stop. Otherwise a bad path fails silently and permanently, which is
+///    worse than `Sync`'s warn-once-and-give-up.
+///
+/// See `bsengine_gltf::plugin`'s `PendingGltf` for a worked example.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LoadMode {
     /// Load and insert synchronously, right now, on the calling thread.

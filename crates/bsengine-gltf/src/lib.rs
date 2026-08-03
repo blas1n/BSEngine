@@ -5,6 +5,9 @@
 //! skeletal animation data. `GltfPlugin` wires loading into the app;
 //! `GltfAsset` is the resulting ECS-facing handle.
 #![warn(missing_docs)]
+// Bevy `Query` types with several optional components and a filter are
+// unavoidably verbose; matches bsengine-render/-rhi-wgpu/-editor/-scripting.
+#![allow(clippy::type_complexity)]
 
 /// Animation clip/channel/interpolation types for skeletal animation data.
 pub mod animation;

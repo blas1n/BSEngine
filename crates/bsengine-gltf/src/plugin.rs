@@ -35,49 +35,75 @@ impl Plugin for GltfPlugin {
     }
 }
 
+/// The in-flight load for a [`GltfAsset`], held so the request is made once
+/// rather than re-issued every frame.
+///
+/// Re-calling `AssetServer::load` for a path whose load has *failed* resets it
+/// to `Loading` and starts the load again (`bevy_asset` 0.14.2,
+/// `server/info.rs:216-221`). `LoadState::Failed` is set in `PreUpdate` while
+/// this system runs in `Update`, so a polling loop that re-requests erases the
+/// failure before it can observe it — retrying a missing file forever and
+/// spawning a fresh filesystem task every frame. Holding the handle also keeps
+/// it strong; nothing else does between frames.
+///
+/// Internal to this system — `GltfAsset.path` stays a plain `String`, so scene
+/// RON, the scripting API and the MCP tools are unaffected.
+#[derive(Component)]
+struct PendingGltf(bevy_asset::Handle<LoadedGltf>);
+
 fn load_gltf_assets(
     mut commands: Commands,
-    query: Query<(Entity, &GltfAsset, Option<&Transform>), Without<MeshRenderer>>,
-    mesh_registry: Option<ResMut<GpuMeshRegistry>>,
-    tex_registry: Option<ResMut<GpuTextureRegistry>>,
+    query: Query<
+        (Entity, &GltfAsset, Option<&PendingGltf>, Option<&Transform>),
+        Without<MeshRenderer>,
+    >,
+    mut mesh_registry: Option<ResMut<GpuMeshRegistry>>,
+    mut tex_registry: Option<ResMut<GpuTextureRegistry>>,
     mut gltf_assets: ResMut<bevy_asset::Assets<LoadedGltf>>,
-    asset_server: bevy_ecs::prelude::Res<bevy_asset::AssetServer>,
+    asset_server: Res<bevy_asset::AssetServer>,
 ) {
-    let Some(mut mesh_reg) = mesh_registry else {
-        return;
-    };
-    let mut tex_reg = tex_registry;
-
-    for (entity, asset, existing_transform) in query.iter() {
-        // Async: the handle comes back immediately, the data does not.
-        // `AssetServer::load` dedups by path, so re-requesting each frame is
-        // cheap and yields the same handle.
-        let handle = match bsengine_asset::load(
-            bsengine_asset::LoadMode::Async,
-            &asset_server,
-            &mut gltf_assets,
-            &asset.path,
-            GltfLoader::load_full,
-        ) {
-            Ok(handle) => handle,
-            Err(e) => {
-                warn!("Failed to request GLTF: {e}");
-                commands.entity(entity).remove::<GltfAsset>();
-                continue;
-            }
-        };
-        let Some(loaded) = gltf_assets.get(&handle) else {
-            // Not resolved yet. A failed load never resolves, so ask whether
-            // it failed -- otherwise a missing file retries silently forever,
-            // where the old blocking path warned once and gave up.
-            if let bevy_asset::LoadState::Failed(e) = asset_server.load_state(&handle) {
-                warn!("Failed to load GLTF {}: {e}", asset.path);
-                commands.entity(entity).remove::<GltfAsset>();
+    for (entity, asset, pending, existing_transform) in query.iter() {
+        // Request exactly once, then retain the handle. See `PendingGltf`.
+        let Some(pending) = pending else {
+            match bsengine_asset::load(
+                bsengine_asset::LoadMode::Async,
+                &asset_server,
+                &mut gltf_assets,
+                &asset.path,
+                GltfLoader::load_full,
+            ) {
+                Ok(handle) => {
+                    commands.entity(entity).insert(PendingGltf(handle));
+                }
+                Err(e) => {
+                    // Unreachable: `LoadMode::Async` is infallible. This arm
+                    // exists only because the shared `load()` signature
+                    // returns `Result` for the benefit of `Sync` callers.
+                    warn!("Failed to request GLTF: {e}");
+                    commands.entity(entity).remove::<GltfAsset>();
+                }
             }
             continue;
         };
 
-        let tex_ids: Vec<Option<u64>> = if let Some(ref mut tr) = tex_reg {
+        let Some(loaded) = gltf_assets.get(&pending.0) else {
+            // Not resolved yet. A failed load never resolves, so ask whether
+            // it failed -- otherwise a missing file retries silently forever,
+            // where the old blocking path warned once and gave up.
+            if let bevy_asset::LoadState::Failed(e) = asset_server.load_state(&pending.0) {
+                warn!("Failed to load GLTF {}: {e}", asset.path);
+                commands.entity(entity).remove::<(GltfAsset, PendingGltf)>();
+            }
+            continue;
+        };
+
+        // The data is here, but turning it into meshes needs the GPU. Without
+        // a registry (no window yet), keep both markers and retry next frame
+        // — the load itself is already done, so this costs nothing.
+        let Some(mesh_reg) = mesh_registry.as_mut() else {
+            continue;
+        };
+        let tex_ids: Vec<Option<u64>> = if let Some(tr) = tex_registry.as_mut() {
             loaded
                 .images
                 .iter()
@@ -131,7 +157,7 @@ fn load_gltf_assets(
                         AnimationPlayer::new(first_clip_name).with_duration(duration),
                     ));
                 }
-                e.remove::<GltfAsset>();
+                e.remove::<(GltfAsset, PendingGltf)>();
                 if existing_transform.is_none() {
                     e.insert((Transform::default(), GlobalTransform::default()));
                 }
@@ -143,7 +169,7 @@ fn load_gltf_assets(
         }
 
         if first {
-            commands.entity(entity).remove::<GltfAsset>();
+            commands.entity(entity).remove::<(GltfAsset, PendingGltf)>();
             warn!("GLTF {} has no meshes", asset.path);
         }
     }
@@ -307,6 +333,41 @@ mod tests {
                 .get(&handle)
                 .is_none(),
             "a failed load must never resolve into Assets<LoadedGltf>"
+        );
+    }
+
+    // Drives the real system, which is the only way to catch the failure
+    // mode the test above cannot see: re-calling `AssetServer::load` for a
+    // path whose state is already `Failed` resets it to `Loading` and
+    // restarts the load (bevy_asset 0.14.2, server/info.rs:216-221). Since
+    // `LoadState::Failed` is set in PreUpdate and this system runs in Update,
+    // a loop that re-requests every frame erases the failure before it can
+    // ever observe it -- retrying a missing file forever and spawning a fresh
+    // filesystem task each frame, which is strictly worse than the blocking
+    // path that warned once and stopped.
+    #[test]
+    fn missing_gltf_is_given_up_on_instead_of_retried_forever() {
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(GltfPlugin);
+        let e = app
+            .world_mut()
+            .spawn(GltfAsset::new("definitely/not/a/real/file.glb"))
+            .id();
+
+        let mut gave_up = false;
+        for _ in 0..200 {
+            app.update();
+            if app.world().get::<GltfAsset>(e).is_none() {
+                gave_up = true;
+                break;
+            }
+        }
+        assert!(
+            gave_up,
+            "a GltfAsset with an unloadable path must be given up on, not \
+             retried on every frame forever"
         );
     }
 }

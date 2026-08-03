@@ -99,8 +99,29 @@ fn propagate_children(
     }
 }
 
+/// What `compile_pending_shaders` knows about one shader path.
+#[derive(Debug)]
+pub enum PendingShader {
+    /// Requested; waiting for `Assets<ShaderSource>` to have it.
+    Loading(bevy_asset::Handle<crate::shader_asset::ShaderSource>),
+    /// The load failed. Kept so the warning fires once rather than per frame,
+    /// and so the path is never re-requested -- re-requesting a failed path
+    /// resets it to `Loading` and starts the load over, which is why a
+    /// re-requesting poll loop can never see the failure.
+    GaveUp,
+}
+
+/// Shader loads in flight, keyed by path.
+///
+/// Keyed by path rather than entity because several entities may name the
+/// same shader, and because `CustomShader.path` stays a plain `String` -- the
+/// boundary item 23 established, so scene RON, the scripting API and the MCP
+/// tools are unaffected.
+#[derive(bevy_ecs::prelude::Resource, Default)]
+pub struct PendingShaders(pub std::collections::HashMap<String, PendingShader>);
+
 /// Lazy-compiles any `CustomShader` not yet cached in the surface, reading
-/// its WGSL source through `bsengine_asset::load` (`LoadMode::Sync`) and
+/// its WGSL source through `bsengine_asset::load` (`LoadMode::Async`) and
 /// handing the text to `compile_and_store_shader`. Split out of
 /// `render_frame` (rather than folded in as two more top-level params)
 /// because that function is already at Bevy 0.14's 16-top-level-param
@@ -118,33 +139,66 @@ fn propagate_children(
 /// just sits compiled-and-unused in the surface's cache) and arguably an
 /// improvement (a shader is ready the instant `MeshRenderer`/`Transform`
 /// are added later, rather than one frame behind).
+///
+/// The missing `WgpuSurfaceResource` case is *not* an early return: only the
+/// final `compile_and_store_shader` step needs the GPU, so requesting,
+/// polling and failure detection run regardless. A real surface needs a real
+/// winit window (see `compile_pending_shaders_runs_before_render_frame`), so
+/// an early return would make the give-up path unreachable in every test
+/// this workspace can write.
 fn compile_pending_shaders(
-    surface: Option<ResMut<WgpuSurfaceResource>>,
+    mut surface: Option<ResMut<WgpuSurfaceResource>>,
     custom_shaders: Query<&CustomShader>,
     mut shader_assets: bevy_ecs::prelude::ResMut<
         bevy_asset::Assets<crate::shader_asset::ShaderSource>,
     >,
     asset_server: bevy_ecs::prelude::Res<bevy_asset::AssetServer>,
+    mut pending: ResMut<PendingShaders>,
 ) {
-    let Some(mut surface) = surface else {
-        return;
-    };
     for cs in custom_shaders.iter() {
-        if !surface.0.has_custom_shader(&cs.path) {
-            match bsengine_asset::load(
-                bsengine_asset::LoadMode::Sync,
+        if surface
+            .as_ref()
+            .is_some_and(|s| s.0.has_custom_shader(&cs.path))
+        {
+            continue;
+        }
+        match pending.0.get(&cs.path) {
+            // Requested already -- poll the handle we kept. Never re-request.
+            Some(PendingShader::Loading(handle)) => {
+                if let Some(src) = shader_assets.get(handle) {
+                    // The source is here; only the compile needs the GPU.
+                    // Without a surface, stay `Loading` and retry next frame
+                    // — the load itself is done, so this costs nothing.
+                    if let Some(surface) = surface.as_mut() {
+                        surface.0.compile_and_store_shader(&cs.path, &src.0);
+                        pending.0.remove(&cs.path);
+                    }
+                } else if let bevy_asset::LoadState::Failed(e) = asset_server.load_state(handle) {
+                    tracing::warn!("[custom_shader] cannot read '{}': {e}", cs.path);
+                    pending.0.insert(cs.path.clone(), PendingShader::GaveUp);
+                }
+            }
+            Some(PendingShader::GaveUp) => {}
+            None => match bsengine_asset::load(
+                bsengine_asset::LoadMode::Async,
                 &asset_server,
                 &mut shader_assets,
                 &cs.path,
                 crate::shader_asset::load_shader_source,
             ) {
                 Ok(handle) => {
-                    if let Some(src) = shader_assets.get(&handle) {
-                        surface.0.compile_and_store_shader(&cs.path, &src.0);
-                    }
+                    pending
+                        .0
+                        .insert(cs.path.clone(), PendingShader::Loading(handle));
                 }
-                Err(e) => tracing::warn!("[custom_shader] cannot read '{}': {e}", cs.path),
-            }
+                Err(e) => {
+                    // Unreachable: `LoadMode::Async` is infallible. Present
+                    // only because the shared `load()` signature returns
+                    // `Result` for `Sync` callers.
+                    tracing::warn!("[custom_shader] cannot request '{}': {e}", cs.path);
+                    pending.0.insert(cs.path.clone(), PendingShader::GaveUp);
+                }
+            },
         }
     }
 }
@@ -422,6 +476,7 @@ impl Plugin for RenderPlugin {
         app.init_asset::<crate::shader_asset::ShaderSource>()
             .register_asset_loader(crate::shader_asset::ShaderSourceLoader)
             .init_resource::<UiState>()
+            .init_resource::<PendingShaders>()
             .add_event::<WindowResized>()
             .add_event::<KeyInput>()
             .add_systems(Update, update_camera_aspect)
@@ -440,7 +495,7 @@ impl Plugin for RenderPlugin {
 
 #[cfg(test)]
 mod tests {
-    use super::RenderPlugin;
+    use super::{PendingShader, PendingShaders, RenderPlugin};
     use crate::components::MeshRenderer;
     use bsengine_app::new_app;
     use bsengine_core::{Camera, Material, PointLight, Transform};
@@ -506,6 +561,35 @@ mod tests {
             "compile_pending_shaders (index {compile_idx}) must run before render_frame \
              (index {render_idx}) so shaders compiled this frame are available to it; \
              actual PostUpdate order: {names:?}"
+        );
+    }
+
+    // A shader path that cannot load must be given up on. Re-requesting a
+    // failed path every frame resets it to Loading and respawns the load, so
+    // the failure is never observable and the warning never fires -- the
+    // blocking path this replaced warned once and stopped.
+    #[test]
+    fn missing_shader_is_given_up_on_instead_of_retried_forever() {
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(RenderPlugin);
+        app.world_mut().spawn(bsengine_core::CustomShader {
+            path: "definitely/not/a/real/shader.wgsl".to_string(),
+        });
+
+        for _ in 0..200 {
+            app.update();
+        }
+
+        let pending = app
+            .world()
+            .resource::<PendingShaders>()
+            .0
+            .get("definitely/not/a/real/shader.wgsl");
+        assert!(
+            matches!(pending, Some(PendingShader::GaveUp)),
+            "an unloadable shader path must end up given up on, got {pending:?}"
         );
     }
 

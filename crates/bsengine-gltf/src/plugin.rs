@@ -278,6 +278,133 @@ mod tests {
         );
     }
 
+    // Hot reload rests on `AssetEvent::Modified` reaching each consumer, and
+    // that only happens while something still holds a strong handle: once the
+    // last one drops, `Assets::track_assets` frees the asset and
+    // `AssetServer::reload` on its path becomes a silent no-op. Measured here
+    // rather than assumed, because it is the reason each consumer keeps its
+    // handle after the load resolves instead of dropping it as dead weight --
+    // a future cleanup that "tidies away" a retained handle would disable hot
+    // reload for that asset type with no other symptom.
+    #[test]
+    fn reload_emits_modified_only_while_a_handle_is_retained() {
+        use bevy_asset::{AssetEvent, AssetServer, Assets};
+        use bevy_ecs::event::{Events, ManualEventReader};
+
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../games/mini-arena/assets/models/fox.glb");
+        let path = fixture.to_str().unwrap().to_owned();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        // GltfPlugin is what calls init_asset::<LoadedGltf>(); without it the
+        // AssetServer panics on the first load. No entity carries GltfAsset
+        // here, so its system is inert.
+        app.add_plugins(GltfPlugin);
+
+        let handle = {
+            let server = app.world().resource::<AssetServer>();
+            server.load::<LoadedGltf>(path.clone())
+        };
+        let id = handle.id();
+
+        let mut loaded = false;
+        for _ in 0..200 {
+            app.update();
+            if app
+                .world()
+                .resource::<Assets<LoadedGltf>>()
+                .get(&handle)
+                .is_some()
+            {
+                loaded = true;
+                break;
+            }
+        }
+        assert!(
+            loaded,
+            "fixture must load before the experiment means anything"
+        );
+
+        let mut reader: ManualEventReader<AssetEvent<LoadedGltf>> = app
+            .world_mut()
+            .resource_mut::<Events<AssetEvent<LoadedGltf>>>()
+            .get_reader();
+
+        let drain = |app: &mut bevy_app::App,
+                     reader: &mut ManualEventReader<AssetEvent<LoadedGltf>>|
+         -> Vec<String> {
+            let events = app.world().resource::<Events<AssetEvent<LoadedGltf>>>();
+            reader.read(events).map(|e| format!("{e:?}")).collect()
+        };
+        let _ = drain(&mut app, &mut reader);
+
+        // --- A: handle retained ---
+        app.world().resource::<AssetServer>().reload(path.clone());
+        let mut with_handle = Vec::new();
+        for _ in 0..60 {
+            app.update();
+            with_handle.extend(drain(&mut app, &mut reader));
+        }
+        let still_present_after_reload = app
+            .world()
+            .resource::<Assets<LoadedGltf>>()
+            .get(&handle)
+            .is_some();
+
+        // --- B: handle dropped ---
+        drop(handle);
+        for _ in 0..10 {
+            app.update();
+        }
+        let present_after_drop = app
+            .world()
+            .resource::<Assets<LoadedGltf>>()
+            .get(id)
+            .is_some();
+        let _ = drain(&mut app, &mut reader);
+
+        app.world().resource::<AssetServer>().reload(path.clone());
+        let mut without_handle = Vec::new();
+        for _ in 0..60 {
+            app.update();
+            without_handle.extend(drain(&mut app, &mut reader));
+        }
+        let present_after_reload_without_handle = app
+            .world()
+            .resource::<Assets<LoadedGltf>>()
+            .get(id)
+            .is_some();
+
+        assert!(
+            with_handle.iter().any(|e| e.starts_with("Modified")),
+            "reloading a path whose handle is still held must emit \
+             AssetEvent::Modified -- that event is the whole mechanism hot \
+             reload runs on; got {with_handle:?}"
+        );
+        assert!(
+            still_present_after_reload,
+            "the asset must stay in Assets across a reload, or consumers would \
+             see it vanish rather than change"
+        );
+
+        assert!(
+            !present_after_drop,
+            "dropping the last handle must free the asset; if this ever stops \
+             being true the rest of this test proves nothing"
+        );
+        assert!(
+            without_handle.is_empty(),
+            "reloading a path with no handle held must emit nothing at all -- \
+             this is why every consumer retains its handle after the load \
+             resolves; got {without_handle:?}"
+        );
+        assert!(
+            !present_after_reload_without_handle,
+            "reload must not resurrect an asset nobody holds"
+        );
+    }
+
     // The hazard that makes LoadMode::Async different from Sync: `load`
     // hands back a Handle unconditionally, so a missing file is
     // indistinguishable from a slow one at the call site. `load_gltf_assets`

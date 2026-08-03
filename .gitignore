@@ -467,3 +467,9 @@ Scripts/vcpkg
 # calls Bsengine.save() every frame, so merely running the game — or replaying
 # its E2E recording — leaves an untracked file behind.
 games/*/checkpoint.json
+
+# The file-watcher tests need one probe directory reachable by a *relative*
+# path, which means under the crate root rather than the temp dir — that is the
+# spelling they exist to measure. A Drop guard removes it, but a hard-killed
+# test run would leave it behind.
+crates/*/bsengine-watch-probe-*

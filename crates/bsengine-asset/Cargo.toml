@@ -5,12 +5,19 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+bsengine-core.workspace = true
 bevy_app.workspace = true
 bevy_ecs.workspace = true
 bevy_asset.workspace = true
 bevy_reflect.workspace = true
 bevy_tasks.workspace = true
 image.workspace = true
+notify-debouncer-full.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 bsengine-app.workspace = true
+# Lets the watcher tests assert that a warning actually reached the developer,
+# not merely that the state behind it changed — the whole point of the
+# diagnostics this crate's watcher emits.
+tracing-subscriber.workspace = true

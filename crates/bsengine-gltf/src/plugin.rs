@@ -477,6 +477,122 @@ mod tests {
     // handle after the load resolves instead of dropping it as dead weight --
     // a future cleanup that "tidies away" a retained handle would disable hot
     // reload for that asset type with no other symptom.
+    // A file watcher reports native OS paths, while assets are loaded with the
+    // engine's own form (`ProjectDir`-joined, forward slashes, relative to the
+    // CWD). This pins how much of that difference `AssetServer::reload`
+    // tolerates, because a mismatch is a *silent* no-op -- no warning, no
+    // event, the watcher simply does nothing.
+    //
+    // Measured: on Windows, where `/` and `\` are both separators, either
+    // spelling matches. A canonicalised spelling -- `..` segments resolved,
+    // plus Windows' `\\?\` verbatim prefix -- does not, on either platform. So
+    // the watcher must reconstruct the engine-form path from the event rather
+    // than handing over what the OS gave it.
+    //
+    // The separator half is asserted `#[cfg(windows)]` only. On Unix `\` is a
+    // legal filename character, so swapping separators there names a different,
+    // nonexistent file rather than respelling the same one -- CI caught this
+    // test claiming otherwise.
+    //
+    // If the canonicalised case ever starts matching, this test fails and that
+    // is good news: the reconstruction in the watcher could then be dropped.
+    #[test]
+    fn reload_tolerates_separator_style_but_not_a_canonicalised_path() {
+        use bevy_asset::{AssetEvent, AssetServer, Assets};
+        use bevy_ecs::event::{Events, ManualEventReader};
+
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../games/mini-arena/assets/models/fox.glb");
+        let loaded_form = fixture.to_str().unwrap().to_owned();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(GltfPlugin);
+
+        let handle = {
+            let server = app.world().resource::<AssetServer>();
+            server.load::<LoadedGltf>(loaded_form.clone())
+        };
+
+        let mut ok = false;
+        for _ in 0..200 {
+            app.update();
+            if app
+                .world()
+                .resource::<Assets<LoadedGltf>>()
+                .get(&handle)
+                .is_some()
+            {
+                ok = true;
+                break;
+            }
+        }
+        assert!(ok, "fixture must load first");
+
+        let mut reader: ManualEventReader<AssetEvent<LoadedGltf>> = app
+            .world_mut()
+            .resource_mut::<Events<AssetEvent<LoadedGltf>>>()
+            .get_reader();
+
+        // Spellings a watcher could plausibly hand us, all naming this file.
+        let backslashed = loaded_form.replace('/', "\\");
+        let forward = loaded_form.replace('\\', "/");
+        let canonical = std::fs::canonicalize(&fixture)
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|e| format!("<canonicalize failed: {e}>"));
+
+        let mut modified_count = |app: &mut bevy_app::App, spelling: String| -> usize {
+            {
+                let events = app.world().resource::<Events<AssetEvent<LoadedGltf>>>();
+                let _ = reader.read(events).count();
+            }
+            app.world().resource::<AssetServer>().reload(spelling);
+            let mut hits = 0;
+            for _ in 0..40 {
+                app.update();
+                let events = app.world().resource::<Events<AssetEvent<LoadedGltf>>>();
+                hits += reader
+                    .read(events)
+                    .filter(|e| matches!(e, AssetEvent::Modified { .. }))
+                    .count();
+            }
+            hits
+        };
+
+        assert_eq!(
+            modified_count(&mut app, loaded_form.clone()),
+            1,
+            "reloading with the exact spelling the asset was loaded with must work"
+        );
+        // Windows only, and not an oversight: on Unix `\` is a perfectly legal
+        // *filename* character, so swapping `/` for it does not respell the
+        // same file -- it names a different, nonexistent one, and `reload`
+        // correctly does nothing. The claim "separator direction is free" is
+        // therefore a statement about Windows, where both are separators.
+        #[cfg(windows)]
+        assert_eq!(
+            modified_count(&mut app, backslashed),
+            1,
+            "on Windows both separators name the same file, so the watcher's \
+             native backslashes must not need normalising before reload"
+        );
+        #[cfg(not(windows))]
+        let _ = backslashed;
+        assert_eq!(
+            modified_count(&mut app, forward),
+            1,
+            "the forward-slash spelling of the same path must work too"
+        );
+        assert_eq!(
+            modified_count(&mut app, canonical.clone()),
+            0,
+            "a canonicalised spelling ({canonical}) does NOT match, which is why \
+             the watcher reconstructs the engine-form path instead of forwarding \
+             the OS path. If this ever starts matching, delete that \
+             reconstruction."
+        );
+    }
+
     #[test]
     fn reload_emits_modified_only_while_a_handle_is_retained() {
         use bevy_asset::{AssetEvent, AssetServer, Assets};

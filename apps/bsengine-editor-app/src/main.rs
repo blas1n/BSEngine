@@ -1,5 +1,5 @@
 use bsengine_app::{new_app, Startup, Update};
-use bsengine_asset::AssetPlugin;
+use bsengine_asset::{AssetPlugin, AssetWatcherPlugin};
 use bsengine_core::{Camera, DirectionalLight, GlobalTransform, InspectorState, Transform};
 use bsengine_ecs::{Added, Commands, Entity, Query, ResMut};
 use bsengine_editor::EditorPlugin;
@@ -42,6 +42,12 @@ fn main() {
 
     let mut app = new_app();
     app.add_plugins(AssetPlugin)
+        // Hot reload matters more here than in the runtime — editing an asset
+        // is what this application is for. `project_dir` above is derived from
+        // the scene path, and with no scene argument it is "." with no
+        // `./assets` beside it, so the watcher logs why it is idle and starts
+        // nothing rather than watching the repository root.
+        .add_plugins(AssetWatcherPlugin)
         .add_plugins(WgpuRHIPlugin)
         .add_plugins(WindowPlugin {
             descriptor: WindowDescriptor {

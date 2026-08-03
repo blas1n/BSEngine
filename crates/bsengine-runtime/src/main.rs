@@ -3,7 +3,7 @@ use std::env;
 use bsengine_app::{
     new_app, AnimationPlugin, AnimationStateMachinePlugin, NavMeshPlugin, TimePlugin,
 };
-use bsengine_asset::AssetPlugin;
+use bsengine_asset::{AssetPlugin, AssetWatcherPlugin};
 use bsengine_audio::AudioPlugin;
 use bsengine_core::{EditorPlayState, InspectorState};
 use bsengine_editor::EditorPlugin;
@@ -65,6 +65,16 @@ fn run_windowed(project_dir: &str) {
     let mut app = new_app();
     app.add_plugins(TimePlugin)
         .add_plugins(AssetPlugin)
+        // Windowed only, deliberately. `--test` builds its own app
+        // (test_mode::build_test_app) with its own plugin list, so leaving
+        // this out of that list is the whole of the decision: a replay has
+        // nobody editing files, so a watcher there would buy nothing and
+        // cost a background thread plus a source of frame-to-frame variation
+        // in the one mode that pins its clocks precisely to stay
+        // reproducible. Needs AssetPlugin (for AssetServer) and a ProjectDir,
+        // which ScriptingPlugin inserts below at build time — i.e. before any
+        // Startup system, including this plugin's, ever runs.
+        .add_plugins(AssetWatcherPlugin)
         .add_plugins(WgpuRHIPlugin)
         .add_plugins(WindowPlugin {
             descriptor: WindowDescriptor {

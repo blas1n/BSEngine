@@ -516,10 +516,77 @@ libtest는 모든 `#[test]`를 spawn된 스레드에서 실행하고, Rust는 �
   현재 이 필드를 제자리에서 바꾸는 코드가 없어 도달 불가. 그리고 로드 중인 엔티티에
   `MeshRenderer`가 붙거나 마지막 참조 엔티티가 despawn되면 pending 항목이 고아로 남아
   핸들을 계속 붙잡는다 — 서로 다른 경로 수만큼으로 제한되므로 무한 증가는 아니다.
-- [ ] **(Phase 3)** `bevy_asset`의 `file_watcher` 피처 활성화 — 텍스처/glTF/WGSL/오디오
-  변경 시 실행 중인 게임/에디터에 자동 반영. 단, `AssetPlugin.file_path`가 `""`라 에셋
-  루트가 리포 전체(`target/` 포함)가 되므로, `<ProjectDir>/assets`로 스코프를 좁힌 워처가
-  `AssetServer::reload`를 호출하는 방식을 쓴다
+- [x] **(Phase 3a)** 에셋 데이터가 교체되면 각 소비자가 GPU 상태를 **제자리에서** 재구축 —
+  재시작 없이, 엔티티를 하나도 건드리지 않고. 이 단계는 `AssetServer::reload`를 직접 호출해
+  구동하며, 그걸 호출해 줄 파일 워처는 Phase 3b다.
+
+  **측정된 전제 — `Modified`는 강한 핸들이 살아있는 동안에만 발생한다.** 마지막 핸들이
+  풀리면 `Assets::track_assets`(PreUpdate)가 에셋을 해제하고, 그 경로에 대한
+  `AssetServer::reload`는 **조용한 no-op**이 된다. 설계 문서는 Phase 2 이전에 쓰여 이걸
+  알 수 없었지만, Phase 2 이후 핸들을 계속 쥐고 있던 소비자는 오디오뿐이었다 — glTF·셰이더·
+  스카이박스는 로드가 끝나면 핸들을 버렸으므로, 워처를 아무리 잘 만들어도 이벤트 자체가
+  오지 않았을 것이다. 그래서 "로드 후 핸들 보관"은 최적화가 아니라 **선행 조건**이다.
+  추론이 아니라 실행으로 확인했고(`reload_emits_modified_only_while_a_handle_is_retained`,
+  `bsengine-gltf`), 핸들을 쥔 채로는 `LoadedWithDependencies` + `Modified`가 나오고
+  버린 뒤에는 이벤트가 **0개**였다.
+
+  **설계 문서보다 나은 방법을 택했다.** 문서는 "핸들을 가진 모든 엔티티에서
+  `MeshRenderer.mesh_id`를 교체"하라고 했지만, `GpuMeshRegistry::register`는 호출마다 새
+  id를 할당하고 해제 API가 없어서 리로드마다 버퍼 두 개를 영구 누수시킨다(`update_vertices`는
+  정점 수가 같아야 하고 인덱스·바운드를 갱신하지 않아 메시가 실제로 바뀐 경우엔 못 쓴다).
+  대신 registry에 **같은 id 아래 내용만 교체하는** `replace`를 추가했다. `MeshRenderer.mesh_id`와
+  `Material.texture_id`가 그대로 유효하므로 엔티티를 찾을 필요가 없고, 멀티메시 glTF가
+  추가로 스폰한 엔티티까지 공짜로 갱신된다.
+
+  소비자별로: glTF는 `GltfLoaded`(핸들 + 만들어 낸 mesh/texture id)를 엔티티에 남기고
+  `rebuild_modified_gltf`가 그 id 아래를 교체한다. 셰이더는 `PendingShader::Ready(handle)`을
+  보관하고 `compile_and_store_shader`가 경로 키로 덮어쓰므로 별도 무효화가 필요 없다.
+  스카이박스는 `PendingSkyboxState::Ready(handle)`을 보관하되, 경로 비교 단축 분기가 그
+  슬롯을 지우지 않도록 고쳤다. **오디오는 프로덕션 변경이 전혀 없다** — 이미 핸들을 쥐고
+  있고 `bevy_asset`이 그 아래 데이터를 갈아끼우므로, 다음 `playSound`가 새 데이터를 쓴다
+  (가정으로 두지 않고 테스트로 고정했다).
+
+  **한계(의도적):** 리로드된 glTF의 메시/이미지 **개수**가 달라지면 겹치는 부분만 재구축하고
+  경고한다 — 나머지 엔티티는 로드 시점에 스폰된 것이라 이 방식으로 표현할 수 없다. 재시작이
+  필요하다. 스킨이 새로 생기거나 사라지는 경우도 같은 부류라 경고 후 건너뛴다.
+  `AnimationPlayer.clip`은 갱신하지 않는다 — 어떤 클립을 재생할지는 `AnimationStateMachine`이
+  소유할 수 있는 결정이기 때문이며, duration만 현재 재생 중인 클립에서 다시 읽는다.
+  컴파일에 실패한 셰이더는 `CompileFailed`로 남아 프레임마다 재시도하지 않지만 핸들은 계속
+  쥐고 있다 — 고친 파일이 도착할 `Modified`가 바로 그 핸들에 실린다.
+
+  **최종 리뷰가 잡은 Critical — 스킨드 메시가 리로드를 매 프레임 덮어썼다.**
+  `update_skinned_meshes`(PostUpdate)는 로드 시점에 복제해 둔 `SkinnedMesh.rest_vertices`로
+  변형 정점을 만들어 같은 `mesh_id` 버퍼에 쓴다. 재구축은 Update에서 도니, **같은 프레임 안에서**
+  새 지오메트리가 옛 정점 기반 데이터로 덮어써졌다 — 화면상 아무 일도 일어나지 않는 조용한
+  no-op. 게다가 정점 수가 줄면 `update_vertices`에 크기 가드가 없어 wgpu `BufferOverrun` →
+  **프로세스 사망**이었다(실측: `Copy of 0..76032 would end up overrunning the bounds of the
+  Destination buffer of size 132`). 이건 가설이 아니라 `games/mini-arena`가 두 번 로드하는
+  `fox.glb`가 정확히 스킨드 에셋(skins:1, 애니메이션 3종)이라 실제로 걸리는 경로였다.
+  재구축이 `rest_vertices`/`skin`/`skin_data`/`nodes`/클립 라이브러리를 함께 갱신하도록 고쳤고,
+  `update_vertices`에는 방어선으로 길이 가드를 넣었다.
+
+  **왜 못 잡았나:** 헤드리스 테스트 헬퍼가 registry 두 개만 넣고 `GpuQueueResource`를 넣지
+  않아 `update_skinned_meshes`가 조기 반환했고, 단언이 `get_bounds`(재구축은 갱신하지만
+  덮어쓰기는 건드리지 않는 값) 대상이라 어느 쪽이든 초록이었다. 이 브랜치가 내내 경계해 온
+  "깨진 구현에서도 통과하는 테스트"가 가장 중요한 테스트에서 일어난 셈이다.
+
+  **런타임 셰이더 컴파일이 프로세스를 죽이던 것도 함께 고쳤다.** `create_shader_module`은 에러
+  스코프 없이 호출돼 WGSL 오류가 wgpu 기본 핸들러의 패닉으로 이어졌다. 시작 시점이면 "깨진
+  셰이더를 배포했다"로 끝이지만, 핫리로드는 **중간에 깨진 상태를 거치며 반복하는 것 자체가
+  목적**이라 용납할 수 없다. 이제 naga의 두 단계(파서 + `Validator`)로 미리 검증하고, 실패하면
+  경고 후 **이전 파이프라인을 그대로 둔다** — 편집 중인 오브젝트가 새까매지지 않아야 한다는
+  설계 문서의 요구사항 그대로다.
+
+  **테스트 규율:** 각 소비자의 보관 테스트는 열거형 상태만 보면 안 된다는 걸 실측했다 —
+  `clone_weak` 핸들은 `matches!(Ready(_))`를 만족시키면서도 `track_assets`가 에셋을 해제하게
+  둔다. 그래서 모든 테스트가 에셋 생존과 `Modified` 발생까지 단언하며, 각각 `clone_weak`
+  변이로 실패를 확인했다.
+- [ ] **(Phase 3b)** `<ProjectDir>/assets`로 스코프를 좁힌 파일 워처가 변경을 감지해
+  `AssetServer::reload`를 호출 — 텍스처/glTF/WGSL/오디오 변경 시 실행 중인 게임/에디터에
+  자동 반영. `bevy_asset`의 `file_watcher` 피처는 쓰지 않는다: `AssetPlugin.file_path`가
+  `""`라 에셋 루트가 리포 전체(`target/`, `.git/` 포함)가 되기 때문이다. Phase 3a에서 모든
+  재구축 경로를 `reload` 직접 호출로 이미 검증해 뒀으므로, 3b에서 문제가 나면 워처 문제로
+  범위가 좁혀진다
 - [ ] **(Phase 4)** 로드 실패/누락 에셋에 대한 명확한 에러 전파 (item 23에서는
   `tracing::warn!` 후 스킵뿐이었던 것을 구조화된 조회로 확장) + Scripting API 또는 MCP
   툴로 리로드/로드 실패 상태 조회 가능

@@ -2,6 +2,7 @@ use bsengine_ecs::Resource;
 use glam::Vec3;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tracing::warn;
 use wgpu::util::DeviceExt;
 
 #[repr(C)]
@@ -70,7 +71,37 @@ impl GpuMeshRegistry {
     pub fn register(&mut self, vertices: &[Vertex], indices: &[u32]) -> u64 {
         let id = self.next_id;
         self.next_id += 1;
+        let mesh = self.build(vertices, indices);
+        self.meshes.insert(id, mesh);
+        id
+    }
 
+    /// Rebuilds an already-registered mesh's buffers from new data, keeping its
+    /// id. Returns whether `id` was registered.
+    ///
+    /// Hot reload uses this rather than `register` because `MeshRenderer` stores
+    /// the id: replacing contents under the same id updates every entity drawing
+    /// that mesh at once, including the extra entities a multi-mesh glTF spawns.
+    /// `register` would also leak, since the registry never frees.
+    ///
+    /// Unlike [`GpuMeshRegistry::update_vertices`] this handles a changed vertex
+    /// or index count, and recomputes bounds.
+    ///
+    /// The returned flag is `#[must_use]` because `false` means an id a caller
+    /// recorded at load time is no longer registered — the exact invariant
+    /// replace-in-place hot reload rests on. Dropping it turns that into a
+    /// reload that appears to work and silently keeps the old geometry.
+    #[must_use]
+    pub fn replace(&mut self, id: u64, vertices: &[Vertex], indices: &[u32]) -> bool {
+        if !self.meshes.contains_key(&id) {
+            return false;
+        }
+        let mesh = self.build(vertices, indices);
+        self.meshes.insert(id, mesh);
+        true
+    }
+
+    fn build(&self, vertices: &[Vertex], indices: &[u32]) -> GpuMesh {
         let vertex_buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -85,18 +116,12 @@ impl GpuMeshRegistry {
                 contents: bytemuck::cast_slice(indices),
                 usage: wgpu::BufferUsages::INDEX,
             });
-
-        let bounds = compute_bounding_sphere(vertices);
-        self.meshes.insert(
-            id,
-            GpuMesh {
-                vertex_buffer,
-                index_buffer,
-                index_count: indices.len() as u32,
-                bounds,
-            },
-        );
-        id
+        GpuMesh {
+            vertex_buffer,
+            index_buffer,
+            index_count: indices.len() as u32,
+            bounds: compute_bounding_sphere(vertices),
+        }
     }
 
     /// Looks up a previously registered mesh by id.
@@ -109,14 +134,42 @@ impl GpuMeshRegistry {
         self.meshes.get(&id).map(|m| m.bounds)
     }
 
-    /// Overwrites a previously registered mesh's vertex buffer contents in place
-    /// (same vertex count as at `register` time — this does not resize the
-    /// buffer). Used by CPU-side skeletal skinning to re-upload deformed
-    /// vertex positions/normals each frame without re-registering a new mesh id.
-    pub fn update_vertices(&mut self, queue: &wgpu::Queue, id: u64, vertices: &[Vertex]) {
-        if let Some(mesh) = self.meshes.get(&id) {
-            queue.write_buffer(&mesh.vertex_buffer, 0, bytemuck::cast_slice(vertices));
+    /// Overwrites a previously registered mesh's vertex buffer contents in
+    /// place, without resizing it. Used by CPU-side skeletal skinning to
+    /// re-upload deformed vertex positions/normals each frame without
+    /// re-registering a new mesh id. Returns whether the upload happened.
+    ///
+    /// `vertices` must be exactly as long as the buffer the mesh *currently*
+    /// holds — the count from the most recent `register` or
+    /// [`GpuMeshRegistry::replace`], which after a hot reload need not be the
+    /// original one. A mismatch is refused with a warning rather than handed to
+    /// wgpu: a longer upload is a `BufferOverrun`, and since nothing in this
+    /// codebase installs an error scope or `on_uncaptured_error`, that reaches
+    /// wgpu's default handler, which panics the process. A shorter one would
+    /// leave stale vertices in the tail. Use [`GpuMeshRegistry::replace`] when
+    /// the count genuinely changed.
+    pub fn update_vertices(&mut self, queue: &wgpu::Queue, id: u64, vertices: &[Vertex]) -> bool {
+        let Some(mesh) = self.meshes.get(&id) else {
+            return false;
+        };
+        if vertices.is_empty() {
+            // Nothing to upload, and not a caller error worth warning about:
+            // `create_buffer_init` never allocates below COPY_BUFFER_ALIGNMENT,
+            // so an empty mesh's buffer can never match an empty upload anyway.
+            return false;
         }
+        let incoming = std::mem::size_of_val(vertices) as wgpu::BufferAddress;
+        if incoming != mesh.vertex_buffer.size() {
+            warn!(
+                "refusing to upload {incoming} bytes of vertex data into mesh {id}'s \
+                 {} byte buffer; the mesh was rebuilt at a different vertex count \
+                 and whatever holds this data has not caught up",
+                mesh.vertex_buffer.size()
+            );
+            return false;
+        }
+        queue.write_buffer(&mesh.vertex_buffer, 0, bytemuck::cast_slice(vertices));
+        true
     }
 }
 
@@ -446,5 +499,112 @@ mod tests {
         // update_vertices doesn't panic against a real buffer/queue and that
         // the mesh is still registered afterward with the same id.
         assert!(registry.get(id).is_some());
+    }
+
+    /// The hot-reload path can hand `update_vertices` a rest pose that no longer
+    /// matches the buffer, because `replace` resizes and `update_vertices` does
+    /// not. wgpu turns a too-long `write_buffer` into a validation error, and
+    /// with no error scope or `on_uncaptured_error` anywhere in this codebase
+    /// that reaches wgpu's default handler, which *panics* — so without this
+    /// guard a mesh that loses vertices on reload kills the running game.
+    /// Defence in depth: the glTF rebuild is supposed to keep the two in step,
+    /// but "supposed to" is not an acceptable distance from a dead process.
+    #[test]
+    fn update_vertices_refuses_a_size_mismatch_instead_of_overrunning_the_buffer() {
+        use crate::rhi::WgpuRHI;
+        let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless device");
+        let device = std::sync::Arc::new(rhi.device);
+        let mut reg = GpuMeshRegistry::new(device);
+        let (verts, indices) = triangle_vertices();
+        let id = reg.register(&verts, &indices);
+
+        assert!(
+            reg.update_vertices(&rhi.queue, id, &verts),
+            "an exactly-sized upload must still go through, or skinning stops \
+             uploading anything at all"
+        );
+
+        let mut too_many = verts.clone();
+        too_many.extend_from_slice(&verts);
+        assert!(
+            !reg.update_vertices(&rhi.queue, id, &too_many),
+            "an oversized upload must be refused here rather than handed to \
+             wgpu, which panics the process on BufferOverrun"
+        );
+
+        assert!(
+            !reg.update_vertices(&rhi.queue, id, &verts[..1]),
+            "an undersized upload must be refused too -- it would write past \
+             nothing but leave the tail holding stale vertices"
+        );
+        assert!(
+            !reg.update_vertices(&rhi.queue, id, &[]),
+            "an empty upload has nothing to write"
+        );
+        assert!(
+            !reg.update_vertices(&rhi.queue, 9999, &verts),
+            "an unknown id must report failure, not silently succeed"
+        );
+
+        // The guard must track `replace`, not the original register: after a
+        // reload shrinks the mesh, the *new* count is what fits.
+        let (cube_v, cube_i) = cube_vertices();
+        assert!(reg.replace(id, &cube_v, &cube_i));
+        assert!(
+            !reg.update_vertices(&rhi.queue, id, &verts),
+            "the pre-replace count must no longer fit"
+        );
+        assert!(
+            reg.update_vertices(&rhi.queue, id, &cube_v),
+            "the post-replace count must fit; a guard keyed to the register-time \
+             count would reject every upload for the rest of the mesh's life"
+        );
+        assert!(
+            reg.get(id).is_some(),
+            "a refused upload must not drop the mesh"
+        );
+    }
+
+    #[test]
+    fn replace_swaps_geometry_under_the_same_id() {
+        use crate::rhi::WgpuRHI;
+        let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless device");
+        let device = std::sync::Arc::new(rhi.device);
+        let mut reg = GpuMeshRegistry::new(device);
+
+        let (tri_v, tri_i) = triangle_vertices();
+        let id = reg.register(&tri_v, &tri_i);
+        let before = reg.get_bounds(id).expect("just registered");
+
+        let (cube_v, cube_i) = cube_vertices();
+        assert!(
+            reg.replace(id, &cube_v, &cube_i),
+            "replace must report success for an id that exists"
+        );
+
+        assert_eq!(
+            reg.get(id).map(|m| m.index_count),
+            Some(cube_i.len() as u32),
+            "replace must update index_count, or draws would use the old count"
+        );
+        let after = reg.get_bounds(id).expect("still registered after replace");
+        assert_ne!(
+            before, after,
+            "replace must recompute bounds -- stale bounds silently break culling"
+        );
+    }
+
+    #[test]
+    fn replace_reports_failure_for_an_unknown_id() {
+        use crate::rhi::WgpuRHI;
+        let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless device");
+        let device = std::sync::Arc::new(rhi.device);
+        let mut reg = GpuMeshRegistry::new(device);
+        let (v, i) = triangle_vertices();
+        assert!(
+            !reg.replace(9999, &v, &i),
+            "replace must not silently create a mesh under an id nobody allocated"
+        );
+        assert!(reg.get(9999).is_none());
     }
 }

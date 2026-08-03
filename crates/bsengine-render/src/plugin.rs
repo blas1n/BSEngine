@@ -108,11 +108,52 @@ fn propagate_children(
 enum PendingShader {
     /// Requested; waiting for `Assets<ShaderSource>` to have it.
     Loading(bevy_asset::Handle<crate::shader_asset::ShaderSource>),
+    /// Source loaded and the handle retained. Kept rather than dropped because
+    /// `AssetEvent::Modified` only fires while a strong handle exists; dropping
+    /// it here would make `AssetServer::reload` on this path a silent no-op
+    /// (measured by `reload_emits_modified_only_while_a_handle_is_retained` in
+    /// `bsengine-gltf`).
+    ///
+    /// Says nothing about the *compile*, which needs a GPU the load does not:
+    /// a source that arrives before `WgpuSurfaceResource` exists is `Ready`
+    /// with no pipeline behind it, and this arm compiles it once one shows up.
+    Ready(bevy_asset::Handle<crate::shader_asset::ShaderSource>),
+    /// The source loaded but does not compile, and the handle is retained.
+    ///
+    /// Distinct from `Ready` so the compile is *not* retried every frame: the
+    /// file is broken, recompiling it next frame produces the same failure and
+    /// the same warning, which is the per-frame noise this whole loop was
+    /// restructured to avoid. Distinct from `GaveUp` because a broken shader is
+    /// not a dead end -- the handle is still held, so editing the file emits
+    /// `AssetEvent::Modified` and `rebuild_modified_shaders` retries from here,
+    /// promoting the path back to `Ready` when it compiles. Retry is driven by
+    /// the content changing, not by the frame clock.
+    ///
+    /// Says nothing about what is on screen: `compile_and_store_shader` leaves
+    /// `custom_pipelines` untouched when it fails, so a shader that compiled
+    /// once and was then edited into a broken state keeps drawing with its last
+    /// working pipeline.
+    CompileFailed(bevy_asset::Handle<crate::shader_asset::ShaderSource>),
     /// The load failed. Kept so the warning fires once rather than per frame,
     /// and so the path is never re-requested -- re-requesting a failed path
     /// resets it to `Loading` and starts the load over, which is why a
     /// re-requesting poll loop can never see the failure.
     GaveUp,
+}
+
+/// The state a path takes after a compile attempt: `Ready` on success, so the
+/// normal reload path applies, and `CompileFailed` on failure, so no frame
+/// retries it until the file changes. Both keep the handle -- dropping it on
+/// failure would stop `AssetEvent::Modified` from ever firing again for the
+/// path, which is exactly the event the fix has to arrive on.
+fn state_after_compile(
+    result: Result<(), String>,
+    handle: bevy_asset::Handle<crate::shader_asset::ShaderSource>,
+) -> PendingShader {
+    match result {
+        Ok(()) => PendingShader::Ready(handle),
+        Err(_) => PendingShader::CompileFailed(handle),
+    }
 }
 
 /// Shader loads in flight, keyed by path.
@@ -169,19 +210,54 @@ fn compile_pending_shaders(
         match pending.0.get(&cs.path) {
             // Requested already -- poll the handle we kept. Never re-request.
             Some(PendingShader::Loading(handle)) => {
-                if let Some(src) = shader_assets.get(handle) {
-                    // The source is here; only the compile needs the GPU.
-                    // Without a surface, stay `Loading` and retry next frame
-                    // — the load itself is done, so this costs nothing.
-                    if let Some(surface) = surface.as_mut() {
-                        surface.0.compile_and_store_shader(&cs.path, &src.0);
-                        pending.0.remove(&cs.path);
-                    }
-                } else if let bevy_asset::LoadState::Failed(e) = asset_server.load_state(handle) {
+                // Cloned so the state can be written back below (a `Handle` is
+                // refcounted, so this is a bump, not a copy of the source).
+                let handle = handle.clone();
+                if let Some(src) = shader_assets.get(&handle) {
+                    // The source is here; only the compile needs the GPU. The
+                    // path leaves `Loading` either way -- both states below
+                    // retain the handle, and staying `Loading` until a surface
+                    // exists would leave hot reload switched off for exactly as
+                    // long. With no surface the compile is merely deferred, not
+                    // failed, so that case is `Ready` and the arm below picks
+                    // it up once a surface appears.
+                    let state = match surface.as_mut() {
+                        Some(surface) => state_after_compile(
+                            surface.0.compile_and_store_shader(&cs.path, &src.0),
+                            handle,
+                        ),
+                        None => PendingShader::Ready(handle),
+                    };
+                    pending.0.insert(cs.path.clone(), state);
+                } else if let bevy_asset::LoadState::Failed(e) = asset_server.load_state(&handle) {
                     tracing::warn!("[custom_shader] cannot read '{}': {e}", cs.path);
                     pending.0.insert(cs.path.clone(), PendingShader::GaveUp);
                 }
             }
+            // Source in hand, handle retained: nothing left to request, and
+            // never re-requested. Reaching here at all means the early-skip
+            // above found no compiled pipeline for this path -- i.e. the
+            // source arrived before `WgpuSurfaceResource` did -- so compile it
+            // now if a surface has since appeared. A successful compile stores
+            // the pipeline, so the skip fires from the next frame on and this
+            // runs exactly once; a failed one moves the path to `CompileFailed`
+            // instead, which the arm below leaves alone, so a broken file is
+            // not recompiled (and re-warned about) every frame either.
+            Some(PendingShader::Ready(handle)) => {
+                let handle = handle.clone();
+                if let (Some(src), Some(surface)) = (shader_assets.get(&handle), surface.as_mut()) {
+                    let state = state_after_compile(
+                        surface.0.compile_and_store_shader(&cs.path, &src.0),
+                        handle,
+                    );
+                    pending.0.insert(cs.path.clone(), state);
+                }
+            }
+            // Broken source, already reported once. Nothing here can change
+            // that verdict -- only a new revision of the file can, and that
+            // arrives as `AssetEvent::Modified`, which
+            // `rebuild_modified_shaders` acts on.
+            Some(PendingShader::CompileFailed(_)) => {}
             Some(PendingShader::GaveUp) => {}
             None => match bsengine_asset::load(
                 bsengine_asset::LoadMode::Async,
@@ -207,12 +283,89 @@ fn compile_pending_shaders(
     }
 }
 
-/// Whether the skybox named by [`PendingSkybox`] is still loading or was
-/// given up on.
+/// Recompiles a custom shader whose source was replaced.
+///
+/// `compile_and_store_shader` inserts into `custom_pipelines` keyed by path, so
+/// recompiling overwrites the old pipeline; no explicit invalidation is needed.
+/// That also makes one recompile per path enough no matter how many entities
+/// name it -- [`PendingShaders`] is keyed by path, and `render_frame` looks the
+/// pipeline up by path too.
+///
+/// Separate from `compile_pending_shaders` rather than folded into it because
+/// that function skips any path the surface has already compiled -- which is
+/// every reloadable one. A reload is the one case where recompiling an
+/// already-compiled path is the whole point.
+///
+/// Without a `WgpuSurfaceResource` this does nothing and leaves the state
+/// alone: the source is already in `Assets` and the handle is still retained,
+/// so the next reload is reached just the same.
+///
+/// `CompileFailed` paths are rebuilt as readily as `Ready` ones -- this is the
+/// only place a broken shader can recover, because it is the only signal that
+/// the file's *content* changed. `compile_pending_shaders` deliberately never
+/// retries them, so skipping them here would make a single typo permanent for
+/// the rest of the run.
+fn rebuild_modified_shaders(
+    mut events: bevy_ecs::prelude::EventReader<
+        bevy_asset::AssetEvent<crate::shader_asset::ShaderSource>,
+    >,
+    mut surface: Option<ResMut<WgpuSurfaceResource>>,
+    shader_assets: Res<bevy_asset::Assets<crate::shader_asset::ShaderSource>>,
+    mut pending: ResMut<PendingShaders>,
+) {
+    for event in events.read() {
+        let bevy_asset::AssetEvent::Modified { id } = event else {
+            continue;
+        };
+        // Matched paths are collected before compiling: the compile's verdict
+        // is written back into `pending`, which cannot happen while iterating
+        // it. One event names one asset, so this is a one-element vector in
+        // every realistic case, and it is allocated per *edit*, not per frame.
+        let rebuilt: Vec<(
+            String,
+            bevy_asset::Handle<crate::shader_asset::ShaderSource>,
+        )> = pending
+            .0
+            .iter()
+            .filter_map(|(path, state)| match state {
+                PendingShader::Ready(handle) | PendingShader::CompileFailed(handle)
+                    if handle.id() == *id =>
+                {
+                    Some((path.clone(), handle.clone()))
+                }
+                _ => None,
+            })
+            .collect();
+        for (path, handle) in rebuilt {
+            let Some(src) = shader_assets.get(&handle) else {
+                continue;
+            };
+            let Some(surface) = surface.as_mut() else {
+                continue;
+            };
+            let state =
+                state_after_compile(surface.0.compile_and_store_shader(&path, &src.0), handle);
+            pending.0.insert(path, state);
+        }
+    }
+}
+
+/// Whether the skybox named by [`PendingSkybox`] is still loading, has
+/// arrived, or was given up on.
 #[derive(Debug)]
 enum PendingSkyboxState {
     /// Requested; waiting for `Assets<TextureAsset>` to have it.
     Loading(bevy_asset::Handle<bsengine_asset::TextureAsset>),
+    /// Image decoded and the handle retained. Kept rather than dropped because
+    /// `AssetEvent::Modified` only fires while a strong handle exists; dropping
+    /// it here would make `AssetServer::reload` on this path a silent no-op
+    /// (measured by `reload_emits_modified_only_while_a_handle_is_retained` in
+    /// `bsengine-gltf`).
+    ///
+    /// Says nothing about the *upload*, which needs a GPU the decode does not:
+    /// an image that arrives before `WgpuSurfaceResource` exists is `Ready`
+    /// with nothing uploaded, and this arm uploads it once one shows up.
+    Ready(bevy_asset::Handle<bsengine_asset::TextureAsset>),
     /// The load failed. Kept so the warning fires once and the path is never
     /// re-requested -- re-requesting a failed path restarts it, which is why a
     /// re-requesting poll loop can never see the failure.
@@ -262,13 +415,20 @@ fn upload_pending_skybox(
     };
     let wanted = skybox_path.0.as_deref();
 
-    // Already showing exactly what's asked for. Any request still in flight is
-    // for a path nobody wants any more, so let it go.
+    // Already showing exactly what's asked for. A `Ready` slot naming that same
+    // path is the uploaded skybox's own retained handle -- clearing it frees
+    // the image and turns the next `AssetServer::reload` into a silent no-op,
+    // so it stays. Anything else in the slot is a request for a path nobody
+    // wants any more, so let it go.
     if surface
         .as_ref()
         .is_some_and(|s| s.0.loaded_skybox_path() == wanted)
     {
-        if pending.0.is_some() {
+        let holds_the_wanted_skybox = match (&pending.0, wanted) {
+            (Some((path, PendingSkyboxState::Ready(_))), Some(wanted)) => path == wanted,
+            _ => false,
+        };
+        if pending.0.is_some() && !holds_the_wanted_skybox {
             pending.0 = None;
         }
         return;
@@ -296,6 +456,21 @@ fn upload_pending_skybox(
     let in_flight = match &pending.0 {
         Some((_, PendingSkyboxState::GaveUp)) => return,
         Some((_, PendingSkyboxState::Loading(handle))) => Some(handle.clone()),
+        // Image in hand, handle retained: nothing left to request, and never
+        // re-requested. Reaching here at all means the dedupe check above found
+        // the surface *not* showing this path -- i.e. the image arrived before
+        // `WgpuSurfaceResource` did -- so upload it now if a surface has since
+        // appeared. That makes the dedupe check match from the next frame on,
+        // so this runs exactly once.
+        Some((_, PendingSkyboxState::Ready(handle))) => {
+            if let (Some(tex), Some(surface)) = (texture_assets.get(handle), surface.as_mut()) {
+                surface
+                    .0
+                    .set_skybox_from_rgba(tex.width, tex.height, &tex.data);
+                surface.0.set_loaded_skybox_path(wanted);
+            }
+            return;
+        }
         None => None,
     };
 
@@ -311,9 +486,11 @@ fn upload_pending_skybox(
     };
 
     if let Some(tex) = texture_assets.get(&handle) {
-        // The pixels are here; only the upload needs the GPU. Without a
-        // surface, stay `Loading` and retry next frame — the load itself is
-        // done, so this costs nothing.
+        // The pixels are here; only the upload needs the GPU. The slot becomes
+        // `Ready` either way: `Ready` is what retains the handle, and staying
+        // `Loading` until a surface exists would leave hot reload switched off
+        // for exactly as long. The `Ready` arm above picks the upload up
+        // instead.
         if let Some(surface) = surface.as_mut() {
             surface
                 .0
@@ -323,11 +500,56 @@ fn upload_pending_skybox(
             // the dedupe check above is what stops this re-uploading every
             // frame.
             surface.0.set_loaded_skybox_path(wanted);
-            pending.0 = None;
         }
+        pending.0 = Some((wanted.to_string(), PendingSkyboxState::Ready(handle)));
     } else if let bevy_asset::LoadState::Failed(e) = asset_server.load_state(&handle) {
         tracing::warn!("skybox: cannot read '{wanted}': {e}");
         pending.0 = Some((wanted.to_string(), PendingSkyboxState::GaveUp));
+    }
+}
+
+/// Re-uploads the skybox when its image is replaced.
+///
+/// `set_skybox_from_rgba` rebuilds the texture, sampler, bind groups and
+/// pipeline around the new pixels and replaces `WgpuSurface::skybox` wholesale,
+/// so no explicit invalidation is needed.
+///
+/// Separate from `upload_pending_skybox` rather than folded into it because
+/// that function returns early the moment the surface already shows the wanted
+/// path -- which is every reloadable skybox. A reload is the one case where
+/// re-uploading the path already on screen is the whole point.
+///
+/// Without a `WgpuSurfaceResource` this does nothing and leaves the `Ready`
+/// state alone: the image is already in `Assets` and the handle is still
+/// retained, so the next reload is reached just the same.
+fn rebuild_modified_skybox(
+    mut events: bevy_ecs::prelude::EventReader<
+        bevy_asset::AssetEvent<bsengine_asset::TextureAsset>,
+    >,
+    mut surface: Option<ResMut<WgpuSurfaceResource>>,
+    texture_assets: Res<bevy_asset::Assets<bsengine_asset::TextureAsset>>,
+    pending: Res<PendingSkybox>,
+) {
+    for event in events.read() {
+        let bevy_asset::AssetEvent::Modified { id } = event else {
+            continue;
+        };
+        let Some((path, PendingSkyboxState::Ready(handle))) = pending.0.as_ref() else {
+            continue;
+        };
+        if handle.id() != *id {
+            continue;
+        }
+        let Some(tex) = texture_assets.get(handle) else {
+            continue;
+        };
+        let Some(surface) = surface.as_mut() else {
+            continue;
+        };
+        surface
+            .0
+            .set_skybox_from_rgba(tex.width, tex.height, &tex.data);
+        surface.0.set_loaded_skybox_path(path);
     }
 }
 
@@ -598,7 +820,9 @@ impl Plugin for RenderPlugin {
                     propagate_roots,
                     propagate_children,
                     compile_pending_shaders,
+                    rebuild_modified_shaders,
                     upload_pending_skybox,
+                    rebuild_modified_skybox,
                     render_frame,
                 )
                     .chain(),
@@ -687,6 +911,359 @@ mod tests {
         );
     }
 
+    // Same structural argument as the test above, for the reload half.
+    // `rebuild_modified_shaders` must sit *after* `compile_pending_shaders`
+    // (which is what puts a path into `Ready`, the only state the rebuild
+    // looks at -- ahead of it, the very first Modified event would find an
+    // empty map) and *before* `render_frame` (or the frame draws with the
+    // stale pipeline the reload was meant to replace). Both are `.chain()`
+    // edges today; a reorder that starves the rebuild has to fail here.
+    #[test]
+    fn rebuild_modified_shaders_runs_between_compile_and_render_frame() {
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(RenderPlugin);
+        // Schedules are only populated with their executable system list
+        // after at least one run.
+        app.update();
+
+        let schedule = app
+            .get_schedule(bevy_app::PostUpdate)
+            .expect("RenderPlugin registers systems into PostUpdate");
+        let names: Vec<String> = schedule
+            .systems()
+            .expect("schedule is initialized after app.update()")
+            .map(|(_, system)| system.name().to_string())
+            .collect();
+
+        let find = |needle: &str| {
+            names
+                .iter()
+                .position(|n| n.contains(needle))
+                .unwrap_or_else(|| panic!("{needle} not found in PostUpdate: {names:?}"))
+        };
+        let compile_idx = find("compile_pending_shaders");
+        let rebuild_idx = find("rebuild_modified_shaders");
+        let render_idx = find("render_frame");
+
+        assert!(
+            compile_idx < rebuild_idx,
+            "compile_pending_shaders (index {compile_idx}) must run before \
+             rebuild_modified_shaders (index {rebuild_idx}): it is what records \
+             the Ready handle the rebuild matches Modified events against; \
+             actual PostUpdate order: {names:?}"
+        );
+        assert!(
+            rebuild_idx < render_idx,
+            "rebuild_modified_shaders (index {rebuild_idx}) must run before \
+             render_frame (index {render_idx}) so a shader recompiled this frame \
+             is the one drawn with; actual PostUpdate order: {names:?}"
+        );
+    }
+
+    // Same structural argument again, for the skybox's reload half.
+    // `rebuild_modified_skybox` must sit *after* `upload_pending_skybox`
+    // (which is what puts the slot into `Ready`, the only state the rebuild
+    // looks at -- ahead of it, the very first Modified event would find an
+    // empty slot) and *before* `render_frame` (or the frame draws the stale
+    // sky the reload was meant to replace). Both are `.chain()` edges today;
+    // a reorder that starves the rebuild has to fail here.
+    #[test]
+    fn rebuild_modified_skybox_runs_between_upload_and_render_frame() {
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(RenderPlugin);
+        // Schedules are only populated with their executable system list
+        // after at least one run.
+        app.update();
+
+        let schedule = app
+            .get_schedule(bevy_app::PostUpdate)
+            .expect("RenderPlugin registers systems into PostUpdate");
+        let names: Vec<String> = schedule
+            .systems()
+            .expect("schedule is initialized after app.update()")
+            .map(|(_, system)| system.name().to_string())
+            .collect();
+
+        let find = |needle: &str| {
+            names
+                .iter()
+                .position(|n| n.contains(needle))
+                .unwrap_or_else(|| panic!("{needle} not found in PostUpdate: {names:?}"))
+        };
+        let upload_idx = find("upload_pending_skybox");
+        let rebuild_idx = find("rebuild_modified_skybox");
+        let render_idx = find("render_frame");
+
+        assert!(
+            upload_idx < rebuild_idx,
+            "upload_pending_skybox (index {upload_idx}) must run before \
+             rebuild_modified_skybox (index {rebuild_idx}): it is what records \
+             the Ready handle the rebuild matches Modified events against; \
+             actual PostUpdate order: {names:?}"
+        );
+        assert!(
+            rebuild_idx < render_idx,
+            "rebuild_modified_skybox (index {rebuild_idx}) must run before \
+             render_frame (index {render_idx}) so a skybox re-uploaded this \
+             frame is the one drawn; actual PostUpdate order: {names:?}"
+        );
+    }
+
+    // The precondition for shader hot reload, and the only part of it a
+    // headless test can reach. `AssetEvent::Modified` only fires while a
+    // strong handle to the asset still exists: drop the last one and
+    // `Assets::track_assets` frees the asset in PreUpdate, after which
+    // `AssetServer::reload` on that path is a silent no-op (measured by
+    // `reload_emits_modified_only_while_a_handle_is_retained` in
+    // bsengine-gltf). So `Ready` -- which retains the handle -- is what makes
+    // `rebuild_modified_shaders` reachable at all.
+    //
+    // There is no `WgpuSurfaceResource` here (a real one needs a real winit
+    // window; see `compile_pending_shaders_runs_before_render_frame`), so the
+    // compile itself cannot run and the recompiled pipeline cannot be
+    // observed. `Ready` therefore means "source loaded and handle retained",
+    // reached whether or not the compile happened -- and the reload assertion
+    // below, not the state alone, is what proves the retention is real: a
+    // `clone_weak` handle would satisfy `Ready(_)` while still letting the
+    // asset be freed.
+    #[test]
+    fn a_compiled_shader_keeps_its_handle_so_a_reload_can_reach_it() {
+        use bevy_asset::{AssetEvent, AssetServer, Assets};
+        use bevy_ecs::event::{Events, ManualEventReader};
+
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../games/mini-arena/assets/shaders/glow.wgsl");
+        let path = fixture.to_str().unwrap().to_owned();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(RenderPlugin);
+        app.world_mut()
+            .spawn(bsengine_core::CustomShader { path: path.clone() });
+
+        let mut ready = false;
+        for _ in 0..200 {
+            app.update();
+            if matches!(
+                app.world().resource::<PendingShaders>().0.get(&path),
+                Some(PendingShader::Ready(_))
+            ) {
+                ready = true;
+                break;
+            }
+        }
+        assert!(
+            ready,
+            "a shader whose source has loaded must end up Ready, holding its \
+             handle -- without it AssetEvent::Modified can never fire for it"
+        );
+
+        let asset_id = {
+            let pending = app.world().resource::<PendingShaders>();
+            let Some(PendingShader::Ready(handle)) = pending.0.get(&path) else {
+                unreachable!("just asserted Ready")
+            };
+            handle.id()
+        };
+
+        // A few more frames so `track_assets` (PreUpdate) has had every chance
+        // to free the source. It only survives this if something still holds a
+        // *strong* handle to it.
+        for _ in 0..5 {
+            app.update();
+        }
+        assert!(
+            app.world()
+                .resource::<Assets<crate::shader_asset::ShaderSource>>()
+                .get(asset_id)
+                .is_some(),
+            "the retained handle must keep the source alive; a weak one lets \
+             track_assets free it, and reload then has nothing to reload"
+        );
+
+        // Read `Modified` specifically, and only events emitted after this
+        // point: the buffer still holds the `Added`/`LoadedWithDependencies`
+        // events the initial load emitted, so a bare length check would pass
+        // even if the reload reached nothing at all.
+        let mut reader: ManualEventReader<AssetEvent<crate::shader_asset::ShaderSource>> = app
+            .world_mut()
+            .resource_mut::<Events<AssetEvent<crate::shader_asset::ShaderSource>>>()
+            .get_reader();
+        {
+            let events = app
+                .world()
+                .resource::<Events<AssetEvent<crate::shader_asset::ShaderSource>>>();
+            let _ = reader.read(events).count();
+        }
+
+        app.world().resource::<AssetServer>().reload(path);
+        let mut saw_modified = false;
+        for _ in 0..60 {
+            app.update();
+            let events = app
+                .world()
+                .resource::<Events<AssetEvent<crate::shader_asset::ShaderSource>>>();
+            if reader
+                .read(events)
+                .any(|ev| matches!(ev, AssetEvent::Modified { id } if *id == asset_id))
+            {
+                saw_modified = true;
+                break;
+            }
+        }
+        assert!(
+            saw_modified,
+            "reloading a shader whose handle is retained must emit \
+             AssetEvent::Modified for it; none means the handle was dropped \
+             and hot reload is impossible for custom shaders"
+        );
+    }
+
+    // A shader whose *source* loads but does not compile must not be
+    // recompiled every frame: the file is broken, the next attempt fails
+    // identically, and the only visible effect is one warning per frame. The
+    // pipeline is what `compile_and_store_shader` refuses to store, and that
+    // cannot be observed here (no `WgpuSurfaceResource`; a real one needs a
+    // real winit window -- see `compile_pending_shaders_runs_before_render_frame`),
+    // so this pins the two properties on this side of the boundary that make
+    // "retry on content change, never on the frame clock" work: the state is
+    // stable across frames, and the handle it holds still routes
+    // `AssetEvent::Modified` so the fixed file can reach
+    // `rebuild_modified_shaders`.
+    #[test]
+    fn a_shader_that_failed_to_compile_is_not_retried_every_frame_but_stays_reloadable() {
+        use bevy_asset::{AssetEvent, AssetServer, Assets};
+        use bevy_ecs::event::{Events, ManualEventReader};
+
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../games/mini-arena/assets/shaders/glow.wgsl");
+        let path = fixture.to_str().unwrap().to_owned();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(RenderPlugin);
+        app.world_mut()
+            .spawn(bsengine_core::CustomShader { path: path.clone() });
+
+        let mut asset_id = None;
+        for _ in 0..200 {
+            app.update();
+            if let Some(PendingShader::Ready(handle)) =
+                app.world().resource::<PendingShaders>().0.get(&path)
+            {
+                asset_id = Some(handle.id());
+                break;
+            }
+        }
+        let asset_id = asset_id.expect("the fixture shader's source must load");
+
+        // Stand in for what a surface would have done with a broken file: the
+        // same handle, moved to the state a failed compile records.
+        {
+            let mut pending = app.world_mut().resource_mut::<PendingShaders>();
+            let Some(PendingShader::Ready(handle)) = pending.0.get(&path) else {
+                unreachable!("just asserted Ready")
+            };
+            let handle = handle.clone();
+            pending
+                .0
+                .insert(path.clone(), PendingShader::CompileFailed(handle));
+        }
+
+        for _ in 0..20 {
+            app.update();
+        }
+        let state = app.world().resource::<PendingShaders>().0.get(&path);
+        assert!(
+            matches!(state, Some(PendingShader::CompileFailed(h)) if h.id() == asset_id),
+            "a shader that failed to compile must stay CompileFailed, holding \
+             the same handle: anything that moves it back to Ready or Loading \
+             makes the next frame compile the same broken file again, one \
+             warning per frame forever; got {state:?}"
+        );
+        assert!(
+            app.world()
+                .resource::<Assets<crate::shader_asset::ShaderSource>>()
+                .get(asset_id)
+                .is_some(),
+            "CompileFailed must retain a strong handle; dropping it lets \
+             track_assets free the source, and the fix the user is about to \
+             type can never arrive as AssetEvent::Modified"
+        );
+
+        // Only events emitted from here on: the buffer still holds the load's
+        // own Added/LoadedWithDependencies events.
+        let mut reader: ManualEventReader<AssetEvent<crate::shader_asset::ShaderSource>> = app
+            .world_mut()
+            .resource_mut::<Events<AssetEvent<crate::shader_asset::ShaderSource>>>()
+            .get_reader();
+        {
+            let events = app
+                .world()
+                .resource::<Events<AssetEvent<crate::shader_asset::ShaderSource>>>();
+            let _ = reader.read(events).count();
+        }
+
+        app.world().resource::<AssetServer>().reload(path);
+        let mut saw_modified = false;
+        for _ in 0..60 {
+            app.update();
+            let events = app
+                .world()
+                .resource::<Events<AssetEvent<crate::shader_asset::ShaderSource>>>();
+            if reader
+                .read(events)
+                .any(|ev| matches!(ev, AssetEvent::Modified { id } if *id == asset_id))
+            {
+                saw_modified = true;
+                break;
+            }
+        }
+        assert!(
+            saw_modified,
+            "editing a shader that previously failed to compile must still emit \
+             AssetEvent::Modified for it -- that event is the only thing \
+             rebuild_modified_shaders acts on, and without it a single typo \
+             would be permanent for the rest of the run"
+        );
+    }
+
+    // The pure half of the same rule, checked directly because no test in this
+    // workspace can run a real compile (that needs a GPU surface). Recording a
+    // failure as `Ready` is what would put the compile back on the frame clock;
+    // dropping the handle is what would make the failure permanent.
+    #[test]
+    fn a_failed_compile_is_recorded_as_compile_failed_and_keeps_its_handle() {
+        use bevy_asset::{AssetServer, Handle};
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(RenderPlugin);
+        let handle: Handle<crate::shader_asset::ShaderSource> = app
+            .world()
+            .resource::<AssetServer>()
+            .load("some/shader.wgsl".to_owned());
+
+        let ok = super::state_after_compile(Ok(()), handle.clone());
+        assert!(
+            matches!(&ok, PendingShader::Ready(h) if h.id() == handle.id()),
+            "a successful compile must land in Ready, got {ok:?}"
+        );
+
+        let failed = super::state_after_compile(Err("bad wgsl".to_string()), handle.clone());
+        assert!(
+            matches!(&failed, PendingShader::CompileFailed(h) if h.id() == handle.id()),
+            "a failed compile must land in CompileFailed holding the same \
+             handle -- Ready would have the next frame recompile the same \
+             broken source, and a dropped handle would stop the fix from ever \
+             arriving as Modified; got {failed:?}"
+        );
+    }
+
     // A shader path that cannot load must be given up on. Re-requesting a
     // failed path every frame resets it to Loading and respawns the load, so
     // the failure is never observable and the warning never fires -- the
@@ -714,6 +1291,130 @@ mod tests {
             matches!(pending, Some(PendingShader::GaveUp)),
             "an unloadable shader path must end up given up on, got {pending:?}"
         );
+    }
+
+    /// A valid 1×1 RGBA PNG. The repo ships no image files, and this test needs
+    /// one that actually decodes -- a failed load ends in `GaveUp`, which holds
+    /// no handle and would make the assertion below vacuous.
+    const MINIMAL_PNG_1X1: &[u8] = &[
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f,
+        0x15, 0xc4, 0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0xf8,
+        0xcf, 0xc0, 0xf0, 0x1f, 0x00, 0x05, 0x00, 0x01, 0xff, 0x89, 0x99, 0x3d, 0x1d, 0x00, 0x00,
+        0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    ];
+
+    // The skybox half of the same precondition
+    // `a_compiled_shader_keeps_its_handle_so_a_reload_can_reach_it` pins for
+    // shaders: `AssetEvent::Modified` only fires while a strong handle to the
+    // asset still exists, so the moment the last one drops,
+    // `Assets::track_assets` frees the image in PreUpdate and
+    // `AssetServer::reload` on that path is a silent no-op. `Ready` -- which
+    // retains the handle instead of clearing the slot on a successful upload --
+    // is what makes `rebuild_modified_skybox` reachable at all.
+    //
+    // There is no `WgpuSurfaceResource` here (a real one needs a real winit
+    // window; see `compile_pending_shaders_runs_before_render_frame`), so the
+    // upload itself cannot run and the re-uploaded skybox cannot be observed.
+    // `Ready` therefore means "image decoded and handle retained", reached
+    // whether or not the upload happened -- and the two assertions after it,
+    // not the state alone, are what prove the retention is real: a `clone_weak`
+    // handle satisfies `Ready(_)` while still letting the image be freed.
+    #[test]
+    fn an_uploaded_skybox_keeps_its_handle_so_a_reload_can_reach_it() {
+        use bevy_asset::{AssetEvent, AssetServer, Assets};
+        use bevy_ecs::event::{Events, ManualEventReader};
+        use bsengine_asset::TextureAsset;
+
+        let dir = std::env::temp_dir().join(format!(
+            "bsengine_test_skybox_reload_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let png = dir.join("sky.png");
+        std::fs::write(&png, MINIMAL_PNG_1X1).unwrap();
+        let path = png.to_string_lossy().to_string();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(RenderPlugin);
+        app.insert_resource(bsengine_core::SkyboxPath(Some(path.clone())));
+
+        let mut ready = false;
+        for _ in 0..200 {
+            app.update();
+            if matches!(
+                app.world().resource::<PendingSkybox>().0,
+                Some((_, PendingSkyboxState::Ready(_)))
+            ) {
+                ready = true;
+                break;
+            }
+        }
+        assert!(
+            ready,
+            "the skybox slot must end up Ready, still holding its handle -- \
+             clearing it frees the asset and makes reload a silent no-op"
+        );
+
+        let asset_id = {
+            let pending = &app.world().resource::<PendingSkybox>().0;
+            let Some((_, PendingSkyboxState::Ready(handle))) = pending else {
+                unreachable!("just asserted Ready")
+            };
+            handle.id()
+        };
+
+        // A few more frames so `track_assets` (PreUpdate) has had every chance
+        // to free the image. It only survives this if something still holds a
+        // *strong* handle to it.
+        for _ in 0..5 {
+            app.update();
+        }
+        assert!(
+            app.world()
+                .resource::<Assets<TextureAsset>>()
+                .get(asset_id)
+                .is_some(),
+            "the retained handle must keep the image alive; a weak one lets \
+             track_assets free it, and reload then has nothing to reload"
+        );
+
+        // Read `Modified` specifically, and only events emitted after this
+        // point: the buffer still holds the `Added`/`LoadedWithDependencies`
+        // events the initial load emitted, so a bare length check would pass
+        // even if the reload reached nothing at all.
+        let mut reader: ManualEventReader<AssetEvent<TextureAsset>> = app
+            .world_mut()
+            .resource_mut::<Events<AssetEvent<TextureAsset>>>()
+            .get_reader();
+        {
+            let events = app.world().resource::<Events<AssetEvent<TextureAsset>>>();
+            let _ = reader.read(events).count();
+        }
+
+        app.world().resource::<AssetServer>().reload(path);
+        let mut saw_modified = false;
+        for _ in 0..60 {
+            app.update();
+            let events = app.world().resource::<Events<AssetEvent<TextureAsset>>>();
+            if reader
+                .read(events)
+                .any(|ev| matches!(ev, AssetEvent::Modified { id } if *id == asset_id))
+            {
+                saw_modified = true;
+                break;
+            }
+        }
+        assert!(
+            saw_modified,
+            "reloading a skybox whose handle is retained must emit \
+             AssetEvent::Modified for it; none means the handle was dropped \
+             and hot reload is impossible for the skybox"
+        );
+
+        let _ = std::fs::remove_file(&png);
     }
 
     // The skybox equivalent of the shader test above, and for the same

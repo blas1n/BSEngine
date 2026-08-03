@@ -2515,9 +2515,63 @@ impl WgpuSurface {
             .resize_targets(&self.device, &self.depth_view, width, height);
     }
 
+    /// Checks that `wgsl` is a shader `wgpu` will accept, without touching the
+    /// GPU. `path` only labels the message.
+    ///
+    /// Both halves of `wgpu`'s own front end are run, in its order: naga's WGSL
+    /// parser (syntax and name resolution), then `naga::valid::Validator`
+    /// (everything the parser lets through). The second half is not optional --
+    /// `parse_str` alone accepts a vertex entry point with no
+    /// `@builtin(position)` output, a `return` whose type does not match the
+    /// declared one, and two globals sharing a `@binding`; all three are
+    /// rejected by the validator, which is exactly what
+    /// `wgpu::Device::create_shader_module` runs internally. Pre-checking only
+    /// the parse would leave those three cases reaching the device.
+    ///
+    /// Capabilities are `naga::valid::Capabilities::all` rather than the ones
+    /// this device actually reports, so this pass can never reject a shader the
+    /// device would have accepted. Capability-gated features (`f16`, push
+    /// constants, ...) are left to the device, whose verdict
+    /// [`Self::compile_and_store_shader`] captures with an error scope rather
+    /// than letting it panic.
+    pub fn validate_wgsl(path: &str, wgsl: &str) -> Result<(), String> {
+        let module = wgpu::naga::front::wgsl::parse_str(wgsl)
+            .map_err(|e| e.emit_to_string_with_path(wgsl, path))?;
+        wgpu::naga::valid::Validator::new(
+            wgpu::naga::valid::ValidationFlags::all(),
+            wgpu::naga::valid::Capabilities::all(),
+        )
+        .validate(&module)
+        .map(|_| ())
+        .map_err(|e| e.emit_to_string_with_path(wgsl, path))
+    }
+
     /// Compiles a WGSL custom shader and stores it as a render pipeline keyed
     /// by `path`, replacing any previously compiled pipeline for that path.
-    pub fn compile_and_store_shader(&mut self, path: &str, wgsl: &str) {
+    ///
+    /// Returns `Err` with the reason if the source does not compile, having
+    /// left `custom_pipelines` untouched -- so a shader edited into a broken
+    /// intermediate state keeps drawing with its last working pipeline instead
+    /// of vanishing. Callers use that to avoid re-attempting a compile that
+    /// cannot succeed until the file changes again.
+    ///
+    /// Nothing here may panic on bad *content*: hot reload recompiles at
+    /// runtime from whatever the file currently says, and a half-typed shader
+    /// must not take the running game down with it. `wgpu`'s default uncaptured
+    /// error handler panics, so the two device calls are wrapped in a
+    /// validation error scope. The naga pre-pass above is what produces a
+    /// readable message (line, column, offending token); the error scope is the
+    /// backstop for what a device-independent pre-pass cannot know -- capability
+    /// gaps, a renamed `vs_main`/`fs_main`, bindings that do not match
+    /// `pipeline_layout`.
+    pub fn compile_and_store_shader(&mut self, path: &str, wgsl: &str) -> Result<(), String> {
+        if let Err(e) = Self::validate_wgsl(path, wgsl) {
+            tracing::warn!(
+                "[custom_shader] '{path}' is not valid WGSL; keeping the previously compiled pipeline:\n{e}"
+            );
+            return Err(e);
+        }
+        self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let shader = self
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -2589,7 +2643,19 @@ impl WgpuSurface {
                 multiview: None,
                 cache: None,
             });
+        // `pop_error_scope`'s future is already resolved on every native
+        // backend (wgpu-core reports validation errors synchronously into the
+        // error sink and hands back a ready future), so this neither blocks nor
+        // needs the device polled.
+        if let Some(err) = pollster::block_on(self.device.pop_error_scope()) {
+            let msg = err.to_string();
+            tracing::warn!(
+                "[custom_shader] the GPU device rejected '{path}'; keeping the previously compiled pipeline: {msg}"
+            );
+            return Err(msg);
+        }
         self.custom_pipelines.insert(path.to_string(), pipeline);
+        Ok(())
     }
 
     /// Whether a custom shader has already been compiled and stored for `path`.
@@ -2797,6 +2863,129 @@ mod tests {
 }
 "#;
         let _module = WgpuSurface::compile_shader(&rhi.device, wgsl);
+    }
+
+    /// The shape `compile_and_store_shader` builds a pipeline from: a vertex
+    /// entry named `vs_main` and a fragment entry named `fs_main`.
+    const VALID_CUSTOM_WGSL: &str = r#"
+@vertex fn vs_main(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
+    return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+}
+@fragment fn fs_main() -> @location(0) vec4<f32> {
+    return vec4<f32>(1.0, 0.0, 0.0, 1.0);
+}
+"#;
+
+    #[test]
+    fn validate_wgsl_accepts_a_valid_custom_shader() {
+        assert_eq!(
+            WgpuSurface::validate_wgsl("assets/glow.wgsl", VALID_CUSTOM_WGSL),
+            Ok(()),
+            "the shader shape custom pipelines are built from must pass \
+             validation; if it does not, hot reload rejects every edit"
+        );
+    }
+
+    // The message has to be good enough to fix the shader from, not just
+    // "error": this fires while someone is mid-edit, and the log line is all
+    // they get. Asserts on the concrete line:column and the offending token so
+    // a regression to a bare "invalid shader" string fails here.
+    #[test]
+    fn validate_wgsl_rejects_a_syntax_error_naming_line_column_and_token() {
+        let broken = r#"
+@fragment fn fs_main() -> @location(0) vec4<f32> {
+    return vec4<f32>(1.0, 0.0, 0.0 1.0);
+}
+"#;
+        let err = WgpuSurface::validate_wgsl("assets/broken.wgsl", broken)
+            .expect_err("a missing argument separator is not valid WGSL");
+        assert!(
+            err.contains("assets/broken.wgsl:3:36"),
+            "the error must locate the mistake by path, line and column; got: {err}"
+        );
+        assert!(
+            err.contains("expected ')'"),
+            "the error must say what was expected where; got: {err}"
+        );
+    }
+
+    // The half that `naga::front::wgsl::parse_str` alone would miss, and the
+    // reason `validate_wgsl` runs `Validator` as well: all three of these parse
+    // cleanly and are rejected only by validation -- which is precisely what
+    // `create_shader_module` runs on the device, where a rejection panics the
+    // process. Delete the `Validator` call and this test fails.
+    #[test]
+    fn validate_wgsl_rejects_what_parsing_alone_accepts() {
+        let vertex_without_position = r#"
+@vertex fn vs_main() -> @location(0) vec4<f32> {
+    return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+}
+"#;
+        let wrong_return_type = r#"
+@fragment fn fs_main() -> @location(0) vec4<f32> {
+    return 1.0;
+}
+"#;
+        let conflicting_bindings = r#"
+@group(0) @binding(0) var<uniform> a: vec4<f32>;
+@group(0) @binding(0) var<uniform> b: vec4<f32>;
+@fragment fn fs_main() -> @location(0) vec4<f32> {
+    return a + b;
+}
+"#;
+        for (src, expected_fragment) in [
+            (vertex_without_position, "@builtin(position)"),
+            (
+                wrong_return_type,
+                "does not match the function return value",
+            ),
+            (conflicting_bindings, "conflict with other resource"),
+        ] {
+            assert!(
+                wgpu::naga::front::wgsl::parse_str(src).is_ok(),
+                "precondition: this source is supposed to parse and fail only \
+                 in validation, which is what makes it a test of the validator \
+                 pass; it no longer parses: {src}"
+            );
+            let err = WgpuSurface::validate_wgsl("assets/broken.wgsl", src)
+                .expect_err("the validator rejects this, so validate_wgsl must too");
+            assert!(
+                err.contains(expected_fragment),
+                "expected the validator's reason ({expected_fragment}) in: {err}"
+            );
+        }
+    }
+
+    // `compile_and_store_shader` cannot be called without a real
+    // `WgpuSurface` (which needs a real winit window -- see
+    // `compile_pending_shaders_runs_before_render_frame` in bsengine-render),
+    // so this pins the mechanism it relies on at the level a test can reach: a
+    // validation error scope turns a device rejection into a returned error
+    // instead of the default uncaptured-error handler's panic. Without the
+    // scope this test aborts the process rather than failing.
+    #[test]
+    fn a_validation_error_scope_captures_a_device_rejection_instead_of_panicking() {
+        let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless rhi");
+
+        rhi.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let _module = WgpuSurface::compile_shader(
+            &rhi.device,
+            "@fragment fn fs_main() -> @location(0) vec4<f32> { return vec4<f32>(0.0 1.0); }",
+        );
+        let err = pollster::block_on(rhi.device.pop_error_scope());
+        assert!(
+            err.is_some(),
+            "a broken shader must surface as a captured error; None means the \
+             rejection went to the uncaptured handler, which panics"
+        );
+
+        rhi.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let _module = WgpuSurface::compile_shader(&rhi.device, VALID_CUSTOM_WGSL);
+        assert!(
+            pollster::block_on(rhi.device.pop_error_scope()).is_none(),
+            "a valid shader must leave the scope empty; otherwise every reload \
+             would be treated as a failure and no pipeline would ever update"
+        );
     }
 
     #[test]

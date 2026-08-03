@@ -20,3 +20,7 @@ tracing.workspace = true
 [dev-dependencies]
 bsengine-app.workspace = true
 pollster.workspace = true
+# Tests only: `GpuMeshRegistry`/`GpuTextureRegistry` are constructed from a real
+# headless `wgpu::Device`, because the plugin only builds them when a winit
+# window exists. See `insert_headless_gpu_registries` in `plugin.rs`.
+wgpu.workspace = true

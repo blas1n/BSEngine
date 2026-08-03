@@ -11,6 +11,7 @@ bevy_asset.workspace = true
 bevy_reflect.workspace = true
 bevy_tasks.workspace = true
 image.workspace = true
+notify-debouncer-full.workspace = true
 
 [dev-dependencies]
 bsengine-app.workspace = true

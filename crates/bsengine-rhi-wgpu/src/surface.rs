@@ -1547,6 +1547,13 @@ impl WgpuSurface {
         self.loaded_skybox_path.as_deref()
     }
 
+    /// Records which path the currently-uploaded skybox came from, for callers
+    /// that upload via [`WgpuSurface::set_skybox_from_rgba`] and do their own
+    /// file loading.
+    pub fn set_loaded_skybox_path(&mut self, path: &str) {
+        self.loaded_skybox_path = Some(path.to_string());
+    }
+
     /// Renders one full frame: shadow map, main scene pass, post-processing,
     /// skybox, and the game/editor UI overlay, then presents the swapchain.
     /// Returns the ids of any `UiWidget::Button`s clicked this frame.

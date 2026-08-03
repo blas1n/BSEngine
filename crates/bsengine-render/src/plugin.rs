@@ -203,6 +203,122 @@ fn compile_pending_shaders(
     }
 }
 
+/// Whether the skybox named by [`PendingSkybox`] is still loading or was
+/// given up on.
+#[derive(Debug)]
+pub enum PendingSkyboxState {
+    /// Requested; waiting for `Assets<TextureAsset>` to have it.
+    Loading(bevy_asset::Handle<bsengine_asset::TextureAsset>),
+    /// The load failed. Kept so the warning fires once and the path is never
+    /// re-requested -- re-requesting a failed path restarts it, which is why a
+    /// re-requesting poll loop can never see the failure.
+    GaveUp,
+}
+
+/// The skybox load in flight, if any.
+///
+/// One slot rather than a map: there is only ever one skybox. The path is kept
+/// alongside the state so a `SkyboxPath` change mid-load abandons the old
+/// request instead of uploading a texture nobody asked for any more.
+#[derive(bevy_ecs::prelude::Resource, Default)]
+pub struct PendingSkybox(pub Option<(String, PendingSkyboxState)>);
+
+/// Keeps the surface's skybox in sync with `SkyboxPath`, reading the image
+/// through `Assets<TextureAsset>` and uploading it with
+/// `set_skybox_from_rgba`.
+///
+/// Item 23 split `set_skybox` into decode and upload halves; this is the
+/// consumer that split was for. It gets its own system rather than staying in
+/// `render_frame` because that function is already at Bevy 0.14's
+/// 16-top-level-param ceiling (see the comment on its `render_queries` param),
+/// and because waiting across frames is not a render pass's job.
+///
+/// The missing `WgpuSurfaceResource` case is *not* an early return: only the
+/// upload needs the GPU, so requesting, polling and failure detection run
+/// regardless. A real surface needs a real winit window (see
+/// `compile_pending_shaders_runs_before_render_frame`), so an early return
+/// would make the give-up path unreachable in every test this workspace can
+/// write.
+fn upload_pending_skybox(
+    mut surface: Option<ResMut<WgpuSurfaceResource>>,
+    skybox_path: Option<Res<SkyboxPath>>,
+    texture_assets: bevy_ecs::prelude::Res<bevy_asset::Assets<bsengine_asset::TextureAsset>>,
+    asset_server: bevy_ecs::prelude::Res<bevy_asset::AssetServer>,
+    mut pending: ResMut<PendingSkybox>,
+) {
+    let Some(skybox_path) = skybox_path else {
+        return;
+    };
+    let wanted = skybox_path.0.as_deref();
+
+    // Already showing exactly what's asked for. Any request still in flight is
+    // for a path nobody wants any more, so let it go.
+    if surface
+        .as_ref()
+        .is_some_and(|s| s.0.loaded_skybox_path() == wanted)
+    {
+        if pending.0.is_some() {
+            pending.0 = None;
+        }
+        return;
+    }
+
+    let Some(wanted) = wanted else {
+        // The skybox was turned off; drop the in-flight request with it.
+        if let Some(surface) = surface.as_mut() {
+            surface.0.clear_skybox();
+        }
+        if pending.0.is_some() {
+            pending.0 = None;
+        }
+        return;
+    };
+
+    // `SkyboxPath` changed mid-load: abandon the old request rather than
+    // upload a texture nobody asked for any more.
+    if pending.0.as_ref().is_some_and(|(p, _)| p != wanted) {
+        pending.0 = None;
+    }
+
+    // Cloned out so the poll below can write back to `pending` (a `Handle` is
+    // refcounted, so this is a cheap bump, not a copy of the image).
+    let in_flight = match &pending.0 {
+        Some((_, PendingSkyboxState::GaveUp)) => return,
+        Some((_, PendingSkyboxState::Loading(handle))) => Some(handle.clone()),
+        None => None,
+    };
+
+    let Some(handle) = in_flight else {
+        // Requested exactly once, then polled -- never re-requested. Called
+        // directly rather than through `bsengine_asset::load` because that
+        // dispatcher takes a `sync_loader` closure for its `LoadMode::Sync`
+        // arm and there is no synchronous texture loader in this codebase:
+        // item 23 only ever wrote `TextureAssetLoader`, for the async path.
+        let handle = asset_server.load::<bsengine_asset::TextureAsset>(wanted.to_string());
+        pending.0 = Some((wanted.to_string(), PendingSkyboxState::Loading(handle)));
+        return;
+    };
+
+    if let Some(tex) = texture_assets.get(&handle) {
+        // The pixels are here; only the upload needs the GPU. Without a
+        // surface, stay `Loading` and retry next frame — the load itself is
+        // done, so this costs nothing.
+        if let Some(surface) = surface.as_mut() {
+            surface
+                .0
+                .set_skybox_from_rgba(tex.width, tex.height, &tex.data);
+            // `set_skybox_from_rgba` doesn't record the path (item 23 left
+            // that bookkeeping in `set_skybox`), so do it here — the dedupe
+            // check above is what stops this re-uploading every frame.
+            surface.0.set_loaded_skybox_path(wanted);
+            pending.0 = None;
+        }
+    } else if let bevy_asset::LoadState::Failed(e) = asset_server.load_state(&handle) {
+        tracing::warn!("skybox: cannot read '{wanted}': {e}");
+        pending.0 = Some((wanted.to_string(), PendingSkyboxState::GaveUp));
+    }
+}
+
 #[allow(clippy::too_many_arguments)] // Bevy system params; splitting into a struct is a larger refactor
 fn render_frame(
     surface: Option<ResMut<WgpuSurfaceResource>>,
@@ -210,7 +326,6 @@ fn render_frame(
     registry: Option<Res<GpuMeshRegistry>>,
     tex_registry: Option<Res<GpuTextureRegistry>>,
     hud_texts: Option<Res<HudTexts>>,
-    skybox_path: Option<Res<SkyboxPath>>,
     mut ui_state: Option<ResMut<UiState>>,
     mut inspector: Option<ResMut<InspectorState>>,
     mouse_state: Option<Res<MouseState>>,
@@ -277,22 +392,6 @@ fn render_frame(
         .as_deref()
         .map(|k| k.is_pressed(&KeyCode::AltLeft) || k.is_pressed(&KeyCode::AltRight))
         .unwrap_or(false);
-
-    // Load or reload skybox when SkyboxPath changes
-    if let Some(sp) = &skybox_path {
-        let current = sp.0.as_deref();
-        let loaded = surface.0.loaded_skybox_path();
-        if current != loaded {
-            match current {
-                Some(p) => {
-                    if let Err(e) = surface.0.set_skybox(p) {
-                        tracing::warn!("skybox: {e}");
-                    }
-                }
-                None => surface.0.clear_skybox(),
-            }
-        }
-    }
 
     let (mut view_proj, mut cam_pos, mut cam_proj, bloom, tone_map, ambient_occlusion) =
         render_queries
@@ -477,6 +576,7 @@ impl Plugin for RenderPlugin {
             .register_asset_loader(crate::shader_asset::ShaderSourceLoader)
             .init_resource::<UiState>()
             .init_resource::<PendingShaders>()
+            .init_resource::<PendingSkybox>()
             .add_event::<WindowResized>()
             .add_event::<KeyInput>()
             .add_systems(Update, update_camera_aspect)
@@ -486,6 +586,7 @@ impl Plugin for RenderPlugin {
                     propagate_roots,
                     propagate_children,
                     compile_pending_shaders,
+                    upload_pending_skybox,
                     render_frame,
                 )
                     .chain(),
@@ -495,7 +596,7 @@ impl Plugin for RenderPlugin {
 
 #[cfg(test)]
 mod tests {
-    use super::{PendingShader, PendingShaders, RenderPlugin};
+    use super::{PendingShader, PendingShaders, PendingSkybox, PendingSkyboxState, RenderPlugin};
     use crate::components::MeshRenderer;
     use bsengine_app::new_app;
     use bsengine_core::{Camera, Material, PointLight, Transform};
@@ -551,6 +652,10 @@ mod tests {
             .unwrap_or_else(|| {
                 panic!("compile_pending_shaders not found in PostUpdate: {names:?}")
             });
+        let skybox_idx = names
+            .iter()
+            .position(|n| n.contains("upload_pending_skybox"))
+            .unwrap_or_else(|| panic!("upload_pending_skybox not found in PostUpdate: {names:?}"));
         let render_idx = names
             .iter()
             .position(|n| n.contains("render_frame"))
@@ -561,6 +666,12 @@ mod tests {
             "compile_pending_shaders (index {compile_idx}) must run before render_frame \
              (index {render_idx}) so shaders compiled this frame are available to it; \
              actual PostUpdate order: {names:?}"
+        );
+        assert!(
+            skybox_idx < render_idx,
+            "upload_pending_skybox (index {skybox_idx}) must run before render_frame \
+             (index {render_idx}) so a skybox uploaded this frame is available to its \
+             has_skybox check; actual PostUpdate order: {names:?}"
         );
     }
 
@@ -590,6 +701,32 @@ mod tests {
         assert!(
             matches!(pending, Some(PendingShader::GaveUp)),
             "an unloadable shader path must end up given up on, got {pending:?}"
+        );
+    }
+
+    // The skybox equivalent of the shader test above, and for the same
+    // reason: `upload_pending_skybox` requests the texture once and polls the
+    // handle it kept. Re-requesting the path each frame would reset the failed
+    // load to `Loading` and restart it, so the give-up state would never be
+    // reached and this would spin forever.
+    #[test]
+    fn missing_skybox_is_given_up_on_instead_of_retried_forever() {
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(RenderPlugin);
+        app.insert_resource(bsengine_core::SkyboxPath(Some(
+            "definitely/not/a/real/sky.png".to_string(),
+        )));
+
+        for _ in 0..200 {
+            app.update();
+        }
+
+        let pending = &app.world().resource::<PendingSkybox>().0;
+        assert!(
+            matches!(pending, Some((_, PendingSkyboxState::GaveUp))),
+            "an unloadable skybox path must end up given up on, got {pending:?}"
         );
     }
 

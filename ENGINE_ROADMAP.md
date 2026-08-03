@@ -548,7 +548,34 @@ libtest는 모든 `#[test]`를 spawn된 스레드에서 실행하고, Rust는 �
 
   **한계(의도적):** 리로드된 glTF의 메시/이미지 **개수**가 달라지면 겹치는 부분만 재구축하고
   경고한다 — 나머지 엔티티는 로드 시점에 스폰된 것이라 이 방식으로 표현할 수 없다. 재시작이
-  필요하다.
+  필요하다. 스킨이 새로 생기거나 사라지는 경우도 같은 부류라 경고 후 건너뛴다.
+  `AnimationPlayer.clip`은 갱신하지 않는다 — 어떤 클립을 재생할지는 `AnimationStateMachine`이
+  소유할 수 있는 결정이기 때문이며, duration만 현재 재생 중인 클립에서 다시 읽는다.
+  컴파일에 실패한 셰이더는 `CompileFailed`로 남아 프레임마다 재시도하지 않지만 핸들은 계속
+  쥐고 있다 — 고친 파일이 도착할 `Modified`가 바로 그 핸들에 실린다.
+
+  **최종 리뷰가 잡은 Critical — 스킨드 메시가 리로드를 매 프레임 덮어썼다.**
+  `update_skinned_meshes`(PostUpdate)는 로드 시점에 복제해 둔 `SkinnedMesh.rest_vertices`로
+  변형 정점을 만들어 같은 `mesh_id` 버퍼에 쓴다. 재구축은 Update에서 도니, **같은 프레임 안에서**
+  새 지오메트리가 옛 정점 기반 데이터로 덮어써졌다 — 화면상 아무 일도 일어나지 않는 조용한
+  no-op. 게다가 정점 수가 줄면 `update_vertices`에 크기 가드가 없어 wgpu `BufferOverrun` →
+  **프로세스 사망**이었다(실측: `Copy of 0..76032 would end up overrunning the bounds of the
+  Destination buffer of size 132`). 이건 가설이 아니라 `games/mini-arena`가 두 번 로드하는
+  `fox.glb`가 정확히 스킨드 에셋(skins:1, 애니메이션 3종)이라 실제로 걸리는 경로였다.
+  재구축이 `rest_vertices`/`skin`/`skin_data`/`nodes`/클립 라이브러리를 함께 갱신하도록 고쳤고,
+  `update_vertices`에는 방어선으로 길이 가드를 넣었다.
+
+  **왜 못 잡았나:** 헤드리스 테스트 헬퍼가 registry 두 개만 넣고 `GpuQueueResource`를 넣지
+  않아 `update_skinned_meshes`가 조기 반환했고, 단언이 `get_bounds`(재구축은 갱신하지만
+  덮어쓰기는 건드리지 않는 값) 대상이라 어느 쪽이든 초록이었다. 이 브랜치가 내내 경계해 온
+  "깨진 구현에서도 통과하는 테스트"가 가장 중요한 테스트에서 일어난 셈이다.
+
+  **런타임 셰이더 컴파일이 프로세스를 죽이던 것도 함께 고쳤다.** `create_shader_module`은 에러
+  스코프 없이 호출돼 WGSL 오류가 wgpu 기본 핸들러의 패닉으로 이어졌다. 시작 시점이면 "깨진
+  셰이더를 배포했다"로 끝이지만, 핫리로드는 **중간에 깨진 상태를 거치며 반복하는 것 자체가
+  목적**이라 용납할 수 없다. 이제 naga의 두 단계(파서 + `Validator`)로 미리 검증하고, 실패하면
+  경고 후 **이전 파이프라인을 그대로 둔다** — 편집 중인 오브젝트가 새까매지지 않아야 한다는
+  설계 문서의 요구사항 그대로다.
 
   **테스트 규율:** 각 소비자의 보관 테스트는 열거형 상태만 보면 안 된다는 걸 실측했다 —
   `clone_weak` 핸들은 `matches!(Ready(_))`를 만족시키면서도 `track_assets`가 에셋을 해제하게

@@ -108,6 +108,16 @@ fn propagate_children(
 enum PendingShader {
     /// Requested; waiting for `Assets<ShaderSource>` to have it.
     Loading(bevy_asset::Handle<crate::shader_asset::ShaderSource>),
+    /// Source loaded and the handle retained. Kept rather than dropped because
+    /// `AssetEvent::Modified` only fires while a strong handle exists; dropping
+    /// it here would make `AssetServer::reload` on this path a silent no-op
+    /// (measured by `reload_emits_modified_only_while_a_handle_is_retained` in
+    /// `bsengine-gltf`).
+    ///
+    /// Says nothing about the *compile*, which needs a GPU the load does not:
+    /// a source that arrives before `WgpuSurfaceResource` exists is `Ready`
+    /// with no pipeline behind it, and this arm compiles it once one shows up.
+    Ready(bevy_asset::Handle<crate::shader_asset::ShaderSource>),
     /// The load failed. Kept so the warning fires once rather than per frame,
     /// and so the path is never re-requested -- re-requesting a failed path
     /// resets it to `Loading` and starts the load over, which is why a
@@ -169,17 +179,36 @@ fn compile_pending_shaders(
         match pending.0.get(&cs.path) {
             // Requested already -- poll the handle we kept. Never re-request.
             Some(PendingShader::Loading(handle)) => {
-                if let Some(src) = shader_assets.get(handle) {
-                    // The source is here; only the compile needs the GPU.
-                    // Without a surface, stay `Loading` and retry next frame
-                    // — the load itself is done, so this costs nothing.
+                // Cloned so the state can be written back below (a `Handle` is
+                // refcounted, so this is a bump, not a copy of the source).
+                let handle = handle.clone();
+                if let Some(src) = shader_assets.get(&handle) {
+                    // The source is here; only the compile needs the GPU. The
+                    // path becomes `Ready` either way: `Ready` is what retains
+                    // the handle, and staying `Loading` until a surface exists
+                    // would leave hot reload switched off for exactly as long.
+                    // The `Ready` arm below picks the compile up instead.
                     if let Some(surface) = surface.as_mut() {
                         surface.0.compile_and_store_shader(&cs.path, &src.0);
-                        pending.0.remove(&cs.path);
                     }
-                } else if let bevy_asset::LoadState::Failed(e) = asset_server.load_state(handle) {
+                    pending
+                        .0
+                        .insert(cs.path.clone(), PendingShader::Ready(handle));
+                } else if let bevy_asset::LoadState::Failed(e) = asset_server.load_state(&handle) {
                     tracing::warn!("[custom_shader] cannot read '{}': {e}", cs.path);
                     pending.0.insert(cs.path.clone(), PendingShader::GaveUp);
+                }
+            }
+            // Source in hand, handle retained: nothing left to request, and
+            // never re-requested. Reaching here at all means the early-skip
+            // above found no compiled pipeline for this path -- i.e. the
+            // source arrived before `WgpuSurfaceResource` did -- so compile it
+            // now if a surface has since appeared. `compile_and_store_shader`
+            // always stores, so the skip fires from the next frame on and this
+            // runs exactly once.
+            Some(PendingShader::Ready(handle)) => {
+                if let (Some(src), Some(surface)) = (shader_assets.get(handle), surface.as_mut()) {
+                    surface.0.compile_and_store_shader(&cs.path, &src.0);
                 }
             }
             Some(PendingShader::GaveUp) => {}
@@ -203,6 +232,52 @@ fn compile_pending_shaders(
                     pending.0.insert(cs.path.clone(), PendingShader::GaveUp);
                 }
             },
+        }
+    }
+}
+
+/// Recompiles a custom shader whose source was replaced.
+///
+/// `compile_and_store_shader` inserts into `custom_pipelines` keyed by path, so
+/// recompiling overwrites the old pipeline; no explicit invalidation is needed.
+/// That also makes one recompile per path enough no matter how many entities
+/// name it -- [`PendingShaders`] is keyed by path, and `render_frame` looks the
+/// pipeline up by path too.
+///
+/// Separate from `compile_pending_shaders` rather than folded into it because
+/// that function skips any path the surface has already compiled -- which is
+/// every reloadable one. A reload is the one case where recompiling an
+/// already-compiled path is the whole point.
+///
+/// Without a `WgpuSurfaceResource` this does nothing and leaves the `Ready`
+/// state alone: the source is already in `Assets` and the handle is still
+/// retained, so the next reload is reached just the same.
+fn rebuild_modified_shaders(
+    mut events: bevy_ecs::prelude::EventReader<
+        bevy_asset::AssetEvent<crate::shader_asset::ShaderSource>,
+    >,
+    mut surface: Option<ResMut<WgpuSurfaceResource>>,
+    shader_assets: Res<bevy_asset::Assets<crate::shader_asset::ShaderSource>>,
+    pending: Res<PendingShaders>,
+) {
+    for event in events.read() {
+        let bevy_asset::AssetEvent::Modified { id } = event else {
+            continue;
+        };
+        for (path, state) in pending.0.iter() {
+            let PendingShader::Ready(handle) = state else {
+                continue;
+            };
+            if handle.id() != *id {
+                continue;
+            }
+            let Some(src) = shader_assets.get(handle) else {
+                continue;
+            };
+            let Some(surface) = surface.as_mut() else {
+                continue;
+            };
+            surface.0.compile_and_store_shader(path, &src.0);
         }
     }
 }
@@ -598,6 +673,7 @@ impl Plugin for RenderPlugin {
                     propagate_roots,
                     propagate_children,
                     compile_pending_shaders,
+                    rebuild_modified_shaders,
                     upload_pending_skybox,
                     render_frame,
                 )
@@ -684,6 +760,167 @@ mod tests {
             "upload_pending_skybox (index {skybox_idx}) must run before render_frame \
              (index {render_idx}) so a skybox uploaded this frame is available to its \
              has_skybox check; actual PostUpdate order: {names:?}"
+        );
+    }
+
+    // Same structural argument as the test above, for the reload half.
+    // `rebuild_modified_shaders` must sit *after* `compile_pending_shaders`
+    // (which is what puts a path into `Ready`, the only state the rebuild
+    // looks at -- ahead of it, the very first Modified event would find an
+    // empty map) and *before* `render_frame` (or the frame draws with the
+    // stale pipeline the reload was meant to replace). Both are `.chain()`
+    // edges today; a reorder that starves the rebuild has to fail here.
+    #[test]
+    fn rebuild_modified_shaders_runs_between_compile_and_render_frame() {
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(RenderPlugin);
+        // Schedules are only populated with their executable system list
+        // after at least one run.
+        app.update();
+
+        let schedule = app
+            .get_schedule(bevy_app::PostUpdate)
+            .expect("RenderPlugin registers systems into PostUpdate");
+        let names: Vec<String> = schedule
+            .systems()
+            .expect("schedule is initialized after app.update()")
+            .map(|(_, system)| system.name().to_string())
+            .collect();
+
+        let find = |needle: &str| {
+            names
+                .iter()
+                .position(|n| n.contains(needle))
+                .unwrap_or_else(|| panic!("{needle} not found in PostUpdate: {names:?}"))
+        };
+        let compile_idx = find("compile_pending_shaders");
+        let rebuild_idx = find("rebuild_modified_shaders");
+        let render_idx = find("render_frame");
+
+        assert!(
+            compile_idx < rebuild_idx,
+            "compile_pending_shaders (index {compile_idx}) must run before \
+             rebuild_modified_shaders (index {rebuild_idx}): it is what records \
+             the Ready handle the rebuild matches Modified events against; \
+             actual PostUpdate order: {names:?}"
+        );
+        assert!(
+            rebuild_idx < render_idx,
+            "rebuild_modified_shaders (index {rebuild_idx}) must run before \
+             render_frame (index {render_idx}) so a shader recompiled this frame \
+             is the one drawn with; actual PostUpdate order: {names:?}"
+        );
+    }
+
+    // The precondition for shader hot reload, and the only part of it a
+    // headless test can reach. `AssetEvent::Modified` only fires while a
+    // strong handle to the asset still exists: drop the last one and
+    // `Assets::track_assets` frees the asset in PreUpdate, after which
+    // `AssetServer::reload` on that path is a silent no-op (measured by
+    // `reload_emits_modified_only_while_a_handle_is_retained` in
+    // bsengine-gltf). So `Ready` -- which retains the handle -- is what makes
+    // `rebuild_modified_shaders` reachable at all.
+    //
+    // There is no `WgpuSurfaceResource` here (a real one needs a real winit
+    // window; see `compile_pending_shaders_runs_before_render_frame`), so the
+    // compile itself cannot run and the recompiled pipeline cannot be
+    // observed. `Ready` therefore means "source loaded and handle retained",
+    // reached whether or not the compile happened -- and the reload assertion
+    // below, not the state alone, is what proves the retention is real: a
+    // `clone_weak` handle would satisfy `Ready(_)` while still letting the
+    // asset be freed.
+    #[test]
+    fn a_compiled_shader_keeps_its_handle_so_a_reload_can_reach_it() {
+        use bevy_asset::{AssetEvent, AssetServer, Assets};
+        use bevy_ecs::event::{Events, ManualEventReader};
+
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../games/mini-arena/assets/shaders/glow.wgsl");
+        let path = fixture.to_str().unwrap().to_owned();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(RenderPlugin);
+        app.world_mut()
+            .spawn(bsengine_core::CustomShader { path: path.clone() });
+
+        let mut ready = false;
+        for _ in 0..200 {
+            app.update();
+            if matches!(
+                app.world().resource::<PendingShaders>().0.get(&path),
+                Some(PendingShader::Ready(_))
+            ) {
+                ready = true;
+                break;
+            }
+        }
+        assert!(
+            ready,
+            "a shader whose source has loaded must end up Ready, holding its \
+             handle -- without it AssetEvent::Modified can never fire for it"
+        );
+
+        let asset_id = {
+            let pending = app.world().resource::<PendingShaders>();
+            let Some(PendingShader::Ready(handle)) = pending.0.get(&path) else {
+                unreachable!("just asserted Ready")
+            };
+            handle.id()
+        };
+
+        // A few more frames so `track_assets` (PreUpdate) has had every chance
+        // to free the source. It only survives this if something still holds a
+        // *strong* handle to it.
+        for _ in 0..5 {
+            app.update();
+        }
+        assert!(
+            app.world()
+                .resource::<Assets<crate::shader_asset::ShaderSource>>()
+                .get(asset_id)
+                .is_some(),
+            "the retained handle must keep the source alive; a weak one lets \
+             track_assets free it, and reload then has nothing to reload"
+        );
+
+        // Read `Modified` specifically, and only events emitted after this
+        // point: the buffer still holds the `Added`/`LoadedWithDependencies`
+        // events the initial load emitted, so a bare length check would pass
+        // even if the reload reached nothing at all.
+        let mut reader: ManualEventReader<AssetEvent<crate::shader_asset::ShaderSource>> = app
+            .world_mut()
+            .resource_mut::<Events<AssetEvent<crate::shader_asset::ShaderSource>>>()
+            .get_reader();
+        {
+            let events = app
+                .world()
+                .resource::<Events<AssetEvent<crate::shader_asset::ShaderSource>>>();
+            let _ = reader.read(events).count();
+        }
+
+        app.world().resource::<AssetServer>().reload(path);
+        let mut saw_modified = false;
+        for _ in 0..60 {
+            app.update();
+            let events = app
+                .world()
+                .resource::<Events<AssetEvent<crate::shader_asset::ShaderSource>>>();
+            if reader
+                .read(events)
+                .any(|ev| matches!(ev, AssetEvent::Modified { id } if *id == asset_id))
+            {
+                saw_modified = true;
+                break;
+            }
+        }
+        assert!(
+            saw_modified,
+            "reloading a shader whose handle is retained must emit \
+             AssetEvent::Modified for it; none means the handle was dropped \
+             and hot reload is impossible for custom shaders"
         );
     }
 

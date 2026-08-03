@@ -471,7 +471,32 @@ libtest는 모든 `#[test]`를 spawn된 스레드에서 실행하고, Rust는 �
   이미 부하에 따라 실패하던 `games/mini-arena` 녹화도 이걸로 복구했다(동시 4회 부하에서
   옛 녹화 4/4 실패 → 새 녹화 4/4 통과). MCP `test_wait_until`로도 노출해 신규 녹화가
   고정 프레임으로 되돌아가지 않게 함
-- [ ] **(Phase 2)** glTF/셰이더/텍스처/오디오 호출부를 `LoadMode::Async`로 전환
+- [x] **(Phase 2)** glTF/셰이더/텍스처/오디오 호출부를 `LoadMode::Async`로 전환 — 4개
+  소비자 모두 "요청은 한 번, 핸들을 보관, 보관한 핸들을 폴링" 형태로 통일. 각각
+  `PendingGltf`(엔티티별 컴포넌트) / `PendingShaders`(경로 키 맵) / `PendingSkybox`(단일
+  슬롯) / `PendingSounds`(큐)로, 자료구조만 소비자 수에 맞게 다르다.
+
+  **핵심 함정 — 실패한 에셋을 다시 요청하면 실패가 지워진다.** `AssetServer::load`는
+  `HandleLoadingMode::Request`를 쓰는데, `bevy_asset-0.14.2`(`server/info.rs:212-221`)는
+  이미 `Failed` 상태인 에셋에 이게 호출되면 **상태를 `Loading`으로 되돌리고 로드를 다시
+  띄운다**. 그리고 `LoadState::Failed`는 `PreUpdate`에서 설정되는데 소비자 시스템은
+  `Update`/`PostUpdate`에서 돈다. 그래서 "매 프레임 경로로 재요청한 뒤 `load_state`로
+  실패를 확인" 하는 자연스러워 보이는 형태는 **실패 분기에 영원히 도달하지 못하고,
+  프레임당 파일시스템 태스크를 하나씩 흘린다.** 실측: 없는 셰이더 경로 하나에 대해
+  200프레임 동안 재요청 방식은 `Path not found` 200회, 현재 방식은 1회.
+
+  부수적으로, 실패 분기가 헤드리스 테스트에서 도달 가능하려면 GPU 리소스
+  검사(`GpuMeshRegistry`/`WgpuSurfaceResource`)를 요청·폴링·실패감지 **아래로** 내려야
+  했다. 진짜 서피스는 진짜 winit 윈도우를 요구하므로, 위에 두면 이 워크스페이스가 쓸 수
+  있는 어떤 테스트로도 give-up 경로를 검증할 수 없다.
+
+  **동반 회귀 수정:** `playSound`가 비동기가 되면서 id가 `SoundHandles`에 몇 프레임 늦게
+  도착한다. 그 사이 도착한 `stopSound`는 아무것도 못 찾고 no-op이 되고, 이후 로드가
+  끝나면 **정지를 요청한 사운드가 재생되는** 반전이 생긴다. `StopSound`가 대기 큐도
+  함께 비우도록 고쳤다. 나머지 6개(`pauseSound`/`resumeSound`/`setSoundVolume`/
+  `setSoundPanning`/`setSoundPlaybackRate`/`seekSound`)는 대기 중인 항목에 닿지 않는 채로
+  두었다 — 항목마다 지연 파라미터 일체를 보관해야 하는 별도 설계인데다, 재생 중이 아닌
+  id에 대해 조용히 무시되는 건 원래부터의 동작이라 반전이 아니기 때문이다.
 - [ ] **(Phase 3)** `bevy_asset`의 `file_watcher` 피처 활성화 — 텍스처/glTF/WGSL/오디오
   변경 시 실행 중인 게임/에디터에 자동 반영. 단, `AssetPlugin.file_path`가 `""`라 에셋
   루트가 리포 전체(`target/` 포함)가 되므로, `<ProjectDir>/assets`로 스코프를 좁힌 워처가

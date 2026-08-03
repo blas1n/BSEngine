@@ -29,8 +29,8 @@
 //! make the system O(recorded paths) every frame, so the map is not a place
 //! to put a path per *entity*. See [`AssetStatuses`] for what bounds it.
 //!
-//! It also takes one uncontended `Mutex` lock per frame to drain
-//! [`record_asset_request`]'s channel, and a load site pays one more lock plus
+//! It also takes one uncontended `Mutex` lock per frame to read
+//! [`record_asset_request`]'s set, and a load site pays one more lock plus
 //! (for a path not already pending) one `String` allocation per *request* —
 //! not per frame, because every consumer in this engine requests a path once
 //! and then polls the handle it kept.
@@ -133,8 +133,10 @@ impl AssetStatuses {
     }
 }
 
-/// Paths that [`record_asset_request`] has been told about and no
-/// [`collect_asset_statuses`] run has claimed yet.
+/// Every path [`record_asset_request`] has been told about.
+///
+/// Read by [`collect_asset_statuses`], never drained by it: see there for what
+/// a destructive claim costs an app that is not the first to run.
 ///
 /// # Why a process-global side channel, stated plainly
 ///
@@ -166,27 +168,26 @@ impl AssetStatuses {
 ///   costs one lock and no allocation on every request after the first.
 /// * Several `App`s in one process do not steal each other's requests. That
 ///   is not hypothetical: this crate's own test run is a dozen `App`s across
-///   parallel test threads. [`collect_asset_statuses`] claims only paths its
-///   *own* `AssetServer` knows about and leaves the rest in place.
+///   parallel test threads, and an editor hosting a game is two
+///   `AssetServer`s over one project. [`collect_asset_statuses`] *reads* this
+///   set rather than draining it, and copies across only the paths its own
+///   `AssetServer` knows about, so every app sees every request — including
+///   the same path twice.
 ///
 /// # What bounds it
 ///
-/// In a running engine it empties every frame: `AssetServer::load` creates
-/// the path's `AssetInfo` before it returns, so the very next collector run
-/// recognises and claims it.
+/// Nothing removes entries, so this holds one `String` per *distinct path the
+/// process has requested* — the same bound [`AssetStatuses`] itself has, and
+/// for the same reason (see there): a path is one entry however many times it
+/// is requested or retried, and nothing in this engine synthesises fresh path
+/// strings at runtime.
 ///
-/// An app that adds `AssetPlugin` but not [`AssetStatusPlugin`] never drains
-/// it at all. That is bounded by the number of *distinct* paths that app
-/// requests — the same bound [`AssetStatuses`] itself has, and for the same
-/// reason (see there): nothing in this engine synthesises fresh path strings
-/// at runtime. The residue is a `String` per path, and it is never walked by
-/// anybody, because the only thing that walks it is the collector that app
-/// does not have.
-///
-/// The one entry that can linger in an app that *does* collect is a path
-/// whose handle was dropped before the next `Update` — the `AssetInfo` is
-/// gone, so no collector recognises it. Same bound, and the path is one
-/// nobody kept a handle to.
+/// An app that adds `AssetPlugin` but not [`AssetStatusPlugin`] never reads it
+/// at all, so its residue is never even walked. An app that does collect walks
+/// it once per frame and skips, with one hash lookup each, the paths already
+/// in its map — which after the first few frames is all of them. That is the
+/// price of the property above, and it is the same order as the per-path work
+/// the refresh already does.
 static REQUESTED_PATHS: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Mutex::default);
 
 /// Notes that something asked for `path`, so that [`AssetStatuses`] can report
@@ -290,6 +291,16 @@ pub(crate) fn record_asset_request(path: &str) {
 /// the last thing actually observed is the honest answer here; the alternative
 /// — silently downgrading it to `Unknown` — is the exact "nothing happened"
 /// ambiguity this module removes.
+///
+/// This has one live instance today, worth naming so the next reader does not
+/// have to rediscover it: `bsengine_render`'s custom-shader system replaces
+/// `PendingShader::Loading(handle)` with `PendingShader::GaveUp` when the load
+/// state reads `Failed`, dropping the handle (`bsengine-render/src/plugin.rs`,
+/// in `compile_pending_shaders`). So in the editor, fixing a broken `glow.wgsl` on
+/// disk leaves `getAssetStatus` reporting `failed:` for it until restart. The
+/// answer stays honest rather than merely stale: that shader will not
+/// recompile either until something requests it again, because the same
+/// dropped handle is what stops `bevy_asset` from noticing the file changed.
 pub fn collect_asset_statuses(
     mut failures: EventReader<UntypedAssetLoadFailedEvent>,
     asset_server: Res<AssetServer>,
@@ -306,30 +317,39 @@ pub fn collect_asset_statuses(
     // refresh below, so a path requested this frame reports its real state
     // this frame rather than one frame late.
     {
-        let mut requested = REQUESTED_PATHS
+        let requested = REQUESTED_PATHS
             .lock()
             .unwrap_or_else(PoisonError::into_inner);
-        requested.retain(|path| {
+        for path in requested.iter() {
+            // Read, never drained. Removing a claimed path would make it
+            // claimable exactly once per *process*: two `App`s that both
+            // request `assets/tex.png` — an editor hosting a game is two
+            // `AssetServer`s over one project — would have the first collector
+            // to run take the entry, and the second's map would never receive
+            // the key at all. The refresh below only walks keys that are
+            // already in the map, so that second app would report `Unknown`
+            // for a path it requested and successfully loaded: silent, and
+            // only in the success direction, since a *failure* still arrives
+            // on `UntypedAssetLoadFailedEvent`. That success direction is the
+            // entire reason request-recording exists.
+            if statuses.by_path.contains_key(path) {
+                continue;
+            }
             // Whether *this* app's `AssetServer` knows the path is what says
             // whose request it was. Several `App`s share this channel (this
             // crate's own test run is exactly that), and claiming a path this
-            // server never heard of would both steal it from the app that did
-            // request it and park it here as a `Loading` that can never
-            // resolve, since every later refresh would read `NotLoaded`.
+            // server never heard of would park it here as a `Loading` that can
+            // never resolve, since every later refresh would read `NotLoaded`.
             if asset_server.get_path_id(path).is_none() {
-                return true;
+                continue;
             }
-            // `or_insert`, not `insert`: a request must never overwrite a
-            // verdict. A re-request of a failed path does move it back to
-            // `Loading` — but by way of `bevy_asset` actually resetting the
-            // load state, which the refresh below reads, not because the
-            // caller said so.
-            statuses
-                .by_path
-                .entry(path.clone())
-                .or_insert(AssetStatus::Loading);
-            false
-        });
+            // The `contains_key` above is what keeps a request from
+            // overwriting a verdict. A re-request of a failed path does move
+            // it back to `Loading` — but by way of `bevy_asset` actually
+            // resetting the load state, which the refresh below reads, not
+            // because the caller said so.
+            statuses.by_path.insert(path.clone(), AssetStatus::Loading);
+        }
     }
 
     for (path, status) in statuses.by_path.iter_mut() {
@@ -493,6 +513,61 @@ mod tests {
             AssetStatus::Loaded,
             "a file that exists and loads must report Loaded; anything else means \
              a successful load is indistinguishable from one nobody requested"
+        );
+    }
+
+    /// Two `App`s that request the *same* path must both be able to report it.
+    ///
+    /// The request side channel is process-global and shared, so the question
+    /// is what a collector does with a path it has claimed. Draining — which
+    /// this did until it was caught in review — makes a path claimable exactly
+    /// once per process: the first collector to run takes the entry and the
+    /// second app's map never receives the key, so the refresh (which only
+    /// walks keys already in the map) never touches it and the second app
+    /// reports `Unknown` for a path it requested and successfully loaded.
+    ///
+    /// Deliberately the **success** direction, and deliberately one file. A
+    /// failure would be rescued by `UntypedAssetLoadFailedEvent`, which carries
+    /// its own path and needs no request record at all, so a failing probe here
+    /// would pass against either version and prove nothing. Success is the half
+    /// only the request record can supply — and losing it is silent.
+    ///
+    /// Not reachable in this tree today (every other test uses a unique path),
+    /// but an editor hosting a game is two `AssetServer`s over one project.
+    #[test]
+    fn two_apps_requesting_one_path_both_report_it() {
+        let dir = unique("shared");
+        let _guard = ProbeDir(PathBuf::from(&dir));
+        std::fs::create_dir_all(&dir).unwrap();
+        let rel = format!("{dir}/shared-texture.png");
+        write_png(&PathBuf::from(&rel));
+
+        let mut first = new_app();
+        first.add_plugins((AssetPlugin, AssetStatusPlugin));
+        let mut second = new_app();
+        second.add_plugins((AssetPlugin, AssetStatusPlugin));
+
+        // Both requests land before either app updates, which is the shape
+        // that matters: the set deduplicates, so at this point there is one
+        // entry standing for two apps' requests. Requesting after the other
+        // app had already collected would re-insert it and hide the bug.
+        let _first_handle = request_texture(&mut first, &rel);
+        let _second_handle = request_texture(&mut second, &rel);
+
+        let first_status = pump_until(&mut first, &rel, |s| matches!(s, AssetStatus::Loaded));
+        let second_status = pump_until(&mut second, &rel, |s| matches!(s, AssetStatus::Loaded));
+
+        assert_eq!(
+            first_status,
+            AssetStatus::Loaded,
+            "precondition: the first app must see its own successful load"
+        );
+        assert_eq!(
+            second_status,
+            AssetStatus::Loaded,
+            "the second app requested this path and loaded it successfully; reporting \
+             Unknown means the first app's collector consumed the request record, and \
+             the success direction is the one nothing else can recover"
         );
     }
 

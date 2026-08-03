@@ -582,8 +582,8 @@ libtest는 모든 `#[test]`를 spawn된 스레드에서 실행하고, Rust는 �
   둔다. 그래서 모든 테스트가 에셋 생존과 `Modified` 발생까지 단언하며, 각각 `clone_weak`
   변이로 실패를 확인했다.
 - [x] **(Phase 3b)** `<ProjectDir>/assets`로 스코프를 좁힌 파일 워처(`AssetWatcherPlugin`,
-  `notify-debouncer-full`)가 변경을 감지해 `AssetServer::reload`를 호출 — 실행 중인 게임에
-  자동 반영. 실측 확인: 게임을 띄운 채 `glow.wgsl`을 편집하면
+  `notify-debouncer-full`)가 변경을 감지해 `AssetServer::reload`를 호출 — 창을 띄우는 두 호스트
+  (런타임과 에디터 앱) 모두에 자동 반영. 실측 확인: 게임을 띄운 채 `glow.wgsl`을 편집하면
   `asset hot reload: games/mini-arena/assets/shaders/glow.wgsl changed on disk, reloading`이
   찍힌다. `bevy_asset`의 `file_watcher` 피처는 쓰지 않는다 — 에셋 루트가 리포 전체(`target/`,
   `.git/` 포함)가 되기 때문이다.
@@ -607,6 +607,15 @@ libtest는 모든 `#[test]`를 spawn된 스레드에서 실행하고, Rust는 �
   않는다. 전자는 `std::fs::read_to_string`, 후자는 스크립팅 플러그인이 직접 읽어서 `bevy_asset`을
   거치지 않기 때문이다. 워처는 이들 확장자를 아예 거른다 — `reload`를 불러 봐야 조용한 no-op이라
   로그만 오해를 부른다.
+
+  **조용한 실패 경로를 남기지 않는 것이 이 기능의 절반이다.** 최종 리뷰가 네 군데를 더 찾아냈고
+  전부 막았다: 경로 재구성의 `strip_prefix` 실패(오늘 이 플랫폼들에서는 불가능하지만, 실패하면
+  증상이 정확히 "아무 로그 없이 아무 일도 안 일어남"), 워처 스레드가 죽었을 때 채널
+  `Disconnected`를 유휴와 구분 못 하던 것(경고 후 `AssetWatcher` 리소스를 제거해 스팸 없이
+  멈춘다), 뮤텍스 오염, 그리고 **한 번도 로드된 적 없는 파일에 대해 "reloading"이라고 찍던 것**.
+  마지막 건 `AssetServer::get_path_ids`로 정확히 판별하도록 바꿨다 — 확장자 필터는 "이 *종류*를
+  서빙할 수 있다"까지만 증명하지 "이 *경로*가 로드됐다"는 증명하지 못한다. 덤으로 손으로 관리하던
+  확장자 목록의 부담도 줄었다: 누락은 여전히 리로드를 잃지만, 과다 포함은 이제 무해하다.
 
   **함께 고친 선행 버그 — 에셋이 애초에 로드되지 않고 있었다.** `AssetPlugin`이 `file_path: ""`를
   주면서 "경로를 파일시스템 상대로 다룬다"고 주석에 적어 뒀지만 **사실이 아니었다.** `file_path`는

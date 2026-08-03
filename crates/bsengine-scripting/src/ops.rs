@@ -16,6 +16,7 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
+use bsengine_asset::AssetStatus;
 use deno_core::op2;
 use glam::{Quat, Vec3};
 use serde::{Deserialize, Serialize};
@@ -1671,6 +1672,16 @@ thread_local! {
 
     // sound id → playback position in seconds
     pub(crate) static SOUND_POSITION_SNAPSHOT: RefCell<HashMap<u32, f64>> =
+        RefCell::new(HashMap::new());
+
+    // asset path (spelled as the load site spelled it) → its status, already
+    // rendered into the string `Bsengine.getAssetStatus` hands back. Rendered
+    // when the snapshot is built rather than when a script asks, so the op
+    // stays a bare map lookup; see `bsengine_get_asset_status` for the format
+    // and `render_asset_status` for where it is produced. A path that is
+    // absent here is one nothing ever requested — the distinction this whole
+    // API exists for — so entries are never inserted from the script side.
+    pub(crate) static ASSET_STATUS_SNAPSHOT: RefCell<HashMap<String, String>> =
         RefCell::new(HashMap::new());
 
     // entity name → (current_health, max_health)
@@ -5418,6 +5429,76 @@ pub fn bsengine_get_sound_position(id: u32) -> f64 {
     SOUND_POSITION_SNAPSHOT.with(|s| s.borrow().get(&id).copied().unwrap_or(0.0))
 }
 
+/// What [`bsengine_get_asset_status`] answers for a path nothing ever asked
+/// for. Every other answer is one of the three below, so this one — and only
+/// this one — means "no engine ever looked".
+pub(crate) const ASSET_STATUS_UNKNOWN: &str = "unknown";
+
+/// What it answers for a path whose load is still in flight.
+pub(crate) const ASSET_STATUS_LOADING: &str = "loading";
+
+/// What it answers for a path that resolved.
+pub(crate) const ASSET_STATUS_LOADED: &str = "loaded";
+
+/// What a failed path's answer starts with; `bevy_asset`'s own error message
+/// follows immediately after, with no further escaping.
+///
+/// A prefix rather than a bare `"failed"` so that a script can branch with
+/// `startsWith` while a human reading the same string still gets the reason —
+/// which is the entire difference between this API and the `warn!` it
+/// replaces.
+pub(crate) const ASSET_STATUS_FAILED_PREFIX: &str = "failed: ";
+
+/// Renders one [`AssetStatus`] into the string scripts see.
+///
+/// The mapping is total and the four outputs are mutually distinguishable:
+/// `"unknown"`, `"loading"` and `"loaded"` are distinct literals, and a
+/// failure is the only answer that can contain a `':'`. That last property is
+/// the load-bearing one — a path that *failed* and a path that *nothing ever
+/// requested* must never read the same, because reading a failure as silence
+/// is exactly how `games/mini-arena` ran with no mesh and no shader for two
+/// phases of work.
+pub(crate) fn render_asset_status(status: &AssetStatus) -> String {
+    match status {
+        AssetStatus::Unknown => ASSET_STATUS_UNKNOWN.to_string(),
+        AssetStatus::Loading => ASSET_STATUS_LOADING.to_string(),
+        AssetStatus::Loaded => ASSET_STATUS_LOADED.to_string(),
+        AssetStatus::Failed(error) => format!("{ASSET_STATUS_FAILED_PREFIX}{error}"),
+    }
+}
+
+/// Get what the engine knows about an asset path, as one of:
+///
+/// * `"loaded"` — it resolved and is available.
+/// * `"loading"` — something asked for it and it has not resolved yet.
+/// * `"failed: <reason>"` — the load failed; `<reason>` is `bevy_asset`'s own
+///   message, e.g. `"failed: Cannot find asset at path fox.glb"`. Branch on
+///   `status.startsWith("failed:")`, and show the rest to a human.
+/// * `"unknown"` — nothing in this process ever requested that path. Not the
+///   same as a failure, and that difference is the point of the op: a
+///   misspelled path answers `"unknown"`, a real path that broke answers
+///   `"failed: ..."`.
+///
+/// `path` must be spelled the way the load site spelled it — project-relative
+/// and forward-slashed, e.g. `"games/mini-arena/assets/models/fox.glb"` —
+/// which for a script is the same string it would pass to `playSound`, with
+/// the project directory in front. A path spelled any other way reads
+/// `"unknown"`, because it is, as far as the engine is concerned, a path
+/// nobody mentioned.
+///
+/// Reads a snapshot refreshed once per frame from `AssetStatuses`, so the
+/// answer is this frame's, not a stale one — but only in a host that added
+/// `bsengine_asset::AssetStatusPlugin`. In a host that did not, the resource
+/// does not exist, nothing is mirrored, and every path here answers
+/// `"unknown"` forever.
+#[op2]
+#[string]
+pub fn bsengine_get_asset_status(#[string] path: String) -> String {
+    ASSET_STATUS_SNAPSHOT
+        .with(|s| s.borrow().get(&path).cloned())
+        .unwrap_or_else(|| ASSET_STATUS_UNKNOWN.to_string())
+}
+
 /// Queue setting the text content of a HUD element.
 #[op2(fast)]
 pub fn bsengine_set_hud_text(#[string] id: String, #[string] text: String) {
@@ -5971,6 +6052,7 @@ deno_core::extension!(
         bsengine_seek_sound,
         bsengine_get_sound_state,
         bsengine_get_sound_position,
+        bsengine_get_asset_status,
         bsengine_set_hud_text,
         bsengine_clear_hud_text,
         bsengine_ui_set_label,
@@ -6449,6 +6531,19 @@ var Bsengine = {
     seekSound:            (id, pos)     => Deno.core.ops.bsengine_seek_sound(id, pos),
     getSoundState:        (id)          => Deno.core.ops.bsengine_get_sound_state(id),
     getSoundPosition:     (id)          => Deno.core.ops.bsengine_get_sound_position(id),
+    // What became of an asset load, as "loaded" | "loading" |
+    // "failed: <reason>" | "unknown". "unknown" means nothing ever asked for
+    // that path -- deliberately *not* the same answer as a failure, so a
+    // typo'd path and a genuinely broken one are told apart:
+    //   var s = Bsengine.getAssetStatus("games/mini-arena/assets/models/fox.glb");
+    //   if (s.startsWith("failed:")) { ... }   // broken, and s says why
+    //   else if (s === "unknown")    { ... }   // nobody ever requested it
+    // `path` is spelled exactly as the load site spelled it (project-relative,
+    // forward slashes) -- any other spelling reads "unknown".
+    // String() for the same reason setHudText below coerces: deno_core turns a
+    // non-string argument into "" without complaint, which would silently read
+    // as "unknown" for every mistyped call.
+    getAssetStatus:       (path)        => Deno.core.ops.bsengine_get_asset_status(String(path)),
     // `id` is coerced to a string here: this op's Rust side takes a
     // #[string] id, and callers (see player.js/goal_levelN.js) pass a
     // plain numeric literal like `setHudText(1, ...)` — without this,
@@ -8879,6 +8974,97 @@ JSON.stringify(received)
         assert!(
             r.trim().is_empty() || r.trim() == "\"\"",
             "expected empty string: {r}"
+        );
+    }
+
+    // The op is a lookup in the per-frame mirror, exactly like
+    // `getSoundState`. What is worth pinning here is that all four answers
+    // are actually different strings -- the plugin-level test proves the
+    // pipeline produces them, this one proves they cannot collide.
+    #[test]
+    fn get_asset_status_reads_snapshot_and_defaults_to_unknown() {
+        super::ASSET_STATUS_SNAPSHOT.with(|s| {
+            let mut snapshot = s.borrow_mut();
+            snapshot.insert("assets/ok.png".to_string(), "loaded".to_string());
+            snapshot.insert("assets/slow.png".to_string(), "loading".to_string());
+            snapshot.insert(
+                "assets/broken.png".to_string(),
+                "failed: Cannot find asset".to_string(),
+            );
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let loaded = rt
+            .eval(r#"Bsengine.getAssetStatus("assets/ok.png");"#)
+            .unwrap();
+        let loading = rt
+            .eval(r#"Bsengine.getAssetStatus("assets/slow.png");"#)
+            .unwrap();
+        let failed = rt
+            .eval(r#"Bsengine.getAssetStatus("assets/broken.png");"#)
+            .unwrap();
+        // Not in the mirror at all: nothing ever requested it.
+        let unknown = rt
+            .eval(r#"Bsengine.getAssetStatus("assets/never-mentioned.png");"#)
+            .unwrap();
+        super::ASSET_STATUS_SNAPSHOT.with(|s| s.borrow_mut().clear());
+
+        assert!(loaded.contains("loaded"), "expected loaded: {loaded}");
+        assert!(loading.contains("loading"), "expected loading: {loading}");
+        assert!(
+            failed.contains("failed: Cannot find asset"),
+            "a failure must carry its reason: {failed}"
+        );
+        assert!(unknown.contains("unknown"), "expected unknown: {unknown}");
+        assert_ne!(
+            failed, unknown,
+            "a path that failed and a path nobody asked for must never read the same"
+        );
+    }
+
+    // `getAssetStatus` must not turn a mistyped call into the answer for the
+    // empty path. deno_core coerces a non-string argument to `""` without
+    // complaining, so the JS binding coerces first -- otherwise `undefined`
+    // and `""` would both silently read as whatever `""` maps to.
+    #[test]
+    fn get_asset_status_coerces_a_non_string_path() {
+        super::ASSET_STATUS_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(String::new(), "loaded".to_string());
+        });
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let r = rt.eval(r#"Bsengine.getAssetStatus(undefined);"#).unwrap();
+        super::ASSET_STATUS_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert!(
+            r.contains("unknown"),
+            "a non-string path must not be read as the empty path: {r}"
+        );
+    }
+
+    // `render_asset_status` is the only place an `AssetStatus` becomes a
+    // string, so this is where the format the op's rustdoc promises is
+    // pinned. A failure's reason is passed through verbatim, colons and all.
+    #[test]
+    fn render_asset_status_produces_four_distinguishable_answers() {
+        use bsengine_asset::AssetStatus;
+        let rendered = [
+            super::render_asset_status(&AssetStatus::Unknown),
+            super::render_asset_status(&AssetStatus::Loading),
+            super::render_asset_status(&AssetStatus::Loaded),
+            super::render_asset_status(&AssetStatus::Failed(
+                "Cannot find asset at path: fox.glb".to_string(),
+            )),
+        ];
+        assert_eq!(rendered[0], "unknown");
+        assert_eq!(rendered[1], "loading");
+        assert_eq!(rendered[2], "loaded");
+        assert_eq!(rendered[3], "failed: Cannot find asset at path: fox.glb");
+
+        let unique: std::collections::HashSet<&String> = rendered.iter().collect();
+        assert_eq!(
+            unique.len(),
+            rendered.len(),
+            "every status must render to its own string, got {rendered:?}"
         );
     }
 

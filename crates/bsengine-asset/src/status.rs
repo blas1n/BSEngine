@@ -104,6 +104,33 @@ impl AssetStatuses {
             .cloned()
             .unwrap_or(AssetStatus::Unknown)
     }
+
+    /// Every path this engine has something to say about, paired with what it
+    /// knows, in no particular order.
+    ///
+    /// # Why this does not reopen the map
+    ///
+    /// [`Self::get`] is private-map-shaped for a reason (see the type docs):
+    /// a status is a finding, and a caller that could write one could report
+    /// `Loaded` for an asset that never loaded. Handing out `&str` keys and
+    /// `&AssetStatus` values keeps that intact — there is no way back through
+    /// a shared reference to insert, remove or overwrite an entry.
+    ///
+    /// # Why it is needed at all
+    ///
+    /// [`Self::get`] can only answer about a path the caller already knows to
+    /// name, and `bevy_asset` exposes no way to enumerate the paths it knows.
+    /// A consumer that has to *mirror* the whole picture rather than ask
+    /// about one path has nowhere else to get it — concretely,
+    /// `bsengine_scripting` refreshes a thread-local copy of this map every
+    /// frame because V8 runs its scripts on a thread that cannot touch the
+    /// `World` at all, so `Bsengine.getAssetStatus` has no `World` to consult
+    /// at the moment a script asks.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &AssetStatus)> {
+        self.by_path
+            .iter()
+            .map(|(path, status)| (path.as_str(), status))
+    }
 }
 
 /// Paths that [`record_asset_request`] has been told about and no

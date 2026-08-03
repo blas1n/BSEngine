@@ -13,12 +13,13 @@ pub mod plugin;
 pub mod texture_loader;
 /// Concrete asset data types owned by this crate (currently: `TextureAsset`).
 pub mod types;
-// Filesystem watching for hot reload. Private while it holds only the
-// measurement the watcher will be built on.
-mod watcher;
+/// `AssetWatcherPlugin`: watches `<ProjectDir>/assets` and reloads assets
+/// edited on disk while the game runs.
+pub mod watcher;
 
 pub use bevy_asset::{Asset, AssetServer, Assets, Handle};
 pub use load_mode::{load, LoadMode};
 pub use plugin::AssetPlugin;
 pub use texture_loader::TextureAssetLoader;
 pub use types::TextureAsset;
+pub use watcher::AssetWatcherPlugin;

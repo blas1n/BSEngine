@@ -840,8 +840,10 @@ dependencies = [
  "bevy_reflect",
  "bevy_tasks",
  "bsengine-app",
+ "bsengine-core",
  "image",
  "notify-debouncer-full",
+ "tracing",
 ]
 
 [[package]]

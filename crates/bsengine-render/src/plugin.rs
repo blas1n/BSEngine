@@ -118,11 +118,42 @@ enum PendingShader {
     /// a source that arrives before `WgpuSurfaceResource` exists is `Ready`
     /// with no pipeline behind it, and this arm compiles it once one shows up.
     Ready(bevy_asset::Handle<crate::shader_asset::ShaderSource>),
+    /// The source loaded but does not compile, and the handle is retained.
+    ///
+    /// Distinct from `Ready` so the compile is *not* retried every frame: the
+    /// file is broken, recompiling it next frame produces the same failure and
+    /// the same warning, which is the per-frame noise this whole loop was
+    /// restructured to avoid. Distinct from `GaveUp` because a broken shader is
+    /// not a dead end -- the handle is still held, so editing the file emits
+    /// `AssetEvent::Modified` and `rebuild_modified_shaders` retries from here,
+    /// promoting the path back to `Ready` when it compiles. Retry is driven by
+    /// the content changing, not by the frame clock.
+    ///
+    /// Says nothing about what is on screen: `compile_and_store_shader` leaves
+    /// `custom_pipelines` untouched when it fails, so a shader that compiled
+    /// once and was then edited into a broken state keeps drawing with its last
+    /// working pipeline.
+    CompileFailed(bevy_asset::Handle<crate::shader_asset::ShaderSource>),
     /// The load failed. Kept so the warning fires once rather than per frame,
     /// and so the path is never re-requested -- re-requesting a failed path
     /// resets it to `Loading` and starts the load over, which is why a
     /// re-requesting poll loop can never see the failure.
     GaveUp,
+}
+
+/// The state a path takes after a compile attempt: `Ready` on success, so the
+/// normal reload path applies, and `CompileFailed` on failure, so no frame
+/// retries it until the file changes. Both keep the handle -- dropping it on
+/// failure would stop `AssetEvent::Modified` from ever firing again for the
+/// path, which is exactly the event the fix has to arrive on.
+fn state_after_compile(
+    result: Result<(), String>,
+    handle: bevy_asset::Handle<crate::shader_asset::ShaderSource>,
+) -> PendingShader {
+    match result {
+        Ok(()) => PendingShader::Ready(handle),
+        Err(_) => PendingShader::CompileFailed(handle),
+    }
 }
 
 /// Shader loads in flight, keyed by path.
@@ -184,16 +215,20 @@ fn compile_pending_shaders(
                 let handle = handle.clone();
                 if let Some(src) = shader_assets.get(&handle) {
                     // The source is here; only the compile needs the GPU. The
-                    // path becomes `Ready` either way: `Ready` is what retains
-                    // the handle, and staying `Loading` until a surface exists
-                    // would leave hot reload switched off for exactly as long.
-                    // The `Ready` arm below picks the compile up instead.
-                    if let Some(surface) = surface.as_mut() {
-                        surface.0.compile_and_store_shader(&cs.path, &src.0);
-                    }
-                    pending
-                        .0
-                        .insert(cs.path.clone(), PendingShader::Ready(handle));
+                    // path leaves `Loading` either way -- both states below
+                    // retain the handle, and staying `Loading` until a surface
+                    // exists would leave hot reload switched off for exactly as
+                    // long. With no surface the compile is merely deferred, not
+                    // failed, so that case is `Ready` and the arm below picks
+                    // it up once a surface appears.
+                    let state = match surface.as_mut() {
+                        Some(surface) => state_after_compile(
+                            surface.0.compile_and_store_shader(&cs.path, &src.0),
+                            handle,
+                        ),
+                        None => PendingShader::Ready(handle),
+                    };
+                    pending.0.insert(cs.path.clone(), state);
                 } else if let bevy_asset::LoadState::Failed(e) = asset_server.load_state(&handle) {
                     tracing::warn!("[custom_shader] cannot read '{}': {e}", cs.path);
                     pending.0.insert(cs.path.clone(), PendingShader::GaveUp);
@@ -203,14 +238,26 @@ fn compile_pending_shaders(
             // never re-requested. Reaching here at all means the early-skip
             // above found no compiled pipeline for this path -- i.e. the
             // source arrived before `WgpuSurfaceResource` did -- so compile it
-            // now if a surface has since appeared. `compile_and_store_shader`
-            // always stores, so the skip fires from the next frame on and this
-            // runs exactly once.
+            // now if a surface has since appeared. A successful compile stores
+            // the pipeline, so the skip fires from the next frame on and this
+            // runs exactly once; a failed one moves the path to `CompileFailed`
+            // instead, which the arm below leaves alone, so a broken file is
+            // not recompiled (and re-warned about) every frame either.
             Some(PendingShader::Ready(handle)) => {
-                if let (Some(src), Some(surface)) = (shader_assets.get(handle), surface.as_mut()) {
-                    surface.0.compile_and_store_shader(&cs.path, &src.0);
+                let handle = handle.clone();
+                if let (Some(src), Some(surface)) = (shader_assets.get(&handle), surface.as_mut()) {
+                    let state = state_after_compile(
+                        surface.0.compile_and_store_shader(&cs.path, &src.0),
+                        handle,
+                    );
+                    pending.0.insert(cs.path.clone(), state);
                 }
             }
+            // Broken source, already reported once. Nothing here can change
+            // that verdict -- only a new revision of the file can, and that
+            // arrives as `AssetEvent::Modified`, which
+            // `rebuild_modified_shaders` acts on.
+            Some(PendingShader::CompileFailed(_)) => {}
             Some(PendingShader::GaveUp) => {}
             None => match bsengine_asset::load(
                 bsengine_asset::LoadMode::Async,
@@ -249,35 +296,56 @@ fn compile_pending_shaders(
 /// every reloadable one. A reload is the one case where recompiling an
 /// already-compiled path is the whole point.
 ///
-/// Without a `WgpuSurfaceResource` this does nothing and leaves the `Ready`
-/// state alone: the source is already in `Assets` and the handle is still
-/// retained, so the next reload is reached just the same.
+/// Without a `WgpuSurfaceResource` this does nothing and leaves the state
+/// alone: the source is already in `Assets` and the handle is still retained,
+/// so the next reload is reached just the same.
+///
+/// `CompileFailed` paths are rebuilt as readily as `Ready` ones -- this is the
+/// only place a broken shader can recover, because it is the only signal that
+/// the file's *content* changed. `compile_pending_shaders` deliberately never
+/// retries them, so skipping them here would make a single typo permanent for
+/// the rest of the run.
 fn rebuild_modified_shaders(
     mut events: bevy_ecs::prelude::EventReader<
         bevy_asset::AssetEvent<crate::shader_asset::ShaderSource>,
     >,
     mut surface: Option<ResMut<WgpuSurfaceResource>>,
     shader_assets: Res<bevy_asset::Assets<crate::shader_asset::ShaderSource>>,
-    pending: Res<PendingShaders>,
+    mut pending: ResMut<PendingShaders>,
 ) {
     for event in events.read() {
         let bevy_asset::AssetEvent::Modified { id } = event else {
             continue;
         };
-        for (path, state) in pending.0.iter() {
-            let PendingShader::Ready(handle) = state else {
-                continue;
-            };
-            if handle.id() != *id {
-                continue;
-            }
-            let Some(src) = shader_assets.get(handle) else {
+        // Matched paths are collected before compiling: the compile's verdict
+        // is written back into `pending`, which cannot happen while iterating
+        // it. One event names one asset, so this is a one-element vector in
+        // every realistic case, and it is allocated per *edit*, not per frame.
+        let rebuilt: Vec<(
+            String,
+            bevy_asset::Handle<crate::shader_asset::ShaderSource>,
+        )> = pending
+            .0
+            .iter()
+            .filter_map(|(path, state)| match state {
+                PendingShader::Ready(handle) | PendingShader::CompileFailed(handle)
+                    if handle.id() == *id =>
+                {
+                    Some((path.clone(), handle.clone()))
+                }
+                _ => None,
+            })
+            .collect();
+        for (path, handle) in rebuilt {
+            let Some(src) = shader_assets.get(&handle) else {
                 continue;
             };
             let Some(surface) = surface.as_mut() else {
                 continue;
             };
-            surface.0.compile_and_store_shader(path, &src.0);
+            let state =
+                state_after_compile(surface.0.compile_and_store_shader(&path, &src.0), handle);
+            pending.0.insert(path, state);
         }
     }
 }
@@ -1051,6 +1119,148 @@ mod tests {
             "reloading a shader whose handle is retained must emit \
              AssetEvent::Modified for it; none means the handle was dropped \
              and hot reload is impossible for custom shaders"
+        );
+    }
+
+    // A shader whose *source* loads but does not compile must not be
+    // recompiled every frame: the file is broken, the next attempt fails
+    // identically, and the only visible effect is one warning per frame. The
+    // pipeline is what `compile_and_store_shader` refuses to store, and that
+    // cannot be observed here (no `WgpuSurfaceResource`; a real one needs a
+    // real winit window -- see `compile_pending_shaders_runs_before_render_frame`),
+    // so this pins the two properties on this side of the boundary that make
+    // "retry on content change, never on the frame clock" work: the state is
+    // stable across frames, and the handle it holds still routes
+    // `AssetEvent::Modified` so the fixed file can reach
+    // `rebuild_modified_shaders`.
+    #[test]
+    fn a_shader_that_failed_to_compile_is_not_retried_every_frame_but_stays_reloadable() {
+        use bevy_asset::{AssetEvent, AssetServer, Assets};
+        use bevy_ecs::event::{Events, ManualEventReader};
+
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../games/mini-arena/assets/shaders/glow.wgsl");
+        let path = fixture.to_str().unwrap().to_owned();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(RenderPlugin);
+        app.world_mut()
+            .spawn(bsengine_core::CustomShader { path: path.clone() });
+
+        let mut asset_id = None;
+        for _ in 0..200 {
+            app.update();
+            if let Some(PendingShader::Ready(handle)) =
+                app.world().resource::<PendingShaders>().0.get(&path)
+            {
+                asset_id = Some(handle.id());
+                break;
+            }
+        }
+        let asset_id = asset_id.expect("the fixture shader's source must load");
+
+        // Stand in for what a surface would have done with a broken file: the
+        // same handle, moved to the state a failed compile records.
+        {
+            let mut pending = app.world_mut().resource_mut::<PendingShaders>();
+            let Some(PendingShader::Ready(handle)) = pending.0.get(&path) else {
+                unreachable!("just asserted Ready")
+            };
+            let handle = handle.clone();
+            pending
+                .0
+                .insert(path.clone(), PendingShader::CompileFailed(handle));
+        }
+
+        for _ in 0..20 {
+            app.update();
+        }
+        let state = app.world().resource::<PendingShaders>().0.get(&path);
+        assert!(
+            matches!(state, Some(PendingShader::CompileFailed(h)) if h.id() == asset_id),
+            "a shader that failed to compile must stay CompileFailed, holding \
+             the same handle: anything that moves it back to Ready or Loading \
+             makes the next frame compile the same broken file again, one \
+             warning per frame forever; got {state:?}"
+        );
+        assert!(
+            app.world()
+                .resource::<Assets<crate::shader_asset::ShaderSource>>()
+                .get(asset_id)
+                .is_some(),
+            "CompileFailed must retain a strong handle; dropping it lets \
+             track_assets free the source, and the fix the user is about to \
+             type can never arrive as AssetEvent::Modified"
+        );
+
+        // Only events emitted from here on: the buffer still holds the load's
+        // own Added/LoadedWithDependencies events.
+        let mut reader: ManualEventReader<AssetEvent<crate::shader_asset::ShaderSource>> = app
+            .world_mut()
+            .resource_mut::<Events<AssetEvent<crate::shader_asset::ShaderSource>>>()
+            .get_reader();
+        {
+            let events = app
+                .world()
+                .resource::<Events<AssetEvent<crate::shader_asset::ShaderSource>>>();
+            let _ = reader.read(events).count();
+        }
+
+        app.world().resource::<AssetServer>().reload(path);
+        let mut saw_modified = false;
+        for _ in 0..60 {
+            app.update();
+            let events = app
+                .world()
+                .resource::<Events<AssetEvent<crate::shader_asset::ShaderSource>>>();
+            if reader
+                .read(events)
+                .any(|ev| matches!(ev, AssetEvent::Modified { id } if *id == asset_id))
+            {
+                saw_modified = true;
+                break;
+            }
+        }
+        assert!(
+            saw_modified,
+            "editing a shader that previously failed to compile must still emit \
+             AssetEvent::Modified for it -- that event is the only thing \
+             rebuild_modified_shaders acts on, and without it a single typo \
+             would be permanent for the rest of the run"
+        );
+    }
+
+    // The pure half of the same rule, checked directly because no test in this
+    // workspace can run a real compile (that needs a GPU surface). Recording a
+    // failure as `Ready` is what would put the compile back on the frame clock;
+    // dropping the handle is what would make the failure permanent.
+    #[test]
+    fn a_failed_compile_is_recorded_as_compile_failed_and_keeps_its_handle() {
+        use bevy_asset::{AssetServer, Handle};
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(RenderPlugin);
+        let handle: Handle<crate::shader_asset::ShaderSource> = app
+            .world()
+            .resource::<AssetServer>()
+            .load("some/shader.wgsl".to_owned());
+
+        let ok = super::state_after_compile(Ok(()), handle.clone());
+        assert!(
+            matches!(&ok, PendingShader::Ready(h) if h.id() == handle.id()),
+            "a successful compile must land in Ready, got {ok:?}"
+        );
+
+        let failed = super::state_after_compile(Err("bad wgsl".to_string()), handle.clone());
+        assert!(
+            matches!(&failed, PendingShader::CompileFailed(h) if h.id() == handle.id()),
+            "a failed compile must land in CompileFailed holding the same \
+             handle -- Ready would have the next frame recompile the same \
+             broken source, and a dropped handle would stop the fix from ever \
+             arriving as Modified; got {failed:?}"
         );
     }
 

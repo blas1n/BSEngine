@@ -581,12 +581,45 @@ libtest는 모든 `#[test]`를 spawn된 스레드에서 실행하고, Rust는 �
   `clone_weak` 핸들은 `matches!(Ready(_))`를 만족시키면서도 `track_assets`가 에셋을 해제하게
   둔다. 그래서 모든 테스트가 에셋 생존과 `Modified` 발생까지 단언하며, 각각 `clone_weak`
   변이로 실패를 확인했다.
-- [ ] **(Phase 3b)** `<ProjectDir>/assets`로 스코프를 좁힌 파일 워처가 변경을 감지해
-  `AssetServer::reload`를 호출 — 텍스처/glTF/WGSL/오디오 변경 시 실행 중인 게임/에디터에
-  자동 반영. `bevy_asset`의 `file_watcher` 피처는 쓰지 않는다: `AssetPlugin.file_path`가
-  `""`라 에셋 루트가 리포 전체(`target/`, `.git/` 포함)가 되기 때문이다. Phase 3a에서 모든
-  재구축 경로를 `reload` 직접 호출로 이미 검증해 뒀으므로, 3b에서 문제가 나면 워처 문제로
-  범위가 좁혀진다
+- [x] **(Phase 3b)** `<ProjectDir>/assets`로 스코프를 좁힌 파일 워처(`AssetWatcherPlugin`,
+  `notify-debouncer-full`)가 변경을 감지해 `AssetServer::reload`를 호출 — 실행 중인 게임에
+  자동 반영. 실측 확인: 게임을 띄운 채 `glow.wgsl`을 편집하면
+  `asset hot reload: games/mini-arena/assets/shaders/glow.wgsl changed on disk, reloading`이
+  찍힌다. `bevy_asset`의 `file_watcher` 피처는 쓰지 않는다 — 에셋 루트가 리포 전체(`target/`,
+  `.git/` 포함)가 되기 때문이다.
+
+  **경로 철자가 이 단계의 전부였다.** `AssetServer::reload`는 경로 **문자열**로 매칭하고,
+  어긋나면 경고도 이벤트도 없이 조용한 no-op이 된다. 측정 결과 구분자 방향은 무관하지만
+  canonicalize된 철자(`..` 해소 + Windows `\\?\` 접두)는 매칭되지 않는다. 그리고 `notify`는
+  상대 경로를 `watch()`에 줘도 **절대 경로**를 돌려주되 정규화는 전혀 하지 않는다 — 보고되는
+  경로는 정확히 `current_dir().join(watch_root)` + 나머지다. 그래서 재구성은
+  `strip_prefix(current_dir()?.join(watch_root))` 한 번이면 되고, 이를 엔진 형태 루트에 다시
+  붙인다. 두 사실 모두 추론이 아니라 테스트로 고정돼 있다.
+
+  디바운스는 200ms. 에디터는 파일을 여러 단계로 쓰므로(truncate 후 write) 한 번의 저장이
+  여러 이벤트를 내고, 반쯤 쓰인 파일을 읽을 위험이 있다. 실측: 한 번의 `fs::write`는 1개,
+  연속 5회 쓰기도 1개로 합쳐진다.
+
+  **`--test` 모드에서는 켜지 않는다.** 리플레이 중에는 파일을 편집하는 사람이 없어 순수 비용인
+  데다, 어렵게 확보한 결정성에 배경 스레드를 하나 더 얹을 이유가 없다.
+
+  **커버하지 않는 것:** `assets/` 아래에 있어도 `scenes/`(RON)와 `scripts/`(JS)는 핫리로드되지
+  않는다. 전자는 `std::fs::read_to_string`, 후자는 스크립팅 플러그인이 직접 읽어서 `bevy_asset`을
+  거치지 않기 때문이다. 워처는 이들 확장자를 아예 거른다 — `reload`를 불러 봐야 조용한 no-op이라
+  로그만 오해를 부른다.
+
+  **함께 고친 선행 버그 — 에셋이 애초에 로드되지 않고 있었다.** `AssetPlugin`이 `file_path: ""`를
+  주면서 "경로를 파일시스템 상대로 다룬다"고 주석에 적어 뒀지만 **사실이 아니었다.** `file_path`는
+  루트가 아니라 bevy가 스스로 고른 루트 **아래에 join되는 경로**이고
+  (`AssetPlugin::build` → `init_default_source` → `FileAssetReader::new`의
+  `get_base_path().join(path)`), 그 루트는 `BEVY_ASSET_ROOT` → `CARGO_MANIFEST_DIR` →
+  실행 파일 디렉터리 순으로 결정된다. `cargo run` 아래에서는 실행되는 바이너리의 **패키지**
+  디렉터리, 즉 `crates/bsengine-runtime`이다. 그래서 `games/mini-arena/assets/models/fox.glb`가
+  `<repo>/crates/bsengine-runtime/games/...`에서 찾아지고, 로드 실패는 `WARN`일 뿐이라
+  **mini-arena는 fox 메시도 glow 셰이더도 없이 돌고 있었다.** E2E 리플레이는 스크립트·물리
+  기반 결과를 단언하므로 이걸 잡지 못했다. 절대 CWD를 `file_path`로 넘겨 고쳤다(절대 경로는
+  `join`에서 베이스를 버린다). 부작용으로 `BEVY_ASSET_ROOT`는 더 이상 효과가 없으며, 이는
+  의도적이고 문서화돼 있다 — 이 엔진은 경로를 스스로 해석한다.
 - [ ] **(Phase 4)** 로드 실패/누락 에셋에 대한 명확한 에러 전파 (item 23에서는
   `tracing::warn!` 후 스킵뿐이었던 것을 구조화된 조회로 확장) + Scripting API 또는 MCP
   툴로 리로드/로드 실패 상태 조회 가능

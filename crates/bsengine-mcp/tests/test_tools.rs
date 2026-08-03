@@ -203,14 +203,39 @@ struct ProbeGame {
     games_root: PathBuf,
 }
 
+/// A games-root directory name no other probe in this process will pick.
+fn unique_root_name() -> String {
+    static N: AtomicU32 = AtomicU32::new(0);
+    format!(
+        "bsengine-status-probe-mcp-{}-{}",
+        std::process::id(),
+        N.fetch_add(1, Ordering::Relaxed)
+    )
+}
+
 impl ProbeGame {
     fn create() -> Self {
-        static N: AtomicU32 = AtomicU32::new(0);
-        let games_root = PathBuf::from(format!(
-            "bsengine-status-probe-mcp-{}-{}",
-            std::process::id(),
-            N.fetch_add(1, Ordering::Relaxed)
-        ));
+        Self::create_at(PathBuf::from(unique_root_name()))
+    }
+
+    /// The same probe, rooted the way the **deployed** server roots one.
+    ///
+    /// `.mcp.json` hands `bsengine-mcp-server` an absolute root,
+    /// `src/bin/server.rs` joins `games` onto it, and
+    /// `SessionRegistry::start_session` joins the game name and passes the
+    /// result to `--test` verbatim — so the running engine's `ProjectDir`, and
+    /// therefore every key in `AssetStatuses`, is absolute. [`Self::create`]'s
+    /// relative root produces short, plausible-looking keys instead, which is
+    /// exactly how a wrong documented spelling stayed green here.
+    ///
+    /// Still physically under the CWD, for the reason the type docs give: it is
+    /// only the *spelling* handed to the child that this varies.
+    fn create_absolute() -> Self {
+        let cwd = std::env::current_dir().expect("cannot determine current directory");
+        Self::create_at(cwd.join(unique_root_name()))
+    }
+
+    fn create_at(games_root: PathBuf) -> Self {
         let game = games_root.join(PROBE_GAME);
         std::fs::create_dir_all(game.join("assets/scenes")).unwrap();
         std::fs::create_dir_all(game.join("assets/scripts")).unwrap();
@@ -291,7 +316,7 @@ fn asset_status_tells_a_failed_load_from_a_path_nothing_requested() {
     assert!(out.is_ok(), "{:?}", out.error);
     let session_id = out.content["session_id"].as_str().unwrap().to_string();
 
-    let status_of = |path: &str| -> String {
+    let result_of = |path: &str| -> serde_json::Value {
         let out = (find(&tools, "test_get_asset_status").handler)(
             json!({"session_id": session_id, "path": path}),
         );
@@ -301,9 +326,13 @@ fn asset_status_tells_a_failed_load_from_a_path_nothing_requested() {
             json!(path),
             "the tool must echo the path it was asked about, or an `unknown` is unreadable"
         );
-        out.content["status"]
+        out.content
+    };
+    let status_of = |path: &str| -> String {
+        let content = result_of(path);
+        content["status"]
             .as_str()
-            .unwrap_or_else(|| panic!("status must be a string, got {:?}", out.content))
+            .unwrap_or_else(|| panic!("status must be a string, got {content:?}"))
             .to_string()
     };
 
@@ -333,7 +362,8 @@ fn asset_status_tells_a_failed_load_from_a_path_nothing_requested() {
         "the reason must name what went wrong or what it went wrong on, got {reason:?}"
     );
 
-    let quiet_status = status_of(&probe.asset_key(QUIET_SOUND));
+    let quiet = result_of(&probe.asset_key(QUIET_SOUND));
+    let quiet_status = quiet["status"].as_str().unwrap();
     assert_eq!(
         quiet_status, "unknown",
         "a path nothing ever requested must read `unknown`, not a failure and not a load"
@@ -341,6 +371,98 @@ fn asset_status_tells_a_failed_load_from_a_path_nothing_requested() {
     assert_ne!(
         quiet_status, broken_status,
         "if silence and failure read the same, the tool answers nothing"
+    );
+
+    // The half that turns an unguessable answer into an obvious one. `unknown`
+    // is the only answer a caller cannot tell from a typo, so it ships the
+    // spellings the engine does hold — and the broken sound, which is known,
+    // has to be among them or the listing is decoration.
+    let known = quiet["known_paths"]
+        .as_array()
+        .unwrap_or_else(|| panic!("an `unknown` must carry known_paths, got {quiet:?}"));
+    assert!(
+        known.contains(&json!(broken)),
+        "known_paths must list the paths this session actually requested, or it \
+         cannot correct a spelling; got {known:?}"
+    );
+    assert!(
+        !known.contains(&json!(probe.asset_key(QUIET_SOUND))),
+        "known_paths is what the engine knows, not an echo of the question: {known:?}"
+    );
+
+    (find(&tools, "test_session_stop").handler)(json!({"session_id": session_id}));
+}
+
+/// The Critical regression: the spelling this tool *documents* must be the
+/// spelling that works, in the configuration that actually ships.
+///
+/// Every other probe here uses a **relative** games-root, where the engine's
+/// key comes out short and plausible. The deployed server's is absolute
+/// (`.mcp.json` → `server.rs` → `SessionRegistry::start_session` → `--test`,
+/// each step joining verbatim), so the live key is an absolute path with mixed
+/// separators that no caller can reconstruct. That configuration gap — not the
+/// key derivation, which was always right — is what let the tool tell agents to
+/// pass `games/mini-arena/assets/models/fox.glb` and answer `"unknown"`: the
+/// one answer meaning "nothing ever requested that path".
+///
+/// So this asks the way the description now tells an agent to ask —
+/// project-relative — under an absolute root, and separately confirms the
+/// fully-qualified key still answers, because resolution must add a spelling
+/// rather than replace one.
+#[test]
+fn asset_status_resolves_a_project_relative_path_under_an_absolute_games_root() {
+    let probe = ProbeGame::create_absolute();
+    assert!(
+        probe.games_root.is_absolute(),
+        "precondition: this test is only meaningful against an absolute games-root, \
+         which is the one the deployed server has"
+    );
+    let tools = test_tools(probe.registry());
+
+    let out = (find(&tools, "test_session_start").handler)(json!({"game": PROBE_GAME}));
+    assert!(out.is_ok(), "{:?}", out.error);
+    let session_id = out.content["session_id"].as_str().unwrap().to_string();
+
+    let status_of = |path: &str| -> String {
+        let out = (find(&tools, "test_get_asset_status").handler)(
+            json!({"session_id": session_id, "path": path}),
+        );
+        assert!(out.is_ok(), "{:?}", out.error);
+        out.content["status"]
+            .as_str()
+            .unwrap_or_else(|| panic!("status must be a string, got {:?}", out.content))
+            .to_string()
+    };
+
+    // BROKEN_SOUND verbatim: exactly the string the probe's script passes to
+    // `playSound`, and exactly the shape the tool's description now documents.
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let mut relative_status = status_of(BROKEN_SOUND);
+    while !relative_status.starts_with("failed: ") {
+        assert!(
+            Instant::now() < deadline,
+            "the project-relative spelling never reported the failed load; last status \
+             was {relative_status:?} for {BROKEN_SOUND} under {}",
+            probe.games_root.display()
+        );
+        let out =
+            (find(&tools, "test_step").handler)(json!({"session_id": session_id, "frames": 10}));
+        assert!(out.is_ok(), "{:?}", out.error);
+        relative_status = status_of(BROKEN_SOUND);
+    }
+
+    assert_eq!(
+        status_of(&probe.asset_key(BROKEN_SOUND)),
+        relative_status,
+        "the engine's own fully-qualified key must keep answering — resolution adds \
+         a spelling, it does not swap one for another"
+    );
+
+    assert_eq!(
+        status_of(QUIET_SOUND),
+        "unknown",
+        "resolving a project-relative path must not make every path answerable: a \
+         path nothing requested still reads `unknown`"
     );
 
     (find(&tools, "test_session_stop").handler)(json!({"session_id": session_id}));

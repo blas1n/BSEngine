@@ -5,7 +5,7 @@
 
 use bevy_ecs::world::World;
 use bsengine_asset::{AssetStatus, AssetStatuses};
-use bsengine_core::{HudTexts, Transform, Visible};
+use bsengine_core::{HudTexts, ProjectDir, Transform, Visible};
 use bsengine_scene::Name;
 use bsengine_scripting::ops::render_asset_status;
 use serde_json::{json, Value};
@@ -61,11 +61,30 @@ pub fn get_hud_text(world: &mut World, id: &str) -> Value {
 /// wraps this query and the JS op cannot drift into two vocabularies for the
 /// same fact.
 ///
-/// `path` must be spelled the way the load site spelled it — the
-/// project-relative, forward-slashed form `bsengine_core::resolve_project_path`
-/// produces, i.e. `<project_dir>/assets/...` with `<project_dir>` exactly as it
-/// was passed to `--test`. A path spelled any other way reads `"unknown"`,
-/// because that is what it is: a path nobody mentioned.
+/// `path` may be spelled either way round:
+///
+/// * **Project-relative** — `"assets/sounds/hit.wav"`, the same string a script
+///   hands `Bsengine.playSound`. Preferred, and what the MCP tool documents.
+/// * **The exact key** — `"<project_dir>/assets/sounds/hit.wav"`, with
+///   `<project_dir>` byte-for-byte as it was passed to `--test`.
+///
+/// # Why it has to resolve and not merely look up
+///
+/// `AssetStatuses` is keyed by whatever `bsengine_core::resolve_project_path`
+/// produced at the load site, which is `format!("{project_dir}/{path}")` —
+/// verbatim, with no separator normalisation. The MCP server passes `--test`
+/// an *absolute* project directory (`SessionRegistry` joins its games root,
+/// itself built from the server's root argument, onto the game name), so the
+/// live key for mini-arena's fox is
+/// `f:\Works\BSEngine\games\mini-arena/assets/models/fox.glb` — a spelling no
+/// caller can reasonably be asked to reconstruct, and one that mixes
+/// separators. A lookup-only query answered `"unknown"` for the documented
+/// spelling, i.e. "nothing ever requested that path", which is the single
+/// answer that must never be wrong: it is the whole distinction this API adds
+/// over the `tracing::warn!` it replaces.
+///
+/// Resolution is tried only *after* an exact-key miss, so the exact key still
+/// answers and a project-relative path can never shadow one.
 ///
 /// Answers `"unknown"` — never an error — when `AssetStatuses` is absent
 /// entirely, matching what the JS op does in a host that never added
@@ -74,11 +93,44 @@ pub fn get_hud_text(world: &mut World, id: &str) -> Value {
 /// gets the same four answers from any app rather than a fifth failure mode
 /// that depends on host wiring.
 pub fn get_asset_status(world: &mut World, path: &str) -> Value {
+    // Read before `statuses` is taken, and owned rather than borrowed: both
+    // are `&World` reborrows of the same `&mut World`, and `resolve_project_path`
+    // returning a `String` is what ends the first one.
+    let resolved = bsengine_core::resolve_project_path(world.get_resource::<ProjectDir>(), path);
+
     let status = match world.get_resource::<AssetStatuses>() {
-        Some(statuses) => statuses.get(path),
+        Some(statuses) => match statuses.get(path) {
+            AssetStatus::Unknown => statuses.get(&resolved),
+            known => known,
+        },
         None => AssetStatus::Unknown,
     };
     json!(render_asset_status(&status))
+}
+
+/// Every asset path this session's engine has something to say about, sorted.
+///
+/// # Why this exists next to [`get_asset_status`]
+///
+/// `"unknown"` is the one answer that is indistinguishable from a typo. It is
+/// also the answer a caller gets for a path this app genuinely never requested
+/// — and in `--test` mode that is a large, non-obvious set, because the
+/// headless app builds no `RenderPlugin` and no `GltfPlugin`, so no mesh,
+/// shader or texture is ever asked for (see `test_mode::build_test_app`).
+/// Handing back the keys the engine *does* hold turns "I cannot tell which of
+/// those two happened" into a fact the caller can read, without a second
+/// guess at the spelling.
+///
+/// Deliberately a plain array of paths, not a map of path → status: a caller
+/// that wants a status asks [`get_asset_status`] about one path, and a shape
+/// that carried statuses would be a second, wider vocabulary for the same fact.
+pub fn get_known_asset_paths(world: &mut World) -> Value {
+    let mut paths: Vec<&str> = match world.get_resource::<AssetStatuses>() {
+        Some(statuses) => statuses.iter().map(|(path, _)| path).collect(),
+        None => Vec::new(),
+    };
+    paths.sort_unstable();
+    json!(paths)
 }
 
 pub fn run_query(world: &mut World, tool: &str, args: &Value) -> Result<Value, String> {
@@ -112,6 +164,7 @@ pub fn run_query(world: &mut World, tool: &str, args: &Value) -> Result<Value, S
                 .ok_or_else(|| "get_asset_status requires string 'path'".to_string())?;
             Ok(get_asset_status(world, path))
         }
+        "get_known_asset_paths" => Ok(get_known_asset_paths(world)),
         other => Err(format!("unknown query tool: {other}")),
     }
 }
@@ -265,6 +318,38 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result, json!("unknown"));
+    }
+
+    // A `ProjectDir` in the world must not turn an unrequested path into some
+    // other answer: resolution is a second *lookup*, not a second verdict.
+    #[test]
+    fn get_asset_status_resolution_never_invents_an_answer() {
+        let mut world = World::new();
+        world.insert_resource(ProjectDir("games/x".to_string()));
+        assert_eq!(
+            get_asset_status(&mut world, "assets/sounds/a.ogg"),
+            json!("unknown"),
+            "resolving a path is a lookup under a second spelling, not a claim \
+             that anything requested it"
+        );
+    }
+
+    #[test]
+    fn get_known_asset_paths_is_empty_when_the_status_resource_is_absent() {
+        let mut world = World::new();
+        assert_eq!(
+            get_known_asset_paths(&mut world),
+            json!([]),
+            "a host without AssetStatusPlugin knows no paths; it must say so \
+             rather than fail"
+        );
+    }
+
+    #[test]
+    fn run_query_dispatches_get_known_asset_paths() {
+        let mut world = World::new();
+        let result = run_query(&mut world, "get_known_asset_paths", &json!({})).unwrap();
+        assert_eq!(result, json!([]));
     }
 
     #[test]

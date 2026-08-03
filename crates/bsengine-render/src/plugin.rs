@@ -282,12 +282,22 @@ fn rebuild_modified_shaders(
     }
 }
 
-/// Whether the skybox named by [`PendingSkybox`] is still loading or was
-/// given up on.
+/// Whether the skybox named by [`PendingSkybox`] is still loading, has
+/// arrived, or was given up on.
 #[derive(Debug)]
 enum PendingSkyboxState {
     /// Requested; waiting for `Assets<TextureAsset>` to have it.
     Loading(bevy_asset::Handle<bsengine_asset::TextureAsset>),
+    /// Image decoded and the handle retained. Kept rather than dropped because
+    /// `AssetEvent::Modified` only fires while a strong handle exists; dropping
+    /// it here would make `AssetServer::reload` on this path a silent no-op
+    /// (measured by `reload_emits_modified_only_while_a_handle_is_retained` in
+    /// `bsengine-gltf`).
+    ///
+    /// Says nothing about the *upload*, which needs a GPU the decode does not:
+    /// an image that arrives before `WgpuSurfaceResource` exists is `Ready`
+    /// with nothing uploaded, and this arm uploads it once one shows up.
+    Ready(bevy_asset::Handle<bsengine_asset::TextureAsset>),
     /// The load failed. Kept so the warning fires once and the path is never
     /// re-requested -- re-requesting a failed path restarts it, which is why a
     /// re-requesting poll loop can never see the failure.
@@ -337,13 +347,20 @@ fn upload_pending_skybox(
     };
     let wanted = skybox_path.0.as_deref();
 
-    // Already showing exactly what's asked for. Any request still in flight is
-    // for a path nobody wants any more, so let it go.
+    // Already showing exactly what's asked for. A `Ready` slot naming that same
+    // path is the uploaded skybox's own retained handle -- clearing it frees
+    // the image and turns the next `AssetServer::reload` into a silent no-op,
+    // so it stays. Anything else in the slot is a request for a path nobody
+    // wants any more, so let it go.
     if surface
         .as_ref()
         .is_some_and(|s| s.0.loaded_skybox_path() == wanted)
     {
-        if pending.0.is_some() {
+        let holds_the_wanted_skybox = match (&pending.0, wanted) {
+            (Some((path, PendingSkyboxState::Ready(_))), Some(wanted)) => path == wanted,
+            _ => false,
+        };
+        if pending.0.is_some() && !holds_the_wanted_skybox {
             pending.0 = None;
         }
         return;
@@ -371,6 +388,21 @@ fn upload_pending_skybox(
     let in_flight = match &pending.0 {
         Some((_, PendingSkyboxState::GaveUp)) => return,
         Some((_, PendingSkyboxState::Loading(handle))) => Some(handle.clone()),
+        // Image in hand, handle retained: nothing left to request, and never
+        // re-requested. Reaching here at all means the dedupe check above found
+        // the surface *not* showing this path -- i.e. the image arrived before
+        // `WgpuSurfaceResource` did -- so upload it now if a surface has since
+        // appeared. That makes the dedupe check match from the next frame on,
+        // so this runs exactly once.
+        Some((_, PendingSkyboxState::Ready(handle))) => {
+            if let (Some(tex), Some(surface)) = (texture_assets.get(handle), surface.as_mut()) {
+                surface
+                    .0
+                    .set_skybox_from_rgba(tex.width, tex.height, &tex.data);
+                surface.0.set_loaded_skybox_path(wanted);
+            }
+            return;
+        }
         None => None,
     };
 
@@ -386,9 +418,11 @@ fn upload_pending_skybox(
     };
 
     if let Some(tex) = texture_assets.get(&handle) {
-        // The pixels are here; only the upload needs the GPU. Without a
-        // surface, stay `Loading` and retry next frame — the load itself is
-        // done, so this costs nothing.
+        // The pixels are here; only the upload needs the GPU. The slot becomes
+        // `Ready` either way: `Ready` is what retains the handle, and staying
+        // `Loading` until a surface exists would leave hot reload switched off
+        // for exactly as long. The `Ready` arm above picks the upload up
+        // instead.
         if let Some(surface) = surface.as_mut() {
             surface
                 .0
@@ -398,11 +432,56 @@ fn upload_pending_skybox(
             // the dedupe check above is what stops this re-uploading every
             // frame.
             surface.0.set_loaded_skybox_path(wanted);
-            pending.0 = None;
         }
+        pending.0 = Some((wanted.to_string(), PendingSkyboxState::Ready(handle)));
     } else if let bevy_asset::LoadState::Failed(e) = asset_server.load_state(&handle) {
         tracing::warn!("skybox: cannot read '{wanted}': {e}");
         pending.0 = Some((wanted.to_string(), PendingSkyboxState::GaveUp));
+    }
+}
+
+/// Re-uploads the skybox when its image is replaced.
+///
+/// `set_skybox_from_rgba` rebuilds the texture, sampler, bind groups and
+/// pipeline around the new pixels and replaces `WgpuSurface::skybox` wholesale,
+/// so no explicit invalidation is needed.
+///
+/// Separate from `upload_pending_skybox` rather than folded into it because
+/// that function returns early the moment the surface already shows the wanted
+/// path -- which is every reloadable skybox. A reload is the one case where
+/// re-uploading the path already on screen is the whole point.
+///
+/// Without a `WgpuSurfaceResource` this does nothing and leaves the `Ready`
+/// state alone: the image is already in `Assets` and the handle is still
+/// retained, so the next reload is reached just the same.
+fn rebuild_modified_skybox(
+    mut events: bevy_ecs::prelude::EventReader<
+        bevy_asset::AssetEvent<bsengine_asset::TextureAsset>,
+    >,
+    mut surface: Option<ResMut<WgpuSurfaceResource>>,
+    texture_assets: Res<bevy_asset::Assets<bsengine_asset::TextureAsset>>,
+    pending: Res<PendingSkybox>,
+) {
+    for event in events.read() {
+        let bevy_asset::AssetEvent::Modified { id } = event else {
+            continue;
+        };
+        let Some((path, PendingSkyboxState::Ready(handle))) = pending.0.as_ref() else {
+            continue;
+        };
+        if handle.id() != *id {
+            continue;
+        }
+        let Some(tex) = texture_assets.get(handle) else {
+            continue;
+        };
+        let Some(surface) = surface.as_mut() else {
+            continue;
+        };
+        surface
+            .0
+            .set_skybox_from_rgba(tex.width, tex.height, &tex.data);
+        surface.0.set_loaded_skybox_path(path);
     }
 }
 
@@ -675,6 +754,7 @@ impl Plugin for RenderPlugin {
                     compile_pending_shaders,
                     rebuild_modified_shaders,
                     upload_pending_skybox,
+                    rebuild_modified_skybox,
                     render_frame,
                 )
                     .chain(),
@@ -810,6 +890,56 @@ mod tests {
             "rebuild_modified_shaders (index {rebuild_idx}) must run before \
              render_frame (index {render_idx}) so a shader recompiled this frame \
              is the one drawn with; actual PostUpdate order: {names:?}"
+        );
+    }
+
+    // Same structural argument again, for the skybox's reload half.
+    // `rebuild_modified_skybox` must sit *after* `upload_pending_skybox`
+    // (which is what puts the slot into `Ready`, the only state the rebuild
+    // looks at -- ahead of it, the very first Modified event would find an
+    // empty slot) and *before* `render_frame` (or the frame draws the stale
+    // sky the reload was meant to replace). Both are `.chain()` edges today;
+    // a reorder that starves the rebuild has to fail here.
+    #[test]
+    fn rebuild_modified_skybox_runs_between_upload_and_render_frame() {
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(RenderPlugin);
+        // Schedules are only populated with their executable system list
+        // after at least one run.
+        app.update();
+
+        let schedule = app
+            .get_schedule(bevy_app::PostUpdate)
+            .expect("RenderPlugin registers systems into PostUpdate");
+        let names: Vec<String> = schedule
+            .systems()
+            .expect("schedule is initialized after app.update()")
+            .map(|(_, system)| system.name().to_string())
+            .collect();
+
+        let find = |needle: &str| {
+            names
+                .iter()
+                .position(|n| n.contains(needle))
+                .unwrap_or_else(|| panic!("{needle} not found in PostUpdate: {names:?}"))
+        };
+        let upload_idx = find("upload_pending_skybox");
+        let rebuild_idx = find("rebuild_modified_skybox");
+        let render_idx = find("render_frame");
+
+        assert!(
+            upload_idx < rebuild_idx,
+            "upload_pending_skybox (index {upload_idx}) must run before \
+             rebuild_modified_skybox (index {rebuild_idx}): it is what records \
+             the Ready handle the rebuild matches Modified events against; \
+             actual PostUpdate order: {names:?}"
+        );
+        assert!(
+            rebuild_idx < render_idx,
+            "rebuild_modified_skybox (index {rebuild_idx}) must run before \
+             render_frame (index {render_idx}) so a skybox re-uploaded this \
+             frame is the one drawn; actual PostUpdate order: {names:?}"
         );
     }
 
@@ -951,6 +1081,130 @@ mod tests {
             matches!(pending, Some(PendingShader::GaveUp)),
             "an unloadable shader path must end up given up on, got {pending:?}"
         );
+    }
+
+    /// A valid 1×1 RGBA PNG. The repo ships no image files, and this test needs
+    /// one that actually decodes -- a failed load ends in `GaveUp`, which holds
+    /// no handle and would make the assertion below vacuous.
+    const MINIMAL_PNG_1X1: &[u8] = &[
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f,
+        0x15, 0xc4, 0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0xf8,
+        0xcf, 0xc0, 0xf0, 0x1f, 0x00, 0x05, 0x00, 0x01, 0xff, 0x89, 0x99, 0x3d, 0x1d, 0x00, 0x00,
+        0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    ];
+
+    // The skybox half of the same precondition
+    // `a_compiled_shader_keeps_its_handle_so_a_reload_can_reach_it` pins for
+    // shaders: `AssetEvent::Modified` only fires while a strong handle to the
+    // asset still exists, so the moment the last one drops,
+    // `Assets::track_assets` frees the image in PreUpdate and
+    // `AssetServer::reload` on that path is a silent no-op. `Ready` -- which
+    // retains the handle instead of clearing the slot on a successful upload --
+    // is what makes `rebuild_modified_skybox` reachable at all.
+    //
+    // There is no `WgpuSurfaceResource` here (a real one needs a real winit
+    // window; see `compile_pending_shaders_runs_before_render_frame`), so the
+    // upload itself cannot run and the re-uploaded skybox cannot be observed.
+    // `Ready` therefore means "image decoded and handle retained", reached
+    // whether or not the upload happened -- and the two assertions after it,
+    // not the state alone, are what prove the retention is real: a `clone_weak`
+    // handle satisfies `Ready(_)` while still letting the image be freed.
+    #[test]
+    fn an_uploaded_skybox_keeps_its_handle_so_a_reload_can_reach_it() {
+        use bevy_asset::{AssetEvent, AssetServer, Assets};
+        use bevy_ecs::event::{Events, ManualEventReader};
+        use bsengine_asset::TextureAsset;
+
+        let dir = std::env::temp_dir().join(format!(
+            "bsengine_test_skybox_reload_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let png = dir.join("sky.png");
+        std::fs::write(&png, MINIMAL_PNG_1X1).unwrap();
+        let path = png.to_string_lossy().to_string();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(RenderPlugin);
+        app.insert_resource(bsengine_core::SkyboxPath(Some(path.clone())));
+
+        let mut ready = false;
+        for _ in 0..200 {
+            app.update();
+            if matches!(
+                app.world().resource::<PendingSkybox>().0,
+                Some((_, PendingSkyboxState::Ready(_)))
+            ) {
+                ready = true;
+                break;
+            }
+        }
+        assert!(
+            ready,
+            "the skybox slot must end up Ready, still holding its handle -- \
+             clearing it frees the asset and makes reload a silent no-op"
+        );
+
+        let asset_id = {
+            let pending = &app.world().resource::<PendingSkybox>().0;
+            let Some((_, PendingSkyboxState::Ready(handle))) = pending else {
+                unreachable!("just asserted Ready")
+            };
+            handle.id()
+        };
+
+        // A few more frames so `track_assets` (PreUpdate) has had every chance
+        // to free the image. It only survives this if something still holds a
+        // *strong* handle to it.
+        for _ in 0..5 {
+            app.update();
+        }
+        assert!(
+            app.world()
+                .resource::<Assets<TextureAsset>>()
+                .get(asset_id)
+                .is_some(),
+            "the retained handle must keep the image alive; a weak one lets \
+             track_assets free it, and reload then has nothing to reload"
+        );
+
+        // Read `Modified` specifically, and only events emitted after this
+        // point: the buffer still holds the `Added`/`LoadedWithDependencies`
+        // events the initial load emitted, so a bare length check would pass
+        // even if the reload reached nothing at all.
+        let mut reader: ManualEventReader<AssetEvent<TextureAsset>> = app
+            .world_mut()
+            .resource_mut::<Events<AssetEvent<TextureAsset>>>()
+            .get_reader();
+        {
+            let events = app.world().resource::<Events<AssetEvent<TextureAsset>>>();
+            let _ = reader.read(events).count();
+        }
+
+        app.world().resource::<AssetServer>().reload(path);
+        let mut saw_modified = false;
+        for _ in 0..60 {
+            app.update();
+            let events = app.world().resource::<Events<AssetEvent<TextureAsset>>>();
+            if reader
+                .read(events)
+                .any(|ev| matches!(ev, AssetEvent::Modified { id } if *id == asset_id))
+            {
+                saw_modified = true;
+                break;
+            }
+        }
+        assert!(
+            saw_modified,
+            "reloading a skybox whose handle is retained must emit \
+             AssetEvent::Modified for it; none means the handle was dropped \
+             and hot reload is impossible for the skybox"
+        );
+
+        let _ = std::fs::remove_file(&png);
     }
 
     // The skybox equivalent of the shader test above, and for the same

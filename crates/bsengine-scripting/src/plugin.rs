@@ -51,6 +51,21 @@ pub struct ScriptRuntimeResource(pub ScriptRuntime);
 #[derive(Resource, Default)]
 pub struct SoundHandles(pub HashMap<u32, kira::sound::static_sound::StaticSoundHandle>);
 
+/// Plays requested before their sound finished loading.
+///
+/// `playSound` is fire-and-forget from the script's side, so the request has
+/// to outlive the frame it was made on. Volume and looping are captured here
+/// at request time so the queued play behaves as asked.
+#[derive(bevy_ecs::prelude::Resource, Default)]
+pub struct PendingSounds(
+    pub  Vec<(
+        u32,
+        bevy_asset::Handle<bsengine_audio::AudioSourceAsset>,
+        f32,
+        bool,
+    )>,
+);
+
 /// Where `Bsengine.getTime()` / `getDeltaTime()` get their numbers.
 ///
 /// Rapier always steps a fixed 1/60s of simulation per frame, no matter how
@@ -145,6 +160,7 @@ impl Plugin for ScriptingPlugin {
         app.insert_resource(ProjectDir(self.project_dir.clone()));
         app.insert_resource(HudTexts::default());
         app.insert_resource(SoundHandles::default());
+        app.init_resource::<PendingSounds>();
         app.insert_non_send_resource(ScriptRuntimeResource(ScriptRuntime::new_with_ops()));
         // Wall clock by default. `bsengine-runtime --test` overwrites this
         // with `ScriptTimingState::fixed` so replays are reproducible.
@@ -152,7 +168,10 @@ impl Plugin for ScriptingPlugin {
         // Register CollisionEvent so EventReader works even without PhysicsPlugin
         app.add_event::<CollisionEvent>();
         app.add_systems(PostStartup, load_scripts);
-        app.add_systems(Update, (capture_collision_events, run_scripts).chain());
+        app.add_systems(
+            Update,
+            (capture_collision_events, run_scripts, start_pending_sounds).chain(),
+        );
     }
 }
 
@@ -1339,45 +1358,31 @@ fn run_scripts(world: &mut World) {
                 } else {
                     format!("{}/{}", project_dir, path)
                 };
-                let loaded = world
-                    .get_resource::<bevy_asset::AssetServer>()
-                    .cloned()
-                    .and_then(|asset_server| {
-                        world
-                            .get_resource_mut::<bevy_asset::Assets<bsengine_audio::AudioSourceAsset>>()
-                            .map(|mut assets| {
-                                bsengine_asset::load(
-                                    bsengine_asset::LoadMode::Sync,
-                                    &asset_server,
-                                    &mut assets,
-                                    &full_path,
-                                    bsengine_audio::load_audio_source,
-                                )
-                            })
-                    });
-                match loaded {
+                let asset_server = world.get_resource::<bevy_asset::AssetServer>().cloned();
+                let requested = match asset_server {
+                    Some(asset_server) => world
+                        .get_resource_mut::<bevy_asset::Assets<bsengine_audio::AudioSourceAsset>>()
+                        .map(|mut assets| {
+                            bsengine_asset::load(
+                                bsengine_asset::LoadMode::Async,
+                                &asset_server,
+                                &mut assets,
+                                &full_path,
+                                bsengine_audio::load_audio_source,
+                            )
+                        }),
+                    None => None,
+                };
+                match requested {
+                    // Queued rather than played: the sound may not be decoded
+                    // yet, and `playSound` is fire-and-forget from the script's
+                    // side, so the request has to outlive this frame.
                     Some(Ok(handle)) => {
-                        let data = world
-                            .resource::<bevy_asset::Assets<bsengine_audio::AudioSourceAsset>>()
-                            .get(&handle)
-                            .map(|src| src.0.clone());
-                        if let Some(data) = data {
-                            use kira::Decibels;
-                            let volume_db = 20.0_f32 * volume.max(1e-10_f32).log10();
-                            let data = data.volume(Decibels(volume_db));
-                            let data = if loop_ { data.loop_region(..) } else { data };
-                            if let Some(mut audio) = world.get_resource_mut::<AudioWorld>() {
-                                if let Some(handle) = audio.play(data) {
-                                    if let Some(mut handles) =
-                                        world.get_resource_mut::<SoundHandles>()
-                                    {
-                                        handles.0.insert(id, handle);
-                                    }
-                                }
-                            }
+                        if let Some(mut pending) = world.get_resource_mut::<PendingSounds>() {
+                            pending.0.push((id, handle, volume, loop_));
                         }
                     }
-                    Some(Err(e)) => tracing::warn!("[audio] failed to load {full_path}: {e}"),
+                    Some(Err(e)) => tracing::warn!("[audio] failed to request {full_path}: {e}"),
                     None => tracing::warn!(
                         "[audio] Assets<AudioSourceAsset> resource missing (AssetPlugin not registered?)"
                     ),
@@ -2150,6 +2155,62 @@ fn run_scripts(world: &mut World) {
     }
 }
 
+/// Starts any queued play whose sound has finished decoding.
+///
+/// Split from the `PlaySound` command handler because an async load is not
+/// ready on the frame it is asked for. Entries stay queued until their handle
+/// resolves; one whose load failed is dropped with a warning, since it will
+/// never resolve and would otherwise sit in the queue forever.
+fn start_pending_sounds(world: &mut World) {
+    let Some(pending) = world.get_resource::<PendingSounds>() else {
+        return;
+    };
+    if pending.0.is_empty() {
+        return;
+    }
+
+    // Decide each entry's fate first, so the borrow of PendingSounds ends
+    // before AudioWorld/SoundHandles are borrowed mutably below.
+    let entries = pending.0.clone();
+    let mut still_pending = Vec::new();
+    let mut ready = Vec::new();
+    let mut failed = Vec::new();
+    {
+        let assets = world.resource::<bevy_asset::Assets<bsengine_audio::AudioSourceAsset>>();
+        let asset_server = world.resource::<bevy_asset::AssetServer>();
+        for (id, handle, volume, loop_) in entries {
+            match assets.get(&handle) {
+                Some(src) => ready.push((id, src.0.clone(), volume, loop_)),
+                None => match asset_server.load_state(&handle) {
+                    bevy_asset::LoadState::Failed(e) => failed.push(format!("{e}")),
+                    _ => still_pending.push((id, handle, volume, loop_)),
+                },
+            }
+        }
+    }
+
+    for e in failed {
+        tracing::warn!("[audio] failed to load queued sound: {e}");
+    }
+    if let Some(mut pending) = world.get_resource_mut::<PendingSounds>() {
+        pending.0 = still_pending;
+    }
+
+    for (id, data, volume, loop_) in ready {
+        use kira::Decibels;
+        let volume_db = 20.0_f32 * volume.max(1e-10_f32).log10();
+        let data = data.volume(Decibels(volume_db));
+        let data = if loop_ { data.loop_region(..) } else { data };
+        if let Some(mut audio) = world.get_resource_mut::<AudioWorld>() {
+            if let Some(handle) = audio.play(data) {
+                if let Some(mut handles) = world.get_resource_mut::<SoundHandles>() {
+                    handles.0.insert(id, handle);
+                }
+            }
+        }
+    }
+}
+
 fn spawn_entity(world: &mut World, params: SpawnParams) {
     let prim = match params.primitive.as_str() {
         "Sphere" => Primitive::Sphere,
@@ -2878,7 +2939,9 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
 
 #[cfg(test)]
 mod tests {
-    use super::{Name, ScriptPath, ScriptRuntimeResource, ScriptingPlugin, Transform, Vec3};
+    use super::{
+        Name, PendingSounds, ScriptPath, ScriptRuntimeResource, ScriptingPlugin, Transform, Vec3,
+    };
     use bsengine_app::new_app;
 
     #[test]
@@ -2943,6 +3006,67 @@ mod tests {
             .find(|(n, _)| n.0 == "Hero")
             .expect("Hero entity with SaveData not found");
         assert_eq!(save.get("score"), Some(b"99".as_slice()));
+
+        let _ = std::fs::remove_file(&script_path);
+    }
+
+    // `playSound` requests the sound once and keeps the handle in
+    // `PendingSounds`, polling it every frame. Re-requesting the path instead
+    // would reset the failed load back to `Loading` and restart it
+    // (`bevy_asset` 0.14.2, `server/info.rs:216-221`), so the failure could
+    // never be observed and the entry would sit in the queue forever. Driven
+    // through a real script so the actual `PlaySound` command handler runs,
+    // not an imitation of it. There is no audio device here (`AudioWorld`
+    // no-ops), so the queue is what gets asserted on, never audible output.
+    #[test]
+    fn unloadable_pending_sound_is_dropped_from_the_queue() {
+        let script_path = std::env::temp_dir().join(format!(
+            "bsengine_test_pending_sound_{}.js",
+            std::process::id()
+        ));
+        // Played once, not every frame: a script that re-requests a failed
+        // path each frame would refill the queue and mask the drop.
+        std::fs::write(
+            &script_path,
+            "var played = false;\n\
+             function onUpdate(name) {\n\
+               if (!played) {\n\
+                 played = true;\n\
+                 Bsengine.playSound(\"definitely/not/a/real/sound.wav\", { volume: 0.5 });\n\
+               }\n\
+             }",
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: String::new(),
+        });
+        app.world_mut().spawn((
+            Name("Speaker".to_string()),
+            ScriptPath(script_path.to_string_lossy().to_string()),
+        ));
+
+        // One frame: `PostStartup` loads the script and `Update` runs
+        // `onUpdate`, which reaches the real `PlaySound` handler. The load
+        // cannot have failed yet — `LoadState::Failed` is set in `PreUpdate` —
+        // so the request must be queued rather than resolved or dropped.
+        app.update();
+        assert_eq!(
+            app.world().resource::<PendingSounds>().0.len(),
+            1,
+            "playSound must queue the request instead of blocking on the decode"
+        );
+
+        for _ in 0..200 {
+            app.update();
+        }
+
+        assert!(
+            app.world().resource::<PendingSounds>().0.is_empty(),
+            "a sound that can never load must be dropped from the queue, not retried forever"
+        );
 
         let _ = std::fs::remove_file(&script_path);
     }

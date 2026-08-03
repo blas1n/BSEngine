@@ -955,6 +955,7 @@ dependencies = [
  "gltf",
  "pollster",
  "tracing",
+ "wgpu",
 ]
 
 [[package]]

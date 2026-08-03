@@ -31,7 +31,7 @@ impl Plugin for GltfPlugin {
         use bevy_asset::AssetApp;
         app.init_asset::<LoadedGltf>()
             .register_asset_loader(crate::asset_loader::GltfSourceLoader)
-            .add_systems(Update, load_gltf_assets);
+            .add_systems(Update, (load_gltf_assets, rebuild_modified_gltf).chain());
     }
 }
 
@@ -50,6 +50,27 @@ impl Plugin for GltfPlugin {
 /// RON, the scripting API and the MCP tools are unaffected.
 #[derive(Component)]
 struct PendingGltf(bevy_asset::Handle<LoadedGltf>);
+
+/// What a resolved [`GltfAsset`] produced, kept on the entity so a later reload
+/// can rebuild it.
+///
+/// The handle is retained because `AssetEvent::Modified` only fires while a
+/// strong handle exists — drop it and `Assets::track_assets` frees the asset and
+/// `AssetServer::reload` becomes a silent no-op (measured by
+/// `reload_emits_modified_only_while_a_handle_is_retained`).
+///
+/// The ids are recorded rather than re-derived because the rebuild replaces
+/// buffer *contents* under them, leaving `MeshRenderer.mesh_id` and
+/// `Material.texture_id` untouched — so the extra entities a multi-mesh glTF
+/// spawns are updated without having to find them.
+#[derive(Component)]
+struct GltfLoaded {
+    handle: bevy_asset::Handle<LoadedGltf>,
+    /// GPU mesh ids created for this asset, in `LoadedGltf::meshes` order.
+    mesh_ids: Vec<u64>,
+    /// GPU texture ids created for this asset, in `LoadedGltf::images` order.
+    texture_ids: Vec<u64>,
+}
 
 fn load_gltf_assets(
     mut commands: Commands,
@@ -114,8 +135,14 @@ fn load_gltf_assets(
         };
 
         let mut first = true;
+        // Recorded for `GltfLoaded`. Collected across the whole loop -- including
+        // the extra entities spawned for meshes after the first -- because
+        // replacing under those ids is exactly how those entities get updated,
+        // and none of them are findable from this one later.
+        let mut mesh_ids: Vec<u64> = Vec::with_capacity(loaded.meshes.len());
         for (mesh_data, tex_idx) in loaded.meshes.iter().zip(loaded.mesh_tex_indices.iter()) {
             let mesh_id = mesh_reg.register(&mesh_data.vertices, &mesh_data.indices);
+            mesh_ids.push(mesh_id);
             let texture_id = tex_idx.and_then(|i| tex_ids.get(i).copied().flatten());
             let mat = Material {
                 texture_id,
@@ -171,6 +198,61 @@ fn load_gltf_assets(
         if first {
             commands.entity(entity).remove::<(GltfAsset, PendingGltf)>();
             warn!("GLTF {} has no meshes", asset.path);
+        } else {
+            // Inserted here rather than beside the `remove` above because the
+            // full id list is only known once the loop has run. Goes on the
+            // same entity that just got `MeshRenderer`, so `rebuild_modified_gltf`
+            // finds it. `tex_ids` is either all-`Some` (registry present) or
+            // all-`None` (absent), never mixed, so flattening keeps
+            // `LoadedGltf::images` order intact.
+            commands.entity(entity).insert(GltfLoaded {
+                handle: pending.0.clone(),
+                mesh_ids,
+                texture_ids: tex_ids.iter().flatten().copied().collect(),
+            });
+        }
+    }
+}
+
+/// Rebuilds GPU state for a glTF whose asset data was replaced.
+///
+/// Replaces buffer contents under the ids recorded at load time, so no entity
+/// is touched. A structural change (different mesh or image count) cannot be
+/// expressed this way — those entities were spawned at load time — so it warns
+/// and rebuilds the overlap rather than pretending to succeed.
+fn rebuild_modified_gltf(
+    mut events: bevy_ecs::prelude::EventReader<bevy_asset::AssetEvent<LoadedGltf>>,
+    query: Query<&GltfLoaded>,
+    gltf_assets: Res<bevy_asset::Assets<LoadedGltf>>,
+    mut mesh_registry: Option<ResMut<GpuMeshRegistry>>,
+    mut tex_registry: Option<ResMut<GpuTextureRegistry>>,
+) {
+    for event in events.read() {
+        let bevy_asset::AssetEvent::Modified { id } = event else {
+            continue;
+        };
+        for loaded in query.iter().filter(|l| l.handle.id() == *id) {
+            let Some(data) = gltf_assets.get(&loaded.handle) else {
+                continue;
+            };
+            if let Some(reg) = mesh_registry.as_mut() {
+                if data.meshes.len() != loaded.mesh_ids.len() {
+                    warn!(
+                        "reloaded glTF now has {} mesh(es), was {} -- rebuilding \
+                         the overlap only; a structural change needs a restart",
+                        data.meshes.len(),
+                        loaded.mesh_ids.len()
+                    );
+                }
+                for (mesh_id, mesh_data) in loaded.mesh_ids.iter().zip(data.meshes.iter()) {
+                    reg.replace(*mesh_id, &mesh_data.vertices, &mesh_data.indices);
+                }
+            }
+            if let Some(reg) = tex_registry.as_mut() {
+                for (tex_id, img) in loaded.texture_ids.iter().zip(data.images.iter()) {
+                    reg.replace(*tex_id, img.width, img.height, &img.rgba);
+                }
+            }
         }
     }
 }
@@ -402,6 +484,198 @@ mod tests {
         assert!(
             !present_after_reload_without_handle,
             "reload must not resurrect an asset nobody holds"
+        );
+    }
+
+    /// Inserts real `GpuMeshRegistry`/`GpuTextureRegistry` resources built on a
+    /// real headless `wgpu` device.
+    ///
+    /// These are not stand-ins: they are the same types the renderer uses,
+    /// backed by an actual adapter, doing real buffer and texture uploads. The
+    /// plugin only builds them next to a swapchain surface, which needs a winit
+    /// window (see `with_rhi_plugin_but_no_window_gltf_asset_stays`), and
+    /// `WgpuRHI`'s device is `pub(crate)` — so a headless test has to construct
+    /// them here or the entire GPU-side load path, and therefore every claim
+    /// hot reload rests on, is untestable.
+    fn insert_headless_gpu_registries(app: &mut bevy_app::App) {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..Default::default()
+        });
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::None,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+        }))
+        .expect("a headless adapter; the rest of this suite already requires one");
+        let (device, queue) = pollster::block_on(adapter.request_device(
+            &wgpu::DeviceDescriptor {
+                label: Some("bsengine-gltf test device"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::downlevel_defaults(),
+                memory_hints: wgpu::MemoryHints::default(),
+            },
+            None,
+        ))
+        .expect("headless device request");
+        let device = std::sync::Arc::new(device);
+        let queue = std::sync::Arc::new(queue);
+        app.insert_resource(GpuMeshRegistry::new(device.clone()));
+        app.insert_resource(GpuTextureRegistry::new(device, queue));
+    }
+
+    #[test]
+    fn a_loaded_gltf_keeps_its_handle_so_a_reload_can_reach_it() {
+        use bevy_asset::{AssetEvent, AssetServer, Assets};
+        use bevy_ecs::event::{Events, ManualEventReader};
+
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../games/mini-arena/assets/models/fox.glb");
+        let path = fixture.to_str().unwrap().to_owned();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(GltfPlugin);
+        insert_headless_gpu_registries(&mut app);
+        let e = app.world_mut().spawn(GltfAsset::new(path.clone())).id();
+
+        for _ in 0..200 {
+            app.update();
+            if app.world().get::<GltfLoaded>(e).is_some() {
+                break;
+            }
+        }
+
+        let loaded = app.world().get::<GltfLoaded>(e).expect(
+            "a resolved glTF must record what it created, or a reload \
+             has nothing to rebuild",
+        );
+        assert!(
+            !loaded.mesh_ids.is_empty(),
+            "the recorded mesh ids are what hot reload replaces in place"
+        );
+        let asset_id = loaded.handle.id();
+        let recorded_mesh_ids = loaded.mesh_ids.clone();
+        let recorded_texture_ids = loaded.texture_ids.clone();
+        assert_eq!(
+            app.world().get::<MeshRenderer>(e).map(|m| m.mesh_id),
+            recorded_mesh_ids.first().copied(),
+            "GltfLoaded must sit on the same entity as MeshRenderer and record \
+             the id that entity actually draws, or the rebuild would refresh \
+             geometry nothing is rendering"
+        );
+
+        // The texture ids are stored flattened out of a `Vec<Option<u64>>`, so
+        // a miscount here would silently misalign the rebuild's zip against
+        // `LoadedGltf::images` and repaint meshes with the wrong image.
+        let image_count = app
+            .world()
+            .resource::<Assets<LoadedGltf>>()
+            .get(asset_id)
+            .expect("the retained handle keeps the asset alive")
+            .images
+            .len();
+        assert_eq!(
+            recorded_texture_ids.len(),
+            image_count,
+            "every image the load uploaded must be recorded, in images order"
+        );
+
+        // Read Modified specifically, rather than `Events::len() > 0`: the
+        // buffer still holds the events the *load* emitted, so a bare length
+        // check would pass even if the reload reached nothing at all.
+        let mut reader: ManualEventReader<AssetEvent<LoadedGltf>> = app
+            .world_mut()
+            .resource_mut::<Events<AssetEvent<LoadedGltf>>>()
+            .get_reader();
+        {
+            let events = app.world().resource::<Events<AssetEvent<LoadedGltf>>>();
+            let _ = reader.read(events).count();
+        }
+
+        // Registry ids are handed out sequentially, so a probe taken either
+        // side of the reload detects any id allocated in between.
+        let (probe_v, probe_i) = bsengine_rhi_wgpu::triangle_vertices();
+        let probe_before = app
+            .world_mut()
+            .resource_mut::<GpuMeshRegistry>()
+            .register(&probe_v, &probe_i);
+
+        app.world().resource::<AssetServer>().reload(path);
+        let mut saw_modified = false;
+        for _ in 0..60 {
+            app.update();
+            let events = app.world().resource::<Events<AssetEvent<LoadedGltf>>>();
+            if reader
+                .read(events)
+                .any(|ev| matches!(ev, AssetEvent::Modified { id } if *id == asset_id))
+            {
+                saw_modified = true;
+                break;
+            }
+        }
+        assert!(
+            saw_modified,
+            "reloading a loaded glTF must emit AssetEvent::Modified for the \
+             retained handle; none means the handle was dropped and hot reload \
+             is impossible for glTF"
+        );
+
+        // The whole design in one assertion: the rebuild swaps buffer contents
+        // under the ids the load already handed out, so nothing has to find the
+        // entities -- including the extra ones a multi-mesh glTF spawns, which
+        // are unreachable from here.
+        let probe_after = app
+            .world_mut()
+            .resource_mut::<GpuMeshRegistry>()
+            .register(&probe_v, &probe_i);
+        assert_eq!(
+            probe_after,
+            probe_before + 1,
+            "the reload allocated fresh mesh ids instead of replacing in place; \
+             MeshRenderer.mesh_id would now point at the pre-reload geometry"
+        );
+        for id in &recorded_mesh_ids {
+            assert!(
+                app.world().resource::<GpuMeshRegistry>().get(*id).is_some(),
+                "recorded mesh id {id} is gone from the registry after a reload"
+            );
+        }
+
+        // Reloading the file reproduces identical geometry, so it cannot show
+        // that the rebuild reached the GPU at all. Replacing the asset's data
+        // -- which is what a changed file amounts to -- makes the effect
+        // visible under the id recorded at load time.
+        let bounds_before = app
+            .world()
+            .resource::<GpuMeshRegistry>()
+            .get_bounds(recorded_mesh_ids[0])
+            .expect("a recorded id must be live before the rebuild");
+        {
+            let mut assets = app.world_mut().resource_mut::<Assets<LoadedGltf>>();
+            let data = assets
+                .get_mut(asset_id)
+                .expect("the retained handle keeps the asset mutable in place");
+            for v in &mut data.meshes[0].vertices {
+                v.position[0] *= 10.0;
+            }
+        }
+        // `Assets::asset_events` flushes in PostUpdate, so the Modified event
+        // lands in the *next* Update, where rebuild_modified_gltf reads it.
+        for _ in 0..5 {
+            app.update();
+        }
+        let bounds_after = app
+            .world()
+            .resource::<GpuMeshRegistry>()
+            .get_bounds(recorded_mesh_ids[0])
+            .expect("a recorded id must survive the rebuild");
+        assert_ne!(
+            bounds_before, bounds_after,
+            "the id recorded at load time still holds the pre-reload geometry: \
+             the rebuild never reached the GPU, so a hot reload would change \
+             nothing on screen"
         );
     }
 

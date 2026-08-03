@@ -2939,9 +2939,25 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
         // another app's failure for a path it never requested — the precise
         // wrong answer this API exists to prevent.
         //
-        // If a project ever does synthesise fresh asset paths at runtime, the
-        // thing to fix is `AssetStatuses` itself — it would be leaking
-        // `AssetInfo`s inside `bevy_asset` too — not this mirror.
+        // # Where this stops being the right trade, honestly
+        //
+        // Not "a project that synthesises fresh asset paths at runtime" — that
+        // case is pathological, and if it happened the thing to fix would be
+        // `AssetStatuses` itself, which would be leaking `AssetInfo`s inside
+        // `bevy_asset` too. The realistic threshold is ordinary: a few hundred
+        // distinct assets, which is a normal size for a shipping project, pays
+        // ~2×N `String` allocations *every frame* for a map that most frames
+        // nobody reads. Tens of entries is free; hundreds is a real per-frame
+        // cost bought for nothing on the frames no script calls
+        // `getAssetStatus`.
+        //
+        // Fixing it is not just adding an `is_changed()` guard, which is why
+        // it is not done here: `bsengine_asset::collect_asset_statuses` calls
+        // `by_path.iter_mut()` unconditionally, so `AssetStatuses` is marked
+        // changed every single frame and change detection would gate on a
+        // signal that is always true. A real fix has to make that collector
+        // compare-then-write and `bypass_change_detection()` when nothing
+        // moved, and only then can this mirror skip a rebuild.
         let asset_statuses: HashMap<String, String> = world
             .get_resource::<bsengine_asset::AssetStatuses>()
             .map(|statuses| {

@@ -49,7 +49,7 @@ pub mod types;
 pub mod watcher;
 
 pub use bevy_asset::{Asset, AssetServer, Assets, Handle};
-pub use load_mode::{load, LoadMode};
+pub use load_mode::{load, load_async, LoadMode};
 pub use plugin::AssetPlugin;
 pub use status::{AssetStatus, AssetStatusPlugin, AssetStatuses};
 pub use texture_loader::TextureAssetLoader;

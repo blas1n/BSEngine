@@ -28,11 +28,18 @@
 //! goes stale exactly in the cases this module exists to catch — but it does
 //! make the system O(recorded paths) every frame, so the map is not a place
 //! to put a path per *entity*. See [`AssetStatuses`] for what bounds it.
+//!
+//! It also takes one uncontended `Mutex` lock per frame to drain
+//! [`record_asset_request`]'s channel, and a load site pays one more lock plus
+//! (for a path not already pending) one `String` allocation per *request* —
+//! not per frame, because every consumer in this engine requests a path once
+//! and then polls the handle it kept.
 
 use bevy_app::{App, Plugin, Update};
 use bevy_asset::{AssetServer, LoadState, UntypedAssetLoadFailedEvent};
 use bevy_ecs::prelude::{EventReader, Res, ResMut, Resource};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::{LazyLock, Mutex, PoisonError};
 
 /// What the engine knows about one asset path.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,12 +68,12 @@ pub enum AssetStatus {
 ///
 /// # What bounds its growth
 ///
-/// One entry per *distinct path* that has failed to load (and, once
-/// request-time recording lands, one per distinct path requested). Paths come
-/// from scenes, script calls and shader/audio references — a fixed set for a
-/// given project, not something that grows with entity count or with time.
-/// A failure is recorded once per path no matter how many times it is
-/// retried, because the path is the key.
+/// One entry per *distinct path* the engine has requested, plus one per
+/// distinct path that has failed to load without going through a request this
+/// crate saw. Paths come from scenes, script calls and shader/audio
+/// references — a fixed set for a given project, not something that grows with
+/// entity count or with time. A path is recorded once no matter how many times
+/// it is requested or retried, because the path is the key.
 ///
 /// The one way to defeat that is to generate fresh path strings at runtime
 /// (e.g. `format!("assets/tile_{i}.png")` over an unbounded `i`). Nothing in
@@ -99,8 +106,101 @@ impl AssetStatuses {
     }
 }
 
-/// Folds this frame's asset-load failures and the `AssetServer`'s current
-/// per-path load states into [`AssetStatuses`].
+/// Paths that [`record_asset_request`] has been told about and no
+/// [`collect_asset_statuses`] run has claimed yet.
+///
+/// # Why a process-global side channel, stated plainly
+///
+/// [`crate::load`] is handed `&AssetServer` and `&mut Assets<T>`. It has no
+/// `World`, no `Commands` and no way to reach a second `Resource`, so the
+/// recording has to travel out of it somehow. The two candidates were:
+///
+/// * **Thread `AssetStatuses` through the signature.** Every call site
+///   changes, and every *system* that loads anything grows another
+///   `SystemParam` — including `bsengine_scripting`'s, which reaches `load`
+///   from an exclusive-`World` op and would have to fetch the resource by
+///   hand, and `bsengine_render`'s, which is already crowded with the
+///   16-parameter ceiling in mind. It would also make the resource mandatory
+///   for anyone who merely wants to load a file.
+/// * **A process-global channel** that the load funnels push to and the
+///   collector drains. Call sites are untouched; an app that never adds
+///   [`AssetStatusPlugin`] never notices.
+///
+/// This is the second one. It **is** global mutable state — said out loud
+/// rather than buried, because that is the cost. What keeps it from being the
+/// dangerous kind:
+///
+/// * It carries *requests*, never verdicts. A claimed path enters
+///   [`AssetStatuses`] as [`AssetStatus::Loading`] and is immediately
+///   re-read from the `AssetServer`, so nothing here can publish "Loaded" for
+///   an asset that never loaded — the property [`AssetStatuses`]'s private
+///   map exists to protect.
+/// * It is a `HashSet`, so a path requested a thousand times is one entry and
+///   costs one lock and no allocation on every request after the first.
+/// * Several `App`s in one process do not steal each other's requests. That
+///   is not hypothetical: this crate's own test run is a dozen `App`s across
+///   parallel test threads. [`collect_asset_statuses`] claims only paths its
+///   *own* `AssetServer` knows about and leaves the rest in place.
+///
+/// # What bounds it
+///
+/// In a running engine it empties every frame: `AssetServer::load` creates
+/// the path's `AssetInfo` before it returns, so the very next collector run
+/// recognises and claims it.
+///
+/// An app that adds `AssetPlugin` but not [`AssetStatusPlugin`] never drains
+/// it at all. That is bounded by the number of *distinct* paths that app
+/// requests — the same bound [`AssetStatuses`] itself has, and for the same
+/// reason (see there): nothing in this engine synthesises fresh path strings
+/// at runtime. The residue is a `String` per path, and it is never walked by
+/// anybody, because the only thing that walks it is the collector that app
+/// does not have.
+///
+/// The one entry that can linger in an app that *does* collect is a path
+/// whose handle was dropped before the next `Update` — the `AssetInfo` is
+/// gone, so no collector recognises it. Same bound, and the path is one
+/// nobody kept a handle to.
+static REQUESTED_PATHS: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Mutex::default);
+
+/// Notes that something asked for `path`, so that [`AssetStatuses`] can report
+/// on it before — and whether or not — anything goes wrong.
+///
+/// This is the half `bevy_asset` cannot provide: `UntypedAssetLoadFailedEvent`
+/// tells us about paths that *failed*, but there is no API anywhere on
+/// `AssetServer` to enumerate the paths it knows (`AssetInfos`' map is
+/// private). Without this, a path that loaded fine and a path nobody ever
+/// mentioned are the same answer — `Unknown` — which is the ambiguity this
+/// module exists to remove.
+///
+/// Deliberately **not** `pub`: the only ways in are [`crate::load`] and
+/// [`crate::load_async`], which record what they are about to hand to
+/// `AssetServer::load`. A caller that could record freely could report
+/// `Loading` for a path nothing ever requested, and the answer would be worth
+/// no more than the log line it replaces. Consumers outside this crate that
+/// need their loads tracked call [`crate::load_async`] instead of
+/// `AssetServer::load`.
+///
+/// Poisoning is recovered from rather than propagated. A panic elsewhere while
+/// this lock was held must not turn every later asset load in the process into
+/// a panic of its own — and what is behind the lock is a set of *notes to
+/// look at a path*, every one of which the collector re-checks against the
+/// `AssetServer` before it means anything. There is no invariant here for a
+/// panic to have broken.
+pub(crate) fn record_asset_request(path: &str) {
+    let mut requested = REQUESTED_PATHS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    // Checked before inserting so a repeat request costs a hash lookup rather
+    // than a `String` allocation that `HashSet::insert` would immediately
+    // throw away.
+    if !requested.contains(path) {
+        requested.insert(path.to_owned());
+    }
+}
+
+/// Folds this frame's asset-load failures, the paths requested since the last
+/// run, and the `AssetServer`'s current per-path load states into
+/// [`AssetStatuses`].
 ///
 /// Runs in `Update`, which is after the `PreUpdate` system where `bevy_asset`
 /// turns its internal load results into `LoadState` changes and
@@ -111,6 +211,14 @@ impl AssetStatuses {
 /// registered once by `bevy_asset::AssetPlugin`, not per type, and carries the
 /// path and the error, so glTF, shaders, textures and audio are all handled
 /// here without this crate knowing those types exist.
+///
+/// # Why requests have to be pushed in
+///
+/// Failures arrive on their own. Everything else does not: `bevy_asset`
+/// exposes no way to ask an `AssetServer` which paths it knows, so this system
+/// can refresh paths it has already heard of but can never *discover* one.
+/// [`record_asset_request`] is where it hears of them — see there for what
+/// that costs.
 ///
 /// # Failure is sticky, and a successful load is what clears it
 ///
@@ -165,6 +273,36 @@ pub fn collect_asset_statuses(
             event.path.to_string(),
             AssetStatus::Failed(event.error.to_string()),
         );
+    }
+
+    // Paths requested since the last run join the map here, ahead of the
+    // refresh below, so a path requested this frame reports its real state
+    // this frame rather than one frame late.
+    {
+        let mut requested = REQUESTED_PATHS
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        requested.retain(|path| {
+            // Whether *this* app's `AssetServer` knows the path is what says
+            // whose request it was. Several `App`s share this channel (this
+            // crate's own test run is exactly that), and claiming a path this
+            // server never heard of would both steal it from the app that did
+            // request it and park it here as a `Loading` that can never
+            // resolve, since every later refresh would read `NotLoaded`.
+            if asset_server.get_path_id(path).is_none() {
+                return true;
+            }
+            // `or_insert`, not `insert`: a request must never overwrite a
+            // verdict. A re-request of a failed path does move it back to
+            // `Loading` — but by way of `bevy_asset` actually resetting the
+            // load state, which the refresh below reads, not because the
+            // caller said so.
+            statuses
+                .by_path
+                .entry(path.clone())
+                .or_insert(AssetStatus::Loading);
+            false
+        });
     }
 
     for (path, status) in statuses.by_path.iter_mut() {
@@ -271,6 +409,118 @@ mod tests {
         image::RgbaImage::from_pixel(1, 1, image::Rgba([1, 2, 3, 255]))
             .save(path)
             .unwrap();
+    }
+
+    /// Requests `path` the way the engine's consumers do — through
+    /// [`crate::load`], not by reaching for the `AssetServer` directly. The
+    /// difference is the whole point of these two tests: a status that only
+    /// appears when someone calls `AssetServer::load` by hand would report
+    /// nothing about the paths the engine actually loads.
+    fn request_texture(
+        app: &mut bsengine_app::App,
+        path: &str,
+    ) -> bevy_asset::Handle<TextureAsset> {
+        let server = app.world().resource::<AssetServer>().clone();
+        let mut assets = app
+            .world_mut()
+            .resource_mut::<bevy_asset::Assets<TextureAsset>>();
+        crate::load_mode::load(
+            crate::load_mode::LoadMode::Async,
+            &server,
+            &mut assets,
+            path,
+            // Never called: `LoadMode::Async` ignores the sync loader, and
+            // there is no synchronous texture loader in this codebase.
+            |p| Err::<TextureAsset, String>(format!("no synchronous texture loader for {p}")),
+        )
+        .expect("LoadMode::Async is infallible")
+    }
+
+    /// The success direction, and the one `bevy_asset` cannot supply by
+    /// itself: a path that loaded must say so.
+    ///
+    /// Failures announce themselves through `UntypedAssetLoadFailedEvent`;
+    /// nothing announces a success, and there is no API to enumerate the paths
+    /// an `AssetServer` knows. So without recording the request, "it loaded"
+    /// and "nothing ever asked" are the same answer — `Unknown` — which is
+    /// exactly the ambiguity that let a game run with no mesh and no shader.
+    #[test]
+    fn a_successful_load_through_the_engine_funnel_is_reported_as_loaded() {
+        let dir = unique("loaded");
+        let _guard = ProbeDir(PathBuf::from(&dir));
+        std::fs::create_dir_all(&dir).unwrap();
+        let rel = format!("{dir}/present-texture.png");
+        write_png(&PathBuf::from(&rel));
+
+        let mut app = new_app();
+        app.add_plugins((AssetPlugin, AssetStatusPlugin));
+
+        // Retained for the whole test, as every consumer in this engine
+        // retains it: dropping it lets `track_assets` evict the `AssetInfo`,
+        // which is a different property entirely.
+        let _handle = request_texture(&mut app, &rel);
+
+        let status = pump_until(&mut app, &rel, |s| matches!(s, AssetStatus::Loaded));
+        assert_eq!(
+            status,
+            AssetStatus::Loaded,
+            "a file that exists and loads must report Loaded; anything else means \
+             a successful load is indistinguishable from one nobody requested"
+        );
+    }
+
+    /// Recording a *request* must not be mistaken for recording a *result*:
+    /// a path whose file does not exist goes through the same funnel, and
+    /// must never read `Loaded` on any frame on its way to `Failed`.
+    ///
+    /// A guard, not the distinguishing test — that is the one above. Neither
+    /// assertion here can fail merely because request-time recording is
+    /// missing: a local miss usually fails within the first frame, so the
+    /// failure event alone puts the path on the map. What this pins is the
+    /// direction the *implementation* could go wrong in — reporting a request
+    /// as a result, which would call every broken path in a project fine.
+    #[test]
+    fn a_requested_path_that_cannot_load_is_never_reported_as_loaded() {
+        let missing = format!("{}/never-arrives.png", unique("unresolved"));
+
+        let mut app = new_app();
+        app.add_plugins((AssetPlugin, AssetStatusPlugin));
+        let _handle = request_texture(&mut app, &missing);
+
+        // One frame is enough to be *known*: `AssetServer::load` creates the
+        // `AssetInfo` before it returns, so the first collector run already
+        // recognises the path as its own.
+        app.update();
+        assert_ne!(
+            app.world().resource::<AssetStatuses>().get(&missing),
+            AssetStatus::Unknown,
+            "a requested path must be reported from the frame after it is asked \
+             for, not only once it fails"
+        );
+
+        // Whether the failure has landed yet is a race with the filesystem,
+        // so every state except `Loaded` is allowed on the way — `Loaded` is
+        // allowed on no frame at all, because this file does not exist.
+        let deadline = Instant::now() + DEADLINE;
+        loop {
+            app.update();
+            let status = app.world().resource::<AssetStatuses>().get(&missing);
+            assert_ne!(
+                status,
+                AssetStatus::Loaded,
+                "a path whose file does not exist must never read Loaded — \
+                 recording a request is not recording a result"
+            );
+            if matches!(status, AssetStatus::Failed(_)) {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the requested load never resolved, so this proves nothing; last \
+                 status was {status:?}"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
     }
 
     /// The failure direction: a path that cannot possibly resolve ends up

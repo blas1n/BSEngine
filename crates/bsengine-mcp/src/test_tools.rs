@@ -16,6 +16,7 @@ pub fn test_tools(registry: Arc<SessionRegistry>) -> Vec<McpTool> {
         stop_tool(registry.clone()),
         save_recording_tool(registry.clone()),
         run_replay_tool(registry.clone()),
+        asset_status_tool(registry.clone()),
     ];
     tools.extend(passthrough_tools(registry));
     tools
@@ -140,6 +141,93 @@ fn run_replay_tool(registry: Arc<SessionRegistry>) -> McpTool {
     }
 }
 
+/// Asks a live session what became of one asset path.
+///
+/// # Why a tool of its own rather than only `test_query_state`
+///
+/// `get_asset_status` is reachable through `test_query_state` too (and
+/// through `test_assert`/`test_wait_until`, which is the point of putting it
+/// in the runtime's query table at all — a recording can now wait for a mesh
+/// to load, or assert that nothing failed). But a query tool's name lives
+/// inside another tool's *description*, and an agent that never reads that
+/// sentence never learns the question is askable. This whole phase exists
+/// because a failure that was only a `tracing::warn!` went unread across two
+/// phases of work; hiding its replacement one level down would repeat the
+/// mistake in a new place. `tools/list` names this one directly.
+///
+/// # Why `test_`-prefixed
+///
+/// It needs a `session_id`, and in this server that prefix is what says so —
+/// every tool that talks to a live session carries it, every tool that does
+/// not (`game_create`, `scene_write`, `game_validate`) does not. The plan
+/// called this tool `get_asset_status`, on the assumption that an MCP tool
+/// could read `AssetStatuses` directly; it cannot, because the MCP server is
+/// a separate process from the engine and reaches it only through a spawned
+/// `bsengine-runtime --test` child. The query *inside* the engine keeps the
+/// plain name; the tool that needs a session is named like the other tools
+/// that need one.
+fn asset_status_tool(registry: Arc<SessionRegistry>) -> McpTool {
+    McpTool {
+        name: "test_get_asset_status".to_string(),
+        description: "Reports what the engine knows about one asset path in a live test \
+            session, as \"loaded\", \"loading\", \"failed: <reason>\" or \"unknown\" — the \
+            same four answers Bsengine.getAssetStatus gives a script. \"unknown\" means \
+            nothing ever requested that path, which is deliberately NOT the same answer as \
+            a failure: a misspelled path reads \"unknown\", a real path that broke reads \
+            \"failed: \" plus the reason. `path` must be spelled exactly as the load site \
+            spelled it — the project directory this session was started with, then the \
+            scene-/script-relative part, forward-slashed (e.g. \
+            \"games/mini-arena/assets/models/fox.glb\"). An absolute or otherwise \
+            re-spelled path reads \"unknown\", not an error. Also available as the \
+            get_asset_status query tool, so test_assert/test_wait_until can gate a \
+            recording on an asset actually loading."
+            .to_string(),
+        input_schema: Some(json!({
+            "type": "object",
+            "properties": {
+                "session_id": { "type": "string" },
+                "path": {
+                    "type": "string",
+                    "description": "Asset path as the load site spelled it, e.g. \
+                        games/mini-arena/assets/models/fox.glb",
+                },
+            },
+            "required": ["session_id", "path"],
+        })),
+        handler: Box::new(move |args| {
+            let session_id = match args.get("session_id").and_then(|v| v.as_str()) {
+                Some(s) => s.to_string(),
+                None => return McpToolOutput::error("missing required field: session_id"),
+            };
+            let path = match args.get("path").and_then(|v| v.as_str()) {
+                Some(p) => p.to_string(),
+                None => return McpToolOutput::error("missing required field: path"),
+            };
+            let command = json!({
+                "cmd": "query",
+                "tool": "get_asset_status",
+                "args": { "path": path },
+            });
+            let response = match registry.send(&session_id, command) {
+                Ok(r) => r,
+                Err(e) => return McpToolOutput::error(&e),
+            };
+            // An object, unlike the bare string the JS op returns, because
+            // every other tool here answers with one — and the echoed `path`
+            // is what makes an `"unknown"` readable: it shows the spelling
+            // that was actually asked about, which is the one thing that
+            // separates "nobody requested it" from "you asked about a
+            // different path than the engine loaded".
+            match mcp_output_from_response(response) {
+                out if out.is_ok() => {
+                    McpToolOutput::success(json!({ "path": path, "status": out.content }))
+                }
+                err => err,
+            }
+        }),
+    }
+}
+
 struct PassthroughSpec {
     tool_name: &'static str,
     child_cmd: &'static str,
@@ -226,9 +314,10 @@ fn passthrough_specs() -> Vec<PassthroughSpec> {
         PassthroughSpec {
             tool_name: "test_query_state",
             child_cmd: "query",
-            description:
-                "Reads live world state. `tool` is one of get_transform, get_visible, \
-                get_entity_names; `args` are that query's parameters (e.g. {\"name\": \"Player\"}).",
+            description: "Reads live world state. `tool` is one of get_transform, get_visible, \
+                get_entity_names, get_hud_text, get_asset_status; `args` are that query's \
+                parameters (e.g. {\"name\": \"Player\"}, {\"id\": \"1\"}, {\"path\": \
+                \"games/mini-arena/assets/models/fox.glb\"}).",
             input_schema: json!({
                 "type": "object",
                 "properties": {

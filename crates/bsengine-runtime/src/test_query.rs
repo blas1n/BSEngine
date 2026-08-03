@@ -4,8 +4,10 @@
 //! `Bsengine.*` JS getters for consistency.
 
 use bevy_ecs::world::World;
+use bsengine_asset::{AssetStatus, AssetStatuses};
 use bsengine_core::{HudTexts, Transform, Visible};
 use bsengine_scene::Name;
+use bsengine_scripting::ops::render_asset_status;
 use serde_json::{json, Value};
 
 pub fn get_transform(world: &mut World, name: &str) -> Value {
@@ -52,6 +54,33 @@ pub fn get_hud_text(world: &mut World, id: &str) -> Value {
     }
 }
 
+/// Reads what the engine knows about one asset path, as the same string
+/// `Bsengine.getAssetStatus` hands a script: `"loaded"`, `"loading"`,
+/// `"failed: <reason>"` or `"unknown"`. Rendered by
+/// [`bsengine_scripting::ops::render_asset_status`], so the MCP tool that
+/// wraps this query and the JS op cannot drift into two vocabularies for the
+/// same fact.
+///
+/// `path` must be spelled the way the load site spelled it — the
+/// project-relative, forward-slashed form `bsengine_core::resolve_project_path`
+/// produces, i.e. `<project_dir>/assets/...` with `<project_dir>` exactly as it
+/// was passed to `--test`. A path spelled any other way reads `"unknown"`,
+/// because that is what it is: a path nobody mentioned.
+///
+/// Answers `"unknown"` — never an error — when `AssetStatuses` is absent
+/// entirely, matching what the JS op does in a host that never added
+/// `AssetStatusPlugin`. Unreachable in this runtime, whose `--test` app adds
+/// that plugin (see `test_mode::build_test_app`); the arm exists so a caller
+/// gets the same four answers from any app rather than a fifth failure mode
+/// that depends on host wiring.
+pub fn get_asset_status(world: &mut World, path: &str) -> Value {
+    let status = match world.get_resource::<AssetStatuses>() {
+        Some(statuses) => statuses.get(path),
+        None => AssetStatus::Unknown,
+    };
+    json!(render_asset_status(&status))
+}
+
 pub fn run_query(world: &mut World, tool: &str, args: &Value) -> Result<Value, String> {
     match tool {
         "get_transform" => {
@@ -75,6 +104,13 @@ pub fn run_query(world: &mut World, tool: &str, args: &Value) -> Result<Value, S
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| "get_hud_text requires string 'id'".to_string())?;
             Ok(get_hud_text(world, id))
+        }
+        "get_asset_status" => {
+            let path = args
+                .get("path")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| "get_asset_status requires string 'path'".to_string())?;
+            Ok(get_asset_status(world, path))
         }
         other => Err(format!("unknown query tool: {other}")),
     }
@@ -200,6 +236,42 @@ mod tests {
         assert_eq!(names.len(), 2);
         assert!(names.contains(&"A".to_string()));
         assert!(names.contains(&"B".to_string()));
+    }
+
+    // Only the `Unknown` direction is reachable from a hand-built `World`:
+    // `AssetStatuses`' map is private and written by nothing but the real
+    // collector, deliberately, so that no caller can forge a verdict. The
+    // `Failed`/`Loaded` directions are therefore pinned where they can be
+    // driven for real — `crates/bsengine-mcp/tests/test_tools.rs`, against a
+    // live session with a load that actually fails.
+    #[test]
+    fn get_asset_status_is_unknown_when_the_status_resource_is_absent() {
+        let mut world = World::new();
+        assert_eq!(
+            get_asset_status(&mut world, "games/x/assets/sounds/a.ogg"),
+            json!("unknown"),
+            "a host without AssetStatusPlugin must answer like the JS op does, \
+             not invent a fifth answer"
+        );
+    }
+
+    #[test]
+    fn run_query_dispatches_get_asset_status() {
+        let mut world = World::new();
+        let result = run_query(
+            &mut world,
+            "get_asset_status",
+            &json!({"path": "games/x/assets/sounds/a.ogg"}),
+        )
+        .unwrap();
+        assert_eq!(result, json!("unknown"));
+    }
+
+    #[test]
+    fn run_query_get_asset_status_requires_a_path() {
+        let mut world = World::new();
+        let err = run_query(&mut world, "get_asset_status", &json!({})).unwrap_err();
+        assert!(err.contains("path"), "unhelpful error: {err}");
     }
 
     #[test]

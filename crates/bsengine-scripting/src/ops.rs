@@ -5458,7 +5458,14 @@ pub(crate) const ASSET_STATUS_FAILED_PREFIX: &str = "failed: ";
 /// requested* must never read the same, because reading a failure as silence
 /// is exactly how `games/mini-arena` ran with no mesh and no shader for two
 /// phases of work.
-pub(crate) fn render_asset_status(status: &AssetStatus) -> String {
+///
+/// `pub` rather than `pub(crate)` because a *second* surface answers the same
+/// question — `bsengine-runtime`'s headless `get_asset_status` query, which is
+/// what the `test_get_asset_status` MCP tool reads. Both report the same fact,
+/// so both render it here: an agent that asks over MCP and a script that asks
+/// in JS must not have to learn two vocabularies for one answer, and two
+/// `match` arms that drift apart is exactly how they would.
+pub fn render_asset_status(status: &AssetStatus) -> String {
     match status {
         AssetStatus::Unknown => ASSET_STATUS_UNKNOWN.to_string(),
         AssetStatus::Loading => ASSET_STATUS_LOADING.to_string(),

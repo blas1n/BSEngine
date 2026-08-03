@@ -1,5 +1,7 @@
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
 
 use bsengine_mcp::{test_tools, McpTool, SessionRegistry};
 use serde_json::json;
@@ -63,9 +65,9 @@ fn find<'a>(tools: &'a [McpTool], name: &str) -> &'a McpTool {
 }
 
 #[test]
-fn builds_twelve_tools() {
+fn builds_thirteen_tools() {
     let tools = test_tools(test_registry());
-    assert_eq!(tools.len(), 12);
+    assert_eq!(tools.len(), 13);
 }
 
 #[test]
@@ -171,6 +173,224 @@ fn record_save_and_replay_round_trip() {
     let saved_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../games/cube-evader/tests/round-trip-test.testlog.json");
     std::fs::remove_file(saved_path).ok();
+}
+
+/// Name of the throwaway game inside a [`ProbeGame`]'s games-root.
+const PROBE_GAME: &str = "probe";
+
+/// Requested by the probe game's script, and impossible to load.
+const BROKEN_SOUND: &str = "assets/sounds/does-not-exist.ogg";
+
+/// Never requested by anything. Same shape as [`BROKEN_SOUND`] and equally
+/// nonexistent — the only difference is that nothing asked for it, which is
+/// the difference the whole status API exists to expose.
+const QUIET_SOUND: &str = "assets/sounds/nothing-ever-asked.ogg";
+
+/// A throwaway game project whose script requests one asset that cannot load,
+/// plus the `SessionRegistry` rooted at it. Removed on drop.
+///
+/// # Why it lives under the crate directory rather than in the temp dir
+///
+/// `bevy_asset`'s root is the process CWD (see `bsengine_asset::plugin`), and
+/// every asset path this engine produces is *relative* to it — the engine has
+/// never loaded an absolute asset path anywhere. Cargo runs an integration
+/// test with the CWD set to the package root, and the spawned
+/// `bsengine-runtime --test` child inherits it, so a games-root spelled
+/// relative to that gives the child the exact path shape a real game has.
+/// `crates/*/bsengine-status-probe-*` is already gitignored for the sibling
+/// probes in `bsengine-asset`, which exist for the same reason.
+struct ProbeGame {
+    games_root: PathBuf,
+}
+
+impl ProbeGame {
+    fn create() -> Self {
+        static N: AtomicU32 = AtomicU32::new(0);
+        let games_root = PathBuf::from(format!(
+            "bsengine-status-probe-mcp-{}-{}",
+            std::process::id(),
+            N.fetch_add(1, Ordering::Relaxed)
+        ));
+        let game = games_root.join(PROBE_GAME);
+        std::fs::create_dir_all(game.join("assets/scenes")).unwrap();
+        std::fs::create_dir_all(game.join("assets/scripts")).unwrap();
+        std::fs::write(
+            game.join("project.toml"),
+            "[project]\nname = \"Asset Status Probe\"\nentry_scene = \"assets/scenes/main.ron\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            game.join("assets/scenes/main.ron"),
+            "SceneDescriptor(entities: [\n    \
+             EntityDescriptor(name: \"Probe\", script: Some(\"assets/scripts/probe.js\")),\n])\n",
+        )
+        .unwrap();
+        // Every frame rather than once: `playSound` deduplicates by path
+        // (`SoundLoads`), so this requests the asset exactly once no matter how
+        // many frames the session is stepped, and needs no first-frame hook.
+        std::fs::write(
+            game.join("assets/scripts/probe.js"),
+            format!("function onUpdate(self) {{ Bsengine.playSound(\"{BROKEN_SOUND}\"); }}\n"),
+        )
+        .unwrap();
+        Self { games_root }
+    }
+
+    /// The key `AssetStatuses` holds for `relative`, spelled exactly as the
+    /// engine spells it: `resolve_project_path` joins the project directory
+    /// with the script-relative path, and the project directory is what
+    /// `SessionRegistry` passes to `--test` — `games_root/<game>`.
+    ///
+    /// Derived rather than hardcoded on purpose: the spelling is the one thing
+    /// a caller of this tool has to get right, so a test that quietly used a
+    /// different one would be testing nothing.
+    fn asset_key(&self, relative: &str) -> String {
+        format!("{}/{relative}", self.games_root.join(PROBE_GAME).display())
+    }
+
+    fn registry(&self) -> Arc<SessionRegistry> {
+        Arc::new(SessionRegistry::new(
+            runtime_bin_path().clone(),
+            self.games_root.clone(),
+        ))
+    }
+}
+
+impl Drop for ProbeGame {
+    fn drop(&mut self) {
+        // Retried: the child process may still be exiting, and Windows refuses
+        // to remove a directory anything still has open.
+        for _ in 0..40 {
+            if std::fs::remove_dir_all(&self.games_root).is_ok() || !self.games_root.exists() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+}
+
+/// The property this tool exists for, driven end to end against a live
+/// session: a path whose load *failed* and a path *nothing ever requested*
+/// must not read the same.
+///
+/// Both halves are load-bearing. A test that only checked the failure would
+/// pass against a tool that answered `"failed: ..."` for every path — and
+/// that is exactly the shape of the bug this phase exists to prevent, since a
+/// status nobody can trust is no better than the `tracing::warn!` it replaces.
+///
+/// Driven through a real session rather than asserted on the source, for the
+/// same reason `wait_until_reaches_a_live_session` is: the tool only works if
+/// the assembled tool list carries it *and* the query name it sends is one the
+/// runtime actually parses, and neither is visible from this crate alone.
+#[test]
+fn asset_status_tells_a_failed_load_from_a_path_nothing_requested() {
+    let probe = ProbeGame::create();
+    let tools = test_tools(probe.registry());
+
+    let out = (find(&tools, "test_session_start").handler)(json!({"game": PROBE_GAME}));
+    assert!(out.is_ok(), "{:?}", out.error);
+    let session_id = out.content["session_id"].as_str().unwrap().to_string();
+
+    let status_of = |path: &str| -> String {
+        let out = (find(&tools, "test_get_asset_status").handler)(
+            json!({"session_id": session_id, "path": path}),
+        );
+        assert!(out.is_ok(), "{:?}", out.error);
+        assert_eq!(
+            out.content["path"],
+            json!(path),
+            "the tool must echo the path it was asked about, or an `unknown` is unreadable"
+        );
+        out.content["status"]
+            .as_str()
+            .unwrap_or_else(|| panic!("status must be a string, got {:?}", out.content))
+            .to_string()
+    };
+
+    let broken = probe.asset_key(BROKEN_SOUND);
+    let deadline = Instant::now() + Duration::from_secs(60);
+    let mut broken_status = status_of(&broken);
+    while !broken_status.starts_with("failed: ") {
+        assert!(
+            Instant::now() < deadline,
+            "the probe's load never resolved, so this test proves nothing; last status \
+             was {broken_status:?} for {broken}"
+        );
+        let out =
+            (find(&tools, "test_step").handler)(json!({"session_id": session_id, "frames": 10}));
+        assert!(out.is_ok(), "{:?}", out.error);
+        broken_status = status_of(&broken);
+    }
+
+    let reason = broken_status.trim_start_matches("failed: ");
+    assert!(
+        !reason.trim().is_empty(),
+        "a failure with an empty reason is no better than the warn! it replaces"
+    );
+    let lowered = reason.to_lowercase();
+    assert!(
+        lowered.contains("not found") || lowered.contains("does-not-exist"),
+        "the reason must name what went wrong or what it went wrong on, got {reason:?}"
+    );
+
+    let quiet_status = status_of(&probe.asset_key(QUIET_SOUND));
+    assert_eq!(
+        quiet_status, "unknown",
+        "a path nothing ever requested must read `unknown`, not a failure and not a load"
+    );
+    assert_ne!(
+        quiet_status, broken_status,
+        "if silence and failure read the same, the tool answers nothing"
+    );
+
+    (find(&tools, "test_session_stop").handler)(json!({"session_id": session_id}));
+}
+
+/// A tool that is built but never enumerated is inert — the exact failure
+/// this branch already hit once, when `AssetStatusPlugin` was implemented and
+/// added by nothing outside its own tests. So this walks the whole path
+/// `src/bin/server.rs` walks: register every tool into an `McpToolRegistry`,
+/// serve it, and ask over JSON-RPC the way a client does.
+#[test]
+fn asset_status_tool_is_enumerated_by_the_server() {
+    use std::sync::Mutex;
+
+    use bsengine_mcp::{game_tools, McpServer, McpToolRegistry};
+
+    let mut registry = McpToolRegistry::new();
+    for tool in game_tools(PathBuf::from(".")) {
+        registry.register(tool);
+    }
+    for tool in test_tools(test_registry()) {
+        registry.register(tool);
+    }
+
+    let server = McpServer::new(Arc::new(Mutex::new(registry)));
+    let response = server
+        .handle_message(json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}))
+        .expect("tools/list must produce a response");
+    let listed = response["result"]["tools"].as_array().unwrap();
+
+    let tool = listed
+        .iter()
+        .find(|t| t["name"] == "test_get_asset_status")
+        .unwrap_or_else(|| {
+            let names: Vec<&str> = listed.iter().filter_map(|t| t["name"].as_str()).collect();
+            panic!("test_get_asset_status is not enumerated; tools/list has {names:?}")
+        });
+    let required = tool["inputSchema"]["required"].as_array().unwrap();
+    assert!(
+        required.contains(&json!("session_id")) && required.contains(&json!("path")),
+        "both arguments must be advertised, or a client cannot call this: {required:?}"
+    );
+}
+
+#[test]
+fn asset_status_missing_path_errors() {
+    let tools = test_tools(test_registry());
+    let out = (find(&tools, "test_get_asset_status").handler)(json!({"session_id": "session-1"}));
+    assert!(!out.is_ok());
+    assert!(out.error.unwrap().contains("path"));
 }
 
 #[test]

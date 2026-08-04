@@ -111,6 +111,39 @@ impl Plugin for AssetPlugin {
 
         app.add_plugins(bevy_asset::AssetPlugin {
             file_path: root.clone(),
+            // `bevy_asset` reserves `<asset>.meta` for its own
+            // `AssetMetaMinimal`, and so does [`crate::identity`] for the
+            // stable asset identity roadmap item 30 stores. Two formats, one
+            // filename, and the collision is not a warning: with the default
+            // `AssetMetaCheck::Always`, a sidecar beside `fox.glb` makes the
+            // *asset* fail to load —
+            //
+            //   Failed to deserialize meta for asset .../fox.glb: Failed to
+            //   deserialize minimal asset meta: MissingStructField { field:
+            //   "asset", outer: Some("AssetMetaMinimal") }
+            //
+            // — so `games/mini-arena` loses its mesh and its glow shader on
+            // the first launch that mints them, which is every launch after
+            // `AssetIdentityPlugin` was registered in the hosts. `js` and
+            // `ron` never reach `bevy_asset`, so the damage is confined to
+            // exactly the extensions it does serve; that is most of
+            // `identity::scan`'s list.
+            //
+            // `Never` is the resolution rather than a workaround because this
+            // engine has no use for the thing being switched off. Bevy's meta
+            // files carry per-asset loader settings and drive its
+            // `AssetProcessor`; this workspace authors none, runs
+            // `AssetMode::Unprocessed`, and already suppresses bevy's other
+            // path conventions above for the same reason — engine paths are
+            // resolved before they ever reach a loader. It also saves a
+            // file-existence probe per load.
+            //
+            // The alternative, renaming `identity::SIDECAR_EXTENSION` away
+            // from `meta`, would work too and costs more: `.meta` is what
+            // Unity uses and what sub-item A specified, and every identity
+            // already minted would be re-minted under the new name — which is
+            // every GUID the scenes now store.
+            meta_check: bevy_asset::AssetMetaCheck::Never,
             ..Default::default()
         })
         .insert_resource(AssetRoot(PathBuf::from(root)))
@@ -258,6 +291,70 @@ mod tests {
         assert_eq!(data, vec![7, 8, 9, 255]);
 
         println!("{CWD_PROBE_MARKER}");
+    }
+
+    // `bevy_asset` and [`crate::identity`] both spell their per-asset
+    // metadata `<asset>.meta`, in two incompatible formats. With bevy's
+    // default `AssetMetaCheck::Always` the collision does not degrade the
+    // load, it *fails* it: the asset never arrives, and the only trace is one
+    // `ERROR` from `bevy_asset::server` about a struct field named `asset`,
+    // which says nothing about identity sidecars to whoever reads it.
+    //
+    // The pairing is what makes this worth a test of its own. Neither half is
+    // wrong alone — the scan writes a well-formed sidecar, the loader reads a
+    // well-formed asset — and nothing in either crate's tests puts them in the
+    // same directory, so the two shipped green and `games/mini-arena` lost its
+    // fox mesh and its glow shader on the first launch that minted them.
+    // Every extension `bevy_asset` serves is affected; `js` and `ron` are
+    // spared only because they never reach it.
+    #[test]
+    fn an_asset_still_loads_with_an_identity_sidecar_beside_it() {
+        use crate::test_support::{unique, ProbeDir};
+
+        // Under the crate root rather than the temp directory, because
+        // `AssetPlugin` roots `bevy_asset` at the CWD and this has to be a
+        // path the engine could really produce. `.gitignore` covers
+        // `crates/*/bsengine-watch-probe-*`.
+        let name = unique("identity-meta");
+        let probe = ProbeDir(PathBuf::from(&name));
+        std::fs::create_dir_all(probe.0.join("assets")).unwrap();
+        image::RgbaImage::from_pixel(1, 1, image::Rgba([1, 2, 3, 255]))
+            .save(probe.0.join("assets/probe.png"))
+            .unwrap();
+
+        // The real scan, so the sidecar under test is the one that ships
+        // rather than a hand-written approximation of it.
+        crate::identity::scan(&probe.0).expect("scan the probe project");
+        assert!(
+            probe.0.join("assets/probe.png.meta").exists(),
+            "the probe is vacuous unless the scan really wrote a sidecar"
+        );
+
+        let mut app = new_app();
+        app.add_plugins(AssetPlugin);
+        let handle = {
+            let server = app.world().resource::<AssetServer>();
+            server.load::<TextureAsset>(format!("{name}/assets/probe.png"))
+        };
+
+        let mut loaded = None;
+        for _ in 0..200 {
+            app.update();
+            if let Some(tex) = app.world().resource::<Assets<TextureAsset>>().get(&handle) {
+                loaded = Some(tex.data.clone());
+                break;
+            }
+        }
+
+        let state = app
+            .world()
+            .resource::<AssetServer>()
+            .get_load_state(handle.id());
+        assert_eq!(
+            loaded,
+            Some(vec![1, 2, 3, 255]),
+            "an asset with an identity sidecar beside it must still load; load_state={state:?}"
+        );
     }
 
     #[test]

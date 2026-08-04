@@ -37,3 +37,10 @@ tracing         = { workspace = true }
 [dev-dependencies]
 glam            = { workspace = true }
 tempfile        = "3"
+# The item-30 end-to-end test renames an asset while a real engine with the real
+# `AssetWatcherPlugin` is running, against a real temp project. That needs the
+# same probe-directory guard the watcher's own tests use — one that retries on
+# Windows, where the watcher's handles can briefly refuse the removal — rather
+# than a second `remove_dir_all` that would leave litter whenever it lost that
+# race. Same arrangement `bsengine-scene` uses, and for the same reason.
+bsengine-asset  = { workspace = true, features = ["test-support"] }

@@ -40,6 +40,7 @@
 //! answers for the same project.
 
 use super::AssetGuid;
+use bevy_ecs::prelude::Resource;
 use std::collections::BTreeMap;
 use std::fmt;
 
@@ -87,7 +88,13 @@ impl Claim {
 ///
 /// `BTreeMap` rather than `HashMap` so iteration order is stable, which costs
 /// nothing at these sizes and makes any future dump of the index diffable.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
+///
+/// A `Resource` because [`AssetIdentityPlugin`](super::AssetIdentityPlugin)
+/// publishes the scan's result as one. The index is plain data and knows
+/// nothing about the ECS beyond that; the derive is what lets the plugin insert
+/// it directly instead of wrapping it in a newtype every consumer would have to
+/// unwrap.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Resource)]
 pub struct AssetIndex {
     /// Where each identity currently lives. Kept in step with `by_path` by
     /// [`AssetIndex::insert`], which is the only thing that writes either.

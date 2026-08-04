@@ -11,13 +11,23 @@
 //! identity scan needed them too. Copying them would have meant two Drop
 //! guards to keep working on Windows and two probe-name conventions for
 //! `.gitignore` to cover.
+//!
+//! The same argument reaches across the crate boundary, which is why this
+//! module is `pub` behind the `test-support` feature rather than `pub(crate)`:
+//! `bsengine-scene` resolves a scene reference against this crate's
+//! [`AssetIndex`](crate::AssetIndex), and proving that a stale reference warns
+//! needs a real index built by a real scan *and* the same log capture. A third
+//! copy of `LogSink` would be a third thing to keep working.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// Removes its directory on drop, including when the test panics.
-pub(crate) struct ProbeDir(pub(crate) PathBuf);
+pub struct ProbeDir(
+    /// The directory to create the probe in, and to remove when this is dropped.
+    pub PathBuf,
+);
 
 impl Drop for ProbeDir {
     fn drop(&mut self) {
@@ -42,7 +52,7 @@ impl Drop for ProbeDir {
 /// directory (a *relative* path is the spelling they exist to measure). A
 /// second prefix would need a second ignore entry, and the run that discovered
 /// it was missing would be the one that committed the litter.
-pub(crate) fn unique(tag: &str) -> String {
+pub fn unique(tag: &str) -> String {
     use std::sync::atomic::{AtomicU32, Ordering};
     static N: AtomicU32 = AtomicU32::new(0);
     format!(
@@ -63,7 +73,7 @@ pub(crate) fn unique(tag: &str) -> String {
 /// builds `bevy_ecs` without `multi_threaded` and its single-threaded executor
 /// runs systems on the caller's thread.
 #[derive(Clone, Default)]
-pub(crate) struct LogSink(Arc<Mutex<Vec<u8>>>);
+struct LogSink(Arc<Mutex<Vec<u8>>>);
 
 impl LogSink {
     fn contents(&self) -> String {
@@ -94,7 +104,7 @@ impl tracing_subscriber::fmt::MakeWriter<'_> for LogSink {
 /// subscriber whose filter is the process-wide one, and pinning this to the
 /// level that is enabled under every filter keeps these assertions independent
 /// of `RUST_LOG`.
-pub(crate) fn capture_warnings<T>(body: impl FnOnce() -> T) -> (T, String) {
+pub fn capture_warnings<T>(body: impl FnOnce() -> T) -> (T, String) {
     let sink = LogSink::default();
     let subscriber = tracing_subscriber::fmt()
         .with_writer(sink.clone())

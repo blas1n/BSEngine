@@ -1,6 +1,9 @@
-use crate::types::{EntityDescriptor, PhysicsBodyDesc, PrimitiveMesh, SceneDescriptor, ScriptPath};
+use crate::types::{
+    AssetRef, EntityDescriptor, PhysicsBodyDesc, PrimitiveMesh, SceneDescriptor, ScriptPath,
+};
 use bevy_app::{App, Plugin, Startup};
 use bevy_ecs::prelude::{Component, World};
+use bsengine_asset::{AssetGuid, AssetIndex};
 use bsengine_core::{
     Camera, DirectionalLight, GlobalTransform, Material, PointLight, SkyboxPath, SpotLight,
     Transform,
@@ -46,6 +49,95 @@ impl Plugin for ScenePlugin {
     }
 }
 
+/// Turns one scene reference into the path the loader should actually open.
+///
+/// # The order, and why it is this one
+///
+/// **A known identity, then the stored path, then nothing.** The identity is
+/// tried first because it is the only part of a reference that survives a
+/// rename — that is the whole of roadmap item 30. Trying the path first and the
+/// GUID only as a fallback would look equivalent and is not: a path that still
+/// *exists*, because some other file moved into it, would resolve happily to
+/// the wrong asset, and nothing would ever say so. The identity is the
+/// narrower, more specific claim, so it goes first.
+///
+/// A GUID the index does not know falls back to the stored path rather than
+/// failing: the identity being stale says nothing about the path, which may
+/// well still name the right file. Losing the asset because the *label* went
+/// missing would be a worse trade than the one before item 30.
+///
+/// # When it is silent
+///
+/// A bare path — no identity recorded — resolves to itself with no diagnostic
+/// at all. That is the pre-item-30 spelling that every scene in `games/` still
+/// uses; warning on each would put a dozen lines in the log on every scene load
+/// and teach everyone to stop reading it. Sub-item B is what gives those scenes
+/// identities, and until then a bare path is normal, not a fault.
+///
+/// So is the absence of an index: `AssetIdentityPlugin` is registered by
+/// nothing yet, so `index` is `None` in every host today. In that state there
+/// is nothing to resolve *against*, and an identified reference falls back to
+/// its stored path silently — a scene has to load identically with and without
+/// the index, or shipping this would break every game until the plugin is
+/// wired up.
+///
+/// # Cost
+///
+/// Two `BTreeMap` lookups at worst per identified reference and none at all for
+/// a bare one — no scan of the index, and nothing that touches the disk. The
+/// caller runs this once per reference, before spawning, so a scene of tens of
+/// entities pays tens of lookups once per load rather than per frame.
+///
+/// Recovering a reference whose *former* path the index knows —
+/// `AssetIndex::guid_for_former_path` — is sub-item D and is deliberately not
+/// attempted here.
+fn resolve_asset_ref(
+    index: Option<&AssetIndex>,
+    entity_name: &str,
+    field: &str,
+    asset_ref: &AssetRef,
+) -> String {
+    let stored_path = asset_ref.path();
+    let (Some(guid_text), Some(index)) = (asset_ref.guid(), index) else {
+        return stored_path.to_string();
+    };
+
+    // A hand-edited scene file is the expected source of this, and it is
+    // reported separately from an identity nobody claims because the two call
+    // for different fixes: this one is a spelling to correct, that one is an
+    // asset to go find.
+    let Ok(guid) = guid_text.parse::<AssetGuid>() else {
+        tracing::warn!(
+            "scene: entity '{entity_name}' {field} '{stored_path}' has `{guid_text}` where an \
+             asset GUID should be; loading the stored path instead"
+        );
+        return stored_path.to_string();
+    };
+
+    match index.path_for_guid(guid) {
+        // The rename item 30 exists to survive. Both paths are named because a
+        // warning that reports only one leaves the developer unable to tell
+        // which reference to fix or whether the file it found is the right one.
+        Some(current_path) if current_path != stored_path => {
+            tracing::warn!(
+                "scene: entity '{entity_name}' {field} names '{stored_path}', but asset {guid} \
+                 now lives at '{current_path}'; loading '{current_path}'. Re-save the scene to \
+                 update the stored path"
+            );
+            current_path.to_string()
+        }
+        Some(current_path) => current_path.to_string(),
+        None => {
+            tracing::warn!(
+                "scene: entity '{entity_name}' {field} '{stored_path}' carries identity {guid}, \
+                 which no asset in this project has; the identity is stale, so the stored path is \
+                 all that is left to go on"
+            );
+            stored_path.to_string()
+        }
+    }
+}
+
 /// Spawn entities from a list of descriptors into the given world.
 /// Called at startup by ScenePlugin and at runtime for scene transitions.
 pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
@@ -58,7 +150,27 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
         .cloned();
     let project_dir = world.get_resource::<bsengine_core::ProjectDir>().cloned();
 
-    for entity in entities {
+    // Every asset reference is resolved here, in one pass, before anything is
+    // spawned. The borrow of `AssetIndex` has to end before the loop below
+    // takes `world` mutably, and the alternative — cloning the whole index —
+    // would copy a string per identified asset in the project to answer at most
+    // two questions per entity. This borrows it, answers, and drops it.
+    let resolved_refs: Vec<(Option<String>, Option<String>)> = {
+        let index = world.get_resource::<AssetIndex>();
+        entities
+            .iter()
+            .map(|entity| {
+                let resolve =
+                    |field, asset_ref| resolve_asset_ref(index, &entity.name, field, asset_ref);
+                (
+                    entity.gltf.as_ref().map(|r| resolve("gltf", r)),
+                    entity.script.as_ref().map(|r| resolve("script", r)),
+                )
+            })
+            .collect()
+    };
+
+    for (entity, (gltf_path, script_path)) in entities.iter().zip(&resolved_refs) {
         let mut builder = world.spawn(Name(entity.name.clone()));
 
         if let Some(t) = &entity.transform {
@@ -81,10 +193,10 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
             builder.insert((transform, GlobalTransform::default()));
         }
 
-        if let Some(gltf) = &entity.gltf {
+        if let Some(gltf_path) = gltf_path {
             builder.insert(GltfAsset::new(bsengine_core::resolve_project_path(
                 project_dir.as_ref(),
-                gltf.path(),
+                gltf_path,
             )));
         }
 
@@ -146,8 +258,8 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
             builder.insert(PrimitiveMesh(prim.clone()));
         }
 
-        if let Some(script) = &entity.script {
-            builder.insert(ScriptPath(script.path().to_string()));
+        if let Some(script_path) = script_path {
+            builder.insert(ScriptPath(script_path.clone()));
         }
 
         if entity.emissive.is_some() || entity.color.is_some() {
@@ -476,6 +588,348 @@ mod tests {
         let results: Vec<_> = q.iter(app.world()).collect();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].1.path, "models/hero.glb");
+    }
+
+    // ---- resolution by identity (roadmap item 30, sub-item C) -------------
+    //
+    // Every test below drives the real spawn path — a scene file on disk, a
+    // real `ScenePlugin`, a real `AssetIndex` built by `bsengine-asset`'s real
+    // scan of a real directory — because the thing being measured is what an
+    // entity ends up pointing at, and an index assembled by hand would prove
+    // only that this module agrees with itself about map lookups.
+    //
+    // The warnings are asserted as text rather than as "some warning
+    // happened". A scene that silently resolved to a different file than it
+    // names is precisely the failure item 30 exists to end, and a diagnostic
+    // that does not say *which* file is a diagnostic that leaves the developer
+    // exactly where they started.
+    mod identity {
+        use super::super::{Name, ScenePlugin};
+        use super::write_temp_scene;
+        use crate::types::ScriptPath;
+        use bsengine_app::new_app;
+        use bsengine_asset::identity::scan;
+        use bsengine_asset::test_support::{capture_warnings, unique, ProbeDir};
+        use bsengine_asset::{AssetGuid, AssetIndex};
+
+        /// Where the probe asset really is, and the stale path a scene written
+        /// before it moved would still name.
+        ///
+        /// The two share no substring, so an assertion that the warning names
+        /// one cannot be satisfied by the other.
+        const CURRENT_PATH: &str = "assets/models/fox.glb";
+        const STALE_PATH: &str = "assets/models/vulpes.glb";
+
+        /// A throwaway project holding one real asset, and the index a real
+        /// scan built from it.
+        ///
+        /// The GUID is read back out of the index rather than minted here: the
+        /// spelling resolution has to read is the spelling a scan writes into a
+        /// `.meta`, and a hand-made one would not prove those agree.
+        struct Probe {
+            /// Kept alive so the directory (and the sidecar the scan wrote into
+            /// it) outlives the test that is using it.
+            _dir: ProbeDir,
+            index: AssetIndex,
+            guid: String,
+        }
+
+        fn probe(tag: &str) -> Probe {
+            let dir = ProbeDir(std::env::temp_dir().join(unique(tag)));
+            let asset = dir.0.join(CURRENT_PATH);
+            std::fs::create_dir_all(asset.parent().expect("probe asset has a parent"))
+                .expect("create probe directories");
+            std::fs::write(&asset, b"fake glb").expect("write probe asset");
+
+            let index = scan(&dir.0).expect("scan the probe project");
+            let guid = index
+                .guid_for_path(CURRENT_PATH)
+                .expect("the scan must give the probe asset an identity")
+                .to_string();
+            Probe {
+                _dir: dir,
+                index,
+                guid,
+            }
+        }
+
+        /// Spawns a one-entity scene whose `gltf:` is spelled `gltf_ron`, with
+        /// `index` published or not, and reports where it ended up plus every
+        /// warning that reached the developer.
+        fn spawn(file: &str, gltf_ron: &str, index: Option<AssetIndex>) -> (Vec<String>, String) {
+            let scene = format!(
+                r#"SceneDescriptor(entities: [EntityDescriptor(name: "Fox", gltf: Some({gltf_ron}))])"#
+            );
+            let path = write_temp_scene(file, &scene);
+
+            let mut app = new_app();
+            if let Some(index) = index {
+                app.insert_resource(index);
+            }
+            app.add_plugins(ScenePlugin::from_file(&path));
+            let (_, logs) = capture_warnings(|| app.update());
+
+            let mut q = app.world_mut().query::<&bsengine_gltf::GltfAsset>();
+            let resolved = q.iter(app.world()).map(|g| g.path.clone()).collect();
+            (resolved, logs)
+        }
+
+        // Case 1. The whole point of item 30: the asset was renamed, the scene
+        // still names the old path, and the identity is what bridges them.
+        #[test]
+        fn a_known_identity_wins_over_the_path_stored_beside_it() {
+            let probe = probe("scene-identity-moved");
+            let (resolved, logs) = spawn(
+                "test_identity_stale_path.ron",
+                &format!(r#"(guid: "{}", path: "{STALE_PATH}")"#, probe.guid),
+                Some(probe.index.clone()),
+            );
+
+            assert_eq!(
+                resolved,
+                vec![CURRENT_PATH.to_string()],
+                "the index knows where this identity lives now; the stored path \
+                 is what renaming broke"
+            );
+            assert!(
+                logs.contains(STALE_PATH),
+                "a scene that resolved somewhere other than what it says must \
+                 name what it said, or the developer cannot find the reference \
+                 to fix. Got: {logs}"
+            );
+            assert!(
+                logs.contains(CURRENT_PATH),
+                "and must name what it loaded instead, or the warning reports a \
+                 problem with no way to check it. Got: {logs}"
+            );
+        }
+
+        // The case that makes the *order* load-bearing rather than a
+        // preference. Above, the stale path simply is not in the index, so
+        // consulting it first and the identity second would reach the same
+        // answer. Here another asset has moved into the path the scene names —
+        // one rename and one file added, which is an afternoon's work in any
+        // project — and the two orders disagree: the identity finds the asset
+        // the scene meant, the path finds a different file that resolves
+        // perfectly and silently.
+        #[test]
+        fn an_identity_beats_a_stored_path_that_another_asset_now_occupies() {
+            let dir = ProbeDir(std::env::temp_dir().join(unique("scene-identity-occupied")));
+            for name in [CURRENT_PATH, STALE_PATH] {
+                let file = dir.0.join(name);
+                std::fs::create_dir_all(file.parent().expect("parent")).expect("create dirs");
+                // Distinct contents, or the scan's orphan recovery would have
+                // two indistinguishable files to tell apart.
+                std::fs::write(&file, name.as_bytes()).expect("write probe asset");
+            }
+            let index = scan(&dir.0).expect("scan the probe project");
+            let wanted = index
+                .guid_for_path(CURRENT_PATH)
+                .expect("the scan must identify the asset the scene means");
+            assert!(
+                index.guid_for_path(STALE_PATH).is_some_and(|g| g != wanted),
+                "the point of this test is that the stored path resolves — to \
+                 somebody else"
+            );
+
+            let (resolved, logs) = spawn(
+                "test_identity_occupied_path.ron",
+                &format!(r#"(guid: "{wanted}", path: "{STALE_PATH}")"#),
+                Some(index),
+            );
+
+            assert_eq!(
+                resolved,
+                vec![CURRENT_PATH.to_string()],
+                "resolving the stored path first would load a real, existing, \
+                 wrong asset and never say a word about it"
+            );
+            assert!(
+                logs.contains(STALE_PATH) && logs.contains(CURRENT_PATH),
+                "and the developer has to be told the scene no longer means \
+                 what it says. Got: {logs}"
+            );
+        }
+
+        // Case 2. The identity is real but nothing in the project carries it —
+        // the asset was deleted, or lives somewhere the scan does not look. The
+        // stored path is all that is left, and it may well still work.
+        #[test]
+        fn an_unknown_identity_falls_back_to_the_stored_path_and_says_so() {
+            let probe = probe("scene-identity-unknown");
+            let orphaned = AssetGuid::new();
+            let (resolved, logs) = spawn(
+                "test_identity_unknown.ron",
+                &format!(r#"(guid: "{orphaned}", path: "{CURRENT_PATH}")"#),
+                Some(probe.index.clone()),
+            );
+
+            assert_eq!(
+                resolved,
+                vec![CURRENT_PATH.to_string()],
+                "an identity nobody claims must not cost the scene the path it \
+                 still has"
+            );
+            assert!(
+                logs.contains(&orphaned.to_string()),
+                "the stale identity is the thing to go looking for. Got: {logs}"
+            );
+            assert!(
+                logs.contains(CURRENT_PATH),
+                "and the reference it is attached to. Got: {logs}"
+            );
+        }
+
+        // Case 3. The pre-item-30 form. All ten scenes in `games/` are still
+        // spelled this way, so a warning here would fire on every reference of
+        // every scene the engine loads and teach everyone to ignore the log.
+        #[test]
+        fn a_bare_path_resolves_to_itself_without_a_word() {
+            let probe = probe("scene-identity-bare");
+            let (resolved, logs) = spawn(
+                "test_identity_bare_path.ron",
+                &format!(r#""{CURRENT_PATH}""#),
+                Some(probe.index.clone()),
+            );
+
+            assert_eq!(resolved, vec![CURRENT_PATH.to_string()]);
+            assert!(
+                !logs.contains("Fox"),
+                "a bare path is not a problem — it is what every scene in \
+                 games/ still contains. Got: {logs}"
+            );
+        }
+
+        // Case 4. Every host is in this state: `AssetIdentityPlugin` is not
+        // registered anywhere yet. A scene must load identically with and
+        // without an index, or shipping the resolution would break every game
+        // until the plugin is wired up.
+        #[test]
+        fn without_an_index_both_forms_behave_exactly_like_a_bare_path() {
+            let probe = probe("scene-identity-absent");
+            for (form, spelling, expected) in [
+                ("bare path", format!(r#""{CURRENT_PATH}""#), CURRENT_PATH),
+                (
+                    "guid pair",
+                    // The GUID this index *would* have resolved, so this test
+                    // fails rather than passes by accident if the index is
+                    // consulted when it should not be.
+                    format!(r#"(guid: "{}", path: "{STALE_PATH}")"#, probe.guid),
+                    STALE_PATH,
+                ),
+            ] {
+                let (resolved, logs) = spawn(
+                    &format!("test_identity_no_index_{}.ron", form.replace(' ', "_")),
+                    &spelling,
+                    None,
+                );
+
+                assert_eq!(
+                    resolved,
+                    vec![expected.to_string()],
+                    "{form}: with no index there is nothing to resolve against, \
+                     so the stored path is the answer"
+                );
+                assert!(
+                    !logs.contains("Fox"),
+                    "{form}: an index nobody published is the normal state \
+                     today, not a fault to report. Got: {logs}"
+                );
+            }
+        }
+
+        // A hand-edited scene file. Distinguished from case 2 because the fixes
+        // differ: this one is a typo to correct, that one is an asset to find.
+        #[test]
+        fn an_identity_that_is_not_a_guid_is_reported_rather_than_swallowed() {
+            let probe = probe("scene-identity-malformed");
+            let (resolved, logs) = spawn(
+                "test_identity_malformed.ron",
+                &format!(r#"(guid: "not-a-guid", path: "{CURRENT_PATH}")"#),
+                Some(probe.index.clone()),
+            );
+
+            assert_eq!(
+                resolved,
+                vec![CURRENT_PATH.to_string()],
+                "a typo in an identity must not cost the scene its path"
+            );
+            assert!(
+                logs.contains("not-a-guid"),
+                "the rejected spelling is the thing to correct. Got: {logs}"
+            );
+        }
+
+        // `script:` is an `AssetRef` too, and a JS file gets a sidecar for the
+        // same reason a mesh does — `goal_level1.js` names the next scene by
+        // path. A resolution that only reached `gltf:` would leave half of item
+        // 30 undone in a way no glTF test could see.
+        #[test]
+        fn a_script_reference_resolves_by_identity_as_well() {
+            let dir = ProbeDir(std::env::temp_dir().join(unique("scene-identity-script")));
+            let script = dir.0.join("assets/scripts/player.js");
+            std::fs::create_dir_all(script.parent().expect("parent")).expect("create dirs");
+            std::fs::write(&script, b"// player").expect("write script");
+            let index = scan(&dir.0).expect("scan");
+            let guid = index
+                .guid_for_path("assets/scripts/player.js")
+                .expect("the scan must identify a script")
+                .to_string();
+
+            let scene = format!(
+                r#"SceneDescriptor(entities: [EntityDescriptor(name: "Player", script: Some((guid: "{guid}", path: "assets/scripts/hero.js")))])"#
+            );
+            let path = write_temp_scene("test_identity_script.ron", &scene);
+
+            let mut app = new_app();
+            app.insert_resource(index);
+            app.add_plugins(ScenePlugin::from_file(&path));
+            let (_, logs) = capture_warnings(|| app.update());
+
+            let mut q = app.world_mut().query::<(&Name, &ScriptPath)>();
+            let found: Vec<_> = q
+                .iter(app.world())
+                .map(|(n, s)| (n.0.clone(), s.0.clone()))
+                .collect();
+            assert_eq!(
+                found,
+                vec![("Player".to_string(), "assets/scripts/player.js".to_string())],
+                "a renamed script must follow its identity like a mesh does"
+            );
+            assert!(
+                logs.contains("assets/scripts/hero.js")
+                    && logs.contains("assets/scripts/player.js"),
+                "and the rename must be reported with both spellings. Got: {logs}"
+            );
+        }
+
+        // Resolution reads the index once per reference, not once per frame:
+        // scene spawn is a `Startup` system, and a warning that repeated every
+        // frame would bury the log it exists to appear in.
+        #[test]
+        fn a_stale_reference_warns_once_rather_than_every_frame() {
+            let probe = probe("scene-identity-once");
+            let scene = format!(
+                r#"SceneDescriptor(entities: [EntityDescriptor(name: "Fox", gltf: Some((guid: "{}", path: "{STALE_PATH}")))])"#,
+                probe.guid
+            );
+            let path = write_temp_scene("test_identity_once.ron", &scene);
+
+            let mut app = new_app();
+            app.insert_resource(probe.index.clone());
+            app.add_plugins(ScenePlugin::from_file(&path));
+            let (_, logs) = capture_warnings(|| {
+                for _ in 0..5 {
+                    app.update();
+                }
+            });
+
+            assert_eq!(
+                logs.matches(STALE_PATH).count(),
+                1,
+                "five frames produced more than one warning. Got: {logs}"
+            );
+        }
     }
 
     #[test]

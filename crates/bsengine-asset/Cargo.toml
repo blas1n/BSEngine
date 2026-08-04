@@ -18,10 +18,21 @@ ron.workspace = true
 serde.workspace = true
 tracing.workspace = true
 uuid.workspace = true
+# Only ever built when `test-support` is on; see that feature.
+tracing-subscriber = { workspace = true, optional = true }
+
+[features]
+# Exposes `test_support` — probe directories and log capture — to *another*
+# crate's tests. `bsengine-scene` resolves scene references against this
+# crate's `AssetIndex`, and asserting that a stale reference warns needs the
+# same log capture the identity scan's own tests use. Off by default, so
+# nothing here reaches a shipped build; enabled only through a dev-dependency.
+test-support = ["dep:tracing-subscriber"]
 
 [dev-dependencies]
 bsengine-app.workspace = true
 # Lets the watcher tests assert that a warning actually reached the developer,
 # not merely that the state behind it changed — the whole point of the
-# diagnostics this crate's watcher emits.
+# diagnostics this crate's watcher emits. Kept as a dev-dependency as well as
+# an optional one so this crate's own tests build without the feature.
 tracing-subscriber.workspace = true

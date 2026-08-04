@@ -8,6 +8,13 @@ edition.workspace = true
 bsengine-core.workspace = true
 bsengine-ecs.workspace = true
 bsengine-gltf.workspace = true
+# Resolving a scene reference by identity means reading `AssetIndex`, which
+# lives here. Not a new edge in the crate graph: `bsengine-gltf` above already
+# depends on `bsengine-asset`, so this crate has always been compiled after it
+# — this only makes the edge direct. Parsing a scene still needs nothing from
+# this crate (`AssetRef::guid` is a `String` for that reason); only resolution
+# does.
+bsengine-asset.workspace = true
 bevy_app.workspace = true
 bevy_ecs.workspace = true
 bevy_reflect.workspace = true
@@ -18,3 +25,7 @@ tracing.workspace = true
 
 [dev-dependencies]
 bsengine-app.workspace = true
+# The resolution tests build a real index by running the real scan over a real
+# probe directory, and assert on the warnings that come out — both of which
+# `bsengine-asset` already has helpers for.
+bsengine-asset = { workspace = true, features = ["test-support"] }

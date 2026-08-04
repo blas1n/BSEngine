@@ -1,18 +1,20 @@
 //! The index a [`scan`](super::scan::scan) builds: what every identity it found
 //! belongs to, and the questions the rest of item 30 will ask of it.
 //!
-//! # The four lookups, and who each is for
+//! # The three lookups, and who each is for
 //!
 //! * `path → guid` and `guid → path`, both directions of the same fact, because
 //!   sub-item B has to write an identity into scene RON in place of a path and
 //!   sub-item C has to turn it back into something the loader can open.
 //! * `former path → guid`, so a reference to a path that no longer exists can
 //!   name the asset that used to be there instead of failing — sub-item D.
-//! * `hash → guid`, used only by orphan recovery: an asset whose sidecar was
-//!   lost still hashes to what its old sidecar recorded, which is the one thread
-//!   back to the identity it had. Nothing in this sub-item reads it; it is here
-//!   so that adding recovery is a new function rather than a reshaping of this
-//!   type.
+//!
+//! There is deliberately no `hash → guid`. Orphan recovery is the only thing
+//! that has ever wanted one, and it cannot use this index for it: recovery has
+//! to match sidecars that are *not* in the index (their assets are gone) against
+//! assets that are not in it either (they have no sidecar yet), so it builds its
+//! own maps over exactly those two sets. An index-wide hash map would answer a
+//! question nobody asks, and would have to be kept correct forever anyway.
 //!
 //! # Why two collisions get two different answers
 //!
@@ -22,29 +24,37 @@
 //! what "refuse" means depends on what would be lost:
 //!
 //! * **Two assets claiming one GUID**: the first is kept whole and the second
-//!   is not indexed at all. Not because the first is more likely to be right —
-//!   it is whichever `read_dir` happened to yield first — but because every
-//!   reference already stored against that GUID points at *something*, and
-//!   dropping both would break the innocent original as punishment for the
-//!   copy. The second file is reported as unidentified, which is true: its
-//!   identity is contested, so it has none.
-//! * **Two assets claiming one former path, or one hash**: neither answers.
-//!   Nothing points at a former path or a hash yet — they are hints for
-//!   recovering a *lost* reference — so an arbitrary answer buys nothing and
-//!   costs the chance of silently recovering a reference to the wrong asset. A
-//!   loud "I don't know" is strictly better than a quiet wrong answer.
+//!   is not indexed at all. Not because the first is more likely to be right,
+//!   but because every reference already stored against that GUID points at
+//!   *something*, and dropping both would break the innocent original as
+//!   punishment for the copy. The second file is reported as unidentified,
+//!   which is true: its identity is contested, so it has none.
+//! * **Two assets claiming one former path**: neither answers. Nothing points
+//!   at a former path yet — it is a hint for recovering a *lost* reference — so
+//!   an arbitrary answer buys nothing and costs the chance of silently
+//!   recovering a reference to the wrong asset. A loud "I don't know" is
+//!   strictly better than a quiet wrong answer.
 //!
-//! Neither policy depends on the order the assets arrived in, which is the
-//! property that matters: `read_dir` order varies by filesystem, so anything
-//! decided by "whichever came last" would give two developers two different
-//! answers for the same project.
+//! # Neither answer may vary by machine
+//!
+//! The former-path policy does not depend on arrival order at all: contested is
+//! contested whichever claimant came first.
+//!
+//! The GUID policy does — "the first is kept" is only a rule if *first* means
+//! the same thing everywhere — and that is settled by the caller rather than
+//! here. [`scan`](super::scan::scan) walks each directory in sorted name order
+//! precisely so that the file it feeds in first is the same file on every
+//! machine; raw `read_dir` order varies by filesystem, and two developers would
+//! otherwise get two different answers for the same project. This type keeps
+//! the guarantee it can — a total order in, a total order out — and the walk
+//! supplies the order.
 
 use super::AssetGuid;
 use bevy_ecs::prelude::Resource;
 use std::collections::BTreeMap;
 use std::fmt;
 
-/// Which asset a former path or a hash points at — or that too many do.
+/// Which asset a former path points at — or that too many do.
 ///
 /// The `Contested` case is not an error state to be repaired; it is the honest
 /// answer for a lookup that more than one asset can satisfy, and it is sticky:
@@ -103,9 +113,6 @@ pub struct AssetIndex {
     by_path: BTreeMap<String, AssetGuid>,
     /// Paths assets have been known by before, from their sidecars.
     by_former_path: BTreeMap<String, Claim>,
-    /// Contents-hash of each asset as its sidecar recorded it. For orphan
-    /// recovery only — see the module docs.
-    by_hash: BTreeMap<String, Claim>,
 }
 
 impl AssetIndex {
@@ -159,21 +166,6 @@ impl AssetIndex {
         self.by_former_path.get(path).copied().and_then(Claim::sole)
     }
 
-    /// The asset whose sidecar recorded this contents-hash, `blake3:`-prefixed
-    /// as [`hash_file`](super::sidecar::hash_file) writes it.
-    ///
-    /// For orphan recovery, which is the only caller: a file that turns up with
-    /// no sidecar but the contents of one the index knows is almost certainly
-    /// that asset, moved by something that did not carry the `.meta` along.
-    ///
-    /// The hash is the one *stored in the sidecar*, which records the contents
-    /// when it was written rather than the contents now — a scan does not
-    /// re-hash. A caller comparing against a file on disk has to hash that file
-    /// itself, and an asset edited since its sidecar was written will not match.
-    pub fn guid_for_hash(&self, hash: &str) -> Option<AssetGuid> {
-        self.by_hash.get(hash).copied().and_then(Claim::sole)
-    }
-
     /// Records one identified asset, and says whether it took.
     ///
     /// Deliberately all-or-nothing: an asset the index refuses is absent from
@@ -188,7 +180,6 @@ impl AssetIndex {
         &mut self,
         guid: AssetGuid,
         path: &str,
-        hash: &str,
         former_paths: &[impl AsRef<str>],
     ) -> Insertion {
         if let Some(kept_path) = self.by_guid.get(&guid) {
@@ -205,7 +196,6 @@ impl AssetIndex {
         for former in former_paths {
             claim(&mut self.by_former_path, former.as_ref(), guid);
         }
-        claim(&mut self.by_hash, hash, guid);
 
         Insertion::Recorded
     }
@@ -235,9 +225,9 @@ fn claim(map: &mut BTreeMap<String, Claim>, key: &str, guid: AssetGuid) {
 pub(super) enum Insertion {
     /// The asset is in the index.
     ///
-    /// A former path or hash it happens to share with another asset is
-    /// contested and will answer for neither, but that costs this asset nothing
-    /// — its own identity is unambiguous.
+    /// A former path it happens to share with another asset is contested and
+    /// will answer for neither, but that costs this asset nothing — its own
+    /// identity is unambiguous.
     Recorded,
     /// Rejected: another asset already carries this GUID, and is kept.
     DuplicateGuid {
@@ -287,10 +277,10 @@ mod tests {
     /// The paths in these tests are spelled the way a scene references an asset
     /// — project-relative, forward slashes — because that is what the index is
     /// keyed by and a test using some other spelling would prove nothing.
-    fn index_with(entries: &[(AssetGuid, &str, &str, &[&str])]) -> AssetIndex {
+    fn index_with(entries: &[(AssetGuid, &str, &[&str])]) -> AssetIndex {
         let mut index = AssetIndex::default();
-        for (guid, path, hash, former) in entries {
-            index.insert(*guid, path, hash, former);
+        for (guid, path, former) in entries {
+            index.insert(*guid, path, former);
         }
         index
     }
@@ -299,12 +289,7 @@ mod tests {
     fn the_index_answers_both_directions_and_remembers_former_paths() {
         let mut index = AssetIndex::default();
         let guid = AssetGuid::new();
-        index.insert(
-            guid,
-            "assets/models/fox.glb",
-            "blake3:abc",
-            &["assets/models/old.glb"],
-        );
+        index.insert(guid, "assets/models/fox.glb", &["assets/models/old.glb"]);
 
         assert_eq!(index.path_for_guid(guid), Some("assets/models/fox.glb"));
         assert_eq!(index.guid_for_path("assets/models/fox.glb"), Some(guid));
@@ -332,25 +317,15 @@ mod tests {
             (
                 "occupant first",
                 index_with(&[
-                    (moved_in, contested, "blake3:in", &[]),
-                    (
-                        moved_away,
-                        "assets/models/fox_old.glb",
-                        "blake3:away",
-                        &[contested],
-                    ),
+                    (moved_in, contested, &[]),
+                    (moved_away, "assets/models/fox_old.glb", &[contested]),
                 ]),
             ),
             (
                 "occupant last",
                 index_with(&[
-                    (
-                        moved_away,
-                        "assets/models/fox_old.glb",
-                        "blake3:away",
-                        &[contested],
-                    ),
-                    (moved_in, contested, "blake3:in", &[]),
+                    (moved_away, "assets/models/fox_old.glb", &[contested]),
+                    (moved_in, contested, &[]),
                 ]),
             ),
         ] {
@@ -376,19 +351,9 @@ mod tests {
     fn a_second_asset_claiming_a_guid_is_refused_and_the_first_kept_whole() {
         let guid = AssetGuid::new();
         let mut index = AssetIndex::default();
-        index.insert(
-            guid,
-            "assets/models/fox.glb",
-            "blake3:abc",
-            &["assets/a.glb"],
-        );
+        index.insert(guid, "assets/models/fox.glb", &["assets/a.glb"]);
 
-        let outcome = index.insert(
-            guid,
-            "assets/models/fox_copy.glb",
-            "blake3:abc",
-            &["assets/b.glb"],
-        );
+        let outcome = index.insert(guid, "assets/models/fox_copy.glb", &["assets/b.glb"]);
 
         assert_eq!(
             outcome,
@@ -412,12 +377,11 @@ mod tests {
     fn a_refused_asset_is_absent_from_every_map_not_just_the_guid_one() {
         let guid = AssetGuid::new();
         let mut index = AssetIndex::default();
-        index.insert(guid, "assets/models/fox.glb", "blake3:abc", NO_FORMER_PATHS);
+        index.insert(guid, "assets/models/fox.glb", NO_FORMER_PATHS);
 
         index.insert(
             guid,
             "assets/models/fox_copy.glb",
-            "blake3:copy",
             &["assets/models/gone.glb"],
         );
 
@@ -433,11 +397,6 @@ mod tests {
             "a former path recorded for an asset that was never indexed would \
              recover references to an identity that answers no path"
         );
-        assert_eq!(
-            index.guid_for_hash("blake3:copy"),
-            None,
-            "same for the hash orphan recovery searches by"
-        );
         assert_eq!(index.len(), 1);
     }
 
@@ -446,19 +405,9 @@ mod tests {
         let first = AssetGuid::new();
         let second = AssetGuid::new();
         let mut index = AssetIndex::default();
-        index.insert(
-            first,
-            "assets/models/fox.glb",
-            "blake3:abc",
-            NO_FORMER_PATHS,
-        );
+        index.insert(first, "assets/models/fox.glb", NO_FORMER_PATHS);
 
-        let outcome = index.insert(
-            second,
-            "assets/models/fox.glb",
-            "blake3:def",
-            NO_FORMER_PATHS,
-        );
+        let outcome = index.insert(second, "assets/models/fox.glb", NO_FORMER_PATHS);
 
         assert_eq!(outcome, Insertion::DuplicatePath { kept_guid: first });
         assert_eq!(index.guid_for_path("assets/models/fox.glb"), Some(first));
@@ -486,15 +435,15 @@ mod tests {
             (
                 "one first",
                 index_with(&[
-                    (one, "assets/a.glb", "blake3:a", &[contested]),
-                    (two, "assets/b.glb", "blake3:b", &[contested]),
+                    (one, "assets/a.glb", &[contested]),
+                    (two, "assets/b.glb", &[contested]),
                 ]),
             ),
             (
                 "two first",
                 index_with(&[
-                    (two, "assets/b.glb", "blake3:b", &[contested]),
-                    (one, "assets/a.glb", "blake3:a", &[contested]),
+                    (two, "assets/b.glb", &[contested]),
+                    (one, "assets/a.glb", &[contested]),
                 ]),
             ),
         ] {
@@ -518,24 +467,9 @@ mod tests {
     #[test]
     fn a_contested_former_path_stays_contested() {
         let index = index_with(&[
-            (
-                AssetGuid::new(),
-                "assets/a.glb",
-                "blake3:a",
-                &["assets/old.glb"],
-            ),
-            (
-                AssetGuid::new(),
-                "assets/b.glb",
-                "blake3:b",
-                &["assets/old.glb"],
-            ),
-            (
-                AssetGuid::new(),
-                "assets/c.glb",
-                "blake3:c",
-                &["assets/old.glb"],
-            ),
+            (AssetGuid::new(), "assets/a.glb", &["assets/old.glb"]),
+            (AssetGuid::new(), "assets/b.glb", &["assets/old.glb"]),
+            (AssetGuid::new(), "assets/c.glb", &["assets/old.glb"]),
         ]);
 
         assert_eq!(index.guid_for_former_path("assets/old.glb"), None);
@@ -547,40 +481,9 @@ mod tests {
     #[test]
     fn one_asset_listing_a_former_path_twice_does_not_contest_itself() {
         let guid = AssetGuid::new();
-        let index = index_with(&[(
-            guid,
-            "assets/a.glb",
-            "blake3:a",
-            &["assets/old.glb", "assets/old.glb"],
-        )]);
+        let index = index_with(&[(guid, "assets/a.glb", &["assets/old.glb", "assets/old.glb"])]);
 
         assert_eq!(index.guid_for_former_path("assets/old.glb"), Some(guid));
-    }
-
-    // Orphan recovery's lookup. Two assets with identical contents is ordinary
-    // — a texture copied rather than referenced — so the ambiguity must answer
-    // nothing rather than adopt one of them.
-    #[test]
-    fn a_hash_identifies_its_asset_unless_more_than_one_shares_it() {
-        let alone = AssetGuid::new();
-        let index = index_with(&[
-            (alone, "assets/alone.png", "blake3:alone", &[]),
-            (AssetGuid::new(), "assets/twin_a.png", "blake3:twin", &[]),
-            (AssetGuid::new(), "assets/twin_b.png", "blake3:twin", &[]),
-        ]);
-
-        assert_eq!(
-            index.guid_for_hash("blake3:alone"),
-            Some(alone),
-            "the whole point of the hash map: a sidecar-less file with these \
-             contents is this asset"
-        );
-        assert_eq!(
-            index.guid_for_hash("blake3:twin"),
-            None,
-            "adopting one of two identical files would give a recovered \
-             reference a one-in-two chance of being wrong"
-        );
     }
 
     #[test]
@@ -591,7 +494,6 @@ mod tests {
         assert_eq!(index.guid_for_path("assets/models/fox.glb"), None);
         assert_eq!(index.path_for_guid(AssetGuid::new()), None);
         assert_eq!(index.guid_for_former_path("assets/models/fox.glb"), None);
-        assert_eq!(index.guid_for_hash("blake3:abc"), None);
     }
 
     // The rejection is reported to a human by a scan that knows only the path it

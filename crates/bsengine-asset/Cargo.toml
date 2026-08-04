@@ -11,9 +11,13 @@ bevy_ecs.workspace = true
 bevy_asset.workspace = true
 bevy_reflect.workspace = true
 bevy_tasks.workspace = true
+blake3.workspace = true
 image.workspace = true
 notify-debouncer-full.workspace = true
+ron.workspace = true
+serde.workspace = true
 tracing.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
 bsengine-app.workspace = true

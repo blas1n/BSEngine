@@ -30,6 +30,9 @@
 //! point.
 #![warn(missing_docs)]
 
+/// `AssetGuid` and the `.meta` sidecar that gives an asset an identity
+/// independent of its path.
+pub mod identity;
 /// Chooses between synchronous (blocking, zero-latency) and asynchronous
 /// (`AssetServer`-driven) loading, plus the dispatch helper itself.
 pub mod load_mode;

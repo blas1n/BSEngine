@@ -43,17 +43,43 @@
 //! deleted rather than left for every later scan to find again.
 //!
 //! **Only when the pairing is unambiguous**: exactly one orphan and exactly one
-//! candidate for that hash. Files that share contents are ordinary rather than
-//! exotic — empty placeholders, a template duplicated three times, two exports
-//! of the same mesh — and with two of either, a pairing is a coin flip. A wrong
-//! one silently reattaches every reference to the wrong file, which is worse
-//! than the missing-asset error it would have replaced. So an ambiguous match is
-//! refused: both sides take fresh identities, and a warning names everything the
-//! scan could not tell apart, because a user who lost an identity deserves to
-//! learn it here rather than when a scene fails to load.
+//! candidate. Files that share contents are ordinary rather than exotic — empty
+//! placeholders, a template duplicated three times, two exports of the same mesh
+//! — and with two of either, a pairing is a coin flip. A wrong one silently
+//! reattaches every reference to the wrong file, which is worse than the
+//! missing-asset error it would have replaced. So an ambiguous match is refused:
+//! both sides take fresh identities, and a warning names everything the scan
+//! could not tell apart, because a user who lost an identity deserves to learn
+//! it here rather than when a scene fails to load.
+//!
+//! # What "the same contents" is not enough to prove
+//!
+//! Equal hashes are strong evidence and weak proof, and two cases make the
+//! difference big enough to guard:
+//!
+//! * **A hash says nothing about what kind of file this is.** Small `.ron` and
+//!   `.js` files collide easily — stubs, templates, one-liners, `()` — and this
+//!   repository already contains byte-identical files under different names.
+//!   Handing a scene's identity to a script that happens to hold the same bytes
+//!   would silently repoint every reference at a file that cannot even be
+//!   loaded in its place. So a pairing must also **agree on extension**, which
+//!   is free (both sides are already known) and cannot be wrong in the way the
+//!   hash can.
+//! * **An empty file's hash is the least discriminating value there is.** Every
+//!   empty file in the project has it, and several empty placeholders is a
+//!   normal thing to have, so matching on it says only "both of these are
+//!   empty". Recovery **refuses empty contents outright** rather than treating
+//!   that as evidence.
+//!
+//! Size deliberately adds nothing here and is not checked: equal hashes already
+//! imply equal contents and therefore equal length, so a size comparison would
+//! reject nothing a hash comparison accepted. Size earns its place in the
+//! sidecar for a different job — see [`Sidecar::size`] and [`refresh`] — namely
+//! keeping the recorded hash *fresh* cheaply, without which every guard above
+//! would be guarding a hash that stopped describing the file months ago.
 
 use super::index::{AssetIndex, Insertion};
-use super::{hash_file, sidecar_path, AssetGuid, Sidecar, SIDECAR_EXTENSION};
+use super::{empty_hash, measure_file, sidecar_path, AssetGuid, Sidecar, SIDECAR_EXTENSION};
 use std::collections::BTreeMap;
 use std::fs::ReadDir;
 use std::io;
@@ -154,9 +180,10 @@ const IDENTIFIED_EXTENSIONS: &[&str] = &[
 /// [`AssetIndex`] describes. Each names the path and leaves that one asset out
 /// of the index. See the module docs for why none of these aborts the scan.
 ///
-/// Orphan recovery adds three more, each about an identity that was *not*
+/// Orphan recovery adds four more, each about an identity that was *not*
 /// recovered: a match too ambiguous to act on, an orphan nothing in the project
-/// matches, and an orphan holding an identity some live asset already carries.
+/// matches, an orphan whose asset was empty, and an orphan holding an identity
+/// some live asset already carries.
 ///
 /// # Errors
 ///
@@ -171,13 +198,13 @@ const IDENTIFIED_EXTENSIONS: &[&str] = &[
 ///
 /// # Cost
 ///
-/// A rescan of an unchanged project hashes **nothing**: a readable sidecar
-/// answers the question by itself, so the work is one `read_dir` per directory
-/// and one small `read_to_string` per asset. Hashing happens once per asset
-/// ever, when its identity is first minted. The consequence is that
-/// `Sidecar::hash` means "the contents when this sidecar was written", not
-/// "the contents now" — anything that needs the latter has to hash the file
-/// itself rather than trust the field.
+/// A rescan of an unchanged project hashes **nothing**. The work is one
+/// `read_dir` per directory, one small `read_to_string` per asset for its
+/// sidecar, and one `stat` per asset to compare the length on disk against the
+/// length that sidecar records. Only a length that differs earns a re-hash, and
+/// only that asset — see [`refresh`], which is what keeps `Sidecar::hash`
+/// meaning "the contents now" rather than "the contents when this identity was
+/// minted", at a cost that does not grow with the size of the project.
 ///
 /// Orphan recovery does not change that. It hashes only assets that have *no*
 /// sidecar, and those have to be hashed anyway to mint one, so each is hashed
@@ -218,6 +245,11 @@ struct Orphan {
     /// The project-relative path of the asset it identifies, which no file
     /// occupies — recorded as a former path if the identity is recovered.
     was: String,
+    /// The lowercased extension of the asset it identifies, which a candidate
+    /// has to share before contents are allowed to mean anything. Lowercased
+    /// because `FOX.GLB` and `fox.glb` are the same kind of file, and a rename
+    /// that only changed the casing must not cost the identity.
+    extension: String,
     /// The identity it is holding on to.
     sidecar: Sidecar,
 }
@@ -228,6 +260,21 @@ struct Candidate {
     path: PathBuf,
     /// The same file spelled the way a scene would reference it.
     relative: String,
+    /// Its lowercased extension, matched against an orphan's — see [`Orphan`].
+    extension: String,
+}
+
+/// What reading an asset that has no sidecar found out about its contents.
+///
+/// The pair is produced by one [`measure_file`] call so the two always describe
+/// the same bytes, and it is used twice: to look for an orphan that recorded
+/// exactly these contents, and — when there is none — as what the freshly
+/// minted sidecar records.
+struct Contents {
+    /// The `blake3:`-prefixed digest.
+    hash: String,
+    /// The length in bytes, which [`refresh`] later uses to notice an edit.
+    size: u64,
 }
 
 /// Recurses through one already-opened directory, whose project-relative path
@@ -238,6 +285,18 @@ struct Candidate {
 /// root and warns for everything below, and neither can drift into doing the
 /// other's thing.
 fn walk(entries: ReadDir, prefix: &str, index: &mut AssetIndex, found: &mut Found) {
+    // Sorted by name, because one of this scan's outcomes really does depend on
+    // arrival order: when two assets claim one GUID — an asset copied together
+    // with its `.meta` — [`AssetIndex`] keeps whichever it was given first. Raw
+    // `read_dir` order is the filesystem's own, so without this the same
+    // project would report a different file as unidentified on a colleague's
+    // machine, or on the same machine after a defragment. Sorting makes
+    // "first" mean the same thing everywhere; collecting is what makes sorting
+    // possible, and costs one directory's worth of entries at a time rather
+    // than the whole tree's.
+    let mut entries: Vec<_> = entries.collect();
+    entries.sort_by_key(|entry| entry.as_ref().ok().map(std::fs::DirEntry::file_name));
+
     for entry in entries {
         let entry = match entry {
             Ok(entry) => entry,
@@ -323,8 +382,12 @@ fn identify(path: &Path, relative: &str, index: &mut AssetIndex, found: &mut Fou
     let meta = sidecar_path(path);
     match Sidecar::read(&meta) {
         // The ordinary rescan: this asset was identified on some earlier run
-        // and keeps what it was given.
-        Ok(Some(existing)) => record(&existing, relative, index),
+        // and keeps what it was given. Its record of the *contents* may still
+        // need catching up — see `refresh` — but the identity never changes.
+        Ok(Some(existing)) => {
+            let existing = refresh(path, relative, &meta, existing);
+            record(&existing, relative, index);
+        }
 
         // Never seen *here* before — which is not the same as never seen. An
         // orphaned sidecar somewhere else in the project may be holding this
@@ -333,6 +396,7 @@ fn identify(path: &Path, relative: &str, index: &mut AssetIndex, found: &mut Fou
         Ok(None) => found.unidentified.push(Candidate {
             path: path.to_path_buf(),
             relative: relative.to_string(),
+            extension,
         }),
 
         // A sidecar that exists and will not parse. Minting a replacement here
@@ -355,6 +419,95 @@ fn is_identified(extension: &str) -> bool {
     IDENTIFIED_EXTENSIONS.contains(&extension)
 }
 
+/// Brings an existing sidecar's record of the asset's contents up to date, for
+/// one `stat` per asset rather than one full read.
+///
+/// # Why a hash that is never refreshed is worse than no hash
+///
+/// [`Sidecar::hash`] is the *only* thread orphan recovery has back to a lost
+/// identity. Left at "the contents when this identity was minted", it stops
+/// describing the file the first time an artist saves over it — so edit an asset
+/// today, rename it next month, and recovery finds nothing that matches and
+/// mints a fresh GUID. That is precisely Unity's behaviour, arrived at silently,
+/// in the feature built to beat it. The staleness is worst exactly where it
+/// hurts most, too: an asset nobody has touched in a year is the one whose hash
+/// is still correct.
+///
+/// Re-hashing everything on every scan is the obvious fix and not an affordable
+/// one — it is a full read of every mesh and texture in the project at every
+/// startup.
+///
+/// # The length on disk is the gate
+///
+/// An asset whose size still matches what its sidecar recorded is taken to be
+/// unchanged and is not opened at all, so a rescan of an untouched project
+/// still hashes **nothing**. A size that differs earns exactly one re-hash, and
+/// the refreshed pair is written back so the next scan is cheap again.
+///
+/// A sidecar with no size at all — every sidecar written before that field
+/// existed — reads as *unknown* rather than as zero, and is re-hashed once for
+/// the same reason. That is what makes the format change a migration rather
+/// than a mass re-identification: the GUID is never touched, so every reference
+/// already stored against it keeps resolving.
+///
+/// # What it deliberately misses
+///
+/// An edit that leaves the length unchanged. Catching it would cost the full
+/// read this whole design exists to avoid, and its consequence is bounded and
+/// loud: recovery declines to re-pair and says so, rather than pairing wrongly.
+fn refresh(path: &Path, relative: &str, meta: &Path, sidecar: Sidecar) -> Sidecar {
+    let size = match path.metadata() {
+        Ok(metadata) => metadata.len(),
+        // The file was walked moments ago, so this is an anomaly rather than an
+        // absence. Keeping the identity *and* the contents it records is
+        // strictly better than losing either over one failed `stat`.
+        Err(e) => {
+            warn!(
+                "asset identity: cannot read the size of {relative} ({e}); it \
+                 keeps its identity, but the contents its sidecar records may \
+                 be stale, so a later move may not be recoverable"
+            );
+            return sidecar;
+        }
+    };
+    if sidecar.size == Some(size) {
+        return sidecar;
+    }
+
+    let (hash, size) = match measure_file(path) {
+        Ok(measured) => measured,
+        Err(e) => {
+            warn!(
+                "asset identity: {relative} has changed since its sidecar was \
+                 written but cannot be re-read ({e}); it keeps its identity, \
+                 and the contents its sidecar records stay stale"
+            );
+            return sidecar;
+        }
+    };
+
+    let refreshed = Sidecar {
+        hash,
+        size: Some(size),
+        ..sidecar
+    };
+    if let Err(e) = refreshed.write(meta) {
+        // Nothing is lost that was not already lost: the identity is untouched
+        // on disk and still correct, and only the freshness of the hash fails
+        // to persist. The next scan sees the same mismatch and tries again.
+        warn!(
+            "asset identity: {relative} has changed, but recording that in {} \
+             failed ({e}); it keeps its identity, and the next scan will try \
+             again",
+            meta.display()
+        );
+    }
+    // Returned whether or not the write took: the identity and the former
+    // paths — everything `record` reads — are the same in both, and the
+    // caller's job is to index the asset, not to mirror the disk.
+    refreshed
+}
+
 /// Notes a sidecar whose asset is not beside it — the situation the whole of
 /// orphan recovery exists for.
 ///
@@ -374,11 +527,19 @@ fn note_if_orphaned(meta: &Path, relative: &str, found: &mut Found) {
     // A `.meta` beside something this scan would never have identified is not an
     // orphan of ours; it is a stray file, and recovering an identity onto a file
     // type we do not sidecar would be inventing a rule nothing else follows.
-    let identified = asset
+    //
+    // The extension is kept rather than discarded once checked: recovery needs
+    // it to refuse a candidate that merely shares this asset's bytes without
+    // being the same kind of file at all.
+    let extension = asset
         .extension()
         .and_then(|e| e.to_str())
-        .is_some_and(|e| is_identified(&e.to_ascii_lowercase()));
-    if !identified || asset.is_file() {
+        .map(str::to_ascii_lowercase)
+        .filter(|e| is_identified(e));
+    let Some(extension) = extension else {
+        return;
+    };
+    if asset.is_file() {
         return;
     }
 
@@ -386,6 +547,7 @@ fn note_if_orphaned(meta: &Path, relative: &str, found: &mut Found) {
         Ok(Some(sidecar)) => found.orphans.push(Orphan {
             meta: meta.to_path_buf(),
             was: was.to_string(),
+            extension,
             sidecar,
         }),
         // Gone between the walk and the read; there is nothing left to recover.
@@ -409,34 +571,73 @@ fn settle(found: Found, index: &mut AssetIndex) {
         unidentified,
     } = found;
 
+    // Before anything is counted, let alone paired: an orphan whose identity a
+    // live asset already carries is not a competitor for it.
+    let orphans = recoverable(orphans, index);
+
     // The gate, and the whole cost of recovery in a project where nothing has
     // moved: one comparison against an empty list. Note what this branch does
     // *not* save — the hashing below is not recovery's, it is the hashing that
     // minting an identity has always required.
     if orphans.is_empty() {
         for candidate in &unidentified {
-            if let Some(hash) = hash_candidate(candidate) {
-                mint(candidate, &hash, index);
+            if let Some(contents) = read_contents(candidate) {
+                mint(candidate, &contents, index);
             }
         }
         return;
     }
 
-    // Hashed once, used twice: to look for an orphan that recorded these exact
-    // contents, and — when there is none — as the hash of the sidecar minted
-    // below. An asset that cannot be read is dropped here, warned about, and is
-    // neither a candidate nor minted.
-    let candidates: Vec<(Candidate, String)> = unidentified
+    // Read once, used twice: to look for an orphan that recorded these exact
+    // contents, and — when there is none — as what the sidecar minted below
+    // records. An asset that cannot be read is dropped here, warned about, and
+    // is neither a candidate nor minted.
+    let candidates: Vec<(Candidate, Contents)> = unidentified
         .into_iter()
-        .filter_map(|candidate| hash_candidate(&candidate).map(|hash| (candidate, hash)))
+        .filter_map(|candidate| read_contents(&candidate).map(|contents| (candidate, contents)))
         .collect();
 
-    let by_hash = group(candidates.iter().map(|(_, hash)| hash.as_str()));
-    let orphans_by_hash = group(orphans.iter().map(|orphan| orphan.sidecar.hash.as_str()));
+    // Keyed by extension *and* hash, so a `.ron` scene and a `.js` script that
+    // happen to hold the same bytes are never in the same bucket — see the
+    // module docs on what a hash alone does not prove.
+    let by_contents = group(
+        candidates
+            .iter()
+            .map(|(candidate, contents)| (candidate.extension.as_str(), contents.hash.as_str())),
+    );
+    let orphans_by_contents = group(
+        orphans
+            .iter()
+            .map(|orphan| (orphan.extension.as_str(), orphan.sidecar.hash.as_str())),
+    );
 
-    let mut recovered = vec![false; candidates.len()];
-    for (hash, orphaned) in &orphans_by_hash {
-        let matched: &[usize] = by_hash.get(hash).map_or(&[], Vec::as_slice);
+    let empty = empty_hash();
+    // "Settled", not "recovered": a repair whose write failed leaves the asset
+    // unidentified this run *and* still must not be minted, because minting is
+    // what would make the loss permanent. See `repair`.
+    let mut settled = vec![false; candidates.len()];
+    for (&(extension, hash), orphaned) in &orphans_by_contents {
+        // Refused before it is even looked up. Every empty file in the project
+        // hashes to this one value, so a match on it is not evidence of
+        // anything, and several empty placeholders is an ordinary thing to have.
+        if hash == empty {
+            for &orphan in orphaned {
+                warn!(
+                    "asset identity: {} was left behind by an asset that is no \
+                     longer beside it, and that asset was empty. Every empty \
+                     file hashes to the same value, so contents cannot say which \
+                     file it became, and the identity it holds cannot be \
+                     recovered. If the asset is gone for good, delete this \
+                     sidecar",
+                    orphans[orphan].meta.display()
+                );
+            }
+            continue;
+        }
+
+        let matched: &[usize] = by_contents
+            .get(&(extension, hash))
+            .map_or(&[], Vec::as_slice);
         match (orphaned.as_slice(), matched) {
             // Nothing in the project has these contents any more. An asset that
             // was edited as well as moved lands here and is indistinguishable
@@ -445,38 +646,19 @@ fn settle(found: Found, index: &mut AssetIndex) {
                 for &orphan in orphaned {
                     warn!(
                         "asset identity: {} was left behind by an asset that is \
-                         no longer beside it, and nothing in the project has the \
-                         contents it recorded, so the identity it holds cannot be \
-                         recovered. An asset that was edited as well as moved \
-                         hashes differently and cannot be told apart from a new \
-                         one; if the asset is gone for good, delete this sidecar",
+                         no longer beside it, and no .{extension} file in the \
+                         project has the contents it recorded, so the identity \
+                         it holds cannot be recovered. An asset that was edited \
+                         as well as moved hashes differently and cannot be told \
+                         apart from a new one; if the asset is gone for good, \
+                         delete this sidecar",
                         orphans[orphan].meta.display()
                     );
                 }
             }
-            ([orphan], [candidate]) => {
-                let orphan = &orphans[*orphan];
-                // Copied rather than moved: the identity in this orphan is
-                // already on a file that really exists. Handing it out again
-                // would put two `.meta` files claiming one GUID into the user's
-                // source tree, which is the contradiction `AssetIndex` refuses
-                // to resolve — so it is not created in the first place.
-                let live = index.path_for_guid(orphan.sidecar.guid).map(str::to_owned);
-                match live {
-                    Some(live) => warn!(
-                        "asset identity: {} has the contents {} recorded, but the \
-                         identity in that sidecar already belongs to {live}, so it \
-                         was copied rather than moved. {} has been given a fresh \
-                         identity instead; one identity cannot mean two files",
-                        candidates[*candidate].0.relative,
-                        orphan.meta.display(),
-                        candidates[*candidate].0.relative
-                    ),
-                    None => {
-                        repair(orphan, &candidates[*candidate].0, index);
-                        recovered[*candidate] = true;
-                    }
-                }
+            ([orphan], [position]) => {
+                let (candidate, contents) = &candidates[*position];
+                settled[*position] = repair(&orphans[*orphan], candidate, contents, index);
             }
             // The refusal this whole design turns on. Naming both sides is the
             // product: the user moved files, lost their identities, and this
@@ -499,22 +681,75 @@ fn settle(found: Found, index: &mut AssetIndex) {
         }
     }
 
-    for (position, (candidate, hash)) in candidates.iter().enumerate() {
-        if !recovered[position] {
-            mint(candidate, hash, index);
+    for (position, (candidate, contents)) in candidates.iter().enumerate() {
+        if !settled[position] {
+            mint(candidate, contents, index);
         }
     }
 }
 
-/// Buckets equal hashes together, keeping each item's position.
+/// Drops the orphans that can never be recovered onto anything, telling the
+/// user about each, and keeps the rest.
+///
+/// A sidecar *copied* rather than moved leaves one of these: the file it names
+/// is gone, but the identity inside it is on a file that really exists. Handing
+/// it out again would put two `.meta` files claiming one GUID into the user's
+/// source tree, which is the contradiction [`AssetIndex`] refuses to resolve —
+/// so it is never created in the first place.
+///
+/// Removing them *before* anything is grouped is what makes this more than
+/// tidiness. Left in the pool, such an orphan still counts as a claimant on its
+/// contents, so a second orphan that shares them — one that has a perfectly
+/// unambiguous asset waiting for it — is pushed into the "two of these, no way
+/// to tell them apart" refusal by a competitor that was never eligible to win.
+/// One identity is then lost to the presence of another that could not have
+/// been recovered either way.
+///
+/// This is a filter and not the guard: an identity can also go live *during*
+/// settling, when an earlier pairing records one. [`repair`] makes the same
+/// check at the moment it would hand an identity out, which is the choke point
+/// this pass cannot be.
+fn recoverable(orphans: Vec<Orphan>, index: &AssetIndex) -> Vec<Orphan> {
+    orphans
+        .into_iter()
+        .filter(|orphan| match index.path_for_guid(orphan.sidecar.guid) {
+            None => true,
+            Some(live) => {
+                warn_copied(&orphan.meta, live);
+                false
+            }
+        })
+        .collect()
+}
+
+/// Reports a sidecar whose identity is on a file that is still there, and says
+/// what to do with it.
+///
+/// One message for both places that can discover this — see [`recoverable`] —
+/// because it is one situation, and a user who saw two different explanations
+/// of it would reasonably think they had two different problems.
+fn warn_copied(meta: &Path, live: &str) {
+    warn!(
+        "asset identity: {} was left behind by an asset that is no longer \
+         beside it, but the identity it holds already belongs to {live}, so it \
+         was copied rather than moved. One identity cannot mean two files, so \
+         it can never be recovered onto anything: delete this sidecar",
+        meta.display()
+    );
+}
+
+/// Buckets files that agree on both extension and hash together, keeping each
+/// item's position.
 ///
 /// A `BTreeMap` so that a project with several orphans reports them in the same
 /// order on every machine, rather than in whatever order the hashes happened to
 /// land in a bucket array.
-fn group<'a>(hashes: impl Iterator<Item = &'a str>) -> BTreeMap<&'a str, Vec<usize>> {
-    let mut grouped: BTreeMap<&str, Vec<usize>> = BTreeMap::new();
-    for (position, hash) in hashes.enumerate() {
-        grouped.entry(hash).or_default().push(position);
+fn group<'a>(
+    contents: impl Iterator<Item = (&'a str, &'a str)>,
+) -> BTreeMap<(&'a str, &'a str), Vec<usize>> {
+    let mut grouped: BTreeMap<(&str, &str), Vec<usize>> = BTreeMap::new();
+    for (position, key) in contents.enumerate() {
+        grouped.entry(key).or_default().push(position);
     }
     grouped
 }
@@ -525,10 +760,11 @@ fn listed(paths: impl Iterator<Item = String>) -> String {
     paths.collect::<Vec<_>>().join(", ")
 }
 
-/// Hashes an asset that has no sidecar, reporting the file it could not read.
-fn hash_candidate(candidate: &Candidate) -> Option<String> {
-    match hash_file(&candidate.path) {
-        Ok(hash) => Some(hash),
+/// Hashes and measures an asset that has no sidecar, reporting the file it
+/// could not read.
+fn read_contents(candidate: &Candidate) -> Option<Contents> {
+    match measure_file(&candidate.path) {
+        Ok((hash, size)) => Some(Contents { hash, size }),
         Err(e) => {
             warn!(
                 "asset identity: cannot read {} to hash it ({e}); it will have no \
@@ -541,9 +777,34 @@ fn hash_candidate(candidate: &Candidate) -> Option<String> {
 }
 
 /// Moves an orphaned sidecar's identity onto the asset that turned up with its
-/// contents.
-fn repair(orphan: &Orphan, candidate: &Candidate, index: &mut AssetIndex) {
+/// contents, and says whether the candidate still needs one of its own.
+///
+/// `true` means settled: do not mint. That covers the write having failed as
+/// well as the repair having worked, because minting a fresh identity as a
+/// fallback would be the one unrecoverable move — see below.
+fn repair(
+    orphan: &Orphan,
+    candidate: &Candidate,
+    contents: &Contents,
+    index: &mut AssetIndex,
+) -> bool {
+    // The last gate before an identity is handed out, and the only one that can
+    // see an identity which went live *during* this settling — recovered onto
+    // some earlier candidate by a repair a moment ago. `recoverable` cannot:
+    // it runs once, before any of that has happened.
+    if let Some(live) = index.path_for_guid(orphan.sidecar.guid) {
+        warn_copied(&orphan.meta, live);
+        return false;
+    }
+
     let mut sidecar = orphan.sidecar.clone();
+    // The hash is already equal — it is why these two were paired — but the
+    // *size* may not be recorded at all, because the orphan can be a sidecar
+    // written before that field existed. Writing the pair the candidate was
+    // just measured with is what stops the very next scan re-hashing an asset
+    // it has this second finished hashing.
+    sidecar.hash = contents.hash.clone();
+    sidecar.size = Some(contents.size);
     // Deduplicated, so that a file moved back and forth cannot grow this list
     // without bound: it can only ever hold the distinct paths the asset has
     // actually occupied.
@@ -565,7 +826,7 @@ fn repair(orphan: &Orphan, candidate: &Candidate, index: &mut AssetIndex) {
             orphan.meta.display(),
             meta.display()
         );
-        return;
+        return true;
     }
 
     if let Err(e) = std::fs::remove_file(&orphan.meta) {
@@ -585,13 +846,15 @@ fn repair(orphan: &Orphan, candidate: &Candidate, index: &mut AssetIndex) {
         candidate.relative, orphan.was
     );
     record(&sidecar, &candidate.relative, index);
+    true
 }
 
 /// Gives an asset that has never been identified a fresh identity.
-fn mint(candidate: &Candidate, hash: &str, index: &mut AssetIndex) {
+fn mint(candidate: &Candidate, contents: &Contents, index: &mut AssetIndex) {
     let sidecar = Sidecar {
         guid: AssetGuid::new(),
-        hash: hash.to_string(),
+        hash: contents.hash.clone(),
+        size: Some(contents.size),
         former_paths: Vec::new(),
     };
     let meta = sidecar_path(&candidate.path);
@@ -618,7 +881,7 @@ fn mint(candidate: &Candidate, hash: &str, index: &mut AssetIndex) {
 /// quietly unidentified with nothing to act on, which is the failure mode this
 /// whole module is built to avoid.
 fn record(sidecar: &Sidecar, relative: &str, index: &mut AssetIndex) {
-    match index.insert(sidecar.guid, relative, &sidecar.hash, &sidecar.former_paths) {
+    match index.insert(sidecar.guid, relative, &sidecar.former_paths) {
         Insertion::Recorded => {}
         rejected @ (Insertion::DuplicateGuid { .. } | Insertion::DuplicatePath { .. }) => {
             warn!("asset identity: {relative} will have no identity this run — {rejected}")
@@ -772,13 +1035,16 @@ mod tests {
         );
     }
 
-    // A rescan reads sidecars; it must not rewrite them, and in particular must
-    // not re-hash every asset in the project to do it. The stale hash below is
-    // the visible consequence of that decision: `Sidecar::hash` records the
-    // contents *when the sidecar was written*, and anything that needs the
-    // contents *now* has to hash the file itself.
+    // ---- keeping the recorded contents fresh, cheaply ---------------------
+
+    // The cost guarantee the whole design rests on: a rescan of an untouched
+    // project reads no asset at all. Proved with an edit that keeps the file's
+    // *length* -- the one change a size check cannot see -- because that is the
+    // only edit whose invisibility shows the scan consulted the length rather
+    // than the contents. An edit of a different length would look identical
+    // here whether the scan hashed everything or nothing.
     #[test]
-    fn a_rescan_neither_rewrites_the_sidecar_nor_rehashes_the_asset() {
+    fn a_rescan_does_not_read_an_asset_whose_length_has_not_changed() {
         let probe = ProbeDir(std::env::temp_dir().join(unique("identity-cost")));
         let asset = probe.0.join("assets/models/fox.glb");
         write_file(&asset, b"fake glb");
@@ -787,16 +1053,143 @@ mod tests {
         scan(&probe.0).expect("scan");
         let after_first = read_text(&meta);
 
-        // An edit big enough to change the hash, so a rescan that re-hashed
-        // would provably write different bytes.
-        write_file(&asset, b"a different fake glb");
+        write_file(&asset, b"FAKE GLB");
         scan(&probe.0).expect("rescan");
 
         assert_eq!(
             read_text(&meta),
             after_first,
-            "a rescan must leave an existing sidecar untouched; rewriting it \
-             means hashing every asset in the project on every startup"
+            "the sidecar changed, so the asset was hashed -- and if a rescan \
+             hashes this one it hashes every mesh and texture in the project, \
+             on every startup"
+        );
+    }
+
+    // The other half of the same trade. An asset whose length *has* changed is
+    // re-hashed exactly once, so `Sidecar::hash` keeps meaning "the contents
+    // now" -- and the identity is untouched while that happens, because a
+    // refresh that minted a new GUID would break every reference on the first
+    // save.
+    #[test]
+    fn an_edited_asset_has_its_recorded_contents_refreshed_but_not_its_identity() {
+        let probe = ProbeDir(std::env::temp_dir().join(unique("identity-refresh")));
+        let asset = probe.0.join("assets/models/fox.glb");
+        write_file(&asset, b"fake glb");
+        let meta = probe.0.join("assets/models/fox.glb.meta");
+        let original = scan(&probe.0)
+            .expect("scan")
+            .guid_for_path("assets/models/fox.glb")
+            .unwrap();
+
+        write_file(&asset, b"a different fake glb");
+        let index = scan(&probe.0).expect("rescan");
+
+        let (hash, size) = measure_file(&asset).expect("measure the edited asset");
+        let sidecar = Sidecar::read(&meta).expect("read").expect("present");
+        assert_eq!(
+            sidecar.hash, hash,
+            "the sidecar still records the contents this asset had before it \
+             was edited"
+        );
+        assert_eq!(
+            sidecar.size,
+            Some(size),
+            "the new length has to be recorded too, or the next scan re-hashes \
+             this asset again -- and every scan after it"
+        );
+        assert_eq!(
+            index.guid_for_path("assets/models/fox.glb"),
+            Some(original),
+            "saving an asset must never change its identity"
+        );
+        assert_eq!(sidecar.guid, original, "nor on disk");
+    }
+
+    // Why the refresh is worth its `stat`, stated as the failure it prevents.
+    // An asset is edited, scanned a few times as anyone's project is, and only
+    // months later moved without its sidecar. If the hash were still the one
+    // minted with the identity, nothing in the project would match it and the
+    // scan would mint a fresh GUID -- exactly Unity's behaviour, in the feature
+    // built to beat it, arrived at silently.
+    #[test]
+    fn an_asset_edited_long_before_it_moves_is_still_recovered() {
+        let probe = ProbeDir(std::env::temp_dir().join(unique("identity-stale")));
+        let models = probe.0.join("assets/models");
+        write_file(&models.join("fox.glb"), b"fake glb contents");
+        let original = scan(&probe.0)
+            .expect("scan")
+            .guid_for_path("assets/models/fox.glb")
+            .unwrap();
+
+        // Ordinary work: the asset is edited where it has always lived, and the
+        // engine starts a few more times.
+        write_file(&models.join("fox.glb"), b"fake glb contents, retouched");
+        scan(&probe.0).expect("rescan after the edit");
+        scan(&probe.0).expect("and again");
+
+        // Only now does it move, and without its `.meta`.
+        std::fs::rename(models.join("fox.glb"), models.join("renamed.glb")).unwrap();
+
+        let after = scan(&probe.0).expect("rescan after the move");
+
+        assert_eq!(
+            after.guid_for_path("assets/models/renamed.glb"),
+            Some(original),
+            "the asset was edited months before it moved, and a hash frozen at \
+             the moment the identity was minted no longer describes it -- so \
+             recovery finds nothing and silently mints a new identity"
+        );
+    }
+
+    // The format change `size` makes, seen from the only angle that matters:
+    // every sidecar already committed in every project has no size field. If a
+    // scan could not read one, or read it as a reason to re-identify, one
+    // upgrade would mint fresh GUIDs for a whole project at once.
+    #[test]
+    fn a_sidecar_from_before_the_size_field_keeps_its_identity_and_is_rehashed_once() {
+        let probe = ProbeDir(std::env::temp_dir().join(unique("identity-migrate")));
+        let asset = probe.0.join("assets/models/fox.glb");
+        write_file(&asset, b"fake glb");
+        let meta = probe.0.join("assets/models/fox.glb.meta");
+        let guid = AssetGuid::new();
+        // Exactly the shape this module wrote until the field existed, with a
+        // hash that no longer matches the file so the re-hash is visible.
+        write_file(
+            &meta,
+            format!("(guid: \"{guid}\", hash: \"blake3:stale\", former_paths: [])").as_bytes(),
+        );
+
+        let index = scan(&probe.0).expect("scan");
+
+        assert_eq!(
+            index.guid_for_path("assets/models/fox.glb"),
+            Some(guid),
+            "the migration must not touch the identity; re-minting here would \
+             break every reference in the project in one startup"
+        );
+        let (hash, size) = measure_file(&asset).expect("measure");
+        let migrated = Sidecar::read(&meta).expect("read").expect("present");
+        assert_eq!(migrated.guid, guid);
+        assert_eq!(
+            migrated.hash, hash,
+            "an unknown size means the recorded contents cannot be trusted, so \
+             they have to be re-read once"
+        );
+        assert_eq!(
+            migrated.size,
+            Some(size),
+            "and recorded, or this asset is re-hashed on every scan forever"
+        );
+
+        // Once, though. The second scan has a size to compare against.
+        let after_migration = read_text(&meta);
+        write_file(&asset, b"FAKE GLB");
+        scan(&probe.0).expect("rescan");
+        assert_eq!(
+            read_text(&meta),
+            after_migration,
+            "the migrated sidecar was re-read again; the size it now records is \
+             what stops that"
         );
     }
 
@@ -828,6 +1221,7 @@ mod tests {
         let shared = Sidecar {
             guid: AssetGuid::new(),
             hash: "blake3:abc".to_string(),
+            size: None,
             former_paths: Vec::new(),
         };
         for name in ["fox.glb", "fox_copy.glb"] {
@@ -861,6 +1255,128 @@ mod tests {
             logs.contains(rejected),
             "the developer has to be told which file to delete the .meta from, \
              or an asset is silently unidentified -- got:\n{logs}"
+        );
+    }
+
+    // The previous test asserts the *shape* of the outcome without naming a
+    // winner. Which file wins still has to be the same file everywhere, or one
+    // developer sees an asset indexed that a colleague sees reported as
+    // unidentified, for the same commit.
+    //
+    // The names are chosen to tell a sorted walk from an unsorted one on this
+    // filesystem: NTFS yields directory entries ordered case-insensitively
+    // (`a.glb`, then `B.glb`), while the scan sorts by the bytes of the name
+    // (`B` is 0x42, `a` is 0x61, so `B.glb` first). Two names of the same case
+    // would agree under both orders and prove nothing here.
+    #[test]
+    fn which_of_two_files_claiming_one_guid_keeps_it_does_not_follow_the_filesystem() {
+        let probe = ProbeDir(std::env::temp_dir().join(unique("identity-order")));
+        let models = probe.0.join("assets/models");
+        let shared = Sidecar {
+            guid: AssetGuid::new(),
+            hash: "blake3:abc".to_string(),
+            size: None,
+            former_paths: Vec::new(),
+        };
+        for name in ["a.glb", "B.glb"] {
+            write_file(&models.join(name), b"fake glb");
+            shared
+                .write(sidecar_path(models.join(name)))
+                .expect("write sidecar");
+        }
+
+        let index = scan(&probe.0).expect("scan");
+
+        assert_eq!(
+            index.path_for_guid(shared.guid),
+            Some("assets/models/B.glb"),
+            "the walk has to impose its own order on a directory; taking the \
+             filesystem's would hand the identity to a.glb here and to B.glb on \
+             a filesystem that reads back in a different order"
+        );
+        assert_eq!(index.guid_for_path("assets/models/a.glb"), None);
+    }
+
+    // ---- what a matching hash is not enough to prove ----------------------
+
+    // Small `.ron` and `.js` files collide constantly -- `()` is an entire
+    // scene and an entire expression -- and this repository already contains
+    // byte-identical files under different names. Letting contents alone decide
+    // would hand a scene's identity to a script, and every reference to that
+    // scene would then resolve to a file that cannot be loaded in its place.
+    #[test]
+    fn recovery_refuses_a_file_that_shares_only_the_bytes_and_not_the_kind() {
+        let probe = ProbeDir(std::env::temp_dir().join(unique("identity-extension")));
+        let assets = probe.0.join("assets");
+        let shared = b"()";
+        write_file(&assets.join("scenes/main.ron"), shared);
+        let scene = scan(&probe.0)
+            .expect("scan")
+            .guid_for_path("assets/scenes/main.ron")
+            .unwrap();
+
+        // The scene is deleted, leaving its sidecar, and a script that happens
+        // to hold exactly the same bytes turns up elsewhere in the project.
+        std::fs::remove_file(assets.join("scenes/main.ron")).unwrap();
+        write_file(&assets.join("scripts/stub.js"), shared);
+
+        let (second, logs) = capture_warnings(|| scan(&probe.0).expect("rescan"));
+
+        let stub = second
+            .guid_for_path("assets/scripts/stub.js")
+            .expect("the script still needs an identity of its own");
+        assert_ne!(
+            stub, scene,
+            "a script inherited a scene's identity because their bytes matched; \
+             every reference to that scene now resolves to a file no scene \
+             loader can read"
+        );
+        assert!(
+            assets.join("scenes/main.ron.meta").exists(),
+            "the scene's sidecar was deleted as though the identity had been \
+             successfully moved"
+        );
+        assert!(
+            logs.contains("main.ron.meta"),
+            "an identity that could not be recovered has to name the sidecar \
+             still holding it -- got:\n{logs}"
+        );
+    }
+
+    // The other half: same extension, same hash, and still not evidence,
+    // because the hash is the one every empty file in the project has. Two
+    // empty placeholders is an ordinary thing to have, and the whole point of
+    // this test is that nothing else here can tell them apart.
+    #[test]
+    fn recovery_refuses_two_empty_files_however_exactly_their_hashes_agree() {
+        let probe = ProbeDir(std::env::temp_dir().join(unique("identity-empty")));
+        let scenes = probe.0.join("assets/scenes");
+        write_file(&scenes.join("main.ron"), b"");
+        let main = scan(&probe.0)
+            .expect("scan")
+            .guid_for_path("assets/scenes/main.ron")
+            .unwrap();
+
+        std::fs::remove_file(scenes.join("main.ron")).unwrap();
+        write_file(&scenes.join("level2.ron"), b"");
+
+        let (second, logs) = capture_warnings(|| scan(&probe.0).expect("rescan"));
+
+        let level2 = second
+            .guid_for_path("assets/scenes/level2.ron")
+            .expect("the new placeholder still needs an identity of its own");
+        assert_ne!(
+            level2, main,
+            "an unrelated empty file was handed the deleted scene's identity; \
+             emptiness is not evidence that two files are the same asset"
+        );
+        assert!(
+            scenes.join("main.ron.meta").exists(),
+            "the sidecar was deleted as though the identity had moved"
+        );
+        assert!(
+            logs.contains("main.ron.meta"),
+            "the refusal has to name the sidecar it refused for -- got:\n{logs}"
         );
     }
 
@@ -1077,6 +1593,124 @@ mod tests {
             logs.contains("gone.glb.meta"),
             "the stray sidecar is the thing to delete, so the warning has to \
              name it -- got:\n{logs}"
+        );
+        assert!(
+            logs.contains("delete this sidecar"),
+            "every other refusal in this module ends by telling the user what \
+             to do about the file it named; naming a file and stopping leaves a \
+             warning that recurs on every startup with no way to act on it -- \
+             got:\n{logs}"
+        );
+    }
+
+    // An orphan holding an identity that a live asset already carries can never
+    // be recovered onto anything. Left in the pool it is still counted, so it
+    // turns a *different* orphan's perfectly unambiguous match into a coin flip
+    // and costs an identity that was there to be recovered -- a refusal caused
+    // entirely by a competitor that could never have won.
+    #[test]
+    fn an_orphan_whose_identity_is_already_live_does_not_block_another_recovery() {
+        let probe = ProbeDir(std::env::temp_dir().join(unique("identity-blocked")));
+        let models = probe.0.join("assets/models");
+        // Two assets that happen to share their contents -- a texture copied
+        // rather than referenced, an export made twice.
+        write_file(&models.join("fox.glb"), b"fake glb contents");
+        write_file(&models.join("twin.glb"), b"fake glb contents");
+        let first = scan(&probe.0).expect("scan");
+        let fox = first.guid_for_path("assets/models/fox.glb").unwrap();
+        let twin = first.guid_for_path("assets/models/twin.glb").unwrap();
+
+        // A sidecar copied rather than moved: `gone.glb` never existed, and the
+        // identity inside this `.meta` is on `fox.glb`, which is still there.
+        std::fs::copy(models.join("fox.glb.meta"), models.join("gone.glb.meta"))
+            .expect("copy the sidecar rather than move it");
+        // And, separately, a real move: `twin.glb` left its sidecar behind.
+        std::fs::rename(models.join("twin.glb"), models.join("moved.glb")).unwrap();
+
+        let (second, logs) = capture_warnings(|| scan(&probe.0).expect("rescan"));
+
+        assert_eq!(
+            second.guid_for_path("assets/models/moved.glb"),
+            Some(twin),
+            "the only orphan that could have been recovered lost its match to \
+             one that never could be; a stray .meta must not cost an unrelated \
+             asset its identity"
+        );
+        assert_eq!(
+            second.guid_for_path("assets/models/fox.glb"),
+            Some(fox),
+            "the file that really holds the identity must keep it"
+        );
+        assert!(
+            !models.join("twin.glb.meta").exists(),
+            "the recovered orphan has to be cleared, or every later scan finds \
+             it again"
+        );
+        assert!(
+            logs.contains("gone.glb.meta"),
+            "the stray sidecar is still the thing to delete, so it still has to \
+             be named -- got:\n{logs}"
+        );
+    }
+
+    // The case the pre-filter above cannot see, because the identity is not
+    // live when it runs: two orphans hold the same GUID and record *different*
+    // contents, so neither is ambiguous and both look recoverable -- until the
+    // first is recovered and makes that GUID live for the second. Without the
+    // check `repair` makes at the moment it hands one out, the second asset
+    // would get a `.meta` claiming a GUID another file already has, be refused
+    // by the index for exactly that reason, and end up with a sidecar on disk
+    // and no identity in the index.
+    #[test]
+    fn an_identity_that_goes_live_mid_settle_is_not_handed_out_a_second_time() {
+        let probe = ProbeDir(std::env::temp_dir().join(unique("identity-midsettle")));
+        let models = probe.0.join("assets/models");
+        write_file(&models.join("one.glb"), b"one glb");
+        write_file(&models.join("two.glb"), b"two glb contents");
+
+        // One GUID in two sidecars -- a `.meta` copied and then hand-edited, or
+        // a badly resolved merge -- each recording its own asset's contents, so
+        // the two orphans land in different buckets and neither pairing is a
+        // coin flip.
+        let guid = AssetGuid::new();
+        for name in ["one.glb", "two.glb"] {
+            let (hash, size) = measure_file(models.join(name)).expect("measure");
+            Sidecar {
+                guid,
+                hash,
+                size: Some(size),
+                former_paths: Vec::new(),
+            }
+            .write(sidecar_path(models.join(name)))
+            .expect("write sidecar");
+        }
+
+        // Both assets move away, so when settling begins that GUID is on no
+        // file at all and both orphans look perfectly recoverable.
+        std::fs::rename(models.join("one.glb"), models.join("moved_one.glb")).unwrap();
+        std::fs::rename(models.join("two.glb"), models.join("moved_two.glb")).unwrap();
+
+        let (index, logs) = capture_warnings(|| scan(&probe.0).expect("scan"));
+
+        assert_eq!(
+            index.len(),
+            2,
+            "both assets are real files that need an identity; the one that \
+             lost the contested GUID must be given a fresh one rather than \
+             left with a sidecar the index refuses"
+        );
+        let one = index.guid_for_path("assets/models/moved_one.glb").unwrap();
+        let two = index.guid_for_path("assets/models/moved_two.glb").unwrap();
+        assert_ne!(one, two, "one identity cannot mean two files");
+        assert!(
+            one == guid || two == guid,
+            "whichever was settled first should still have recovered the \
+             identity; refusing both would lose one that was recoverable"
+        );
+        assert!(
+            logs.contains("delete this sidecar"),
+            "the loser's sidecar is the thing to remove, and the message has to \
+             say so -- got:\n{logs}"
         );
     }
 

@@ -89,9 +89,18 @@ use tracing::{debug, info, warn};
 
 /// The subdirectory of a project that holds its assets, and the only place
 /// [`scan`] looks.
-const ASSETS_DIR: &str = "assets";
+///
+/// Shared with [`crate::watcher`], which watches exactly this directory and has
+/// to spell the paths it reports the way this walk keys them — project-relative,
+/// starting here. Two spellings of one prefix would mean a watcher that recorded
+/// moves the index could never match.
+pub(crate) const ASSETS_DIR: &str = "assets";
 
 /// A directory directly under `assets/` that [`scan`] never descends into.
+///
+/// Shared with [`crate::identity::fixup`], which has to skip exactly what this
+/// walk skips: a former path pruned because no file `fixup` looked at named it
+/// would be pruned wrongly if the two disagreed about which files exist.
 ///
 /// `assets/tests/*.testlog.json` are recorded input traces for the E2E
 /// harness, not assets: nothing loads them, nothing references them by path,
@@ -100,7 +109,7 @@ const ASSETS_DIR: &str = "assets";
 /// that a `.ron` or `.js` fixture dropped in beside the recordings is excluded
 /// too — the reason to skip this directory is what it is for, not what happens
 /// to be in it today.
-const RECORDINGS_DIR: &str = "tests";
+pub(crate) const RECORDINGS_DIR: &str = "tests";
 
 /// Extensions that earn a file an identity.
 ///
@@ -806,12 +815,10 @@ fn repair(
     // it has this second finished hashing.
     sidecar.hash = contents.hash.clone();
     sidecar.size = Some(contents.size);
-    // Deduplicated, so that a file moved back and forth cannot grow this list
-    // without bound: it can only ever hold the distinct paths the asset has
-    // actually occupied.
-    if !sidecar.former_paths.contains(&orphan.was) {
-        sidecar.former_paths.push(orphan.was.clone());
-    }
+    // Deduplicated — see `Sidecar::remember_former_path`, which is where that
+    // policy lives so that this and the watcher's live rename recorder cannot
+    // drift into two different answers about the same list.
+    sidecar.remember_former_path(&orphan.was);
 
     let meta = sidecar_path(&candidate.path);
     if let Err(e) = sidecar.write(&meta) {

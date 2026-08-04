@@ -28,6 +28,16 @@ fn main() {
     let mut args = env::args().skip(1);
     let first_arg = args.next().unwrap_or_else(|| ".".to_string());
 
+    if first_arg == "--fixup" {
+        let project_dir = args.next().unwrap_or_else(|| ".".to_string());
+        let as_json = match args.next().as_deref() {
+            Some("--json") => true,
+            Some(other) => panic!("unknown argument after project dir: {other}"),
+            None => false,
+        };
+        std::process::exit(run_fixup(&project_dir, as_json));
+    }
+
     if first_arg == "--test" {
         let project_dir = args.next().unwrap_or_else(|| ".".to_string());
         match args.next().as_deref() {
@@ -45,6 +55,68 @@ fn main() {
     }
 
     run_windowed(&first_arg);
+}
+
+/// `--fixup <dir> [--json]`: settles every reference in a project that only
+/// resolves because the engine remembers where an asset used to be, then forgets
+/// the memories nothing needs any more.
+///
+/// # Why this is a mode of the runtime rather than a tool of its own
+///
+/// It is the counterpart of the warnings `--test` and the windowed app already
+/// print. `bsengine-scene` and `bsengine_asset::load_async` both warn, every
+/// time, that a reference resolved somewhere other than what it spells and that
+/// the file should be re-saved; this is the command that does the re-saving.
+/// Putting it beside `--test` is what makes it findable from the same place the
+/// warning is read, and it costs nothing at run time — the branch is taken
+/// before any `App` is built.
+///
+/// # It builds no engine
+///
+/// No window, no renderer, no scripting VM, not even a Bevy `App`. `fixup` is a
+/// directory walk and a text edit, so this runs against a project that has never
+/// been launched and finishes in milliseconds. That is deliberate: a repair tool
+/// that needed the game to boot could not repair a project the game cannot boot.
+///
+/// # Output, and the exit code
+///
+/// The report goes to **stdout** — as text for a human, or as JSON with
+/// `--json`, which is what `bsengine-mcp`'s `game_fixup` reads. Everything the
+/// scan itself has to say goes to **stderr** through the ordinary logging setup,
+/// so one stream is the answer and the other is the commentary and a caller can
+/// parse the first without filtering the second.
+///
+/// Exits `1` when the project could not be scanned at all, and when the report
+/// carries a problem — a scene that could not be written, one that will not
+/// parse, a reference too ambiguous to touch. Each of those is work `fixup` was
+/// asked to do and did not, so a script that runs this must not read it as
+/// success. A stale path in JavaScript is *not* a problem in that sense: it is
+/// reported for a human to act on, and exiting non-zero for it would mean a
+/// project could never be clean.
+fn run_fixup(project_dir: &str, as_json: bool) -> i32 {
+    bsengine_core::init_logging();
+
+    let report = match bsengine_asset::identity::fixup(project_dir) {
+        Ok(report) => report,
+        Err(e) => {
+            eprintln!("fixup: cannot scan {project_dir}/assets ({e})");
+            return 1;
+        }
+    };
+
+    if as_json {
+        match serde_json::to_string_pretty(&report) {
+            Ok(json) => println!("{json}"),
+            Err(e) => {
+                eprintln!("fixup: cannot encode the report ({e})");
+                return 1;
+            }
+        }
+    } else {
+        print!("{report}");
+    }
+
+    i32::from(!report.problems.is_empty())
 }
 
 fn run_windowed(project_dir: &str) {

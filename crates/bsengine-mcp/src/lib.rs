@@ -23,6 +23,6 @@ pub use game_tools::game_tools;
 pub use plugin::{McpPlugin, McpRegistryResource};
 pub use registry::McpToolRegistry;
 pub use server::McpServer;
-pub use session::SessionRegistry;
+pub use session::{FixupRun, ReplayResult, SessionRegistry};
 pub use test_tools::test_tools;
 pub use tool::{McpTool, McpToolOutput};

@@ -34,11 +34,30 @@
 //! and `AssetServer::get_path_ids` settles the path, so the `info!` line that
 //! says "reloading" is only emitted when a reload will really be dispatched;
 //! the case where it will not is reported at `debug!` rather than dropped.
+//!
+//! # A rename is two facts, and reloading only needs one of them
+//!
+//! An asset renamed while the game runs arrives here as a single event naming
+//! **both** paths, old first (measured in
+//! `a_rename_is_reported_with_both_the_old_and_the_new_path`). Reloading cares
+//! only about the destination — the source no longer exists, and reloading a
+//! path that does not is how a handle ends up permanently `Failed` — so this
+//! module used to drop the old half on the floor.
+//!
+//! That old half is the only in-engine record that a rename ever happened, and
+//! `identity::rename` is what it is for: a path
+//! spelled inside a JavaScript string literal cannot be rewritten by any index,
+//! so the only thing that can save such a reference is the project remembering
+//! where the asset used to be. Every paired event is therefore handed to that
+//! recorder before the reload logic discards the source.
 
+use crate::identity::rename::{record_rename, Endpoint};
+use crate::identity::scan::ASSETS_DIR;
+use crate::identity::AssetIndex;
 use crate::plugin::AssetRoot;
 use bevy_app::{App, Plugin, Startup, Update};
 use bevy_asset::{AssetPath, AssetServer};
-use bevy_ecs::prelude::{Commands, Res, Resource};
+use bevy_ecs::prelude::{Commands, Res, ResMut, Resource};
 use bsengine_core::ProjectDir;
 use notify_debouncer_full::{
     new_debouncer,
@@ -209,9 +228,27 @@ fn start_asset_watcher(
         warn!("asset hot reload: cannot watch {engine_root} ({e}), not watching");
         return;
     }
+    // The *absolutised* root, not the one `watch()` was given, and the
+    // difference is the whole reason a rename can be recorded at all.
+    //
+    // This cache is what stitches a backend's two rename halves into one event
+    // naming both paths, on the backends that do not emit a rename cookie —
+    // Windows among them. It does so by looking the reported path up in a
+    // `HashMap<PathBuf, FileId>` keyed by *exact* path equality, and the paths
+    // it is asked about are the ones `notify` reports: CWD-absolutised, always,
+    // even for a relative watch root (which is precisely what
+    // `notify_reports_cwd_absolutised_paths_even_for_a_relative_watch_root`
+    // measures). Seeded with the relative root, every lookup misses, no rename
+    // is ever paired, and the old path — the only thing that makes a stale
+    // reference recoverable — is never reported at all.
+    //
+    // Nothing said so before this because nothing read the old path: an
+    // unpaired rename still reloads the destination perfectly well, so the
+    // whole failure was invisible. Linux hides it further, since inotify's
+    // cookie pairs renames without consulting the cache at all.
     debouncer
         .cache()
-        .add_root(&watch_root, RecursiveMode::Recursive);
+        .add_root(&strip_base, RecursiveMode::Recursive);
 
     info!("asset hot reload: watching {engine_root}");
     commands.insert_resource(AssetWatcher {
@@ -287,6 +324,37 @@ fn reconstruct(changed: &Path, strip_base: &Path, engine_root: &str) -> Option<S
     Some(format!("{engine_root}/{relative}"))
 }
 
+/// Rebuilds the spelling an asset's *identity* is keyed by — project-relative
+/// and forward-slashed, `assets/models/fox.glb` — from the path `notify`
+/// reported.
+///
+/// Deliberately not [`reconstruct`], and the difference is not cosmetic:
+///
+/// * That one produces the `<ProjectDir>/assets/…` form `AssetServer::reload`
+///   matches, because it is answering "what was this loaded as". A `.meta`
+///   sidecar, a scene reference and an [`AssetIndex`] key are all spelled
+///   *project-relative* instead, which is what makes them portable between a
+///   project opened from the editor and the same project run from its own
+///   directory.
+/// * That one also refuses everything outside `RELOADABLE_EXTENSIONS`, which
+///   excludes `.ron` and `.js` — the two file types whose references live in
+///   plain text and are therefore the ones a rename hurts most. Filtering by
+///   what `bevy_asset` can reload would drop exactly the cases item 30 exists
+///   for.
+///
+/// Returns `None` for a path that is not under the watch root, and for the
+/// watch root itself. Silently, unlike [`reconstruct`]: a rename that moves a
+/// file *out of* `assets/` reports one path this can spell and one it cannot,
+/// which is a thing that legitimately happens rather than an anomaly.
+fn project_relative(changed: &Path, strip_base: &Path) -> Option<String> {
+    let relative = changed.strip_prefix(strip_base).ok()?;
+    let relative = relative.to_str()?.replace('\\', "/");
+    if relative.is_empty() {
+        return None;
+    }
+    Some(format!("{ASSETS_DIR}/{relative}"))
+}
+
 /// Whether `AssetServer::reload(path)` would provably do nothing.
 ///
 /// The extension filter upstream of this proves the *type* is one `bevy_asset`
@@ -317,16 +385,27 @@ fn reload_would_do_nothing(asset_server: &AssetServer, path: &str) -> bool {
 /// return when the resource is absent, so each is said exactly once and the
 /// per-frame work stops with it. A bare `warn!` would fire every frame,
 /// because neither condition ever heals.
+///
+/// [`AssetIndex`] is optional because a host may run the watcher without
+/// registering `AssetIdentityPlugin`. A rename is still recorded on disk in that
+/// case — the sidecars are the record, and the index is a cache of them.
 fn drain_asset_changes(
     mut commands: Commands,
     watcher: Option<Res<AssetWatcher>>,
     asset_server: Res<AssetServer>,
+    mut index: Option<ResMut<AssetIndex>>,
 ) {
     let Some(watcher) = watcher else {
         return;
     };
 
     let mut changed: Vec<String> = Vec::new();
+    // Collected rather than acted on inside the loop below, for the same reason
+    // `changed` is: recording a rename writes a sidecar, and doing that while
+    // holding the queue's lock would mean the watcher thread's channel is held
+    // across filesystem i/o for no benefit. Order is preserved, which matters —
+    // an asset renamed twice in one window has to be followed hop by hop.
+    let mut renamed: Vec<(PathBuf, PathBuf)> = Vec::new();
     {
         let events = match watcher.events.lock() {
             Ok(events) => events,
@@ -347,22 +426,38 @@ fn drain_asset_changes(
         loop {
             match events.try_recv() {
                 Ok(Ok(batch)) => {
-                    for path in batch.iter().flat_map(|e| e.event.paths.iter()) {
-                        let Some(engine_path) =
-                            reconstruct(path, &watcher.strip_base, &watcher.engine_root)
-                        else {
-                            continue;
-                        };
-                        // A deleted file must not be reloaded: the load would
-                        // fail and leave the handle permanently `Failed`,
-                        // where leaving it alone keeps the last good version
-                        // resident. A rename-style atomic save still reloads,
-                        // because its destination does exist by now.
-                        if !path.is_file() {
-                            continue;
+                    for event in batch.iter() {
+                        // Two paths means a rename, old first: `Modify(Name(
+                        // Both))` is the only kind `notify` defines that carries
+                        // a pair, and the debouncer stitches a backend's
+                        // separate halves into exactly that. Matched on the
+                        // *pairing* rather than on the kind, deliberately —
+                        // `a_rename_is_reported_with_both_the_old_and_the_new
+                        // _path` pins the pair and leaves a backend free to
+                        // spell the kind its own way.
+                        if let [from, to] = event.event.paths.as_slice() {
+                            renamed.push((from.clone(), to.clone()));
                         }
-                        if !changed.iter().any(|c| c == &engine_path) {
-                            changed.push(engine_path);
+                        for path in event.event.paths.iter() {
+                            let Some(engine_path) =
+                                reconstruct(path, &watcher.strip_base, &watcher.engine_root)
+                            else {
+                                continue;
+                            };
+                            // A deleted file must not be reloaded: the load
+                            // would fail and leave the handle permanently
+                            // `Failed`, where leaving it alone keeps the last
+                            // good version resident. A rename-style atomic save
+                            // still reloads, because its destination does exist
+                            // by now — and the rename above will have found no
+                            // sidecar beside the temporary it came from, so the
+                            // save costs the asset's identity nothing.
+                            if !path.is_file() {
+                                continue;
+                            }
+                            if !changed.iter().any(|c| c == &engine_path) {
+                                changed.push(engine_path);
+                            }
                         }
                     }
                 }
@@ -384,6 +479,36 @@ fn drain_asset_changes(
                 }
             }
         }
+    }
+
+    // Before the reloads, because a rename's *identity* half is about where the
+    // asset went and the reload half is only about its new contents: doing the
+    // record first means a reload that somehow panicked could not cost the
+    // project a former path.
+    for (from, to) in renamed {
+        // Both halves have to be spellable for the move to mean anything. A
+        // rename that leaves the watched directory names a destination this
+        // cannot spell, and one that arrives from outside names a source it
+        // cannot; neither is a move *within* the project, and inventing a
+        // project-relative path for a file that is not in the project would put
+        // a former path in a sidecar that no reference could ever match.
+        let (Some(from_relative), Some(to_relative)) = (
+            project_relative(&from, &watcher.strip_base),
+            project_relative(&to, &watcher.strip_base),
+        ) else {
+            continue;
+        };
+        record_rename(
+            Endpoint {
+                path: &from,
+                relative: &from_relative,
+            },
+            Endpoint {
+                path: &to,
+                relative: &to_relative,
+            },
+            index.as_deref_mut(),
+        );
     }
 
     for path in changed {
@@ -528,6 +653,76 @@ mod tests {
         assert_eq!(
             paired.event.paths[0], from,
             "old path must come first, or a recorder cannot tell which is which"
+        );
+    }
+
+    // The pairing above was measured with an *absolute* watch root. The engine
+    // watches a **relative** one -- `<ProjectDir>/assets`, relative to the
+    // process CWD -- and on a backend that emits no rename cookie, that
+    // difference decides whether a rename is reported as a pair at all.
+    //
+    // `notify-debouncer-full` stitches the two halves by looking each reported
+    // path up in a `HashMap<PathBuf, FileId>` keyed on *exact* path equality,
+    // and the paths it is asked about are the ones notify reports: always
+    // CWD-absolutised, even for a relative watch root (measured in
+    // `notify_reports_cwd_absolutised_paths_even_for_a_relative_watch_root`).
+    // So the cache has to be seeded with the **absolutised** root even though
+    // `watch()` is handed the relative one. Seeded with the relative spelling
+    // every lookup misses, and on Windows a rename arrives as two unrelated
+    // events with nothing to say they are the same file.
+    //
+    // Not hypothetical: that is exactly what `start_asset_watcher` did until
+    // something finally needed the old path, and nothing noticed for as long as
+    // it stood, because an unpaired rename still reloads the destination
+    // perfectly well. Linux hid it too -- inotify's cookie pairs renames
+    // without consulting the cache at all -- so this is the shape of failure CI
+    // alone would never have found.
+    #[test]
+    fn a_relative_watch_root_pairs_a_rename_when_the_cache_is_absolutised() {
+        let root = PathBuf::from(unique("rename-relative"));
+        let _guard = make_tree(root.clone());
+
+        let (tx, rx) = mpsc::channel();
+        let mut debouncer = new_debouncer(DEBOUNCE, None, tx).unwrap();
+        debouncer
+            .watcher()
+            .watch(&root, RecursiveMode::Recursive)
+            .unwrap();
+        // What `start_asset_watcher` does: the cache is given what notify will
+        // report, not what `watch()` was given.
+        let absolutised = std::env::current_dir().unwrap().join(&root);
+        debouncer
+            .cache()
+            .add_root(&absolutised, RecursiveMode::Recursive);
+
+        std::thread::sleep(DEBOUNCE * 3);
+        while rx.try_recv().is_ok() {}
+
+        let renamed = Path::new("assets").join("models").join("renamed.txt");
+        std::fs::rename(root.join(nested()), root.join(&renamed)).unwrap();
+
+        let events = collect(&rx, DEBOUNCE * 3);
+        let rendered: Vec<String> = events
+            .iter()
+            .map(|e| format!("{:?} paths={:?}", e.event.kind, e.event.paths))
+            .collect();
+        let paired = events
+            .iter()
+            .find(|e| e.event.paths.len() >= 2)
+            .unwrap_or_else(|| {
+                panic!(
+                    "a rename under a relative watch root reported no event \
+                     carrying both paths, so the watcher cannot tell a rename \
+                     from a delete plus a create and no former path is ever \
+                     recorded:\n{}",
+                    rendered.join("\n")
+                )
+            });
+        assert_eq!(
+            paired.event.paths,
+            [absolutised.join(nested()), absolutised.join(&renamed)],
+            "old first, new second, both in the absolutised spelling the \
+             watcher strips its root from"
         );
     }
 
@@ -1093,6 +1288,266 @@ mod tests {
                 .map(|t| t.data.clone()),
             Some(BEFORE.to_vec()),
             "the last good version must stay resident after a delete"
+        );
+    }
+
+    // The end-to-end property sub-item D is built on, driven through the real
+    // plugin: an asset renamed under `<ProjectDir>/assets` while the app runs
+    // keeps its identity, its sidecar moves with it, and the path it left is
+    // recorded -- on disk *and* in the live index -- so a reference that still
+    // names the old path has something to resolve against.
+    //
+    // Before this, the pairing arrived and the old half was dropped, so
+    // `former_paths` could only ever be written by the scan's orphan recovery
+    // -- which needs the move to have happened while the engine was *not*
+    // running, and needs the contents to be unchanged since. A rename made the
+    // normal way, in an editor with the game up, recorded nothing at all.
+    //
+    // The scan runs here too, rather than the sidecar being hand-written: it is
+    // what mints the identity this test follows, and its own atomic sidecar
+    // write is itself a rename the watcher sees -- so this covers the recorder
+    // not reacting to its own file format as well.
+    #[test]
+    fn a_rename_moves_the_sidecar_along_and_records_the_old_path() {
+        use crate::identity::{sidecar_path, AssetIdentityPlugin, AssetIndex, Sidecar};
+        use bsengine_app::new_app;
+
+        let project = unique("moved");
+        let root = PathBuf::from(&project);
+        std::fs::create_dir_all(root.join("assets")).unwrap();
+        let _guard = ProbeDir(root.clone());
+
+        let before = root.join("assets").join("tex.png");
+        let after = root.join("assets").join("sprite.png");
+        std::fs::write(&before, png_bytes([10, 20, 30, 255])).unwrap();
+        // Renamed in the same burst and never an asset: a `.meta` beside it
+        // would be litter in the user's source tree that nothing ever reads.
+        let note = root.join("assets").join("CREDITS.md");
+        std::fs::write(&note, b"not an asset").unwrap();
+
+        let mut app = new_app();
+        app.insert_resource(ProjectDir(project.clone()));
+        app.add_plugins(crate::plugin::AssetPlugin);
+        app.add_plugins(AssetIdentityPlugin);
+        app.add_plugins(AssetWatcherPlugin);
+        app.update();
+
+        let minted = Sidecar::read(sidecar_path(&before))
+            .expect("read the minted sidecar")
+            .expect("the scan must have identified the fixture");
+        assert!(
+            minted.former_paths.is_empty(),
+            "the fixture has never moved, so anything already here would make \
+             the assertion below meaningless"
+        );
+
+        // Let the backend actually begin delivering, then drain everything
+        // startup stirred up -- the scan's own sidecar write included.
+        std::thread::sleep(DEBOUNCE * 3);
+        app.update();
+
+        std::fs::rename(&before, &after).unwrap();
+        std::fs::rename(&note, root.join("assets").join("NOTES.md")).unwrap();
+
+        run_until(&mut app, "the sidecar followed the renamed asset", |_| {
+            sidecar_path(&after).exists()
+        });
+
+        let moved = Sidecar::read(sidecar_path(&after))
+            .expect("read the moved sidecar")
+            .expect("present");
+        assert_eq!(
+            moved.guid, minted.guid,
+            "a rename must not change the identity -- every reference already \
+             stored against it points at this asset"
+        );
+        assert_eq!(
+            moved.former_paths,
+            ["assets/tex.png"],
+            "the path the asset left is the only thing that can recover a \
+             reference spelled inside a JS string literal, which no index can \
+             rewrite"
+        );
+        assert!(
+            !sidecar_path(&before).exists(),
+            "a sidecar left at the old name turns a clean rename into an orphan \
+             the next scan has to guess at by content hash"
+        );
+
+        let index = app.world().resource::<AssetIndex>();
+        assert_eq!(
+            index.guid_for_path("assets/sprite.png"),
+            Some(minted.guid),
+            "the asset has to be findable where it now is, without a restart"
+        );
+        assert_eq!(
+            index.path_for_guid(minted.guid),
+            Some("assets/sprite.png"),
+            "and the identity has to point at where it now is, or the two \
+             directions of one fact disagree until the app is restarted"
+        );
+        assert_eq!(
+            index.guid_for_former_path("assets/tex.png"),
+            Some(minted.guid),
+            "this is the lookup sub-item D recovers a stale reference with, and \
+             the whole reason the old half of the event is kept"
+        );
+
+        // A duplicate or late-arriving event must not append a second former
+        // path, and the `.md` must never grow a sidecar at either name.
+        let settle = Instant::now() + DEBOUNCE * 5;
+        while Instant::now() < settle {
+            app.update();
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(
+            Sidecar::read(sidecar_path(&after))
+                .expect("read")
+                .expect("present")
+                .former_paths,
+            ["assets/tex.png"],
+            "the same move recorded twice would grow a committed file every \
+             time the watcher repeated itself"
+        );
+        for name in ["CREDITS.md", "NOTES.md"] {
+            assert!(
+                !root.join("assets").join(format!("{name}.meta")).exists(),
+                "{name} is not an asset, so renaming it must write nothing at all"
+            );
+        }
+    }
+
+    // The other half of the same event: an atomic save -- write a temporary,
+    // rename it over the target -- is a rename too, and is what every careful
+    // editor and this crate's own `Sidecar::write` do on every save. It must
+    // still reload, and it must record *nothing*, or `former_paths` fills with
+    // the names of temporary files that never identified anything.
+    //
+    // Two things make this test able to fail for the right reason:
+    //
+    //  * The temporary is spelled `tex_tmp.png` -- an extension the scan
+    //    identifies and a name no pattern could reject -- so the only thing
+    //    that can tell it from a move is the sidecar it never had.
+    //  * It is created a full debounce window *before* the rename. Written and
+    //    renamed inside one window, `notify-debouncer-full` collapses the pair
+    //    into a plain create at the destination and no rename is ever reported,
+    //    so the recorder would not be reached at all and this would pass
+    //    without testing anything.
+    #[test]
+    fn an_atomic_save_reloads_the_asset_and_records_no_former_path() {
+        use crate::identity::{sidecar_path, AssetIdentityPlugin, Sidecar};
+        use crate::types::TextureAsset;
+        use bevy_asset::{AssetEvent, Assets};
+        use bevy_ecs::event::{Events, ManualEventReader};
+        use bsengine_app::new_app;
+
+        const BEFORE: [u8; 4] = [10, 20, 30, 255];
+        const AFTER: [u8; 4] = [200, 100, 50, 255];
+
+        let project = unique("saved");
+        let root = PathBuf::from(&project);
+        std::fs::create_dir_all(root.join("assets")).unwrap();
+        let _guard = ProbeDir(root.clone());
+
+        let texture = root.join("assets").join("tex.png");
+        let temp = root.join("assets").join("tex_tmp.png");
+        std::fs::write(&texture, png_bytes(BEFORE)).unwrap();
+
+        let mut app = new_app();
+        app.insert_resource(ProjectDir(project.clone()));
+        app.add_plugins(crate::plugin::AssetPlugin);
+        app.add_plugins(AssetIdentityPlugin);
+        app.add_plugins(AssetWatcherPlugin);
+
+        let handle = {
+            let server = app.world().resource::<AssetServer>();
+            server.load::<TextureAsset>(format!("{project}/assets/tex.png"))
+        };
+        run_until(&mut app, "the asset finished loading", |app| {
+            app.world()
+                .resource::<Assets<TextureAsset>>()
+                .get(&handle)
+                .is_some()
+        });
+        let minted = Sidecar::read(sidecar_path(&texture))
+            .expect("read the minted sidecar")
+            .expect("the scan must have identified the fixture");
+
+        // The temporary, written and then left alone long enough for the
+        // debouncer to flush it -- see above.
+        std::thread::sleep(DEBOUNCE * 3);
+        std::fs::write(&temp, png_bytes(AFTER)).unwrap();
+        std::thread::sleep(DEBOUNCE * 3);
+
+        let mut reader: ManualEventReader<AssetEvent<TextureAsset>> = app
+            .world_mut()
+            .resource_mut::<Events<AssetEvent<TextureAsset>>>()
+            .get_reader();
+        app.update();
+        {
+            let events = app.world().resource::<Events<AssetEvent<TextureAsset>>>();
+            let _ = reader.read(events).count();
+        }
+
+        std::fs::rename(&temp, &texture).unwrap();
+
+        let mut modified = 0usize;
+        let count = |app: &App,
+                     reader: &mut ManualEventReader<AssetEvent<TextureAsset>>,
+                     modified: &mut usize| {
+            let events = app.world().resource::<Events<AssetEvent<TextureAsset>>>();
+            for event in reader.read(events) {
+                if matches!(event, AssetEvent::Modified { id } if *id == handle.id()) {
+                    *modified += 1;
+                }
+            }
+        };
+
+        let (_, logs) = capture_warnings(|| {
+            run_until(&mut app, "the atomically saved texture reloaded", |app| {
+                count(app, &mut reader, &mut modified);
+                modified > 0
+            });
+            let settle = Instant::now() + DEBOUNCE * 5;
+            while Instant::now() < settle {
+                app.update();
+                count(&app, &mut reader, &mut modified);
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        });
+
+        assert_eq!(
+            app.world()
+                .resource::<Assets<TextureAsset>>()
+                .get(&handle)
+                .map(|t| t.data.clone()),
+            Some(AFTER.to_vec()),
+            "an atomic save must still hot reload -- that is how most editors \
+             save, and breaking it would break hot reload for most of them"
+        );
+
+        let saved = Sidecar::read(sidecar_path(&texture))
+            .expect("read")
+            .expect("present");
+        assert_eq!(
+            saved.guid, minted.guid,
+            "a save must not change the asset's identity"
+        );
+        assert!(
+            saved.former_paths.is_empty(),
+            "a save is not a move: recording the temporary's name would put a \
+             line of garbage in a committed file on every single save, and \
+             would do it for every asset -- got {:?}",
+            saved.former_paths
+        );
+        assert!(
+            !sidecar_path(&temp).exists(),
+            "the temporary must not have been given an identity of its own"
+        );
+        assert!(
+            !logs.contains("asset identity"),
+            "and the save must be silent about identity -- a warning per save \
+             is its own kind of broken -- got:\n{logs}"
         );
     }
 

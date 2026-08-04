@@ -107,17 +107,19 @@ impl Plugin for ScenePlugin {
 /// # When it is silent
 ///
 /// A bare path — no identity recorded — resolves to itself with no diagnostic
-/// at all. That is the pre-item-30 spelling that every scene in `games/` still
-/// uses; warning on each would put a dozen lines in the log on every scene load
-/// and teach everyone to stop reading it. Sub-item B is what gives those scenes
-/// identities, and until then a bare path is normal, not a fault.
+/// at all. Sub-item B migrated every scene in `games/` to the `(guid, path)`
+/// spelling, but a bare path stays valid on purpose: `AssetRef` accepts both so
+/// that a hand-written scene, or a project with no sidecars at all, behaves
+/// exactly as it did before item 30. Warning on each would make that supported
+/// case look broken.
 ///
 /// A bare path is still *recovered* if it names somewhere an asset has moved
-/// away from — the ten scenes in `games/` are spelled that way, so a recovery
-/// restricted to identified references would reach almost none of the
-/// references this project actually has. What is silent is a bare path that
-/// resolves; a bare path that only resolves because of a move is not silent,
-/// because it is not resolving to what it says.
+/// away from, and that is not a leftover — it is the point. A path inside a
+/// JavaScript string literal (`playSound("assets/sounds/hit.wav")`) can never
+/// carry an identity, so recovery restricted to identified references would
+/// miss the entire class of reference sub-item D exists for. What is silent is
+/// a bare path that resolves; a bare path that only resolves because of a move
+/// is not silent, because it is not resolving to what it says.
 ///
 /// So is the absence of an index. All three hosts register
 /// `AssetIdentityPlugin` now, but plenty of apps do not — most of this

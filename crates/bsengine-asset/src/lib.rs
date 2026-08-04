@@ -30,6 +30,11 @@
 //! point.
 #![warn(missing_docs)]
 
+/// `AssetGuid` and the `.meta` sidecar that gives an asset an identity
+/// independent of its path, plus the `AssetIdentityPlugin` that publishes a
+/// scan of them — a plugin **no host registers yet, deliberately**; see its own
+/// documentation for why.
+pub mod identity;
 /// Chooses between synchronous (blocking, zero-latency) and asynchronous
 /// (`AssetServer`-driven) loading, plus the dispatch helper itself.
 pub mod load_mode;
@@ -48,7 +53,14 @@ pub mod types;
 /// edited on disk while the game runs.
 pub mod watcher;
 
+/// Probe directories and log capture, shared by the watcher's tests and the
+/// identity scan's — both of which can only be tested against a real
+/// filesystem.
+#[cfg(test)]
+mod test_support;
+
 pub use bevy_asset::{Asset, AssetServer, Assets, Handle};
+pub use identity::{AssetGuid, AssetIdentityPlugin, AssetIndex};
 pub use load_mode::{load, load_async, LoadMode};
 pub use plugin::AssetPlugin;
 pub use status::{AssetStatus, AssetStatusPlugin, AssetStatuses};

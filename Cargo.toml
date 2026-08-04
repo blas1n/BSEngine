@@ -68,6 +68,11 @@ image             = { version = "0.25", default-features = false, features = ["p
 # Must stay on the version bevy_asset's own `file_watcher` feature requires, so
 # the workspace never holds two copies of notify.
 notify-debouncer-full = "0.3.1"
+# Both already arrive transitively through bevy_asset; the versions here are the
+# ones it resolves to, so naming them directly adds no second copy. blake3 hashes
+# asset contents for change detection, uuid mints asset identities.
+blake3            = "1.8.5"
+uuid              = { version = "1.23", features = ["v4", "serde"] }
 bsengine-gltf     = { path = "crates/bsengine-gltf" }
 bsengine-runtime  = { path = "crates/bsengine-runtime" }
 bsengine-editor   = { path = "crates/bsengine-editor" }

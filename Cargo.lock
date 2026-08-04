@@ -839,12 +839,16 @@ dependencies = [
  "bevy_ecs",
  "bevy_reflect",
  "bevy_tasks",
+ "blake3",
  "bsengine-app",
  "bsengine-core",
  "image",
  "notify-debouncer-full",
+ "ron",
+ "serde",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

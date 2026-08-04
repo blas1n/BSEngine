@@ -166,6 +166,14 @@ StyleCopReport.xml
 *.svclog
 *.scc
 
+# Asset identity sidecars (roadmap item 30) are content, not build output, and
+# must be committed beside their assets: an uncommitted sidecar means the GUID
+# is regenerated on the next clone and every reference to that asset breaks —
+# silently, since an ignored file never shows up in `git status`. Re-included
+# because the Visual Studio block above ignores `*.meta` as a linker artifact
+# and this project has no Visual Studio build producing one.
+!games/*/assets/**/*.meta
+
 # Chutzpah Test files
 _Chutzpah*
 

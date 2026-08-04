@@ -3,7 +3,7 @@ use std::env;
 use bsengine_app::{
     new_app, AnimationPlugin, AnimationStateMachinePlugin, NavMeshPlugin, TimePlugin,
 };
-use bsengine_asset::{AssetPlugin, AssetStatusPlugin, AssetWatcherPlugin};
+use bsengine_asset::{AssetIdentityPlugin, AssetPlugin, AssetStatusPlugin, AssetWatcherPlugin};
 use bsengine_audio::AudioPlugin;
 use bsengine_core::{EditorPlayState, InspectorState};
 use bsengine_editor::EditorPlugin;
@@ -82,6 +82,23 @@ fn run_windowed(project_dir: &str) {
         // answer `unknown` for every path forever, including the ones that
         // just failed to load.
         .add_plugins(AssetStatusPlugin)
+        // Walks `<ProjectDir>/assets` once at Startup so `ScenePlugin` below
+        // can resolve a scene's asset references by identity instead of by
+        // path — the point of roadmap item 30. Registered in all three hosts
+        // (here, `--test`'s app, and the editor) for the same reason the
+        // status plugin is: a reader with nothing to read is not a smaller
+        // feature, it is no feature, and this one fails without a symptom —
+        // a spawn that finds no index falls back to the stored path and loads
+        // exactly as it did before, silently.
+        //
+        // Order is not left to this list. `ScenePlugin::build` declares
+        // `.after(build_asset_index)`; see `AssetIdentityPlugin`'s docs for
+        // why being in the same `Startup` schedule is not enough on its own.
+        // `ProjectDir` comes from `ScriptingPlugin` at the bottom of this
+        // list, inserted at build time and so already present before any
+        // Startup system runs — the same arrangement `AssetWatcherPlugin`
+        // relies on above.
+        .add_plugins(AssetIdentityPlugin)
         .add_plugins(WgpuRHIPlugin)
         .add_plugins(WindowPlugin {
             descriptor: WindowDescriptor {

@@ -2,7 +2,7 @@ use crate::types::{
     AssetRef, EntityDescriptor, PhysicsBodyDesc, PrimitiveMesh, SceneDescriptor, ScriptPath,
 };
 use bevy_app::{App, Plugin, Startup};
-use bevy_ecs::prelude::{Component, World};
+use bevy_ecs::prelude::{Component, IntoSystemConfigs, World};
 use bsengine_asset::{AssetGuid, AssetIndex};
 use bsengine_core::{
     Camera, DirectionalLight, GlobalTransform, Material, PointLight, SkyboxPath, SpotLight,
@@ -32,20 +32,45 @@ impl ScenePlugin {
 impl Plugin for ScenePlugin {
     fn build(&self, app: &mut App) {
         let path = self.path.clone();
-        app.add_systems(Startup, move |world: &mut World| {
-            let content = std::fs::read_to_string(&path)
-                .unwrap_or_else(|e| panic!("Failed to read scene {path}: {e}"));
-            let scene: SceneDescriptor = ron::from_str(&content)
-                .unwrap_or_else(|e| panic!("Failed to parse scene {path}: {e}"));
-            spawn_scene_entities(world, &scene.entities);
-            if let Some(skybox_rel) = &scene.skybox {
-                let scene_dir = std::path::Path::new(&path)
-                    .parent()
-                    .unwrap_or(std::path::Path::new("."));
-                let skybox_full = scene_dir.join(skybox_rel).to_string_lossy().into_owned();
-                world.insert_resource(SkyboxPath(Some(skybox_full)));
-            }
-        });
+        app.add_systems(
+            Startup,
+            (move |world: &mut World| {
+                let content = std::fs::read_to_string(&path)
+                    .unwrap_or_else(|e| panic!("Failed to read scene {path}: {e}"));
+                let scene: SceneDescriptor = ron::from_str(&content)
+                    .unwrap_or_else(|e| panic!("Failed to parse scene {path}: {e}"));
+                spawn_scene_entities(world, &scene.entities);
+                if let Some(skybox_rel) = &scene.skybox {
+                    let scene_dir = std::path::Path::new(&path)
+                        .parent()
+                        .unwrap_or(std::path::Path::new("."));
+                    let skybox_full = scene_dir.join(skybox_rel).to_string_lossy().into_owned();
+                    world.insert_resource(SkyboxPath(Some(skybox_full)));
+                }
+            })
+            // The edge that makes resolution by identity actually happen.
+            // `AssetIdentityPlugin` publishes `AssetIndex` from `Startup` too,
+            // and two systems in one schedule are not ordered by being in it.
+            // Getting this wrong is silent by construction: a spawn that finds
+            // no index falls back to the path the scene stores (see
+            // `resolve_asset_ref`), so the scene loads, the game runs, nothing
+            // warns, and identity simply never resolves anything.
+            //
+            // Adding the plugins in the right order is not a substitute, and
+            // not because it is fragile — because it does not work. With this
+            // edge deleted,
+            // `a_scene_resolves_against_the_index_the_identity_plugin_publishes`
+            // fails in *both* registration orders, this spawn included when
+            // the identity plugin was added first: an unconstrained schedule
+            // sorts its systems, it does not replay `add_plugins` calls.
+            //
+            // Free in an app that never adds that plugin — the constraint
+            // names a system type with no instance in the schedule, so there
+            // is nothing to order against. Most of this module's own tests,
+            // and every other caller of `ScenePlugin` outside the three
+            // hosts, are such apps.
+            .after(bsengine_asset::identity::build_asset_index),
+        );
     }
 }
 
@@ -74,12 +99,18 @@ impl Plugin for ScenePlugin {
 /// and teach everyone to stop reading it. Sub-item B is what gives those scenes
 /// identities, and until then a bare path is normal, not a fault.
 ///
-/// So is the absence of an index: `AssetIdentityPlugin` is registered by
-/// nothing yet, so `index` is `None` in every host today. In that state there
-/// is nothing to resolve *against*, and an identified reference falls back to
-/// its stored path silently — a scene has to load identically with and without
-/// the index, or shipping this would break every game until the plugin is
-/// wired up.
+/// So is the absence of an index. All three hosts register
+/// `AssetIdentityPlugin` now, but plenty of apps do not — most of this
+/// module's own tests, `bsengine-app`'s and `bsengine-scripting`'s, anything
+/// that adds `ScenePlugin` on its own — and with no index there is nothing to
+/// resolve *against*, so an identified reference falls back to its stored path
+/// in silence.
+///
+/// That silence is deliberate and it is also this function's sharpest edge:
+/// **a missing index is indistinguishable, from the outside, from an index
+/// that had not been published yet when the spawn ran.** Both load the game
+/// perfectly. `ScenePlugin::build` is where that is prevented, with an
+/// ordering edge rather than a hope; see the comment there.
 ///
 /// # Cost
 ///
@@ -610,7 +641,7 @@ mod tests {
         use bsengine_app::new_app;
         use bsengine_asset::identity::scan;
         use bsengine_asset::test_support::{capture_warnings, unique, ProbeDir};
-        use bsengine_asset::{AssetGuid, AssetIndex};
+        use bsengine_asset::{AssetGuid, AssetIdentityPlugin, AssetIndex};
 
         /// Where the probe asset really is, and the stale path a scene written
         /// before it moved would still name.
@@ -800,10 +831,14 @@ mod tests {
             );
         }
 
-        // Case 4. Every host is in this state: `AssetIdentityPlugin` is not
-        // registered anywhere yet. A scene must load identically with and
-        // without an index, or shipping the resolution would break every game
-        // until the plugin is wired up.
+        // Case 4. No index at all. The three hosts publish one now, but any
+        // app that adds `ScenePlugin` without `AssetIdentityPlugin` does not —
+        // most of this module's own tests, `bsengine-app`'s, every other
+        // caller — and a scene has to load identically either way. It is also,
+        // exactly, the shape the *bug* takes when a host does register the
+        // plugin but the two run unordered — hence
+        // `a_scene_resolves_against_the_index_the_identity_plugin_publishes`
+        // at the end of this module.
         #[test]
         fn without_an_index_both_forms_behave_exactly_like_a_bare_path() {
             let probe = probe("scene-identity-absent");
@@ -929,6 +964,84 @@ mod tests {
                 1,
                 "five frames produced more than one warning. Got: {logs}"
             );
+        }
+
+        // ---- the ordering everything above rests on ----------------------
+        //
+        // Every test above hands the index to the app ready-made. No host
+        // does that: `AssetIdentityPlugin` publishes it, from the same
+        // `Startup` schedule `ScenePlugin` spawns from. "Both in `Startup`"
+        // is not an order, and getting it wrong has no symptom — a spawn that
+        // finds no index falls back to the stored path and loads perfectly,
+        // so every game still runs, no warning fires, and the feature simply
+        // never happens. This is the one test that would notice.
+        //
+        // Both registration orders are exercised because a host is free to
+        // add its plugins in either, and three hosts do. The guarantee has to
+        // come from the schedule rather than from the order somebody happened
+        // to type into a `main.rs`.
+        #[test]
+        fn a_scene_resolves_against_the_index_the_identity_plugin_publishes() {
+            for identity_first in [true, false] {
+                let order = if identity_first {
+                    "identity plugin added first"
+                } else {
+                    "scene plugin added first"
+                };
+
+                let dir = ProbeDir(std::env::temp_dir().join(unique("scene-identity-order")));
+                let asset = dir.0.join(CURRENT_PATH);
+                std::fs::create_dir_all(asset.parent().expect("parent")).expect("create dirs");
+                std::fs::write(&asset, b"fake glb").expect("write probe asset");
+                // Mint the sidecar first, the way a project that has been
+                // scanned once already carries it, and read the identity back
+                // out of it: the app below has to reach the same one from the
+                // same `.meta` on disk.
+                let guid = scan(&dir.0)
+                    .expect("scan the probe project")
+                    .guid_for_path(CURRENT_PATH)
+                    .expect("the scan must identify the probe asset");
+
+                let scene_path = dir.0.join("assets/scenes/main.ron");
+                std::fs::create_dir_all(scene_path.parent().expect("parent")).expect("create dirs");
+                std::fs::write(
+                    &scene_path,
+                    format!(
+                        r#"SceneDescriptor(entities: [EntityDescriptor(name: "Fox", gltf: Some((guid: "{guid}", path: "{STALE_PATH}")))])"#
+                    ),
+                )
+                .expect("write probe scene");
+
+                let project_dir = dir.0.display().to_string();
+                let mut app = new_app();
+                app.insert_resource(bsengine_core::ProjectDir(project_dir.clone()));
+                let scene = ScenePlugin::from_file(scene_path.to_str().expect("utf-8 probe path"));
+                if identity_first {
+                    app.add_plugins(AssetIdentityPlugin);
+                    app.add_plugins(scene);
+                } else {
+                    app.add_plugins(scene);
+                    app.add_plugins(AssetIdentityPlugin);
+                }
+                app.update();
+
+                assert!(
+                    app.world().get_resource::<AssetIndex>().is_some(),
+                    "{order}: no index was published at all, so this test is \
+                     measuring nothing"
+                );
+
+                let mut q = app.world_mut().query::<&bsengine_gltf::GltfAsset>();
+                let resolved: Vec<String> = q.iter(app.world()).map(|g| g.path.clone()).collect();
+                assert_eq!(
+                    resolved,
+                    vec![format!("{project_dir}/{CURRENT_PATH}")],
+                    "{order}: the scene spawned before the index it resolves \
+                     against existed. That falls back to the stored path in \
+                     silence, which is exactly what this whole feature being \
+                     inert looks like from the outside"
+                );
+            }
         }
     }
 

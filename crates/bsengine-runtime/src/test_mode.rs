@@ -8,7 +8,7 @@ use std::io::{self, BufRead, Write};
 use bevy_app::App;
 use bevy_ecs::event::Events;
 use bsengine_app::{NavMeshPlugin, TimePlugin};
-use bsengine_asset::{AssetPlugin, AssetStatusPlugin};
+use bsengine_asset::{AssetIdentityPlugin, AssetPlugin, AssetStatusPlugin};
 use bsengine_audio::AudioPlugin;
 use bsengine_core::{EditorPlayState, InspectorState};
 use bsengine_input::{ElementState, InputPlugin, KeyCode, KeyInput, MouseButton, MouseInput};
@@ -69,6 +69,23 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>) -> App {
         // a missing resource would have meant "the engine cannot say" while
         // sounding identical to a script.
         .add_plugins(AssetStatusPlugin)
+        // Here for a blunter reason than the status plugin above: this app
+        // adds `ScenePlugin`, and a scene is where an asset reference lives.
+        // Leave it out and a replay resolves every reference by stored path
+        // while the windowed runtime resolves the same scene by identity —
+        // two hosts loading different files from one scene file, in the mode
+        // whose whole job is to reproduce what the game does. The E2E
+        // recordings are the one place a rename that broke a game would be
+        // caught automatically, and they can only catch it if they run the
+        // resolution the game runs.
+        //
+        // Unlike the render-stack asymmetry described for the status plugin,
+        // there is none here: resolution is a pair of map lookups performed by
+        // `spawn_scene_entities`, which this app runs in full.
+        //
+        // Costs one walk of `<project_dir>/assets` at Startup, no thread and
+        // no per-frame work, so a replay stays as reproducible as it was.
+        .add_plugins(AssetIdentityPlugin)
         .add_plugins(InputPlugin)
         .add_plugins(AudioPlugin)
         .add_plugins(PhysicsPlugin)
@@ -520,6 +537,61 @@ mod tests {
         let names: Vec<String> = serde_json::from_value(names).unwrap();
         assert!(names.contains(&"SceneB".to_string()), "names: {names:?}");
         assert!(!names.contains(&"SceneA".to_string()), "names: {names:?}");
+    }
+
+    // Roadmap item 30. This app builds its own plugin list, so the windowed
+    // runtime registering `AssetIdentityPlugin` says nothing about whether
+    // this one does; dropping it here would make a replay resolve references
+    // by stored path while the game it reproduces resolved them by identity.
+    //
+    // Asserted end to end — a real project on disk, a real sidecar, the real
+    // `build_test_app` — because both halves can fail independently and
+    // neither leaves a trace: an unregistered plugin and a plugin that
+    // published its index after the spawn had already looked for it produce
+    // the same passing, silent, wrong answer.
+    #[test]
+    fn a_replay_app_resolves_a_scene_reference_by_identity() {
+        const CURRENT: &str = "assets/models/fox.glb";
+        const STALE: &str = "assets/models/vulpes.glb";
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("assets/models")).unwrap();
+        std::fs::create_dir_all(root.join("assets/scenes")).unwrap();
+        std::fs::write(root.join(CURRENT), b"fake glb").unwrap();
+        // Mint the sidecar first, the way a project that has been opened once
+        // already carries it, and take the identity from it: the app has to
+        // arrive at the same one by reading the same `.meta`.
+        let guid = bsengine_asset::identity::scan(root)
+            .expect("scan the probe project")
+            .guid_for_path(CURRENT)
+            .expect("the scan must identify the probe asset");
+        std::fs::write(
+            root.join("project.toml"),
+            "[project]\nname = \"Test\"\nentry_scene = \"assets/scenes/a.ron\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("assets/scenes/a.ron"),
+            format!(
+                r#"SceneDescriptor(entities: [EntityDescriptor(name: "Fox", gltf: Some((guid: "{guid}", path: "{STALE}")))])"#
+            ),
+        )
+        .unwrap();
+
+        let project_dir = root.to_str().unwrap().to_string();
+        let mut app = build_test_app(&project_dir, None);
+        app.update();
+
+        let mut q = app.world_mut().query::<&bsengine_gltf::GltfAsset>();
+        let resolved: Vec<String> = q.iter(app.world()).map(|g| g.path.clone()).collect();
+        assert_eq!(
+            resolved,
+            vec![format!("{project_dir}/{CURRENT}")],
+            "the replay app loaded the path the scene stores instead of the \
+             asset its identity names — either this app never publishes an \
+             index, or it publishes one too late for the spawn to see"
+        );
     }
 
     // Regression test for the "Play resets the scene" crash: EditorPlugin

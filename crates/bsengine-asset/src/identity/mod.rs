@@ -8,7 +8,7 @@
 //! the file moves.
 
 use bevy_app::{App, Plugin, Startup};
-use bevy_ecs::prelude::{Commands, Res};
+use bevy_ecs::prelude::World;
 use bsengine_core::ProjectDir;
 use std::fmt;
 use std::io;
@@ -101,24 +101,32 @@ impl std::error::Error for AssetGuidParseError {}
 /// [`AssetIndex`] resource, so everything after it can ask what identity an
 /// asset has without walking the disk again.
 ///
-/// # No host registers this, on purpose
+/// # Who registers it, and what has to be true about the order
 ///
-/// **Nothing adds this plugin — not `bsengine-app`, not the runtime, not the
-/// editor — and that is a decision, not an oversight.** Sub-item A of roadmap
-/// item 30 builds the identity machinery and deliberately changes no existing
-/// behaviour; **nothing in the engine reads [`AssetIndex`] yet**. Registering
-/// the plugin before there is a reader would walk every project's `assets/`
-/// directory at every startup, hash every asset the first time, and write a
-/// `.meta` beside each one, all to hand the answer to nobody — a cost, a slower
-/// startup and a pile of new files in the user's source tree, with no benefit
-/// to weigh against any of it.
+/// All three hosts do: `bsengine-runtime`'s windowed app and its `--test` app,
+/// and `bsengine-editor-app`. It was registered by none of them while nothing
+/// read the index; `bsengine-scene` resolving a scene reference by identity is
+/// the reader that changed that.
 ///
-/// Sub-item B is where a reader appears (scene references resolved by identity
-/// rather than by path), and registering this plugin is part of that change,
-/// not this one. Until then the only callers are this crate's own tests.
+/// **Registering it is not enough on its own, and the way it fails is
+/// invisible.** The reader is `ScenePlugin`'s spawn, which is also a `Startup`
+/// system, and "both in `Startup`" leaves them unordered. A spawn that finds no
+/// index falls back to the path the scene stores — deliberately, so a scene
+/// loads identically with and without one — so a scene that resolved too early
+/// still loads, still spawns, and still says nothing. The whole feature would
+/// be inert with no symptom at all.
 ///
-/// If you are here because you noticed a plugin that nothing installs: that is
-/// the intended state, and this paragraph is the answer.
+/// Two things make that impossible rather than unlikely:
+///
+/// * `ScenePlugin` declares `.after(build_asset_index)`, so the schedule
+///   settles the order however a host happens to list its plugins — and three
+///   hosts list them three ways. The constraint names a system type; in an app
+///   that never adds this plugin there is no instance to order against and it
+///   costs nothing.
+/// * [`build_asset_index`] inserts the resource **straight into the world**
+///   rather than queuing it through `Commands`, so ordering is all the edge
+///   above has to buy. See that function for why the difference is not
+///   stylistic.
 ///
 /// # What it does when there is nothing to scan
 ///
@@ -149,8 +157,32 @@ impl Plugin for AssetIdentityPlugin {
 /// `Option<Res<AssetIndex>>` and make "this project has no identified assets"
 /// indistinguishable from "the scan never ran", which is the split-brain the
 /// crate docs describe this engine having already shipped once.
-fn build_asset_index(mut commands: Commands, project_dir: Option<Res<ProjectDir>>) {
-    let index = match project_dir
+///
+/// # Why this takes `&mut World` rather than `Commands`
+///
+/// So that the index is *published* when this returns rather than queued.
+/// `Commands::insert_resource` lands at the schedule's next sync point, and an
+/// unordered `Startup` has none until the end of the whole schedule — so with
+/// `Commands` the resource appeared only after **every** `Startup` system had
+/// run, `ScenePlugin`'s spawn included, no matter which of the two the
+/// executor happened to start with. That is not a hypothetical: it is what the
+/// first version of this function did, and the test that caught it
+/// (`bsengine-scene`'s
+/// `a_scene_resolves_against_the_index_the_identity_plugin_publishes`) failed
+/// in *both* registration orders.
+///
+/// An ordering edge alone would in fact have fixed it, because Bevy inserts a
+/// sync point at a dependency edge whose upstream system has deferred buffers.
+/// That is a fix that depends on a schedule-build setting
+/// (`ScheduleBuildSettings::auto_insert_apply_deferred`) staying on, to repair
+/// a failure whose only symptom is a feature quietly not happening. Writing to
+/// the world directly means the edge has to buy nothing but order.
+///
+/// Public so a consumer in another crate can name it in an `.after(..)`; see
+/// [`AssetIdentityPlugin`] for why that ordering has to be spelled out.
+pub fn build_asset_index(world: &mut World) {
+    let index = match world
+        .get_resource::<ProjectDir>()
         .map(|dir| dir.0.clone())
         .filter(|d| !d.is_empty())
     {
@@ -183,7 +215,7 @@ fn build_asset_index(mut commands: Commands, project_dir: Option<Res<ProjectDir>
             }
         },
     };
-    commands.insert_resource(index);
+    world.insert_resource(index);
 }
 
 #[cfg(test)]

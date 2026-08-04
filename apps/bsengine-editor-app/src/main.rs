@@ -1,5 +1,5 @@
 use bsengine_app::{new_app, Startup, Update};
-use bsengine_asset::{AssetPlugin, AssetStatusPlugin, AssetWatcherPlugin};
+use bsengine_asset::{AssetIdentityPlugin, AssetPlugin, AssetStatusPlugin, AssetWatcherPlugin};
 use bsengine_core::{Camera, DirectionalLight, GlobalTransform, InspectorState, Transform};
 use bsengine_ecs::{Added, Commands, Entity, Query, ResMut};
 use bsengine_editor::EditorPlugin;
@@ -57,6 +57,23 @@ fn main() {
         // query in the process answers `unknown` — including for the asset
         // the user just broke and is looking at.
         .add_plugins(AssetStatusPlugin)
+        // Same project directory the two plugins above work from, walked once
+        // at Startup so a scene opened here resolves its references by
+        // identity rather than by path. This is where an artist renames a
+        // mesh, so it is where the reference item 30 exists to keep alive is
+        // most likely to break.
+        //
+        // `project_dir` is derived above from the scene path this editor was
+        // launched with, and handed to `ScriptingPlugin` below, which inserts
+        // `ProjectDir` at build time — so it is in place before this plugin's
+        // Startup scan looks for it. Launched with no scene argument it falls
+        // back to ".", whose `assets/` does not exist at the repository root:
+        // the scan reports that at info and publishes an empty index, exactly
+        // as the watcher above goes idle. Nothing changes `ProjectDir` later,
+        // so a one-shot Startup scan sees everything there is to see; if the
+        // editor ever grows an open-a-project flow that swaps it, this scan
+        // and the watcher both need rerunning, together.
+        .add_plugins(AssetIdentityPlugin)
         .add_plugins(WgpuRHIPlugin)
         .add_plugins(WindowPlugin {
             descriptor: WindowDescriptor {

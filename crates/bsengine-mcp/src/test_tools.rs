@@ -28,6 +28,7 @@ pub fn test_tools(registry: Arc<SessionRegistry>) -> Vec<McpTool> {
         save_recording_tool(registry.clone()),
         run_replay_tool(registry.clone()),
         asset_status_tool(registry.clone()),
+        fixup_tool(registry.clone()),
     ];
     tools.extend(passthrough_tools(registry));
     tools
@@ -278,6 +279,79 @@ fn asset_status_tool(registry: Arc<SessionRegistry>) -> McpTool {
                 }
             }
             McpToolOutput::success(json!({ "path": path, "status": out.content }))
+        }),
+    }
+}
+
+/// Settles a project's stale asset references and forgets the former paths
+/// nothing needs any more.
+///
+/// # Why it is `game_`-prefixed and lives in this file anyway
+///
+/// The prefix in this server says what a tool needs: `test_*` tools drive a
+/// live `bsengine-runtime --test` child, `game_*` tools operate on a project
+/// directory. `fixup` is squarely the second — it repairs the files a session
+/// would load, needs no session, no engine and no running game, and is if
+/// anything better run with nothing holding those files open. So it is named
+/// `game_fixup`, beside `game_create` and `game_validate`.
+///
+/// It is built *here* rather than in `game_tools.rs` for one mechanical reason:
+/// it reaches the work through a `bsengine-runtime` child process, and
+/// [`SessionRegistry`] is what knows where that binary is. See
+/// [`SessionRegistry::fixup`] for why the child process is the right boundary
+/// rather than a direct call.
+///
+/// # Why an agent is a primary user
+///
+/// Everything `fixup` settles is something an agent caused or will trip over: a
+/// rename made through an editor, a scene it wrote by hand, a script it is about
+/// to read. And the report is the only place the JavaScript half of the problem
+/// is *ever* stated — nothing rewrites those references, so an agent that never
+/// asks will never learn they are stale until a load quietly returns nothing.
+fn fixup_tool(registry: Arc<SessionRegistry>) -> McpTool {
+    McpTool {
+        name: "game_fixup".to_string(),
+        description: "Settles a game's stale asset references: rewrites every scene reference \
+            that only still resolves because the engine remembers where an asset used to be, \
+            keeping its GUID, and then forgets the former paths nothing needs any more. \
+            NEVER edits JavaScript — a path in a script can be built or concatenated, so stale \
+            paths there are REPORTED instead, with file, line, the stale path and where the \
+            asset went, for you to fix by hand. Needs no test session and no running game: it \
+            works on the project directory alone, and is safe to run twice (a second run finds \
+            nothing and changes nothing). Returns `rewritten` (scene edits applied), `scripts` \
+            (stale paths in .js you must fix yourself), `pruned` (former paths forgotten), \
+            `retained` (former paths kept, and what is still holding each one) and `problems` \
+            (anything it could not do — a scene it could not write or parse). Run it after \
+            renaming or moving an asset; the engine warns on every recovery it performs, and \
+            this is what spends that warning."
+            .to_string(),
+        input_schema: Some(json!({
+            "type": "object",
+            "properties": {
+                "game": { "type": "string", "description": "Game folder name under games/" },
+            },
+            "required": ["game"],
+        })),
+        handler: Box::new(move |args| {
+            let game = match args.get("game").and_then(|v| v.as_str()) {
+                Some(g) => g,
+                None => return McpToolOutput::error("missing required field: game"),
+            };
+            match registry.fixup(game) {
+                // Reported as a success even when `clean` is false, because the
+                // report is the answer either way: a run that rewrote nine
+                // references and could not write the tenth file has nine
+                // results the caller needs, and collapsing that into an error
+                // string would throw them away.
+                Ok(run) => {
+                    let mut content = run.report;
+                    if let Some(object) = content.as_object_mut() {
+                        object.insert("clean".to_string(), json!(run.clean));
+                    }
+                    McpToolOutput::success(content)
+                }
+                Err(e) => McpToolOutput::error(&e),
+            }
         }),
     }
 }

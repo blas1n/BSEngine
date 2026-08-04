@@ -98,6 +98,10 @@ pub(crate) const ASSETS_DIR: &str = "assets";
 
 /// A directory directly under `assets/` that [`scan`] never descends into.
 ///
+/// Shared with [`crate::identity::fixup`], which has to skip exactly what this
+/// walk skips: a former path pruned because no file `fixup` looked at named it
+/// would be pruned wrongly if the two disagreed about which files exist.
+///
 /// `assets/tests/*.testlog.json` are recorded input traces for the E2E
 /// harness, not assets: nothing loads them, nothing references them by path,
 /// and a recording that gained an identity would only mean a `.meta` per
@@ -105,7 +109,7 @@ pub(crate) const ASSETS_DIR: &str = "assets";
 /// that a `.ron` or `.js` fixture dropped in beside the recordings is excluded
 /// too — the reason to skip this directory is what it is for, not what happens
 /// to be in it today.
-const RECORDINGS_DIR: &str = "tests";
+pub(crate) const RECORDINGS_DIR: &str = "tests";
 
 /// Extensions that earn a file an identity.
 ///

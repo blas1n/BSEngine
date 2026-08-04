@@ -16,6 +16,10 @@ use std::io;
 use std::str::FromStr;
 use tracing::{info, warn};
 
+/// Spending the recovery affordance: rewriting the references that can be
+/// rewritten, reporting the ones that must not be, and forgetting the former
+/// paths nothing needs any more.
+pub mod fixup;
 /// What a scan found, and the lookups the rest of item 30 asks of it.
 pub mod index;
 /// Recording a rename the watcher saw happen: moving the `.meta` along with the
@@ -28,6 +32,7 @@ pub mod scan;
 /// The `.meta` sidecar file that pins an asset's identity next to the asset.
 pub mod sidecar;
 
+pub use fixup::{fixup, FixupReport};
 pub use index::AssetIndex;
 pub use scan::scan;
 pub use sidecar::{

@@ -21,6 +21,19 @@ pub struct ReplayResult {
     pub stderr: String,
 }
 
+/// Result of running `bsengine-runtime --fixup --json` over one game project.
+pub struct FixupRun {
+    /// Whether the child left nothing undone — false when the report carries a
+    /// problem, which is what the child's non-zero exit means.
+    pub clean: bool,
+    /// The report the child printed, parsed. Its shape is
+    /// `bsengine_asset::identity::FixupReport`.
+    pub report: Value,
+    /// The child's captured stderr: the scan's own diagnostics, which are
+    /// deliberately on a different stream from the report.
+    pub stderr: String,
+}
+
 struct Session {
     game: String,
     child: Child,
@@ -140,6 +153,62 @@ impl SessionRegistry {
         Ok(ReplayResult {
             passed: output.status.success(),
             stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        })
+    }
+
+    /// Spawns `bsengine-runtime --fixup <game> --json`, waits for it to
+    /// finish, and returns the report it printed.
+    ///
+    /// # Why a child process rather than a call
+    ///
+    /// The work itself is `bsengine_asset::identity::fixup`, and this crate
+    /// could in principle call it directly — it needs no engine, no `App` and
+    /// no running game. It does not, for the reason this crate does not depend
+    /// on the engine anywhere: `bsengine-mcp` is a JSON-RPC binary that drives
+    /// `bsengine-runtime` as a child process, and taking on `bsengine-asset`
+    /// would pull `bevy_asset`, `image`, `blake3`, `notify` and `uuid` into it
+    /// to run one directory walk. `game_validate` already refuses the same
+    /// trade against `bsengine-scene`. The process boundary is the one this
+    /// crate already has, so using it is not a second mechanism.
+    ///
+    /// # Why it is not session-scoped
+    ///
+    /// Unlike everything else here, `fixup` operates on a project *directory*
+    /// rather than on a running game — it is repairing the files a session
+    /// would load, and a session holding them open is if anything a reason not
+    /// to. So there is no `session_id`, nothing is started or stopped, and this
+    /// is independent of every live session, exactly as [`Self::run_replay`]
+    /// is.
+    pub fn fixup(&self, game: &str) -> Result<FixupRun, String> {
+        let game_dir = self.games_root.join(game);
+        if !game_dir.join("project.toml").exists() {
+            return Err(format!(
+                "no game at {} — it needs a project.toml",
+                game_dir.display()
+            ));
+        }
+
+        let output = Command::new(&self.runtime_bin)
+            .arg("--fixup")
+            .arg(&game_dir)
+            .arg("--json")
+            .output()
+            .map_err(|e| format!("failed to run bsengine-runtime --fixup: {e}"))?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        // A missing `assets/` directory, and anything else that stops the run
+        // before it can report, arrives here as an empty stdout. Reporting the
+        // child's stderr with it is what turns "fixup failed" into something
+        // actionable.
+        let report: Value = serde_json::from_str(stdout.trim()).map_err(|e| {
+            format!("bsengine-runtime --fixup printed no readable report ({e}); it said: {stderr}")
+        })?;
+
+        Ok(FixupRun {
+            clean: output.status.success(),
+            report,
+            stderr,
         })
     }
 

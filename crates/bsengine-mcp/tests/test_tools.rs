@@ -65,9 +65,9 @@ fn find<'a>(tools: &'a [McpTool], name: &str) -> &'a McpTool {
 }
 
 #[test]
-fn builds_thirteen_tools() {
+fn builds_fourteen_tools() {
     let tools = test_tools(test_registry());
-    assert_eq!(tools.len(), 13);
+    assert_eq!(tools.len(), 14);
 }
 
 #[test]
@@ -505,6 +505,220 @@ fn asset_status_tool_is_enumerated_by_the_server() {
         required.contains(&json!("session_id")) && required.contains(&json!("path")),
         "both arguments must be advertised, or a client cannot call this: {required:?}"
     );
+}
+
+// ---- game_fixup ---------------------------------------------------------
+
+/// A game in which one asset a *scene* names and one a *script* names have both
+/// already moved. Sidecars written as literal RON, because this crate does not
+/// depend on the engine and writing them by hand is also a check that the
+/// format a real project holds on disk is the one `fixup` reads.
+struct FixupProbe {
+    games_root: PathBuf,
+}
+
+impl FixupProbe {
+    const GAME: &'static str = "fixup-probe";
+    const MODEL_NOW: &'static str = "assets/models/fox.glb";
+    const MODEL_WAS: &'static str = "assets/models/old_fox.glb";
+    const SOUND_NOW: &'static str = "assets/sounds/hit.wav";
+    const SOUND_WAS: &'static str = "assets/sounds/thud.wav";
+    const MODEL_GUID: &'static str = "0193a7c1-8f2e-7c44-9d61-3b5a0e7f2c19";
+    const SOUND_GUID: &'static str = "0193a7c1-8f2e-7c44-9d61-3b5a0e7f2c20";
+
+    fn create() -> Self {
+        let games_root = PathBuf::from(unique_root_name());
+        let game = games_root.join(Self::GAME);
+        let write = |relative: &str, contents: &str| {
+            let path = game.join(relative);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, contents).unwrap();
+        };
+
+        write(
+            "project.toml",
+            "[project]\nname = \"Fixup Probe\"\nentry_scene = \"assets/scenes/main.ron\"\n",
+        );
+        for (asset, guid, was) in [
+            (Self::MODEL_NOW, Self::MODEL_GUID, Self::MODEL_WAS),
+            (Self::SOUND_NOW, Self::SOUND_GUID, Self::SOUND_WAS),
+        ] {
+            write(asset, "not really an asset");
+            write(
+                &format!("{asset}.meta"),
+                &format!(
+                    "(guid: \"{guid}\", hash: \"blake3:stale\", size: None, \
+                     former_paths: [\"{was}\"])\n"
+                ),
+            );
+        }
+        write(
+            "assets/scenes/main.ron",
+            &format!(
+                "SceneDescriptor(entities: [\n    EntityDescriptor(name: \"Fox\", \
+                 gltf: Some((guid: \"{}\", path: \"{}\"))),\n])\n",
+                Self::MODEL_GUID,
+                Self::MODEL_WAS
+            ),
+        );
+        write(
+            "assets/scripts/probe.js",
+            &format!(
+                "function onUpdate(self) {{\n  Bsengine.playSound(\"{}\");\n}}\n",
+                Self::SOUND_WAS
+            ),
+        );
+        Self { games_root }
+    }
+
+    fn file(&self, relative: &str) -> PathBuf {
+        self.games_root.join(Self::GAME).join(relative)
+    }
+
+    fn registry(&self) -> Arc<SessionRegistry> {
+        Arc::new(SessionRegistry::new(
+            runtime_bin_path().clone(),
+            self.games_root.clone(),
+        ))
+    }
+}
+
+impl Drop for FixupProbe {
+    fn drop(&mut self) {
+        std::fs::remove_dir_all(&self.games_root).ok();
+    }
+}
+
+/// The tool an agent will actually reach for, driven the way an agent drives
+/// it: no session started, no game running, one call against a project
+/// directory.
+///
+/// Driven against a real project rather than asserted on the source, for the
+/// same reason `wait_until_reaches_a_live_session` is: this tool only works if
+/// the assembled list carries it *and* the `--fixup` mode it spawns is one the
+/// runtime actually parses, and neither is visible from this crate alone.
+#[test]
+fn game_fixup_rewrites_a_scene_and_reports_a_script_without_touching_it() {
+    let probe = FixupProbe::create();
+    let tools = test_tools(probe.registry());
+    let script = probe.file("assets/scripts/probe.js");
+    let before = std::fs::read(&script).expect("read script");
+
+    let out = (find(&tools, "game_fixup").handler)(json!({"game": FixupProbe::GAME}));
+    assert!(out.is_ok(), "{:?}", out.error);
+
+    assert_eq!(out.content["clean"], true, "{:?}", out.content);
+    assert_eq!(
+        out.content["rewritten"][0]["from"],
+        FixupProbe::MODEL_WAS,
+        "{:?}",
+        out.content
+    );
+    assert_eq!(
+        out.content["rewritten"][0]["to"],
+        FixupProbe::MODEL_NOW,
+        "{:?}",
+        out.content
+    );
+    assert!(
+        std::fs::read_to_string(probe.file("assets/scenes/main.ron"))
+            .expect("read scene")
+            .contains(FixupProbe::MODEL_NOW),
+        "the tool reported a rewrite the file does not have"
+    );
+
+    assert_eq!(
+        std::fs::read(&script).expect("read script"),
+        before,
+        "game_fixup rewrote a JavaScript file"
+    );
+    let reported = &out.content["scripts"][0];
+    assert_eq!(
+        reported["stale_path"],
+        FixupProbe::SOUND_WAS,
+        "{reported:?}"
+    );
+    assert_eq!(reported["now_at"], FixupProbe::SOUND_NOW, "{reported:?}");
+    assert_eq!(reported["line"], 2, "{reported:?}");
+    assert!(
+        reported["file"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("probe.js"),
+        "{reported:?}"
+    );
+
+    assert_eq!(
+        out.content["pruned"][0]["former_path"],
+        FixupProbe::MODEL_WAS,
+        "{:?}",
+        out.content
+    );
+    assert_eq!(
+        out.content["retained"][0]["former_path"],
+        FixupProbe::SOUND_WAS,
+        "a former path a script still names must be kept: {:?}",
+        out.content
+    );
+}
+
+/// A tool that is built but never enumerated is inert. Same walk
+/// `src/bin/server.rs` takes, asked the way a client asks.
+#[test]
+fn game_fixup_is_enumerated_by_the_server() {
+    use std::sync::Mutex;
+
+    use bsengine_mcp::{game_tools, McpServer, McpToolRegistry};
+
+    let mut registry = McpToolRegistry::new();
+    for tool in game_tools(PathBuf::from(".")) {
+        registry.register(tool);
+    }
+    for tool in test_tools(test_registry()) {
+        registry.register(tool);
+    }
+
+    let server = McpServer::new(Arc::new(Mutex::new(registry)));
+    let response = server
+        .handle_message(json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}))
+        .expect("tools/list must produce a response");
+    let listed = response["result"]["tools"].as_array().unwrap();
+
+    let tool = listed
+        .iter()
+        .find(|t| t["name"] == "game_fixup")
+        .unwrap_or_else(|| {
+            let names: Vec<&str> = listed.iter().filter_map(|t| t["name"].as_str()).collect();
+            panic!("game_fixup is not enumerated; tools/list has {names:?}")
+        });
+    assert_eq!(
+        tool["inputSchema"]["required"].as_array().unwrap(),
+        &vec![json!("game")],
+        "the tool takes a game and no session, and has to advertise exactly that"
+    );
+    // The one thing a caller must not have to discover by experiment.
+    let description = tool["description"].as_str().unwrap_or_default();
+    assert!(
+        description.contains("JavaScript"),
+        "the description has to say that JavaScript is reported and not edited, \
+         or an agent will assume the tool finished the job: {description}"
+    );
+}
+
+#[test]
+fn game_fixup_on_a_directory_that_is_not_a_game_errors() {
+    let tools = test_tools(test_registry());
+    let out = (find(&tools, "game_fixup").handler)(json!({"game": "no-such-game"}));
+    assert!(!out.is_ok());
+    assert!(out.error.unwrap().contains("project.toml"));
+}
+
+#[test]
+fn game_fixup_missing_game_field_errors() {
+    let tools = test_tools(test_registry());
+    let out = (find(&tools, "game_fixup").handler)(json!({}));
+    assert!(!out.is_ok());
+    assert!(out.error.unwrap().contains("game"));
 }
 
 #[test]

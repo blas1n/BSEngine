@@ -462,6 +462,75 @@ mod tests {
 
     /// Watches `watch_root` recursively, writes the nested file once, and
     /// returns everything the debouncer emitted.
+    // Item 30 sub-item D recovers a stale asset path — the kind embedded in a
+    // JS string literal — by asking the index where that path's asset went.
+    // That only works if something records the move, and today only orphan
+    // recovery does: a rename made while the watcher is running is currently
+    // reported as a change to the destination and nothing else, because
+    // `drain_asset_changes` drops the source (it no longer `is_file()`).
+    //
+    // The information is not missing, only discarded. Measured here:
+    // `notify-debouncer-full`'s `FileIdMap` stitches the backend's two halves
+    // into one `Modify(Name(Both))` carrying **both** paths, old first.
+    //
+    // This test exists so that stays true. If a platform or a `notify` upgrade
+    // ever reports a rename without the old path, sub-item D's recovery loses
+    // its only in-engine source of former paths — and would do so silently,
+    // since a rename would still look like an ordinary change to the
+    // destination.
+    #[test]
+    fn a_rename_is_reported_with_both_the_old_and_the_new_path() {
+        let root = std::env::temp_dir().join(unique("rename-probe"));
+        let _guard = make_tree(root.clone());
+
+        let (tx, rx) = mpsc::channel();
+        let mut debouncer = new_debouncer(DEBOUNCE, None, tx).unwrap();
+        debouncer
+            .watcher()
+            .watch(&root, RecursiveMode::Recursive)
+            .unwrap();
+        debouncer.cache().add_root(&root, RecursiveMode::Recursive);
+
+        std::thread::sleep(DEBOUNCE * 3);
+        while rx.try_recv().is_ok() {}
+
+        let from = root.join(nested());
+        let to = root.join("assets").join("models").join("renamed.txt");
+        std::fs::rename(&from, &to).unwrap();
+
+        let events = collect(&rx, DEBOUNCE * 3);
+        let rendered: Vec<String> = events
+            .iter()
+            .map(|e| format!("{:?} paths={:?}", e.event.kind, e.event.paths))
+            .collect();
+
+        // Deliberately not asserting the exact `EventKind`: what sub-item D
+        // needs is the *pairing*, and a backend is entitled to spell it
+        // differently. What it may not do is drop the old path, which is the
+        // only thing that makes a stale reference recoverable.
+        let paired = events
+            .iter()
+            .find(|e| e.event.paths.len() >= 2)
+            .unwrap_or_else(|| {
+                panic!(
+                    "a rename reported no event carrying both paths, so nothing \
+                     records where {from:?} went; sub-item D's recovery has no \
+                     in-engine source of former paths on this platform:\n{}",
+                    rendered.join("\n")
+                )
+            });
+
+        assert!(
+            paired.event.paths.contains(&from) && paired.event.paths.contains(&to),
+            "the paired event must name both the old and the new path, got {:?}",
+            paired.event.paths
+        );
+        assert_eq!(
+            paired.event.paths[0], from,
+            "old path must come first, or a recorder cannot tell which is which"
+        );
+    }
+
     fn probe(watch_root: &Path) -> Vec<DebouncedEvent> {
         let (tx, rx) = mpsc::channel();
         let mut debouncer = new_debouncer(DEBOUNCE, None, tx).unwrap();

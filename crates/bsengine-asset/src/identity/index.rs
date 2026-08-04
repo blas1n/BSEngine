@@ -49,7 +49,7 @@
 //! the guarantee it can — a total order in, a total order out — and the walk
 //! supplies the order.
 
-use super::AssetGuid;
+use super::{AssetGuid, Sidecar};
 use bevy_ecs::prelude::Resource;
 use std::collections::BTreeMap;
 use std::fmt;
@@ -198,6 +198,32 @@ impl AssetIndex {
         }
 
         Insertion::Recorded
+    }
+
+    /// Re-points the index at an asset that has just moved on disk, so the new
+    /// location and the path it left are both answerable without a restart.
+    ///
+    /// The live counterpart to what a [`scan`](super::scan::scan) works out from
+    /// scratch: [`rename`](super::rename) sees a rename happen while the app is
+    /// running, moves the `.meta` alongside the asset, and calls this with the
+    /// sidecar it wrote — which already lists `from` among its former paths, so
+    /// there is one record of the move and not two that can disagree.
+    ///
+    /// Whatever was known about `from` is dropped first, because nothing lives
+    /// there any more; the asset is then recorded at `to` through the ordinary
+    /// [`insert`](Self::insert), so every contradiction that refuses is refused
+    /// here too rather than through a second, laxer door.
+    pub(super) fn moved(&mut self, from: &str, to: &str, sidecar: &Sidecar) -> Insertion {
+        if let Some(guid) = self.by_path.remove(from) {
+            // Only when it still points here. `insert` writes both maps
+            // together so it always does; the check costs one lookup and means
+            // a future writer that forgot to cannot make this silently unmap an
+            // asset that is still where it was.
+            if self.by_guid.get(&guid).map(String::as_str) == Some(from) {
+                self.by_guid.remove(&guid);
+            }
+        }
+        self.insert(sidecar.guid, to, &sidecar.former_paths)
     }
 }
 

@@ -17,6 +17,10 @@ use tracing::{info, warn};
 
 /// What a scan found, and the lookups the rest of item 30 asks of it.
 pub mod index;
+/// Recording a rename the watcher saw happen: moving the `.meta` along with the
+/// asset and remembering the path it left, which is the only record a move made
+/// while the engine is running would otherwise leave.
+pub(crate) mod rename;
 /// Walking a project's `assets/` directory and giving every file that deserves
 /// an identity a sidecar holding one.
 pub mod scan;

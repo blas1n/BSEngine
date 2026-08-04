@@ -89,7 +89,12 @@ use tracing::{debug, info, warn};
 
 /// The subdirectory of a project that holds its assets, and the only place
 /// [`scan`] looks.
-const ASSETS_DIR: &str = "assets";
+///
+/// Shared with [`crate::watcher`], which watches exactly this directory and has
+/// to spell the paths it reports the way this walk keys them — project-relative,
+/// starting here. Two spellings of one prefix would mean a watcher that recorded
+/// moves the index could never match.
+pub(crate) const ASSETS_DIR: &str = "assets";
 
 /// A directory directly under `assets/` that [`scan`] never descends into.
 ///
@@ -806,12 +811,10 @@ fn repair(
     // it has this second finished hashing.
     sidecar.hash = contents.hash.clone();
     sidecar.size = Some(contents.size);
-    // Deduplicated, so that a file moved back and forth cannot grow this list
-    // without bound: it can only ever hold the distinct paths the asset has
-    // actually occupied.
-    if !sidecar.former_paths.contains(&orphan.was) {
-        sidecar.former_paths.push(orphan.was.clone());
-    }
+    // Deduplicated — see `Sidecar::remember_former_path`, which is where that
+    // policy lives so that this and the watcher's live rename recorder cannot
+    // drift into two different answers about the same list.
+    sidecar.remember_former_path(&orphan.was);
 
     let meta = sidecar_path(&candidate.path);
     if let Err(e) = sidecar.write(&meta) {

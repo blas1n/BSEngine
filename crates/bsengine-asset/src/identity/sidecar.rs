@@ -136,6 +136,26 @@ pub struct Sidecar {
 }
 
 impl Sidecar {
+    /// Records a path this asset used to live at, unless it is recorded
+    /// already.
+    ///
+    /// The deduplication is the whole reason this is a method rather than a
+    /// `push` at each call site. An asset moved back and forth between two
+    /// directories — one designer reorganising a folder and changing their mind
+    /// — would otherwise grow this list on every hop, forever, in a file that is
+    /// committed to the project. With it, the list can only ever hold the
+    /// *distinct* paths the asset has really occupied.
+    ///
+    /// Both things that record a move go through here: the scan's orphan
+    /// recovery, for a move made while the engine was not running, and
+    /// `identity::rename`, for one made while it was. Two copies of one policy
+    /// is how one of them ends up not having it.
+    pub fn remember_former_path(&mut self, path: &str) {
+        if !self.former_paths.iter().any(|former| former == path) {
+            self.former_paths.push(path.to_string());
+        }
+    }
+
     /// Renders the sidecar as the RON text that goes on disk.
     pub fn to_ron(&self) -> Result<String, SidecarError> {
         // `new_line("\n")` overrides ron's platform default, which is CRLF on

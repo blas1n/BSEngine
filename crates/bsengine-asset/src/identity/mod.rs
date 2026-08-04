@@ -10,9 +10,13 @@
 use std::fmt;
 use std::str::FromStr;
 
+/// Walking a project's `assets/` directory and giving every file that deserves
+/// an identity a sidecar holding one.
+pub mod scan;
 /// The `.meta` sidecar file that pins an asset's identity next to the asset.
 pub mod sidecar;
 
+pub use scan::{scan, AssetIndex};
 pub use sidecar::{hash_file, sidecar_path, Sidecar, SidecarError, SIDECAR_EXTENSION};
 
 /// A stable identity for one asset file, independent of where it lives.

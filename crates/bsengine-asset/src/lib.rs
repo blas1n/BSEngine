@@ -47,6 +47,12 @@ pub mod types;
 /// edited on disk while the game runs.
 pub mod watcher;
 
+/// Probe directories and log capture, shared by the watcher's tests and the
+/// identity scan's — both of which can only be tested against a real
+/// filesystem.
+#[cfg(test)]
+mod test_support;
+
 pub use bevy_asset::{Asset, AssetServer, Assets, Handle};
 pub use load_mode::{load, LoadMode};
 pub use plugin::AssetPlugin;

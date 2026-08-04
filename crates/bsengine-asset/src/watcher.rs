@@ -57,10 +57,16 @@ use tracing::{debug, info, warn};
 /// glTF exporters rewrite a file several times in a row. Reloading per raw
 /// notification would both fire N reloads for one save and race the writer —
 /// a loader that opens the file mid-truncate sees a half-written asset and
-/// fails. 200ms is long enough to swallow those bursts (measured:
-/// `a_burst_of_writes_coalesces_into_fewer_events_than_writes` collapses five
-/// back-to-back writes into one event) and short enough that a save still
-/// feels instantaneous to the person who made it.
+/// fails. 200ms is long enough to swallow those bursts on an idle machine
+/// (measured: five back-to-back writes collapse into one event) and short
+/// enough that a save still feels instantaneous to the person who made it.
+///
+/// It is not what makes a burst reload *once*, though, and nothing here relies
+/// on it doing so: whether a burst lands inside one window is the debouncer's
+/// decision on a timing budget this engine does not control, and a loaded
+/// machine splits one readily. [`drain_asset_changes`] dedupes by path across
+/// everything it drains, so a burst the window failed to merge still reloads
+/// once — see `a_burst_of_saves_reloads_the_asset_exactly_once`.
 const DEBOUNCE: Duration = Duration::from_millis(200);
 
 /// Extensions `bevy_asset` can actually serve in this engine, and nothing
@@ -454,9 +460,9 @@ mod tests {
         out
     }
 
-    /// Watches `watch_root` recursively, writes the nested file `writes` times
-    /// back to back, and returns everything the debouncer emitted.
-    fn probe(watch_root: &Path, writes: usize) -> Vec<DebouncedEvent> {
+    /// Watches `watch_root` recursively, writes the nested file once, and
+    /// returns everything the debouncer emitted.
+    fn probe(watch_root: &Path) -> Vec<DebouncedEvent> {
         let (tx, rx) = mpsc::channel();
         let mut debouncer = new_debouncer(DEBOUNCE, None, tx).unwrap();
         debouncer
@@ -472,10 +478,7 @@ mod tests {
         std::thread::sleep(DEBOUNCE * 3);
         while rx.try_recv().is_ok() {}
 
-        let file = watch_root.join(nested());
-        for i in 0..writes {
-            std::fs::write(&file, format!("after {i}").as_bytes()).unwrap();
-        }
+        std::fs::write(watch_root.join(nested()), b"after").unwrap();
         collect(&rx, DEBOUNCE * 3)
     }
 
@@ -566,7 +569,7 @@ mod tests {
         // Row 1: absolute watch root, outside the source tree.
         let abs_root = std::env::temp_dir().join(unique("abs"));
         let _abs_guard = make_tree(abs_root.clone());
-        let abs_events = probe(&abs_root, 1);
+        let abs_events = probe(&abs_root);
         let abs_reported = assert_common("abs", &abs_root, &abs_events);
         assert_eq!(
             abs_reported,
@@ -578,7 +581,7 @@ mod tests {
         // the shape the engine actually uses (`<ProjectDir>/assets`).
         let rel_root = PathBuf::from(unique("rel"));
         let _rel_guard = make_tree(rel_root.clone());
-        let rel_events = probe(&rel_root, 1);
+        let rel_events = probe(&rel_root);
         let rel_reported = assert_common("rel", &rel_root, &rel_events);
         assert!(
             !rel_reported.starts_with(&rel_root),
@@ -592,7 +595,7 @@ mod tests {
         // show notify performs no normalisation whatsoever.
         let odd_root = PathBuf::from(format!("../../target/{}", unique("odd")));
         let _odd_guard = make_tree(odd_root.clone());
-        let odd_events = probe(&odd_root, 1);
+        let odd_events = probe(&odd_root);
         assert_common("odd", &odd_root, &odd_events);
 
         // Not the canonicalised spelling: `fs::canonicalize` on Windows returns
@@ -619,35 +622,6 @@ mod tests {
                 abs_events.iter().map(|e| e.event.kind).collect::<Vec<_>>()
             );
         }
-    }
-
-    // A save is rarely one write -- editors truncate, write, and flush, and glTF
-    // exporters rewrite a file several times. This pins that the 200ms window
-    // actually coalesces a burst instead of firing a reload per write.
-    //
-    // Measured on Windows: five back-to-back `fs::write` calls collapse to a
-    // single `Modify(Any)` event. The assertion is deliberately weaker than
-    // "exactly one" -- the exact count is a backend detail (inotify and
-    // FSEvents split a write into separate data and metadata notifications) and
-    // a burst that straddles the window legitimately produces two. What must
-    // never regress is that N writes stop producing N reloads.
-    #[test]
-    fn a_burst_of_writes_coalesces_into_fewer_events_than_writes() {
-        const WRITES: usize = 5;
-
-        let root = std::env::temp_dir().join(unique("burst"));
-        let _guard = make_tree(root.clone());
-        let events = probe(&root, WRITES);
-        let reported = assert_common("burst", &root, &events);
-        assert_eq!(reported, root.join(nested()));
-
-        assert!(
-            events.len() < WRITES,
-            "{WRITES} back-to-back writes produced {} debounced events, so the \
-             {DEBOUNCE:?} window is not coalescing: {:?}",
-            events.len(),
-            events.iter().map(|e| e.event.kind).collect::<Vec<_>>()
-        );
     }
 
     // ---- the plugin itself ------------------------------------------------
@@ -768,9 +742,10 @@ mod tests {
         std::fs::write(&texture, png_bytes(AFTER)).unwrap();
         std::fs::write(&decoy, png_bytes(AFTER)).unwrap();
 
-        // (texture reloads, decoy reloads). Counted rather than merely
-        // detected, so an over-eager watcher that fires per raw write instead
-        // of per debounced batch stays visible here.
+        // (texture reloads, decoy reloads). Only the decoy's count is asserted
+        // on; the texture's says when to stop waiting. How many reloads a save
+        // is worth is `a_burst_of_saves_reloads_the_asset_exactly_once`'s
+        // subject, and it is not a question this test's timing can answer.
         let mut modified = (0usize, 0usize);
         let count = |app: &App,
                      reader: &mut ManualEventReader<AssetEvent<TextureAsset>>,
@@ -817,6 +792,173 @@ mod tests {
             Some(AFTER.to_vec()),
             "the reload must have re-read the file, not just re-announced the \
              old bytes"
+        );
+    }
+
+    // A save is rarely one write -- editors truncate, write and flush, and glTF
+    // exporters rewrite a file several times in a row. What must never regress
+    // is that N writes stop producing N reloads.
+    //
+    // That guarantee is *not* the debouncer's, and this test deliberately does
+    // not ask the debouncer for it. How a burst gets batched is a third-party
+    // crate's decision on a timing budget this engine does not control, and it
+    // is not stable across machines. Measured, on the same 200ms window:
+    //
+    //   * idle Windows: one `fs::write` arrives as one `Modify(Any)`, and five
+    //     back-to-back writes collapse into a single event.
+    //   * loaded Linux CI: nothing collapses. Each write arrives as its own
+    //     `Modify(Data(Any))` + `Access(Close(Write))` pair, and consecutive
+    //     writes straddle the window, so five writes can arrive as five
+    //     separate batches.
+    //
+    // The engine tolerates both, because `drain_asset_changes` dedupes by path
+    // across everything it drains -- so the burst below is deliberately spaced
+    // *wider* than the debounce window, which forces one batch per write on
+    // every platform and under every load. That is the hostile case, not the
+    // lucky one: a test that only passes when the batches merge would be
+    // pinning the debouncer's behaviour rather than the engine's.
+    //
+    // Two things make the count well-defined rather than a race:
+    //
+    //  * No frame runs during the burst or the settle that follows it.
+    //    `drain_asset_changes` is the only thing that empties the queue, so
+    //    every batch is still queued when the single `app.update()` below
+    //    drains it in one go. (A real game does run frames in between, and
+    //    would reload once per batch it drains; the dedupe is per drain. This
+    //    test measures the dedupe, so it hands the drain the whole burst.)
+    //  * The watcher resource is removed immediately after that one drain, so
+    //    a batch that the runner delivers late cannot slip a second reload in
+    //    behind the assertion's back.
+    #[test]
+    fn a_burst_of_saves_reloads_the_asset_exactly_once() {
+        use crate::types::TextureAsset;
+        use bevy_asset::{AssetEvent, Assets};
+        use bevy_ecs::event::{Events, ManualEventReader};
+        use bsengine_app::new_app;
+
+        /// Writes in the burst. Each is its own debounced batch (see above),
+        /// so this is also how many reloads a broken dedupe would produce.
+        const WRITES: usize = 3;
+
+        const AFTER: [u8; 4] = [200, 100, 50, 255];
+
+        let project = unique("burst");
+        let root = PathBuf::from(&project);
+        std::fs::create_dir_all(root.join("assets")).unwrap();
+        let _guard = ProbeDir(root.clone());
+
+        let texture = root.join("assets").join("tex.png");
+        std::fs::write(&texture, png_bytes([10, 20, 30, 255])).unwrap();
+
+        let mut app = new_app();
+        app.insert_resource(ProjectDir(project.clone()));
+        app.add_plugins(crate::plugin::AssetPlugin);
+        app.add_plugins(AssetWatcherPlugin);
+
+        let handle = {
+            let server = app.world().resource::<AssetServer>();
+            server.load::<TextureAsset>(format!("{project}/assets/tex.png"))
+        };
+        run_until(&mut app, "the asset finished loading", |app| {
+            app.world()
+                .resource::<Assets<TextureAsset>>()
+                .get(&handle)
+                .is_some()
+        });
+        assert!(
+            app.world().get_resource::<AssetWatcher>().is_some(),
+            "the watcher must have started for an existing <ProjectDir>/assets"
+        );
+
+        // Give the OS backend time to actually begin delivering, then drop
+        // both the asset events the initial load produced and anything already
+        // queued for the watcher, so what is counted below can only be the
+        // burst.
+        std::thread::sleep(DEBOUNCE * 3);
+        let mut reader: ManualEventReader<AssetEvent<TextureAsset>> = app
+            .world_mut()
+            .resource_mut::<Events<AssetEvent<TextureAsset>>>()
+            .get_reader();
+        app.update();
+        {
+            let events = app.world().resource::<Events<AssetEvent<TextureAsset>>>();
+            let _ = reader.read(events).count();
+        }
+
+        // The burst. Spaced past the window on purpose -- see above -- and with
+        // no frames in between, so each write ends up as its own queued batch.
+        for i in 0..WRITES {
+            let pixel = if i + 1 == WRITES {
+                AFTER
+            } else {
+                [i as u8, 0, 0, 255]
+            };
+            std::fs::write(&texture, png_bytes(pixel)).unwrap();
+            if i + 1 < WRITES {
+                std::thread::sleep(DEBOUNCE * 2);
+            }
+        }
+
+        // Long enough for the last batch to have been flushed and queued: the
+        // debouncer emits a path once it has been quiet for `DEBOUNCE`, so this
+        // is several times its own budget, which is the margin a loaded runner
+        // needs. If it is somehow not enough the drain below finds an empty
+        // queue and the wait after it fails, rather than anything passing by
+        // accident.
+        std::thread::sleep(DEBOUNCE * 8);
+
+        // One frame, one drain of the whole queued burst -- and one `reload`,
+        // because the drain dedupes by path. This is the entire property.
+        app.update();
+
+        // From here nothing can reload anything: `drain_asset_changes` returns
+        // immediately when this resource is absent. Whatever the debouncer
+        // still has to say is now inert, so the count below is exactly what the
+        // single drain above dispatched.
+        app.world_mut().remove_resource::<AssetWatcher>();
+
+        let mut modified = 0usize;
+        let count = |app: &App,
+                     reader: &mut ManualEventReader<AssetEvent<TextureAsset>>,
+                     modified: &mut usize| {
+            let events = app.world().resource::<Events<AssetEvent<TextureAsset>>>();
+            for event in reader.read(events) {
+                if matches!(event, AssetEvent::Modified { id } if *id == handle.id()) {
+                    *modified += 1;
+                }
+            }
+        };
+
+        run_until(&mut app, "the burst reloaded the texture", |app| {
+            count(app, &mut reader, &mut modified);
+            modified > 0
+        });
+
+        // A second reload, if the dedupe ever stopped deduping, would land a
+        // frame or two behind the first -- so keep draining rather than
+        // concluding from the first one that there was only one.
+        let settle = Instant::now() + DEBOUNCE * 5;
+        while Instant::now() < settle {
+            app.update();
+            count(&app, &mut reader, &mut modified);
+            std::thread::sleep(Duration::from_millis(5));
+        }
+
+        assert_eq!(
+            modified, 1,
+            "a burst of {WRITES} saves to one asset must reload it exactly \
+             once, however the debouncer chose to batch it -- {modified} \
+             reloads arrived, which means drain_asset_changes is no longer \
+             collapsing a queue by path"
+        );
+        assert_eq!(
+            app.world()
+                .resource::<Assets<TextureAsset>>()
+                .get(&handle)
+                .map(|t| t.data.clone()),
+            Some(AFTER.to_vec()),
+            "the one reload must have re-read the file, and must have picked up \
+             the last write of the burst rather than an earlier one"
         );
     }
 

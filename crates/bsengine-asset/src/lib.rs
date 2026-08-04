@@ -41,6 +41,10 @@ pub mod load_mode;
 /// Wires `bevy_asset`'s `AssetPlugin` into the app and registers this
 /// crate's own asset types.
 pub mod plugin;
+/// `AssetStatusPlugin`: records what became of each asset the engine tried to
+/// load, so "what happened to this asset?" is answerable from code rather than
+/// from a log line.
+pub mod status;
 /// `AssetLoader` backing `LoadMode::Async` for `TextureAsset`.
 pub mod texture_loader;
 /// Concrete asset data types owned by this crate (currently: `TextureAsset`).
@@ -57,8 +61,9 @@ mod test_support;
 
 pub use bevy_asset::{Asset, AssetServer, Assets, Handle};
 pub use identity::{AssetGuid, AssetIdentityPlugin, AssetIndex};
-pub use load_mode::{load, LoadMode};
+pub use load_mode::{load, load_async, LoadMode};
 pub use plugin::AssetPlugin;
+pub use status::{AssetStatus, AssetStatusPlugin, AssetStatuses};
 pub use texture_loader::TextureAssetLoader;
 pub use types::TextureAsset;
 pub use watcher::AssetWatcherPlugin;

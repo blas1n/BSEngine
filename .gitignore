@@ -150,14 +150,6 @@ StyleCopReport.xml
 *.ipdb
 *.pgc
 *.pgd
-
-# Asset identity sidecars (roadmap item 30) are content, not build output, and
-# must be committed beside their assets: an uncommitted sidecar means the GUID
-# is regenerated on the next clone and every reference to that asset breaks —
-# silently, since an ignored file never shows up in `git status`. Re-included
-# because the Visual Studio block above ignores `*.meta` as a linker artifact
-# and this project has no Visual Studio build producing one.
-!games/*/assets/**/*.meta
 *.rsp
 *.sbr
 *.tlb
@@ -173,6 +165,14 @@ StyleCopReport.xml
 *.pidb
 *.svclog
 *.scc
+
+# Asset identity sidecars (roadmap item 30) are content, not build output, and
+# must be committed beside their assets: an uncommitted sidecar means the GUID
+# is regenerated on the next clone and every reference to that asset breaks —
+# silently, since an ignored file never shows up in `git status`. Re-included
+# because the Visual Studio block above ignores `*.meta` as a linker artifact
+# and this project has no Visual Studio build producing one.
+!games/*/assets/**/*.meta
 
 # Chutzpah Test files
 _Chutzpah*
@@ -481,3 +481,8 @@ games/*/checkpoint.json
 # spelling they exist to measure. A Drop guard removes it, but a hard-killed
 # test run would leave it behind.
 crates/*/bsengine-watch-probe-*
+
+# Same deal for the asset-status tests: bevy_asset's root is the process CWD,
+# so a fixture that has to be reachable *as an asset path* cannot live in the
+# temp dir. Also Drop-guarded.
+crates/*/bsengine-status-probe-*

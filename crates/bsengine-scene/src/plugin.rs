@@ -5,8 +5,8 @@ use bevy_app::{App, Plugin, Startup};
 use bevy_ecs::prelude::{Component, IntoSystemConfigs, World};
 use bsengine_asset::{AssetGuid, AssetIndex};
 use bsengine_core::{
-    Camera, DirectionalLight, GlobalTransform, Material, PointLight, SkyboxPath, SpotLight,
-    Transform,
+    Camera, DirectionalLight, GlobalTransform, Material, PointLight, ProjectDir, SkyboxPath,
+    SpotLight, Transform,
 };
 use bsengine_gltf::GltfAsset;
 use glam::{Quat, Vec3};
@@ -78,7 +78,8 @@ impl Plugin for ScenePlugin {
 ///
 /// # The order, and why it is this one
 ///
-/// **A known identity, then the stored path, then nothing.** The identity is
+/// **A known identity, then the stored path, then a path the project remembers
+/// the asset leaving, then nothing.** The identity is
 /// tried first because it is the only part of a reference that survives a
 /// rename — that is the whole of roadmap item 30. Trying the path first and the
 /// GUID only as a fallback would look equivalent and is not: a path that still
@@ -91,6 +92,18 @@ impl Plugin for ScenePlugin {
 /// well still name the right file. Losing the asset because the *label* went
 /// missing would be a worse trade than the one before item 30.
 ///
+/// The former-path lookup is genuinely last, after both. It answers a question
+/// the other two cannot even be asked — "nothing has this identity and nothing
+/// is at this path; did anything *used* to be?" — and answering it earlier
+/// would let the memory of a move outrank an asset that is right there. See
+/// [`recovered_from_a_former_path`] for the same order stated as code, and for
+/// why the filesystem, not the index, has the final say.
+///
+/// This is deliberately the same order [`bsengine_asset::load_async`] uses for
+/// the paths that live in JavaScript string literals, minus the identity step
+/// no string literal can carry. Two surfaces resolving in two orders would mean
+/// a scene and a script that name the same file could load different ones.
+///
 /// # When it is silent
 ///
 /// A bare path — no identity recorded — resolves to itself with no diagnostic
@@ -98,6 +111,13 @@ impl Plugin for ScenePlugin {
 /// uses; warning on each would put a dozen lines in the log on every scene load
 /// and teach everyone to stop reading it. Sub-item B is what gives those scenes
 /// identities, and until then a bare path is normal, not a fault.
+///
+/// A bare path is still *recovered* if it names somewhere an asset has moved
+/// away from — the ten scenes in `games/` are spelled that way, so a recovery
+/// restricted to identified references would reach almost none of the
+/// references this project actually has. What is silent is a bare path that
+/// resolves; a bare path that only resolves because of a move is not silent,
+/// because it is not resolving to what it says.
 ///
 /// So is the absence of an index. All three hosts register
 /// `AssetIdentityPlugin` now, but plenty of apps do not — most of this
@@ -114,59 +134,154 @@ impl Plugin for ScenePlugin {
 ///
 /// # Cost
 ///
-/// Two `BTreeMap` lookups at worst per identified reference and none at all for
-/// a bare one — no scan of the index, and nothing that touches the disk. The
-/// caller runs this once per reference, before spawning, so a scene of tens of
-/// entities pays tens of lookups once per load rather than per frame.
-///
-/// Recovering a reference whose *former* path the index knows —
-/// `AssetIndex::guid_for_former_path` — is sub-item D and is deliberately not
-/// attempted here.
+/// Two `BTreeMap` lookups at worst per identified reference, and one that
+/// misses for a bare one — no scan of the index. A reference that resolves
+/// normally never touches the disk: the `exists` check is behind the index
+/// having said the stored path is one an asset left. The caller runs this once
+/// per reference, before spawning, so a scene of tens of entities pays tens of
+/// lookups once per load rather than per frame.
 fn resolve_asset_ref(
     index: Option<&AssetIndex>,
+    project_dir: Option<&ProjectDir>,
     entity_name: &str,
     field: &str,
     asset_ref: &AssetRef,
 ) -> String {
     let stored_path = asset_ref.path();
-    let (Some(guid_text), Some(index)) = (asset_ref.guid(), index) else {
+    // With no index there is nothing to resolve *against* at all — neither an
+    // identity nor a former path — so both spellings are the path they store.
+    let Some(index) = index else {
         return stored_path.to_string();
     };
 
-    // A hand-edited scene file is the expected source of this, and it is
-    // reported separately from an identity nobody claims because the two call
-    // for different fixes: this one is a spelling to correct, that one is an
-    // asset to go find.
-    let Ok(guid) = guid_text.parse::<AssetGuid>() else {
-        tracing::warn!(
-            "scene: entity '{entity_name}' {field} '{stored_path}' has `{guid_text}` where an \
-             asset GUID should be; loading the stored path instead"
-        );
-        return stored_path.to_string();
-    };
+    if let Some(guid_text) = asset_ref.guid() {
+        // A hand-edited scene file is the expected source of this, and it is
+        // reported separately from an identity nobody claims because the two
+        // call for different fixes: this one is a spelling to correct, that one
+        // is an asset to go find. Either way what is left to go on is the
+        // stored path, so both fall through to the same last resort below.
+        let Ok(guid) = guid_text.parse::<AssetGuid>() else {
+            tracing::warn!(
+                "scene: entity '{entity_name}' {field} '{stored_path}' has `{guid_text}` where an \
+                 asset GUID should be; falling back to the stored path"
+            );
+            return recovered_from_a_former_path(
+                index,
+                project_dir,
+                entity_name,
+                field,
+                stored_path,
+            )
+            .unwrap_or_else(|| stored_path.to_string());
+        };
 
-    match index.path_for_guid(guid) {
-        // The rename item 30 exists to survive. Both paths are named because a
-        // warning that reports only one leaves the developer unable to tell
-        // which reference to fix or whether the file it found is the right one.
-        Some(current_path) if current_path != stored_path => {
-            tracing::warn!(
-                "scene: entity '{entity_name}' {field} names '{stored_path}', but asset {guid} \
-                 now lives at '{current_path}'; loading '{current_path}'. Re-save the scene to \
-                 update the stored path"
-            );
-            current_path.to_string()
-        }
-        Some(current_path) => current_path.to_string(),
-        None => {
-            tracing::warn!(
-                "scene: entity '{entity_name}' {field} '{stored_path}' carries identity {guid}, \
-                 which no asset in this project has; the identity is stale, so the stored path is \
-                 all that is left to go on"
-            );
-            stored_path.to_string()
+        match index.path_for_guid(guid) {
+            // The rename item 30 exists to survive. Both paths are named
+            // because a warning that reports only one leaves the developer
+            // unable to tell which reference to fix or whether the file it
+            // found is the right one.
+            Some(current_path) if current_path != stored_path => {
+                tracing::warn!(
+                    "scene: entity '{entity_name}' {field} names '{stored_path}', but asset \
+                     {guid} now lives at '{current_path}'; loading '{current_path}'. Re-save the \
+                     scene to update the stored path"
+                );
+                return current_path.to_string();
+            }
+            Some(current_path) => return current_path.to_string(),
+            None => {
+                // The identity is stale. Before saying the stored path is all
+                // that is left, ask whether the *path* is stale too — an asset
+                // deleted and its replacement moved into place produces exactly
+                // this pair, and reporting "nothing left to go on" while the
+                // project remembers where the asset went would be a diagnostic
+                // that stops one step short of the answer.
+                if let Some(recovered) = recovered_from_a_former_path(
+                    index,
+                    project_dir,
+                    entity_name,
+                    field,
+                    stored_path,
+                ) {
+                    return recovered;
+                }
+                tracing::warn!(
+                    "scene: entity '{entity_name}' {field} '{stored_path}' carries identity \
+                     {guid}, which no asset in this project has; the identity is stale, so the \
+                     stored path is all that is left to go on"
+                );
+                return stored_path.to_string();
+            }
         }
     }
+
+    // A bare path: the pre-item-30 form, and what every scene in `games/` is
+    // still written in. It has no identity to try, so the former-path lookup is
+    // the only thing standing between a rename and a reference that loads
+    // nothing.
+    recovered_from_a_former_path(index, project_dir, entity_name, field, stored_path)
+        .unwrap_or_else(|| stored_path.to_string())
+}
+
+/// Where a reference should load from when the path it stores is one an asset
+/// has moved away from — and `None`, silently, in every other case.
+///
+/// # The order, which is [`bsengine_asset::load_async`]'s
+///
+/// 1. **Ask the index.** `AssetIndex::guid_for_former_path` already refuses a
+///    path some asset currently occupies, so a reference that resolves normally
+///    is not a former path and never reaches step 2.
+/// 2. **Ask the filesystem.** A file at the stored path wins over the memory of
+///    the one that left it. The index is a snapshot taken at `Startup`, so an
+///    asset dropped into the vacated name after the scan is invisible to step 1;
+///    redirecting away from a file that is right there, because of a move
+///    recorded before it existed, is exactly the silent-wrong-asset failure
+///    item 30 exists to end. The path is resolved through `ProjectDir` first,
+///    because that is the spelling the loader will actually open.
+/// 3. Otherwise: where the asset went, and a warning.
+///
+/// # It never recovers quietly
+///
+/// A reference that resolves somewhere other than what it spells has to say so.
+/// The scene file still names the old path, so the next person to read it
+/// learns nothing from the file itself — and a recovery nobody is told about
+/// turns a broken reference into a permanent, invisible indirection layer,
+/// which is the accumulated-forwarding pain Unreal documents rather than a
+/// feature. This is a development-time affordance with an expiry; the warning
+/// is what makes somebody spend it.
+///
+/// Unlike the load funnel's, this warning is *not* suppressed after the first
+/// time, and the difference is the call frequency rather than a difference of
+/// opinion: `load_async` is reachable from a script command that can fire every
+/// frame, whereas this runs once per reference per scene load. Suppressing here
+/// would mean a scene transition back to a scene loaded earlier reported
+/// nothing.
+fn recovered_from_a_former_path(
+    index: &AssetIndex,
+    project_dir: Option<&ProjectDir>,
+    entity_name: &str,
+    field: &str,
+    stored_path: &str,
+) -> Option<String> {
+    let guid = index.guid_for_former_path(stored_path)?;
+    let current_path = index.path_for_guid(guid)?;
+
+    if std::path::Path::new(&bsengine_core::resolve_project_path(
+        project_dir,
+        stored_path,
+    ))
+    .exists()
+    {
+        return None;
+    }
+
+    tracing::warn!(
+        "scene: entity '{entity_name}' {field} '{stored_path}' names a path no asset occupies — \
+         asset {guid} used to live there and is now at '{current_path}', so that is what will \
+         load. Re-save the scene to update the stored path: recovering through a former path is \
+         a development-time convenience, not a permanent redirect"
+    );
+    Some(current_path.to_string())
 }
 
 /// Spawn entities from a list of descriptors into the given world.
@@ -191,8 +306,9 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
         entities
             .iter()
             .map(|entity| {
-                let resolve =
-                    |field, asset_ref| resolve_asset_ref(index, &entity.name, field, asset_ref);
+                let resolve = |field, asset_ref| {
+                    resolve_asset_ref(index, project_dir.as_ref(), &entity.name, field, asset_ref)
+                };
                 (
                     entity.gltf.as_ref().map(|r| resolve("gltf", r)),
                     entity.script.as_ref().map(|r| resolve("script", r)),
@@ -963,6 +1079,167 @@ mod tests {
                 logs.matches(STALE_PATH).count(),
                 1,
                 "five frames produced more than one warning. Got: {logs}"
+            );
+        }
+
+        // ---- recovery through a former path (sub-item D) -----------------
+        //
+        // The last resort, after the identity and after the stored path: a
+        // reference naming somewhere an asset used to be, when nothing is
+        // there now. Sub-item B can rewrite an identified reference; nothing
+        // can rewrite the ten scenes in `games/` that store bare paths, or the
+        // paths spelled inside JavaScript string literals, so remembering the
+        // move is what reaches them.
+        //
+        // The move is always made the way a person makes one — rename the file
+        // and leave the `.meta` behind, which is what `git mv` and Explorer do
+        // — so the scan's own orphan recovery is what writes `former_paths`.
+        // A hand-written sidecar would prove only that this module agrees with
+        // itself about a field name.
+
+        /// The phrase only a former-path recovery emits, so an assertion that
+        /// one did *not* happen cannot be satisfied by some other warning that
+        /// happens to name the same file.
+        const RECOVERY_PHRASE: &str = "used to live there";
+
+        /// A project whose one asset has been renamed with its sidecar left
+        /// behind, then rescanned. `Probe::guid` is the surviving asset's, and
+        /// [`STALE_PATH`] is where it used to be.
+        fn moved_asset_probe(tag: &str) -> Probe {
+            let dir = ProbeDir(std::env::temp_dir().join(unique(tag)));
+            let asset = dir.0.join(STALE_PATH);
+            std::fs::create_dir_all(asset.parent().expect("probe asset has a parent"))
+                .expect("create probe directories");
+            std::fs::write(&asset, b"fake glb").expect("write probe asset");
+            // Mints `vulpes.glb.meta` where the asset started.
+            scan(&dir.0).expect("scan the probe project");
+            std::fs::rename(&asset, dir.0.join(CURRENT_PATH)).expect("rename the probe asset");
+
+            let index = scan(&dir.0).expect("rescan the probe project");
+            let guid = index
+                .guid_for_path(CURRENT_PATH)
+                .expect("orphan recovery must have carried the identity across")
+                .to_string();
+            Probe {
+                _dir: dir,
+                index,
+                guid,
+            }
+        }
+
+        // The case sub-item C stops one step short of: the identity is stale
+        // *and* so is the path. Before this, the warning said "the stored path
+        // is all that is left to go on" while the project knew exactly where
+        // the asset had gone.
+        #[test]
+        fn an_unknown_identity_whose_stored_path_was_left_behind_recovers_and_says_so() {
+            let probe = moved_asset_probe("scene-former-unknown-guid");
+            assert!(
+                probe.index.guid_for_former_path(STALE_PATH).is_some(),
+                "precondition: the rescan's orphan recovery must have recorded \
+                 the move, or this test measures nothing"
+            );
+
+            let orphaned = AssetGuid::new();
+            let (resolved, logs) = spawn(
+                "test_former_unknown_guid.ron",
+                &format!(r#"(guid: "{orphaned}", path: "{STALE_PATH}")"#),
+                Some(probe.index.clone()),
+            );
+
+            assert_eq!(
+                resolved,
+                vec![CURRENT_PATH.to_string()],
+                "neither the identity nor the path answers any more, but the \
+                 project remembers the asset leaving that path — falling back to \
+                 a path that loads nothing throws that away"
+            );
+            assert!(
+                logs.contains(RECOVERY_PHRASE),
+                "recovering through a former path must never be silent: the scene \
+                 file still says the old path, so nothing else will ever tell the \
+                 developer. Got: {logs}"
+            );
+            assert!(
+                logs.contains(STALE_PATH),
+                "the warning must name the reference to fix. Got: {logs}"
+            );
+            assert!(
+                logs.contains(CURRENT_PATH),
+                "and where it actually went, or there is no way to check it. \
+                 Got: {logs}"
+            );
+        }
+
+        // The form that matters most in this repository: all ten scenes in
+        // `games/` store bare paths, so a recovery reserved for identified
+        // references would reach almost nothing that is actually written down.
+        #[test]
+        fn a_bare_path_the_project_remembers_being_left_recovers_as_well() {
+            let probe = moved_asset_probe("scene-former-bare");
+            let (resolved, logs) = spawn(
+                "test_former_bare.ron",
+                &format!(r#""{STALE_PATH}""#),
+                Some(probe.index.clone()),
+            );
+
+            assert_eq!(
+                resolved,
+                vec![CURRENT_PATH.to_string()],
+                "a bare path has no identity to fall back on, so the former path \
+                 is the only thing between a rename and a reference that loads \
+                 nothing"
+            );
+            assert!(
+                logs.contains(STALE_PATH) && logs.contains(CURRENT_PATH),
+                "and it is still a reference that no longer means what it says. \
+                 Got: {logs}"
+            );
+        }
+
+        // The collision, and the one direction that must never be got wrong: an
+        // asset is renamed away, and then something new is created at the name
+        // it left. The file that is *there* wins over the memory of the one
+        // that left, silently, because nothing is stale about a path that
+        // resolves.
+        //
+        // The newcomer is created after the scan on purpose. `AssetIndex`
+        // already refuses a former path an *indexed* asset occupies, so a
+        // newcomer the scan saw would be caught a layer up and prove nothing
+        // about the layer that has to catch the rest: the index is a `Startup`
+        // snapshot, and files appear after it.
+        #[test]
+        fn a_file_at_the_stored_path_beats_the_memory_of_the_asset_that_left_it() {
+            let probe = moved_asset_probe("scene-former-collision");
+            let project_dir = probe._dir.0.display().to_string();
+            std::fs::write(probe._dir.0.join(STALE_PATH), b"a different glb")
+                .expect("write the newcomer");
+
+            let scene = format!(
+                r#"SceneDescriptor(entities: [EntityDescriptor(name: "Fox", gltf: Some("{STALE_PATH}"))])"#
+            );
+            let path = write_temp_scene("test_former_collision.ron", &scene);
+
+            let mut app = new_app();
+            app.insert_resource(bsengine_core::ProjectDir(project_dir.clone()));
+            app.insert_resource(probe.index.clone());
+            app.add_plugins(ScenePlugin::from_file(&path));
+            let (_, logs) = capture_warnings(|| app.update());
+
+            let mut q = app.world_mut().query::<&bsengine_gltf::GltfAsset>();
+            let resolved: Vec<String> = q.iter(app.world()).map(|g| g.path.clone()).collect();
+            assert_eq!(
+                resolved,
+                vec![format!("{project_dir}/{STALE_PATH}")],
+                "a file that exists at the stored path is the asset the scene \
+                 asked for; redirecting away from it because of a move recorded \
+                 before it existed would load a real, wrong file and say nothing \
+                 useful about it"
+            );
+            assert!(
+                !logs.contains(RECOVERY_PHRASE),
+                "and nothing is stale here, so there is nothing to report. \
+                 Got: {logs}"
             );
         }
 

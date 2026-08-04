@@ -7,8 +7,9 @@
 //! minted once, travels with the asset in its sidecar, and does not change when
 //! the file moves.
 
-use bevy_app::{App, Plugin, Startup};
-use bevy_ecs::prelude::World;
+use bevy_app::{App, Plugin, Startup, Update};
+use bevy_ecs::change_detection::DetectChanges;
+use bevy_ecs::prelude::{Res, World};
 use bsengine_core::ProjectDir;
 use std::fmt;
 use std::io;
@@ -146,12 +147,50 @@ impl std::error::Error for AssetGuidParseError {}
 ///
 /// The scan runs in `Startup`, so it happens exactly once per app, never per
 /// frame, and the resource is in place before the first `Update`.
+///
+/// # The second half: reaching paths that are not in the `World`
+///
+/// The index is also published to [`crate::load_mode`], which is what lets
+/// [`crate::load_async`] recover a path an asset has moved away from — the only
+/// mechanism that reaches an asset path spelled inside a JavaScript string
+/// literal, since nothing can give one an identity. That has to travel out of
+/// the ECS because `load_async` is handed an `&AssetServer` and a path and has
+/// no `World` to consult; see [`crate::load_mode::publish_asset_index`] for the
+/// side channel, and this module's private `republish_asset_index` for what
+/// keeps it current after a live rename.
 pub struct AssetIdentityPlugin;
 
 impl Plugin for AssetIdentityPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, build_asset_index);
+        app.add_systems(Startup, build_asset_index)
+            .add_systems(Update, republish_asset_index);
     }
+}
+
+/// Keeps the index [`crate::load_async`] resolves former paths against in step
+/// with the one in the `World`.
+///
+/// [`build_asset_index`] publishes the scan's result directly, so this exists
+/// for what happens *after* `Startup`: [`crate::watcher`] re-points the
+/// `AssetIndex` resource when it sees an asset renamed while the app is
+/// running, and that is exactly the case former-path recovery is most for — a
+/// file renamed the normal way, in an editor, with the game up. Without this,
+/// recovery would work only for moves made while the engine was *not* running
+/// and would look broken to everyone else.
+///
+/// Costs one change-detection check per frame and nothing else: the index
+/// changes at `Startup` and then only when a rename arrives, and
+/// [`crate::load_mode::publish_asset_index`] compares before it copies, so even
+/// a change that leaves the index equal does not clone it.
+///
+/// `Option<Res<..>>` because a resource can be removed and a system that
+/// panicked over it would take the app down for a diagnostic feature.
+fn republish_asset_index(index: Option<Res<AssetIndex>>, project_dir: Option<Res<ProjectDir>>) {
+    let Some(index) = index.filter(|index| index.is_changed()) else {
+        return;
+    };
+    let project_dir = project_dir.map(|dir| dir.0.clone()).unwrap_or_default();
+    crate::load_mode::publish_asset_index(&project_dir, &index);
 }
 
 /// Scans for identities, or explains once why it is not going to.
@@ -185,11 +224,11 @@ impl Plugin for AssetIdentityPlugin {
 /// Public so a consumer in another crate can name it in an `.after(..)`; see
 /// [`AssetIdentityPlugin`] for why that ordering has to be spelled out.
 pub fn build_asset_index(world: &mut World) {
-    let index = match world
+    let configured_dir = world
         .get_resource::<ProjectDir>()
         .map(|dir| dir.0.clone())
-        .filter(|d| !d.is_empty())
-    {
+        .filter(|d| !d.is_empty());
+    let index = match configured_dir.clone() {
         None => {
             info!("asset identity: no project directory set, nothing indexed");
             AssetIndex::default()
@@ -219,6 +258,11 @@ pub fn build_asset_index(world: &mut World) {
             }
         },
     };
+    // Published before the resource is inserted rather than left to
+    // `republish_asset_index`, so that a load which happens before the first
+    // `Update` — anything a `Startup` system requests — resolves against the
+    // same index a scene spawned in that schedule does.
+    crate::load_mode::publish_asset_index(&configured_dir.unwrap_or_default(), &index);
     world.insert_resource(index);
 }
 

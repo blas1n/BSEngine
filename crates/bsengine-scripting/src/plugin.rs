@@ -37,10 +37,70 @@ use crate::ops::{
 use crate::runtime::ScriptRuntime;
 
 /// Loaded JS source for a scripted entity.
+///
+/// Present only once the source has actually arrived and been executed, which
+/// is what makes it the marker `run_scripts` and `collect_world_snapshots`
+/// filter on: an entity whose script is still loading, or whose script could
+/// not be loaded at all, is not offered to `Bsengine._runAll`, so there is
+/// never a frame where the engine asks JS to run an `onUpdate` that was never
+/// registered.
 #[derive(Component)]
 pub struct Script {
     /// The full text of the entity's script file.
     pub source: String,
+}
+
+/// Where one entity's script is between "asked for" and "running".
+#[derive(Debug, PartialEq, Eq)]
+enum ScriptLoadState {
+    /// Requested; waiting for `Assets<ScriptSource>` to have it.
+    Loading,
+    /// Arrived and executed. The entity also carries a [`Script`].
+    Ready,
+    /// The load failed. Warned once, and the path is never asked for again --
+    /// re-requesting a path whose state is `Failed` resets it to `Loading` and
+    /// restarts the load (`bevy_asset` 0.14.2, `server/info.rs:212-221`), and
+    /// because `Failed` is set in `PreUpdate` while this is polled in
+    /// `Update`, a re-requesting poll loop erases the failure before it can
+    /// ever observe it -- retrying forever and spawning a fresh filesystem
+    /// task every frame.
+    GaveUp,
+}
+
+/// One entity's script file, as an asset request that outlives the frame it
+/// was made on.
+///
+/// Inserted by [`load_scripts`] (which requests, once) and advanced by
+/// [`execute_loaded_scripts`] (which polls, every frame, and never requests).
+/// That split is the request-once/retain-the-handle/poll-the-retained-handle
+/// shape every asset consumer in this engine uses; see
+/// [`bsengine_asset::LoadMode`] for the argument and [`SoundLoads`] above for
+/// the closest neighbour.
+///
+/// # Why the handle is retained after the script has run
+///
+/// The `Handle<ScriptSource>` here is the only strong handle to a script in
+/// the whole engine. `Assets::<A>::track_assets` frees an asset the frame
+/// after its last strong handle drops, and `AssetEvent::Modified` is only
+/// emitted for an asset that is still tracked -- so dropping the handle once
+/// the source had been executed would silently make scripts the one asset
+/// class that cannot hot reload, while everything about the load still looked
+/// like it worked. Item 30 has three separate cases of exactly that.
+///
+/// The state is kept for a failed load too, and for the same reason in
+/// reverse: the entry is what stops the path being requested a second time.
+#[derive(Component, Debug)]
+struct ScriptLoad {
+    /// Retained strong handle -- see the type docs for why it outlives the
+    /// execution it was requested for.
+    handle: bevy_asset::Handle<crate::script_asset::ScriptSource>,
+    /// The path as this engine spelled it when it asked. Kept rather than
+    /// re-derived from `AssetServer::get_path`, which can only answer while
+    /// the `AssetInfo` exists -- and the message that most needs a path is
+    /// the one about a load that failed.
+    path: String,
+    /// How far along this request is.
+    state: ScriptLoadState,
 }
 
 /// Non-Send wrapper around the entity's V8 isolate; stored as a non-send
@@ -232,7 +292,23 @@ impl Plugin for ScriptingPlugin {
         app.add_systems(PostStartup, load_scripts);
         app.add_systems(
             Update,
-            (capture_collision_events, run_scripts, start_pending_sounds)
+            // `execute_loaded_scripts` before `run_scripts`, as an explicit
+            // edge rather than as a consequence of the order they are named
+            // in: an unconstrained schedule *sorts* its systems and does not
+            // replay registration order, so "added earlier" guarantees
+            // nothing. The edge is the one property that stopped being
+            // structural when scripts became assets -- reading a file inline
+            // meant a script could not exist without already having run,
+            // whereas now the frame its source arrives is the frame something
+            // has to execute it, and it has to happen before that same
+            // frame's `_runAll` or the entity silently misses its first
+            // `onUpdate`.
+            (
+                capture_collision_events,
+                execute_loaded_scripts,
+                run_scripts,
+                start_pending_sounds,
+            )
                 .chain()
                 // Pins the frame `Bsengine.getAssetStatus` reports from.
                 // `collect_asset_statuses` also runs in `Update`, so without
@@ -270,8 +346,67 @@ fn capture_collision_events(
     COLLISION_SNAPSHOT.with(|s| *s.borrow_mut() = collisions);
 }
 
-/// Read the JS source for every entity with a `ScriptPath` (resolved against
-/// `ProjectDir`) and attach it as a `Script` component.
+/// Runs `BOOTSTRAP_JS`, then *requests* the JS source for every entity that
+/// has a `ScriptPath` (resolved against `ProjectDir`) and has not been asked
+/// for yet, recording the retained handle as a [`ScriptLoad`].
+///
+/// # What this no longer does
+///
+/// It used to `std::fs::read_to_string` each path and execute it before
+/// returning, so "the entity has a script" and "the script is running" were
+/// one atomic step. Scripts are `bevy_asset` assets now: this hands the path
+/// to `AssetServer` and returns, and [`execute_loaded_scripts`] runs the
+/// source once it appears in `Assets<ScriptSource>`. Both callers had that
+/// atomicity and neither has it now.
+///
+/// How long the gap is depends on which schedule the caller runs in, because
+/// `bevy_asset` publishes finished loads from `PreUpdate`:
+///
+/// * **`PostStartup` (this plugin's own registration).** `PostStartup` runs
+///   before `PreUpdate`, which runs before `Update`, all within the first
+///   `app.update()` -- so the source is published and executed on that same
+///   first frame. **Zero frames of visible latency**, and every existing test
+///   that counted `app.update()`s still counts the same.
+/// * **`Update` (`handle_scene_load` in `bsengine-runtime`, which calls this
+///   inline right after respawning a scene).** `PreUpdate` has already run,
+///   so the source is published on the *following* frame and executed there.
+///   **One frame**, measured -- see that call site's comment for what happens
+///   in between, and `scene_systems`'
+///   `a_script_loaded_scene_gets_its_own_scripts_running` for the test that
+///   pins it.
+///
+/// Both numbers hold because `bevy_tasks` is built here without its
+/// `multi-threaded` feature, so `TaskPool::spawn` blocks on the read rather
+/// than handing it to a worker. Turn that feature on and the read becomes
+/// genuinely concurrent and both numbers become "one frame or more" -- which
+/// is why nothing in this crate's tests asserts a fixed frame count for a
+/// load, only that it eventually arrives.
+///
+/// # What is still atomic, and has to be
+///
+/// `BOOTSTRAP_JS` runs *here*, synchronously, before anything is requested --
+/// not from the polling system. Two things depend on that:
+///
+/// * It defines the `Bsengine` global every script's body and every wrapper
+///   below references, so a script executing before it had run would fail
+///   outright with `Bsengine is not defined`.
+/// * Re-running it is how a scene load resets `Bsengine._scripts`, the timer
+///   queue and the message/collision handlers (see `handle_scene_load`'s
+///   comment). That reset has to land on the frame the old entities are
+///   despawned, not whenever the new scene's files happen to arrive, or the
+///   dead scene's handlers keep firing in between.
+///
+/// `PostStartup` runs before `Update` within the same `app.update()`, and the
+/// scene-load caller invokes this inline, so in both cases the bootstrap is
+/// already done by the time [`execute_loaded_scripts`] can see anything.
+///
+/// # Requesting once
+///
+/// Entities that already carry a [`ScriptLoad`] are skipped, so calling this
+/// again -- which a scene load does -- never re-requests a path. That matters
+/// most for a path that *failed*: `AssetServer::load` on a `Failed` path
+/// resets it to `Loading` and starts over, which would make the failure
+/// permanently unobservable. See [`ScriptLoadState::GaveUp`].
 pub fn load_scripts(world: &mut World) {
     let project_dir = world
         .get_resource::<ProjectDir>()
@@ -279,7 +414,7 @@ pub fn load_scripts(world: &mut World) {
         .unwrap_or_default();
 
     let scripts: Vec<(Entity, String)> = {
-        let mut q = world.query::<(Entity, &ScriptPath)>();
+        let mut q = world.query_filtered::<(Entity, &ScriptPath), Without<ScriptLoad>>();
         q.iter(world)
             .map(|(e, sp)| {
                 let path = if project_dir.is_empty() {
@@ -308,23 +443,117 @@ pub fn load_scripts(world: &mut World) {
         }
     }
 
+    let Some(asset_server) = world.get_resource::<bevy_asset::AssetServer>().cloned() else {
+        tracing::warn!(
+            "[scripting] no AssetServer (bsengine_asset::AssetPlugin not registered?); \
+             {} script(s) will never load",
+            scripts.len()
+        );
+        return;
+    };
+
     for (entity, path) in scripts {
-        match std::fs::read_to_string(&path) {
-            Ok(source) => {
-                let id = entity.to_bits();
-                let wrapped = format!(
-                    "(function() {{\n{source}\nBsengine._scripts[\"{id}\"] = \
-                     {{ onUpdate: typeof onUpdate === 'function' ? onUpdate : null }};\n}})();"
-                );
-                world.entity_mut(entity).insert(Script { source });
-                if let Some(mut rt) = world.get_non_send_resource_mut::<ScriptRuntimeResource>() {
-                    match rt.0.exec_source(&wrapped, &path) {
-                        Ok(()) => tracing::info!("[scripting] loaded: {path}"),
-                        Err(e) => tracing::error!("[scripting] error in {path}: {e}"),
+        // `load_async` rather than `AssetServer::load`: a path requested the
+        // latter way is invisible to `AssetStatuses` until it fails, so a
+        // script that loaded and a script nothing ever asked for would read
+        // back identically through `Bsengine.getAssetStatus`. It is also what
+        // resolves a path an asset has since moved away from.
+        let handle =
+            bsengine_asset::load_async::<crate::script_asset::ScriptSource>(&asset_server, &path);
+        world.entity_mut(entity).insert(ScriptLoad {
+            handle,
+            path,
+            state: ScriptLoadState::Loading,
+        });
+    }
+}
+
+/// Executes each requested script whose source has arrived, and gives up --
+/// once, out loud -- on each one that cannot arrive.
+///
+/// This is the polling half of the pair described on [`load_scripts`]. It
+/// reads the handle [`ScriptLoad`] already holds and **never requests
+/// anything**: `AssetServer::load` on a path whose state is `Failed` resets it
+/// to `Loading` and respawns the filesystem task (`bevy_asset` 0.14.2,
+/// `server/info.rs:212-221`), and since `Failed` is set in `PreUpdate` while
+/// this runs in `Update`, a poll that re-requested would never once observe a
+/// failure -- it would retry forever and leak a task per frame. Phase 2 of
+/// item 24 measured that shape at 200 errors over 200 frames against one for
+/// this one.
+///
+/// Executing a script is what inserts its [`Script`] component, so an entity
+/// whose source never arrives is simply never offered to `Bsengine._runAll`
+/// (see [`Script`]). Nothing downstream has to special-case it.
+fn execute_loaded_scripts(world: &mut World) {
+    // Nothing to do on almost every frame: after the first couple, every
+    // script has either executed or been given up on, so this collects an
+    // empty vec and returns.
+    let pending: Vec<Entity> = {
+        let mut q = world.query::<(Entity, &ScriptLoad)>();
+        q.iter(world)
+            .filter(|(_, load)| load.state == ScriptLoadState::Loading)
+            .map(|(entity, _)| entity)
+            .collect()
+    };
+    if pending.is_empty() {
+        return;
+    }
+
+    // Decided first, so the shared borrows of `Assets`/`AssetServer` end
+    // before the world is mutated below.
+    let mut ready: Vec<(Entity, String, String)> = Vec::new();
+    let mut failed: Vec<(Entity, String, String)> = Vec::new();
+    {
+        let assets = world.resource::<bevy_asset::Assets<crate::script_asset::ScriptSource>>();
+        let asset_server = world.resource::<bevy_asset::AssetServer>();
+        for entity in pending {
+            let Some(load) = world.get::<ScriptLoad>(entity) else {
+                continue;
+            };
+            match assets.get(&load.handle) {
+                Some(source) => ready.push((entity, load.path.clone(), source.0.clone())),
+                // Absent is inconclusive -- still loading, or failed. Only
+                // the load state can tell those apart, and it is read from
+                // the handle already held, never from a fresh request.
+                None => {
+                    if let bevy_asset::LoadState::Failed(e) = asset_server.load_state(&load.handle)
+                    {
+                        failed.push((entity, load.path.clone(), e.to_string()));
                     }
                 }
             }
-            Err(e) => tracing::warn!("[scripting] cannot read {path}: {e}"),
+        }
+    }
+
+    for (entity, path, error) in failed {
+        // Once per entity, because the state transition below happens once:
+        // a per-frame warning for a path that will never load is how the log
+        // that should carry this line gets buried.
+        tracing::warn!("[scripting] giving up on {path}: {error}");
+        if let Some(mut load) = world.get_mut::<ScriptLoad>(entity) {
+            load.state = ScriptLoadState::GaveUp;
+        }
+    }
+
+    for (entity, path, source) in ready {
+        let id = entity.to_bits();
+        // An IIFE keyed by entity id, exactly as the synchronous version
+        // wrote it: re-executing replaces `_scripts[id]` rather than
+        // accumulating, and the script's own `var`s stay out of the shared
+        // global scope.
+        let wrapped = format!(
+            "(function() {{\n{source}\nBsengine._scripts[\"{id}\"] = \
+             {{ onUpdate: typeof onUpdate === 'function' ? onUpdate : null }};\n}})();"
+        );
+        world.entity_mut(entity).insert(Script { source });
+        if let Some(mut load) = world.get_mut::<ScriptLoad>(entity) {
+            load.state = ScriptLoadState::Ready;
+        }
+        if let Some(mut rt) = world.get_non_send_resource_mut::<ScriptRuntimeResource>() {
+            match rt.0.exec_source(&wrapped, &path) {
+                Ok(()) => tracing::info!("[scripting] loaded: {path}"),
+                Err(e) => tracing::error!("[scripting] error in {path}: {e}"),
+            }
         }
     }
 }
@@ -3250,8 +3479,8 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
 #[cfg(test)]
 mod tests {
     use super::{
-        HudTexts, Name, PendingSounds, ScriptPath, ScriptRuntimeResource, ScriptingPlugin,
-        SoundLoad, SoundLoads, Transform, Vec3,
+        HudTexts, Name, PendingSounds, Script, ScriptLoad, ScriptLoadState, ScriptPath,
+        ScriptRuntimeResource, ScriptingPlugin, SoundLoad, SoundLoads, Transform, Vec3,
     };
     use bsengine_app::new_app;
 
@@ -3386,6 +3615,165 @@ mod tests {
         assert_eq!(save.get("score"), Some(b"99".as_slice()));
 
         let _ = std::fs::remove_file(&script_path);
+    }
+
+    // ---- scripts as assets (roadmap item 31) ----
+    //
+    // Both tests drive the real `ScriptingPlugin` — its real `PostStartup`
+    // request, its real `Update` poll, a real `AssetServer` and a real file
+    // (or real absence of one) on disk. Nothing here calls `load_scripts` or
+    // `execute_loaded_scripts` by hand: what changed in this item is *when*
+    // those two run relative to each other and to `run_scripts`, which a
+    // hand-driven call cannot observe at all.
+
+    /// A script must actually **run**, not merely have arrived — and it must
+    /// run before the very first `_runAll` that could have called its
+    /// `onUpdate`.
+    ///
+    /// Asserted through `setHudText` rather than through the `Script`
+    /// component, for two independent reasons. A component only proves the
+    /// bytes got here; `HudTexts` proves V8 evaluated the file, registered
+    /// `onUpdate` under this entity's id, and that `_runAll` then found it
+    /// under that id — the whole chain the entity-keyed IIFE exists for. And
+    /// it proves `BOOTSTRAP_JS` ran first: `Bsengine` is defined nowhere else,
+    /// so a script executing before the bootstrap would die on `Bsengine is
+    /// not defined` and set no HUD text at all.
+    ///
+    /// The sharp part is *where* the assertion is made: on the first frame the
+    /// `Script` component exists, the HUD text must **already** be set. That
+    /// is the `execute_loaded_scripts` -> `run_scripts` edge and nothing else.
+    /// Drop the edge and the systems sort into some order the schedule picks;
+    /// if `run_scripts` sorts first, the script is executed after that frame's
+    /// `_runAll` and the HUD text appears one frame later than the component —
+    /// a silently skipped first `onUpdate`, which for a script that does its
+    /// setup there is a bug that survives to the next scene load.
+    #[test]
+    fn a_script_runs_on_the_frame_its_source_arrives() {
+        let script_path = std::env::temp_dir().join(format!(
+            "bsengine_test_script_asset_runs_{}.js",
+            std::process::id()
+        ));
+        std::fs::write(
+            &script_path,
+            "function onUpdate(name) { Bsengine.setHudText(\"ran\", name); }",
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: String::new(),
+        });
+        let entity = app
+            .world_mut()
+            .spawn((
+                Name("Hero".to_string()),
+                ScriptPath(script_path.to_string_lossy().to_string()),
+            ))
+            .id();
+
+        // Framed as "run until it arrives", never as a fixed frame count: how
+        // many frames a load takes is `bevy_asset`'s business, and pinning a
+        // number here would turn a slower filesystem — or `bevy_tasks` being
+        // built with `multi-threaded` on, which makes the load genuinely
+        // concurrent instead of a blocking `spawn` — into a test failure that
+        // says nothing about this code.
+        let mut frames = 0;
+        loop {
+            app.update();
+            frames += 1;
+            if app.world().get::<Script>(entity).is_some() {
+                break;
+            }
+            assert!(
+                frames < 300,
+                "the script source never arrived, so nothing here was measured"
+            );
+        }
+
+        assert_eq!(
+            app.world().resource::<HudTexts>().0.get("ran").cloned(),
+            Some("Hero".to_string()),
+            "on the frame a script's source arrives, its onUpdate must already \
+             have been called: `execute_loaded_scripts` has to run before \
+             `run_scripts`, and the entity's registration has to be keyed by \
+             the id `_runAll` looks it up under"
+        );
+        assert!(
+            matches!(
+                app.world().get::<ScriptLoad>(entity).map(|l| &l.state),
+                Some(ScriptLoadState::Ready)
+            ),
+            "an executed script must be recorded as Ready, holding the handle \
+             that keeps the source tracked"
+        );
+
+        let _ = std::fs::remove_file(&script_path);
+    }
+
+    /// A `.js` path that cannot load must be given up on: warned about once,
+    /// and then never asked for again.
+    ///
+    /// The mutation this exists to catch is re-requesting the path from the
+    /// poll instead of reading the retained handle. `AssetServer::load` on a
+    /// path whose state is `Failed` resets it to `Loading` and respawns the
+    /// load (`bevy_asset` 0.14.2, `server/info.rs:212-221`), and `Failed` is
+    /// set in `PreUpdate` while the poll runs in `Update` — so a re-requesting
+    /// poll never observes the failure at all. It does not warn *too much*, it
+    /// warns **not at all**, while spawning a filesystem task every frame
+    /// forever. Both assertions below are written to catch that: the warning
+    /// count is `== 1` (a re-requesting version scores 0), and the terminal
+    /// state must be `GaveUp` (a re-requesting version is stuck in `Loading`).
+    ///
+    /// 200 frames because that is the length Phase 2 measured the naive shape
+    /// at — 200 errors over 200 frames against one.
+    #[test]
+    fn a_script_that_cannot_load_is_given_up_on_and_warned_about_once() {
+        const MISSING: &str = "definitely/not/a/real/script.js";
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: String::new(),
+        });
+        let entity = app
+            .world_mut()
+            .spawn((Name("Ghost".to_string()), ScriptPath(MISSING.to_string())))
+            .id();
+
+        let (_, logs) = capture_logs(|| {
+            for _ in 0..200 {
+                app.update();
+            }
+        });
+
+        assert_eq!(
+            logs.matches("[scripting] giving up on").count(),
+            1,
+            "a script that cannot load must be reported exactly once — zero \
+             means the poll re-requested the path and erased the failure before \
+             it could be seen, more than one means it is being retried. \
+             Captured logs were:\n{logs}"
+        );
+        assert!(
+            logs.contains(MISSING),
+            "the warning must name the path that could not be loaded, or a \
+             project with fifty scripts learns only that one of them is bad. \
+             Captured logs were:\n{logs}"
+        );
+        assert!(
+            matches!(
+                app.world().get::<ScriptLoad>(entity).map(|l| &l.state),
+                Some(ScriptLoadState::GaveUp)
+            ),
+            "the entity must end up recorded as given-up on; still `Loading` \
+             after 200 frames means the load is being restarted every frame"
+        );
+        assert!(
+            app.world().get::<Script>(entity).is_none(),
+            "a script that never loaded must not leave a Script component \
+             behind, or `_runAll` is handed an entity with no registration"
+        );
     }
 
     // `playSound` requests each path exactly once and polls the handle

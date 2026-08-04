@@ -27,8 +27,8 @@
 //! know about. The only error [`scan`] returns is the one that means it never
 //! started at all — see its docs.
 
+use super::index::{AssetIndex, Insertion};
 use super::{hash_file, sidecar_path, AssetGuid, Sidecar, SIDECAR_EXTENSION};
-use std::collections::BTreeMap;
 use std::fs::ReadDir;
 use std::io;
 use std::path::Path;
@@ -96,47 +96,6 @@ const IDENTIFIED_EXTENSIONS: &[&str] = &[
     "js", "ron",
 ];
 
-/// What a [`scan`] found: the identity of every asset it could identify, keyed
-/// by project-relative path.
-///
-/// Deliberately minimal. The lookups a real index needs — by GUID, back to a
-/// path, and whatever orphan recovery turns out to want — belong to the task
-/// that has a caller to shape them, so this type is a place to *grow* rather
-/// than a design to work around. `BTreeMap` rather than `HashMap` only so that
-/// iteration order is stable, which costs nothing at these sizes and makes any
-/// future dump of the index diffable.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct AssetIndex {
-    by_path: BTreeMap<String, AssetGuid>,
-}
-
-impl AssetIndex {
-    /// How many assets the scan gave an identity to.
-    ///
-    /// Not the number of files under `assets/`: files the allow-list rejects
-    /// are not assets, and an asset whose sidecar could not be read or written
-    /// is deliberately absent (see [`scan`]).
-    pub fn len(&self) -> usize {
-        self.by_path.len()
-    }
-
-    /// Whether the scan identified nothing at all.
-    pub fn is_empty(&self) -> bool {
-        self.by_path.is_empty()
-    }
-
-    /// The identity of the asset at `path`, which must be spelled
-    /// project-relative with forward slashes — `assets/models/fox.glb`.
-    pub fn guid_for_path(&self, path: &str) -> Option<AssetGuid> {
-        self.by_path.get(path).copied()
-    }
-
-    /// Records one identified asset.
-    fn insert(&mut self, path: String, guid: AssetGuid) {
-        self.by_path.insert(path, guid);
-    }
-}
-
 /// Walks `<project_dir>/assets`, giving every eligible file a `.meta` sidecar
 /// if it does not already have one, and returns what it found.
 ///
@@ -163,9 +122,10 @@ impl AssetIndex {
 /// # What it warns about, and still continues past
 ///
 /// A file that cannot be hashed, a sidecar that cannot be written, a directory
-/// that cannot be opened, and — most importantly — a sidecar that exists but
-/// cannot be parsed. Each names the path and leaves that one asset out of the
-/// index. See the module docs for why none of these aborts the scan.
+/// that cannot be opened, a sidecar that exists but cannot be parsed, and a
+/// sidecar whose identity another file already claims — the copy-paste case
+/// [`AssetIndex`] describes. Each names the path and leaves that one asset out
+/// of the index. See the module docs for why none of these aborts the scan.
 ///
 /// # Errors
 ///
@@ -289,7 +249,7 @@ fn identify(path: &Path, relative: &str, index: &mut AssetIndex) {
     match Sidecar::read(&meta) {
         // The ordinary rescan: this asset was identified on some earlier run
         // and keeps what it was given.
-        Ok(Some(existing)) => index.insert(relative.to_string(), existing.guid),
+        Ok(Some(existing)) => record(&existing, relative, index),
 
         // Never seen before, so mint one.
         Ok(None) => {
@@ -320,7 +280,7 @@ fn identify(path: &Path, relative: &str, index: &mut AssetIndex) {
                 );
                 return;
             }
-            index.insert(relative.to_string(), sidecar.guid);
+            record(&sidecar, relative, index);
         }
 
         // A sidecar that exists and will not parse. Minting a replacement here
@@ -335,6 +295,22 @@ fn identify(path: &Path, relative: &str, index: &mut AssetIndex) {
              delete the file by hand",
             meta.display()
         ),
+    }
+}
+
+/// Puts one asset's sidecar into the index, and tells a human when the index
+/// will not have it.
+///
+/// The index refuses a contradiction rather than resolving it — see
+/// [`AssetIndex`] — and a refusal that nobody reported would leave an asset
+/// quietly unidentified with nothing to act on, which is the failure mode this
+/// whole module is built to avoid.
+fn record(sidecar: &Sidecar, relative: &str, index: &mut AssetIndex) {
+    match index.insert(sidecar.guid, relative, &sidecar.hash, &sidecar.former_paths) {
+        Insertion::Recorded => {}
+        rejected @ (Insertion::DuplicateGuid { .. } | Insertion::DuplicatePath { .. }) => {
+            warn!("asset identity: {relative} will have no identity this run — {rejected}")
+        }
     }
 }
 
@@ -526,6 +502,54 @@ mod tests {
              count of every assets directory on every scan"
         );
         assert_eq!(index.len(), 1);
+    }
+
+    // Copying an asset together with its .meta is one drag in Explorer, and it
+    // is how two files come to claim one identity. The index keeps whichever it
+    // saw first, which means *neither* file is guaranteed to be the one indexed
+    // -- so this asserts the shape of the outcome rather than naming a winner,
+    // and that the developer is told which file to repair.
+    #[test]
+    fn an_asset_copied_along_with_its_sidecar_does_not_steal_the_original_identity() {
+        let probe = ProbeDir(std::env::temp_dir().join(unique("identity-copied")));
+        let assets = probe.0.join("assets/models");
+        let shared = Sidecar {
+            guid: AssetGuid::new(),
+            hash: "blake3:abc".to_string(),
+            former_paths: Vec::new(),
+        };
+        for name in ["fox.glb", "fox_copy.glb"] {
+            write_file(&assets.join(name), b"fake glb");
+            shared
+                .write(sidecar_path(assets.join(name)))
+                .expect("write sidecar");
+        }
+
+        let (index, logs) = capture_warnings(|| scan(&probe.0).expect("scan"));
+
+        let original = index.guid_for_path("assets/models/fox.glb");
+        let copy = index.guid_for_path("assets/models/fox_copy.glb");
+        assert_eq!(
+            index.len(),
+            1,
+            "one identity means one asset; indexing both would make \
+             path_for_guid pick a file by directory order"
+        );
+        let (kept, rejected) = match (original, copy) {
+            (Some(_), None) => ("assets/models/fox.glb", "fox_copy.glb"),
+            (None, Some(_)) => ("assets/models/fox_copy.glb", "fox.glb"),
+            other => panic!("exactly one of the two must be indexed, got {other:?}"),
+        };
+        assert_eq!(
+            index.path_for_guid(shared.guid),
+            Some(kept),
+            "the identity has to point back at the file that kept it"
+        );
+        assert!(
+            logs.contains(rejected),
+            "the developer has to be told which file to delete the .meta from, \
+             or an asset is silently unidentified -- got:\n{logs}"
+        );
     }
 
     // An assets directory that is not there is not "a project with no assets" —

@@ -129,11 +129,14 @@ pub(crate) const RECORDINGS_DIR: &str = "tests";
 /// Deriving this list from that one would quietly import a deliberate
 /// permissiveness into the one place it does damage.
 ///
-/// So the overlap is copied, not shared, and the two are expected to drift:
-/// `js` and `ron` are here and not there precisely because neither ever reaches
-/// `bevy_asset` (scenes go through `std::fs::read_to_string`, scripts through
-/// `bsengine-scripting`), and a later sub-item that gives scripts real hot
-/// reload will add `js` *there* without changing anything here.
+/// So the overlap is copied, not shared, and the two are expected to drift.
+/// They now have: `ron` is here and not there because a scene never reaches
+/// `bevy_asset` (it goes through `std::fs::read_to_string`), while `js` — which
+/// used to be in the same position — is in **both** lists since roadmap item 31
+/// made a script a `Handle<ScriptSource>` its entity retains, and so something
+/// a save can really reload. That is the divergence these two were kept
+/// separate for, arriving; the lists moved independently and nothing here
+/// changed.
 ///
 /// # Why an allow-list rather than a deny-list
 ///
@@ -153,8 +156,9 @@ const IDENTIFIED_EXTENSIONS: &[&str] = &[
     // Everything `bevy_asset` serves in this engine, mirroring
     // `watcher::RELOADABLE_EXTENSIONS` for the reasons above.
     "glb", "gltf", "png", "jpg", "jpeg", "hdr", "wgsl", "wav", "ogg", "mp3", "flac",
-    // Referenced by path but loaded outside `bevy_asset` entirely, so they
-    // never appear in that list and are exactly what item 30 adds.
+    // Referenced by path from plain text, which is what item 30 adds them for.
+    // `js` is also in that list as of item 31 (scripts became assets); `ron` is
+    // not, and is still loaded outside `bevy_asset` entirely.
     "js", "ron",
 ];
 

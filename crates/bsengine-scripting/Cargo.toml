@@ -28,6 +28,11 @@ tracing.workspace = true
 
 [dev-dependencies]
 bsengine-app.workspace = true
+# The hot-reload tests drive a real `AssetWatcherPlugin` over a real project
+# directory that has to be removed afterwards even when a test panics, and
+# `ProbeDir`/`unique` are what the watcher's own tests use for exactly that —
+# including the `.gitignore` entry that covers the name they mint.
+bsengine-asset = { workspace = true, features = ["test-support"] }
 # Only to capture `tracing` output in tests: the audio give-up path's whole
 # point is that the warning reaches the developer, so a test that asserts on
 # state alone would not cover it.

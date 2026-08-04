@@ -177,18 +177,40 @@ pub fn handle_scene_load(world: &mut World) {
     }
 
     // Script state (Bsengine._scripts, timers, collision/message handlers,
-    // ...) is reset below by re-running BOOTSTRAP_JS + each entity's script
-    // via load_scripts, which replaces the whole `Bsengine` object. This
-    // deliberately reuses the existing ScriptRuntime/V8 isolate rather than
-    // constructing a new one: creating a second V8 isolate while
-    // EditorPlugin's stack is active corrupts V8's isolate state (crashes
-    // with "Cannot create a handle without a HandleScope" the moment a
-    // script next runs) — see BOOTSTRAP_JS's `var Bsengine` comment for the
-    // JS-side half of this fix.
+    // ...) is reset below by re-running BOOTSTRAP_JS via load_scripts, which
+    // replaces the whole `Bsengine` object. This deliberately reuses the
+    // existing ScriptRuntime/V8 isolate rather than constructing a new one:
+    // creating a second V8 isolate while EditorPlugin's stack is active
+    // corrupts V8's isolate state (crashes with "Cannot create a handle
+    // without a HandleScope" the moment a script next runs) — see
+    // BOOTSTRAP_JS's `var Bsengine` comment for the JS-side half of this fix.
 
     // Spawn scene and resolve physics inline (Added<> won't fire for same-frame spawns)
     spawn_scene_entities(world, &scene.entities);
     resolve_physics_bodies_world(world);
+    // Requests the new entities' scripts; it does not run them. Scripts are
+    // `bevy_asset` assets, and `bevy_asset` publishes finished loads from
+    // `PreUpdate` — which this frame has already passed, since this system is
+    // in `Update` — so the new scene's scripts execute in
+    // `bsengine_scripting`'s `execute_loaded_scripts` on the *next* frame.
+    // Measured at exactly one frame; pinned by this module's
+    // `a_script_loaded_scene_gets_its_own_scripts_running`.
+    //
+    // What that costs, stated plainly, because it used to be atomic: between
+    // this frame and the one where the new scripts execute, no entity has a
+    // `Script` component, so `run_scripts` early-returns and `Bsengine._runAll`
+    // is not called at all. For those few frames script timers do not tick,
+    // key/mouse/gamepad edge events are not dispatched to JS, and collisions
+    // are not delivered. The old scene's handlers are already gone (the
+    // bootstrap above wiped them and every named entity was despawned), so
+    // nothing from the dead scene leaks into the new one — the gap is silence,
+    // not stale behaviour, and it lasts as long as reading the scripts off
+    // disk takes.
+    //
+    // What is still atomic is the reset itself: `load_scripts` runs
+    // BOOTSTRAP_JS synchronously before it requests anything, so the despawn
+    // and the JS-side clear land on the same frame, which is what the comment
+    // above is about.
     load_scripts(world);
 }
 
@@ -224,5 +246,120 @@ pub fn resolve_physics_bodies_world(world: &mut World) {
                 rotation: t.rotation.0,
             },
         ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Name;
+    use bsengine_core::HudTexts;
+
+    /// A two-scene project where scene A's script chains to scene B on its
+    /// first `onUpdate`, and each scene's script announces itself through the
+    /// HUD. That is `games/tilt-run`'s level chain in miniature — the shape
+    /// whose atomicity `handle_scene_load` gave up when scripts became assets.
+    fn chained_scene_project() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("assets/scenes")).unwrap();
+        std::fs::create_dir_all(root.join("assets/scripts")).unwrap();
+        std::fs::write(
+            root.join("project.toml"),
+            "[project]\nname = \"Chain\"\nentry_scene = \"assets/scenes/a.ron\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("assets/scripts/a.js"),
+            "var chained = false;\n\
+             function onUpdate(name) {\n\
+               Bsengine.setHudText(\"a\", \"ran\");\n\
+               if (!chained) { chained = true; Bsengine.loadScene(\"assets/scenes/b.ron\"); }\n\
+             }",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("assets/scripts/b.js"),
+            "function onUpdate(name) { Bsengine.setHudText(\"b\", \"ran\"); }",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("assets/scenes/a.ron"),
+            r#"SceneDescriptor(entities: [EntityDescriptor(name: "A", script: Some("assets/scripts/a.js"))])"#,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("assets/scenes/b.ron"),
+            r#"SceneDescriptor(entities: [EntityDescriptor(name: "B", script: Some("assets/scripts/b.js"))])"#,
+        )
+        .unwrap();
+        dir
+    }
+
+    /// A scene loaded from a script must end up with *its* scripts running,
+    /// promptly, without anything asking again.
+    ///
+    /// This is the property `handle_scene_load` used to get for free by
+    /// reading each file inline: "the scene is spawned" and "its scripts are
+    /// running" were one step. They are two now — `load_scripts` requests, and
+    /// `bsengine_scripting`'s poll executes once `bevy_asset` has the source —
+    /// and `games/tilt-run` chains five levels through exactly this path, with
+    /// its recordings asserting on what the *next* level's scripts do.
+    ///
+    /// The bound is deliberately loose and deliberately finite. Loose, because
+    /// how many frames a load takes is `bevy_asset`'s business and this test
+    /// is not the place to pin it (`bevy_tasks` built with `multi-threaded`
+    /// would make it genuinely concurrent rather than a blocking `spawn`).
+    /// Finite, because the failure this guards against is not slowness — it is
+    /// the new script never running at all, which is what a poll that dropped
+    /// the handle, or a request that never happened, would look like.
+    #[test]
+    fn a_script_loaded_scene_gets_its_own_scripts_running() {
+        let dir = chained_scene_project();
+        let mut app = crate::test_mode::build_test_app(dir.path().to_str().unwrap(), None);
+
+        let mut swapped_at = None;
+        let mut b_ran_at = None;
+        for frame in 1..=60u32 {
+            app.update();
+            let swapped = {
+                let world = app.world_mut();
+                let mut q = world.query::<&Name>();
+                q.iter(world).any(|n| n.0 == "B")
+            };
+            if swapped && swapped_at.is_none() {
+                swapped_at = Some(frame);
+            }
+            if app.world().resource::<HudTexts>().0.contains_key("b") {
+                b_ran_at = Some(frame);
+                break;
+            }
+        }
+
+        let swapped_at = swapped_at.expect(
+            "scene B was never spawned, so nothing about its scripts was measured — \
+             the chain itself is broken, not the script loading",
+        );
+        let b_ran_at = b_ran_at.expect(
+            "scene B spawned but its script never ran: a scene loaded from a script \
+             must get its own scripts running, which is what `handle_scene_load` \
+             used to guarantee synchronously and now delegates to the asset poll",
+        );
+        assert!(
+            b_ran_at >= swapped_at,
+            "sanity: the new scene's script cannot run before the scene exists \
+             (spawned frame {swapped_at}, ran frame {b_ran_at})"
+        );
+        // The gap this item introduced, pinned rather than described: frames
+        // in which the new scene exists and no script is running. It is one
+        // today. Growing would mean scripts are waiting on something they did
+        // not wait on before, which is worth failing over even though the
+        // exact number is `bevy_asset`'s to choose.
+        assert!(
+            b_ran_at - swapped_at <= 8,
+            "the new scene ran with no scripts for {} frames (spawned {swapped_at}, \
+             ran {b_ran_at}); that gap is silence — no onUpdate, no script timers, \
+             no collision or input dispatch — and it used to be zero",
+            b_ran_at - swapped_at
+        );
     }
 }

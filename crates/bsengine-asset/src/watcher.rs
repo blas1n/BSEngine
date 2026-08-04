@@ -96,9 +96,9 @@ const DEBOUNCE: Duration = Duration::from_millis(200);
 /// proves the asset *type* is servable — never that this particular path was
 /// ever loaded. [`drain_asset_changes`] therefore asks `AssetServer` directly
 /// before reloading anything; this list just avoids bothering it about the
-/// `.ron` scene edits and `.js` script edits that make up most of what a save
-/// touches (scenes go through `std::fs::read_to_string` and scripts through
-/// `bsengine-scripting`, neither of which involves `bevy_asset` at all).
+/// `.ron` scene edits that make up much of what a save touches (scenes go
+/// through `std::fs::read_to_string`, which does not involve `bevy_asset` at
+/// all).
 ///
 /// The two ways to get this list wrong are therefore **not** symmetric:
 ///
@@ -118,12 +118,32 @@ const DEBOUNCE: Duration = Duration::from_millis(200);
 /// * `wgsl` — `bsengine_render::ShaderSourceLoader`
 /// * `wav`, `ogg`, `mp3`, `flac` — `bsengine_audio::AudioSourceLoader` (the
 ///   workspace pins `kira` to exactly those four codecs)
+/// * `js` — `bsengine_scripting::script_asset::ScriptSourceLoader`
 ///
 /// None of those loaders declares `AssetLoader::extensions()` — every load
 /// site in the engine is type-directed (`AssetServer::load::<T>(path)`), so
 /// there is no registry to interrogate and this list is maintained by hand.
+///
+/// # `js` was deliberately absent until roadmap item 31
+///
+/// Scripts used to be read with `std::fs::read_to_string` at `PostStartup`,
+/// so a changed `.js` had nothing on the `bevy_asset` side to reload and
+/// listing it here would only have produced a `debug!` line per save. Item 31
+/// made a script a `Handle<ScriptSource>` that its entity retains for life,
+/// which is what makes `AssetEvent::Modified` reach
+/// `bsengine_scripting::plugin::reexecute_modified_scripts` — so the entry
+/// below is now the first half of the reload that matters most in this
+/// engine, scripts being the bulk of what a scene references.
+///
+/// # Not to be merged with `identity::scan`'s `IDENTIFIED_EXTENSIONS`
+///
+/// The two lists overlap heavily and answer different questions ("can
+/// `bevy_asset` reload this?" versus "does this deserve a `.meta` sidecar?"),
+/// and the cost of a wrong entry runs opposite ways — see that constant's
+/// docs. `js` moving into this list *is* the divergence they were kept
+/// separate for; `ron` is still in that one and not this one.
 const RELOADABLE_EXTENSIONS: &[&str] = &[
-    "glb", "gltf", "png", "jpg", "jpeg", "hdr", "wgsl", "wav", "ogg", "mp3", "flac",
+    "glb", "gltf", "png", "jpg", "jpeg", "hdr", "wgsl", "wav", "ogg", "mp3", "flac", "js",
 ];
 
 /// Watches `<ProjectDir>/assets` and asks `AssetServer` to reload any asset
@@ -275,8 +295,8 @@ fn start_asset_watcher(
 /// warns and the first one says nothing:
 ///
 /// * An unservable extension is the **normal** case. Most of what a save
-///   touches is `.ron`, `.js`, an editor swap file or a directory, and
-///   announcing each of those would bury the lines that matter.
+///   touches is `.ron`, a `.meta` sidecar, an editor swap file or a directory,
+///   and announcing each of those would bury the lines that matter.
 /// * A path that will not strip is an **anomaly**, by construction: `notify`
 ///   only ever reports paths under the root it was told to watch, and
 ///   [`start_asset_watcher`] builds `strip_base` from that same root. If it
@@ -337,10 +357,10 @@ fn reconstruct(changed: &Path, strip_base: &Path, engine_root: &str) -> Option<S
 ///   project opened from the editor and the same project run from its own
 ///   directory.
 /// * That one also refuses everything outside `RELOADABLE_EXTENSIONS`, which
-///   excludes `.ron` and `.js` — the two file types whose references live in
-///   plain text and are therefore the ones a rename hurts most. Filtering by
-///   what `bevy_asset` can reload would drop exactly the cases item 30 exists
-///   for.
+///   excludes `.ron` — one of the two file types whose references live in
+///   plain text and are therefore the ones a rename hurts most (`.js` is the
+///   other, and joined that list in item 31). Filtering by what `bevy_asset`
+///   can reload would drop exactly the cases item 30 exists for.
 ///
 /// Returns `None` for a path that is not under the watch root, and for the
 /// watch root itself. Silently, unlike [`reconstruct`]: a rename that moves a
@@ -1604,7 +1624,25 @@ mod tests {
              re-cased -- bevy matches the string, so only the real spelling works"
         );
 
-        for rejected in ["scene.ron", "player.js", "meta.toml", "model.bin", "README"] {
+        // Item 31 gave scripts a real loader and a retained handle, so a `.js`
+        // edit is now the reload this whole module matters most for. It used
+        // to sit in the rejected list below; a change that quietly puts it
+        // back has to fail here rather than turn script hot reload off with no
+        // symptom other than edits doing nothing.
+        assert_eq!(
+            reconstruct(
+                &strip_base.join("scripts").join("player.js"),
+                &strip_base,
+                engine_root
+            )
+            .as_deref(),
+            Some("games/mini-arena/assets/scripts/player.js"),
+            "a script must survive the extension filter -- `ScriptSourceLoader` \
+             serves it and its entity retains the handle, so reloading it really \
+             dispatches"
+        );
+
+        for rejected in ["scene.ron", "meta.toml", "model.bin", "README"] {
             assert_eq!(
                 reconstruct(&strip_base.join(rejected), &strip_base, engine_root),
                 None,
@@ -1631,7 +1669,7 @@ mod tests {
     // difference is the whole point of this test.
     //
     // An unservable extension is routine -- most of what a save touches is a
-    // `.ron`, a `.js` or an editor swap file -- and logging each one would
+    // `.ron`, a `.meta` or an editor swap file -- and logging each one would
     // bury everything else. But a path that will not strip is an *anomaly*:
     // notify only ever reports paths under the root it was told to watch, so
     // by construction this cannot happen. Where it does happen -- a backend

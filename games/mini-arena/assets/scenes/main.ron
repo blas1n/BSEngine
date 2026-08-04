@@ -5,7 +5,7 @@ SceneDescriptor(entities: [
         camera_fov: Some(60.0),
         transform: Some((translation: (0.0, 4.0, 7.0))),
         look_at: Some((0.0, 0.5, 0.0)),
-        script: Some("assets/scripts/camera.js"),
+        script: Some((guid: "3997496e-5c62-4993-b921-bcbd075b9b12", path: "assets/scripts/camera.js")),
         components: [
             ("bsengine_core::bloom::Bloom", "(intensity: 0.6, threshold: 1.0, radius: 4.0, softness: 0.5, enabled: true)"),
             ("bsengine_core::tone_map::ToneMap", "(mode: Aces, exposure: 0.0, enabled: true)"),
@@ -25,11 +25,11 @@ SceneDescriptor(entities: [
     ),
     EntityDescriptor(
         name: "Player",
-        gltf: Some("assets/models/fox.glb"),
+        gltf: Some((guid: "e6e4ac02-de7e-46ae-a3a9-d3dd1ac62694", path: "assets/models/fox.glb")),
         transform: Some((translation: (0.0, 0.0, 0.0), scale: (0.02, 0.02, 0.02))),
         rigidbody: Some(Kinematic),
         collider: Some((shape: Capsule(half_height: 0.5, radius: 0.35), friction: 0.3)),
-        script: Some("assets/scripts/player.js"),
+        script: Some((guid: "3ed11a4f-029d-4d48-8d19-e3a2eda7a459", path: "assets/scripts/player.js")),
         components: [
             ("bsengine_core::animation_state_machine::AnimationStateMachine", r#"(
                 states: {
@@ -58,11 +58,11 @@ SceneDescriptor(entities: [
     ),
     EntityDescriptor(
         name: "Enemy",
-        gltf: Some("assets/models/fox.glb"),
+        gltf: Some((guid: "e6e4ac02-de7e-46ae-a3a9-d3dd1ac62694", path: "assets/models/fox.glb")),
         transform: Some((translation: (5.0, 0.0, 5.0), scale: (0.02, 0.02, 0.02))),
         rigidbody: Some(Kinematic),
         collider: Some((shape: Capsule(half_height: 0.5, radius: 0.35), friction: 0.3)),
-        script: Some("assets/scripts/enemy.js"),
+        script: Some((guid: "5eafcc42-9eba-47dd-a0b4-f4a3c60dbb77", path: "assets/scripts/enemy.js")),
         components: [
             ("bsengine_core::nav_mesh_agent::NavMeshAgent", "(destination: None, speed: 3.0, angular_speed: 2.0, acceleration: 8.0, stopping_distance: 1.2, radius: 0.4, height: 1.8, state: Idle, enabled: true)"),
             ("bsengine_core::shield::Shield", "(current: 30.0, max: 30.0, recharge_rate: 0.0, recharge_delay: 0.0, recharge_cooldown: 0.0)"),
@@ -70,7 +70,7 @@ SceneDescriptor(entities: [
     ),
     EntityDescriptor(
         name: "Hud",
-        script: Some("assets/scripts/hud.js"),
+        script: Some((guid: "20bf72ff-be56-45e4-9f95-2c29ad1c0e41", path: "assets/scripts/hud.js")),
     ),
     EntityDescriptor(
         name: "Pickup",
@@ -78,7 +78,7 @@ SceneDescriptor(entities: [
         transform: Some((translation: (2.0, 0.8, -2.0), scale: (0.4, 0.4, 0.4))),
         color: Some((0.2, 0.6, 1.0)),
         emissive: Some((0.2, 0.6, 1.0)),
-        script: Some("assets/scripts/pickup.js"),
+        script: Some((guid: "28c77ead-a2b2-4a44-aad6-2370718af043", path: "assets/scripts/pickup.js")),
         rigidbody: Some(Static),
         collider: Some((shape: Sphere(radius: 0.4), sensor: true)),
     ),
@@ -89,6 +89,6 @@ SceneDescriptor(entities: [
     ),
     EntityDescriptor(
         name: "Pause",
-        script: Some("assets/scripts/pause.js"),
+        script: Some((guid: "063a4f5c-13d8-43b9-b33c-ba5eb54911d2", path: "assets/scripts/pause.js")),
     ),
 ])

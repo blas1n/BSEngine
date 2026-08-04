@@ -3,7 +3,7 @@ SceneDescriptor(entities: [
         name: "Camera",
         camera: true,
         transform: Some((translation: (0.0, 4.0, 6.0))),
-        script: Some("assets/scripts/camera.js"),
+        script: Some((guid: "3af494b4-4968-4507-8d95-50bc1f5278b1", path: "assets/scripts/camera.js")),
     ),
     EntityDescriptor(
         name: "Sun",
@@ -26,6 +26,6 @@ SceneDescriptor(entities: [
         color: Some((0.9, 0.3, 0.1)),
         rigidbody: Some(Dynamic),
         collider: Some((shape: Sphere(radius: 0.5), restitution: 0.1, friction: 0.6)),
-        script: Some("assets/scripts/player.js"),
+        script: Some((guid: "443c669a-cafb-4189-a69f-9a32c8d1ba8e", path: "assets/scripts/player.js")),
     ),
 ])

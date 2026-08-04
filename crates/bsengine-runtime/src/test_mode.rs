@@ -8,7 +8,7 @@ use std::io::{self, BufRead, Write};
 use bevy_app::App;
 use bevy_ecs::event::Events;
 use bsengine_app::{NavMeshPlugin, TimePlugin};
-use bsengine_asset::AssetPlugin;
+use bsengine_asset::{AssetPlugin, AssetStatusPlugin};
 use bsengine_audio::AudioPlugin;
 use bsengine_core::{EditorPlayState, InspectorState};
 use bsengine_input::{ElementState, InputPlugin, KeyCode, KeyInput, MouseButton, MouseInput};
@@ -39,6 +39,36 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>) -> App {
     let mut app = bsengine_app::new_app();
     app.add_plugins(TimePlugin)
         .add_plugins(AssetPlugin)
+        // Included here, unlike `AssetWatcherPlugin` (see main.rs's
+        // run_windowed for why that one is windowed-only). The two reasons
+        // the watcher is excluded are that it starts a background thread and
+        // that it introduces frame-to-frame variation in the one mode that
+        // pins its clocks to stay reproducible. Neither applies to this one:
+        // it starts nothing, and it only *reads* `bevy_asset`'s own per-frame
+        // state into a resource — it drives no entity, no clock and no
+        // physics, so a replay behaves identically with or without it.
+        //
+        // The positive reason is stronger than the absence of a cost.
+        // "Did this asset actually load?" is exactly the question a headless
+        // E2E recording should be able to assert on, and it is the question
+        // that went unanswered while `games/mini-arena` ran with no mesh and
+        // no shader across two phases of work. Leaving it out would make
+        // `Bsengine.getAssetStatus` answer `unknown` for every path in the
+        // mode most likely to be automating that check — the same
+        // registered-nowhere failure this plugin's absence caused before.
+        //
+        // What it records here today is narrower than in the windowed
+        // runtime, and worth knowing before someone concludes it is broken:
+        // this app has no `RenderPlugin`, `GltfPlugin` or `SkinnedMeshPlugin`,
+        // so nothing ever requests a mesh, a shader or a texture. Replaying
+        // `games/mini-arena` records zero paths, while the same game windowed
+        // records its `fox.glb` and `glow.wgsl` as `Loaded`. Sounds *are*
+        // requested here (`AudioPlugin` and `playSound` are both present), so
+        // those are tracked. The distinction matters: an empty map means
+        // "genuinely nothing was requested", which is a true answer, whereas
+        // a missing resource would have meant "the engine cannot say" while
+        // sounding identical to a script.
+        .add_plugins(AssetStatusPlugin)
         .add_plugins(InputPlugin)
         .add_plugins(AudioPlugin)
         .add_plugins(PhysicsPlugin)

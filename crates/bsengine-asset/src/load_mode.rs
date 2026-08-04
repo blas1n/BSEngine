@@ -87,6 +87,19 @@ pub enum LoadMode {
 /// since none of the four migrated call sites cached before either).
 /// `Async` calls `AssetServer::load::<T>(path)` and ignores `sync_loader`
 /// entirely (the registered `AssetLoader` is used instead).
+///
+/// # Status recording
+///
+/// The `Async` arm goes through [`load_async`], so every path requested this
+/// way is reported by [`crate::AssetStatuses`] from the moment it is asked
+/// for, rather than only if it later fails.
+///
+/// The `Sync` arm is deliberately **not** recorded. It never touches the
+/// `AssetServer` — it runs `sync_loader` and puts the value straight into
+/// `Assets<T>` — so there is nothing for `collect_asset_statuses` to observe:
+/// the path would sit at `Loading` forever, which is a worse answer than
+/// `Unknown` because it looks like an answer. A `Sync` caller already has the
+/// verdict in its hand, as the `Result` this returns.
 pub fn load<T, E>(
     mode: LoadMode,
     asset_server: &AssetServer,
@@ -103,8 +116,37 @@ where
             let value = sync_loader(path).map_err(|e| format!("{path}: {e}"))?;
             Ok(assets.add(value))
         }
-        LoadMode::Async => Ok(asset_server.load::<T>(path.to_owned())),
+        LoadMode::Async => Ok(load_async::<T>(asset_server, path)),
     }
+}
+
+/// Requests `path` asynchronously and records the request, with no
+/// `LoadMode` and no `sync_loader` to supply.
+///
+/// This is [`load`]'s `Async` arm on its own, for the callers that have no
+/// synchronous alternative to offer. The skybox is the reason it exists:
+/// `upload_pending_skybox` loads a `TextureAsset`, and this codebase has no
+/// synchronous texture loader — only `TextureAssetLoader`, for the async
+/// path — so calling [`load`] there would mean inventing a `sync_loader`
+/// closure that can never run, to satisfy an arm that is never taken. It
+/// called `AssetServer::load` directly instead, which is exactly how it
+/// escaped status recording.
+///
+/// Prefer this over `AssetServer::load` anywhere in the engine. The two do the
+/// same thing, except that a path requested through `AssetServer::load` is
+/// invisible to [`crate::AssetStatuses`] until it fails — and "it loaded" and
+/// "nothing ever asked" both read back as [`crate::AssetStatus::Unknown`],
+/// which is the ambiguity that let a game run with no mesh and no shader for
+/// two phases of work.
+///
+/// Infallible, and returns the `Handle<T>` rather than a `Result<Handle<T>>`:
+/// `AssetServer::load` hands back a handle for any path at all, and whether
+/// the file exists is only knowable frames later. Poll the returned handle —
+/// see [`LoadMode`] for the shape every consumer in this engine uses, and why
+/// re-requesting instead of polling erases the very failure it is looking for.
+pub fn load_async<T: Asset>(asset_server: &AssetServer, path: &str) -> Handle<T> {
+    crate::status::record_asset_request(path);
+    asset_server.load::<T>(path.to_owned())
 }
 
 #[cfg(test)]

@@ -475,12 +475,17 @@ fn upload_pending_skybox(
     };
 
     let Some(handle) = in_flight else {
-        // Requested exactly once, then polled -- never re-requested. Called
-        // directly rather than through `bsengine_asset::load` because that
+        // Requested exactly once, then polled -- never re-requested.
+        // `load_async` rather than `bsengine_asset::load` because that
         // dispatcher takes a `sync_loader` closure for its `LoadMode::Sync`
         // arm and there is no synchronous texture loader in this codebase:
         // item 23 only ever wrote `TextureAssetLoader`, for the async path.
-        let handle = asset_server.load::<bsengine_asset::TextureAsset>(wanted.to_string());
+        // It used to call `AssetServer::load` directly for that reason, which
+        // is precisely how the skybox stayed invisible to `AssetStatuses`
+        // until it failed -- `load_async` is the recording half of `load`
+        // with the unreachable `Sync` arm left out.
+        let handle =
+            bsengine_asset::load_async::<bsengine_asset::TextureAsset>(&asset_server, wanted);
         pending.0 = Some((wanted.to_string(), PendingSkyboxState::Loading(handle)));
         return;
     };
@@ -1415,6 +1420,54 @@ mod tests {
         );
 
         let _ = std::fs::remove_file(&png);
+    }
+
+    // The skybox is the one consumer that never went through
+    // `bsengine_asset::load` -- that dispatcher wants a `sync_loader` closure
+    // for its `Sync` arm and this codebase has no synchronous texture loader --
+    // so it is the one that could silently stay invisible to `AssetStatuses`.
+    //
+    // A *successful* load is what proves the routing. A failing one would be
+    // reported anyway: `UntypedAssetLoadFailedEvent` reaches the collector
+    // whether or not the request was ever recorded, so a missing-file version
+    // of this test would pass with the recording removed.
+    #[test]
+    fn a_loaded_skybox_is_reported_by_asset_statuses() {
+        use bsengine_asset::{AssetStatus, AssetStatusPlugin, AssetStatuses};
+
+        let dir = std::env::temp_dir().join(format!(
+            "bsengine_test_skybox_status_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let png = dir.join("sky.png");
+        std::fs::write(&png, MINIMAL_PNG_1X1).unwrap();
+        let path = png.to_string_lossy().to_string();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(AssetStatusPlugin);
+        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(RenderPlugin);
+        app.insert_resource(bsengine_core::SkyboxPath(Some(path.clone())));
+
+        let mut status = AssetStatus::Unknown;
+        for _ in 0..200 {
+            app.update();
+            status = app.world().resource::<AssetStatuses>().get(&path);
+            if status == AssetStatus::Loaded {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+
+        let _ = std::fs::remove_file(&png);
+        assert_eq!(
+            status,
+            AssetStatus::Loaded,
+            "a skybox that loaded must be reported as loaded -- requesting it \
+             straight from the AssetServer is what kept it invisible until it failed"
+        );
     }
 
     // The skybox equivalent of the shader test above, and for the same

@@ -3,9 +3,10 @@
 //!
 //! This is the half of asset identity that runs: [`sidecar`](super::sidecar)
 //! defines what an identity *is*, and [`scan`] is what puts one next to every
-//! asset and reports what it found. Nothing consumes the result yet — that is
-//! deliberate, so introducing identity cannot change how anything currently
-//! behaves.
+//! asset and reports what it found. What consumes the result is
+//! [`AssetIdentityPlugin`](super::AssetIdentityPlugin), which runs this once at
+//! `Startup` in every host so `bsengine-scene` can resolve a scene's asset
+//! references by identity rather than by path.
 //!
 //! # Paths are project-relative
 //!

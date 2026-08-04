@@ -26,7 +26,7 @@ SceneDescriptor(entities: [
         transform: Some((
             translation: (0.0, 0.5, 0.0),
         )),
-        script: Some("assets/scripts/player.js"),
+        script: Some((guid: "2cd236eb-3cb0-4311-8f02-cf7a92c457db", path: "assets/scripts/player.js")),
     ),
     EntityDescriptor(
         name: "Item1",

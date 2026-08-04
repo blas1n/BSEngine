@@ -331,20 +331,26 @@ fn game_validate(root: &Path, args: Value) -> McpToolOutput {
         }
     };
 
-    if let Err(e) = ron::from_str::<ron::Value>(&scene_str) {
-        return McpToolOutput::error(&format!("scene parse error: {e}"));
-    }
+    let scene = match ron::from_str::<ron::Value>(&scene_str) {
+        Ok(v) => v,
+        Err(e) => return McpToolOutput::error(&format!("scene parse error: {e}")),
+    };
 
-    // Check all script paths referenced in the scene exist
+    // Check all script paths referenced in the scene exist.
     let mut missing_scripts: Vec<String> = Vec::new();
-    for line in scene_str.lines() {
-        let line = line.trim();
-        if let Some(rest) = line.strip_prefix("script: Some(\"") {
-            if let Some(script_rel) = rest.strip_suffix("\"),") {
-                let script_path = game_dir.join(script_rel);
-                if !script_path.exists() {
-                    missing_scripts.push(script_rel.to_string());
-                }
+    let mut refs = Vec::new();
+    collect_script_refs(&scene, &mut refs);
+    for (entity, path) in refs {
+        match path {
+            Some(script_rel) if !game_dir.join(&script_rel).exists() => {
+                missing_scripts.push(script_rel)
+            }
+            Some(_) => {}
+            None => {
+                return McpToolOutput::error(&format!(
+                    "entity '{entity}' has a `script:` value that is neither a path string nor a \
+                     (guid: \"…\", path: \"…\") pair"
+                ))
             }
         }
     }
@@ -360,6 +366,89 @@ fn game_validate(root: &Path, args: Value) -> McpToolOutput {
         "valid": true,
         "run_command": format!("cargo run -p bsengine-runtime -- ./games/{game}"),
     }))
+}
+
+/// Collects every `script:` reference a parsed scene holds, as
+/// `(owning entity's name, the path it names)`.
+///
+/// A `None` path means the value was a script reference this cannot read a
+/// path out of; the caller reports that rather than skipping it, because
+/// "found nothing to check" is the one answer a validator must never give
+/// quietly.
+///
+/// # Why the scene is walked parsed rather than matched as text
+///
+/// This replaced `line.strip_prefix("script: Some(\"")`, which stopped
+/// matching the moment roadmap item 30 gave a scene reference its second
+/// spelling — `script: Some((guid: "…", path: "…"))`. Nothing about that
+/// failure was visible: every migrated game would have gone on passing
+/// `game_validate` with zero of its references checked, which is worse than a
+/// validator that errors. Any replacement pattern would carry the same risk
+/// forward, so the match is on structure instead: the scene is already parsed
+/// above to confirm it is valid RON, and both spellings land in that value as
+/// a string or as a map with a `path` key.
+///
+/// # Why not `bsengine_scene::AssetRef`
+///
+/// It is the type that actually defines these two spellings, and using it
+/// would be the robust answer if the dependency were free. It is not:
+/// `bsengine-scene` pulls in `bsengine-gltf`, and with it `bsengine-render`,
+/// `bsengine-rhi-wgpu` and `wgpu` — the whole GPU stack — into
+/// `bsengine-mcp-server`, a JSON-RPC binary that today needs none of it. The
+/// cost of the coupling below is that a *third* spelling would need adding
+/// here too; that is a smaller and much more visible cost than the build it
+/// would otherwise take on.
+///
+/// Recurses the whole value rather than assuming `entities: [..]` at the top
+/// level, so nesting a scene's entities later cannot silently empty this out.
+fn collect_script_refs(value: &ron::Value, out: &mut Vec<(String, Option<String>)>) {
+    match value {
+        ron::Value::Map(map) => {
+            let owner = map
+                .iter()
+                .find_map(|(k, v)| match (k, v) {
+                    (ron::Value::String(k), ron::Value::String(name)) if k == "name" => {
+                        Some(name.clone())
+                    }
+                    _ => None,
+                })
+                .unwrap_or_else(|| "(unnamed)".to_string());
+            for (key, val) in map.iter() {
+                match key {
+                    // An explicit `script: None` is "this entity has no
+                    // script", not a reference that could not be read.
+                    ron::Value::String(k) if k == "script" && *val == ron::Value::Option(None) => {}
+                    // Not recursed into, so one reference is reported once.
+                    ron::Value::String(k) if k == "script" => {
+                        out.push((owner.clone(), asset_ref_path(val)))
+                    }
+                    _ => collect_script_refs(val, out),
+                }
+            }
+        }
+        ron::Value::Seq(items) => {
+            for item in items {
+                collect_script_refs(item, out);
+            }
+        }
+        ron::Value::Option(Some(inner)) => collect_script_refs(inner, out),
+        _ => {}
+    }
+}
+
+/// The path out of an asset reference in either spelling: the bare
+/// `"assets/scripts/player.js"` every pre-item-30 scene stores, or the
+/// `(guid: "…", path: "…")` pair a migrated one does.
+fn asset_ref_path(value: &ron::Value) -> Option<String> {
+    match value {
+        ron::Value::Option(Some(inner)) => asset_ref_path(inner),
+        ron::Value::String(path) => Some(path.clone()),
+        ron::Value::Map(map) => map.iter().find_map(|(k, v)| match (k, v) {
+            (ron::Value::String(k), ron::Value::String(path)) if k == "path" => Some(path.clone()),
+            _ => None,
+        }),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -455,5 +544,114 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("valid"));
+    }
+
+    /// Writes a game whose entry scene holds exactly `scene`, then validates
+    /// it.
+    fn validate_game_with_scene(root: &Path, scene: &str) -> McpToolOutput {
+        let tools = game_tools(root.to_path_buf());
+        let create = tools.iter().find(|t| t.name == "game_create").unwrap();
+        (create.handler)(json!({"name": "g", "title": "G"}));
+        let sw = tools.iter().find(|t| t.name == "scene_write").unwrap();
+        let written = (sw.handler)(json!({"game": "g", "content": scene}));
+        assert!(written.is_ok(), "{:?}", written.error);
+        let gv = tools.iter().find(|t| t.name == "game_validate").unwrap();
+        (gv.handler)(json!({"game": "g"}))
+    }
+
+    // The regression roadmap item 30 sub-item B would otherwise have shipped
+    // silently. `game_validate` used to find script references by matching the
+    // raw text `script: Some("`, which a migrated reference —
+    // `script: Some((guid: "…", path: "…"))` — never matches: it would find
+    // zero references in this scene, check nothing, and report the game valid
+    // while the script it names does not exist. A validator that quietly stops
+    // validating is worse than one that fails, so this asserts the failure.
+    #[test]
+    fn game_validate_reports_a_missing_script_named_by_a_guid_pair() {
+        let (_tmp, root) = temp_root();
+        let out = validate_game_with_scene(
+            &root,
+            r#"SceneDescriptor(entities: [
+                EntityDescriptor(
+                    name: "Player",
+                    script: Some((guid: "0193a7c1-8f2e-7c44-9d61-3b5a0e7f2c19", path: "assets/scripts/nope.js")),
+                ),
+            ])"#,
+        );
+        assert!(
+            !out.is_ok(),
+            "a (guid, path) reference to a script that does not exist must fail validation"
+        );
+        let err = out.error.unwrap();
+        assert!(err.contains("assets/scripts/nope.js"), "error was: {err}");
+    }
+
+    // The other half of the same guarantee: the bare spelling every
+    // unmigrated scene still uses must keep being checked. Without this, a
+    // fix aimed only at the new spelling could pass the test above while
+    // silently dropping the old one.
+    #[test]
+    fn game_validate_reports_a_missing_script_named_by_a_bare_path() {
+        let (_tmp, root) = temp_root();
+        let out = validate_game_with_scene(
+            &root,
+            r#"SceneDescriptor(entities: [
+                EntityDescriptor(name: "Player", script: Some("assets/scripts/nope.js")),
+            ])"#,
+        );
+        assert!(!out.is_ok(), "bare-path references must still be checked");
+        assert!(out.error.unwrap().contains("assets/scripts/nope.js"));
+    }
+
+    // Both spellings resolving to a script that exists must pass, or the two
+    // tests above would also be satisfied by a validator that simply always
+    // failed. Also pins that a `script: None` is not mistaken for a reference
+    // whose path could not be read.
+    #[test]
+    fn game_validate_passes_when_both_spellings_name_scripts_that_exist() {
+        let (_tmp, root) = temp_root();
+        let tools = game_tools(root.clone());
+        let create = tools.iter().find(|t| t.name == "game_create").unwrap();
+        (create.handler)(json!({"name": "g", "title": "G"}));
+        let script_write = tools.iter().find(|t| t.name == "script_write").unwrap();
+        for name in ["bare.js", "paired.js"] {
+            let out = (script_write.handler)(json!({
+                "game": "g",
+                "path": format!("assets/scripts/{name}"),
+                "content": "function onUpdate() {}"
+            }));
+            assert!(out.is_ok(), "{:?}", out.error);
+        }
+        let out = validate_game_with_scene(
+            &root,
+            r#"SceneDescriptor(entities: [
+                EntityDescriptor(name: "A", script: Some("assets/scripts/bare.js")),
+                EntityDescriptor(
+                    name: "B",
+                    script: Some((guid: "0193a7c1-8f2e-7c44-9d61-3b5a0e7f2c19", path: "assets/scripts/paired.js")),
+                ),
+                EntityDescriptor(name: "C", script: None),
+                EntityDescriptor(name: "D"),
+            ])"#,
+        );
+        assert!(out.is_ok(), "{:?}", out.error);
+        assert_eq!(out.content["valid"], true);
+    }
+
+    // A `script:` value in neither spelling is reported rather than skipped —
+    // silently ignoring it is the same class of failure as the text matcher
+    // that stopped matching.
+    #[test]
+    fn game_validate_reports_a_script_reference_it_cannot_read_a_path_from() {
+        let (_tmp, root) = temp_root();
+        let out = validate_game_with_scene(
+            &root,
+            r#"SceneDescriptor(entities: [
+                EntityDescriptor(name: "Player", script: Some((guid: "0193a7c1-8f2e-7c44-9d61-3b5a0e7f2c19"))),
+            ])"#,
+        );
+        assert!(!out.is_ok(), "a guid with no path must not be skipped");
+        let err = out.error.unwrap();
+        assert!(err.contains("Player"), "error was: {err}");
     }
 }

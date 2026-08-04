@@ -32,8 +32,8 @@
 
 /// `AssetGuid` and the `.meta` sidecar that gives an asset an identity
 /// independent of its path, plus the `AssetIdentityPlugin` that publishes a
-/// scan of them — a plugin **no host registers yet, deliberately**; see its own
-/// documentation for why.
+/// scan of them as an `AssetIndex`. Registered by all three hosts, and its
+/// docs explain why registering it is only half of making it work.
 pub mod identity;
 /// Chooses between synchronous (blocking, zero-latency) and asynchronous
 /// (`AssetServer`-driven) loading, plus the dispatch helper itself.
@@ -53,11 +53,11 @@ pub mod types;
 /// edited on disk while the game runs.
 pub mod watcher;
 
-/// Probe directories and log capture, shared by the watcher's tests and the
-/// identity scan's — both of which can only be tested against a real
-/// filesystem.
-#[cfg(test)]
-mod test_support;
+/// Probe directories and log capture, shared by the watcher's tests, the
+/// identity scan's, and — through the `test-support` feature — by
+/// `bsengine-scene`'s resolution tests. Never compiled into a shipped build.
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support;
 
 pub use bevy_asset::{Asset, AssetServer, Assets, Handle};
 pub use identity::{AssetGuid, AssetIdentityPlugin, AssetIndex};

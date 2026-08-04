@@ -3,6 +3,180 @@ use bevy_reflect::prelude::ReflectDefault;
 use bevy_reflect::Reflect;
 use serde::{Deserialize, Serialize};
 
+/// A reference from a scene to an asset.
+///
+/// Stores both an identity and a path, GUID first, following Godot 4: the path
+/// is what a human reads and edits, and the fallback when the GUID is unknown
+/// — a project with no sidecars behaves exactly as it did before item 30.
+///
+/// Accepts a bare path string too, which is what every scene in `games/` still
+/// contains and what the MCP tools and scripting API hand in. That is not a
+/// transitional wart: paths remain the reference format at every API boundary
+/// (item 23's design), and only *stored* scene references gain an identity.
+///
+/// The GUID is held as a `String` rather than `bsengine_asset::AssetGuid`
+/// because `bsengine-scene` does not depend on `bsengine-asset` — a scene file
+/// is data, and parsing one must not require the asset database to be present.
+/// Resolution (Task 2) is where the two meet.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(untagged)]
+pub enum AssetRef {
+    /// A path with no recorded identity — the pre-item-30 form.
+    Path(String),
+    /// A path with the identity of the asset it named when the scene was saved.
+    Identified {
+        /// The asset's stable identity.
+        guid: String,
+        /// Where it was when this scene was written; also what a human reads.
+        path: String,
+    },
+}
+
+impl AssetRef {
+    /// The asset's path as written in the scene file.
+    ///
+    /// Present in both spellings, so this never fails. Called once per entity
+    /// on the spawn path, hence `&str` rather than an allocation.
+    pub fn path(&self) -> &str {
+        match self {
+            Self::Path(path) => path,
+            Self::Identified { path, .. } => path,
+        }
+    }
+
+    /// The recorded identity, or `None` for a bare path.
+    pub fn guid(&self) -> Option<&str> {
+        match self {
+            Self::Path(_) => None,
+            Self::Identified { guid, .. } => Some(guid),
+        }
+    }
+}
+
+impl From<String> for AssetRef {
+    fn from(path: String) -> Self {
+        Self::Path(path)
+    }
+}
+
+impl From<&str> for AssetRef {
+    fn from(path: &str) -> Self {
+        Self::Path(path.to_string())
+    }
+}
+
+/// What a reference may be spelled as, quoted in error messages so a typo in a
+/// scene file says what was expected rather than only where it stopped.
+const ASSET_REF_EXPECTING: &str = "an asset path string such as \"assets/models/fox.glb\", or a \
+     guid/path pair such as (guid: \"0193a7c1-8f2e-7c44-9d61-3b5a0e7f2c19\", path: \
+     \"assets/models/fox.glb\")";
+
+/// Hand-written so a malformed reference says which spellings are accepted.
+///
+/// `#[serde(untagged)]` parses and round-trips both forms correctly under
+/// `ron` 0.8, but every failure — an unknown field, a missing `path`, a
+/// non-string `guid`, a bare number — collapses to the same
+/// `data did not match any variant of untagged enum AssetRef`, and an unknown
+/// field alongside a valid pair is silently dropped rather than reported. For a
+/// typo inside a scene file that is an unguessable failure, so the two forms
+/// are deserialized explicitly here and named when neither matches.
+impl<'de> Deserialize<'de> for AssetRef {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_any(AssetRefVisitor)
+    }
+}
+
+struct AssetRefVisitor;
+
+impl<'de> serde::de::Visitor<'de> for AssetRefVisitor {
+    type Value = AssetRef;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str(ASSET_REF_EXPECTING)
+    }
+
+    fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<AssetRef, E> {
+        Ok(AssetRef::Path(value.to_string()))
+    }
+
+    fn visit_string<E: serde::de::Error>(self, value: String) -> Result<AssetRef, E> {
+        Ok(AssetRef::Path(value))
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<AssetRef, A::Error> {
+        use serde::de::Error as _;
+        let mut guid: Option<String> = None;
+        let mut path: Option<String> = None;
+        while let Some(key) = map.next_key::<AssetRefField>()? {
+            match key {
+                AssetRefField::Guid => {
+                    if guid.is_some() {
+                        return Err(A::Error::duplicate_field("guid"));
+                    }
+                    guid = Some(map.next_value()?);
+                }
+                AssetRefField::Path => {
+                    if path.is_some() {
+                        return Err(A::Error::duplicate_field("path"));
+                    }
+                    path = Some(map.next_value()?);
+                }
+                AssetRefField::Unknown(other) => {
+                    return Err(A::Error::custom(format!(
+                        "unknown field `{other}` in asset reference; expected {ASSET_REF_EXPECTING}"
+                    )));
+                }
+            }
+        }
+        match (guid, path) {
+            (Some(guid), Some(path)) => Ok(AssetRef::Identified { guid, path }),
+            // A lone `path:` is the same thing a bare string says.
+            (None, Some(path)) => Ok(AssetRef::Path(path)),
+            (Some(_), None) => Err(A::Error::custom(format!(
+                "asset reference has a `guid` but no `path`; expected {ASSET_REF_EXPECTING}"
+            ))),
+            (None, None) => Err(A::Error::custom(format!(
+                "empty asset reference; expected {ASSET_REF_EXPECTING}"
+            ))),
+        }
+    }
+}
+
+/// A key inside the `(guid: ..., path: ...)` spelling.
+///
+/// Deserialized through `deserialize_identifier` rather than as a `String`:
+/// `ron`'s struct-key deserializer rejects `deserialize_string` outright with
+/// `ExpectedIdentifier`, which would make every pair fail to parse.
+enum AssetRefField {
+    Guid,
+    Path,
+    Unknown(String),
+}
+
+impl<'de> Deserialize<'de> for AssetRefField {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct FieldVisitor;
+
+        impl serde::de::Visitor<'_> for FieldVisitor {
+            type Value = AssetRefField;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("`guid` or `path`")
+            }
+
+            fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<AssetRefField, E> {
+                Ok(match value {
+                    "guid" => AssetRefField::Guid,
+                    "path" => AssetRefField::Path,
+                    other => AssetRefField::Unknown(other.to_string()),
+                })
+            }
+        }
+
+        deserializer.deserialize_identifier(FieldVisitor)
+    }
+}
+
 /// Root of a scene file: the list of entities to spawn plus scene-wide settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SceneDescriptor {
@@ -53,9 +227,9 @@ pub struct EntityDescriptor {
     /// Initial position/rotation/scale. Absent means no `Transform` component is added.
     #[serde(default)]
     pub transform: Option<TransformDescriptor>,
-    /// Path to a glTF asset to load as this entity's mesh.
+    /// Reference to a glTF asset to load as this entity's mesh.
     #[serde(default)]
-    pub gltf: Option<String>,
+    pub gltf: Option<AssetRef>,
     /// Whether this entity should get a `Camera` component.
     #[serde(default)]
     pub camera: bool,
@@ -74,9 +248,9 @@ pub struct EntityDescriptor {
     /// Built-in primitive mesh shape to spawn, if not using a glTF asset.
     #[serde(default)]
     pub primitive: Option<Primitive>,
-    /// Path to a JS script to attach via `ScriptPath`.
+    /// Reference to a JS script to attach via `ScriptPath`.
     #[serde(default)]
-    pub script: Option<String>,
+    pub script: Option<AssetRef>,
     /// Emissive color as [r, g, b], added on top of the base color.
     #[serde(default)]
     pub emissive: Option<[f32; 3]>,
@@ -341,7 +515,10 @@ mod tests {
         let entity: EntityDescriptor = ron::from_str(ron_str).unwrap();
         let t = entity.transform.unwrap();
         assert_eq!(t.translation, [1.0, 2.0, 3.0]);
-        assert_eq!(entity.gltf.as_deref(), Some("models/cube.gltf"));
+        assert_eq!(
+            entity.gltf.as_ref().map(AssetRef::path),
+            Some("models/cube.gltf")
+        );
     }
 
     #[test]
@@ -366,6 +543,103 @@ mod tests {
         assert_eq!(dl.direction, [-0.4, -0.8, -0.4]);
         assert_eq!(dl.color, [1.0, 1.0, 1.0]);
         assert_eq!(dl.ambient, [0.1, 0.1, 0.1]);
+    }
+
+    #[test]
+    fn an_asset_ref_accepts_a_bare_path_as_well_as_a_guid_pair() {
+        let bare: AssetRef = ron::from_str(r#""assets/models/fox.glb""#).expect("bare path");
+        assert_eq!(bare.path(), "assets/models/fox.glb");
+        assert_eq!(bare.guid(), None, "a bare path carries no identity");
+
+        let paired: AssetRef = ron::from_str(
+            r#"(guid: "0193a7c1-8f2e-7c44-9d61-3b5a0e7f2c19", path: "assets/models/fox.glb")"#,
+        )
+        .expect("guid pair");
+        assert_eq!(paired.path(), "assets/models/fox.glb");
+        assert_eq!(paired.guid(), Some("0193a7c1-8f2e-7c44-9d61-3b5a0e7f2c19"));
+    }
+
+    #[test]
+    fn an_existing_scene_still_parses_unchanged() {
+        // The scenes in games/ are all bare-path today and migrate one at a
+        // time. If this breaks, every one of them breaks at once.
+        let ron_str = r#"(entities: [(name: "Fox", gltf: Some("assets/models/fox.glb"))])"#;
+        let scene: SceneDescriptor = ron::from_str(ron_str).expect("legacy scene");
+        assert_eq!(
+            scene.entities[0].gltf.as_ref().unwrap().path(),
+            "assets/models/fox.glb"
+        );
+        assert_eq!(scene.entities[0].gltf.as_ref().unwrap().guid(), None);
+    }
+
+    #[test]
+    fn an_asset_ref_round_trips_in_both_forms() {
+        // `EditorCommand::SaveScene` rewrites whole scenes; a form that parses
+        // but re-serializes differently would corrupt one on save.
+        for original in [
+            AssetRef::Path("assets/models/fox.glb".to_string()),
+            AssetRef::Identified {
+                guid: "0193a7c1-8f2e-7c44-9d61-3b5a0e7f2c19".to_string(),
+                path: "assets/models/fox.glb".to_string(),
+            },
+        ] {
+            let encoded = ron::to_string(&original).expect("serialize");
+            let decoded: AssetRef = ron::from_str(&encoded).expect(&encoded);
+            assert_eq!(decoded, original, "round trip changed {encoded}");
+            let re_encoded = ron::to_string(&decoded).expect("re-serialize");
+            assert_eq!(re_encoded, encoded, "re-serialization is not stable");
+        }
+    }
+
+    #[test]
+    fn a_whole_scene_round_trips_with_both_reference_forms() {
+        let ron_str = r#"(entities: [
+            (name: "Bare", gltf: Some("assets/models/fox.glb"), script: Some("assets/scripts/a.js")),
+            (name: "Identified", gltf: Some((guid: "0193a7c1-8f2e-7c44-9d61-3b5a0e7f2c19", path: "assets/models/fox.glb"))),
+        ])"#;
+        let scene: SceneDescriptor = ron::from_str(ron_str).expect("mixed scene");
+        let encoded = ron::to_string(&scene).expect("serialize scene");
+        let reloaded: SceneDescriptor = ron::from_str(&encoded).expect(&encoded);
+        assert_eq!(reloaded.entities[0].gltf, scene.entities[0].gltf);
+        assert_eq!(reloaded.entities[0].script, scene.entities[0].script);
+        assert_eq!(reloaded.entities[1].gltf, scene.entities[1].gltf);
+        assert_eq!(
+            reloaded.entities[1].gltf.as_ref().unwrap().guid(),
+            Some("0193a7c1-8f2e-7c44-9d61-3b5a0e7f2c19"),
+            "the identity survived a save/load cycle"
+        );
+    }
+
+    #[test]
+    fn a_malformed_asset_ref_names_the_accepted_spellings() {
+        // `#[serde(untagged)]` reports only "data did not match any variant of
+        // untagged enum AssetRef", which makes a typo in a scene file an
+        // unguessable failure. The hand-written impl must do better.
+        let err = ron::from_str::<AssetRef>(r#"(uid: "abc", path: "assets/models/fox.glb")"#)
+            .expect_err("an unknown field is not a valid reference");
+        let message = err.to_string();
+        assert!(
+            message.contains("uid"),
+            "the message must name the offending field: {message}"
+        );
+        assert!(
+            message.contains("guid") && message.contains("path"),
+            "the message must name what is accepted: {message}"
+        );
+
+        let err = ron::from_str::<AssetRef>(r#"(guid: "abc")"#)
+            .expect_err("a guid with no path is not a valid reference");
+        assert!(
+            err.to_string().contains("path"),
+            "the message must name the missing field: {err}"
+        );
+
+        let err = ron::from_str::<AssetRef>("42").expect_err("a number is not a reference");
+        let message = err.to_string();
+        assert!(
+            message.contains("asset path") && message.contains("guid"),
+            "the message must describe both spellings: {message}"
+        );
     }
 
     #[test]

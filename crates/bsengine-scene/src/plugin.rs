@@ -81,10 +81,10 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
             builder.insert((transform, GlobalTransform::default()));
         }
 
-        if let Some(path) = &entity.gltf {
+        if let Some(gltf) = &entity.gltf {
             builder.insert(GltfAsset::new(bsengine_core::resolve_project_path(
                 project_dir.as_ref(),
-                path,
+                gltf.path(),
             )));
         }
 
@@ -147,7 +147,7 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
         }
 
         if let Some(script) = &entity.script {
-            builder.insert(ScriptPath(script.clone()));
+            builder.insert(ScriptPath(script.path().to_string()));
         }
 
         if entity.emissive.is_some() || entity.color.is_some() {

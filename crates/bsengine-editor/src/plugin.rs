@@ -635,9 +635,11 @@ fn process_editor_commands(
                     if let Some(prim) = &entity.primitive {
                         eb.insert(PrimitiveMesh(prim.clone()));
                     }
-                    if let Some(gltf_path) = &entity.gltf {
-                        let resolved =
-                            bsengine_core::resolve_project_path(project_dir.as_deref(), gltf_path);
+                    if let Some(gltf) = &entity.gltf {
+                        let resolved = bsengine_core::resolve_project_path(
+                            project_dir.as_deref(),
+                            gltf.path(),
+                        );
                         eb.insert(bsengine_gltf::GltfAsset::new(resolved));
                     }
                     if entity.camera {
@@ -691,7 +693,7 @@ fn process_editor_commands(
                         });
                     }
                     if let Some(script) = &entity.script {
-                        eb.insert(bsengine_scene::ScriptPath(script.clone()));
+                        eb.insert(bsengine_scene::ScriptPath(script.path().to_string()));
                     }
                     if entity.emissive.is_some() || entity.color.is_some() {
                         eb.insert(Material {
@@ -1092,7 +1094,7 @@ fn build_entity_descriptors(entities: &[EntityInfo]) -> Vec<EntityDescriptor> {
                     point_light,
                     spot_light,
                     primitive: e.primitive.clone(),
-                    script: e.script_path.clone(),
+                    script: e.script_path.clone().map(bsengine_scene::AssetRef::Path),
                     emissive: e.material_emissive,
                     color: e.material_base_color,
                     look_at: None,

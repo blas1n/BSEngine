@@ -211,6 +211,12 @@ impl Plugin for ScriptingPlugin {
         use bevy_asset::AssetApp;
         app.init_asset::<bsengine_audio::AudioSourceAsset>()
             .register_asset_loader(bsengine_audio::AudioSourceLoader);
+        // Registered here rather than in `bsengine_asset::AssetPlugin` for the
+        // same reason the audio asset is: the type belongs to the crate whose
+        // plugin consumes it, so an app that wants scripts cannot end up with
+        // the loader missing.
+        app.init_asset::<crate::script_asset::ScriptSource>()
+            .register_asset_loader(crate::script_asset::ScriptSourceLoader);
 
         app.insert_resource(ProjectDir(self.project_dir.clone()));
         app.insert_resource(HudTexts::default());

@@ -20,9 +20,12 @@ pub mod plugin;
 pub mod runtime;
 /// Script-driven save-game serialization to/from JSON.
 pub mod save;
+/// `ScriptSource`, the `bevy_asset` asset a `.js` file loads into.
+pub mod script_asset;
 pub use bsengine_core::ProjectDir;
 pub use plugin::{
     load_scripts, Script, ScriptRuntimeResource, ScriptTimingState, ScriptingPlugin, SoundHandles,
     KEY_MAPPINGS,
 };
 pub use runtime::ScriptRuntime;
+pub use script_asset::{ScriptSource, ScriptSourceLoader};

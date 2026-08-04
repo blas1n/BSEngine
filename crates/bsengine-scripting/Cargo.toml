@@ -17,6 +17,9 @@ kira = { workspace = true }
 bevy_app.workspace = true
 bevy_asset.workspace = true
 bevy_ecs.workspace = true
+# For `#[derive(TypePath)]` on `ScriptSource`: `bevy_asset::Asset` requires
+# `TypePath`, and the derive lives in `bevy_reflect`.
+bevy_reflect.workspace = true
 deno_core.workspace = true
 glam.workspace = true
 serde.workspace = true

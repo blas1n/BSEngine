@@ -1,5 +1,5 @@
 use bsengine_app::{new_app, Startup, Update};
-use bsengine_asset::{AssetPlugin, AssetWatcherPlugin};
+use bsengine_asset::{AssetPlugin, AssetStatusPlugin, AssetWatcherPlugin};
 use bsengine_core::{Camera, DirectionalLight, GlobalTransform, InspectorState, Transform};
 use bsengine_ecs::{Added, Commands, Entity, Query, ResMut};
 use bsengine_editor::EditorPlugin;
@@ -51,6 +51,12 @@ fn main() {
         // case the watcher logs why it is idle and starts nothing, rather than
         // falling back to watching the whole repository.
         .add_plugins(AssetWatcherPlugin)
+        // Matters here for the same reason the watcher does, one step later:
+        // the watcher notices an edited asset, this notices what became of
+        // the reload. Without it the resource never exists, so every status
+        // query in the process answers `unknown` — including for the asset
+        // the user just broke and is looking at.
+        .add_plugins(AssetStatusPlugin)
         .add_plugins(WgpuRHIPlugin)
         .add_plugins(WindowPlugin {
             descriptor: WindowDescriptor {

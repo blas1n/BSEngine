@@ -16,23 +16,23 @@ use bsengine_scene::{Name, PendingSceneLoad, Primitive, PrimitiveMesh, ScriptPat
 use glam::{EulerRot, Quat, Vec3};
 
 use crate::ops::{
-    ScriptCommand, SpawnParams, AMBIENT_OCCLUSION_SNAPSHOT, ANGULAR_DAMPING_SNAPSHOT,
-    ANGULAR_VELOCITY_SNAPSHOT, ANIMATION_SNAPSHOT, ASM_STATE_SNAPSHOT, BLOOM_SNAPSHOT,
-    BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, CHILDREN_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT,
-    COLLISION_SNAPSHOT, COMMAND_BUFFER, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, FOLLOW_SNAPSHOT,
-    FRICTION_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT, GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT,
-    GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT,
-    KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, LIFETIME_SNAPSHOT,
-    LINEAR_DAMPING_SNAPSHOT, LOOK_AT_SNAPSHOT, MASS_SNAPSHOT, MATERIAL_COLOR_SNAPSHOT,
-    MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT, MATERIAL_ROUGHNESS_SNAPSHOT,
-    MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT,
-    MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, NAV_SNAPSHOT, NETWORK_ID_SNAPSHOT,
-    NETWORK_STATE_SNAPSHOT, PARENT_SNAPSHOT, PAUSED_SNAPSHOT, PHYSICS_WORLD_PTR,
-    RESTITUTION_SNAPSHOT, SAVE_DATA_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT,
-    SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, TIMER_SNAPSHOT,
-    TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TONE_MAP_SNAPSHOT, TRANSFORM_SNAPSHOT,
-    TWEEN_SNAPSHOT, UI_CLICKED_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT,
-    WORLD_TRANSFORM_SNAPSHOT,
+    render_asset_status, ScriptCommand, SpawnParams, AMBIENT_OCCLUSION_SNAPSHOT,
+    ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT, ANIMATION_SNAPSHOT, ASM_STATE_SNAPSHOT,
+    ASSET_STATUS_SNAPSHOT, BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, CHILDREN_SNAPSHOT,
+    COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COMMAND_BUFFER, ENTITY_NAMES_SNAPSHOT,
+    ENTITY_NAME_MAP, FOLLOW_SNAPSHOT, FRICTION_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
+    GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
+    GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT,
+    KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT,
+    LOOK_AT_SNAPSHOT, MASS_SNAPSHOT, MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT,
+    MATERIAL_METALLIC_SNAPSHOT, MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
+    MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
+    MOUSE_PRESSED_SNAPSHOT, NAV_SNAPSHOT, NETWORK_ID_SNAPSHOT, NETWORK_STATE_SNAPSHOT,
+    PARENT_SNAPSHOT, PAUSED_SNAPSHOT, PHYSICS_WORLD_PTR, PROJECT_DIR, RESTITUTION_SNAPSHOT,
+    SAVE_DATA_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT,
+    SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT,
+    TIME_ELAPSED_SNAPSHOT, TONE_MAP_SNAPSHOT, TRANSFORM_SNAPSHOT, TWEEN_SNAPSHOT,
+    UI_CLICKED_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -226,7 +226,20 @@ impl Plugin for ScriptingPlugin {
         app.add_systems(PostStartup, load_scripts);
         app.add_systems(
             Update,
-            (capture_collision_events, run_scripts, start_pending_sounds).chain(),
+            (capture_collision_events, run_scripts, start_pending_sounds)
+                .chain()
+                // Pins the frame `Bsengine.getAssetStatus` reports from.
+                // `collect_asset_statuses` also runs in `Update`, so without
+                // an explicit edge the two are unordered and the answer would
+                // lag by zero or one frame depending on how the scheduler
+                // happened to sort them on a given run — a difference a
+                // replay can see. With it, a load that resolves during frame
+                // N is what frame N's scripts read.
+                //
+                // A no-op in an app that never adds `AssetStatusPlugin`: the
+                // constraint names a system type with no instance in the
+                // schedule, so there is nothing to order against.
+                .after(bsengine_asset::status::collect_asset_statuses),
         );
     }
 }
@@ -2893,6 +2906,98 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
         SOUND_POSITION_SNAPSHOT.with(|s| *s.borrow_mut() = positions);
     }
     {
+        // Mirrors `AssetStatuses` wholesale for `Bsengine.getAssetStatus`,
+        // which V8 calls on a thread with no `World` to consult. See
+        // `ops::bsengine_get_asset_status` for what the strings mean.
+        //
+        // # What the refresh costs, said plainly
+        //
+        // One `String` clone of the path plus one rendered status `String`
+        // per recorded path, into a fresh map that replaces last frame's —
+        // O(distinct asset paths) allocations every frame, whether or not
+        // anything changed. That is a real cost and it is deliberate:
+        //
+        // * The map is bounded by the number of *distinct paths the project
+        //   requests*, and `AssetStatuses`' own docs cover what keeps it
+        //   there: it does not grow with entity count, with elapsed time, or
+        //   with retries, because the path is the key. Tens of entries for
+        //   the games in this repository, not thousands.
+        // * `bsengine_asset::collect_asset_statuses` already walks that same
+        //   map every frame, doing an `AssetServer::get_path_id` and a
+        //   `load_state` — two `RwLock` reads and two hash lookups — per
+        //   entry. This adds a constant factor to a per-frame cost that is
+        //   already O(recorded paths) and already more expensive per entry
+        //   than a `String` clone; it does not introduce a new one.
+        // * Every other snapshot in this function is built the same way, and
+        //   several of them are O(entities) with a `String` clone each. This
+        //   one is smaller than any of those in every project here.
+        //
+        // Replacing the map wholesale, rather than patching entries in place,
+        // is also what keeps the mirror honest when two `App`s share a thread
+        // (this workspace's own test runs are exactly that): each refresh
+        // publishes only what *this* world knows, so an app can never inherit
+        // another app's failure for a path it never requested — the precise
+        // wrong answer this API exists to prevent.
+        //
+        // # Where this stops being the right trade, honestly
+        //
+        // Not "a project that synthesises fresh asset paths at runtime" — that
+        // case is pathological, and if it happened the thing to fix would be
+        // `AssetStatuses` itself, which would be leaking `AssetInfo`s inside
+        // `bevy_asset` too. The realistic threshold is ordinary: a few hundred
+        // distinct assets, which is a normal size for a shipping project, pays
+        // ~2×N `String` allocations *every frame* for a map that most frames
+        // nobody reads. Tens of entries is free; hundreds is a real per-frame
+        // cost bought for nothing on the frames no script calls
+        // `getAssetStatus`.
+        //
+        // Fixing it is not just adding an `is_changed()` guard, which is why
+        // it is not done here: `bsengine_asset::collect_asset_statuses` calls
+        // `by_path.iter_mut()` unconditionally, so `AssetStatuses` is marked
+        // changed every single frame and change detection would gate on a
+        // signal that is always true. A real fix has to make that collector
+        // compare-then-write and `bypass_change_detection()` when nothing
+        // moved, and only then can this mirror skip a rebuild.
+        let asset_statuses: HashMap<String, String> = world
+            .get_resource::<bsengine_asset::AssetStatuses>()
+            .map(|statuses| {
+                statuses
+                    .iter()
+                    .map(|(path, status)| (path.to_owned(), render_asset_status(status)))
+                    .collect()
+            })
+            // No `AssetStatusPlugin` in this app, so nothing is known about
+            // any path and `getAssetStatus` says exactly that rather than
+            // guessing. An empty mirror is also what clears a previous app's
+            // entries off this thread.
+            .unwrap_or_default();
+        ASSET_STATUS_SNAPSHOT.with(|s| *s.borrow_mut() = asset_statuses);
+
+        // The prefix those keys carry and a script cannot otherwise learn.
+        // Every key above is `format!("{project_dir}/{path}")`, and
+        // `project_dir` is a command-line argument — different for the
+        // windowed runtime, the editor and an MCP session, and absolute in the
+        // last of those. No op reveals it, so without this the only spelling a
+        // script can write down (`assets/sounds/hit.wav`, exactly what it just
+        // passed `playSound`) missed the mirror and read `"unknown"`: the one
+        // answer that means "nothing ever requested that path".
+        // `bsengine_get_asset_status` resolves against this on an exact-key
+        // miss, so both spellings answer and neither can shadow the other.
+        //
+        // Written unconditionally, and beside the map rather than at plugin
+        // build time, for the same reason the map is replaced wholesale: two
+        // `App`s sharing a thread (this workspace's own test runs, and an
+        // editor hosting a game) must not resolve each other's paths against
+        // the wrong project, and a host with no `ProjectDir` at all must clear
+        // whatever the last one left here.
+        PROJECT_DIR.with(|pd| {
+            *pd.borrow_mut() = world
+                .get_resource::<ProjectDir>()
+                .cloned()
+                .unwrap_or_default()
+        });
+    }
+    {
         use bsengine_core::AnimationPlayer;
         let mut anim_map = std::collections::HashMap::new();
         let mut q = world.query::<(&Name, &AnimationPlayer)>();
@@ -3725,6 +3830,280 @@ mod tests {
         assert_eq!(hud.get("position").map(String::as_str), Some("0"));
 
         let _ = std::fs::remove_file(&script_path);
+    }
+
+    // `Bsengine.getAssetStatus` exists to make two answers different that
+    // used to be the same one. A path that failed to load and a path nothing
+    // ever mentioned both produced silence — at best a `warn!` nobody read —
+    // and that ambiguity is what let `games/mini-arena` run with no mesh and
+    // no shader across two phases of work.
+    //
+    // So both directions are asserted here, and the second is not optional
+    // padding: an op that returned `"failed: ..."` for every path on earth
+    // would satisfy the first assertion alone while being worth nothing.
+    //
+    // Driven through a real script, a real `AssetServer` and the real
+    // per-frame snapshot refresh, because every one of those is a place the
+    // wiring can be missing. In particular `AssetStatusPlugin` is added
+    // explicitly below — an app without it mirrors nothing, and the whole op
+    // answers `"unknown"` forever, which is the failure this test would catch
+    // if a host ever stopped registering it.
+    #[test]
+    fn get_asset_status_tells_a_failed_path_from_one_nothing_requested() {
+        // Requested through `playSound`, which goes through
+        // `bsengine_asset::load` — the funnel that records the request — so
+        // the path is known to `AssetStatuses` from the frame after the call.
+        // `project_dir` is empty below, so this string is also the exact
+        // spelling the load site uses and therefore the exact key to query.
+        const REQUESTED: &str = "definitely/not/a/real/asset-status-probe.wav";
+        // Same shape, equally nonexistent; the only difference is that
+        // nothing ever asks for it.
+        const NEVER_ASKED: &str = "definitely/not/a/real/asset-status-never-asked.wav";
+
+        let script_path = std::env::temp_dir().join(format!(
+            "bsengine_test_asset_status_{}.js",
+            std::process::id()
+        ));
+        // Played once, not every frame: re-requesting a failed path resets it
+        // to `Loading` and restarts the load (see the `SoundLoads` docs), so
+        // a per-frame play could never settle on a failure to report.
+        std::fs::write(
+            &script_path,
+            format!(
+                "var played = false;\n\
+                 function onUpdate(name) {{\n\
+                   if (!played) {{\n\
+                     played = true;\n\
+                     Bsengine.playSound(\"{REQUESTED}\", {{}});\n\
+                   }}\n\
+                   Bsengine.setHudText(\"requested\", Bsengine.getAssetStatus(\"{REQUESTED}\"));\n\
+                   Bsengine.setHudText(\"never\", Bsengine.getAssetStatus(\"{NEVER_ASKED}\"));\n\
+                 }}"
+            ),
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(bsengine_asset::AssetStatusPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: String::new(),
+        });
+        app.world_mut().spawn((
+            Name("Probe".to_string()),
+            ScriptPath(script_path.to_string_lossy().to_string()),
+        ));
+
+        // A hang guard, not a budget: the load is one missing local file.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let (requested, never_asked) = loop {
+            app.update();
+            let (requested, never_asked) = {
+                let hud = &app.world().resource::<HudTexts>().0;
+                (
+                    hud.get("requested").cloned().unwrap_or_default(),
+                    hud.get("never").cloned().unwrap_or_default(),
+                )
+            };
+
+            // Checked on *every* frame, not only at the end: a path nobody
+            // asked for must never read as anything else, not even briefly on
+            // its way somewhere. Skipped only before the script's first
+            // `onUpdate` has written anything at all.
+            if !never_asked.is_empty() {
+                assert_eq!(
+                    never_asked, "unknown",
+                    "a path nothing ever requested must read \"unknown\" on every \
+                     frame — anything else means the op is answering about a path \
+                     the engine never heard of"
+                );
+            }
+
+            if requested.starts_with("failed:") {
+                break (requested, never_asked);
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the requested load never resolved, so this proves nothing; last \
+                 status was {requested:?}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        };
+
+        let reason = requested.strip_prefix("failed: ").unwrap_or_default();
+        assert!(
+            !reason.trim().is_empty(),
+            "a failure with no reason is no better than the warn! it replaces, got \
+             {requested:?}"
+        );
+        let lowered = reason.to_lowercase();
+        assert!(
+            lowered.contains("not found") || lowered.contains("asset-status-probe.wav"),
+            "the reason must name what went wrong or what it went wrong on, got \
+             {requested:?}"
+        );
+        assert_eq!(
+            never_asked, "unknown",
+            "a path nothing requested must still read \"unknown\" once the other \
+             one has failed"
+        );
+        assert_ne!(
+            requested, never_asked,
+            "telling these two apart is the entire point of the op; an \
+             implementation that answers the same for both is no better than the \
+             log line it replaces"
+        );
+
+        let _ = std::fs::remove_file(&script_path);
+    }
+
+    // The Critical regression: the spelling a script uses to *request* an
+    // asset must be a spelling it can use to *ask about* one.
+    //
+    // Every key in `AssetStatuses` is `format!("{project_dir}/{path}")`, and
+    // `project_dir` is a command-line argument — different for the windowed
+    // runtime, the editor and an MCP session. No op hands a script that
+    // prefix, so `getAssetStatus("assets/sounds/blip.flac")` — the same string
+    // the same script just gave `playSound` — used to read `"unknown"`, which
+    // means "nothing ever requested that path". That is the exact ambiguity
+    // this phase exists to remove, answered wrongly to every script author.
+    //
+    // The sibling MCP surface was fixed first (`bsengine-runtime`'s
+    // `test_query::get_asset_status`); this is the same fix on the JS surface,
+    // and the same three assertions: the short spelling answers, the
+    // fully-qualified one still answers the same thing, and a path nothing
+    // requested still reads `"unknown"`.
+    //
+    // # Why it asserts a *successful* load
+    //
+    // A failure would prove much less. `UntypedAssetLoadFailedEvent` puts a
+    // path into `AssetStatuses` on its own, so a `failed:` answer is reachable
+    // without `record_asset_request` ever having run — whereas a `"loaded"` is
+    // only ever reachable through the recorded request, which is the half
+    // `bevy_asset` provides no other way to get (see
+    // `bsengine_asset::status`). A real FLAC on disk under a real project
+    // directory is therefore the harder and more honest case.
+    //
+    // # Why `project_dir` is non-empty and that matters
+    //
+    // `resolve_project_path` with an empty `ProjectDir` returns its argument
+    // unchanged, so an empty one would make the two spellings the same string
+    // and this test vacuous. It is a real temp directory here, with a
+    // project-relative `ScriptPath` beneath it — the same arrangement
+    // `set_shader_resolves_path_against_project_dir` uses, and the same one a
+    // real game has.
+    #[test]
+    fn get_asset_status_accepts_the_project_relative_path_a_script_played() {
+        // Project-relative, as a script would write it; never the key.
+        const PLAYED: &str = "assets/sounds/blip.flac";
+        // Same shape, under the same project, but nothing asks for it.
+        const NEVER_ASKED: &str = "assets/sounds/never-asked.flac";
+
+        let project_dir = std::env::temp_dir().join(format!(
+            "bsengine_test_asset_status_relative_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(project_dir.join("assets/sounds")).unwrap();
+        std::fs::write(project_dir.join(PLAYED), MINIMAL_FLAC_SILENCE).unwrap();
+
+        // Forward-slashed, the way a project directory arrives on the command
+        // line, so the key below is the same shape a real host produces.
+        // (Backslashes would also be escapes inside the JS string literal.)
+        let project_dir_js = project_dir.to_string_lossy().replace('\\', "/");
+        let qualified = format!("{project_dir_js}/{PLAYED}");
+
+        // Played once, not every frame: re-requesting resets a load, and this
+        // test waits for one to settle.
+        std::fs::write(
+            project_dir.join("probe.js"),
+            format!(
+                "var played = false;\n\
+                 function onUpdate(name) {{\n\
+                   if (!played) {{\n\
+                     played = true;\n\
+                     Bsengine.playSound(\"{PLAYED}\", {{}});\n\
+                   }}\n\
+                   Bsengine.setHudText(\"relative\", Bsengine.getAssetStatus(\"{PLAYED}\"));\n\
+                   Bsengine.setHudText(\"qualified\", Bsengine.getAssetStatus(\"{qualified}\"));\n\
+                   Bsengine.setHudText(\"never\", Bsengine.getAssetStatus(\"{NEVER_ASKED}\"));\n\
+                 }}"
+            ),
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(bsengine_asset::AssetStatusPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: project_dir_js.clone(),
+        });
+        app.world_mut().spawn((
+            Name("Probe".to_string()),
+            ScriptPath("probe.js".to_string()),
+        ));
+
+        // A hang guard, not a budget: the load is one 86-byte local file.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        let (relative, qualified_status, never_asked) = loop {
+            app.update();
+            let (relative, qualified_status, never_asked) = {
+                let hud = &app.world().resource::<HudTexts>().0;
+                (
+                    hud.get("relative").cloned().unwrap_or_default(),
+                    hud.get("qualified").cloned().unwrap_or_default(),
+                    hud.get("never").cloned().unwrap_or_default(),
+                )
+            };
+
+            // Checked every frame rather than only at the end. Both are
+            // properties of the answer at *every* moment, and a fix that held
+            // only once the load had settled would still be wrong while it was
+            // in flight — which is exactly when a script polls.
+            if !never_asked.is_empty() {
+                assert_eq!(
+                    never_asked, "unknown",
+                    "resolving a project-relative path must not make every path \
+                     answerable: a path nothing requested must read \"unknown\" on \
+                     every frame"
+                );
+                assert_eq!(
+                    relative, qualified_status,
+                    "the short spelling and the engine's own key name one asset, so \
+                     they must never disagree — not even mid-load"
+                );
+            }
+
+            if relative == "loaded" {
+                break (relative, qualified_status, never_asked);
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the project-relative spelling never reported the load. \"{relative}\" \
+                 for {PLAYED} under {project_dir_js}; the fully-qualified key read \
+                 \"{qualified_status}\". (An \"unknown\" here is the defect: the \
+                 script requested this very path. A \"failed:\" here instead means \
+                 MINIMAL_FLAC_SILENCE stopped decoding.)"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        };
+
+        assert_eq!(
+            qualified_status, "loaded",
+            "resolution adds a spelling, it does not swap one for another: the \
+             engine's own fully-qualified key must keep answering"
+        );
+        assert_eq!(
+            never_asked, "unknown",
+            "a path nothing requested must still read \"unknown\" once the other \
+             one has loaded"
+        );
+        assert_ne!(
+            relative, never_asked,
+            "if a requested path and an unrequested one read the same, the op \
+             answers nothing"
+        );
+
+        let _ = std::fs::remove_dir_all(&project_dir);
     }
 
     // `playSound(); pauseSound(id)` in one `onUpdate` used to yield an

@@ -143,34 +143,52 @@ mod tests {
     }
 
     #[test]
-    fn velocity_is_owned_in_two_places_at_once() {
-        // This is the mistake that produced this whole item. A `Velocity`
-        // component was proposed for roadmap item 27 on the grounds that none
-        // existed. `bsengine_core::Velocity` already did -- and separately,
-        // physics velocity lives in the physics backend behind a family of
-        // ops. Two subsystems owning one word, and asking about either gives an
-        // answer that never mentions the other. Pinned here because surfacing
-        // exactly this is what the catalogue is for.
+    fn velocity_has_exactly_one_owner_and_it_is_not_a_component() {
+        // The history here is the reason this test exists at all.
+        //
+        // A `Velocity` component was proposed for roadmap item 27 on the
+        // grounds that none existed. `bsengine_core::Velocity` already did --
+        // and separately, physics velocity lived in the physics backend behind
+        // a family of ops. Two subsystems owning one word. Item 33 settled it
+        // by deleting the kinematic stack, so velocity now lives in exactly one
+        // place: the physics backend, reachable only through ops.
+        //
+        // This test guards that outcome. If a `Velocity` component ever comes
+        // back, it fails and whoever added it has to say why the engine needs
+        // two owners of the word again.
         let cat = Catalog::scan(&workspace_root()).expect("scan the workspace");
         let hits = cat.concept("velocity");
 
         assert!(
-            hits.components.iter().any(|c| c.name == "Velocity"),
-            "bsengine_core::Velocity exists; found: {:?}",
+            hits.components.is_empty(),
+            "velocity is the physics backend's; a component owning it too is the \
+             duplication item 33 removed. Found: {:?}",
             hits.components.iter().map(|c| &c.name).collect::<Vec<_>>()
         );
         assert!(
             hits.ops.len() >= 10,
-            "velocity is also exposed through a family of ops; found {}",
+            "velocity is exposed through a family of ops; found {}",
             hits.ops.len()
         );
         assert!(hits.ops.iter().any(|o| o.name == "bsengine_get_velocity"));
+    }
 
-        let comp_crates: std::collections::BTreeSet<&str> =
-            hits.components.iter().map(|c| c.krate.as_str()).collect();
+    #[test]
+    fn a_concept_can_be_owned_by_a_component_and_ops_at_once() {
+        // The two-owner case velocity used to demonstrate. `rotation` still
+        // does: `Transform` stores it and a family of ops reads and writes it.
+        // Keeping a live example matters -- the catalogue's whole point is
+        // surfacing this shape, so it should be exercised by something real.
+        let cat = Catalog::scan(&workspace_root()).expect("scan the workspace");
+        let hits = cat.concept("rotation");
         assert!(
-            comp_crates.contains("bsengine-core"),
-            "the component side lives in bsengine-core, found {comp_crates:?}"
+            hits.components.iter().any(|c| c.name == "Transform"),
+            "Transform stores rotation; found: {:?}",
+            hits.components.iter().map(|c| &c.name).collect::<Vec<_>>()
+        );
+        assert!(
+            !hits.ops.is_empty(),
+            "and the scripting API exposes it separately"
         );
     }
 

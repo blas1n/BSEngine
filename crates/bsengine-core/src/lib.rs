@@ -10,8 +10,6 @@
 
 /// Screen-space ambient occlusion post-process settings.
 pub mod ambient_occlusion;
-/// Angular (rotational) velocity component for physics-driven entities.
-pub mod angular_velocity;
 /// Simple single-clip skeletal/sprite animation playback component.
 pub mod animation_player;
 /// Graph-based animation state machine with parameterized transitions.
@@ -26,18 +24,12 @@ pub mod cursor_config;
 pub mod cursor_pos;
 /// Custom shader override component for materials.
 pub mod custom_shader;
-/// Linear/angular velocity damping (drag) component.
-pub mod damping;
 /// Editor-side dockable panel trait and registry.
 pub mod editor_panel;
-/// One-shot linear/angular impulse component consumed by the physics step.
-pub mod external_impulse;
 /// Components that make an entity's transform track another entity.
 pub mod follow;
 /// World-space transform resulting from local transform + parent hierarchy.
 pub mod global_transform;
-/// Gravitational acceleration resource and per-entity gravity scale.
-pub mod gravity;
 /// Named on-screen HUD text overlay resource.
 pub mod hud_texts;
 /// Editor inspector state, entity snapshots, and inspector command protocol.
@@ -48,8 +40,6 @@ pub mod lifetime;
 pub mod light;
 /// Engine-wide logging initialization.
 pub mod logging;
-/// Physical mass component used by the physics integrator.
-pub mod mass;
 /// PBR material properties component.
 pub mod material;
 /// Baked navigation mesh resource used for pathfinding.
@@ -94,13 +84,10 @@ pub mod transform;
 pub mod tween;
 /// Immediate-mode UI widget tree and state resource.
 pub mod ui_state;
-/// Linear velocity component consumed by the physics integrator.
-pub mod velocity;
 /// Visibility toggle component controlling whether an entity is rendered.
 pub mod visible;
 
 pub use ambient_occlusion::AmbientOcclusion;
-pub use angular_velocity::AngularVelocity;
 pub use animation_player::AnimationPlayer;
 pub use animation_state_machine::{
     AnimationStateMachine, AsmState, AsmTransition, TransitionCondition,
@@ -110,12 +97,9 @@ pub use camera::Camera;
 pub use cursor_config::CursorConfig;
 pub use cursor_pos::CursorPos;
 pub use custom_shader::CustomShader;
-pub use damping::Damping;
 pub use editor_panel::{EditorPanel, EditorPanelContext, EditorPanelRegistry};
-pub use external_impulse::ExternalImpulse;
 pub use follow::{Follow, LookAt};
 pub use global_transform::GlobalTransform;
-pub use gravity::{Gravity, GravityScale};
 pub use hud_texts::HudTexts;
 pub use inspector::{
     EditorPlayState, GizmoMode, InspectorCmd, InspectorEntityInfo, InspectorState, PRIMITIVE_KINDS,
@@ -123,7 +107,6 @@ pub use inspector::{
 pub use lifetime::Lifetime;
 pub use light::{DirectionalLight, PointLight, SpotLight};
 pub use logging::init_logging;
-pub use mass::Mass;
 pub use material::Material;
 pub use nav_mesh::NavMesh;
 pub use nav_mesh_agent::{NavAgentState, NavMeshAgent};
@@ -146,7 +129,6 @@ pub use tone_map::{ToneMap, ToneMappingMode};
 pub use transform::Transform;
 pub use tween::{EasingFn, RepeatMode, Tween, TweenTarget};
 pub use ui_state::{UiState, UiWidget};
-pub use velocity::Velocity;
 pub use visible::Visible;
 
 /// Recomputes every entity's [`GlobalTransform`] from its local [`Transform`]

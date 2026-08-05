@@ -291,13 +291,6 @@ pub enum ScriptCommand {
         /// New far clip plane distance.
         value: f32,
     },
-    /// Set a generic damping coefficient on an entity.
-    SetDamping {
-        /// Name of the entity to modify.
-        name: String,
-        /// New damping coefficient.
-        value: f32,
-    },
     /// Subtract damage from an entity's shield value.
     DamageShield {
         /// Name of the entity to modify.
@@ -3072,15 +3065,6 @@ pub fn bsengine_set_camera_far(#[string] name: String, value: f32) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetCameraFar { name, value })
-    });
-}
-
-/// Queue setting a generic damping coefficient on an entity.
-#[op2(fast)]
-pub fn bsengine_set_damping(#[string] name: String, value: f32) {
-    COMMAND_BUFFER.with(|c| {
-        c.borrow_mut()
-            .push(ScriptCommand::SetDamping { name, value })
     });
 }
 
@@ -5981,7 +5965,6 @@ deno_core::extension!(
         bsengine_set_camera_fov,
         bsengine_set_camera_near,
         bsengine_set_camera_far,
-        bsengine_set_damping,
         bsengine_play_animation,
         bsengine_pause_animation,
         bsengine_resume_animation,
@@ -6300,7 +6283,6 @@ var Bsengine = {
     setCameraFov:   (name, deg)            => Deno.core.ops.bsengine_set_camera_fov(name, deg),
     setCameraNear:  (name, value)          => Deno.core.ops.bsengine_set_camera_near(name, value),
     setCameraFar:   (name, value)          => Deno.core.ops.bsengine_set_camera_far(name, value),
-    setDamping:         (name, value)      => Deno.core.ops.bsengine_set_damping(name, value),
     playAnimation:          (name, clip)    => Deno.core.ops.bsengine_play_animation(name, clip),
     pauseAnimation:         (name)          => Deno.core.ops.bsengine_pause_animation(name),
     resumeAnimation:        (name)          => Deno.core.ops.bsengine_resume_animation(name),
@@ -10043,22 +10025,6 @@ JSON.stringify(received)
                     if name == "MainCamera" && (*value - 2000.0).abs() < 1e-5)
             });
             assert!(found, "SetCameraFar not in buffer");
-        });
-        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
-    }
-
-    #[test]
-    fn set_damping_enqueues_command() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        rt.eval(r#"Bsengine.setDamping("Ball", 0.5);"#).unwrap();
-        super::COMMAND_BUFFER.with(|c| {
-            let buf = c.borrow();
-            let found = buf.iter().any(|cmd| {
-                matches!(cmd, super::ScriptCommand::SetDamping { name, value }
-                    if name == "Ball" && (*value - 0.5).abs() < 1e-5)
-            });
-            assert!(found, "SetDamping not in buffer");
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

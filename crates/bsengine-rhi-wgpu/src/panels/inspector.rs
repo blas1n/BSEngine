@@ -924,20 +924,8 @@ mod tests {
                 Box::new(bsengine_core::CustomShader::default()) as Box<dyn bevy_reflect::Reflect>,
             ),
             (
-                "bsengine_core::damping::Damping".to_string(),
-                Box::new(bsengine_core::Damping::default()) as Box<dyn bevy_reflect::Reflect>,
-            ),
-            (
-                "bsengine_core::gravity::GravityScale".to_string(),
-                Box::new(bsengine_core::GravityScale::default()) as Box<dyn bevy_reflect::Reflect>,
-            ),
-            (
                 "bsengine_core::lifetime::Lifetime".to_string(),
                 Box::new(bsengine_core::Lifetime::default()) as Box<dyn bevy_reflect::Reflect>,
-            ),
-            (
-                "bsengine_core::mass::Mass".to_string(),
-                Box::new(bsengine_core::Mass::default()) as Box<dyn bevy_reflect::Reflect>,
             ),
             (
                 "bsengine_core::network_id::NetworkId".to_string(),
@@ -993,16 +981,6 @@ mod tests {
         insp.selected_id = Some(1);
         insp.reflected_components = vec![
             (
-                "bsengine_core::angular_velocity::AngularVelocity".to_string(),
-                Box::new(bsengine_core::AngularVelocity::default())
-                    as Box<dyn bevy_reflect::Reflect>,
-            ),
-            (
-                "bsengine_core::external_impulse::ExternalImpulse".to_string(),
-                Box::new(bsengine_core::ExternalImpulse::default())
-                    as Box<dyn bevy_reflect::Reflect>,
-            ),
-            (
                 "bsengine_core::follow::Follow".to_string(),
                 Box::new(bsengine_core::Follow::new(
                     bevy_ecs::prelude::Entity::PLACEHOLDER,
@@ -1017,10 +995,6 @@ mod tests {
             (
                 "bsengine_core::nav_mesh_agent::NavMeshAgent".to_string(),
                 Box::new(bsengine_core::NavMeshAgent::default()) as Box<dyn bevy_reflect::Reflect>,
-            ),
-            (
-                "bsengine_core::velocity::Velocity".to_string(),
-                Box::new(bsengine_core::Velocity::default()) as Box<dyn bevy_reflect::Reflect>,
             ),
         ];
 

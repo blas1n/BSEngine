@@ -1174,18 +1174,6 @@ fn run_scripts(world: &mut World) {
                     }
                 }
             }
-            ScriptCommand::SetDamping { name, value } => {
-                use bsengine_core::Damping;
-                let entity = {
-                    let mut q = world.query::<(Entity, &Name)>();
-                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
-                };
-                if let Some(e) = entity {
-                    if let Some(mut d) = world.get_mut::<Damping>(e) {
-                        d.linear = value;
-                    }
-                }
-            }
             ScriptCommand::PlayAnimation { name, clip } => {
                 use bsengine_core::AnimationPlayer;
                 let entity = {

@@ -103,9 +103,11 @@ mod tests {
     }
 
     #[test]
-    fn a_concept_query_reports_both_owners() {
-        // The query that would have prevented this whole item: velocity is
-        // owned by a component in one crate and by ops driving another.
+    fn a_concept_query_names_the_ops_that_own_a_concept() {
+        // The query that would have prevented this whole item. `velocity` had
+        // two owners then -- a component and the physics backend -- and item 33
+        // settled it on the backend. Either way the answer an agent needs is
+        // the same: here is who already owns this word, so do not add another.
         let tools = catalog_tools(workspace_root());
         let t = tools
             .iter()
@@ -114,8 +116,22 @@ mod tests {
         let out = (t.handler)(serde_json::json!({ "concept": "velocity" }));
         assert!(out.error.is_none(), "query failed: {:?}", out.error);
         let text = serde_json::to_string(&out.content).expect("serialises");
-        assert!(text.contains("\"Velocity\""), "names the component");
         assert!(text.contains("bsengine_get_velocity"), "names the ops");
+    }
+
+    #[test]
+    fn a_concept_query_names_an_owning_component() {
+        // The other half: a concept a component owns has to come back with that
+        // component, or the tool cannot answer "does this already exist".
+        let tools = catalog_tools(workspace_root());
+        let t = tools
+            .iter()
+            .find(|t| t.name == "component_catalog")
+            .unwrap();
+        let out = (t.handler)(serde_json::json!({ "concept": "rotation" }));
+        assert!(out.error.is_none(), "query failed: {:?}", out.error);
+        let text = serde_json::to_string(&out.content).expect("serialises");
+        assert!(text.contains("\"Transform\""), "names the component");
     }
 
     #[test]

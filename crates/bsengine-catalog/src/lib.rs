@@ -9,11 +9,23 @@
 
 use std::path::Path;
 
+pub mod concept;
 pub mod parse;
 pub mod rules;
 
 pub use parse::{Component, Field, Op};
 pub use rules::Violation;
+
+/// Everything in the catalogue that mentions one concept.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ConceptHits {
+    /// The concept as queried, lowercased.
+    pub concept: String,
+    /// Components whose name or a field name contains the concept.
+    pub components: Vec<Component>,
+    /// Ops whose name contains the concept.
+    pub ops: Vec<Op>,
+}
 
 /// The whole catalogue: every component and op in the workspace.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -72,6 +84,40 @@ impl Catalog {
         ops.sort_by(|a, b| a.name.cmp(&b.name));
         Ok(Self { components, ops })
     }
+
+    /// Finds everything that mentions `concept`.
+    ///
+    /// Matches a component by its own name or any of its field names, and an op
+    /// by its name, after splitting each identifier into words — so `velocity`
+    /// finds `Velocity`, `linear_velocity`, and `bsengine_get_velocity_x`, but
+    /// not `velocities_buffer`.
+    ///
+    /// Read the two lists together. A concept with ops but no component lives
+    /// outside the component set — in a backend, a resource, or the scripting
+    /// layer. A concept with both, in different crates, is the more interesting
+    /// case: it means two subsystems own the same word, which is what
+    /// `velocity` turned out to be here. The catalogue does not judge which is
+    /// right; it shows both and their rustdoc.
+    pub fn concept(&self, concept: &str) -> ConceptHits {
+        let needle = concept.to_ascii_lowercase();
+        let matches = |ident: &str| concept::words(ident).contains(&needle);
+
+        ConceptHits {
+            concept: needle.clone(),
+            components: self
+                .components
+                .iter()
+                .filter(|c| matches(&c.name) || c.fields.iter().any(|f| matches(&f.name)))
+                .cloned()
+                .collect(),
+            ops: self
+                .ops
+                .iter()
+                .filter(|o| matches(&o.name))
+                .cloned()
+                .collect(),
+        }
+    }
 }
 
 /// The crate a file belongs to — the first path segment under `crates/`/`apps/`.
@@ -94,6 +140,52 @@ mod tests {
             .nth(2)
             .expect("workspace root is two levels above crates/bsengine-catalog")
             .to_path_buf()
+    }
+
+    #[test]
+    fn velocity_is_owned_in_two_places_at_once() {
+        // This is the mistake that produced this whole item. A `Velocity`
+        // component was proposed for roadmap item 27 on the grounds that none
+        // existed. `bsengine_core::Velocity` already did -- and separately,
+        // physics velocity lives in the physics backend behind a family of
+        // ops. Two subsystems owning one word, and asking about either gives an
+        // answer that never mentions the other. Pinned here because surfacing
+        // exactly this is what the catalogue is for.
+        let cat = Catalog::scan(&workspace_root()).expect("scan the workspace");
+        let hits = cat.concept("velocity");
+
+        assert!(
+            hits.components.iter().any(|c| c.name == "Velocity"),
+            "bsengine_core::Velocity exists; found: {:?}",
+            hits.components.iter().map(|c| &c.name).collect::<Vec<_>>()
+        );
+        assert!(
+            hits.ops.len() >= 10,
+            "velocity is also exposed through a family of ops; found {}",
+            hits.ops.len()
+        );
+        assert!(hits.ops.iter().any(|o| o.name == "bsengine_get_velocity"));
+
+        let comp_crates: std::collections::BTreeSet<&str> =
+            hits.components.iter().map(|c| c.krate.as_str()).collect();
+        assert!(
+            comp_crates.contains("bsengine-core"),
+            "the component side lives in bsengine-core, found {comp_crates:?}"
+        );
+    }
+
+    #[test]
+    fn a_concept_that_lives_in_a_field_reports_its_component() {
+        // `damping` is not in any type name -- it is `RigidBody`'s two fields.
+        // Matching only type names would miss it, and most concepts live in
+        // fields.
+        let cat = Catalog::scan(&workspace_root()).expect("scan the workspace");
+        let hits = cat.concept("damping");
+        assert!(
+            hits.components.iter().any(|c| c.name == "RigidBody"),
+            "linear_damping/angular_damping are RigidBody's fields; found: {:?}",
+            hits.components.iter().map(|c| &c.name).collect::<Vec<_>>()
+        );
     }
 
     #[test]

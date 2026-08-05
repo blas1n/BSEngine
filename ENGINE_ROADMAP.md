@@ -1173,6 +1173,70 @@ velocity의 크기라는 것, 두 `Name`이 같은 개념이라는 것은 판단
 
 ---
 
+## 컴포넌트/op 감사 결과 (2026-08-05)
+
+item 32의 카탈로그로 공개 컴포넌트 49개와 op 298개를 훑은 결과다. 항목 32는 **도구를 세웠을 뿐**이고
+이 절이 그 도구의 첫 산출물이다. 각 발견은 실제로 코드를 읽어 확인했으며, 확인 방법을 함께 적는다.
+
+### A. 운동 시스템이 두 벌 있다 — 가장 큰 발견
+
+`bsengine-core` + `bsengine-app`에 **완결된 운동학 물리 스택**이 있고, `bsengine-physics`의 Rapier와
+병렬로 돈다. 둘은 독 주석 밖에서 서로를 참조하지 않는다.
+
+| 개념 | 운동학 쪽 | Rapier 쪽 |
+|---|---|---|
+| 속도 | `Velocity`, `AngularVelocity` (플러그인이 `Transform`에 적분) | `bsengine_*_velocity` op 18개 |
+| 감쇠 | `Damping` + `DampingPlugin` (`Velocity`를 감쇠) | `RigidBody.linear_damping`/`angular_damping` |
+| 중력 | `Gravity`(리소스) + `GravityScale`(컴포넌트) → `Velocity` | Rapier 내장 |
+| 충격량 | `ExternalImpulse` + `Mass` | `bsengine_apply_impulse_at_point` |
+
+확인: `crates/bsengine-app/src/{damping,gravity,angular_velocity,external_impulse}.rs`의 시스템들이
+전부 살아 있고 `bsengine_core::Velocity`를 읽고 쓴다. `Velocity`의 독 주석이 경계를 명시한다
+("For physics-driven motion use `bsengine-physics` instead").
+
+**이건 버그가 아니라 결정이 필요한 설계 사실이다.** 그리고 **item 27(캐릭터 컨트롤러)이 어느 쪽에
+설지 골라야 한다** — 카탈로그 없이 설계했다면 이 분기를 못 본 채 결정했을 것이다. 실제로 item 27
+설계 중 `Velocity` 컴포넌트를 새로 만들자는 제안이 나왔고, 그건 이미 있는 이름이었다.
+
+### B. 스크립팅 API와 컴포넌트가 같은 것을 다르게 부른다
+
+| API가 부르는 이름 | 컴포넌트의 이름 | op 수 |
+|---|---|---|
+| `position` | `Transform.translation` (독 주석은 "Local-space position") | 12 |
+| `euler` | `Transform.rotation` (`ReflectQuat`) | 11 |
+| `ao` | `AmbientOcclusion` | 10 |
+
+확인: `bsengine_get_position_x`가 트랜스폼 스냅샷의 `.0.x`를 읽는다(`ops.rs:2678`).
+
+**이게 카탈로그 자신의 실효성을 깎는다.** `catalog --concept position`이 "컴포넌트 없음, op 12개"라고
+답하는데, 개념에는 분명히 컴포넌트가 있다 — 다른 단어로. 즉 "이미 있나?"라는 질문에 **오답**을 준다.
+어휘를 맞추거나(파급이 크다: 씬 파일·스크립트 호환), 카탈로그에 별칭 표를 두거나 둘 중 하나다.
+
+### C. 구조가 완전히 같은 컴포넌트 쌍
+
+`PhysicsInput`과 `PhysicsTransform`이 둘 다 `{ translation: ReflectVec3, rotation: ReflectQuat }`다.
+한쪽은 물리로 들어가는 입력, 다른 쪽은 물리가 쓴 출력이라 방향만 다르다. 이름으로는 구분되지만
+인스펙터에서 나란히 보면 어느 쪽이 어느 쪽인지 알 수 없다.
+
+(`CustomShader`/`GltfAsset`이 둘 다 `{path: String}`, `Name`/`ScriptPath`가 둘 다 `(String)`인 것은
+의미가 명확히 달라 문제로 보지 않는다.)
+
+### D. `rotation`이 컴포넌트 4개에 흩어져 있다
+
+`Transform`, `PhysicsInput`, `PhysicsTransform`, `Skybox`. A와 C의 결과이므로 별도 항목은 아니다.
+
+### 후속 항목 후보
+
+우선순위 순. 아직 번호를 붙이지 않았다 — item 27의 설계 결과가 A의 답을 일부 정하기 때문이다.
+
+1. **A의 결정**: 운동학 스택과 Rapier 스택의 관계를 정한다. 통합·명시적 분리·한쪽 제거 중 하나.
+   item 27이 이 결정의 첫 소비자다.
+2. **B의 결정**: 어휘를 맞출지, 카탈로그에 별칭을 둘지.
+3. **C**: `PhysicsInput`/`PhysicsTransform`의 독 주석을 강화하거나 이름을 방향이 드러나게 바꾼다.
+4. **축별 op 45개 축소**: R2가 신규 유입을 막고 있으므로 급하지 않다. A·B가 정해진 뒤에 한다.
+
+---
+
 ## 보류 백로그 (당장 착수하지 않음)
 
 [BSENGINE_VS_UNITY_UNREAL.md](docs/BSENGINE_VS_UNITY_UNREAL.md) 비교에서 드러났지만,

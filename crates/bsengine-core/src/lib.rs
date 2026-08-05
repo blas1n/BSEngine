@@ -52,8 +52,6 @@ pub mod logging;
 pub mod mass;
 /// PBR material properties component.
 pub mod material;
-/// Human-readable entity name component.
-pub mod name;
 /// Baked navigation mesh resource used for pathfinding.
 pub mod nav_mesh;
 /// Nav-mesh-driven pathing agent component and its runtime state.
@@ -127,7 +125,6 @@ pub use light::{DirectionalLight, PointLight, SpotLight};
 pub use logging::init_logging;
 pub use mass::Mass;
 pub use material::Material;
-pub use name::Name;
 pub use nav_mesh::NavMesh;
 pub use nav_mesh_agent::{NavAgentState, NavMeshAgent};
 pub use network_id::{NetworkAuthority, NetworkId};

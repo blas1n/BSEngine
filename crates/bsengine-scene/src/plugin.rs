@@ -2,7 +2,9 @@ use crate::types::{
     AssetRef, EntityDescriptor, PhysicsBodyDesc, PrimitiveMesh, SceneDescriptor, ScriptPath,
 };
 use bevy_app::{App, Plugin, Startup};
-use bevy_ecs::prelude::{Component, IntoSystemConfigs, World};
+use bevy_ecs::prelude::{Component, IntoSystemConfigs, ReflectComponent, World};
+use bevy_reflect::prelude::ReflectDefault;
+use bevy_reflect::Reflect;
 use bsengine_asset::{AssetGuid, AssetIndex};
 use bsengine_core::{
     Camera, DirectionalLight, GlobalTransform, Material, PointLight, ProjectDir, SkyboxPath,
@@ -12,7 +14,13 @@ use bsengine_gltf::GltfAsset;
 use glam::{Quat, Vec3};
 
 /// Human-readable name assigned to a spawned scene entity, taken from `EntityDescriptor::name`.
-#[derive(Component, Debug, Clone)]
+///
+/// This is the engine's only `Name`. An identical `bsengine_core::Name(pub String)` existed
+/// alongside it with zero uses and was removed — registering both would have put two
+/// indistinguishable `Name` rows in the Inspector, which displays short type names. If you
+/// find yourself wanting an entity label in another crate, use this one.
+#[derive(Component, Debug, Clone, Default, Reflect)]
+#[reflect(Component, Default)]
 pub struct Name(pub String);
 
 /// Bevy plugin that loads a scene file at startup and spawns its entities into the world.
@@ -566,6 +574,13 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     app.register_type::<bsengine_gltf::GltfAsset>();
     app.register_type::<bsengine_gltf::SkinnedMesh>();
     app.register_type::<bsengine_gltf::AnimationClipLibrary>();
+
+    // `Name` is this crate's own, attached by `spawn_scene_entities` to every
+    // entity a scene declares. It was unregistered until now because a second
+    // `Name` in `bsengine-core` -- structurally identical, zero uses -- made it
+    // ambiguous which one the Inspector's short-name list would be showing.
+    // That one is gone; this is the only `Name`.
+    app.register_type::<Name>();
 }
 
 #[cfg(test)]

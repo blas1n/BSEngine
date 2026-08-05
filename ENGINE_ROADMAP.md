@@ -1173,6 +1173,42 @@ velocity의 크기라는 것, 두 `Name`이 같은 개념이라는 것은 판단
 
 ---
 
+### 33. 운동학 운동 스택 제거 (Rapier로 일원화)
+
+**목표:** `bsengine-core`/`bsengine-app`의 운동학 물리 스택을 지우고 운동을 Rapier 한 곳으로 모은다.
+
+아래 감사 결과 A가 근거다. 속도·감쇠·중력·충격량이 두 서브시스템에 각각 구현돼 있고 서로를
+참조하지 않는다. item 27(캐릭터 컨트롤러)이 어느 쪽에 설지 골라야 해서 지금 정한다.
+
+**제거 전에 잰 것.** 추정이 아니라 실측이며, 이 수치가 제거를 가능하게 한다:
+
+| | 실사용처 |
+|---|---|
+| `Velocity` | `games/cube-roller` 1곳뿐 (나머지는 등록·인스펙터 나열) |
+| `AngularVelocity`·`GravityScale`·`ExternalImpulse`·`Mass` | 게임 사용 0곳 |
+| `Damping` | 스크립팅 `setDamping` 1곳 |
+| 스크립팅 velocity op 18개 | **전부 Rapier행**(`PhysicsWorld::set_linvel`) — 운동학 컴포넌트를 건드리지 않는다 |
+
+즉 `tilt-run`·`mini-arena`의 스크립트는 이 제거의 영향을 받지 않는다. 처음 우려했던 "물리 바디 없이
+움직이는 UI·카메라·장식"은 **하나도 없었다.**
+
+**감사가 추가로 드러낸 어휘 충돌:** `setGravityScale` op은 `GravityScale` **컴포넌트가 아니라**
+Rapier로 간다(`pw.set_gravity_scale`). 이름이 같은데 다른 시스템을 건드린다.
+
+**완료 조건:**
+- [ ] `games/cube-roller`를 Rapier로 포팅 — **먼저 한다.** 그래야 삭제 시점에 의존자가 없다
+- [ ] `bsengine-core`에서 `Velocity`/`AngularVelocity`/`Damping`/`GravityScale`/`Gravity`(리소스)/
+      `ExternalImpulse`/`Mass` 삭제
+- [ ] `bsengine-app`의 velocity·angular_velocity·damping·gravity·external_impulse 플러그인 삭제
+- [ ] 스크립팅 `setDamping` 제거 — Rapier용 `setLinearDamping`이 이미 있어 중복이다
+- [ ] 리플렉션 등록과 인스펙터 항목 정리 (`catalog --check`가 초록을 유지해야 한다)
+- [ ] 테스트 추가, CI 통과, E2E 8개 통과
+
+**item 27이 이 항목의 첫 소비자다.** 캐릭터 컨트롤러는 Rapier의 `KinematicCharacterController`
+위에 서고, 운동학 컴포넌트를 다시 만들지 않는다.
+
+---
+
 ## 컴포넌트/op 감사 결과 (2026-08-05)
 
 item 32의 카탈로그로 공개 컴포넌트 49개와 op 298개를 훑은 결과다. 항목 32는 **도구를 세웠을 뿐**이고

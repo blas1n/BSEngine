@@ -14,9 +14,9 @@ pub mod plugin;
 /// The Rapier-backed physics world resource and its query/mutation API.
 pub mod world;
 
-pub use components::{CharacterBody, 
-    Collider, ColliderShape, CollisionEvent, PhysicsInput, PhysicsTransform, RaycastHit, RigidBody,
-    RigidBodyType,
+pub use components::{
+    CharacterBody, Collider, ColliderShape, CollisionEvent, PhysicsInput, PhysicsTransform,
+    RaycastHit, RigidBody, RigidBodyType,
 };
 pub use plugin::PhysicsPlugin;
 pub use world::PhysicsWorld;

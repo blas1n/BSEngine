@@ -819,6 +819,7 @@ dependencies = [
  "bsengine-editor",
  "bsengine-input",
  "bsengine-mcp",
+ "bsengine-physics",
  "bsengine-plugin",
  "bsengine-render",
  "bsengine-rhi",

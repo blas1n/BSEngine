@@ -734,7 +734,7 @@ libtest는 모든 `#[test]`를 spawn된 스레드에서 실행하고, Rust는 �
 
 ---
 
-### 27. 캐릭터 컨트롤러 + 실제 물리 넉백
+### 27. 캐릭터 컨트롤러 + 실제 물리 넉백 ✅
 
 **목표:** `NavMeshAgent`가 Transform을 소유하려면 Kinematic rigidbody가 필요하고,
 Kinematic 바디는 정의상 물리 임펄스를 무시해 "넉백"을 스크립트가 위치를 직접 미는
@@ -764,14 +764,14 @@ item 제목이 말하는 것은 아니다. ② Rapier는 Kinematic 바디의 속
 않으므로, 보류된 엔진 수정을 이 항목이 끌어올 이유가 없다.
 
 **완료 조건:**
-- [ ] `CharacterBody` 컴포넌트 — 삽입 시 `lock_rotations(e, true, false, true)`(이미 있는 API,
+- [x] `CharacterBody` 컴포넌트 — 삽입 시 `lock_rotations(e, true, false, true)`(이미 있는 API,
       씬 `RigidBodyDesc`가 노출하지 않는다), 스텝 뒤 캡슐 밑 레이캐스트로 `grounded`와 경사 판정
-- [ ] `navigate_agents`를 임펄스 구동으로 — `Transform`을 쓰지 않는다. **`NavMeshAgent.acceleration`이
+- [x] `navigate_agents`를 임펄스 구동으로 — `Transform`을 쓰지 않는다. **`NavMeshAgent.acceleration`이
       처음으로 의미를 갖는다**(지금은 선언만 되고 아무도 읽지 않으며, mini-arena 씬이 값을 저작하는데도
       그렇다). `bsengine-app → bsengine-physics` 간선이 새로 필요하고 순환은 아니다
-- [ ] `games/mini-arena`의 Enemy를 Dynamic + `CharacterBody`로, 넉백은 기존 `Bsengine.addImpulse`로.
+- [x] `games/mini-arena`의 Enemy를 Dynamic + `CharacterBody`로, 넉백은 기존 `Bsengine.addImpulse`로.
       스크립트에서 넉백이라는 개념 자체가 사라진다
-- [ ] 테스트 추가, CI 통과 — 특히 **넉백이 에이전트 이동과 공존하는지**(에이전트가 속도를 덮어쓰면
+- [x] 테스트 추가, CI 통과 — 특히 **넉백이 에이전트 이동과 공존하는지**(에이전트가 속도를 덮어쓰면
       실패한다)와 `acceleration`이 실제로 도달 시간을 바꾸는지
 
 **카탈로그 확인:** `grounded`/`character`/`controller`/`jump`/`slope`/`step` 여섯 개념 모두

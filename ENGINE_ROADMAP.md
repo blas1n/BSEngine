@@ -702,7 +702,7 @@ libtest는 모든 `#[test]`를 spawn된 스레드에서 실행하고, Rust는 �
 
 ---
 
-### 25. 3D 포지셔널 오디오
+### 25. 3D 포지셔널 오디오 ✅
 
 **목표:** `AudioWorld`가 위치 정보 없는 `play`/`stop`뿐인 상태(`bsengine-audio` 251줄)를
 벗어나, 엔티티 위치 기반 거리 감쇠·패닝을 제공
@@ -726,11 +726,33 @@ libtest는 모든 `#[test]`를 spawn된 스레드에서 실행하고, Rust는 �
 (`listener`/`emitter`/`spatial`/`attenuation`/`pan`은 전부 비어 있어 새 어휘로 안전하다.)
 
 **완료 조건:**
-- [ ] `AudioListener` 컴포넌트 — 이 엔티티의 `Transform`이 kira 리스너를 구동한다(카메라에 붙인다)
-- [ ] `AudioEmitter` 컴포넌트 — 엔티티마다 kira spatial 트랙을 소유하고 매 프레임 위치를 동기화
-- [ ] `Bsengine.playSound3D(entityName, path, opts)` — 기존 `playSound`는 비위치 재생으로 유지
-- [ ] `games/mini-arena`에서 위치 기반 소리 사용
-- [ ] 테스트 추가, CI 통과
+- [x] `AudioListener` 컴포넌트 — 이 엔티티의 `Transform`이 kira 리스너를 구동한다(카메라에 붙인다)
+- [x] `AudioEmitter` 컴포넌트 — 엔티티마다 kira spatial 트랙을 소유하고 매 프레임 위치를 동기화
+- [x] `Bsengine.playSound3D(entityName, path, opts)` — 기존 `playSound`는 비위치 재생으로 유지
+- [x] `games/mini-arena`에서 위치 기반 소리 사용
+- [x] 테스트 추가, CI 통과
+
+**구현이 드러낸 것: WAV과 OGG는 지원된 적이 없었다.** 이 워크스페이스는 kira의 `wav`/`ogg`
+기능만 켜고 `pcm`/`vorbis`를 안 켰다. 그건 symphonia의 **컨테이너** 리더일 뿐이고 안에 든 것을
+푸는 **코덱**이 아니라서, 평범한 PCM WAV가 파싱된 뒤 "unsupported codec"으로 실패했다. 워처는
+`wav`/`ogg`를 로드 가능 확장자로 광고하고 로더도 받아들이는데 실제로는 디코딩되지 않았다.
+
+**그리고 이 진단은 이미 적혀 있었다.** `audio_source.rs`의 테스트 헬퍼 독 주석이 정확히 이 문제를
+설명하고 있었다 — "실제 .wav(PCM)나 .ogg(Vorbis) 파일을 넣어도 오늘은 디코딩에 실패한다"까지.
+그런데 수정으로 이어지지 않았다. **결함을 적어 두는 것은 고치는 것이 아니고**, 테스트 헬퍼의 독
+주석은 아무도 찾아보지 않는 곳이다. 이번에 실제로 `.wav`을 재생하려다 부딪혔고, 코덱 두 개를 켜서
+고쳤으며 `a_pcm_wav_decodes_via_kira`가 지킨다.
+
+**부수적으로: 어떤 게임도 소리를 내고 있지 않았다.** 사운드 에셋이 저장소에 하나도 없었고 어떤
+스크립트도 `playSound`를 부르지 않았다. item 33이 "죽은 ECS 오디오 경로"를 지웠는데, 살아 있는
+경로조차 아무도 쓰지 않고 있었다. mini-arena의 Enemy에 합성 험(220Hz 사인, 루프 지점이 튀지
+않도록 양끝 페이드)을 생성해 붙였고, 이것이 이 엔진에서 실제로 재생되는 첫 소리다.
+
+**테스트가 `AudioManager`를 만들지 않는다.** 오디오 장치 없는 Windows에서 kira가 WASAPI/COM을
+백그라운드 스레드에서 초기화하다 프로세스를 죽인다(`STATUS_ACCESS_VIOLATION`) — 이 크레이트의
+기존 테스트 두 개가 그래서 `#[ignore]`돼 있다. 처음엔 새 테스트도 같은 크래시를 밟았다. `AudioPlugin`이
+이미 있는 `AudioWorld`를 덮어쓰지 않게 하고 테스트가 `AudioWorld::silent()`를 넣도록 바꿔서,
+새 테스트는 `#[ignore]` 없이 모든 플랫폼에서 실제로 돈다.
 
 **청감 검증은 이 작업 안에서 못 한다.** 원래 완료 조건에 있던 "실제 청감 검증"은 소리를 들을 수
 있어야 하는 항목이라 자동화된 작업이 만족시킬 수 없다. 대신 **kira에 넘어가는 값**을 검증한다 —

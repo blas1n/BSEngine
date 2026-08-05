@@ -831,6 +831,15 @@ pub enum ScriptCommand {
         volume: f32,
         /// Whether the sound should loop.
         loop_: bool,
+        /// Name of the `AudioEmitter` entity to play from, or `None` for a
+        /// non-positional play.
+        ///
+        /// The sound has no position of its own — the emitter entity's
+        /// `Transform` is where it comes from. Note that "sound position"
+        /// already means playback time here (see
+        /// [`bsengine_get_sound_position`]), which is why this names an entity
+        /// rather than coordinates.
+        emitter: Option<String>,
     },
     /// Stop a playing sound.
     StopSound {
@@ -5355,6 +5364,40 @@ pub fn bsengine_play_sound(#[string] path: String, volume: f32, loop_: bool) -> 
             path,
             volume,
             loop_,
+            emitter: None,
+        });
+    });
+    id
+}
+
+/// Queue starting playback of a sound positioned at an entity.
+///
+/// `entity` must name an entity carrying `AudioEmitter`; the sound is heard
+/// from wherever that entity is, relative to the `AudioListener`. Distance
+/// attenuation and panning come from the audio engine, not from the script.
+///
+/// Takes an entity rather than coordinates on purpose: a sound already has a
+/// "position" in this API — [`bsengine_get_sound_position`] reports playback
+/// time in seconds — so reusing the word for 3D would give it two meanings.
+#[op2(fast)]
+pub fn bsengine_play_sound_3d(
+    #[string] entity: String,
+    #[string] path: String,
+    volume: f32,
+    loop_: bool,
+) -> u32 {
+    let id = SOUND_ID_COUNTER.with(|c| {
+        let id = *c.borrow();
+        *c.borrow_mut() = id + 1;
+        id
+    });
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::PlaySound {
+            id,
+            path,
+            volume,
+            loop_,
+            emitter: Some(entity),
         });
     });
     id
@@ -6094,6 +6137,7 @@ deno_core::extension!(
         bsengine_set_cursor_visible,
         bsengine_set_cursor_locked,
         bsengine_play_sound,
+        bsengine_play_sound_3d,
         bsengine_stop_sound,
         bsengine_pause_sound,
         bsengine_resume_sound,
@@ -6571,6 +6615,11 @@ var Bsengine = {
         const v = (opts && opts.volume !== undefined) ? opts.volume : 1.0;
         const l = (opts && opts.loop) ? true : false;
         return Deno.core.ops.bsengine_play_sound(path, v, l);
+    },
+    playSound3D:    (entity, path, opts) => {
+        const v = (opts && opts.volume !== undefined) ? opts.volume : 1.0;
+        const l = (opts && opts.loop) ? true : false;
+        return Deno.core.ops.bsengine_play_sound_3d(entity, path, v, l);
     },
     stopSound:      (id)                   => Deno.core.ops.bsengine_stop_sound(id),
     pauseSound:     (id)                   => Deno.core.ops.bsengine_pause_sound(id),
@@ -7735,6 +7784,43 @@ JSON.stringify(received)
             .unwrap();
         assert!(r.contains("\"x\":1"), "expected x=1: {r}");
         assert!(r.contains("\"y\":2"), "expected y=2: {r}");
+    }
+
+    #[test]
+    fn play_sound_3d_names_the_emitter_entity() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.playSound3D("Enemy", "assets/sounds/hit.wav");"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::PlaySound { path, emitter, .. }
+                    if path == "assets/sounds/hit.wav"
+                        && emitter.as_deref() == Some("Enemy"))
+            });
+            assert!(found, "positional PlaySound not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn plain_play_sound_is_not_positional() {
+        // The two share one command; only the emitter field separates them, so
+        // the plain call has to leave it empty or every sound becomes 3D.
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.playSound("assets/sounds/hit.wav");"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::PlaySound { emitter, .. }
+                    if emitter.is_none())
+            });
+            assert!(found, "plain PlaySound should carry no emitter");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }
 
     #[test]

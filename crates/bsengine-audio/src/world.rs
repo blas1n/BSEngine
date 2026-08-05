@@ -44,7 +44,15 @@ impl AudioWorld {
     /// An `AudioWorld` with no backend: every play is a no-op, but poses and
     /// emitter positions are still recorded so the rest of the engine behaves
     /// identically with and without an audio device.
-    fn silent() -> Self {
+    ///
+    /// Public because constructing a real `AudioManager` is not always safe.
+    /// On Windows with no audio device — CI, and any headless machine — kira
+    /// initialises WASAPI/COM on a background thread and creating or dropping
+    /// the manager faults the process outright (`STATUS_ACCESS_VIOLATION`),
+    /// which is why two tests in this crate are `#[ignore]`d there. A host or
+    /// test that wants the positional bookkeeping without that risk can insert
+    /// this and [`AudioPlugin`](crate::AudioPlugin) will leave it alone.
+    pub fn silent() -> Self {
         Self {
             manager: None,
             listener: None,

@@ -85,7 +85,11 @@ bsengine-physics  = { path = "crates/bsengine-physics" }
 bsengine-audio    = { path = "crates/bsengine-audio" }
 bsengine-network  = { path = "crates/bsengine-network" }
 rapier3d          = { version = "0.33", features = ["default"] }
-kira              = { version = "0.12", default-features = false, features = ["cpal", "wav", "ogg", "mp3", "flac"] }
+# kira splits container from codec: `wav`/`ogg` read the container while
+# `pcm`/`vorbis` decode what is inside. Without the codecs both formats parse
+# and then fail with "unsupported codec", which is what this engine shipped
+# while advertising all four formats.
+kira              = { version = "0.12", default-features = false, features = ["cpal", "wav", "pcm", "ogg", "vorbis", "mp3", "flac"] }
 egui              = "0.29"
 egui-wgpu         = "0.29"
 egui_dock         = { version = "0.14", features = ["serde"] }

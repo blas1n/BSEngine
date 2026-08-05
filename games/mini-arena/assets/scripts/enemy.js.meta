@@ -1,6 +1,6 @@
 (
     guid: "5eafcc42-9eba-47dd-a0b4-f4a3c60dbb77",
-    hash: "blake3:c46afcde607cab96ef521efc56d0647b49e51e750053e3233ecde220facc5339",
-    size: Some(2437),
+    hash: "blake3:102d26897ab2a6745da1ddfd28b51583e3f41d619222969cf82ac337609e5191",
+    size: Some(2992),
     former_paths: [],
 )

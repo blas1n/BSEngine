@@ -20,7 +20,12 @@ pub struct AudioPlugin;
 
 impl Plugin for AudioPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(AudioWorld::default());
+        // Only if nothing has provided one. A caller that inserted
+        // `AudioWorld::silent()` did so to avoid constructing a real
+        // `AudioManager`, and overwriting it here would undo exactly that.
+        if !app.world().contains_resource::<AudioWorld>() {
+            app.insert_resource(AudioWorld::default());
+        }
         // Registered here rather than in `bsengine_scene::register_gameplay_
         // reflect_types` because `bsengine-scene` does not depend on this
         // crate, and `AudioPlugin` is in both the windowed runtime and the
@@ -73,6 +78,7 @@ mod tests {
     #[test]
     fn the_listener_pose_follows_its_entity() {
         let mut app = new_app();
+        app.insert_resource(AudioWorld::silent());
         app.add_plugins(AudioPlugin);
         let at = Vec3::new(1.0, 2.0, 3.0);
         let entity = app
@@ -107,6 +113,7 @@ mod tests {
     #[test]
     fn an_emitter_position_follows_its_entity() {
         let mut app = new_app();
+        app.insert_resource(AudioWorld::silent());
         app.add_plugins(AudioPlugin);
         app.world_mut()
             .spawn((AudioListener, Transform::from_translation(Vec3::ZERO)));
@@ -144,6 +151,7 @@ mod tests {
         // Otherwise every entity in the scene would be a sound source and the
         // component would mean nothing.
         let mut app = new_app();
+        app.insert_resource(AudioWorld::silent());
         app.add_plugins(AudioPlugin);
         app.world_mut()
             .spawn((AudioListener, Transform::from_translation(Vec3::ZERO)));
@@ -167,6 +175,7 @@ mod tests {
         // Emitters exist before the camera is spawned during scene load, and a
         // frame in that state must not be fatal.
         let mut app = new_app();
+        app.insert_resource(AudioWorld::silent());
         app.add_plugins(AudioPlugin);
         app.world_mut().spawn((
             AudioEmitter::default(),

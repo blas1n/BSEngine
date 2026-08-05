@@ -9,6 +9,7 @@ SceneDescriptor(entities: [
         components: [
             ("bsengine_core::bloom::Bloom", "(intensity: 0.6, threshold: 1.0, radius: 4.0, softness: 0.5, enabled: true)"),
             ("bsengine_core::tone_map::ToneMap", "(mode: Aces, exposure: 0.0, enabled: true)"),
+            ("bsengine_audio::spatial::AudioListener", "()"),
         ],
     ),
     EntityDescriptor(
@@ -67,6 +68,7 @@ SceneDescriptor(entities: [
             ("bsengine_core::nav_mesh_agent::NavMeshAgent", "(destination: None, speed: 3.0, angular_speed: 2.0, acceleration: 8.0, stopping_distance: 1.2, radius: 0.4, height: 1.8, state: Idle, enabled: true)"),
             ("bsengine_core::shield::Shield", "(current: 30.0, max: 30.0, recharge_rate: 0.0, recharge_delay: 0.0, recharge_cooldown: 0.0)"),
             ("bsengine_physics::components::CharacterBody", "(ground_check_distance: 0.2, max_slope_deg: 50.0, grounded: false)"),
+            ("bsengine_audio::spatial::AudioEmitter", "(spatialization_strength: 1.0)"),
         ],
     ),
     EntityDescriptor(

@@ -166,6 +166,10 @@ struct PendingSound {
     /// A `pauseSound` arrived before the sound started, so there was no kira
     /// handle to pause; pause it the instant it does start.
     paused: bool,
+    /// Name of the `AudioEmitter` entity this play is positioned at, or `None`
+    /// for a non-positional play. Resolved to an entity when the sound
+    /// actually starts, not now, because the entity may not exist yet.
+    emitter: Option<String>,
 }
 
 /// Plays requested before their sound finished loading.
@@ -1825,6 +1829,7 @@ fn run_scripts(world: &mut World) {
                 path,
                 volume,
                 loop_,
+                emitter,
             } => {
                 let project_dir = world
                     .get_resource::<ProjectDir>()
@@ -1912,6 +1917,7 @@ fn run_scripts(world: &mut World) {
                         volume,
                         loop_,
                         paused: false,
+                        emitter,
                     });
                 }
             }
@@ -2801,8 +2807,28 @@ fn start_pending_sounds(world: &mut World) {
         } else {
             data
         };
+        // Resolved before borrowing `AudioWorld`, since finding the entity
+        // needs the world too.
+        let emitter_entity = entry.emitter.as_ref().and_then(|name| {
+            let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+            let found = q.iter(world).find(|(_, n)| n.0 == *name).map(|(e, _)| e);
+            if found.is_none() {
+                tracing::warn!(
+                    "playSound3D named entity '{name}', which does not exist —                      playing it without a position"
+                );
+            }
+            found
+        });
         if let Some(mut audio) = world.get_resource_mut::<AudioWorld>() {
-            if let Some(mut handle) = audio.play(data) {
+            // `play_at` returns None when the entity has no spatial track yet,
+            // which is the normal state before a listener exists. Falling back
+            // keeps the sound audible during scene load rather than dropping
+            // it; it is simply not positional for that moment.
+            let started = match emitter_entity {
+                Some(e) => audio.play_at(e, data.clone()).or_else(|| audio.play(data)),
+                None => audio.play(data),
+            };
+            if let Some(mut handle) = started {
                 // A `pauseSound` that arrived while this play was still queued
                 // had no kira handle to act on; apply it now, before the sound
                 // is audible for a frame it was asked not to be.

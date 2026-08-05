@@ -84,22 +84,26 @@ mod tests {
     /// samples of silence per frame via a `CONSTANT` subframe) rather than
     /// relying on a checked-in binary fixture.
     ///
-    /// No `.wav`/`.ogg`/`.mp3`/`.flac` file exists anywhere in this repo
-    /// (`git ls-files` turns up nothing), so there is no real fixture to
-    /// point at. Worse, this workspace's `kira` dependency
-    /// (`features = ["cpal", "wav", "ogg", "mp3", "flac"]` in the root
-    /// `Cargo.toml`) only pulls in `symphonia`'s WAV/OGG *container* readers,
-    /// not the "pcm"/"vorbis" *codec* features kira's own `default` feature
-    /// set would otherwise include — so even a real checked-in `.wav`
-    /// (PCM) or `.ogg` (Vorbis) file would fail to decode today
-    /// (`symphonia-codec-pcm`/`symphonia-codec-vorbis` aren't even in
-    /// Cargo.lock). Only `.mp3`/`.flac` are fully wired (format + codec
-    /// bundled together in `symphonia-bundle-mp3`/`symphonia-bundle-flac`,
-    /// both present in Cargo.lock), and FLAC's `CONSTANT` subframe type is
-    /// simple enough to hand-encode without an encoder library. This is
-    /// exercised for real by `audio_source_loads_async_and_becomes_available`
-    /// below (decoded by the same `symphonia` backend kira uses in
-    /// production), not just asserted structurally.
+    /// FLAC rather than WAV because FLAC's `CONSTANT` subframe type is simple
+    /// enough to hand-encode without an encoder library, and this predates
+    /// there being any audio file in the repository at all.
+    ///
+    /// An earlier version of this comment recorded that `.wav` and `.ogg`
+    /// could not be decoded here: the workspace enabled kira's `wav`/`ogg`
+    /// features, which are `symphonia`'s *container* readers, without the
+    /// `pcm`/`vorbis` *codec* features, so both formats parsed and then failed
+    /// with "unsupported codec". That diagnosis was exactly right and sat here
+    /// unacted-on until roadmap item 25 tried to play an actual `.wav` and hit
+    /// it. **Writing a defect down is not fixing it**, and a test helper's doc
+    /// comment is somewhere nobody goes looking. The codecs are enabled now
+    /// (see the note on `kira` in the root `Cargo.toml`), all four advertised
+    /// formats decode, and `a_pcm_wav_decodes_via_kira` below is the guard
+    /// that keeps it that way.
+    ///
+    /// This fixture is exercised for real by
+    /// `audio_source_loads_async_and_becomes_available` below (decoded by the
+    /// same `symphonia` backend kira uses in production), not just asserted
+    /// structurally.
     fn minimal_flac_silence() -> Vec<u8> {
         struct BitWriter {
             bits: Vec<bool>,
@@ -221,6 +225,50 @@ mod tests {
             out.extend_from_slice(&build_frame(frame_number));
         }
         out
+    }
+
+    #[test]
+    fn a_pcm_wav_decodes_via_kira() {
+        // The guard on the gap item 25 hit: this workspace advertises `.wav`
+        // support — the asset watcher lists the extension, the loader accepts
+        // it — but enabled only symphonia's WAV *container* reader and not the
+        // `pcm` *codec*, so every plain PCM WAV parsed and then failed with
+        // "unsupported codec". Dropping `pcm` from kira's features in the root
+        // Cargo.toml fails this test.
+        //
+        // Built here rather than checked in so the assertion covers the decode
+        // rather than a binary blob nobody can read in review.
+        const RATE: u32 = 8000;
+        const FRAMES: u32 = 64;
+        let pcm: Vec<u8> = (0..FRAMES)
+            .flat_map(|i| {
+                let v = if i % 2 == 0 { 1000i16 } else { -1000i16 };
+                v.to_le_bytes()
+            })
+            .collect();
+        let mut wav = Vec::new();
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(36 + pcm.len() as u32).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes()); // fmt chunk size
+        wav.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        wav.extend_from_slice(&1u16.to_le_bytes()); // mono
+        wav.extend_from_slice(&RATE.to_le_bytes());
+        wav.extend_from_slice(&(RATE * 2).to_le_bytes()); // byte rate
+        wav.extend_from_slice(&2u16.to_le_bytes()); // block align
+        wav.extend_from_slice(&16u16.to_le_bytes()); // bits per sample
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&(pcm.len() as u32).to_le_bytes());
+        wav.extend_from_slice(&pcm);
+
+        let data = StaticSoundData::from_cursor(std::io::Cursor::new(wav))
+            .expect("a plain PCM wav must decode — is kira's `pcm` feature still enabled?");
+        assert_eq!(data.sample_rate, RATE);
+        assert_eq!(data.num_frames() as u32, FRAMES);
+        assert!(
+            data.frames.iter().any(|f| f.left.abs() > 0.01),
+            "the decoded audio should not be silence — the samples alternate ±1000"
+        );
     }
 
     #[test]

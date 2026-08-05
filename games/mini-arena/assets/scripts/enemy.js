@@ -1,4 +1,6 @@
 let navReady = false;
+let humStarted = false;
+const HUM_PATH = "assets/sounds/enemy-hum.wav";
 const CHASE_RANGE = 12.0;
 const REPATH_INTERVAL = 0.5;
 let repathTimer = 0.0;
@@ -38,6 +40,16 @@ function onUpdate(self) {
         // 20x20 half-extent from main.ron).
         Bsengine.navmesh.init(40, 40, 1.0, -20.0, 0.0, -20.0);
         navReady = true;
+    }
+
+    if (!humStarted) {
+        // Positional: the hum comes from wherever the Enemy is, so it pans and
+        // fades as it circles the Player. The Enemy carries AudioEmitter and
+        // the Camera carries AudioListener; nothing here computes volume or
+        // panning, and nothing here names a position — the entity is the
+        // position.
+        Bsengine.playSound3D("Enemy", HUM_PATH, { volume: 0.4, loop: true });
+        humStarted = true;
     }
 
     const player = Bsengine.getPosition("Player");

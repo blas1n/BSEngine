@@ -44,7 +44,7 @@ mod tests {
                 RigidBody::dynamic(),
                 Collider::ball(0.5),
                 PhysicsInput {
-                    translation: Vec3::new(0.0, 10.0, 0.0),
+                    translation: Vec3::new(0.0, 10.0, 0.0).into(),
                     rotation: Default::default(),
                 },
             ))
@@ -72,7 +72,7 @@ mod tests {
                 RigidBody::fixed(),
                 Collider::cuboid(1.0, 1.0, 1.0),
                 PhysicsInput {
-                    translation: Vec3::new(0.0, 0.0, 0.0),
+                    translation: Vec3::new(0.0, 0.0, 0.0).into(),
                     rotation: Default::default(),
                 },
             ))
@@ -98,7 +98,7 @@ mod tests {
             RigidBody::fixed(),
             Collider::cuboid(10.0, 0.1, 10.0),
             PhysicsInput {
-                translation: Vec3::new(0.0, 0.0, 0.0),
+                translation: Vec3::new(0.0, 0.0, 0.0).into(),
                 rotation: Default::default(),
             },
         ));
@@ -109,7 +109,7 @@ mod tests {
                 RigidBody::dynamic(),
                 Collider::ball(0.5),
                 PhysicsInput {
-                    translation: Vec3::new(0.0, 5.0, 0.0),
+                    translation: Vec3::new(0.0, 5.0, 0.0).into(),
                     rotation: Default::default(),
                 },
             ))
@@ -142,7 +142,7 @@ mod tests {
             RigidBody::fixed(),
             Collider::cuboid(10.0, 0.1, 10.0),
             PhysicsInput {
-                translation: Vec3::ZERO,
+                translation: Vec3::ZERO.into(),
                 rotation: Default::default(),
             },
         ));
@@ -151,7 +151,7 @@ mod tests {
             RigidBody::dynamic(),
             Collider::ball(0.5),
             PhysicsInput {
-                translation: Vec3::new(0.0, 1.0, 0.0),
+                translation: Vec3::new(0.0, 1.0, 0.0).into(),
                 rotation: Default::default(),
             },
         ));

@@ -33,6 +33,10 @@ impl Plugin for PhysicsPlugin {
         // true if `RigidBody` ever stops being the only thing referring to it.
         app.register_type::<RigidBody>();
         app.register_type::<RigidBodyType>();
+        app.register_type::<Collider>();
+        app.register_type::<ColliderShape>();
+        app.register_type::<PhysicsTransform>();
+        app.register_type::<PhysicsInput>();
         app.add_systems(
             Update,
             (
@@ -100,8 +104,8 @@ fn spawn_bodies(
     query: Query<(Entity, &RigidBody, &Collider, Option<&PhysicsInput>), Without<PhysicsHandles>>,
 ) {
     for (entity, rigid_body, collider, input) in query.iter() {
-        let pos = input.map(|i| i.translation).unwrap_or(Vec3::ZERO);
-        let rot = input.map(|i| i.rotation).unwrap_or(Quat::IDENTITY);
+        let pos = input.map(|i| i.translation.0).unwrap_or(Vec3::ZERO);
+        let rot = input.map(|i| i.rotation.0).unwrap_or(Quat::IDENTITY);
 
         let pose = Pose::from_parts(to_rapier_vec(pos), to_rapier_rot(rot));
 
@@ -138,8 +142,8 @@ fn spawn_bodies(
                 collider_handle,
             },
             PhysicsTransform {
-                translation: pos,
-                rotation: rot,
+                translation: pos.into(),
+                rotation: rot.into(),
             },
         ));
     }
@@ -154,8 +158,8 @@ fn step_world(
         if let Some(body) = world.rigid_body_set.get_mut(handles.body_handle) {
             if body.is_kinematic() {
                 body.set_next_kinematic_position(Pose::from_parts(
-                    to_rapier_vec(input.translation),
-                    to_rapier_rot(input.rotation),
+                    to_rapier_vec(input.translation.0),
+                    to_rapier_rot(input.rotation.0),
                 ));
             }
         }
@@ -190,8 +194,8 @@ fn sync_from_rapier(
 ) {
     for (handles, mut transform) in query.iter_mut() {
         if let Some(body) = world.rigid_body_set.get(handles.body_handle) {
-            transform.translation = from_rapier_vec(body.translation());
-            transform.rotation = from_rapier_rot(*body.rotation());
+            transform.translation = from_rapier_vec(body.translation()).into();
+            transform.rotation = from_rapier_rot(*body.rotation()).into();
         }
     }
 }
@@ -212,8 +216,8 @@ fn sync_transform_from_physics(
 ) {
     for (rigid_body, physics_transform, mut transform) in query.iter_mut() {
         if rigid_body.body_type == RigidBodyType::Dynamic {
-            transform.translation = physics_transform.translation.into();
-            transform.rotation = physics_transform.rotation.into();
+            transform.translation = physics_transform.translation;
+            transform.rotation = physics_transform.rotation;
         }
     }
 }
@@ -229,8 +233,8 @@ fn sync_physics_input_from_transform_for_kinematic(
 ) {
     for (rigid_body, transform, mut input) in query.iter_mut() {
         if rigid_body.body_type == RigidBodyType::KinematicPosition {
-            input.translation = transform.translation.0;
-            input.rotation = transform.rotation.0;
+            input.translation = transform.translation;
+            input.rotation = transform.rotation;
         }
     }
 }
@@ -266,8 +270,8 @@ mod tests {
             RigidBody::dynamic(),
             Collider::ball(0.5),
             PhysicsInput {
-                translation: start,
-                rotation: Quat::IDENTITY,
+                translation: start.into(),
+                rotation: Quat::IDENTITY.into(),
             },
         ));
 
@@ -297,8 +301,8 @@ mod tests {
             RigidBody::dynamic(),
             Collider::ball(0.5),
             PhysicsInput {
-                translation: start,
-                rotation: Quat::IDENTITY,
+                translation: start.into(),
+                rotation: Quat::IDENTITY.into(),
             },
         ));
 
@@ -328,8 +332,8 @@ mod tests {
                 RigidBody::kinematic(),
                 Collider::cuboid(1.0, 0.25, 1.0),
                 PhysicsInput {
-                    translation: start,
-                    rotation: Quat::IDENTITY,
+                    translation: start.into(),
+                    rotation: Quat::IDENTITY.into(),
                 },
             ))
             .id();
@@ -366,8 +370,8 @@ mod tests {
                 RigidBody::kinematic(),
                 Collider::cuboid(1.0, 0.25, 1.0),
                 PhysicsInput {
-                    translation: start,
-                    rotation: Quat::IDENTITY,
+                    translation: start.into(),
+                    rotation: Quat::IDENTITY.into(),
                 },
             ))
             .id();
@@ -384,7 +388,7 @@ mod tests {
 
         let input = app.world().get::<PhysicsInput>(entity).unwrap();
         assert_eq!(
-            input.translation, moved,
+            input.translation.0, moved,
             "kinematic body's PhysicsInput should track its script-driven Transform"
         );
     }

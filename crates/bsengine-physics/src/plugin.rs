@@ -9,8 +9,8 @@ use rapier3d::prelude::*;
 
 use crate::{
     components::{
-        Collider, ColliderShape, CollisionEvent, PhysicsHandles, PhysicsInput, PhysicsTransform,
-        RigidBody, RigidBodyType,
+        CharacterBody, Collider, ColliderShape, CollisionEvent, PhysicsHandles, PhysicsInput,
+        PhysicsTransform, RigidBody, RigidBodyType,
     },
     world::PhysicsWorld,
 };
@@ -37,6 +37,7 @@ impl Plugin for PhysicsPlugin {
         app.register_type::<ColliderShape>();
         app.register_type::<PhysicsTransform>();
         app.register_type::<PhysicsInput>();
+        app.register_type::<CharacterBody>();
         app.add_systems(
             Update,
             (
@@ -45,6 +46,11 @@ impl Plugin for PhysicsPlugin {
                 step_world,
                 sync_from_rapier,
                 sync_transform_from_physics,
+                // After the transform sync, so the ground ray is cast from
+                // where the character actually ended up this step rather than
+                // where it was before Rapier resolved the step.
+                lock_character_rotation,
+                update_grounded,
             )
                 .chain()
                 .run_if(
@@ -228,6 +234,59 @@ fn sync_transform_from_physics(
 /// Rapier's collision resolution reflects where the body actually is.
 /// Dynamic bodies don't need this — their `Transform` is physics-driven,
 /// not the other way around.
+/// Locks pitch and roll on every character body, leaving yaw free.
+///
+/// Runs every frame rather than once on insert because a body is registered
+/// with Rapier by `spawn_bodies` a frame after the entity appears, so there is
+/// no single moment at which "the body now exists" can be observed from here.
+/// Setting the same flags repeatedly is idempotent and cheap.
+fn lock_character_rotation(
+    mut world: ResMut<PhysicsWorld>,
+    query: Query<Entity, (With<CharacterBody>, With<PhysicsHandles>)>,
+) {
+    for entity in query.iter() {
+        world.lock_rotations(entity, true, false, true);
+    }
+}
+
+/// Writes [`CharacterBody::grounded`] from a downward ray under each character.
+///
+/// The ray starts at the character's origin and is told to ignore that
+/// character's own body, so it reports the first *other* surface underneath.
+/// A hit steeper than `max_slope_deg` does not count: a character pressed
+/// against a wall is touching something, but it is not standing on it.
+fn update_grounded(
+    world: Res<PhysicsWorld>,
+    mut query: Query<(
+        Entity,
+        &bsengine_core::Transform,
+        &Collider,
+        &mut CharacterBody,
+    )>,
+) {
+    for (entity, transform, collider, mut character) in query.iter_mut() {
+        let origin = transform.translation.0;
+        // Distance from the body's origin down to the bottom of its shape.
+        let half_extent = match &collider.shape {
+            ColliderShape::Box { half_extents } => half_extents.y,
+            ColliderShape::Sphere { radius } => *radius,
+            ColliderShape::Capsule {
+                half_height,
+                radius,
+            } => half_height + radius,
+        };
+        let reach = half_extent + character.ground_check_distance;
+
+        character.grounded = match world.cast_ray_excluding(origin, Vec3::NEG_Y, reach, entity) {
+            Some(hit) => {
+                let cos_limit = character.max_slope_deg.to_radians().cos();
+                hit.normal.normalize_or_zero().dot(Vec3::Y).abs() >= cos_limit
+            }
+            None => false,
+        };
+    }
+}
+
 fn sync_physics_input_from_transform_for_kinematic(
     mut query: Query<(&RigidBody, &bsengine_core::Transform, &mut PhysicsInput)>,
 ) {
@@ -390,6 +449,133 @@ mod tests {
         assert_eq!(
             input.translation.0, moved,
             "kinematic body's PhysicsInput should track its script-driven Transform"
+        );
+    }
+
+    // ---- CharacterBody (roadmap item 27) ---------------------------------
+
+    /// Spawns a static floor slab centred at the origin, top surface at y = 0.
+    fn spawn_floor(app: &mut bevy_app::App) {
+        app.world_mut().spawn((
+            Transform::from_translation(Vec3::new(0.0, -0.5, 0.0)),
+            RigidBody::fixed(),
+            Collider::cuboid(10.0, 0.5, 10.0),
+            PhysicsInput {
+                translation: Vec3::new(0.0, -0.5, 0.0).into(),
+                rotation: Quat::IDENTITY.into(),
+            },
+            PhysicsTransform::default(),
+        ));
+    }
+
+    fn spawn_character(app: &mut bevy_app::App, at: Vec3) -> bevy_ecs::entity::Entity {
+        app.world_mut()
+            .spawn((
+                Transform::from_translation(at),
+                RigidBody::dynamic(),
+                Collider::capsule(0.5, 0.3),
+                CharacterBody::default(),
+                PhysicsInput {
+                    translation: at.into(),
+                    rotation: Quat::IDENTITY.into(),
+                },
+                PhysicsTransform::default(),
+            ))
+            .id()
+    }
+
+    #[test]
+    fn a_character_standing_on_the_floor_is_grounded() {
+        let mut app = new_app();
+        app.add_plugins(PhysicsPlugin);
+        spawn_floor(&mut app);
+        // Capsule half-height 0.5 + radius 0.3, so its base sits at y - 0.8.
+        let character = spawn_character(&mut app, Vec3::new(0.0, 0.8, 0.0));
+
+        for _ in 0..30 {
+            app.update();
+        }
+
+        assert!(
+            app.world()
+                .get::<CharacterBody>(character)
+                .unwrap()
+                .grounded,
+            "a character resting on the floor should report grounded"
+        );
+    }
+
+    #[test]
+    fn a_character_in_the_air_is_not_grounded() {
+        let mut app = new_app();
+        app.add_plugins(PhysicsPlugin);
+        spawn_floor(&mut app);
+        let character = spawn_character(&mut app, Vec3::new(0.0, 20.0, 0.0));
+
+        // One step: far above the floor and barely moved, so nothing is under it.
+        app.update();
+
+        assert!(
+            !app.world()
+                .get::<CharacterBody>(character)
+                .unwrap()
+                .grounded,
+            "a character 20 units up should not report grounded"
+        );
+    }
+
+    #[test]
+    fn the_ground_ray_does_not_hit_the_character_itself() {
+        // The failure this guards is silent: a ray that starts inside the
+        // character's own capsule hits it immediately, and every character
+        // reports grounded forever -- including ones falling through empty
+        // space. The air test above only catches it if the exclusion works,
+        // so this asserts the mechanism directly with no floor present at all.
+        let mut app = new_app();
+        app.add_plugins(PhysicsPlugin);
+        let character = spawn_character(&mut app, Vec3::new(0.0, 5.0, 0.0));
+
+        app.update();
+
+        assert!(
+            !app.world()
+                .get::<CharacterBody>(character)
+                .unwrap()
+                .grounded,
+            "with no floor in the world at all, nothing can be underfoot"
+        );
+    }
+
+    #[test]
+    fn a_character_capsule_does_not_tip_over() {
+        let mut app = new_app();
+        app.add_plugins(PhysicsPlugin);
+        spawn_floor(&mut app);
+        let character = spawn_character(&mut app, Vec3::new(0.0, 0.8, 0.0));
+
+        // One step first: `spawn_bodies` runs in `Update`, so until it has, the
+        // entity has no Rapier body and any impulse aimed at it is silently
+        // dropped. An earlier version of this test applied the impulse before
+        // this update and passed with the rotation lock removed -- it was
+        // asserting that nothing happens to a body that was never pushed.
+        app.update();
+
+        // A torque impulse about Z, which is exactly what the lock refuses. A
+        // *linear* impulse would prove nothing either: `apply_impulse` acts at
+        // the centre of mass and generates no torque at all.
+        app.world_mut()
+            .resource_mut::<PhysicsWorld>()
+            .apply_torque_impulse(character, Vec3::new(0.0, 0.0, 30.0));
+
+        for _ in 0..60 {
+            app.update();
+        }
+
+        let rotation = app.world().get::<Transform>(character).unwrap().rotation.0;
+        let up = rotation * Vec3::Y;
+        assert!(
+            up.dot(Vec3::Y) > 0.99,
+            "character should still be upright; up vector is {up:?}"
         );
     }
 }

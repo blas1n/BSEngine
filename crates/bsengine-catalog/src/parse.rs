@@ -184,11 +184,21 @@ fn doc_summary(attrs: &[syn::Attribute]) -> String {
 /// `syn` identifies the item; this only locates it for display. Getting spans
 /// from `syn` needs `proc-macro2`'s `span-locations` feature, which is a
 /// heavier dependency than a substring search deserves for a line number.
+/// The match must end at a word boundary. A plain `contains` would resolve
+/// `RigidBody` to the line declaring `RigidBodyType`, which in
+/// `bsengine-physics` sits eleven lines earlier — sending anyone who follows
+/// the location to the wrong declaration.
 fn locate(src: &str, file: &str, ident: &str) -> String {
     let needles = [format!("struct {ident}"), format!("enum {ident}")];
     for (i, line) in src.lines().enumerate() {
-        if needles.iter().any(|n| line.contains(n.as_str())) {
-            return format!("{file}:{}", i + 1);
+        for n in &needles {
+            let Some(at) = line.find(n.as_str()) else {
+                continue;
+            };
+            let after = line[at + n.len()..].chars().next();
+            if after.is_none_or(|c| !c.is_alphanumeric() && c != '_') {
+                return format!("{file}:{}", i + 1);
+            }
         }
     }
     file.to_string()
@@ -275,6 +285,28 @@ mod tests {
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].name, "PlaybackState");
         assert!(found[0].fields.is_empty());
+    }
+
+    #[test]
+    fn a_location_points_at_the_type_itself_not_a_longer_name_above_it() {
+        // bsengine-physics declares `RigidBodyType` eleven lines before
+        // `RigidBody`. A prefix match resolves `RigidBody` to the enum's line
+        // and sends anyone following the location to the wrong declaration.
+        let src = r#"
+            /// The kind of body.
+            #[derive(Debug)]
+            pub enum RigidBodyType { Dynamic, Static }
+
+            /// A simulated body.
+            #[derive(Component)]
+            pub struct RigidBody { pub linear_damping: f32 }
+        "#;
+        let found = components_in_source(src, "bsengine-physics", "components.rs");
+        assert_eq!(found.len(), 1);
+        assert_eq!(
+            found[0].location, "components.rs:8",
+            "should point at `pub struct RigidBody`, not at `pub enum RigidBodyType`"
+        );
     }
 
     #[test]

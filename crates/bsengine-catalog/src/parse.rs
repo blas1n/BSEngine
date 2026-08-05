@@ -157,6 +157,57 @@ fn collect_ops(items: &[syn::Item], src: &str, krate: &str, file: &str, out: &mu
     }
 }
 
+/// Removes the body of every `#[cfg(test)] mod ... { .. }`, matching braces so
+/// nested blocks and the code after the module survive.
+///
+/// String and char literals containing stray braces would confuse the counter.
+/// That is acceptable here: the result is only scanned for `register_type::<T>`,
+/// so a miscounted brace can at worst drop or keep a registration, never invent
+/// one — and the E2E-covered production registrations are not inside literals.
+fn strip_cfg_test_modules(src: &str) -> String {
+    let mut out = String::with_capacity(src.len());
+    let mut rest = src;
+    while let Some(at) = rest.find("#[cfg(test)]") {
+        let (before, after) = rest.split_at(at);
+        out.push_str(before);
+        // Find the module body's opening brace, if this attribute introduces one.
+        let Some(open) = after.find('{') else {
+            out.push_str(after);
+            return out;
+        };
+        // An intervening `;` means the attribute is not on a braced module
+        // (e.g. `#[cfg(test)] mod tests;`); leave the rest alone.
+        if after[..open].contains(';') {
+            out.push_str(&after[..open]);
+            rest = &after[open..];
+            continue;
+        }
+        let mut depth = 0usize;
+        let mut end = None;
+        for (i, ch) in after[open..].char_indices() {
+            match ch {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = Some(open + i + 1);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        match end {
+            Some(e) => rest = &after[e..],
+            // Unbalanced braces: drop the remainder rather than keep a body we
+            // could not delimit.
+            None => return out,
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
 /// Collects the short type names named by `register_type::<..>()` calls.
 ///
 /// Matches on the last path segment, so `bsengine_core::Camera` and `Camera`
@@ -168,7 +219,14 @@ fn collect_ops(items: &[syn::Item], src: &str, krate: &str, file: &str, out: &mu
 /// is a *call* buried in function bodies like `EditorPlugin::build`, so catching
 /// it with `syn` means walking whole expression trees. The target is a fixed
 /// prefix up to `>`, which a substring scan handles safely.
+///
+/// `#[cfg(test)]` modules are stripped first. Four `register_type` calls in this
+/// workspace live inside tests, and counting one would let R1 pass on a
+/// component that is registered *only* in a test — the gate reporting green for
+/// a registration the running engine does not have.
 pub fn registered_names_in_source(src: &str) -> Vec<String> {
+    let stripped = strip_cfg_test_modules(src);
+    let src: &str = &stripped;
     let mut out = Vec::new();
     let mut rest = src;
     while let Some(i) = rest.find("register_type::<") {
@@ -439,6 +497,47 @@ mod tests {
             vec!["RigidBody"],
             "pub(crate) and private components are internal by construction"
         );
+    }
+
+    #[test]
+    fn a_registration_that_exists_only_in_a_test_does_not_count() {
+        // Otherwise R1 goes green on a component the running engine never
+        // registers — the gate reporting a registration that does not ship.
+        let src = r#"
+            fn build(app: &mut App) {
+                app.register_type::<Camera>();
+            }
+
+            #[cfg(test)]
+            mod tests {
+                fn some_test() {
+                    let mut app = App::new();
+                    app.register_type::<OnlyInTests>();
+                }
+            }
+        "#;
+        let names = registered_names_in_source(src);
+        assert!(names.contains(&"Camera".to_string()), "production counts");
+        assert!(
+            !names.contains(&"OnlyInTests".to_string()),
+            "a test-only registration must not count, got {names:?}"
+        );
+    }
+
+    #[test]
+    fn code_after_a_test_module_is_still_scanned() {
+        // Brace matching has to end the module, not swallow the rest of the file.
+        let src = r#"
+            #[cfg(test)]
+            mod tests {
+                fn nested() { if true { } }
+            }
+
+            fn build(app: &mut App) {
+                app.register_type::<AfterTheModule>();
+            }
+        "#;
+        assert!(registered_names_in_source(src).contains(&"AfterTheModule".to_string()));
     }
 
     #[test]

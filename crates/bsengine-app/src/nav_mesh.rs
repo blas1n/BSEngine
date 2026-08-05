@@ -33,6 +33,7 @@ fn navigate_agents(
     time: Res<Time>,
     mut cache: ResMut<NavCache>,
     mut query: Query<(Entity, &mut NavMeshAgent, &mut Transform)>,
+    mut physics: Option<ResMut<bsengine_physics::PhysicsWorld>>,
 ) {
     let dt = time.delta_seconds;
 
@@ -154,9 +155,40 @@ fn navigate_agents(
             move_dir
         };
 
-        let move_dist = (agent.speed * dt).min(dist);
-        transform.translation.x += final_dir.x * move_dist;
-        transform.translation.z += final_dir.z * move_dist;
+        match physics
+            .as_mut()
+            .and_then(|p| p.get_linvel(entity).map(|v| (p, v)))
+        {
+            // Physics owns this entity's `Transform` (see
+            // `sync_transform_from_physics`), so writing it here would be
+            // discarded on the same frame. Steer by impulse instead, which also
+            // lets knockback survive: an impulse from a script adds to the
+            // body's velocity rather than being overwritten by ours.
+            Some((physics, current)) => {
+                let desired = final_dir * agent.speed;
+                let mut dv = Vec3::new(desired.x - current.x, 0.0, desired.z - current.z);
+                // `acceleration` caps how fast the agent may change its own
+                // velocity. Before this it was a declared-but-unread field.
+                let max_dv = agent.acceleration * dt;
+                if dv.length() > max_dv {
+                    dv = dv.normalize() * max_dv;
+                }
+                // Impulse, not force: `PhysicsWorld::step` never resets forces
+                // and Rapier's `add_force` persists across steps, so a
+                // force-driven agent would gain speed every frame. `mass * dv`
+                // produces the same velocity change and does not carry over.
+                let mass = physics.get_mass(entity).unwrap_or(1.0);
+                physics.apply_impulse(entity, dv * mass);
+            }
+            // No physics body: nothing else owns this `Transform`, so moving it
+            // directly is the only option and is correct. This is dispatch on
+            // who owns the transform, not a second motion model.
+            None => {
+                let move_dist = (agent.speed * dt).min(dist);
+                transform.translation.x += final_dir.x * move_dist;
+                transform.translation.z += final_dir.z * move_dist;
+            }
+        }
         agent.state = NavAgentState::Moving;
     }
 }
@@ -341,6 +373,143 @@ mod tests {
             state,
             NavAgentState::NoPath,
             "recomputed path should succeed"
+        );
+    }
+
+    // ---- physics-backed agents (roadmap item 27) -------------------------
+
+    use bsengine_physics::{
+        CharacterBody, Collider, PhysicsInput, PhysicsPlugin, PhysicsTransform, PhysicsWorld,
+        RigidBody,
+    };
+
+    /// An app with both navigation and physics, plus a floor to stand on.
+    fn physics_app() -> bevy_app::App {
+        let mut app = open_app();
+        app.add_plugins(PhysicsPlugin);
+        app.world_mut().spawn((
+            Transform::from_translation(Vec3::new(0.0, -0.5, 0.0)),
+            RigidBody::fixed(),
+            Collider::cuboid(20.0, 0.5, 20.0),
+            PhysicsInput {
+                translation: Vec3::new(0.0, -0.5, 0.0).into(),
+                rotation: glam::Quat::IDENTITY.into(),
+            },
+            PhysicsTransform::default(),
+        ));
+        app
+    }
+
+    fn spawn_physics_agent(
+        app: &mut bevy_app::App,
+        agent: NavMeshAgent,
+    ) -> bevy_ecs::entity::Entity {
+        let at = Vec3::new(0.0, 0.8, 0.0);
+        app.world_mut()
+            .spawn((
+                agent,
+                Transform::from_translation(at),
+                RigidBody {
+                    linear_damping: 4.0,
+                    ..RigidBody::dynamic()
+                },
+                Collider::capsule(0.5, 0.3),
+                CharacterBody::default(),
+                PhysicsInput {
+                    translation: at.into(),
+                    rotation: glam::Quat::IDENTITY.into(),
+                },
+                PhysicsTransform::default(),
+            ))
+            .id()
+    }
+
+    #[test]
+    fn a_physics_backed_agent_moves_toward_its_destination() {
+        let mut app = physics_app();
+        let entity = spawn_physics_agent(
+            &mut app,
+            NavMeshAgent::new(5.0).with_destination(Vec3::new(6.0, 0.0, 0.0)),
+        );
+
+        for _ in 0..60 {
+            app.update();
+        }
+
+        let x = app.world().get::<Transform>(entity).unwrap().translation.x;
+        assert!(
+            x > 1.0,
+            "agent should have travelled toward +x under its own impulses; x = {x}"
+        );
+    }
+
+    #[test]
+    fn knockback_survives_agent_movement() {
+        // The property this whole item exists for: a knockback impulse has to
+        // keep affecting the agent instead of being wiped by the agent's own
+        // steering on the next frame.
+        //
+        // Asserting only "it moved backwards once" does not test that -- even
+        // an agent that overwrites its velocity outright still gets one frame
+        // of displacement from the impulse, and that version of this test
+        // passed against a `set_linvel` implementation. So run the same
+        // scenario twice, once undisturbed, and compare where each ends up
+        // after the knockback has had time to be either carried or erased.
+        let mut app = physics_app();
+        let entity = spawn_physics_agent(
+            &mut app,
+            NavMeshAgent::new(5.0).with_destination(Vec3::new(8.0, 0.0, 0.0)),
+        );
+        for _ in 0..10 {
+            app.update();
+        }
+
+        // Small enough that the agent's own steering can plausibly answer it
+        // within a couple of frames. A huge impulse would make any
+        // implementation look like it carried the knockback.
+        app.world_mut()
+            .resource_mut::<PhysicsWorld>()
+            .apply_impulse(entity, Vec3::new(-3.0, 0.0, 0.0));
+
+        // Sample two frames running. Any implementation moves the agent
+        // backwards on the *first* frame -- the impulse lands before anything
+        // can react to it, so total displacement proves nothing. What separates
+        // carrying the knockback from erasing it is whether the agent is *still*
+        // going backwards on the second frame, or already walking forward again
+        // because its own steering overwrote the velocity.
+        app.update();
+        let first = app.world().get::<Transform>(entity).unwrap().translation.x;
+        app.update();
+        let second = app.world().get::<Transform>(entity).unwrap().translation.x;
+
+        assert!(
+            second < first,
+            "the agent should still be sliding backwards a frame later, not \
+             already walking forward again: {first} -> {second}"
+        );
+    }
+
+    #[test]
+    fn acceleration_changes_how_fast_an_agent_gets_going() {
+        // `NavMeshAgent::acceleration` was a declared-but-unread field before
+        // this item -- scenes authored a value for it and nothing looked. This
+        // pins that it now does something.
+        fn distance_after_10_frames(acceleration: f32) -> f32 {
+            let mut app = physics_app();
+            let mut agent = NavMeshAgent::new(5.0).with_destination(Vec3::new(6.0, 0.0, 0.0));
+            agent.acceleration = acceleration;
+            let entity = spawn_physics_agent(&mut app, agent);
+            for _ in 0..10 {
+                app.update();
+            }
+            app.world().get::<Transform>(entity).unwrap().translation.x
+        }
+
+        let slow = distance_after_10_frames(1.0);
+        let fast = distance_after_10_frames(50.0);
+        assert!(
+            fast > slow,
+            "higher acceleration should cover more ground early: {slow} vs {fast}"
         );
     }
 }

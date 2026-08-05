@@ -432,14 +432,46 @@ impl PhysicsWorld {
         }
     }
 
+    /// Cast a ray into the physics world, ignoring one entity's own body.
+    ///
+    /// A ground check casts downward from inside the character it is checking,
+    /// so without the exclusion the first thing the ray meets is the character
+    /// itself and every character reports standing on something forever —
+    /// including one falling through empty space. Excluding at the query rather
+    /// than filtering the result also means a self-hit cannot mask the real
+    /// surface behind it.
+    pub fn cast_ray_excluding(
+        &self,
+        origin: Vec3,
+        dir: Vec3,
+        max_dist: f32,
+        exclude: Entity,
+    ) -> Option<RaycastHit> {
+        let filter = match self.entity_body_map.get(&exclude) {
+            Some(&handle) => QueryFilter::default().exclude_rigid_body(handle),
+            None => QueryFilter::default(),
+        };
+        self.cast_ray_filtered(origin, dir, max_dist, filter)
+    }
+
     /// Cast a ray into the physics world. Returns hit info or None.
     pub fn cast_ray(&self, origin: Vec3, dir: Vec3, max_dist: f32) -> Option<RaycastHit> {
+        self.cast_ray_filtered(origin, dir, max_dist, QueryFilter::default())
+    }
+
+    fn cast_ray_filtered(
+        &self,
+        origin: Vec3,
+        dir: Vec3,
+        max_dist: f32,
+        filter: QueryFilter,
+    ) -> Option<RaycastHit> {
         // QueryPipeline<'a> borrows the sets so it is constructed per-call from the broad phase.
         let qp = self.broad_phase.as_query_pipeline(
             self.narrow_phase.query_dispatcher(),
             &self.rigid_body_set,
             &self.collider_set,
-            QueryFilter::default(),
+            filter,
         );
         let ray = Ray::new(
             Vector::new(origin.x, origin.y, origin.z),

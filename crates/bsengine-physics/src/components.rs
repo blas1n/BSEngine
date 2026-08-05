@@ -220,3 +220,51 @@ pub(crate) struct PhysicsHandles {
     #[allow(dead_code)]
     pub collider_handle: ColliderHandle,
 }
+
+/// Marks a [`RigidBody`] as a walking character, and carries what the physics
+/// engine cannot infer on its own.
+///
+/// A character is an ordinary `Dynamic` body — it takes impulses like anything
+/// else, which is what makes knockback real rather than a script pushing a
+/// transform around. Two things separate it from a crate or a ball:
+///
+/// * **It stays upright.** Adding this component locks pitch and roll, leaving
+///   yaw free, so a capsule shoved sideways slides instead of toppling. Rapier
+///   supports this per-body and the scene format has no way to say it, which is
+///   why the component is where it gets said.
+/// * **It knows whether it is standing on something.** [`grounded`] is written
+///   after each physics step from a downward ray, and is what gameplay asks
+///   before jumping, playing a landing sound, or applying air control.
+///
+/// [`grounded`]: CharacterBody::grounded
+#[derive(Component, Debug, Clone, Copy, PartialEq, Reflect)]
+#[reflect(Component, Default)]
+pub struct CharacterBody {
+    /// How far below the character's feet to look for ground, in world units.
+    ///
+    /// Small enough not to claim ground while genuinely airborne, large enough
+    /// to survive the gap physics leaves between a resting body and the surface
+    /// it rests on.
+    pub ground_check_distance: f32,
+    /// The steepest surface, in degrees from horizontal, that still counts as
+    /// ground. A steeper hit leaves [`grounded`] false, so a character pressed
+    /// against a wall is not standing on it.
+    ///
+    /// [`grounded`]: CharacterBody::grounded
+    pub max_slope_deg: f32,
+    /// Whether the character is standing on something.
+    ///
+    /// Written by the physics system after every step. Authoring it in a scene
+    /// file has no effect beyond the first frame.
+    pub grounded: bool,
+}
+
+impl Default for CharacterBody {
+    fn default() -> Self {
+        Self {
+            ground_check_distance: 0.2,
+            max_slope_deg: 50.0,
+            grounded: false,
+        }
+    }
+}

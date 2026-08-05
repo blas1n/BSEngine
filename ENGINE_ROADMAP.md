@@ -734,19 +734,66 @@ libtest는 모든 `#[test]`를 spawn된 스레드에서 실행하고, Rust는 �
 
 ---
 
-### 27. 캐릭터 컨트롤러 + 실제 물리 넉백
+### 27. 캐릭터 컨트롤러 + 실제 물리 넉백 ✅
 
 **목표:** `NavMeshAgent`가 Transform을 소유하려면 Kinematic rigidbody가 필요하고,
 Kinematic 바디는 정의상 물리 임펄스를 무시해 "넉백"을 스크립트가 위치를 직접 미는
 방식으로 흉내내야 했던 한계 해소 (`games/mini-arena/GAP_LOG.md` "Pre-existing, not
 touched by this task" 항목에서 발견)
 
+**두 후보를 실제로 실험한 뒤 Dynamic으로 정했다.** 추정으로 고르지 않았다.
+
+**Dynamic으로 바꾸면 무슨 일이 나는가 — 측정함.** Enemy를 `rigidbody: Some(Dynamic)`으로 한 줄
+바꾸고 E2E를 돌리면 `REPLAY FAILED: Enemy destroyed after two raycast melee hits — actual: 5.0`.
+원인은 코드가 직접 설명한다: `sync_transform_from_physics`가 **Dynamic 바디의 `Transform`을 매
+프레임 물리 값으로 덮어쓴다.** 즉 `NavMeshAgent`가 쓴 위치가 같은 프레임에 버려진다. 튜닝 문제가
+아니라 경로 추적이 아예 동작하지 않으며, 따라서 **`NavMeshAgent`를 속도 구동으로 바꾸는 것이
+선택이 아니라 전제다.**
+
+**Kinematic + `KinematicCharacterController`를 안 고른 이유.** rapier3d 0.33의 `control` 모듈은
+경사·계단·바닥스냅을 처리하고 `grounded`를 반환하며, 필요한 `QueryPipeline` 생성 패턴도 이미
+`world.rs:437`에 있다. 그럼에도 안 쓴 이유는 두 가지다. ① 넉백이 임펄스 솔버를 거치지 않는다 —
+우리가 감쇠시킨 값을 `desired_translation`에 넣는 방식이라 흉내보다는 진짜지만(벽에 막힌다) 이
+item 제목이 말하는 것은 아니다. ② Rapier는 Kinematic 바디의 속도를 적분하지 않으므로 캐릭터가
+자기 속도를 다시 갖게 되는데, 이는 item 33이 정리한 소유 구도를 되돌리고 실제로 그 회귀 가드가
+실패한다.
+
+**힘이 아니라 임펄스를 쓴다.** `PhysicsWorld::step`은 힘을 리셋하지 않고 `apply_force`는 Rapier의
+`add_force`라 스텝을 넘어 누적된다(아래 "보류" 참조). 힘 기반 에이전트는 매 프레임 힘이 쌓여 적이
+날아간다. 매 프레임 `가속도 × 질량 × dt` 임펄스를 주면 연속 힘과 물리적으로 동등하면서 누적되지
+않으므로, 보류된 엔진 수정을 이 항목이 끌어올 이유가 없다.
+
 **완료 조건:**
-- [ ] `CharacterController` 컴포넌트: 중력, 바닥 감지(ground check), 경사/계단 처리
-- [ ] 임펄스/넉백을 실제로 받아들이면서 스크립트 이동 입력과 공존 가능한 이동 모델
-  (예: Dynamic 바디 + 이동 힘 적용, 또는 Kinematic + 수동 스윕 후 임펄스 별도 합산)
-- [ ] `games/mini-arena`의 Enemy 넉백을 스크립트 흉내에서 실제 Rapier 임펄스로 교체
-- [ ] 테스트 추가, CI 통과
+- [x] `CharacterBody` 컴포넌트 — 삽입 시 `lock_rotations(e, true, false, true)`(이미 있는 API,
+      씬 `RigidBodyDesc`가 노출하지 않는다), 스텝 뒤 캡슐 밑 레이캐스트로 `grounded`와 경사 판정
+- [x] `navigate_agents`를 임펄스 구동으로 — `Transform`을 쓰지 않는다. **`NavMeshAgent.acceleration`이
+      처음으로 의미를 갖는다**(지금은 선언만 되고 아무도 읽지 않으며, mini-arena 씬이 값을 저작하는데도
+      그렇다). `bsengine-app → bsengine-physics` 간선이 새로 필요하고 순환은 아니다
+- [x] `games/mini-arena`의 Enemy를 Dynamic + `CharacterBody`로, 넉백은 기존 `Bsengine.addImpulse`로.
+      스크립트에서 넉백이라는 개념 자체가 사라진다
+- [x] 테스트 추가, CI 통과 — 특히 **넉백이 에이전트 이동과 공존하는지**(에이전트가 속도를 덮어쓰면
+      실패한다)와 `acceleration`이 실제로 도달 시간을 바꾸는지
+
+**카탈로그 확인:** `grounded`/`character`/`controller`/`jump`/`slope`/`step` 여섯 개념 모두
+`nothing owns this yet`. 새 어휘 도입이 맞고 중복이 아니다.
+
+**구현 중 드러난 갭 — 씬이 감쇠를 지정할 수 없다.** `RigidBodyDesc::Dynamic`은
+`RigidBody::dynamic()`으로 매핑되고 그건 `linear_damping: 0.0`이다. `RigidBody`에 필드는 있지만
+씬 포맷이 그걸 말할 방법이 없어서, 씬으로 만든 Dynamic 바디는 임펄스를 받으면 무언가 막을 때까지
+미끄러진다. mini-arena의 Enemy는 내비 에이전트의 역가속(`acceleration: 8.0`)이 브레이크 역할을
+하므로 실사용에 문제가 없고 E2E도 통과하지만, **감쇠에 의존하는 다른 캐릭터는 이 갭을 밟는다.**
+
+`CharacterBody`에 감쇠 필드를 두는 것은 하지 않았다 — `RigidBody.linear_damping`과 같은 개념의
+두 번째 소유자를 만드는 일이고, item 32/33이 정리한 방향과 반대다. 올바른 수정은 `EntityDescriptor`가
+감쇠를 저작할 수 있게 하는 것(`#[serde(default)]`이면 기존 씬은 그대로 파싱된다)이며, 별도 항목으로
+남긴다.
+
+**넉백 세기는 계산해서 골랐다.** 흉내는 초속 8로 0.25초를 밀어 총 2유닛을 옮겼다. Enemy 캡슐의
+질량이 약 0.42이므로 임펄스 `I`는 `Δv = I/0.42`를 주고, 역가속 8 m/s²에서 정지 거리는
+`Δv²/16`이다. 2유닛에 해당하는 값이 `I ≈ 2.4`라 2.5를 썼다. **E2E는 이 선택을 검증하지 못한다** —
+임펄스 0.8도, 1.5도, 3.0도 전부 통과했다. 녹화는 적이 근접 두 방에 죽는지를 볼 뿐이라 넉백이 거의
+없어도 만족되기 때문이다. 6.0에서 실패한 것은 적이 사거리 밖으로 밀려났기 때문이고, 그게 이 값의
+상한을 알려준 유일한 신호다.
 
 ---
 

@@ -1,4 +1,5 @@
-use bevy_ecs::prelude::{Component, Entity, Event};
+use bevy_ecs::prelude::{Component, Entity, Event, ReflectComponent};
+use bevy_reflect::Reflect;
 use glam::{Quat, Vec3};
 use rapier3d::prelude::{ColliderHandle, RigidBodyHandle};
 
@@ -14,7 +15,7 @@ pub struct CollisionEvent {
 }
 
 /// How a `RigidBody` is simulated: affected by forces, fixed in place, or driven by code.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect)]
 pub enum RigidBodyType {
     /// Moved by forces, impulses, and gravity.
     Dynamic,
@@ -25,7 +26,8 @@ pub enum RigidBodyType {
 }
 
 /// ECS component marking an entity as a physics body; paired with a `Collider` for shape/material.
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component)]
 pub struct RigidBody {
     /// Whether the body is dynamic, static, or kinematic.
     pub body_type: RigidBodyType,

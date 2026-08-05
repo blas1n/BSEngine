@@ -22,6 +22,17 @@ impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(PhysicsWorld::default());
         app.add_event::<CollisionEvent>();
+        // Reflection registration lives here rather than in
+        // `bsengine_scene::register_gameplay_reflect_types` because
+        // `bsengine-scene` does not (and must not) depend on this crate, and
+        // because `PhysicsPlugin` is in both hosts that matter -- the windowed
+        // runtime and the headless `bsengine-runtime --test` app -- so the two
+        // cannot drift the way they did before that function existed.
+        // `RigidBodyType` is a field type, not a component; `register_type`
+        // walks type dependencies already, but naming it is what keeps that
+        // true if `RigidBody` ever stops being the only thing referring to it.
+        app.register_type::<RigidBody>();
+        app.register_type::<RigidBodyType>();
         app.add_systems(
             Update,
             (

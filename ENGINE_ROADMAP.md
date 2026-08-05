@@ -1024,9 +1024,19 @@ item 24 Phase 1이 고정 프레임을 `wait_until` 술어로 바꿔 둔 것이 
 **목표:** 새 컴포넌트나 새 스크립팅 op을 만들기 **전에**, 그 개념이 이미 어디에 사는지 알 수 있게 한다.
 
 **이 항목이 생긴 계기는 실제 실패다.** item 27을 설계하면서 `Velocity` 컴포넌트를 새로 만들자고
-제안했는데, 속도는 이미 Rapier가 소유하고 있었고 `bsengine_get_velocity` 계열 op 27개가 그걸
-노출하고 있었다. "컴포넌트 목록에 Velocity가 없다"는 참이었지만 "만들어야 한다"는 거짓이었다.
-단순 이름 목록으로는 이 실수를 막지 못한다 — 개념이 컴포넌트 **밖**에 살고 있었기 때문이다.
+제안했다. 카탈로그를 세우고 실제로 질의해 보니 **`bsengine_core::Velocity`가 이미 존재하고
+등록까지 돼 있었다.** 즉 그 제안은 있는 컴포넌트를 이름까지 똑같이 다시 만드는 것이었다.
+
+그리고 실제 구도는 그보다 나쁘다. "속도"는 **두 서브시스템에 병렬로** 산다:
+
+- `bsengine_core::Velocity { linear: ReflectVec3 }` — 운동학적 속도. `VelocityPlugin`이
+  매 프레임 `Transform.translation`에 적분한다.
+- Rapier의 속도 — `bsengine_*_velocity` op 18개가 읽고 쓴다.
+
+`Velocity`의 독 주석이 그 경계를 직접 말한다("For physics-driven motion use `bsengine-physics`
+instead"). 문서화된 분리이긴 하나, **"velocity 컴포넌트가 있나?"와 "velocity op이 뭘 하나?"의
+답이 서로를 언급하지 않는다.** 이 항목을 설계하며 필드 이름만 grep한 탓에 `Velocity`를
+놓쳤다는 사실 자체가, 사람이 눈으로 훑는 방식이 왜 실패하는지의 증거다.
 
 **측정된 전제** (설계 전 실측, 추정 아님):
 
@@ -1045,8 +1055,9 @@ item 24 Phase 1이 고정 프레임을 `wait_until` 술어로 바꿔 둔 것이 
 - **이름 중복이 이미 하나 있다.** `Name`이 `bsengine-core/src/name.rs`(사용처 **0곳**)와
   `bsengine-scene/src/plugin.rs`(사용처 11곳)에 각각 `pub struct Name(pub String)`으로 정의돼
   있다. 구조도 독 주석상 목적도 같고, 인스펙터는 짧은 타입 이름을 쓰므로 UI에서 구분되지 않는다.
-- **드리프트는 컴포넌트보다 op 쪽이 심하다.** 컴포넌트 49개에 op 298개. `velocity` 한 개념에
-  27개(전체 벡터 + 축별 변형 + angular 대응). `speed`는 `animation_`/`follow_`/`linear_`/`nav_`/
+- **드리프트는 컴포넌트보다 op 쪽이 심하다.** 컴포넌트 49개(공개)에 op 298개. `velocity`
+  한 개념에 op 18개(전체 벡터 + 축별 변형 + angular 대응)에 더해 컴포넌트가 둘
+  (`Velocity`, `AngularVelocity`)이다. `speed`는 `animation_`/`follow_`/`linear_`/`nav_`/
   `nav_angular_` 다섯 개념이 각자 op 쌍을 갖고, 그중 `linear_speed`는 velocity의 크기라 파생
   가능한데도 자기 op을 갖는다.
 
@@ -1064,8 +1075,9 @@ item 24 Phase 1이 고정 프레임을 `wait_until` 술어로 바꿔 둔 것이 
 **완료 조건:**
 - [ ] `crates/bsengine-catalog` — `syn` 파싱으로 컴포넌트(이름/크레이트/위치/필드/독/등록 여부)와
       op(이름/크레이트/위치/독) 색인 생성
-- [ ] 개념 색인 — 이름을 snake_case/CamelCase 경계로 분해한 역색인. `velocity` 질의가 컴포넌트
-      0개와 op 27개를 반환하는 회귀 테스트로 이 항목의 계기가 된 실수를 고정한다
+- [ ] 개념 색인 — 이름을 snake_case/CamelCase 경계로 분해한 역색인. `velocity` 질의가
+      `bsengine-core`의 컴포넌트와 물리 op 양쪽을 함께 반환하는 회귀 테스트로, 이 항목의 계기가
+      된 실수(둘이 서로를 언급하지 않는다는 것)를 고정한다
 - [ ] MCP 툴 `component_catalog` — 개념어 질의 + 전체 나열
 - [ ] CI `catalog --check`: **R1** 모든 `Component`가 `register_type` 됨(**예외 기제 없음**),
       **R2** 축별(`_x`/`_y`/`_z`) op 신규 추가 금지 래칫

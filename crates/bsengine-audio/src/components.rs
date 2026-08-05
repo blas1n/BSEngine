@@ -1,4 +1,6 @@
-use bevy_ecs::prelude::Component;
+use bevy_ecs::prelude::{Component, ReflectComponent};
+use bevy_reflect::prelude::ReflectDefault;
+use bevy_reflect::Reflect;
 use kira::sound::static_sound::StaticSoundData;
 
 /// Holds pre-loaded audio data.  Attach together with [`AudioPlayer`] to trigger playback.
@@ -17,7 +19,8 @@ impl AudioSource {
 
 /// Configures playback for an [`AudioSource`].  Adding this component triggers the audio system
 /// to start playing; remove it to stop.
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component, Default)]
 pub struct AudioPlayer {
     /// Linear volume multiplier (1.0 = full, 0.0 = silent).
     pub volume: f64,
@@ -63,7 +66,8 @@ impl AudioPlayer {
 }
 
 /// Current playback state — written by the audio system after each update.
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Default, Reflect)]
+#[reflect(Component, Default)]
 pub enum PlaybackState {
     /// The sound is actively producing output.
     #[default]

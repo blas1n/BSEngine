@@ -13,6 +13,18 @@ pub struct AudioPlugin;
 impl Plugin for AudioPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(AudioWorld::default());
+        // R1: a public component has to be reachable by the Inspector, by
+        // `set_reflected_component`, and by a scene's `components:` list.
+        // Registered from this plugin rather than from
+        // `bsengine_scene::register_gameplay_reflect_types` because
+        // `bsengine-scene` does not depend on this crate; `AudioPlugin` is in
+        // both the windowed runtime and the headless `--test` app, so the
+        // parity that function exists to protect still holds.
+        //
+        // `AudioSource` is deliberately absent: its `data` is a kira
+        // `StaticSoundData`, a foreign type with no `Reflect` impl.
+        app.register_type::<AudioPlayer>();
+        app.register_type::<PlaybackState>();
         app.add_systems(Update, (start_playback, sync_state).chain());
     }
 }

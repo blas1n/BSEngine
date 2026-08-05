@@ -10,8 +10,10 @@
 use std::path::Path;
 
 pub mod parse;
+pub mod rules;
 
 pub use parse::{Component, Field, Op};
+pub use rules::Violation;
 
 /// The whole catalogue: every component and op in the workspace.
 #[derive(Debug, Clone, serde::Serialize)]

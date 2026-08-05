@@ -1,5 +1,5 @@
 use bevy_app::{App, Plugin, PostUpdate};
-use bevy_ecs::prelude::{Component, Query, Res, ResMut};
+use bevy_ecs::prelude::{Component, Query, ReflectComponent, Res, ResMut};
 
 use crate::animation::{AnimationChannel, AnimationClip, Interpolation, KeyframeValues};
 use crate::loader::{NodeTransform, SkinData, VertexSkin};
@@ -10,28 +10,81 @@ use glam::{Mat4, Quat, Vec3};
 /// to re-derive a skinned mesh's deformed vertices every frame from whichever
 /// clip its `AnimationPlayer` is currently sampling. Attached alongside
 /// `MeshRenderer` by `GltfPlugin` when the source glTF had a skin.
-#[derive(Component, Clone)]
+/// # What is reflected, and what is not
+///
+/// `mesh_id` is reflected; the four bulk fields below are `#[reflect(ignore)]`.
+/// R1 asks that a public component be *visible* — that the Inspector shows the
+/// entity has a skinned mesh and that MCP can see it is attached — and
+/// `mesh_id` is the whole of what identifies one. The rest is per-vertex data
+/// sized by the imported asset, tens of thousands of entries for an ordinary
+/// character, and it is written once by the importer and read every frame by
+/// the skinning system; nothing an Inspector or an agent could set by hand is
+/// in there.
+///
+/// `rest_vertices` also could not be reflected without a dependency change:
+/// `Vertex` is `bsengine-rhi-wgpu`'s `#[repr(C)]`/`bytemuck::Pod` GPU-upload
+/// type, and that crate does not depend on `bevy_reflect`. Adding the
+/// dependency to expose data nobody edits would be the wrong trade.
+#[derive(Component, Clone, bevy_reflect::Reflect)]
+#[reflect(Component)]
 pub struct SkinnedMesh {
     /// The GPU mesh id (from `GpuMeshRegistry::register`) this component's
     /// deformed vertices get re-uploaded into each frame.
     pub mesh_id: u64,
     /// Bind-pose vertex data — always the deformation *source*; never itself
     /// overwritten, so each frame deforms fresh from the same rest pose.
+    ///
+    /// Not reflected: see the type-level note above.
+    #[reflect(ignore)]
     pub rest_vertices: Vec<Vertex>,
     /// Per-vertex joint indices/weights, same length and order as `rest_vertices`.
+    ///
+    /// Not reflected: see the type-level note above.
+    #[reflect(ignore)]
     pub skin: Vec<VertexSkin>,
     /// This skin's joint node indices (joint order) and inverse bind matrices.
+    ///
+    /// Not reflected: see the type-level note above.
+    #[reflect(ignore)]
     pub skin_data: SkinData,
     /// Every node's rest-pose local transform and parent, indexed by node index.
+    ///
+    /// Not reflected: see the type-level note above.
+    #[reflect(ignore)]
     pub nodes: Vec<NodeTransform>,
 }
 
 /// The full set of animation clips available to an entity's `AnimationPlayer`,
 /// keyed by clip name — the clip library `GltfPlugin` extracts once at import
 /// time and attaches alongside `SkinnedMesh`/`AnimationPlayer`.
-#[derive(Component, Clone, Default)]
+///
+/// # What is reflected, and what is not
+///
+/// Nothing but the component's own presence: `clips` is `#[reflect(ignore)]`,
+/// so what registration buys is that the Inspector shows the entity *has* a
+/// clip library and MCP can see it is attached. That is exactly what R1 asks
+/// for, and for this component it is also all that is meaningful.
+///
+/// Reflecting the map itself was considered and rejected. It would require
+/// `AnimationClip`, `AnimationChannel`, `KeyframeValues` and `Interpolation`
+/// to become `Reflect` — and the payoff would be an Inspector rendering every
+/// keyframe time and value of every clip, which is asset-sized data (a walk
+/// cycle is hundreds of keyframes across dozens of channels) that nobody
+/// edits through a property grid.
+///
+/// Reflected *deserialisation* is not needed either, and that is the reason
+/// this stops at registration rather than chasing `ReflectDeserialize` the way
+/// `AnimationStateMachine`'s `HashSet<String>` had to. This component is
+/// populated by `GltfPlugin` from the imported file; it is never authored in a
+/// scene's `components:` list, because there is no way to write a clip library
+/// by hand that would not just be a worse spelling of the glTF it came from.
+#[derive(Component, Clone, Default, bevy_reflect::Reflect)]
+#[reflect(Component)]
 pub struct AnimationClipLibrary {
     /// Clips by name, as parsed from the source glTF file.
+    ///
+    /// Not reflected: see the type-level note above.
+    #[reflect(ignore)]
     pub clips: std::collections::HashMap<String, AnimationClip>,
 }
 
@@ -438,6 +491,135 @@ mod tests {
         };
         let result = blend_vertex_position(rest, &skin, &joint_matrices);
         assert!(result.abs_diff_eq(Vec3::new(0.0, 5.0, 0.0), 0.001));
+    }
+
+    // ---- what `#[reflect(ignore)]` costs, and what it must not cost -------
+    //
+    // These two components are the first in this codebase to reflect only
+    // part of themselves, so the part that is *not* reflected is worth a test
+    // rather than an assumption. `#[reflect(ignore)]` has two different
+    // behaviours depending on which way a reflected value reaches a
+    // component, and `ReflectComponent::apply_or_insert` -- the call MCP's
+    // `set_reflected_component` and the editor's Inspector both go through --
+    // picks between them by whether the entity already has the component:
+    //
+    //   * it *has* it -> `Reflect::apply`, which only touches reflected
+    //     fields, so the ignored ones survive;
+    //   * it does not -> `FromReflect` + insert, which fills every ignored
+    //     field with `Default::default()`.
+    //
+    // The first is the one an Inspector edit takes, and getting it wrong
+    // would be silent and expensive: editing `mesh_id` would blank the
+    // rest-pose vertices and the skeleton, and the mesh would simply stop
+    // deforming with no error anywhere.
+
+    /// A `SkinnedMesh` carrying one of everything the reflection API cannot
+    /// see, so that "the ignored fields survived" is a claim with content.
+    fn skinned_mesh_with_bulk_data(mesh_id: u64) -> SkinnedMesh {
+        SkinnedMesh {
+            mesh_id,
+            rest_vertices: vec![Vertex {
+                position: [1.0, 2.0, 3.0],
+                color: [1.0, 1.0, 1.0],
+                normal: [0.0, 1.0, 0.0],
+                uv: [0.0, 0.0],
+            }],
+            skin: vec![VertexSkin {
+                joints: [3, 0, 0, 0],
+                weights: [1.0, 0.0, 0.0, 0.0],
+            }],
+            skin_data: SkinData {
+                joint_node_indices: vec![7],
+                inverse_bind_matrices: vec![Mat4::IDENTITY.to_cols_array_2d()],
+            },
+            nodes: vec![NodeTransform::default()],
+        }
+    }
+
+    /// Registers `SkinnedMesh` the way `register_gameplay_reflect_types` does
+    /// and hands back the `ReflectComponent` that registration is *for* --
+    /// which is also the assertion, since a type can be in the registry
+    /// without it and would then still be unreachable by MCP and the
+    /// Inspector.
+    fn registry_with_skinned_mesh() -> bevy_reflect::TypeRegistry {
+        let mut registry = bevy_reflect::TypeRegistry::default();
+        registry.register::<SkinnedMesh>();
+        assert!(
+            registry
+                .get(std::any::TypeId::of::<SkinnedMesh>())
+                .expect("SkinnedMesh must be in the registry after register()")
+                .data::<ReflectComponent>()
+                .is_some(),
+            "registration without `ReflectComponent` data satisfies the catalog's \
+             text scan for `register_type::<SkinnedMesh>` and still leaves the \
+             component unreachable by `set_reflected_component` and the Inspector \
+             -- which is the whole of what R1 asks for"
+        );
+        registry
+    }
+
+    #[test]
+    fn a_reflected_edit_of_mesh_id_keeps_the_bulk_data_reflection_cannot_see() {
+        let registry = registry_with_skinned_mesh();
+        let reflect_component = registry
+            .get(std::any::TypeId::of::<SkinnedMesh>())
+            .expect("registered above")
+            .data::<ReflectComponent>()
+            .expect("asserted above")
+            .clone();
+
+        let mut world = bevy_ecs::world::World::new();
+        let entity = world.spawn(skinned_mesh_with_bulk_data(1)).id();
+
+        // Exactly the shape of an Inspector edit or an MCP
+        // `set_reflected_component` call: a value naming only the reflected
+        // field, since the ignored ones are not in the type's reflected shape
+        // and cannot be spelled at all.
+        let mut patch = bevy_reflect::DynamicStruct::default();
+        patch.insert("mesh_id", 42u64);
+        let mut entity_mut = world.entity_mut(entity);
+        reflect_component.apply_or_insert(&mut entity_mut, &patch, &registry);
+
+        let after = world
+            .get::<SkinnedMesh>(entity)
+            .expect("the component is still there");
+        assert_eq!(after.mesh_id, 42, "the reflected field is what was edited");
+        assert_eq!(
+            after.rest_vertices.len(),
+            1,
+            "editing `mesh_id` must not blank the rest pose: an Inspector edit \
+             that silently dropped the vertex data would stop the mesh \
+             deforming with nothing reported anywhere"
+        );
+        assert_eq!(after.rest_vertices[0].position, [1.0, 2.0, 3.0]);
+        assert_eq!(after.skin.len(), 1, "nor the per-vertex skin weights");
+        assert_eq!(after.skin[0].joints[0], 3);
+        assert_eq!(
+            after.skin_data.joint_node_indices,
+            vec![7],
+            "nor the skeleton"
+        );
+        assert_eq!(after.nodes.len(), 1, "nor the node hierarchy");
+    }
+
+    #[test]
+    fn the_reflected_shape_is_mesh_id_and_nothing_else() {
+        use bevy_reflect::Struct;
+
+        let mesh = skinned_mesh_with_bulk_data(5);
+        let names: Vec<&str> = mesh
+            .iter_fields()
+            .enumerate()
+            .map(|(i, _)| mesh.name_at(i).expect("a named field"))
+            .collect();
+        assert_eq!(
+            names,
+            vec!["mesh_id"],
+            "the point of the `#[reflect(ignore)]`s is that an Inspector is \
+             offered the one identifying field and not tens of thousands of \
+             per-vertex rows; a field appearing here that is not `mesh_id` \
+             means an ignore was dropped"
+        );
     }
 
     use bsengine_render::MeshRenderer;

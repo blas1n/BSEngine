@@ -1,0 +1,14 @@
+[package]
+name = "bsengine-catalog"
+description = "Static catalogue of the engine's components and scripting ops, parsed from source"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+quote.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+syn.workspace = true
+walkdir.workspace = true

@@ -867,6 +867,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "bsengine-catalog"
+version = "0.1.0"
+dependencies = [
+ "quote",
+ "serde",
+ "serde_json",
+ "syn 2.0.118",
+ "walkdir",
+]
+
+[[package]]
 name = "bsengine-core"
 version = "0.1.0"
 dependencies = [
@@ -986,6 +997,7 @@ dependencies = [
  "bevy_app",
  "bevy_ecs",
  "bsengine-app",
+ "bsengine-catalog",
  "bsengine-core",
  "bsengine-ecs",
  "ron",
@@ -1012,6 +1024,7 @@ version = "0.1.0"
 dependencies = [
  "bevy_app",
  "bevy_ecs",
+ "bevy_reflect",
  "bsengine-app",
  "bsengine-core",
  "bsengine-ecs",

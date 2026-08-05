@@ -811,6 +811,14 @@ pub struct RenderPlugin;
 impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
         use bevy_asset::AssetApp;
+        // R1: public components must be registered for reflection. Here rather
+        // than in `bsengine_scene::register_gameplay_reflect_types` because
+        // `bsengine-scene` has no edge to this crate. Unlike the physics and
+        // audio plugins, `RenderPlugin` is windowed-only — which is the right
+        // scope for `MeshRenderer`: its `mesh_id` names an entry in a GPU mesh
+        // registry that only exists once there is a device to upload to, so
+        // there is nothing for a headless app to inspect or attach.
+        app.register_type::<MeshRenderer>();
         app.init_asset::<crate::shader_asset::ShaderSource>()
             .register_asset_loader(crate::shader_asset::ShaderSourceLoader)
             .init_resource::<UiState>()

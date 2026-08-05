@@ -56,7 +56,11 @@ impl Default for NodeTransform {
 /// Joint data for one glTF skin: which nodes are joints (in "joint order",
 /// matching vertex `JOINTS_0` indices) and each joint's inverse bind matrix
 /// (column-major 4x4, as glTF stores it).
-#[derive(Debug, Clone)]
+// `Default` (an empty skin: no joints, no inverse bind matrices) is what
+// `SkinnedMesh::skin_data`'s `#[reflect(ignore)]` constructs when a
+// `SkinnedMesh` is built reflectively — see that type's note on what is and
+// is not reflected.
+#[derive(Debug, Clone, Default)]
 pub struct SkinData {
     /// Index (into `LoadedGltf::nodes`) of each joint, in joint order.
     pub joint_node_indices: Vec<usize>,

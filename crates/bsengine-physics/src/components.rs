@@ -1,4 +1,7 @@
-use bevy_ecs::prelude::{Component, Entity, Event};
+use bevy_ecs::prelude::{Component, Entity, Event, ReflectComponent};
+use bevy_reflect::prelude::ReflectDefault;
+use bevy_reflect::Reflect;
+use bsengine_core::{ReflectQuat, ReflectVec3};
 use glam::{Quat, Vec3};
 use rapier3d::prelude::{ColliderHandle, RigidBodyHandle};
 
@@ -14,7 +17,7 @@ pub struct CollisionEvent {
 }
 
 /// How a `RigidBody` is simulated: affected by forces, fixed in place, or driven by code.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Reflect)]
 pub enum RigidBodyType {
     /// Moved by forces, impulses, and gravity.
     Dynamic,
@@ -25,7 +28,8 @@ pub enum RigidBodyType {
 }
 
 /// ECS component marking an entity as a physics body; paired with a `Collider` for shape/material.
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component)]
 pub struct RigidBody {
     /// Whether the body is dynamic, static, or kinematic.
     pub body_type: RigidBodyType,
@@ -65,12 +69,18 @@ impl RigidBody {
 }
 
 /// The geometric shape a `Collider` uses for contact and raycast queries.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Reflect)]
 pub enum ColliderShape {
     /// An axis-aligned box, defined by its half-extents along each axis.
     Box {
         /// Half the box's size along each axis (x, y, z).
-        half_extents: Vec3,
+        ///
+        /// A [`ReflectVec3`] rather than a bare `glam::Vec3` for the reason
+        /// `bsengine_core::reflect_glam` documents: `glam`'s types cannot
+        /// implement `bevy_reflect::Reflect` here (orphan rule), so a field
+        /// that has to be reflected wears the wrapper. `Deref` means readers
+        /// still write `half_extents.x`.
+        half_extents: ReflectVec3,
     },
     /// A sphere, defined by its radius.
     Sphere {
@@ -87,7 +97,8 @@ pub enum ColliderShape {
 }
 
 /// ECS component describing the physical shape and surface material of a `RigidBody`.
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component)]
 pub struct Collider {
     /// The collider's geometric shape.
     pub shape: ColliderShape,
@@ -106,7 +117,7 @@ impl Collider {
     pub fn cuboid(hx: f32, hy: f32, hz: f32) -> Self {
         Self {
             shape: ColliderShape::Box {
-                half_extents: Vec3::new(hx, hy, hz),
+                half_extents: Vec3::new(hx, hy, hz).into(),
             },
             restitution: 0.0,
             friction: 0.5,
@@ -173,28 +184,30 @@ pub struct RaycastHit {
 }
 
 /// Written by the physics system after each step — read this to get simulated position/rotation.
-#[derive(Component, Debug, Clone, Default)]
+#[derive(Component, Debug, Clone, Default, Reflect)]
+#[reflect(Component, Default)]
 pub struct PhysicsTransform {
     /// The body's simulated world-space position.
-    pub translation: Vec3,
+    pub translation: ReflectVec3,
     /// The body's simulated world-space rotation.
-    pub rotation: Quat,
+    pub rotation: ReflectQuat,
 }
 
 /// Input transform for the physics system — set this to teleport or drive kinematic bodies.
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component, Default)]
 pub struct PhysicsInput {
     /// The position to spawn at, or to drive a kinematic body toward.
-    pub translation: Vec3,
+    pub translation: ReflectVec3,
     /// The rotation to spawn at, or to drive a kinematic body toward.
-    pub rotation: Quat,
+    pub rotation: ReflectQuat,
 }
 
 impl Default for PhysicsInput {
     fn default() -> Self {
         Self {
-            translation: Vec3::ZERO,
-            rotation: Quat::IDENTITY,
+            translation: Vec3::ZERO.into(),
+            rotation: Quat::IDENTITY.into(),
         }
     }
 }

@@ -1,7 +1,9 @@
-use bevy_ecs::prelude::Component;
+use bevy_ecs::prelude::{Component, ReflectComponent};
+use bevy_reflect::Reflect;
 
 /// Marks an entity as drawable and identifies which mesh asset to render it with.
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component)]
 pub struct MeshRenderer {
     /// Id of the mesh asset to draw, as registered with the mesh/asset store.
     pub mesh_id: u64,

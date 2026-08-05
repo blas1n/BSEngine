@@ -10,7 +10,15 @@ use crate::skinned_mesh::{AnimationClipLibrary, SkinnedMesh};
 
 /// Marker component requesting that a GLTF/GLB file be loaded onto this
 /// entity; replaced by `MeshRenderer`/`Material` once loading completes.
-#[derive(Component, Clone, Debug)]
+/// `GltfPlugin` does not register this type for reflection, and that is
+/// deliberate: the plugin is absent from the headless
+/// `bsengine-runtime --test` app (it needs the GPU registries), so a
+/// registration made here would be missing from exactly the host the E2E
+/// replays run in. `bsengine_scene::register_gameplay_reflect_types` — which
+/// both hosts call, and which already depends on this crate — registers it
+/// instead.
+#[derive(Component, Clone, Debug, bevy_reflect::Reflect)]
+#[reflect(Component)]
 pub struct GltfAsset {
     /// Filesystem path to the GLTF/GLB file to load.
     pub path: String,

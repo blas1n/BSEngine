@@ -88,6 +88,27 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets
 
+      # R1: every public `#[derive(Component)]` type is registered for
+      # reflection. An unregistered component is invisible to the Inspector, to
+      # `set_reflected_component`, and to reflected scene entries -- it exists
+      # but no tool or agent can see or attach it. There is no opt-out list:
+      # non-`pub` components are internal by construction and skipped, so
+      # visibility is the exception mechanism.
+      #
+      # R2: no *new* per-axis (`_x`/`_y`/`_z`) scripting ops. The 45 that exist
+      # are grandfathered in axis_ops_baseline.txt; this is a ratchet, not a
+      # cleanup.
+      #
+      # This does NOT detect duplication. Whether two components or ops mean the
+      # same thing is a judgement -- a green run here is not evidence of a clean
+      # design. Ask `catalog --concept <word>` or the `component_catalog` MCP
+      # tool for that. See ENGINE_ROADMAP item 32.
+      #
+      # Cheap and dependency-light (syn only), so it runs before the build and
+      # fails fast.
+      - name: Component catalogue check
+        run: cargo run -p bsengine-catalog --bin catalog -- --check
+
       - name: Build
         run: cargo build --all
 

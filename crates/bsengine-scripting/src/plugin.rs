@@ -44,7 +44,8 @@ use crate::runtime::ScriptRuntime;
 /// not be loaded at all, is not offered to `Bsengine._runAll`, so there is
 /// never a frame where the engine asks JS to run an `onUpdate` that was never
 /// registered.
-#[derive(Component)]
+#[derive(Component, bevy_reflect::Reflect)]
+#[reflect(Component)]
 pub struct Script {
     /// The full text of the entity's script file.
     pub source: String,
@@ -277,6 +278,14 @@ impl Plugin for ScriptingPlugin {
         // the loader missing.
         app.init_asset::<crate::script_asset::ScriptSource>()
             .register_asset_loader(crate::script_asset::ScriptSourceLoader);
+
+        // R1: every public component must be registered for reflection.
+        // Not in `bsengine_scene::register_gameplay_reflect_types`, where the
+        // rule's message points, because `bsengine-scripting` depends on
+        // `bsengine-scene` — the reverse edge would be a cycle. This plugin is
+        // in both the windowed runtime and the headless `--test` app, so the
+        // registration reaches the same two hosts that function does.
+        app.register_type::<Script>();
 
         app.insert_resource(ProjectDir(self.project_dir.clone()));
         app.insert_resource(HudTexts::default());

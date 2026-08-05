@@ -2,7 +2,9 @@ use crate::types::{
     AssetRef, EntityDescriptor, PhysicsBodyDesc, PrimitiveMesh, SceneDescriptor, ScriptPath,
 };
 use bevy_app::{App, Plugin, Startup};
-use bevy_ecs::prelude::{Component, IntoSystemConfigs, World};
+use bevy_ecs::prelude::{Component, IntoSystemConfigs, ReflectComponent, World};
+use bevy_reflect::prelude::ReflectDefault;
+use bevy_reflect::Reflect;
 use bsengine_asset::{AssetGuid, AssetIndex};
 use bsengine_core::{
     Camera, DirectionalLight, GlobalTransform, Material, PointLight, ProjectDir, SkyboxPath,
@@ -12,7 +14,13 @@ use bsengine_gltf::GltfAsset;
 use glam::{Quat, Vec3};
 
 /// Human-readable name assigned to a spawned scene entity, taken from `EntityDescriptor::name`.
-#[derive(Component, Debug, Clone)]
+///
+/// This is the engine's only `Name`. An identical `bsengine_core::Name(pub String)` existed
+/// alongside it with zero uses and was removed — registering both would have put two
+/// indistinguishable `Name` rows in the Inspector, which displays short type names. If you
+/// find yourself wanting an entity label in another crate, use this one.
+#[derive(Component, Debug, Clone, Default, Reflect)]
+#[reflect(Component, Default)]
 pub struct Name(pub String);
 
 /// Bevy plugin that loads a scene file at startup and spawns its entities into the world.
@@ -534,6 +542,45 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     app.register_type_data::<std::collections::HashSet<String>, bevy_reflect::ReflectDeserialize>();
     app.register_type_data::<std::collections::HashSet<String>, bevy_reflect::ReflectSerialize>();
     app.register_type::<bsengine_core::Tween>();
+
+    // Two types that are not `bsengine_core`'s, registered here anyway, each
+    // for its own reason.
+    //
+    // `PhysicsBodyDesc` is this crate's own -- `spawn_scene_entities` inserts
+    // it from an entity's `rigidbody:`/`collider:` fields -- so this is simply
+    // where it lives. Its three field types go with it: a `Reflect` field must
+    // itself be reflectable, and naming them keeps that true independently of
+    // `register_type`'s dependency walk.
+    //
+    // `GltfAsset` belongs to `bsengine-gltf`, and the obvious home would be
+    // `GltfPlugin::build`. That home is wrong: `GltfPlugin` is absent from the
+    // headless `bsengine-runtime --test` app (it needs the GPU registries
+    // `WgpuRHIPlugin` publishes), so a registration made there would be
+    // missing from exactly the host the E2E replays run in -- the same silent
+    // divergence between the editor and the test runtime this whole function
+    // was written to end. Both hosts call this, and the scene -> gltf edge
+    // already exists.
+    //
+    // `SkinnedMesh` and `AnimationClipLibrary` are `bsengine-gltf`'s for the
+    // same reason and land here for the same one. Both are attached by
+    // `GltfPlugin` at import time, and both reflect only their identifying
+    // data -- their bulk per-vertex and per-keyframe fields are
+    // `#[reflect(ignore)]`; see each type's own note for what is hidden and
+    // why.
+    app.register_type::<PhysicsBodyDesc>();
+    app.register_type::<crate::types::RigidBodyDesc>();
+    app.register_type::<crate::types::ColliderDesc>();
+    app.register_type::<crate::types::ColliderShapeDesc>();
+    app.register_type::<bsengine_gltf::GltfAsset>();
+    app.register_type::<bsengine_gltf::SkinnedMesh>();
+    app.register_type::<bsengine_gltf::AnimationClipLibrary>();
+
+    // `Name` is this crate's own, attached by `spawn_scene_entities` to every
+    // entity a scene declares. It was unregistered until now because a second
+    // `Name` in `bsengine-core` -- structurally identical, zero uses -- made it
+    // ambiguous which one the Inspector's short-name list would be showing.
+    // That one is gone; this is the only `Name`.
+    app.register_type::<Name>();
 }
 
 #[cfg(test)]
@@ -1321,6 +1368,47 @@ mod tests {
                      inert looks like from the outside"
                 );
             }
+        }
+    }
+
+    /// What `register_gameplay_reflect_types` has to leave behind for the two
+    /// glTF components, checked against the registry rather than against the
+    /// source text.
+    ///
+    /// The catalog's R1 gate scans for the *string* `register_type::<SkinnedMesh>`,
+    /// so it cannot tell a registration that works from one that compiles: a
+    /// type registered without `ReflectComponent` data is in the registry and
+    /// still unreachable by `spawn_scene_entities` above, by the Inspector, and
+    /// by MCP's `set_reflected_component` — every consumer R1 exists for. This
+    /// asserts the thing the gate is a proxy for.
+    #[test]
+    fn the_gltf_components_register_with_the_data_their_consumers_look_up() {
+        let mut app = new_app();
+        super::register_gameplay_reflect_types(&mut app);
+
+        let registry = app
+            .world()
+            .resource::<bevy_ecs::reflect::AppTypeRegistry>()
+            .read();
+
+        for name in ["SkinnedMesh", "AnimationClipLibrary"] {
+            let type_path = format!("bsengine_gltf::skinned_mesh::{name}");
+            let registration = registry.get_with_type_path(&type_path).unwrap_or_else(|| {
+                panic!(
+                    "{name} is not registered under '{type_path}'. \
+                     `spawn_scene_entities` looks types up by exactly this path, \
+                     so a component missing here is one a scene's `components:` \
+                     list can only report as an unknown type path"
+                )
+            });
+            assert!(
+                registration
+                    .data::<bevy_ecs::reflect::ReflectComponent>()
+                    .is_some(),
+                "{name} is registered but carries no `ReflectComponent`, so \
+                 nothing can attach or read it reflectively — which is the \
+                 whole of what R1 asks for"
+            );
         }
     }
 

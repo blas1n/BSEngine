@@ -3,7 +3,8 @@ use std::fs;
 use std::path::Path;
 
 use bevy_ecs::prelude::{Entity, World};
-use bsengine_core::{Name, SaveData, Transform};
+use bsengine_core::{SaveData, Transform};
+use bsengine_scene::Name;
 use glam::{Quat, Vec3};
 use serde::{Deserialize, Serialize};
 
@@ -162,11 +163,43 @@ pub fn load_world(world: &mut World, path: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bsengine_core::{Name, SaveData, Transform};
+    use bsengine_core::{SaveData, Transform};
+    use bsengine_scene::Name;
     use glam::Vec3;
 
     fn temp_path(name: &str) -> std::path::PathBuf {
         std::env::temp_dir().join(format!("bsengine_save_test_{name}.json"))
+    }
+
+    /// Saving an entity the *scene loader* spawned, rather than one this test
+    /// spawned itself.
+    ///
+    /// Every other test here builds its world by hand, and that is exactly how
+    /// this file came to import `Name` from `bsengine-core` while the scene
+    /// loader attached `bsengine-scene`'s identically-shaped `Name`. Both
+    /// compiled, the hand-built tests passed, and `save_world` matched nothing
+    /// in a real game — it wrote an empty entity list on every save. Driving
+    /// the real spawn path is the only version of this test that could have
+    /// caught it.
+    #[test]
+    fn a_scene_spawned_entity_is_actually_saved() {
+        let mut world = World::new();
+        world.insert_resource(bevy_ecs::reflect::AppTypeRegistry::default());
+
+        let descriptor: bsengine_scene::EntityDescriptor =
+            serde_json::from_str(r#"{"name":"Hero","transform":{"position":[1.0,2.0,3.0]}}"#)
+                .expect("descriptor parses");
+        bsengine_scene::spawn_scene_entities(&mut world, &[descriptor]);
+
+        let path = temp_path("scene_spawned");
+        save_world(&mut world, path.to_str().unwrap()).expect("save succeeds");
+
+        let text = std::fs::read_to_string(&path).expect("save file is readable");
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            text.contains("Hero"),
+            "the scene-spawned entity is missing from the save file: {text}"
+        );
     }
 
     #[test]

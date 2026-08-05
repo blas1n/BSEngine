@@ -1019,6 +1019,160 @@ item 24 Phase 1이 고정 프레임을 `wait_until` 술어로 바꿔 둔 것이 
 
 ---
 
+### 32. 컴포넌트/op 카탈로그 (중복·설계 드리프트 예방) ✅
+
+**목표:** 새 컴포넌트나 새 스크립팅 op을 만들기 **전에**, 그 개념이 이미 어디에 사는지 알 수 있게 한다.
+
+**이 항목이 생긴 계기는 실제 실패다.** item 27을 설계하면서 `Velocity` 컴포넌트를 새로 만들자고
+제안했다. 카탈로그를 세우고 실제로 질의해 보니 **`bsengine_core::Velocity`가 이미 존재하고
+등록까지 돼 있었다.** 즉 그 제안은 있는 컴포넌트를 이름까지 똑같이 다시 만드는 것이었다.
+
+그리고 실제 구도는 그보다 나쁘다. "속도"는 **두 서브시스템에 병렬로** 산다:
+
+- `bsengine_core::Velocity { linear: ReflectVec3 }` — 운동학적 속도. `VelocityPlugin`이
+  매 프레임 `Transform.translation`에 적분한다.
+- Rapier의 속도 — `bsengine_*_velocity` op 18개가 읽고 쓴다.
+
+`Velocity`의 독 주석이 그 경계를 직접 말한다("For physics-driven motion use `bsengine-physics`
+instead"). 문서화된 분리이긴 하나, **"velocity 컴포넌트가 있나?"와 "velocity op이 뭘 하나?"의
+답이 서로를 언급하지 않는다.** 이 항목을 설계하며 필드 이름만 grep한 탓에 `Velocity`를
+놓쳤다는 사실 자체가, 사람이 눈으로 훑는 방식이 왜 실패하는지의 증거다.
+
+**측정된 전제** (설계 전 실측, 추정 아님):
+
+| | 수 |
+|---|---|
+| `#[derive(..., Component, ...)]` 파생 타입 | 54 (그중 공개 49) |
+| 공개 중 `register_type::<>` 등록됨 | 34 |
+| **공개 미등록** | **15** (고유 이름 14 + `Name` 중복) |
+| `#[op2] pub fn` 스크립팅 op | **298** |
+
+- **미등록 14개는 내부용이 아니다.** `RigidBody`/`Collider`/`PhysicsBodyDesc`/`PhysicsTransform`/
+  `PhysicsInput`, `MeshRenderer`/`SkinnedMesh`/`GltfAsset`, `AudioPlayer`/`AudioSource`/
+  `PlaybackState`, `AnimationClipLibrary`/`Script`/`Name` — 물리·렌더·오디오 전체 세트다.
+  bevy_reflect 도입이 `bsengine-core`를 끝내고 다른 크레이트로 넘어가지 않은 결과이며, 실질
+  영향은 인스펙터가 `RigidBody`를 못 보여주고 MCP `set_reflected_component`가 물리를 못 붙이는 것.
+- **이름 중복이 이미 하나 있다.** `Name`이 `bsengine-core/src/name.rs`(사용처 **0곳**)와
+  `bsengine-scene/src/plugin.rs`(사용처 11곳)에 각각 `pub struct Name(pub String)`으로 정의돼
+  있다. 구조도 독 주석상 목적도 같고, 인스펙터는 짧은 타입 이름을 쓰므로 UI에서 구분되지 않는다.
+- **드리프트는 컴포넌트보다 op 쪽이 심하다.** 컴포넌트 49개(공개)에 op 298개. `velocity`
+  한 개념에 op 18개(전체 벡터 + 축별 변형 + angular 대응)에 더해 컴포넌트가 둘
+  (`Velocity`, `AngularVelocity`)이다. `speed`는 `animation_`/`follow_`/`linear_`/`nav_`/
+  `nav_angular_` 다섯 개념이 각자 op 쌍을 갖고, 그중 `linear_speed`는 velocity의 크기라 파생
+  가능한데도 자기 op을 갖는다.
+
+**설계:** `crates/bsengine-catalog`이 워크스페이스 소스를 `syn`으로 파싱해 색인을 **하나** 만들고
+소비자가 둘이다 — MCP 툴 `component_catalog`(설계 시점 질의)와 CI `catalog --check`(기계적 게이트).
+색인이 하나이므로 MCP 응답과 CI 판정이 어긋날 수 없다. 소유권 설명은 러스트독에서 추출한다
+(`missing_docs` 스윕 덕에 모든 공개 컴포넌트/op에 독 주석이 컴파일러 강제로 존재한다) — 카탈로그
+전용 메타데이터는 도입하지 않는다. 선언 지점이 정의 옆이 아니면 반드시 어긋나기 때문이다.
+
+**런타임 레지스트리가 아니라 정적 파싱인 이유:** 레지스트리는 48개 중 34개만 보므로 나머지를
+조용히 빠뜨린 채 "전체 목록"이라 답하게 된다. 그리고 예방이 필요한 시점은 코드가 존재하기 전이다.
+**텍스트 스캔도 아닌 이유:** 이 설계를 준비하며 grep으로 세어 봤더니 49개 중 14개만 잡고
+`Namepub` 같은 파싱 쓰레기를 만들어 냈다.
+
+**완료 조건:**
+- [x] `crates/bsengine-catalog` — `syn` 파싱으로 컴포넌트(이름/크레이트/위치/필드/독/등록 여부)와
+      op(이름/크레이트/위치/독) 색인 생성
+- [x] 개념 색인 — 이름을 snake_case/CamelCase 경계로 분해한 역색인. `velocity` 질의가
+      `bsengine-core`의 컴포넌트와 물리 op 양쪽을 함께 반환하는 회귀 테스트로, 이 항목의 계기가
+      된 실수(둘이 서로를 언급하지 않는다는 것)를 고정한다
+- [x] MCP 툴 `component_catalog` — 개념어 질의 + 전체 나열
+- [x] CI `catalog --check`: **R1** 모든 `Component`가 `register_type` 됨(**예외 기제 없음**),
+      **R2** 축별(`_x`/`_y`/`_z`) op 신규 추가 금지 래칫
+- [x] 공개 미등록 15개 등록 — 게이트를 빨간 채로 머지할 수 없으므로 이 항목의 일부다
+- [x] `Name` 중복 정리 — 죽은 `bsengine_core::Name`(사용처 0곳) 삭제, `bsengine_scene::Name` 등록
+- [x] 테스트 추가, CI 통과
+
+**예외 기제는 이미 존재하고 이름은 `pub`이다.** 카탈로그를 실제로 워크스페이스에 돌리자
+컴포넌트가 49개가 아니라 55개였다. 추가된 6개는 놓친 컴포넌트가 아니라 성격이 다른 것들이었다 —
+다섯은 `pub(crate)`이거나 private(`AudioHandle`, `PhysicsHandles`, `GltfLoaded`, `PendingGltf`,
+`ScriptLoad`)이고, 하나는 `bsengine-ecs`의 `#[cfg(test)]` 픽스처(`Position`)다.
+
+비공개 컴포넌트는 **구조적으로 내부용**이다. 다른 크레이트가 이름을 부를 수 없으므로 공용 등록
+함수에 등록하는 것 자체가 불가능하고, 씬 파일도 인스펙터도 MCP도 닿지 못한다. 그래서 R1은
+**공개 컴포넌트에만** 적용한다. 이것이 이 설계가 처음 제안했다 철회한 허용 목록 파일보다 엄격히
+나은 이유는, 선언이 정의 지점에 있고 **컴파일러가 강제**하며, 예외를 원하는 사람이 별도 파일에
+줄을 추가하는 게 아니라 타입을 실제로 비공개로 만들어야 하기 때문이다.
+
+테스트 픽스처는 설계 표면이 아니므로 카탈로그에서 제외한다. 넣으면 개념 질의에 엔진이 갖지도
+않은 `Position` 컴포넌트가 나온다.
+
+**실측 확정:** 컴포넌트 54개(공개 49) / 등록 34 / **공개 미등록 15**(고유 이름 14 + `Name` 중복) /
+op 298 / 축별 op 45.
+
+**등록 대상 판단.** 공개 미등록 15개 중 11개는 로컬 평범한 데이터라 그냥 등록된다
+(`RigidBody`/`Collider`의 필드 타입은 로컬 enum이고, `PhysicsTransform`/`PhysicsInput`의
+`Vec3`/`Quat`는 `ReflectVec3`/`ReflectQuat`가 이미 등록돼 있다). 외부 타입에 막히는 건
+`AudioSource { data: StaticSoundData }`(kira) **한 건뿐**이고, 그조차 `#[reflect(ignore)]`로
+해결될 가능성이 높다. `SkinnedMesh`/`AnimationClipLibrary` 둘은 등록 가능성이 아니라 값어치의
+문제다(정점 5만 개를 인스펙터에 펼치는 게 의미가 있는가). 나머지 둘은 중복된 `Name`이다.
+
+허용 목록 파일을 두지 않는 이유도 같은 자리에 적어 둔다. 쓰이지 않을 예외 목록을 미리 만들면
+등록하기 귀찮을 때 쓰는 탈출구가 될 뿐이다. `pub` 여부라는 기존 문법이 그 역할을 이미 하고 있고,
+그쪽이 훨씬 정직하다.
+
+**실행은 Red 우선.** ① `--check`가 R1 위반 15건으로 실패 → ② 평범한 11개 등록 → ③ `AudioSource`가
+`StaticSoundData` 때문에 실패하는 것을 확인한 뒤 `#[reflect(ignore)]`가 되는지 컴파일러에게 묻는다
+(코드베이스에 선례가 없으므로 가정하지 않는다) → ④ 애매한 둘을 판단 → ⑤ `Name` 중복 정리 →
+⑥ 게이트를 CI에 붙인다. 죽은 타입을 등록해 R1을 만족시키는 것은 규칙을 지키되 목적을 배신하는 일이다.
+
+**카탈로그가 구축 도중에 찾아낸 것들.** 감사를 시작하기도 전에 R1을 초록으로 만드는 과정에서
+나왔다. 이것이 이 항목의 값을 실증한다.
+
+1. **세이브 시스템이 아무것도 저장하지 않고 있었다.** `Name`이 두 번 정의돼 있었고
+   (`bsengine-core`와 `bsengine-scene`, 둘 다 `pub struct Name(pub String)`), 씬 스폰은
+   `bsengine_scene::Name`을 붙이는데 `bsengine-scripting/src/save.rs`만 `bsengine_core::Name`을
+   임포트했다. 그래서 `save_world`의 쿼리가 실제 게임 월드에서 **한 엔티티도 매칭하지 못했다** —
+   세이브 파일에 빈 엔티티 목록이 쓰였다. 두 타입이 구조가 같아 컴파일은 통과했고,
+   `save.rs`의 테스트는 자기가 `bsengine_core::Name`을 직접 spawn해서 전부 통과했다.
+   **진짜 시스템을 구동하지 않는 테스트가 코드가 위반하는 성질을 인증한 사례**이며, 회귀
+   테스트(`a_scene_spawned_entity_is_actually_saved`)는 `spawn_scene_entities`를 실제로 호출한다.
+   변이 검증: 씬이 붙이지 않는 `Name`을 쿼리하게 만들면 세이브 파일이 비고 테스트가 실패한다.
+2. **ECS 오디오 경로 전체가 도달 불가능했다.** `AudioSource`를 만들거나 붙이는 코드가
+   워크스페이스에 없어 `start_playback`의 쿼리가 영원히 매칭되지 않았다. 소리는 스크립팅이
+   `AudioWorld`를 직접 호출해 난다. 자체 `PlaybackState` enum은 `kira::sound::PlaybackState`의
+   그림자 복제였다. 삭제했다 — 등록했다면 동작하지 않는 진입점을 광고하는 셈이었다.
+3. **`Velocity`가 두 서브시스템에 병렬로 존재한다.** 위 참조. 이건 삭제 대상이 아니라
+   감사에서 다룰 설계 판단이다.
+
+**CI가 판별하지 못하는 것을 명시해 둔다.** 중복 그 자체는 기계가 판별하지 못한다. `linear_speed`가
+velocity의 크기라는 것, 두 `Name`이 같은 개념이라는 것은 판단이다. R1/R2는 위생 규칙이지 중복
+탐지기가 아니며, **게이트가 초록인 것을 "중복 없음"으로 읽는 것이 이 도구의 가장 그럴듯한 실패
+방식**이다. `--check` 출력에 무엇을 검사하지 않는지 한 줄 적는다.
+
+**최종 상태.** 컴포넌트 49개 전부 등록(R1 초록), op 298개, 축별 45개가 기준선에 고정(R2 래칫).
+`catalog --check`가 CI에서 clippy 뒤·빌드 앞에 돈다 — `syn`만 쓰므로 값싸고 빨리 실패한다.
+질의는 두 경로다: 에이전트용 MCP 툴 `component_catalog`, 사람용 `catalog --concept <word>`.
+
+**첫 실사용이 item 27에 답을 줬다.** `catalog --concept grounded` → *"nothing owns this yet."*
+반면 `--concept velocity`는 *"velocity is spread across 2 crates"*를 출력한다. 즉 `Grounded`는
+진짜 새 개념이 맞고, `Velocity`는 만들지 말았어야 했다 — 이 도구가 없었다면 둘 다 몰랐다.
+
+**등록 위치는 한 곳이 아니다.** 크레이트 그래프가 정한다. `bsengine-scene`은 physics/render/audio에
+의존하지 않고 `bsengine-scripting`은 거꾸로 scene에 의존하므로(순환), 각 크레이트가 자기 플러그인에서
+등록한다 — 단 그 플러그인이 **헤드리스 `--test` 앱에도 추가되는 경우에만**이다. `GltfPlugin`과
+`RenderPlugin`은 창 있는 호스트 전용이라 gltf 타입 셋은 `register_gameplay_reflect_types`로 갔다.
+`MeshRenderer`만 창 있는 쪽에서만 등록된다(GPU 핸들이라 옳다). **알려진 한계: R1은 "어느 호스트가
+등록하는가"를 구분하지 못한다** — 소스 어디든 `register_type::<T>`가 있으면 등록된 것으로 센다.
+
+**`Vec3`/`Quat` 필드는 `ReflectVec3`/`ReflectQuat`로 바꿔야 했다.** glam 타입은 `Reflect`를 구현하지
+않고, 이 저장소는 이미 그 래퍼를 갖고 있었다(`bsengine_core::reflect_glam`). `Collider`의
+`half_extents`를 포함해 물리 쪽 필드 타입이 바뀌었다 — 등록보다 큰 변경이지만 기존 관례를 따른 것이고
+대안이 없다.
+
+**`#[reflect(ignore)]` 선례를 이 항목이 세웠다.** `SkinnedMesh`의 정점별 대량 필드와
+`AnimationClipLibrary`의 `clips`가 대상이고, 컴포넌트의 존재와 식별 정보만 노출한다. 다만
+`#[reflect(ignore)]`는 무시된 필드에 `Default`를 요구하므로 만능이 아니다 — `AudioSource`의
+`StaticSoundData`(kira)가 정확히 거기서 막혔고, 그게 오디오 경로가 죽었다는 사실을 드러냈다.
+
+**범위 밖:** 감사 결과의 *수정*. 카탈로그를 만든 뒤 49개와 298개를 훑어 findings를 내고, 거기서
+나오는 수정(velocity op 정리, `Name` 중복 제거)은 각자 별개 항목이 된다.
+27개짜리 op 정리를 카탈로그 구축에 끼워 넣으면 둘 다 망한다.
+
+---
+
 ## 보류 백로그 (당장 착수하지 않음)
 
 [BSENGINE_VS_UNITY_UNREAL.md](docs/BSENGINE_VS_UNITY_UNREAL.md) 비교에서 드러났지만,

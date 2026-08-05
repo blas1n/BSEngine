@@ -707,13 +707,35 @@ libtest는 모든 `#[test]`를 spawn된 스레드에서 실행하고, Rust는 �
 **목표:** `AudioWorld`가 위치 정보 없는 `play`/`stop`뿐인 상태(`bsengine-audio` 251줄)를
 벗어나, 엔티티 위치 기반 거리 감쇠·패닝을 제공
 
+**설계 전에 잰 것.**
+
+- kira 0.12는 `add_listener` → `add_spatial_sub_track(listener, position, builder)` →
+  **그 트랙에서 재생하면 거리 감쇠와 패닝이 자동**이다. 우리가 감쇠 곡선을 쓸 일이 없다.
+- **API가 glam이 아니라 `mint` 타입을 받는다.** kira는 glam 0.33을, 이 워크스페이스는 0.29를
+  쓴다(`Cargo.lock`에 glam이 여섯 버전 있다). 그대로 넘겼으면 타입이 맞지 않았을 텐데,
+  `add_listener`/`add_spatial_sub_track`이 `mint::Vector3<f32>`를 받고 `mint 0.5.9`가 이미
+  잠겨 있어 성분별 변환으로 충돌이 없다. `reflect_glam.rs`가 기록한 bevy_reflect glam 0.27
+  문제와 같은 부류이지만 이쪽은 상류가 이미 해결해 뒀다.
+- `ListenerHandle::set_position`/`set_orientation`과 `SpatialTrackHandle::set_position`이
+  있어 엔티티가 움직여도 따라간다.
+
+**카탈로그가 이름 충돌을 미리 잡았다.** `sound` 질의가 `bsengine_get_sound_position`을 물어왔고,
+확인해 보니 그건 3D 위치가 아니라 **재생 시점(초)**이다. 즉 오디오 API에서 "position"은 이미
+시간을 뜻하므로 3D용으로 그 단어를 재사용하지 않는다 — 위치는 엔티티가 소유하고, 소리 API는
+엔티티 이름만 받는다. 실수가 나기 전에 카탈로그가 막은 첫 사례다.
+(`listener`/`emitter`/`spatial`/`attenuation`/`pan`은 전부 비어 있어 새 어휘로 안전하다.)
+
 **완료 조건:**
-- [ ] Emitter 개념(재생 사운드를 엔티티 Transform에 바인딩) + Listener(카메라) 개념 도입
-- [ ] kira의 spatial 기능과 연동해 거리 감쇠 + 좌우 패닝 동작
-- [ ] Scripting API: `Bsengine.playSound3D(name, path, opts)` 또는 기존 `playSound`에
-  위치 바인딩 옵션 추가
-- [ ] `games/mini-arena` 등 기존 데모에서 실제 청감 검증
+- [ ] `AudioListener` 컴포넌트 — 이 엔티티의 `Transform`이 kira 리스너를 구동한다(카메라에 붙인다)
+- [ ] `AudioEmitter` 컴포넌트 — 엔티티마다 kira spatial 트랙을 소유하고 매 프레임 위치를 동기화
+- [ ] `Bsengine.playSound3D(entityName, path, opts)` — 기존 `playSound`는 비위치 재생으로 유지
+- [ ] `games/mini-arena`에서 위치 기반 소리 사용
 - [ ] 테스트 추가, CI 통과
+
+**청감 검증은 이 작업 안에서 못 한다.** 원래 완료 조건에 있던 "실제 청감 검증"은 소리를 들을 수
+있어야 하는 항목이라 자동화된 작업이 만족시킬 수 없다. 대신 **kira에 넘어가는 값**을 검증한다 —
+리스너와 이미터의 위치가 각자의 `Transform`을 따라가는지, 이미터가 리스너에서 멀어질 때 그 사실이
+kira에 반영되는지. **이것이 "제대로 들린다"를 증명하지는 않으며**, 청감 확인은 사람이 해야 한다.
 
 ---
 

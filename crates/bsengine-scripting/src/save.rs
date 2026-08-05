@@ -186,10 +186,9 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(bevy_ecs::reflect::AppTypeRegistry::default());
 
-        let descriptor: bsengine_scene::EntityDescriptor = serde_json::from_str(
-            r#"{"name":"Hero","transform":{"position":[1.0,2.0,3.0]}}"#,
-        )
-        .expect("descriptor parses");
+        let descriptor: bsengine_scene::EntityDescriptor =
+            serde_json::from_str(r#"{"name":"Hero","transform":{"position":[1.0,2.0,3.0]}}"#)
+                .expect("descriptor parses");
         bsengine_scene::spawn_scene_entities(&mut world, &[descriptor]);
 
         let path = temp_path("scene_spawned");

@@ -1067,9 +1067,27 @@ item 24 Phase 1이 고정 프레임을 `wait_until` 술어로 바꿔 둔 것이 
 - [ ] 개념 색인 — 이름을 snake_case/CamelCase 경계로 분해한 역색인. `velocity` 질의가 컴포넌트
       0개와 op 27개를 반환하는 회귀 테스트로 이 항목의 계기가 된 실수를 고정한다
 - [ ] MCP 툴 `component_catalog` — 개념어 질의 + 전체 나열
-- [ ] CI `catalog --check`: **R1** 모든 `Component`가 `register_type` 됨(예외는
-      `unregistered.toml`에 이유와 함께), **R2** 축별(`_x`/`_y`/`_z`) op 신규 추가 금지 래칫
+- [ ] CI `catalog --check`: **R1** 모든 `Component`가 `register_type` 됨(**예외 기제 없음**),
+      **R2** 축별(`_x`/`_y`/`_z`) op 신규 추가 금지 래칫
+- [ ] 미등록 14개 등록 — 게이트를 빨간 채로 머지할 수 없으므로 이 항목의 일부다
+- [ ] `Name` 중복 정리 — 죽은 `bsengine_core::Name`(사용처 0곳) 삭제, `bsengine_scene::Name` 등록
 - [ ] 테스트 추가, CI 통과
+
+**예외 기제를 두지 않는 근거.** 처음엔 이유를 적는 허용 목록(`unregistered.toml`)을 두려 했으나,
+14개를 실제로 살펴본 뒤 철회했다 — 예외가 필요한 케이스를 한 건도 확증하지 못했다. 11개는 전부
+로컬 평범한 데이터라 그냥 등록된다(`RigidBody`/`Collider`의 필드 타입은 로컬 enum이고,
+`PhysicsTransform`/`PhysicsInput`의 `Vec3`/`Quat`는 `ReflectVec3`/`ReflectQuat`가 이미 등록돼 있다).
+외부 타입에 막히는 건 `AudioSource { data: StaticSoundData }`(kira) **한 건뿐**이고, 그조차
+`#[reflect(ignore)]`로 해결될 가능성이 높다. `SkinnedMesh`/`AnimationClipLibrary` 둘은 등록
+가능성이 아니라 값어치의 문제다(정점 5만 개를 인스펙터에 펼치는 게 의미가 있는가).
+
+쓰이지 않을 예외 목록을 미리 만들면 등록하기 귀찮을 때 쓰는 탈출구가 될 뿐이다. 필요가 실증되면
+그때 **한 건의 확증된 사례**를 근거로 설계한다.
+
+**실행은 Red 우선.** ① `--check`가 R1 위반 14건으로 실패 → ② 평범한 11개 등록 → ③ `AudioSource`가
+`StaticSoundData` 때문에 실패하는 것을 확인한 뒤 `#[reflect(ignore)]`가 되는지 컴파일러에게 묻는다
+(코드베이스에 선례가 없으므로 가정하지 않는다) → ④ 애매한 둘을 판단 → ⑤ `Name` 중복 정리 →
+⑥ 게이트를 CI에 붙인다. 죽은 타입을 등록해 R1을 만족시키는 것은 규칙을 지키되 목적을 배신하는 일이다.
 
 **CI가 판별하지 못하는 것을 명시해 둔다.** 중복 그 자체는 기계가 판별하지 못한다. `linear_speed`가
 velocity의 크기라는 것, 두 `Name`이 같은 개념이라는 것은 판단이다. R1/R2는 위생 규칙이지 중복

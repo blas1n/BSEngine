@@ -565,6 +565,54 @@ mod tests {
     }
 
     #[test]
+    fn a_navmesh_built_from_one_floor_slab_covers_it() {
+        let polys = build_from_footprints(&[Rect::new(0.0, 10.0, 0.0, 10.0)], &[], 0.0);
+        assert!(polys.is_walkable(Vec3::new(5.0, 0.0, 5.0)));
+        assert!(!polys.is_walkable(Vec3::new(15.0, 0.0, 5.0)));
+    }
+
+    #[test]
+    fn an_obstacle_on_the_floor_is_not_walkable() {
+        let polys = build_from_footprints(
+            &[Rect::new(0.0, 10.0, 0.0, 10.0)],
+            &[Rect::new(4.0, 6.0, 4.0, 6.0)],
+            0.0,
+        );
+        assert!(
+            !polys.is_walkable(Vec3::new(5.0, 0.0, 5.0)),
+            "inside the obstacle"
+        );
+        assert!(polys.is_walkable(Vec3::new(1.0, 0.0, 1.0)), "beside it");
+    }
+
+    #[test]
+    fn a_gap_between_two_floor_slabs_is_not_walkable() {
+        // The bounds are the union of the slabs, so without subtracting what
+        // the slabs do not cover, the hole between them would silently become
+        // walkable and agents would path across thin air.
+        let polys = build_from_footprints(
+            &[
+                Rect::new(0.0, 4.0, 0.0, 10.0),
+                Rect::new(6.0, 10.0, 0.0, 10.0),
+            ],
+            &[],
+            0.0,
+        );
+        assert!(polys.is_walkable(Vec3::new(2.0, 0.0, 5.0)), "left slab");
+        assert!(polys.is_walkable(Vec3::new(8.0, 0.0, 5.0)), "right slab");
+        assert!(
+            !polys.is_walkable(Vec3::new(5.0, 0.0, 5.0)),
+            "the gap between them is not floor"
+        );
+        assert!(
+            polys
+                .find_path(Vec3::new(2.0, 0.0, 5.0), Vec3::new(8.0, 0.0, 5.0))
+                .is_none(),
+            "and nothing may path across it"
+        );
+    }
+
+    #[test]
     fn a_portal_is_the_shared_edge() {
         let left = Rect::new(0.0, 5.0, 2.0, 8.0);
         let right = Rect::new(5.0, 10.0, 0.0, 6.0);
@@ -574,4 +622,34 @@ mod tests {
         // The portal is the overlap of their Z ranges, not either one's whole edge.
         assert_eq!((a.z, b.z), (2.0, 6.0));
     }
+}
+
+/// Builds a navigation mesh from footprints taken off scene geometry.
+///
+/// `surfaces` are the walkable ground; `obstacles` are what stands on it. The
+/// bounds are the union of the surfaces, so a level made of several floor
+/// pieces still produces one mesh.
+///
+/// Footprints rather than colliders so this stays free of any physics
+/// dependency: whoever has the colliders projects them, and this decides what
+/// is walkable.
+pub fn build_from_footprints(surfaces: &[Rect], obstacles: &[Rect], y: f32) -> NavPolys {
+    let Some(first) = surfaces.first() else {
+        return NavPolys::default();
+    };
+    let bounds = surfaces.iter().fold(*first, |acc, r| Rect {
+        min_x: acc.min_x.min(r.min_x),
+        max_x: acc.max_x.max(r.max_x),
+        min_z: acc.min_z.min(r.min_z),
+        max_z: acc.max_z.max(r.max_z),
+    });
+
+    // Anything the surfaces do not cover is as unwalkable as an obstacle. A
+    // union of two floor slabs that do not meet leaves a hole between them, and
+    // an agent must not path across it.
+    let mut blocking = obstacles.to_vec();
+    for strip in decompose(bounds, surfaces) {
+        blocking.push(strip);
+    }
+    NavPolys::build(bounds, &blocking, y)
 }

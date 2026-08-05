@@ -1,8 +1,9 @@
 //! Prints the catalogue, or checks it against the mechanical rules.
 //!
 //! Usage:
-//!   catalog            — print the catalogue as JSON
-//!   catalog --check    — check the rules; exit 1 on any violation
+//!   catalog                    — print the catalogue as JSON
+//!   catalog --check            — check the rules; exit 1 on any violation
+//!   catalog --concept <word>   — who already owns this concept?
 
 fn main() -> std::process::ExitCode {
     let root = std::env::current_dir().expect("current directory is readable");
@@ -24,6 +25,46 @@ fn main() -> std::process::ExitCode {
             root.display()
         );
         return std::process::ExitCode::FAILURE;
+    }
+
+    // The same question the `component_catalog` MCP tool answers, for a human
+    // at a terminal. Without it the only CLI answer is the whole catalogue as
+    // JSON, which means reaching for a JSON parser to ask "does this exist".
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(i) = args.iter().position(|a| a == "--concept") {
+        let Some(word) = args.get(i + 1) else {
+            eprintln!("--concept needs a word, e.g. `catalog --concept velocity`");
+            return std::process::ExitCode::FAILURE;
+        };
+        let hits = catalog.concept(word);
+        if hits.components.is_empty() && hits.ops.is_empty() {
+            println!("{word}: nothing owns this yet.");
+            return std::process::ExitCode::SUCCESS;
+        }
+        for c in &hits.components {
+            println!("COMPONENT {} ({}) — {}", c.name, c.krate, c.location);
+            if !c.doc.is_empty() {
+                println!("    {}", c.doc);
+            }
+        }
+        for o in &hits.ops {
+            println!("OP        {} ({}) — {}", o.name, o.krate, o.location);
+        }
+        // Two owners in different crates is the case worth stopping on, and it
+        // is invisible if you read either list alone.
+        let crates: std::collections::BTreeSet<&str> = hits
+            .components
+            .iter()
+            .map(|c| c.krate.as_str())
+            .chain(hits.ops.iter().map(|o| o.krate.as_str()))
+            .collect();
+        if crates.len() > 1 {
+            println!(
+                "\n{word} is spread across {} crates: {crates:?}",
+                crates.len()
+            );
+        }
+        return std::process::ExitCode::SUCCESS;
     }
 
     if std::env::args().any(|a| a == "--check") {

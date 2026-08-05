@@ -350,7 +350,7 @@ pub struct SpotLightDescriptor {
 }
 
 /// Rigid body type for physics descriptors in scene files.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Reflect)]
 pub enum RigidBodyDesc {
     /// Fully simulated body, affected by forces, gravity, and collisions.
     Dynamic,
@@ -361,7 +361,7 @@ pub enum RigidBodyDesc {
 }
 
 /// Collider shape descriptor for scene files.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Reflect)]
 pub enum ColliderShapeDesc {
     /// Axis-aligned box collider defined by its half-extents.
     Box {
@@ -387,7 +387,7 @@ pub enum ColliderShapeDesc {
 }
 
 /// Full collider descriptor for scene files.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
 pub struct ColliderDesc {
     /// Collision geometry.
     pub shape: ColliderShapeDesc,
@@ -404,7 +404,8 @@ pub struct ColliderDesc {
 
 /// Component spawned by ScenePlugin for entities with rigidbody+collider data.
 /// The runtime resolves this into actual physics components.
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component)]
 pub struct PhysicsBodyDesc {
     /// Physics simulation type for this body.
     pub rigidbody: RigidBodyDesc,

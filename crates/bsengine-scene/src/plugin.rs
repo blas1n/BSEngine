@@ -534,6 +534,29 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     app.register_type_data::<std::collections::HashSet<String>, bevy_reflect::ReflectDeserialize>();
     app.register_type_data::<std::collections::HashSet<String>, bevy_reflect::ReflectSerialize>();
     app.register_type::<bsengine_core::Tween>();
+
+    // Two types that are not `bsengine_core`'s, registered here anyway, each
+    // for its own reason.
+    //
+    // `PhysicsBodyDesc` is this crate's own -- `spawn_scene_entities` inserts
+    // it from an entity's `rigidbody:`/`collider:` fields -- so this is simply
+    // where it lives. Its three field types go with it: a `Reflect` field must
+    // itself be reflectable, and naming them keeps that true independently of
+    // `register_type`'s dependency walk.
+    //
+    // `GltfAsset` belongs to `bsengine-gltf`, and the obvious home would be
+    // `GltfPlugin::build`. That home is wrong: `GltfPlugin` is absent from the
+    // headless `bsengine-runtime --test` app (it needs the GPU registries
+    // `WgpuRHIPlugin` publishes), so a registration made there would be
+    // missing from exactly the host the E2E replays run in -- the same silent
+    // divergence between the editor and the test runtime this whole function
+    // was written to end. Both hosts call this, and the scene -> gltf edge
+    // already exists.
+    app.register_type::<PhysicsBodyDesc>();
+    app.register_type::<crate::types::RigidBodyDesc>();
+    app.register_type::<crate::types::ColliderDesc>();
+    app.register_type::<crate::types::ColliderShapeDesc>();
+    app.register_type::<bsengine_gltf::GltfAsset>();
 }
 
 #[cfg(test)]

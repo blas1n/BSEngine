@@ -7,26 +7,31 @@ const CONTACT_DAMAGE = 5.0;
 const CONTACT_COOLDOWN = 1.0;
 let contactCooldown = 0.0;
 
-let knockbackTimer = 0.0;
-let knockbackDir = { x: 0.0, z: 0.0 };
-const KNOCKBACK_SPEED = 8.0;
-const KNOCKBACK_DURATION = 0.25;
+// Knockback is the physics engine's job now. The Enemy is a Dynamic body with
+// a CharacterBody, so an impulse is simply an impulse: it decays through the
+// body's damping, it stops against walls, and the nav agent steers *through* it
+// instead of erasing it, because the agent applies impulses too.
+//
+// What this replaced was a hand-rolled timer that pushed the transform with
+// moveEntity for a quarter of a second, ignoring walls and mass alike. There is
+// no "knockback" concept left in this script — there is a force applied on hit.
+// Chosen to land near the old fake's total displacement of about 2 units, so
+// the fight reads the same. The Enemy's capsule masses about 0.42, so this is
+// roughly a 6 m/s kick; with no damping on a scene-authored Dynamic body it is
+// the nav agent's own counter-steering that brings it to a stop.
+const KNOCKBACK_IMPULSE = 2.5;
 
 Bsengine.onMessage("Enemy", "hit", (data) => {
-    knockbackTimer = KNOCKBACK_DURATION;
-    knockbackDir = { x: data.dirX, z: data.dirZ };
+    Bsengine.addImpulse(
+        "Enemy",
+        data.dirX * KNOCKBACK_IMPULSE,
+        0.0,
+        data.dirZ * KNOCKBACK_IMPULSE,
+    );
 });
 
 function onUpdate(self) {
     if (Bsengine.isPaused()) return;
-
-    if (knockbackTimer > 0.0) {
-        const dt = Bsengine.getDeltaTime();
-        const step = KNOCKBACK_SPEED * dt;
-        Bsengine.moveEntity(self, knockbackDir.x * step, 0.0, knockbackDir.z * step);
-        knockbackTimer -= dt;
-        return;
-    }
 
     if (!navReady) {
         // 40x40 grid, 1 unit cells, centered on the arena (matches Ground's

@@ -867,6 +867,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "bsengine-catalog"
+version = "0.1.0"
+dependencies = [
+ "quote",
+ "serde",
+ "serde_json",
+ "syn 2.0.118",
+ "walkdir",
+]
+
+[[package]]
 name = "bsengine-core"
 version = "0.1.0"
 dependencies = [

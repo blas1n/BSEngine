@@ -32,6 +32,15 @@ pub struct Component {
     pub doc: String,
     /// Whether some `register_type::<..>()` call names it.
     pub registered: bool,
+    /// Whether the type is `pub`.
+    ///
+    /// A non-`pub` component is internal by construction: no other crate can
+    /// name it, so it cannot be registered from the shared registration
+    /// function, and no scene file, Inspector, or MCP tool can reach it. R1
+    /// therefore applies only to public components — visibility is the
+    /// exception mechanism, declared at the definition and enforced by the
+    /// compiler, which beats a list kept somewhere else.
+    pub public: bool,
 }
 
 /// A `#[op2]` scripting op exposed to JavaScript.
@@ -70,6 +79,10 @@ fn collect_components(
 ) {
     for item in items {
         match item {
+            // `#[cfg(test)]` modules hold fixtures, not the engine's design
+            // surface. Without this, `bsengine-ecs`'s test-only `Position`
+            // shows up as a real component and pollutes concept queries.
+            syn::Item::Mod(m) if is_cfg_test(&m.attrs) => {}
             syn::Item::Mod(m) => {
                 if let Some((_, inner)) = &m.content {
                     collect_components(inner, src, krate, file, out);
@@ -83,6 +96,7 @@ fn collect_components(
                     fields: fields_of(&s.fields),
                     doc: doc_summary(&s.attrs),
                     registered: false,
+                    public: matches!(s.vis, syn::Visibility::Public(_)),
                 });
             }
             syn::Item::Enum(e) if derives_component(&e.attrs) => {
@@ -93,6 +107,7 @@ fn collect_components(
                     fields: Vec::new(),
                     doc: doc_summary(&e.attrs),
                     registered: false,
+                    public: matches!(e.vis, syn::Visibility::Public(_)),
                 });
             }
             _ => {}
@@ -117,6 +132,7 @@ pub fn ops_in_source(src: &str, krate: &str, file: &str) -> Vec<Op> {
 fn collect_ops(items: &[syn::Item], src: &str, krate: &str, file: &str, out: &mut Vec<Op>) {
     for item in items {
         match item {
+            syn::Item::Mod(m) if is_cfg_test(&m.attrs) => {}
             syn::Item::Mod(m) => {
                 if let Some((_, inner)) = &m.content {
                     collect_ops(inner, src, krate, file, out);
@@ -168,6 +184,23 @@ pub fn registered_names_in_source(src: &str) -> Vec<String> {
         }
     }
     out
+}
+
+/// True when the item carries `#[cfg(test)]`.
+fn is_cfg_test(attrs: &[syn::Attribute]) -> bool {
+    attrs.iter().any(|a| {
+        if !a.path().is_ident("cfg") {
+            return false;
+        }
+        let mut found = false;
+        let _ = a.parse_nested_meta(|meta| {
+            if meta.path.is_ident("test") {
+                found = true;
+            }
+            Ok(())
+        });
+        found
+    })
 }
 
 /// True when one of the item's `#[derive(..)]` lists names `Component`.
@@ -377,6 +410,49 @@ mod tests {
             found[0].location, "components.rs:8",
             "should point at `pub struct RigidBody`, not at `pub enum RigidBodyType`"
         );
+    }
+
+    #[test]
+    fn visibility_is_recorded_because_r1_applies_only_to_public_components() {
+        let src = r#"
+            /// Public and therefore reachable by tooling.
+            #[derive(Component)]
+            pub struct RigidBody { pub linear_damping: f32 }
+
+            /// Crate-internal plumbing; no other crate can name it.
+            #[derive(Component)]
+            pub(crate) struct PhysicsHandles { pub body: u32 }
+
+            /// Private plumbing.
+            #[derive(Component)]
+            struct ScriptLoad { pub done: bool }
+        "#;
+        let found = components_in_source(src, "bsengine-physics", "components.rs");
+        assert_eq!(found.len(), 3, "all three are components");
+        let public: Vec<&str> = found
+            .iter()
+            .filter(|c| c.public)
+            .map(|c| c.name.as_str())
+            .collect();
+        assert_eq!(
+            public,
+            vec!["RigidBody"],
+            "pub(crate) and private components are internal by construction"
+        );
+    }
+
+    #[test]
+    fn a_test_fixture_is_not_part_of_the_design_surface() {
+        // bsengine-ecs declares a test-only `Position` component. Counting it
+        // would put a fixture in the catalogue and in concept queries.
+        let src = r#"
+            #[cfg(test)]
+            mod tests {
+                #[derive(Component)]
+                struct Position { x: f32 }
+            }
+        "#;
+        assert!(components_in_source(src, "bsengine-ecs", "tests.rs").is_empty());
     }
 
     #[test]

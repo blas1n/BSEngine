@@ -1019,6 +1019,69 @@ item 24 Phase 1이 고정 프레임을 `wait_until` 술어로 바꿔 둔 것이 
 
 ---
 
+### 32. 컴포넌트/op 카탈로그 (중복·설계 드리프트 예방)
+
+**목표:** 새 컴포넌트나 새 스크립팅 op을 만들기 **전에**, 그 개념이 이미 어디에 사는지 알 수 있게 한다.
+
+**이 항목이 생긴 계기는 실제 실패다.** item 27을 설계하면서 `Velocity` 컴포넌트를 새로 만들자고
+제안했는데, 속도는 이미 Rapier가 소유하고 있었고 `bsengine_get_velocity` 계열 op 27개가 그걸
+노출하고 있었다. "컴포넌트 목록에 Velocity가 없다"는 참이었지만 "만들어야 한다"는 거짓이었다.
+단순 이름 목록으로는 이 실수를 막지 못한다 — 개념이 컴포넌트 **밖**에 살고 있었기 때문이다.
+
+**측정된 전제** (설계 전 실측, 추정 아님):
+
+| | 수 |
+|---|---|
+| `#[derive(..., Component, ...)]` 파생 타입 | 49 (고유 이름 48) |
+| 그중 `register_type::<>` 등록됨 | 34 |
+| **미등록** | **14** |
+| `#[op2] pub fn` 스크립팅 op | **298** |
+
+- **미등록 14개는 내부용이 아니다.** `RigidBody`/`Collider`/`PhysicsBodyDesc`/`PhysicsTransform`/
+  `PhysicsInput`, `MeshRenderer`/`SkinnedMesh`/`GltfAsset`, `AudioPlayer`/`AudioSource`/
+  `PlaybackState`, `AnimationClipLibrary`/`Script`/`Name` — 물리·렌더·오디오 전체 세트다.
+  bevy_reflect 도입이 `bsengine-core`를 끝내고 다른 크레이트로 넘어가지 않은 결과이며, 실질
+  영향은 인스펙터가 `RigidBody`를 못 보여주고 MCP `set_reflected_component`가 물리를 못 붙이는 것.
+- **이름 중복이 이미 하나 있다.** `Name`이 `bsengine-core/src/name.rs`(사용처 **0곳**)와
+  `bsengine-scene/src/plugin.rs`(사용처 11곳)에 각각 `pub struct Name(pub String)`으로 정의돼
+  있다. 구조도 독 주석상 목적도 같고, 인스펙터는 짧은 타입 이름을 쓰므로 UI에서 구분되지 않는다.
+- **드리프트는 컴포넌트보다 op 쪽이 심하다.** 컴포넌트 49개에 op 298개. `velocity` 한 개념에
+  27개(전체 벡터 + 축별 변형 + angular 대응). `speed`는 `animation_`/`follow_`/`linear_`/`nav_`/
+  `nav_angular_` 다섯 개념이 각자 op 쌍을 갖고, 그중 `linear_speed`는 velocity의 크기라 파생
+  가능한데도 자기 op을 갖는다.
+
+**설계:** `crates/bsengine-catalog`이 워크스페이스 소스를 `syn`으로 파싱해 색인을 **하나** 만들고
+소비자가 둘이다 — MCP 툴 `component_catalog`(설계 시점 질의)와 CI `catalog --check`(기계적 게이트).
+색인이 하나이므로 MCP 응답과 CI 판정이 어긋날 수 없다. 소유권 설명은 러스트독에서 추출한다
+(`missing_docs` 스윕 덕에 모든 공개 컴포넌트/op에 독 주석이 컴파일러 강제로 존재한다) — 카탈로그
+전용 메타데이터는 도입하지 않는다. 선언 지점이 정의 옆이 아니면 반드시 어긋나기 때문이다.
+
+**런타임 레지스트리가 아니라 정적 파싱인 이유:** 레지스트리는 48개 중 34개만 보므로 나머지를
+조용히 빠뜨린 채 "전체 목록"이라 답하게 된다. 그리고 예방이 필요한 시점은 코드가 존재하기 전이다.
+**텍스트 스캔도 아닌 이유:** 이 설계를 준비하며 grep으로 세어 봤더니 49개 중 14개만 잡고
+`Namepub` 같은 파싱 쓰레기를 만들어 냈다.
+
+**완료 조건:**
+- [ ] `crates/bsengine-catalog` — `syn` 파싱으로 컴포넌트(이름/크레이트/위치/필드/독/등록 여부)와
+      op(이름/크레이트/위치/독) 색인 생성
+- [ ] 개념 색인 — 이름을 snake_case/CamelCase 경계로 분해한 역색인. `velocity` 질의가 컴포넌트
+      0개와 op 27개를 반환하는 회귀 테스트로 이 항목의 계기가 된 실수를 고정한다
+- [ ] MCP 툴 `component_catalog` — 개념어 질의 + 전체 나열
+- [ ] CI `catalog --check`: **R1** 모든 `Component`가 `register_type` 됨(예외는
+      `unregistered.toml`에 이유와 함께), **R2** 축별(`_x`/`_y`/`_z`) op 신규 추가 금지 래칫
+- [ ] 테스트 추가, CI 통과
+
+**CI가 판별하지 못하는 것을 명시해 둔다.** 중복 그 자체는 기계가 판별하지 못한다. `linear_speed`가
+velocity의 크기라는 것, 두 `Name`이 같은 개념이라는 것은 판단이다. R1/R2는 위생 규칙이지 중복
+탐지기가 아니며, **게이트가 초록인 것을 "중복 없음"으로 읽는 것이 이 도구의 가장 그럴듯한 실패
+방식**이다. `--check` 출력에 무엇을 검사하지 않는지 한 줄 적는다.
+
+**범위 밖:** 감사 결과의 *수정*. 카탈로그를 만든 뒤 49개와 298개를 훑어 findings를 내고, 거기서
+나오는 수정(velocity op 정리, `Name` 중복 제거, 미등록 14개 등록)은 각자 별개 항목이 된다.
+27개짜리 op 정리를 카탈로그 구축에 끼워 넣으면 둘 다 망한다.
+
+---
+
 ## 보류 백로그 (당장 착수하지 않음)
 
 [BSENGINE_VS_UNITY_UNREAL.md](docs/BSENGINE_VS_UNITY_UNREAL.md) 비교에서 드러났지만,

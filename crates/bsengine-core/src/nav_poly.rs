@@ -395,6 +395,36 @@ impl NavPolys {
     }
 }
 
+/// Builds a navigation mesh from footprints taken off scene geometry.
+///
+/// `surfaces` are the walkable ground; `obstacles` are what stands on it. The
+/// bounds are the union of the surfaces, so a level made of several floor
+/// pieces still produces one mesh.
+///
+/// Footprints rather than colliders so this stays free of any physics
+/// dependency: whoever has the colliders projects them, and this decides what
+/// is walkable.
+pub fn build_from_footprints(surfaces: &[Rect], obstacles: &[Rect], y: f32) -> NavPolys {
+    let Some(first) = surfaces.first() else {
+        return NavPolys::default();
+    };
+    let bounds = surfaces.iter().fold(*first, |acc, r| Rect {
+        min_x: acc.min_x.min(r.min_x),
+        max_x: acc.max_x.max(r.max_x),
+        min_z: acc.min_z.min(r.min_z),
+        max_z: acc.max_z.max(r.max_z),
+    });
+
+    // Anything the surfaces do not cover is as unwalkable as an obstacle. A
+    // union of two floor slabs that do not meet leaves a hole between them, and
+    // an agent must not path across it.
+    let mut blocking = obstacles.to_vec();
+    for strip in decompose(bounds, surfaces) {
+        blocking.push(strip);
+    }
+    NavPolys::build(bounds, &blocking, y)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -622,34 +652,4 @@ mod tests {
         // The portal is the overlap of their Z ranges, not either one's whole edge.
         assert_eq!((a.z, b.z), (2.0, 6.0));
     }
-}
-
-/// Builds a navigation mesh from footprints taken off scene geometry.
-///
-/// `surfaces` are the walkable ground; `obstacles` are what stands on it. The
-/// bounds are the union of the surfaces, so a level made of several floor
-/// pieces still produces one mesh.
-///
-/// Footprints rather than colliders so this stays free of any physics
-/// dependency: whoever has the colliders projects them, and this decides what
-/// is walkable.
-pub fn build_from_footprints(surfaces: &[Rect], obstacles: &[Rect], y: f32) -> NavPolys {
-    let Some(first) = surfaces.first() else {
-        return NavPolys::default();
-    };
-    let bounds = surfaces.iter().fold(*first, |acc, r| Rect {
-        min_x: acc.min_x.min(r.min_x),
-        max_x: acc.max_x.max(r.max_x),
-        min_z: acc.min_z.min(r.min_z),
-        max_z: acc.max_z.max(r.max_z),
-    });
-
-    // Anything the surfaces do not cover is as unwalkable as an obstacle. A
-    // union of two floor slabs that do not meet leaves a hole between them, and
-    // an agent must not path across it.
-    let mut blocking = obstacles.to_vec();
-    for strip in decompose(bounds, surfaces) {
-        blocking.push(strip);
-    }
-    NavPolys::build(bounds, &blocking, y)
 }

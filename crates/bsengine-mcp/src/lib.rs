@@ -7,6 +7,8 @@
 //! here rather than reimplementing a protocol server itself.
 #![warn(missing_docs)]
 
+/// MCP tool for querying the workspace's component and scripting-op catalogue.
+pub mod catalog_tools;
 /// MCP tools for scaffolding, writing, and validating BSEngine game projects.
 pub mod game_tools;
 /// Wires `McpToolRegistry` into a Bevy `App` as an `McpPlugin`.
@@ -19,6 +21,7 @@ pub mod session;
 pub mod test_tools;
 /// Core `McpTool`/`McpToolOutput` types shared by every tool implementation.
 pub mod tool;
+pub use catalog_tools::catalog_tools;
 pub use game_tools::game_tools;
 pub use plugin::{McpPlugin, McpRegistryResource};
 pub use registry::McpToolRegistry;

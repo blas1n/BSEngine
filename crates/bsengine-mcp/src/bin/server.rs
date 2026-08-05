@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use bsengine_mcp::{game_tools, test_tools, McpServer, McpToolRegistry, SessionRegistry};
+use bsengine_mcp::{
+    catalog_tools, game_tools, test_tools, McpServer, McpToolRegistry, SessionRegistry,
+};
 
 fn main() {
     let root = std::env::args()
@@ -11,6 +13,9 @@ fn main() {
 
     let mut registry = McpToolRegistry::new();
     for tool in game_tools(root.clone()) {
+        registry.register(tool);
+    }
+    for tool in catalog_tools(root.clone()) {
         registry.register(tool);
     }
 

@@ -9,6 +9,7 @@ name = "bsengine-mcp-server"
 path = "src/bin/server.rs"
 
 [dependencies]
+bsengine-catalog.workspace = true
 bsengine-core.workspace = true
 bsengine-ecs.workspace = true
 bevy_app.workspace = true

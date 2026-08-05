@@ -1,6 +1,6 @@
 [package]
 name = "bsengine-audio"
-description = "Audio playback via kira — AudioSource/AudioPlayer components and AudioPlugin"
+description = "Audio playback via kira — AudioWorld resource, AudioSourceAsset and its loader"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

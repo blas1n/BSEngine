@@ -6,14 +6,11 @@ use kira::sound::static_sound::StaticSoundData;
 /// `StaticSoundData` clones cheaply, its sample frames are reference-counted).
 ///
 /// Named `AudioSourceAsset` (mirroring `bsengine_asset::TextureAsset`'s
-/// `*Asset` suffix convention) rather than the more obvious `AudioSource`,
-/// because this crate already has an ECS
-/// [`Component`](bevy_ecs::prelude::Component) named `AudioSource` in
-/// [`crate::components`] (pre-loaded playback data attached directly to an
-/// entity — a different concept from this `bevy_asset::Asset`). That
-/// component keeps its name since it predates this type and is unrelated to
-/// it; this type took the suffix instead so both remain re-exported at the
-/// crate root without a name clash.
+/// `*Asset` suffix convention) rather than the more obvious `AudioSource`. The
+/// suffix was originally forced by a since-deleted ECS component that held the
+/// name; it is kept because the `*Asset` convention is what the other asset
+/// types follow, and because `AudioSourceLoader` and the `.meta` sidecars
+/// already refer to it under this name.
 #[derive(Asset, TypePath, Clone)]
 pub struct AudioSourceAsset(pub StaticSoundData);
 

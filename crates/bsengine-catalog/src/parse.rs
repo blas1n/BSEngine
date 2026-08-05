@@ -100,6 +100,76 @@ fn collect_components(
     }
 }
 
+/// Finds every `#[op2]` scripting op declared in one source string.
+///
+/// `krate` and `file` are recorded on the results; this function does no I/O so
+/// it can be unit-tested directly.
+pub fn ops_in_source(src: &str, krate: &str, file: &str) -> Vec<Op> {
+    let parsed = match syn::parse_file(src) {
+        Ok(f) => f,
+        Err(_) => return Vec::new(),
+    };
+    let mut out = Vec::new();
+    collect_ops(&parsed.items, src, krate, file, &mut out);
+    out
+}
+
+fn collect_ops(items: &[syn::Item], src: &str, krate: &str, file: &str, out: &mut Vec<Op>) {
+    for item in items {
+        match item {
+            syn::Item::Mod(m) => {
+                if let Some((_, inner)) = &m.content {
+                    collect_ops(inner, src, krate, file, out);
+                }
+            }
+            syn::Item::Fn(f) if f.attrs.iter().any(|a| a.path().is_ident("op2")) => {
+                let name = f.sig.ident.to_string();
+                let line = src
+                    .lines()
+                    .position(|l| l.contains(&format!("fn {name}")))
+                    .map(|i| i + 1)
+                    .unwrap_or(0);
+                out.push(Op {
+                    name,
+                    krate: krate.to_string(),
+                    location: format!("{file}:{line}"),
+                    doc: doc_summary(&f.attrs),
+                });
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Collects the short type names named by `register_type::<..>()` calls.
+///
+/// Matches on the last path segment, so `bsengine_core::Camera` and `Camera`
+/// both count as registering `Camera`. That conflates two distinct types with
+/// the same short name; the workspace has exactly one such pair (`Name`, in
+/// `bsengine-core` and `bsengine-scene`) and Task 6 removes it.
+///
+/// A text search rather than a `syn` visitor is deliberate: `register_type::<T>()`
+/// is a *call* buried in function bodies like `EditorPlugin::build`, so catching
+/// it with `syn` means walking whole expression trees. The target is a fixed
+/// prefix up to `>`, which a substring scan handles safely.
+pub fn registered_names_in_source(src: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = src;
+    while let Some(i) = rest.find("register_type::<") {
+        rest = &rest[i + "register_type::<".len()..];
+        if let Some(end) = rest.find('>') {
+            let path = &rest[..end];
+            if let Some(last) = path.rsplit("::").next() {
+                let name = last.trim();
+                if !name.is_empty() {
+                    out.push(name.to_string());
+                }
+            }
+        }
+    }
+    out
+}
+
 /// True when one of the item's `#[derive(..)]` lists names `Component`.
 fn derives_component(attrs: &[syn::Attribute]) -> bool {
     attrs.iter().any(|a| {

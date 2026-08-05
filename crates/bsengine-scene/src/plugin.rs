@@ -552,11 +552,20 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     // divergence between the editor and the test runtime this whole function
     // was written to end. Both hosts call this, and the scene -> gltf edge
     // already exists.
+    //
+    // `SkinnedMesh` and `AnimationClipLibrary` are `bsengine-gltf`'s for the
+    // same reason and land here for the same one. Both are attached by
+    // `GltfPlugin` at import time, and both reflect only their identifying
+    // data -- their bulk per-vertex and per-keyframe fields are
+    // `#[reflect(ignore)]`; see each type's own note for what is hidden and
+    // why.
     app.register_type::<PhysicsBodyDesc>();
     app.register_type::<crate::types::RigidBodyDesc>();
     app.register_type::<crate::types::ColliderDesc>();
     app.register_type::<crate::types::ColliderShapeDesc>();
     app.register_type::<bsengine_gltf::GltfAsset>();
+    app.register_type::<bsengine_gltf::SkinnedMesh>();
+    app.register_type::<bsengine_gltf::AnimationClipLibrary>();
 }
 
 #[cfg(test)]
@@ -1344,6 +1353,47 @@ mod tests {
                      inert looks like from the outside"
                 );
             }
+        }
+    }
+
+    /// What `register_gameplay_reflect_types` has to leave behind for the two
+    /// glTF components, checked against the registry rather than against the
+    /// source text.
+    ///
+    /// The catalog's R1 gate scans for the *string* `register_type::<SkinnedMesh>`,
+    /// so it cannot tell a registration that works from one that compiles: a
+    /// type registered without `ReflectComponent` data is in the registry and
+    /// still unreachable by `spawn_scene_entities` above, by the Inspector, and
+    /// by MCP's `set_reflected_component` — every consumer R1 exists for. This
+    /// asserts the thing the gate is a proxy for.
+    #[test]
+    fn the_gltf_components_register_with_the_data_their_consumers_look_up() {
+        let mut app = new_app();
+        super::register_gameplay_reflect_types(&mut app);
+
+        let registry = app
+            .world()
+            .resource::<bevy_ecs::reflect::AppTypeRegistry>()
+            .read();
+
+        for name in ["SkinnedMesh", "AnimationClipLibrary"] {
+            let type_path = format!("bsengine_gltf::skinned_mesh::{name}");
+            let registration = registry.get_with_type_path(&type_path).unwrap_or_else(|| {
+                panic!(
+                    "{name} is not registered under '{type_path}'. \
+                     `spawn_scene_entities` looks types up by exactly this path, \
+                     so a component missing here is one a scene's `components:` \
+                     list can only report as an unknown type path"
+                )
+            });
+            assert!(
+                registration
+                    .data::<bevy_ecs::reflect::ReflectComponent>()
+                    .is_some(),
+                "{name} is registered but carries no `ReflectComponent`, so \
+                 nothing can attach or read it reflectively — which is the \
+                 whole of what R1 asks for"
+            );
         }
     }
 

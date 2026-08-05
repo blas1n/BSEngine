@@ -1,7 +1,7 @@
-use std::collections::HashMap;
-
 use bevy_ecs::prelude::Resource;
 use glam::Vec3;
+
+use crate::nav_poly::{NavPolys, Rect};
 
 /// Uniform-grid navigation mesh for A* pathfinding. Cells lie in the XZ plane.
 #[derive(Resource, Debug, Clone)]
@@ -15,6 +15,8 @@ pub struct NavMesh {
     /// World-space position of the grid's cell (0, 0) corner.
     pub origin: Vec3,
     walkable: Vec<bool>,
+    /// The convex decomposition the search actually runs on.
+    polys: NavPolys,
 }
 
 impl Default for NavMesh {
@@ -27,19 +29,23 @@ impl NavMesh {
     /// Creates a `width` x `depth` grid of the given cell size at `origin`, all cells walkable.
     pub fn new(width: u32, depth: u32, cell_size: f32, origin: Vec3) -> Self {
         let total = (width as usize).saturating_mul(depth as usize);
-        Self {
+        let mut mesh = Self {
             width,
             depth,
             cell_size: cell_size.max(f32::EPSILON),
             origin,
             walkable: vec![true; total],
-        }
+            polys: NavPolys::default(),
+        };
+        mesh.rebuild();
+        mesh
     }
 
     /// Marks a grid cell as walkable or blocked. Out-of-bounds coordinates are ignored.
     pub fn set_walkable(&mut self, x: u32, z: u32, walkable: bool) {
         if x < self.width && z < self.depth {
             self.walkable[(z * self.width + x) as usize] = walkable;
+            self.rebuild();
         }
     }
 
@@ -70,88 +76,58 @@ impl NavMesh {
         )
     }
 
-    /// A* pathfinding from `from` to `to` in world space.
-    /// Returns waypoints excluding the start, ending at `to`. None if no path exists.
+    /// Finds a path from `from` to `to` in world space.
+    ///
+    /// Returns waypoints excluding the start and ending at `to`, or `None`
+    /// when either endpoint is on blocked ground or no route exists.
+    ///
+    /// The search itself runs on the convex decomposition, not the grid: the
+    /// cells are the *authoring* surface and the polygons are what is walked.
+    /// That is why a path across open ground now comes back as a single
+    /// waypoint instead of a staircase of cell centres.
     pub fn find_path(&self, from: Vec3, to: Vec3) -> Option<Vec<Vec3>> {
-        use std::cmp::Reverse;
-        use std::collections::BinaryHeap;
-
         if self.width == 0 || self.depth == 0 {
             return None;
         }
-
+        // Endpoint walkability is still decided by the grid, so "you cannot
+        // path out of a wall" keeps meaning exactly what it did. The polygon
+        // locator deliberately snaps an off-mesh point to the nearest piece,
+        // which is right for an agent knocked out of bounds mid-game and wrong
+        // as an answer to "is this square blocked".
         let (sx, sz) = self.world_to_cell(from);
         let (ex, ez) = self.world_to_cell(to);
-
         if !self.is_walkable(sx, sz) || !self.is_walkable(ex, ez) {
             return None;
         }
+        self.polys.find_path(from, to)
+    }
 
-        if sx == ex && sz == ez {
-            return Some(vec![to]);
+    /// Rebuilds the convex decomposition from the current grid.
+    ///
+    /// Every blocked cell becomes an obstacle rectangle; the sweep merges runs
+    /// of them, so a wall of fifty cells costs the same as one wall.
+    fn rebuild(&mut self) {
+        if self.width == 0 || self.depth == 0 {
+            self.polys = NavPolys::default();
+            return;
         }
-
-        let heuristic = |x: i32, z: i32| -> u32 {
-            let dx = (x - ex).unsigned_abs();
-            let dz = (z - ez).unsigned_abs();
-            10 * dx.max(dz)
-        };
-
-        let mut open: BinaryHeap<Reverse<(u32, i32, i32)>> = BinaryHeap::new();
-        let mut g_score: HashMap<(i32, i32), u32> = HashMap::new();
-        let mut came_from: HashMap<(i32, i32), (i32, i32)> = HashMap::new();
-
-        open.push(Reverse((0, sx, sz)));
-        g_score.insert((sx, sz), 0);
-
-        while let Some(Reverse((_, x, z))) = open.pop() {
-            if x == ex && z == ez {
-                let mut cells = vec![(ex, ez)];
-                let mut cur = (ex, ez);
-                while let Some(&prev) = came_from.get(&cur) {
-                    cells.push(prev);
-                    cur = prev;
-                }
-                cells.reverse();
-                let waypoints = cells
-                    .into_iter()
-                    .skip(1)
-                    .map(|(px, pz)| {
-                        if px == ex && pz == ez {
-                            to
-                        } else {
-                            self.cell_center(px, pz)
-                        }
-                    })
-                    .collect();
-                return Some(waypoints);
-            }
-
-            let g = *g_score.get(&(x, z)).unwrap_or(&u32::MAX);
-            let neighbors = [
-                (x - 1, z, 10u32),
-                (x + 1, z, 10),
-                (x, z - 1, 10),
-                (x, z + 1, 10),
-                (x - 1, z - 1, 14),
-                (x + 1, z - 1, 14),
-                (x - 1, z + 1, 14),
-                (x + 1, z + 1, 14),
-            ];
-            for (nx, nz, step_cost) in neighbors {
-                if !self.is_walkable(nx, nz) {
-                    continue;
-                }
-                let new_g = g.saturating_add(step_cost);
-                if new_g < *g_score.get(&(nx, nz)).unwrap_or(&u32::MAX) {
-                    g_score.insert((nx, nz), new_g);
-                    came_from.insert((nx, nz), (x, z));
-                    open.push(Reverse((new_g + heuristic(nx, nz), nx, nz)));
+        let bounds = Rect::new(
+            self.origin.x,
+            self.origin.x + self.width as f32 * self.cell_size,
+            self.origin.z,
+            self.origin.z + self.depth as f32 * self.cell_size,
+        );
+        let mut obstacles = Vec::new();
+        for z in 0..self.depth {
+            for x in 0..self.width {
+                if !self.walkable[(z * self.width + x) as usize] {
+                    let x0 = self.origin.x + x as f32 * self.cell_size;
+                    let z0 = self.origin.z + z as f32 * self.cell_size;
+                    obstacles.push(Rect::new(x0, x0 + self.cell_size, z0, z0 + self.cell_size));
                 }
             }
         }
-
-        None
+        self.polys = NavPolys::build(bounds, &obstacles, self.origin.y);
     }
 }
 

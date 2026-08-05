@@ -863,7 +863,9 @@ dependencies = [
  "bsengine-app",
  "bsengine-asset",
  "bsengine-core",
+ "glam 0.29.3",
  "kira",
+ "mint",
  "tracing",
 ]
 

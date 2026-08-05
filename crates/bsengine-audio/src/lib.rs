@@ -21,11 +21,15 @@
 pub mod audio_source;
 /// The Bevy [`AudioPlugin`], which inserts the [`AudioWorld`] resource.
 pub mod plugin;
+/// Positional audio: the [`AudioListener`]/[`AudioEmitter`] components and
+/// the `mint` conversions `kira`'s spatial API needs.
+pub mod spatial;
 /// The [`AudioWorld`] resource wrapping the underlying `kira` audio manager.
 pub mod world;
 
 pub use audio_source::{load_audio_source, AudioSourceAsset, AudioSourceLoader};
 pub use plugin::AudioPlugin;
+pub use spatial::{AudioEmitter, AudioListener};
 pub use world::AudioWorld;
 
 #[cfg(test)]

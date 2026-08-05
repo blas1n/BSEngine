@@ -68,7 +68,14 @@ fn main() -> std::process::ExitCode {
     }
 
     if std::env::args().any(|a| a == "--check") {
-        let violations = bsengine_catalog::rules::check_r1(&catalog.components);
+        // Embedded at compile time, not read from disk: `--check` must give the
+        // same answer wherever it is run from, and a baseline that silently
+        // disappears when the working directory changes would make the ratchet
+        // pass by accident.
+        let baseline =
+            bsengine_catalog::rules::read_baseline(include_str!("../../axis_ops_baseline.txt"));
+        let mut violations = bsengine_catalog::rules::check_r1(&catalog.components);
+        violations.extend(bsengine_catalog::rules::check_r2(&catalog.ops, &baseline));
         for v in &violations {
             println!("{}: {}", v.rule, v.message);
         }

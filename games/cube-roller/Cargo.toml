@@ -13,6 +13,7 @@ bsengine-app    = { workspace = true }
 bsengine-core   = { workspace = true }
 bsengine-ecs    = { workspace = true }
 bsengine-input  = { workspace = true }
+bsengine-physics = { workspace = true }
 bsengine-render = { workspace = true }
 bsengine-rhi-wgpu = { workspace = true }
 bsengine-window = { workspace = true }

@@ -511,10 +511,7 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     app.register_type::<bsengine_core::AnimationPlayer>();
     app.register_type::<bsengine_core::Bloom>();
     app.register_type::<bsengine_core::CustomShader>();
-    app.register_type::<bsengine_core::Damping>();
-    app.register_type::<bsengine_core::GravityScale>();
     app.register_type::<bsengine_core::Lifetime>();
-    app.register_type::<bsengine_core::Mass>();
     app.register_type::<bsengine_core::NetworkId>();
     app.register_type::<bsengine_core::SaveData>();
     app.register_type::<bsengine_core::Shield>();
@@ -522,12 +519,9 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     app.register_type::<bsengine_core::Timer>();
     app.register_type::<bsengine_core::ToneMap>();
     app.register_type::<bsengine_core::Visible>();
-    app.register_type::<bsengine_core::AngularVelocity>();
-    app.register_type::<bsengine_core::ExternalImpulse>();
     app.register_type::<bsengine_core::Follow>();
     app.register_type::<bsengine_core::LookAt>();
     app.register_type::<bsengine_core::NavMeshAgent>();
-    app.register_type::<bsengine_core::Velocity>();
     app.register_type::<bsengine_core::Transform>();
     app.register_type::<bsengine_core::GlobalTransform>();
     app.register_type::<bsengine_core::Parent>();

@@ -1,8 +1,19 @@
+//! A small physics demo: roll a cube around a floor and collect items.
+//!
+//! Movement is driven by Rapier through `bsengine-physics`. This used to run on
+//! `bsengine-core`'s kinematic `Velocity` component with hand-rolled gravity,
+//! damping and a floor clamp; roadmap item 33 removed that stack, and this demo
+//! was its only real consumer. Gravity, damping and the floor are now the
+//! physics engine's job, so what remains here is input and gameplay.
+
 use bevy_ecs::system::Local;
 use bsengine_app::{new_app, Startup, Update};
-use bsengine_core::{Camera, DirectionalLight, GlobalTransform, Time, Transform, Velocity};
+use bsengine_core::{Camera, DirectionalLight, GlobalTransform, Time, Transform};
 use bsengine_ecs::{Commands, Component, Entity, IntoSystemConfigs, Query, Res, ResMut, With};
 use bsengine_input::{Input, InputPlugin, KeyCode};
+use bsengine_physics::{
+    Collider, PhysicsInput, PhysicsPlugin, PhysicsTransform, PhysicsWorld, RigidBody,
+};
 use bsengine_render::{MeshRenderer, RenderPlugin};
 use bsengine_rhi_wgpu::{cube_vertices, GpuMeshRegistry, WgpuRHIPlugin};
 use bsengine_window::{WindowDescriptor, WindowPlugin};
@@ -11,8 +22,9 @@ use glam::{Quat, Vec2, Vec3};
 const FLOOR_Y: f32 = 0.5;
 const ACCEL: f32 = 20.0;
 const MAX_SPEED: f32 = 8.0;
-const DAMPING: f32 = 0.85;
-const GRAVITY: f32 = 20.0;
+/// Per-second linear damping handed to Rapier, replacing the old per-frame
+/// `velocity *= 0.85`. That factor was frame-rate dependent; this is not.
+const LINEAR_DAMPING: f32 = 2.0;
 const COLLECT_DIST: f32 = 1.5;
 const RESPAWN_Y: f32 = -10.0;
 
@@ -34,6 +46,7 @@ fn main() {
             },
         })
         .add_plugins(InputPlugin)
+        .add_plugins(PhysicsPlugin)
         .add_plugins(RenderPlugin)
         .add_systems(Startup, setup)
         .add_systems(Update, (player_control, collect_items, respawn).chain())
@@ -60,7 +73,8 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
     let (verts, indices) = cube_vertices();
     let cube_id = reg.register(&verts, &indices);
 
-    // Floor
+    // Floor. The mesh is a unit cube scaled to 20 x 0.2 x 20, so the collider's
+    // half-extents are half of that.
     commands.spawn((
         MeshRenderer { mesh_id: cube_id },
         Transform {
@@ -69,9 +83,16 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
             scale: Vec3::new(20.0, 0.2, 20.0).into(),
         },
         GlobalTransform::default(),
+        RigidBody::fixed(),
+        Collider::cuboid(10.0, 0.1, 10.0),
+        PhysicsInput {
+            translation: Vec3::new(0.0, -0.5, 0.0).into(),
+            rotation: Quat::IDENTITY.into(),
+        },
+        PhysicsTransform::default(),
     ));
 
-    // Player
+    // Player. Damping is Rapier's now; so are gravity and standing on the floor.
     commands.spawn((
         Player,
         MeshRenderer { mesh_id: cube_id },
@@ -81,7 +102,16 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
             scale: Vec3::ONE.into(),
         },
         GlobalTransform::default(),
-        Velocity::default(),
+        RigidBody {
+            linear_damping: LINEAR_DAMPING,
+            ..RigidBody::dynamic()
+        },
+        Collider::cuboid(0.5, 0.5, 0.5),
+        PhysicsInput {
+            translation: Vec3::new(0.0, FLOOR_Y, 0.0).into(),
+            rotation: Quat::IDENTITY.into(),
+        },
+        PhysicsTransform::default(),
     ));
 
     // Items
@@ -107,10 +137,15 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
 
 fn player_control(
     keys: Res<Input<KeyCode>>,
-    mut query: Query<(&mut Velocity, &mut Transform), With<Player>>,
+    query: Query<Entity, With<Player>>,
+    mut physics: ResMut<PhysicsWorld>,
     time: Res<Time>,
 ) {
-    let Ok((mut vel, mut transform)) = query.get_single_mut() else {
+    let Ok(entity) = query.get_single() else {
+        return;
+    };
+    let Some(mut linvel) = physics.get_linvel(entity) else {
+        // The body is registered with Rapier a frame after it is spawned.
         return;
     };
     let dt = time.delta_seconds;
@@ -131,29 +166,20 @@ fn player_control(
 
     if dir.length_squared() > 0.0 {
         let accel = dir.normalize() * ACCEL * dt;
-        vel.linear.x += accel.x;
-        vel.linear.z += accel.z;
+        linvel.x += accel.x;
+        linvel.z += accel.z;
     }
 
-    let hspeed = Vec2::new(vel.linear.x, vel.linear.z).length();
+    // Clamp horizontal speed only — the vertical component is gravity's, and
+    // clamping it would fight the physics step.
+    let hspeed = Vec2::new(linvel.x, linvel.z).length();
     if hspeed > MAX_SPEED {
         let scale = MAX_SPEED / hspeed;
-        vel.linear.x *= scale;
-        vel.linear.z *= scale;
+        linvel.x *= scale;
+        linvel.z *= scale;
     }
 
-    vel.linear.x *= DAMPING;
-    vel.linear.z *= DAMPING;
-    vel.linear.y -= GRAVITY * dt;
-
-    transform.translation.0 += vel.linear.0 * dt;
-
-    if transform.translation.y < FLOOR_Y {
-        transform.translation.y = FLOOR_Y;
-        if vel.linear.y < 0.0 {
-            vel.linear.y = 0.0;
-        }
-    }
+    physics.set_linvel(entity, linvel);
 }
 
 fn collect_items(
@@ -175,13 +201,16 @@ fn collect_items(
     }
 }
 
-fn respawn(mut query: Query<(&mut Transform, &mut Velocity), With<Player>>) {
-    let Ok((mut t, mut vel)) = query.get_single_mut() else {
+fn respawn(query: Query<(Entity, &Transform), With<Player>>, mut physics: ResMut<PhysicsWorld>) {
+    let Ok((entity, t)) = query.get_single() else {
         return;
     };
     if t.translation.y < RESPAWN_Y {
-        t.translation = Vec3::new(0.0, FLOOR_Y, 0.0).into();
-        vel.linear = Vec3::ZERO.into();
+        // Teleporting a dynamic body means telling Rapier, not writing
+        // `Transform` — the physics step is what drives `Transform` here, so a
+        // write to it would be overwritten on the very next frame.
+        physics.set_translation(entity, Vec3::new(0.0, FLOOR_Y, 0.0));
+        physics.set_linvel(entity, Vec3::ZERO);
         println!("Respawned!");
     }
 }

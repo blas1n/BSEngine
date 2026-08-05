@@ -1578,6 +1578,7 @@ dependencies = [
  "bsengine-core",
  "bsengine-ecs",
  "bsengine-input",
+ "bsengine-physics",
  "bsengine-render",
  "bsengine-rhi-wgpu",
  "bsengine-window",

@@ -292,6 +292,49 @@ pub fn compute_local_transforms_blended(
         .collect()
 }
 
+/// Decides which clips compose this frame's pose, and at what weights.
+///
+/// One clip normally; two while a state machine is mid-transition — the state
+/// being left and the state being entered. Until this existed, `blend_weight`
+/// was advanced every frame and read by nothing, so every "crossfade" in this
+/// engine was really a hard cut.
+///
+/// Both clips are sampled at the same time value. For the looping locomotion
+/// clips these transitions exist for — idle/walk/run — that is what keeps the
+/// feet in phase across the blend. A clip whose meaning depends on its own
+/// timeline would need its own clock, and nothing here has one yet.
+fn blend_samples<'a>(
+    current: &'a AnimationClip,
+    library: &'a AnimationClipLibrary,
+    time: f32,
+    asm: Option<&bsengine_core::AnimationStateMachine>,
+) -> Vec<ClipSample<'a>> {
+    let mut samples = vec![ClipSample {
+        channels: &current.channels,
+        time,
+        weight: 1.0,
+    }];
+    let Some(asm) = asm else {
+        return samples;
+    };
+    let Some(from_clip) = asm
+        .blend_from
+        .as_ref()
+        .and_then(|state| asm.states.get(state))
+        .and_then(|state| library.clips.get(&state.clip))
+    else {
+        return samples;
+    };
+    let w = asm.blend_weight.clamp(0.0, 1.0);
+    samples[0].weight = w;
+    samples.push(ClipSample {
+        channels: &from_clip.channels,
+        time,
+        weight: 1.0 - w,
+    });
+    samples
+}
+
 /// Walks the node hierarchy to compose each node's GLOBAL transform from its
 /// local transform and its parent chain, then returns one skinning matrix per
 /// joint (`global[joint_node] * inverse_bind_matrix[joint]`) — the matrix
@@ -305,7 +348,25 @@ fn compute_joint_matrices(
     channels: &[AnimationChannel],
     time: f32,
 ) -> Vec<Mat4> {
-    let locals = compute_local_transforms(nodes, channels, time);
+    compute_joint_matrices_blended(
+        nodes,
+        skin,
+        &[ClipSample {
+            channels,
+            time,
+            weight: 1.0,
+        }],
+    )
+}
+
+/// As [`compute_joint_matrices`], but composing the pose from several weighted
+/// clips instead of one.
+fn compute_joint_matrices_blended(
+    nodes: &[NodeTransform],
+    skin: &SkinData,
+    clips: &[ClipSample<'_>],
+) -> Vec<Mat4> {
+    let locals = compute_local_transforms_blended(nodes, clips);
     let mut globals = locals.clone();
     for _ in 0..8 {
         for (i, node) in nodes.iter().enumerate() {
@@ -382,6 +443,7 @@ fn update_skinned_meshes(
         &SkinnedMesh,
         &AnimationClipLibrary,
         &bsengine_core::AnimationPlayer,
+        Option<&bsengine_core::AnimationStateMachine>,
     )>,
     mesh_registry: Option<ResMut<bsengine_rhi_wgpu::GpuMeshRegistry>>,
     queue: Option<Res<bsengine_rhi_wgpu::GpuQueueResource>>,
@@ -389,16 +451,25 @@ fn update_skinned_meshes(
     let (Some(mut mesh_registry), Some(queue)) = (mesh_registry, queue) else {
         return;
     };
-    for (skinned, library, player) in query.iter() {
+    for (skinned, library, player, asm) in query.iter() {
         let Some(clip) = library.clips.get(&player.clip) else {
             continue;
         };
-        let joint_matrices = compute_joint_matrices(
-            &skinned.nodes,
-            &skinned.skin_data,
-            &clip.channels,
-            player.time,
-        );
+
+        // A state machine mid-transition contributes the state it is leaving as
+        // well as the one it is entering. Until this existed, `blend_weight`
+        // was advanced every frame and read by nothing, so every "crossfade"
+        // was really a hard cut.
+        //
+        // Both clips are sampled at the same `player.time`. For the looping
+        // locomotion clips these transitions are for — idle/walk/run — that is
+        // what keeps the feet in phase across the blend; a clip whose meaning
+        // depends on its own timeline would need its own clock, and nothing
+        // here has one yet.
+        let samples = blend_samples(clip, library, player.time, asm);
+
+        let joint_matrices =
+            compute_joint_matrices_blended(&skinned.nodes, &skinned.skin_data, &samples);
         let deformed: Vec<Vertex> = skinned
             .rest_vertices
             .iter()
@@ -543,6 +614,95 @@ mod tests {
             values: KeyframeValues::Translations(vec![v.to_array(), v.to_array()]),
             interpolation: Interpolation::Linear,
         }
+    }
+
+    /// A library holding two clips, each pinning node 0 to a translation.
+    fn two_clip_library() -> AnimationClipLibrary {
+        AnimationClipLibrary::from_clips(vec![
+            AnimationClip {
+                name: "idle".to_string(),
+                channels: vec![fixed_translation(Vec3::ZERO)],
+                duration: 1.0,
+            },
+            AnimationClip {
+                name: "walk".to_string(),
+                channels: vec![fixed_translation(Vec3::new(10.0, 0.0, 0.0))],
+                duration: 1.0,
+            },
+        ])
+    }
+
+    /// A state machine halfway through idle -> walk.
+    fn mid_transition() -> bsengine_core::AnimationStateMachine {
+        use bsengine_core::{AnimationStateMachine, AsmState};
+        let mut asm = AnimationStateMachine::default();
+        asm.states.insert("idle".to_string(), AsmState::new("idle"));
+        asm.states.insert("walk".to_string(), AsmState::new("walk"));
+        asm.current_state = "walk".to_string();
+        asm.blend_from = Some("idle".to_string());
+        asm.blend_weight = 0.5;
+        asm
+    }
+
+    #[test]
+    fn a_transitioning_state_machine_contributes_both_clips() {
+        // The bug this item fixes. `blend_weight` has been advanced every frame
+        // since the state machine was written and read by nothing, so a
+        // "crossfade" was a hard cut. Anything that stops passing the leaving
+        // state's clip through puts that back.
+        let library = two_clip_library();
+        let walk = library.clips.get("walk").expect("clip exists");
+        let asm = mid_transition();
+
+        let samples = blend_samples(walk, &library, 0.0, Some(&asm));
+
+        assert_eq!(samples.len(), 2, "both clips take part in a transition");
+        assert!((samples[0].weight - 0.5).abs() < 1e-6, "entering state");
+        assert!((samples[1].weight - 0.5).abs() < 1e-6, "leaving state");
+
+        let pose = compute_local_transforms_blended(&one_node(), &samples);
+        let x = pose[0].to_scale_rotation_translation().2.x;
+        assert!(
+            (x - 5.0).abs() < 0.001,
+            "halfway through idle -> walk the node should be halfway, got {x}"
+        );
+    }
+
+    #[test]
+    fn a_settled_state_machine_contributes_one_clip() {
+        let library = two_clip_library();
+        let walk = library.clips.get("walk").expect("clip exists");
+        let mut asm = mid_transition();
+        asm.blend_from = None;
+
+        let samples = blend_samples(walk, &library, 0.0, Some(&asm));
+        assert_eq!(samples.len(), 1);
+        assert!((samples[0].weight - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn an_entity_without_a_state_machine_still_animates() {
+        // Not every skinned mesh has a state machine; those play their
+        // `AnimationPlayer` clip and must not be disturbed by any of this.
+        let library = two_clip_library();
+        let walk = library.clips.get("walk").expect("clip exists");
+        let samples = blend_samples(walk, &library, 0.0, None);
+        assert_eq!(samples.len(), 1);
+        assert!((samples[0].weight - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_transition_from_a_missing_clip_falls_back_to_one() {
+        // A state naming a clip the model does not have must not blend against
+        // nothing and freeze the character at half pose.
+        let library = two_clip_library();
+        let walk = library.clips.get("walk").expect("clip exists");
+        let mut asm = mid_transition();
+        asm.blend_from = Some("nonexistent".to_string());
+
+        let samples = blend_samples(walk, &library, 0.0, Some(&asm));
+        assert_eq!(samples.len(), 1);
+        assert!((samples[0].weight - 1.0).abs() < 1e-6);
     }
 
     #[test]

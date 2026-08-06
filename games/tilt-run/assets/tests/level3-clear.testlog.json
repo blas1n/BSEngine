@@ -3,7 +3,7 @@
   "scene": "assets/scenes/level3.ron",
   "actions": [
     { "cmd": "press_key", "key": "W" },
-    { "cmd": "step", "frames": 20 },
+    { "cmd": "step", "frames": 60 },
     { "cmd": "release_key", "key": "W" },
     { "cmd": "step", "frames": 330 },
     {
@@ -12,7 +12,15 @@
       "path": "z",
       "op": ">",
       "value": 7.0,
-      "label": "goal collision fired and loadScene respawned Ball at level 4's start (z=8)"
+      "label": "ball is back at a level start (z=8) rather than somewhere along level 3's course"
+    },
+    {
+      "cmd": "assert",
+      "query": { "tool": "get_transform", "args": { "name": "MovingObstacle" } },
+      "path": "y",
+      "op": ">",
+      "value": -1.0,
+      "label": "level 4 is the scene that got loaded -- MovingObstacle exists only there, so this fails if the goal never fired. The z assertion above cannot tell: level 3 starts the ball at z=10, which already satisfies it"
     }
   ]
 }

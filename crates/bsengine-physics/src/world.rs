@@ -52,6 +52,12 @@ impl PhysicsWorld {
     }
 
     /// Advances the simulation by one timestep, reporting contact events via `event_handler`.
+    ///
+    /// Forces and torques are cleared afterwards, so a force applies for the one
+    /// step it was added to. Rapier itself keeps them until told otherwise --
+    /// its `add_force` describes a thruster that stays on, not a push. The
+    /// clearing happens here rather than in a system so that every caller of
+    /// `step` gets the same physics, tests included.
     pub fn step(&mut self, event_handler: &dyn EventHandler) {
         self.physics_pipeline.step(
             self.gravity,
@@ -67,6 +73,13 @@ impl PhysicsWorld {
             &(),
             event_handler,
         );
+
+        // `false` = do not wake sleeping bodies. Clearing a force a sleeping
+        // body is not feeling should not be what wakes it up.
+        for (_, body) in self.rigid_body_set.iter_mut() {
+            body.reset_forces(false);
+            body.reset_torques(false);
+        }
     }
 
     pub(crate) fn add_collider(
@@ -195,13 +208,13 @@ impl PhysicsWorld {
         }
     }
 
-    /// Clears any force/torque accumulated via `apply_force`/`add_torque` —
-    /// those persist and keep being applied every subsequent step until
-    /// explicitly cleared (Rapier's own documented behavior for
-    /// `add_force`/`add_torque`). A script that teleports/stops a body
-    /// (fall recovery, "game over" freeze, ...) needs this alongside
-    /// `set_linvel`/`set_angvel` zeroing: velocity alone doesn't stop a
-    /// held-over force from reintroducing motion on the very next step.
+    /// Discards force/torque added earlier in the current frame, before
+    /// [`Self::step`] gets to apply it.
+    ///
+    /// Narrow by design. Forces do not survive a step -- `step` clears them --
+    /// so this is only for the case where something already queued a force this
+    /// frame and something else then decides the body should not move at all: a
+    /// teleport, a "game over" freeze. Outside that window it does nothing.
     pub fn reset_forces(&mut self, entity: Entity) {
         if let Some(&handle) = self.entity_body_map.get(&entity) {
             if let Some(body) = self.rigid_body_set.get_mut(handle) {

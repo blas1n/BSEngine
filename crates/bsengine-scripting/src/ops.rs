@@ -1067,8 +1067,9 @@ pub enum ScriptCommand {
         /// Z coordinate of the point the force/impulse is applied at.
         pz: f32,
     },
-    /// Clears any force/torque accumulated via `AddForce`/`AddTorque` on a
-    /// rigid body, so it doesn't keep being applied on subsequent steps.
+    /// Discards force/torque added to a rigid body earlier in this frame,
+    /// before the physics step applies it. Forces last one step, so this only
+    /// matters within the frame that queued one.
     ResetForces {
         /// Name of the entity to modify.
         name: String,
@@ -6567,10 +6568,10 @@ var Bsengine = {
     applyImpulseAtPoint: (name, fx, fy, fz, px, py, pz) => Deno.core.ops.bsengine_apply_impulse_at_point(name, fx, fy, fz, px, py, pz),
     addForce:         (name, fx, fy, fz) => Deno.core.ops.bsengine_add_force(name, fx, fy, fz),
     addForceAtPoint:  (name, fx, fy, fz, px, py, pz) => Deno.core.ops.bsengine_add_force_at_point(name, fx, fy, fz, px, py, pz),
-    // Clears any force/torque accumulated via addForce/addTorque — those
-    // persist across steps until explicitly cleared (Rapier's documented
-    // behavior), so stopping a body needs this alongside setVelocity(0,0,0)
-    // or a held-over force reintroduces motion on the next physics step.
+    // Discards force/torque added earlier in this same frame, before the
+    // physics step applies it. Forces last exactly one step, so this is only
+    // for "something already pushed this frame and now we want it not to" —
+    // a teleport or a freeze. setVelocity(0,0,0) alone is enough otherwise.
     resetForces:      (name) => Deno.core.ops.bsengine_reset_forces(name),
     setVelocity:      (name, vx, vy, vz) => Deno.core.ops.bsengine_set_velocity(name, vx, vy, vz),
     setVelocityX:     (name, vx) => Deno.core.ops.bsengine_set_velocity_x(name, vx),

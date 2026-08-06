@@ -34,17 +34,24 @@ SceneDescriptor(entities: [
         components: [
             ("bsengine_core::animation_state_machine::AnimationStateMachine", r#"(
                 states: {
-                    "idle": (clip: "Survey", blend: None, looping: true, speed: 1.0, duration: 1.0),
-                    "walk": (clip: "Walk", blend: None, looping: true, speed: 1.0, duration: 1.0),
-                    "run": (clip: "Run", blend: None, looping: true, speed: 1.0, duration: 1.0),
+                    // One state, not three. Locomotion is a continuum, so the
+                    // thresholds are the player's actual speeds — see
+                    // MOVE_SPEED and RUN_MULTIPLIER in player.js. At 6.3 the
+                    // character is genuinely half walking and half running,
+                    // where the three-state version crossfaded between two
+                    // clips each claiming to be the whole truth and was only
+                    // right for the instant it was halfway.
+                    "locomotion": (clip: "Survey", blend: Some((
+                        param: "speed",
+                        clips: [
+                            (clip: "Survey", threshold: 0.0),
+                            (clip: "Walk", threshold: 4.5),
+                            (clip: "Run", threshold: 8.1),
+                        ],
+                    )), looping: true, speed: 1.0, duration: 1.0),
                 },
-                transitions: [
-                    (from: "idle", to: "walk", condition: FloatGreater(param: "speed", threshold: 0.1), blend_duration: 0.15),
-                    (from: "walk", to: "idle", condition: FloatLess(param: "speed", threshold: 0.1), blend_duration: 0.15),
-                    (from: "walk", to: "run", condition: FloatGreater(param: "speed", threshold: 3.0), blend_duration: 0.2),
-                    (from: "run", to: "walk", condition: FloatLess(param: "speed", threshold: 3.0), blend_duration: 0.2),
-                ],
-                current_state: "idle",
+                transitions: [],
+                current_state: "locomotion",
                 params_float: {"speed": 0.0},
                 params_bool: {},
                 triggers: [],

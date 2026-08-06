@@ -794,6 +794,63 @@ mod tests {
     }
 
     #[test]
+    fn a_blend_tree_authored_in_a_scene_arrives_intact() {
+        // mini-arena's spelling. Worth its own test for the same reason as the
+        // one above: a blend tree that failed to deserialize would leave the
+        // state's `blend` as None, the character would animate from the single
+        // `clip` instead, and nothing anywhere would say so — it would just
+        // stop blending.
+        let ron = r##"SceneDescriptor(entities: [
+            EntityDescriptor(
+                name: "Player",
+                components: [
+                    ("bsengine_core::animation_state_machine::AnimationStateMachine", r#"(
+                        states: {
+                            "locomotion": (clip: "Survey", blend: Some((
+                                param: "speed",
+                                clips: [
+                                    (clip: "Survey", threshold: 0.0),
+                                    (clip: "Walk", threshold: 4.5),
+                                    (clip: "Run", threshold: 8.1),
+                                ],
+                            )), looping: true, speed: 1.0, duration: 1.0),
+                        },
+                        transitions: [],
+                        current_state: "locomotion",
+                        params_float: {"speed": 0.0},
+                        params_bool: {},
+                        triggers: [],
+                        blend_from: None,
+                        blend_weight: 1.0,
+                        blend_duration: 0.0,
+                        blend_elapsed: 0.0,
+                    )"#),
+                ],
+            )
+        ])"##;
+        let path = write_temp_scene("test_blend_tree_scene.ron", ron);
+
+        let mut app = new_app();
+        super::register_gameplay_reflect_types(&mut app);
+        app.add_plugins(ScenePlugin::from_file(&path));
+        app.update();
+
+        let mut q = app
+            .world_mut()
+            .query::<&bsengine_core::AnimationStateMachine>();
+        let results: Vec<_> = q.iter(app.world()).collect();
+        assert_eq!(results.len(), 1);
+        let tree = results[0].states["locomotion"]
+            .blend
+            .as_ref()
+            .expect("the blend tree must survive the load");
+        assert_eq!(tree.param, "speed");
+        assert_eq!(tree.clips.len(), 3);
+        assert_eq!(tree.clips[2].clip, "Run");
+        assert!((tree.clips[2].threshold - 8.1).abs() < 1e-5);
+    }
+
+    #[test]
     fn scene_plugin_unknown_reflected_type_path_is_skipped_not_fatal() {
         let ron = r#"SceneDescriptor(entities: [
             EntityDescriptor(

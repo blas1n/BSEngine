@@ -800,6 +800,12 @@ impl WgpuSurface {
         self.device.clone()
     }
 
+    /// This renderer's GPU queue, needed alongside [`Self::device_arc`] to build
+    /// a `GpuTextureRegistry`.
+    pub fn queue_arc(&self) -> Arc<wgpu::Queue> {
+        self.queue.clone()
+    }
+
     /// Requests an adapter and a device. The windowed path wants an adapter the
     /// surface can present on; offscreen takes whatever is available.
     async fn request_device(
@@ -1568,7 +1574,11 @@ impl WgpuSurface {
                     module: &shader,
                     entry_point: "fs_sky",
                     targets: &[Some(wgpu::ColorTargetState {
-                        format: self.output.format(),
+                        // The skybox pass draws into the HDR buffer, not the
+                        // final output. Building this pipeline for the output
+                        // format made set_pipeline fail validation the moment
+                        // any project actually set a skybox.
+                        format: crate::post_process::HDR_FORMAT,
                         blend: Some(wgpu::BlendState::REPLACE),
                         write_mask: wgpu::ColorWrites::ALL,
                     })],

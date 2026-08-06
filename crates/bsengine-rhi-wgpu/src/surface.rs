@@ -766,6 +766,40 @@ impl WgpuSurface {
         )
     }
 
+    /// The pixels of the frame most recently rendered, tightly packed RGBA8,
+    /// top row first.
+    ///
+    /// `Err` in windowed mode: a swapchain texture is not created with
+    /// `COPY_SRC` and cannot be copied out of.
+    ///
+    /// The values are **sRGB-encoded**. Comparing them for brightness is fine;
+    /// comparing them against linear colour values is not.
+    pub fn read_pixels(&self) -> Result<Vec<u8>, String> {
+        match &self.output {
+            crate::output::Output::Offscreen {
+                texture,
+                width,
+                height,
+            } => Ok(crate::output::read_pixels(
+                &self.device,
+                &self.queue,
+                texture,
+                *width,
+                *height,
+            )),
+            crate::output::Output::Window { .. } => Err(
+                "read_pixels needs an offscreen renderer; a swapchain texture is not COPY_SRC"
+                    .to_string(),
+            ),
+        }
+    }
+
+    /// This renderer's GPU device, for callers that must put resources on the
+    /// same device -- a `GpuMeshRegistry`, for one.
+    pub fn device_arc(&self) -> Arc<wgpu::Device> {
+        self.device.clone()
+    }
+
     /// Requests an adapter and a device. The windowed path wants an adapter the
     /// surface can present on; offscreen takes whatever is available.
     async fn request_device(

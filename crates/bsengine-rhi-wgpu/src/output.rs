@@ -111,6 +111,81 @@ impl Output {
     }
 }
 
+/// Reads a texture's pixels back as tightly packed RGBA8.
+///
+/// `copy_texture_to_buffer` requires each row to start on a 256-byte boundary,
+/// so the copy goes through a padded buffer and is unpadded row by row.
+///
+/// Code that skips that padding still works whenever `width * 4` divides
+/// evenly by 256 -- that is, whenever the width is a multiple of 64. It is why
+/// the tests render at 200x150 rather than at a rounder size: `200 * 4 = 800`,
+/// and `800 % 256 = 32`.
+pub(crate) fn read_pixels(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    texture: &wgpu::Texture,
+    width: u32,
+    height: u32,
+) -> Vec<u8> {
+    let unpadded_bytes_per_row = width * 4;
+    let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+    let padded_bytes_per_row = unpadded_bytes_per_row.div_ceil(align) * align;
+
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("readback"),
+        size: (padded_bytes_per_row * height) as u64,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("readback encoder"),
+    });
+    encoder.copy_texture_to_buffer(
+        wgpu::ImageCopyTexture {
+            texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::ImageCopyBuffer {
+            buffer: &buffer,
+            layout: wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(padded_bytes_per_row),
+                rows_per_image: Some(height),
+            },
+        },
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+    );
+    queue.submit(std::iter::once(encoder.finish()));
+
+    let slice = buffer.slice(..);
+    let (tx, rx) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |r| {
+        let _ = tx.send(r);
+    });
+    device.poll(wgpu::Maintain::Wait);
+    rx.recv()
+        .expect("map_async never reported a result")
+        .expect("mapping the readback buffer failed");
+
+    let mapped = slice.get_mapped_range();
+    let mut tight = Vec::with_capacity((unpadded_bytes_per_row * height) as usize);
+    for row in 0..height {
+        let start = (row * padded_bytes_per_row) as usize;
+        let end = start + unpadded_bytes_per_row as usize;
+        tight.extend_from_slice(&mapped[start..end]);
+    }
+    drop(mapped);
+    buffer.unmap();
+    tight
+}
+
 /// A texture that is both a render target and a copy source. `COPY_SRC` is what
 /// makes reading the frame back possible at all.
 pub(crate) fn create_offscreen_texture(

@@ -1,6 +1,5 @@
 use crate::types::{
     AssetRef, EntityDescriptor, PhysicsBodyDesc, PrimitiveMesh, SceneDescriptor, ScriptPath,
-    TexturePath,
 };
 use bevy_app::{App, Plugin, Startup};
 use bevy_ecs::prelude::{Component, IntoSystemConfigs, ReflectComponent, World};
@@ -422,7 +421,7 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
         }
 
         if let Some(texture_path) = texture_path {
-            builder.insert(TexturePath(texture_path.clone()));
+            builder.insert(bsengine_core::TexturePath(texture_path.clone()));
         }
 
         // `texture` counts here too: an entity that names only a texture still
@@ -624,7 +623,7 @@ mod tests {
         let mut app = new_app();
         super::spawn_scene_entities(app.world_mut(), &scene.entities);
 
-        let mut query = app.world_mut().query::<&super::TexturePath>();
+        let mut query = app.world_mut().query::<&bsengine_core::TexturePath>();
         let paths: Vec<String> = query.iter(app.world()).map(|p| p.0.clone()).collect();
         assert_eq!(paths, vec!["assets/textures/checker.png".to_string()]);
     }

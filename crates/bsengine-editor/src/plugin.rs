@@ -38,7 +38,7 @@ fn update_editor_snapshot(
         (
             Option<&PrimitiveMesh>,
             Option<&bsengine_scene::ScriptPath>,
-            Option<&bsengine_scene::TexturePath>,
+            Option<&bsengine_core::TexturePath>,
             Option<&bsengine_scene::PhysicsBodyDesc>,
         ),
     )>,

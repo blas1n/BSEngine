@@ -15,6 +15,5 @@ pub use plugin::{register_gameplay_reflect_types, spawn_scene_entities, Name, Sc
 pub use types::{
     AssetRef, ColliderDesc, ColliderShapeDesc, DirectionalLightDescriptor, EntityDescriptor,
     PendingSceneLoad, PhysicsBodyDesc, PointLightDescriptor, Primitive, PrimitiveMesh,
-    RigidBodyDesc, SceneDescriptor, ScriptPath, SpotLightDescriptor, TexturePath,
-    TransformDescriptor,
+    RigidBodyDesc, SceneDescriptor, ScriptPath, SpotLightDescriptor, TransformDescriptor,
 };

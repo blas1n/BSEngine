@@ -216,14 +216,6 @@ pub struct PrimitiveMesh(pub Primitive);
 #[reflect(Component, Default)]
 pub struct ScriptPath(pub String);
 
-/// The image this entity wants as its base color texture, as resolved at spawn.
-///
-/// Carries the path from the scene to the loader, because `Material` records
-/// only the id it ends up with and has nowhere to keep a path. Removed once the
-/// texture is uploaded and `Material.texture_id` is set.
-#[derive(Component, Debug, Clone, PartialEq)]
-pub struct TexturePath(pub String);
-
 /// Describes a single entity in the scene file.
 ///
 /// All component fields are optional and default to absent; only `name` is

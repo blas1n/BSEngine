@@ -653,12 +653,11 @@ fn point_light_face_view_projs(position: Vec3, range: f32) -> [Mat4; 6] {
     dirs.map(|(dir, up)| proj * Mat4::look_at_rh(position, position + dir, up))
 }
 
-/// Owns the wgpu swapchain, all GPU pipelines/buffers for the main scene and
-/// shadow passes, the egui renderer, and per-frame render state for one window.
+/// Owns the render output target (a window's swapchain or an offscreen
+/// texture), all GPU pipelines/buffers for the main scene and shadow passes,
+/// the egui renderer, and per-frame render state.
 pub struct WgpuSurface {
-    _window: Arc<winit::window::Window>,
-    pub(crate) surface: wgpu::Surface<'static>,
-    config: wgpu::SurfaceConfiguration,
+    output: crate::output::Output,
     pub(crate) device: Arc<wgpu::Device>,
     pub(crate) queue: Arc<wgpu::Queue>,
     pipeline: wgpu::RenderPipeline,
@@ -1200,9 +1199,11 @@ impl WgpuSurface {
         );
 
         Ok(Self {
-            _window: window,
-            surface,
-            config,
+            output: crate::output::Output::Window {
+                surface,
+                config,
+                _window: window,
+            },
             device,
             queue,
             pipeline,
@@ -1485,7 +1486,7 @@ impl WgpuSurface {
                     module: &shader,
                     entry_point: "fs_sky",
                     targets: &[Some(wgpu::ColorTargetState {
-                        format: self.config.format,
+                        format: self.output.format(),
                         blend: Some(wgpu::BlendState::REPLACE),
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
@@ -1672,13 +1673,9 @@ impl WgpuSurface {
             );
         }
 
-        let output = self
-            .surface
-            .get_current_texture()
-            .map_err(|e| e.to_string())?;
-        let view = output
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        // `presentable` is the swapchain frame to hand back at the end of the
+        // function, and is `None` when rendering offscreen.
+        let (view, presentable) = self.output.acquire()?;
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -1959,7 +1956,7 @@ impl WgpuSurface {
         if has_ui {
             let screen_rect = egui::Rect::from_min_size(
                 egui::Pos2::ZERO,
-                egui::vec2(self.config.width as f32, self.config.height as f32),
+                egui::vec2(self.output.width() as f32, self.output.height() as f32),
             );
             let modifiers = egui::Modifiers {
                 alt: alt_held,
@@ -2454,7 +2451,7 @@ impl WgpuSurface {
                 .egui_ctx
                 .tessellate(full_output.shapes, full_output.pixels_per_point);
             let screen_descriptor = egui_wgpu::ScreenDescriptor {
-                size_in_pixels: [self.config.width, self.config.height],
+                size_in_pixels: [self.output.width(), self.output.height()],
                 pixels_per_point: full_output.pixels_per_point,
             };
 
@@ -2495,7 +2492,9 @@ impl WgpuSurface {
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
-        output.present();
+        if let Some(frame) = presentable {
+            frame.present();
+        }
         Ok(clicked)
     }
 
@@ -2505,9 +2504,7 @@ impl WgpuSurface {
         if width == 0 || height == 0 {
             return;
         }
-        self.config.width = width;
-        self.config.height = height;
-        self.surface.configure(&self.device, &self.config);
+        self.output.resize(&self.device, width, height);
         let (depth_texture, depth_view) = Self::create_depth_texture(&self.device, width, height);
         self.depth_texture = depth_texture;
         self.depth_view = depth_view;

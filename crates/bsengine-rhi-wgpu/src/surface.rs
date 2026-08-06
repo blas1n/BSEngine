@@ -708,30 +708,7 @@ impl WgpuSurface {
             .create_surface(window.clone())
             .map_err(|e| e.to_string())?;
 
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::None,
-                compatible_surface: Some(&surface),
-                force_fallback_adapter: false,
-            })
-            .await
-            .ok_or("No adapter found compatible with surface")?;
-
-        let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: Some("BSEngine surface device"),
-                    required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::downlevel_defaults(),
-                    memory_hints: wgpu::MemoryHints::default(),
-                },
-                None,
-            )
-            .await
-            .map_err(|e| format!("Device request failed: {e}"))?;
-
-        let device = Arc::new(device);
-        let queue = Arc::new(queue);
+        let (adapter, device, queue) = Self::request_device(&instance, Some(&surface)).await?;
 
         let size = window.inner_size();
         let caps = surface.get_capabilities(&adapter);
@@ -754,8 +731,88 @@ impl WgpuSurface {
         };
         surface.configure(&device, &config);
 
-        let (depth_texture, depth_view) =
-            Self::create_depth_texture(&device, config.width, config.height);
+        Self::build(
+            device,
+            queue,
+            crate::output::Output::Window {
+                surface,
+                config,
+                _window: window,
+            },
+        )
+    }
+
+    /// Creates a renderer with no window at all.
+    ///
+    /// The frame goes to a texture this renderer owns and can be read back with
+    /// [`Self::read_pixels`]. Pipelines come from the same [`Self::build`] the
+    /// windowed path uses, so pixels observed here are the output of the
+    /// pipelines that draw to a window.
+    pub async fn new_offscreen(width: u32, height: u32) -> Result<Self, String> {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..Default::default()
+        });
+        let (_adapter, device, queue) = Self::request_device(&instance, None).await?;
+        let texture = crate::output::create_offscreen_texture(&device, width, height);
+        Self::build(
+            device,
+            queue,
+            crate::output::Output::Offscreen {
+                texture,
+                width,
+                height,
+            },
+        )
+    }
+
+    /// Requests an adapter and a device. The windowed path wants an adapter the
+    /// surface can present on; offscreen takes whatever is available.
+    async fn request_device(
+        instance: &wgpu::Instance,
+        compatible_surface: Option<&wgpu::Surface<'static>>,
+    ) -> Result<(wgpu::Adapter, Arc<wgpu::Device>, Arc<wgpu::Queue>), String> {
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::None,
+                compatible_surface,
+                force_fallback_adapter: false,
+            })
+            .await
+            .ok_or("No adapter found")?;
+
+        let (device, queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    label: Some("BSEngine surface device"),
+                    required_features: wgpu::Features::empty(),
+                    required_limits: wgpu::Limits::downlevel_defaults(),
+                    memory_hints: wgpu::MemoryHints::default(),
+                },
+                None,
+            )
+            .await
+            .map_err(|e| format!("Device request failed: {e}"))?;
+
+        Ok((adapter, Arc::new(device), Arc::new(queue)))
+    }
+
+    /// Everything after the output target is settled: pipelines, buffers, bind
+    /// groups, shadow maps, post-processing.
+    ///
+    /// **Both constructors go through here.** What makes a pixel test worth
+    /// anything is that it exercises the pipelines a real frame uses; a second
+    /// construction path would quietly take that away.
+    fn build(
+        device: Arc<wgpu::Device>,
+        queue: Arc<wgpu::Queue>,
+        output: crate::output::Output,
+    ) -> Result<Self, String> {
+        let format = output.format();
+        let width = output.width();
+        let height = output.height();
+
+        let (depth_texture, depth_view) = Self::create_depth_texture(&device, width, height);
 
         let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("camera uniform"),
@@ -1192,18 +1249,14 @@ impl WgpuSurface {
 
         let post_process = crate::post_process::PostProcessState::new(
             &device,
-            config.width,
-            config.height,
+            width,
+            height,
             &depth_view,
             format,
         );
 
         Ok(Self {
-            output: crate::output::Output::Window {
-                surface,
-                config,
-                _window: window,
-            },
+            output,
             device,
             queue,
             pipeline,

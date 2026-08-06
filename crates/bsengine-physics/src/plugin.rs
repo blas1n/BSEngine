@@ -110,7 +110,7 @@ fn spawn_bodies(
     query: Query<(Entity, &RigidBody, &Collider, Option<&PhysicsInput>), Without<PhysicsHandles>>,
 ) {
     for (entity, rigid_body, collider, input) in query.iter() {
-        let pos = input.map(|i| i.translation.0).unwrap_or(Vec3::ZERO);
+        let pos = input.map(|i| i.position.0).unwrap_or(Vec3::ZERO);
         let rot = input.map(|i| i.rotation.0).unwrap_or(Quat::IDENTITY);
 
         let pose = Pose::from_parts(to_rapier_vec(pos), to_rapier_rot(rot));
@@ -148,7 +148,7 @@ fn spawn_bodies(
                 collider_handle,
             },
             PhysicsTransform {
-                translation: pos.into(),
+                position: pos.into(),
                 rotation: rot.into(),
             },
         ));
@@ -164,7 +164,7 @@ fn step_world(
         if let Some(body) = world.rigid_body_set.get_mut(handles.body_handle) {
             if body.is_kinematic() {
                 body.set_next_kinematic_position(Pose::from_parts(
-                    to_rapier_vec(input.translation.0),
+                    to_rapier_vec(input.position.0),
                     to_rapier_rot(input.rotation.0),
                 ));
             }
@@ -200,7 +200,7 @@ fn sync_from_rapier(
 ) {
     for (handles, mut transform) in query.iter_mut() {
         if let Some(body) = world.rigid_body_set.get(handles.body_handle) {
-            transform.translation = from_rapier_vec(body.translation()).into();
+            transform.position = from_rapier_vec(body.translation()).into();
             transform.rotation = from_rapier_rot(*body.rotation()).into();
         }
     }
@@ -222,7 +222,7 @@ fn sync_transform_from_physics(
 ) {
     for (rigid_body, physics_transform, mut transform) in query.iter_mut() {
         if rigid_body.body_type == RigidBodyType::Dynamic {
-            transform.translation = physics_transform.translation;
+            transform.position = physics_transform.position;
             transform.rotation = physics_transform.rotation;
         }
     }
@@ -265,7 +265,7 @@ fn update_grounded(
     )>,
 ) {
     for (entity, transform, collider, mut character) in query.iter_mut() {
-        let origin = transform.translation.0;
+        let origin = transform.position.0;
         // Distance from the body's origin down to the bottom of its shape.
         let half_extent = match &collider.shape {
             ColliderShape::Box { half_extents } => half_extents.y,
@@ -292,7 +292,7 @@ fn sync_physics_input_from_transform_for_kinematic(
 ) {
     for (rigid_body, transform, mut input) in query.iter_mut() {
         if rigid_body.body_type == RigidBodyType::KinematicPosition {
-            input.translation = transform.translation;
+            input.position = transform.position;
             input.rotation = transform.rotation;
         }
     }
@@ -325,11 +325,11 @@ mod tests {
 
         let start = Vec3::new(0.0, 5.0, 0.0);
         app.world_mut().spawn((
-            Transform::from_translation(start),
+            Transform::from_position(start),
             RigidBody::dynamic(),
             Collider::ball(0.5),
             PhysicsInput {
-                translation: start.into(),
+                position: start.into(),
                 rotation: Quat::IDENTITY.into(),
             },
         ));
@@ -341,10 +341,10 @@ mod tests {
         let mut query = app.world_mut().query::<&Transform>();
         let transform = query.iter(app.world()).next().unwrap();
         assert!(
-            transform.translation.0.y < start.y,
+            transform.position.0.y < start.y,
             "expected the dynamic body to fall under gravity and for Transform to \
              reflect it via PhysicsTransform sync, got y={}",
-            transform.translation.0.y
+            transform.position.0.y
         );
     }
 
@@ -356,11 +356,11 @@ mod tests {
 
         let start = Vec3::new(0.0, 5.0, 0.0);
         app.world_mut().spawn((
-            Transform::from_translation(start),
+            Transform::from_position(start),
             RigidBody::dynamic(),
             Collider::ball(0.5),
             PhysicsInput {
-                translation: start.into(),
+                position: start.into(),
                 rotation: Quat::IDENTITY.into(),
             },
         ));
@@ -372,9 +372,9 @@ mod tests {
         let mut query = app.world_mut().query::<&Transform>();
         let transform = query.iter(app.world()).next().unwrap();
         assert_eq!(
-            transform.translation.0.y, start.y,
+            transform.position.0.y, start.y,
             "expected the dynamic body to stay in place while paused, got y={}",
-            transform.translation.0.y
+            transform.position.0.y
         );
     }
 
@@ -387,11 +387,11 @@ mod tests {
         let entity = app
             .world_mut()
             .spawn((
-                Transform::from_translation(start),
+                Transform::from_position(start),
                 RigidBody::kinematic(),
                 Collider::cuboid(1.0, 0.25, 1.0),
                 PhysicsInput {
-                    translation: start.into(),
+                    position: start.into(),
                     rotation: Quat::IDENTITY.into(),
                 },
             ))
@@ -404,14 +404,14 @@ mod tests {
         app.world_mut()
             .get_mut::<Transform>(entity)
             .unwrap()
-            .translation = moved.into();
+            .position = moved.into();
 
         app.update();
         app.update();
 
         let transform = app.world().get::<Transform>(entity).unwrap();
         assert_eq!(
-            transform.translation.0, moved,
+            transform.position.0, moved,
             "kinematic body's script-driven Transform should not be reverted by physics sync"
         );
     }
@@ -425,11 +425,11 @@ mod tests {
         let entity = app
             .world_mut()
             .spawn((
-                Transform::from_translation(start),
+                Transform::from_position(start),
                 RigidBody::kinematic(),
                 Collider::cuboid(1.0, 0.25, 1.0),
                 PhysicsInput {
-                    translation: start.into(),
+                    position: start.into(),
                     rotation: Quat::IDENTITY.into(),
                 },
             ))
@@ -441,13 +441,13 @@ mod tests {
         app.world_mut()
             .get_mut::<Transform>(entity)
             .unwrap()
-            .translation = moved.into();
+            .position = moved.into();
 
         app.update();
 
         let input = app.world().get::<PhysicsInput>(entity).unwrap();
         assert_eq!(
-            input.translation.0, moved,
+            input.position.0, moved,
             "kinematic body's PhysicsInput should track its script-driven Transform"
         );
     }
@@ -457,11 +457,11 @@ mod tests {
     /// Spawns a static floor slab centred at the origin, top surface at y = 0.
     fn spawn_floor(app: &mut bevy_app::App) {
         app.world_mut().spawn((
-            Transform::from_translation(Vec3::new(0.0, -0.5, 0.0)),
+            Transform::from_position(Vec3::new(0.0, -0.5, 0.0)),
             RigidBody::fixed(),
             Collider::cuboid(10.0, 0.5, 10.0),
             PhysicsInput {
-                translation: Vec3::new(0.0, -0.5, 0.0).into(),
+                position: Vec3::new(0.0, -0.5, 0.0).into(),
                 rotation: Quat::IDENTITY.into(),
             },
             PhysicsTransform::default(),
@@ -471,12 +471,12 @@ mod tests {
     fn spawn_character(app: &mut bevy_app::App, at: Vec3) -> bevy_ecs::entity::Entity {
         app.world_mut()
             .spawn((
-                Transform::from_translation(at),
+                Transform::from_position(at),
                 RigidBody::dynamic(),
                 Collider::capsule(0.5, 0.3),
                 CharacterBody::default(),
                 PhysicsInput {
-                    translation: at.into(),
+                    position: at.into(),
                     rotation: Quat::IDENTITY.into(),
                 },
                 PhysicsTransform::default(),

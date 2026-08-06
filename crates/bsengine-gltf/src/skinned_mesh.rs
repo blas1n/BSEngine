@@ -180,7 +180,7 @@ fn sample_node_trs(
     channels: &[AnimationChannel],
     time: f32,
 ) -> (Vec3, Quat, Vec3) {
-    let mut t = Vec3::from(rest.translation);
+    let mut t = Vec3::from(rest.position);
     let mut r = Quat::from_array(rest.rotation);
     let mut s = Vec3::from(rest.scale);
     for channel in channels.iter().filter(|c| c.node_index == node_index) {
@@ -232,7 +232,7 @@ pub fn compute_local_transforms_blended(
                 Mat4::from_scale_rotation_translation(
                     Vec3::from(rest.scale),
                     Quat::from_array(rest.rotation),
-                    Vec3::from(rest.translation),
+                    Vec3::from(rest.position),
                 )
             })
             .collect();
@@ -634,7 +634,7 @@ mod tests {
     /// A one-node skeleton at the origin, unrotated and unscaled.
     fn one_node() -> Vec<NodeTransform> {
         vec![NodeTransform {
-            translation: [0.0, 0.0, 0.0],
+            position: [0.0, 0.0, 0.0],
             rotation: [0.0, 0.0, 0.0, 1.0],
             scale: [1.0, 1.0, 1.0],
             parent: None,
@@ -954,7 +954,7 @@ mod tests {
     #[test]
     fn no_clips_at_all_leaves_the_rest_pose() {
         let nodes = vec![NodeTransform {
-            translation: [1.0, 2.0, 3.0],
+            position: [1.0, 2.0, 3.0],
             rotation: [0.0, 0.0, 0.0, 1.0],
             scale: [1.0, 1.0, 1.0],
             parent: None,
@@ -967,7 +967,7 @@ mod tests {
     #[test]
     fn compute_joint_matrices_uses_bind_pose_when_no_channels_animate_a_node() {
         let nodes = vec![NodeTransform {
-            translation: [1.0, 0.0, 0.0],
+            position: [1.0, 0.0, 0.0],
             rotation: [0.0, 0.0, 0.0, 1.0],
             scale: [1.0, 1.0, 1.0],
             parent: None,
@@ -985,13 +985,13 @@ mod tests {
     fn compute_joint_matrices_composes_parent_child_hierarchy() {
         let nodes = vec![
             NodeTransform {
-                translation: [1.0, 0.0, 0.0],
+                position: [1.0, 0.0, 0.0],
                 rotation: [0.0, 0.0, 0.0, 1.0],
                 scale: [1.0, 1.0, 1.0],
                 parent: None,
             },
             NodeTransform {
-                translation: [0.0, 2.0, 0.0],
+                position: [0.0, 2.0, 0.0],
                 rotation: [0.0, 0.0, 0.0, 1.0],
                 scale: [1.0, 1.0, 1.0],
                 parent: Some(0),

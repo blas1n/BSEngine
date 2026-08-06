@@ -11,7 +11,7 @@ SceneDescriptor(entities: [
     name: "Camera",            // required — identifies entity for JS getTransform/setTransform
     camera: true,              // marks as main camera
     transform: Some((
-      translation: (0.0, 8.0, 12.0),    // x y z world position
+      position: (0.0, 8.0, 12.0),    // x y z world position
       rotation:    (0.0, 0.0, 0.0, 1.0), // quaternion xyzw (optional, default identity)
       scale:       (1.0, 1.0, 1.0),      // optional, default 1 1 1
     )),
@@ -29,7 +29,7 @@ SceneDescriptor(entities: [
   EntityDescriptor(
     name: "Player",
     primitive: Some(Cube),     // available primitives: Cube only
-    transform: Some((translation: (0.0, 0.5, 0.0))),
+    transform: Some((position: (0.0, 0.5, 0.0))),
     color: Some((1.0, 0.2, 0.2)),    // optional: albedo/base color [r, g, b] linear 0–1
                                       // multiplies vertex color and texture; default white
     emissive: Some((0.0, 0.0, 0.0)), // optional: self-illumination color; default black (none)

@@ -56,7 +56,7 @@ fn sync_listener(mut audio: ResMut<AudioWorld>, query: Query<&Transform, With<Au
             extra
         );
     }
-    audio.set_listener_pose(transform.translation.0, transform.rotation.0);
+    audio.set_listener_pose(transform.position.0, transform.rotation.0);
 }
 
 /// Pushes every [`AudioEmitter`] entity's position into [`AudioWorld`].
@@ -65,7 +65,7 @@ fn sync_emitters(
     query: Query<(Entity, &Transform), With<AudioEmitter>>,
 ) {
     for (entity, transform) in query.iter() {
-        audio.set_emitter_position(entity, transform.translation.0);
+        audio.set_emitter_position(entity, transform.position.0);
     }
 }
 
@@ -83,7 +83,7 @@ mod tests {
         let at = Vec3::new(1.0, 2.0, 3.0);
         let entity = app
             .world_mut()
-            .spawn((AudioListener, Transform::from_translation(at)))
+            .spawn((AudioListener, Transform::from_position(at)))
             .id();
 
         app.update();
@@ -97,7 +97,7 @@ mod tests {
         app.world_mut()
             .get_mut::<Transform>(entity)
             .unwrap()
-            .translation = moved.into();
+            .position = moved.into();
         app.update();
 
         assert_eq!(
@@ -116,11 +116,11 @@ mod tests {
         app.insert_resource(AudioWorld::silent());
         app.add_plugins(AudioPlugin);
         app.world_mut()
-            .spawn((AudioListener, Transform::from_translation(Vec3::ZERO)));
+            .spawn((AudioListener, Transform::from_position(Vec3::ZERO)));
         let at = Vec3::new(5.0, 0.0, 0.0);
         let emitter = app
             .world_mut()
-            .spawn((AudioEmitter::default(), Transform::from_translation(at)))
+            .spawn((AudioEmitter::default(), Transform::from_position(at)))
             .id();
 
         app.update();
@@ -135,7 +135,7 @@ mod tests {
         app.world_mut()
             .get_mut::<Transform>(emitter)
             .unwrap()
-            .translation = moved.into();
+            .position = moved.into();
         app.update();
 
         assert_eq!(
@@ -154,10 +154,10 @@ mod tests {
         app.insert_resource(AudioWorld::silent());
         app.add_plugins(AudioPlugin);
         app.world_mut()
-            .spawn((AudioListener, Transform::from_translation(Vec3::ZERO)));
+            .spawn((AudioListener, Transform::from_position(Vec3::ZERO)));
         let plain = app
             .world_mut()
-            .spawn(Transform::from_translation(Vec3::new(3.0, 0.0, 0.0)))
+            .spawn(Transform::from_position(Vec3::new(3.0, 0.0, 0.0)))
             .id();
 
         app.update();
@@ -179,7 +179,7 @@ mod tests {
         app.add_plugins(AudioPlugin);
         app.world_mut().spawn((
             AudioEmitter::default(),
-            Transform::from_translation(Vec3::ZERO),
+            Transform::from_position(Vec3::ZERO),
         ));
         app.update();
     }

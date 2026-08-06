@@ -44,7 +44,7 @@ mod tests {
                 RigidBody::dynamic(),
                 Collider::ball(0.5),
                 PhysicsInput {
-                    translation: Vec3::new(0.0, 10.0, 0.0).into(),
+                    position: Vec3::new(0.0, 10.0, 0.0).into(),
                     rotation: Default::default(),
                 },
             ))
@@ -56,9 +56,9 @@ mod tests {
 
         let transform = app.world().get::<PhysicsTransform>(entity).unwrap();
         assert!(
-            transform.translation.y < 9.0,
+            transform.position.y < 9.0,
             "expected body to fall, got y={}",
-            transform.translation.y
+            transform.position.y
         );
     }
 
@@ -72,7 +72,7 @@ mod tests {
                 RigidBody::fixed(),
                 Collider::cuboid(1.0, 1.0, 1.0),
                 PhysicsInput {
-                    translation: Vec3::new(0.0, 0.0, 0.0).into(),
+                    position: Vec3::new(0.0, 0.0, 0.0).into(),
                     rotation: Default::default(),
                 },
             ))
@@ -84,9 +84,9 @@ mod tests {
 
         let transform = app.world().get::<PhysicsTransform>(entity).unwrap();
         assert!(
-            transform.translation.y.abs() < 0.01,
+            transform.position.y.abs() < 0.01,
             "static body should not move, got y={}",
-            transform.translation.y
+            transform.position.y
         );
     }
 
@@ -98,7 +98,7 @@ mod tests {
             RigidBody::fixed(),
             Collider::cuboid(10.0, 0.1, 10.0),
             PhysicsInput {
-                translation: Vec3::new(0.0, 0.0, 0.0).into(),
+                position: Vec3::new(0.0, 0.0, 0.0).into(),
                 rotation: Default::default(),
             },
         ));
@@ -109,7 +109,7 @@ mod tests {
                 RigidBody::dynamic(),
                 Collider::ball(0.5),
                 PhysicsInput {
-                    translation: Vec3::new(0.0, 5.0, 0.0).into(),
+                    position: Vec3::new(0.0, 5.0, 0.0).into(),
                     rotation: Default::default(),
                 },
             ))
@@ -121,14 +121,14 @@ mod tests {
 
         let transform = app.world().get::<PhysicsTransform>(ball).unwrap();
         assert!(
-            transform.translation.y < 2.0,
+            transform.position.y < 2.0,
             "ball should land on floor, got y={}",
-            transform.translation.y
+            transform.position.y
         );
         assert!(
-            transform.translation.y > 0.0,
+            transform.position.y > 0.0,
             "ball should rest above floor, got y={}",
-            transform.translation.y
+            transform.position.y
         );
     }
 
@@ -142,7 +142,7 @@ mod tests {
             RigidBody::fixed(),
             Collider::cuboid(10.0, 0.1, 10.0),
             PhysicsInput {
-                translation: Vec3::ZERO.into(),
+                position: Vec3::ZERO.into(),
                 rotation: Default::default(),
             },
         ));
@@ -151,7 +151,7 @@ mod tests {
             RigidBody::dynamic(),
             Collider::ball(0.5),
             PhysicsInput {
-                translation: Vec3::new(0.0, 1.0, 0.0).into(),
+                position: Vec3::new(0.0, 1.0, 0.0).into(),
                 rotation: Default::default(),
             },
         ));

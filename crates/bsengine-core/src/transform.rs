@@ -9,7 +9,7 @@ use glam::{Mat4, Quat, Vec3};
 #[reflect(Component, Default)]
 pub struct Transform {
     /// Local-space position.
-    pub translation: ReflectVec3,
+    pub position: ReflectVec3,
     /// Local-space rotation.
     pub rotation: ReflectQuat,
     /// Local-space scale.
@@ -19,7 +19,7 @@ pub struct Transform {
 impl Default for Transform {
     fn default() -> Self {
         Self {
-            translation: Vec3::ZERO.into(),
+            position: Vec3::ZERO.into(),
             rotation: Quat::IDENTITY.into(),
             scale: Vec3::ONE.into(),
         }
@@ -28,16 +28,16 @@ impl Default for Transform {
 
 impl Transform {
     /// Creates a transform at the given position with identity rotation and unit scale.
-    pub fn from_translation(translation: Vec3) -> Self {
+    pub fn from_position(position: Vec3) -> Self {
         Self {
-            translation: translation.into(),
+            position: position.into(),
             ..Default::default()
         }
     }
 
     /// Rotates this transform so it faces `target`, using `up` to determine the roll axis.
     pub fn looking_at(mut self, target: Vec3, up: Vec3) -> Self {
-        let dir = (target - self.translation.0).normalize();
+        let dir = (target - self.position.0).normalize();
         let right = up.cross(dir).normalize();
         let up = dir.cross(right);
         self.rotation = Quat::from_mat3(&glam::Mat3::from_cols(right, up, dir)).into();
@@ -46,7 +46,7 @@ impl Transform {
 
     /// Builds the local-to-world transform matrix (scale, then rotate, then translate).
     pub fn to_matrix(&self) -> Mat4 {
-        Mat4::from_scale_rotation_translation(self.scale.0, self.rotation.0, self.translation.0)
+        Mat4::from_scale_rotation_translation(self.scale.0, self.rotation.0, self.position.0)
     }
 
     /// Builds the world-to-view matrix, i.e. the inverse of `to_matrix()`.
@@ -62,7 +62,7 @@ mod tests {
     #[test]
     fn default_is_identity() {
         let t = Transform::default();
-        assert_eq!(t.translation, Vec3::ZERO.into());
+        assert_eq!(t.position, Vec3::ZERO.into());
         assert_eq!(t.rotation, Quat::IDENTITY.into());
         assert_eq!(t.scale, Vec3::ONE.into());
     }
@@ -75,14 +75,14 @@ mod tests {
 
     #[test]
     fn from_translation_sets_position() {
-        let t = Transform::from_translation(Vec3::new(1.0, 2.0, 3.0));
-        assert_eq!(t.translation, Vec3::new(1.0, 2.0, 3.0).into());
+        let t = Transform::from_position(Vec3::new(1.0, 2.0, 3.0));
+        assert_eq!(t.position, Vec3::new(1.0, 2.0, 3.0).into());
         assert_eq!(t.scale, Vec3::ONE.into());
     }
 
     #[test]
     fn view_matrix_is_inverse_of_model() {
-        let t = Transform::from_translation(Vec3::new(0.0, 0.0, 5.0));
+        let t = Transform::from_position(Vec3::new(0.0, 0.0, 5.0));
         let model = t.to_matrix();
         let view = t.view_matrix();
         let product = model * view;

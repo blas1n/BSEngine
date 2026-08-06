@@ -1420,7 +1420,37 @@ item 32의 카탈로그로 공개 컴포넌트 49개와 op 298개를 훑은 결�
 
 `Transform`, `PhysicsInput`, `PhysicsTransform`, `Skybox`. A와 C의 결과이므로 별도 항목은 아니다.
 
-### 후속 항목 후보
+### 후속 처리 결과 (2026-08-06)
+
+**A(운동 시스템 두 벌)** → item 33으로 처리. 운동학 스택을 제거하고 Rapier로 일원화했다.
+
+**B(어휘 불일치)** → **필드가 API의 이름을 따랐다.** `position`이 이겼다 — 스크립팅 API가 이미 그렇게
+부르고 있었고 `Transform.translation`의 독 주석조차 "Local-space position"이라고 적혀 있었다.
+`Transform`/`PhysicsTransform`/`PhysicsInput`/`TransformDescriptor`가 `position`으로 바뀌었고
+`Transform::from_translation`은 `from_position`이 됐으며 모든 씬이 따라왔다.
+
+glTF의 `NodeTransform`만 `translation`을 유지한다 — glTF 문서 자체의 어휘를 미러링하는 타입이라
+바꾸면 임포터가 읽는 포맷과 어긋난다.
+
+이제 `catalog --concept position`이 `Transform`·`PhysicsTransform`·`PhysicsInput`을 답한다.
+전에는 "컴포넌트 없음, op 12개"였다.
+
+**C(`PhysicsInput`/`PhysicsTransform` 동일 구조)** → 합치지 않았다. 하나는 우리가 쓰고 하나는
+시뮬레이션이 쓰므로 합치면 읽기/쓰기가 충돌한다. 제거할 중복이 아니라 구분이 안 되는 것이
+문제였으므로, 각자 첫 줄에 방향을 말하고 서로를 가리킨다.
+
+**추가로 닫은 갭:** 씬이 `linear_damping`을 저작할 수 없었다. `RigidBody`에는 필드가 있는데
+씬 포맷이 말할 방법이 없어 씬으로 만든 Dynamic 바디는 감쇠가 0이었다(item 27이 여기 걸려
+내비 에이전트의 역가속으로 우회했다). `EntityDescriptor`가 기본값 필드로 노출한다 — 평범한
+serde라 item 29를 문 리플렉션 컴포넌트와 달리 필드 추가가 아무것도 깨뜨리지 않는다.
+
+**대규모 이름 변경을 안전하게 하는 법.** 넓게 치환하고 **컴파일러가 실수를 찾게** 했다.
+`NodeTransform`에는 `position` 필드가 없고 glam의 `.translation()`은 메서드라, 잘못 바꾼 곳은
+전부 빌드 에러가 된다 — 조용한 동작 변화가 아니라. 손으로 고칠 것은 셋만 남았다: 생성자 본문,
+필드 초기화 축약형, 그리고 테스트 초기화. 마지막 것은 `cargo build --all`이 테스트를 컴파일하지
+않아 `clippy --all-targets`에서야 드러났다.
+
+### 남은 후속 항목 후보
 
 우선순위 순. 아직 번호를 붙이지 않았다 — item 27의 설계 결과가 A의 답을 일부 정하기 때문이다.
 

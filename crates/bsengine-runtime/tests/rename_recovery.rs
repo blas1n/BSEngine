@@ -124,7 +124,7 @@ fn create_fixture() -> ProbeDir {
             "SceneDescriptor(entities: [\n    \
              EntityDescriptor(\n        \
              name: \"Runner\",\n        \
-             transform: Some((translation: (0.0, 0.0, 0.0))),\n        \
+             transform: Some((position: (0.0, 0.0, 0.0))),\n        \
              script: Some(\"{SCRIPT_WAS}\"),\n    \
              ),\n])\n"
         ),

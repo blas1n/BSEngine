@@ -141,7 +141,7 @@ fn resolve_primitives(
 fn setup_empty_scene(mut commands: Commands, mut registry: Option<ResMut<GpuMeshRegistry>>) {
     commands.spawn((
         Camera::perspective(60.0, 16.0 / 9.0),
-        Transform::from_translation(Vec3::new(0.0, 3.0, 10.0)),
+        Transform::from_position(Vec3::new(0.0, 3.0, 10.0)),
     ));
 
     commands.spawn((
@@ -160,7 +160,7 @@ fn setup_empty_scene(mut commands: Commands, mut registry: Option<ResMut<GpuMesh
         commands.spawn((
             MeshRenderer { mesh_id },
             Transform {
-                translation: Vec3::new(0.0, -0.1, 0.0).into(),
+                position: Vec3::new(0.0, -0.1, 0.0).into(),
                 rotation: Quat::IDENTITY.into(),
                 scale: Vec3::new(20.0, 0.2, 20.0).into(),
             },

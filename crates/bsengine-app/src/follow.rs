@@ -24,15 +24,15 @@ fn apply_follow(
             continue;
         };
         let desired = target_gt.0.w_axis.truncate() + follow.offset.0;
-        let diff = desired - transform.translation.0;
+        let diff = desired - transform.position.0;
         let dist = diff.length();
         if dist < 1e-5 {
             continue;
         }
         if follow.speed.is_infinite() || dist <= follow.speed * dt {
-            transform.translation = desired.into();
+            transform.position = desired.into();
         } else {
-            transform.translation.0 += diff / dist * follow.speed * dt;
+            transform.position.0 += diff / dist * follow.speed * dt;
         }
     }
 }
@@ -42,7 +42,7 @@ fn apply_look_at(mut lookers: Query<(&LookAt, &mut Transform)>, targets: Query<&
         let Ok(target_gt) = targets.get(look_at.target) else {
             continue;
         };
-        let direction = target_gt.0.w_axis.truncate() - transform.translation.0;
+        let direction = target_gt.0.w_axis.truncate() - transform.position.0;
         if direction.length_squared() < 1e-8 {
             continue;
         }
@@ -90,7 +90,7 @@ mod tests {
         let target = app
             .world_mut()
             .spawn((
-                Transform::from_translation(Vec3::new(5.0, 0.0, 0.0)),
+                Transform::from_position(Vec3::new(5.0, 0.0, 0.0)),
                 GlobalTransform(Mat4::from_translation(Vec3::new(5.0, 0.0, 0.0)).into()),
             ))
             .id();
@@ -104,7 +104,7 @@ mod tests {
             .query::<(&Follow, &Transform)>()
             .iter(app.world())
             .next()
-            .map(|(_, t)| t.translation)
+            .map(|(_, t)| t.position)
             .unwrap();
         assert!((transform.x - 5.0).abs() < 0.01);
     }
@@ -115,7 +115,7 @@ mod tests {
         let target = app
             .world_mut()
             .spawn((
-                Transform::from_translation(Vec3::new(10.0, 0.0, 0.0)),
+                Transform::from_position(Vec3::new(10.0, 0.0, 0.0)),
                 GlobalTransform(Mat4::from_translation(Vec3::new(10.0, 0.0, 0.0)).into()),
             ))
             .id();
@@ -129,7 +129,7 @@ mod tests {
             .query::<(&Follow, &Transform)>()
             .iter(app.world())
             .next()
-            .map(|(_, t)| t.translation)
+            .map(|(_, t)| t.position)
             .unwrap();
         assert!((pos.x - 3.0).abs() < 0.01); // moved 3 units toward target
     }
@@ -140,7 +140,7 @@ mod tests {
         let target = app
             .world_mut()
             .spawn((
-                Transform::from_translation(Vec3::new(0.0, 0.0, -5.0)),
+                Transform::from_position(Vec3::new(0.0, 0.0, -5.0)),
                 GlobalTransform(Mat4::from_translation(Vec3::new(0.0, 0.0, -5.0)).into()),
             ))
             .id();

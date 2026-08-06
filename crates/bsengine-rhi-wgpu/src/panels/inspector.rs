@@ -1645,12 +1645,12 @@ mod tests {
                 let mut transform = bsengine_core::Transform::default();
                 bevy_reflect::Reflect::apply(&mut transform, value.as_ref());
                 assert!(
-                    (transform.translation.0.x - 0.15).abs() < 1e-4,
+                    (transform.position.0.x - 0.15).abs() < 1e-4,
                     "translation.x should have moved by 3 * speed(0.05) = 0.15, got {}",
-                    transform.translation.0.x
+                    transform.position.0.x
                 );
                 assert_eq!(
-                    transform.translation.0.y, 0.0,
+                    transform.position.0.y, 0.0,
                     "only translation.x was edited -- y must be untouched"
                 );
                 assert_eq!(

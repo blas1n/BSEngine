@@ -335,7 +335,7 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
                 Quat::from_xyzw(t.rotation[0], t.rotation[1], t.rotation[2], t.rotation[3]);
             if entity.camera {
                 if let Some(target) = entity.look_at {
-                    let pos = Vec3::from(t.translation);
+                    let pos = Vec3::from(t.position);
                     let dir = Vec3::from(target) - pos;
                     if dir.length_squared() > 1e-10 {
                         rotation = Quat::from_rotation_arc(Vec3::NEG_Z, dir.normalize());
@@ -343,7 +343,7 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
                 }
             }
             let transform = Transform {
-                translation: Vec3::from(t.translation).into(),
+                position: Vec3::from(t.position).into(),
                 rotation: rotation.into(),
                 scale: Vec3::from(t.scale).into(),
             };
@@ -381,11 +381,11 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
             let (translation, scale) = entity
                 .transform
                 .as_ref()
-                .map(|t| (Vec3::from(t.translation), Vec3::from(t.scale)))
+                .map(|t| (Vec3::from(t.position), Vec3::from(t.scale)))
                 .unwrap_or((Vec3::ZERO, Vec3::ONE));
             builder.insert((
                 Transform {
-                    translation: translation.into(),
+                    position: translation.into(),
                     rotation: rotation.into(),
                     scale: scale.into(),
                 },
@@ -431,6 +431,8 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
             builder.insert(PhysicsBodyDesc {
                 rigidbody: rb.clone(),
                 collider: col.clone(),
+                linear_damping: entity.linear_damping,
+                angular_damping: entity.angular_damping,
             });
         }
 
@@ -640,7 +642,7 @@ mod tests {
         let ron = r#"SceneDescriptor(entities: [
             EntityDescriptor(
                 name: "Cube",
-                transform: Some((translation: (1.0, 2.0, 3.0))),
+                transform: Some((position: (1.0, 2.0, 3.0))),
             )
         ])"#;
         let path = write_temp_scene("test_transform.ron", ron);
@@ -656,9 +658,9 @@ mod tests {
         assert_eq!(results.len(), 1);
         let (name, t, _) = &results[0];
         assert_eq!(name.0, "Cube");
-        assert!((t.translation.x - 1.0).abs() < 1e-5);
-        assert!((t.translation.y - 2.0).abs() < 1e-5);
-        assert!((t.translation.z - 3.0).abs() < 1e-5);
+        assert!((t.position.x - 1.0).abs() < 1e-5);
+        assert!((t.position.y - 2.0).abs() < 1e-5);
+        assert!((t.position.z - 3.0).abs() < 1e-5);
     }
 
     #[test]

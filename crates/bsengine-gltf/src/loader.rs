@@ -33,7 +33,7 @@ pub struct GltfImageData {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct NodeTransform {
     /// Local-space translation.
-    pub translation: [f32; 3],
+    pub position: [f32; 3],
     /// Local-space rotation quaternion, [x, y, z, w].
     pub rotation: [f32; 4],
     /// Local-space scale.
@@ -45,7 +45,7 @@ pub struct NodeTransform {
 impl Default for NodeTransform {
     fn default() -> Self {
         Self {
-            translation: [0.0, 0.0, 0.0],
+            position: [0.0, 0.0, 0.0],
             rotation: [0.0, 0.0, 0.0, 1.0],
             scale: [1.0, 1.0, 1.0],
             parent: None,
@@ -130,7 +130,7 @@ impl GltfLoader {
             for node in doc.nodes() {
                 let (t, r, s) = node.transform().decomposed();
                 out[node.index()] = NodeTransform {
-                    translation: t,
+                    position: t,
                     rotation: r,
                     scale: s,
                     parent: None,
@@ -380,7 +380,7 @@ mod tests {
     #[test]
     fn node_transform_decomposes_identity_by_default() {
         let n = NodeTransform::default();
-        assert_eq!(n.translation, [0.0, 0.0, 0.0]);
+        assert_eq!(n.position, [0.0, 0.0, 0.0]);
         assert_eq!(n.rotation, [0.0, 0.0, 0.0, 1.0]);
         assert_eq!(n.scale, [1.0, 1.0, 1.0]);
         assert_eq!(n.parent, None);

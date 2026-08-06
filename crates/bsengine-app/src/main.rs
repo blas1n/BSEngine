@@ -71,7 +71,7 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
     // Camera at (0, 1.5, 4) with default rotation looks down -Z toward origin
     commands.spawn((
         Camera::perspective(60.0, 16.0 / 9.0),
-        Transform::from_translation(Vec3::new(0.0, 1.5, 4.0)),
+        Transform::from_position(Vec3::new(0.0, 1.5, 4.0)),
     ));
 
     let Some(mut registry) = registry else { return };
@@ -81,14 +81,14 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
     let parent = commands
         .spawn((
             MeshRenderer { mesh_id: cube_id },
-            Transform::from_translation(Vec3::new(-1.2, 0.0, 0.0)),
+            Transform::from_position(Vec3::new(-1.2, 0.0, 0.0)),
             GlobalTransform::default(),
         ))
         .id();
 
     commands.spawn((
         MeshRenderer { mesh_id: cube_id },
-        Transform::from_translation(Vec3::new(1.2, 0.0, 0.0)),
+        Transform::from_position(Vec3::new(1.2, 0.0, 0.0)),
         GlobalTransform::default(),
         Parent(parent),
     ));
@@ -110,7 +110,7 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
             intensity: 2.0,
             range: 8.0,
         },
-        Transform::from_translation(Vec3::new(0.0, 3.0, 1.0)),
+        Transform::from_position(Vec3::new(0.0, 3.0, 1.0)),
         GlobalTransform::default(),
     ));
 }

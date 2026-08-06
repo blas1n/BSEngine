@@ -183,22 +183,34 @@ pub struct RaycastHit {
     pub distance: f32,
 }
 
-/// Written by the physics system after each step — read this to get simulated position/rotation.
+/// Where the simulation says a body **is**. Physics writes it; you read it.
+///
+/// Structurally identical to [`PhysicsInput`], and the difference is entirely
+/// direction of travel — which is invisible in an Inspector showing two
+/// components with the same two fields. If you are about to write to one of
+/// them, it is [`PhysicsInput`]; if you are about to read where something
+/// ended up, it is this one. Writing here is silently pointless: the next step
+/// overwrites it.
 #[derive(Component, Debug, Clone, Default, Reflect)]
 #[reflect(Component, Default)]
 pub struct PhysicsTransform {
     /// The body's simulated world-space position.
-    pub translation: ReflectVec3,
+    pub position: ReflectVec3,
     /// The body's simulated world-space rotation.
     pub rotation: ReflectQuat,
 }
 
-/// Input transform for the physics system — set this to teleport or drive kinematic bodies.
+/// Where a body should **go**. You write it; physics reads it.
+///
+/// Structurally identical to [`PhysicsTransform`] — see that type for how to
+/// tell them apart. Used to place a body when it spawns, to teleport one, and
+/// to drive a kinematic body frame by frame; for a dynamic body after spawn,
+/// prefer impulses, since a teleport skips collision resolution entirely.
 #[derive(Component, Debug, Clone, Reflect)]
 #[reflect(Component, Default)]
 pub struct PhysicsInput {
     /// The position to spawn at, or to drive a kinematic body toward.
-    pub translation: ReflectVec3,
+    pub position: ReflectVec3,
     /// The rotation to spawn at, or to drive a kinematic body toward.
     pub rotation: ReflectQuat,
 }
@@ -206,7 +218,7 @@ pub struct PhysicsInput {
 impl Default for PhysicsInput {
     fn default() -> Self {
         Self {
-            translation: Vec3::ZERO.into(),
+            position: Vec3::ZERO.into(),
             rotation: Quat::IDENTITY.into(),
         }
     }

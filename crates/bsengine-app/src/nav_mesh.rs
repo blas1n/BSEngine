@@ -40,7 +40,7 @@ fn navigate_agents(
     // Read pass: collect positions for separation (must finish before mutable borrow).
     let all_positions: Vec<(Entity, Vec3, f32)> = query
         .iter()
-        .map(|(e, a, t)| (e, t.translation.0, a.radius))
+        .map(|(e, a, t)| (e, t.position.0, a.radius))
         .collect();
 
     for (entity, mut agent, mut transform) in query.iter_mut() {
@@ -59,7 +59,7 @@ fn navigate_agents(
         let dest = dest.0;
 
         // Check arrival before computing paths.
-        let flat_pos = Vec3::new(transform.translation.x, 0.0, transform.translation.z);
+        let flat_pos = Vec3::new(transform.position.x, 0.0, transform.position.z);
         let flat_dest = Vec3::new(dest.x, 0.0, dest.z);
         if (flat_pos - flat_dest).length() <= agent.stopping_distance {
             agent.state = NavAgentState::Arrived;
@@ -74,7 +74,7 @@ fn navigate_agents(
             .is_none_or(|d| (d - dest).length_squared() > 0.0001);
 
         if needs_recompute {
-            match navmesh.find_path(transform.translation.0, dest) {
+            match navmesh.find_path(transform.position.0, dest) {
                 Some(wp) => {
                     cache.0.insert(entity, (wp, 0, Some(dest)));
                 }
@@ -100,8 +100,8 @@ fn navigate_agents(
         let wp_threshold = agent.stopping_distance.max(0.15);
         while *idx < waypoints.len() {
             let wp = waypoints[*idx];
-            let dx = wp.x - transform.translation.x;
-            let dz = wp.z - transform.translation.z;
+            let dx = wp.x - transform.position.x;
+            let dz = wp.z - transform.position.z;
             if (dx * dx + dz * dz).sqrt() <= wp_threshold {
                 *idx += 1;
             } else {
@@ -115,8 +115,8 @@ fn navigate_agents(
         }
 
         let wp = waypoints[*idx];
-        let dx = wp.x - transform.translation.x;
-        let dz = wp.z - transform.translation.z;
+        let dx = wp.x - transform.position.x;
+        let dz = wp.z - transform.position.z;
         let dist = (dx * dx + dz * dz).sqrt();
         if dist < 0.001 {
             agent.state = NavAgentState::Moving;
@@ -131,8 +131,8 @@ fn navigate_agents(
             if other == entity {
                 continue;
             }
-            let sx = transform.translation.x - other_pos.x;
-            let sz = transform.translation.z - other_pos.z;
+            let sx = transform.position.x - other_pos.x;
+            let sz = transform.position.z - other_pos.z;
             let min_d = agent.radius + other_radius;
             let sd = (sx * sx + sz * sz).sqrt();
             if sd < min_d && sd > 0.001 {
@@ -185,8 +185,8 @@ fn navigate_agents(
             // who owns the transform, not a second motion model.
             None => {
                 let move_dist = (agent.speed * dt).min(dist);
-                transform.translation.x += final_dir.x * move_dist;
-                transform.translation.z += final_dir.z * move_dist;
+                transform.position.x += final_dir.x * move_dist;
+                transform.position.z += final_dir.z * move_dist;
             }
         }
         agent.state = NavAgentState::Moving;
@@ -216,10 +216,8 @@ mod tests {
     #[test]
     fn idle_with_no_destination() {
         let mut app = open_app();
-        app.world_mut().spawn((
-            NavMeshAgent::new(5.0),
-            Transform::from_translation(Vec3::ZERO),
-        ));
+        app.world_mut()
+            .spawn((NavMeshAgent::new(5.0), Transform::from_position(Vec3::ZERO)));
         app.update();
 
         let state = app
@@ -238,7 +236,7 @@ mod tests {
         app.insert_resource(bsengine_core::PauseState { paused: true });
         app.world_mut().spawn((
             NavMeshAgent::new(5.0).with_destination(Vec3::new(3.0, 0.0, 0.0)),
-            Transform::from_translation(Vec3::ZERO),
+            Transform::from_position(Vec3::ZERO),
         ));
         app.update();
 
@@ -249,10 +247,10 @@ mod tests {
             .next()
             .unwrap();
         assert_eq!(
-            transform.translation.0,
+            transform.position.0,
             Vec3::ZERO,
             "expected the agent to stay in place while paused, got {:?}",
-            transform.translation.0
+            transform.position.0
         );
     }
 
@@ -261,7 +259,7 @@ mod tests {
         let mut app = open_app();
         app.world_mut().spawn((
             NavMeshAgent::new(5.0).with_destination(Vec3::new(3.0, 0.0, 0.0)),
-            Transform::from_translation(Vec3::ZERO),
+            Transform::from_position(Vec3::ZERO),
         ));
         app.update();
         app.update();
@@ -274,7 +272,7 @@ mod tests {
             .unwrap()
             .clone();
         assert!(
-            t.translation.x > 0.0,
+            t.position.x > 0.0,
             "agent should move toward +x destination"
         );
     }
@@ -286,7 +284,7 @@ mod tests {
             NavMeshAgent::new(20.0)
                 .with_destination(Vec3::new(0.5, 0.0, 0.0))
                 .with_stopping_distance(0.05),
-            Transform::from_translation(Vec3::ZERO),
+            Transform::from_position(Vec3::ZERO),
         ));
         for _ in 0..3 {
             app.update();
@@ -311,7 +309,7 @@ mod tests {
         let mut app = make_app(nm);
         app.world_mut().spawn((
             NavMeshAgent::new(5.0).with_destination(Vec3::new(3.0, 0.0, 0.0)),
-            Transform::from_translation(Vec3::new(-3.0, 0.0, 0.0)),
+            Transform::from_position(Vec3::new(-3.0, 0.0, 0.0)),
         ));
         app.update();
         app.update();
@@ -332,7 +330,7 @@ mod tests {
         let mut agent = NavMeshAgent::new(5.0).with_destination(Vec3::new(5.0, 0.0, 0.0));
         agent.enabled = false;
         app.world_mut()
-            .spawn((agent, Transform::from_translation(Vec3::ZERO)));
+            .spawn((agent, Transform::from_position(Vec3::ZERO)));
         app.update();
 
         let t = app
@@ -342,7 +340,7 @@ mod tests {
             .next()
             .unwrap()
             .clone();
-        assert_eq!(t.translation.x, 0.0, "disabled agent must not move");
+        assert_eq!(t.position.x, 0.0, "disabled agent must not move");
     }
 
     #[test]
@@ -352,7 +350,7 @@ mod tests {
             .world_mut()
             .spawn((
                 NavMeshAgent::new(5.0).with_destination(Vec3::new(3.0, 0.0, 0.0)),
-                Transform::from_translation(Vec3::ZERO),
+                Transform::from_position(Vec3::ZERO),
             ))
             .id();
         app.update();
@@ -388,11 +386,11 @@ mod tests {
         let mut app = open_app();
         app.add_plugins(PhysicsPlugin);
         app.world_mut().spawn((
-            Transform::from_translation(Vec3::new(0.0, -0.5, 0.0)),
+            Transform::from_position(Vec3::new(0.0, -0.5, 0.0)),
             RigidBody::fixed(),
             Collider::cuboid(20.0, 0.5, 20.0),
             PhysicsInput {
-                translation: Vec3::new(0.0, -0.5, 0.0).into(),
+                position: Vec3::new(0.0, -0.5, 0.0).into(),
                 rotation: glam::Quat::IDENTITY.into(),
             },
             PhysicsTransform::default(),
@@ -408,7 +406,7 @@ mod tests {
         app.world_mut()
             .spawn((
                 agent,
-                Transform::from_translation(at),
+                Transform::from_position(at),
                 RigidBody {
                     linear_damping: 4.0,
                     ..RigidBody::dynamic()
@@ -416,7 +414,7 @@ mod tests {
                 Collider::capsule(0.5, 0.3),
                 CharacterBody::default(),
                 PhysicsInput {
-                    translation: at.into(),
+                    position: at.into(),
                     rotation: glam::Quat::IDENTITY.into(),
                 },
                 PhysicsTransform::default(),
@@ -436,7 +434,7 @@ mod tests {
             app.update();
         }
 
-        let x = app.world().get::<Transform>(entity).unwrap().translation.x;
+        let x = app.world().get::<Transform>(entity).unwrap().position.x;
         assert!(
             x > 1.0,
             "agent should have travelled toward +x under its own impulses; x = {x}"
@@ -478,9 +476,9 @@ mod tests {
         // going backwards on the second frame, or already walking forward again
         // because its own steering overwrote the velocity.
         app.update();
-        let first = app.world().get::<Transform>(entity).unwrap().translation.x;
+        let first = app.world().get::<Transform>(entity).unwrap().position.x;
         app.update();
-        let second = app.world().get::<Transform>(entity).unwrap().translation.x;
+        let second = app.world().get::<Transform>(entity).unwrap().position.x;
 
         assert!(
             second < first,
@@ -502,7 +500,7 @@ mod tests {
             for _ in 0..10 {
                 app.update();
             }
-            app.world().get::<Transform>(entity).unwrap().translation.x
+            app.world().get::<Transform>(entity).unwrap().position.x
         }
 
         let slow = distance_after_10_frames(1.0);

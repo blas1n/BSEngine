@@ -107,11 +107,17 @@ pub fn resolve_physics_bodies(
     mut commands: Commands,
 ) {
     for (entity, desc) in query.iter() {
-        let rb = match desc.rigidbody {
+        let mut rb = match desc.rigidbody {
             RigidBodyDesc::Dynamic => RigidBody::dynamic(),
             RigidBodyDesc::Static => RigidBody::fixed(),
             RigidBodyDesc::Kinematic => RigidBody::kinematic(),
         };
+        if let Some(d) = desc.linear_damping {
+            rb.linear_damping = d;
+        }
+        if let Some(d) = desc.angular_damping {
+            rb.angular_damping = d;
+        }
         let col_base = match &desc.collider.shape {
             ColliderShapeDesc::Box { hx, hy, hz } => Collider::cuboid(*hx, *hy, *hz),
             ColliderShapeDesc::Sphere { radius } => Collider::ball(*radius),
@@ -129,7 +135,7 @@ pub fn resolve_physics_bodies(
             rb,
             col,
             PhysicsInput {
-                translation: t.translation,
+                position: t.position,
                 rotation: t.rotation,
             },
         ));
@@ -242,7 +248,7 @@ pub fn resolve_physics_bodies_world(world: &mut World) {
             rb,
             col,
             PhysicsInput {
-                translation: t.translation,
+                position: t.position,
                 rotation: t.rotation,
             },
         ));

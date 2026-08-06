@@ -48,7 +48,7 @@ pub enum RepeatMode {
 /// The property being animated and its start/end values.
 #[derive(Debug, Clone, Reflect)]
 pub enum TweenTarget {
-    /// Animates `Transform.translation`.
+    /// Animates `Transform.position`.
     Translation {
         /// Starting position.
         from: ReflectVec3,

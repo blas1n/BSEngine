@@ -18,6 +18,14 @@ pub struct Material {
     pub emissive: ReflectColor,
     /// Base (albedo) color of the surface.
     pub base_color: ReflectColor,
+    /// How opaque the surface is: 1.0 is solid, 0.0 fully invisible.
+    ///
+    /// Anything below 1.0 takes the object out of the opaque pass and into the
+    /// sorted transparent one. It is a material property alongside `metallic`
+    /// and `roughness` rather than a fourth channel on `base_color`, because
+    /// [`ReflectColor`] is shared with `emissive` and with light colours, where
+    /// an alpha channel would mean nothing.
+    pub opacity: f32,
 }
 
 impl Default for Material {
@@ -28,6 +36,7 @@ impl Default for Material {
             roughness: 0.5,
             emissive: Vec3::ZERO.into(),
             base_color: Vec3::ONE.into(),
+            opacity: 1.0,
         }
     }
 }

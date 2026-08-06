@@ -703,6 +703,7 @@ fn render_frame(
                     roughness: m.roughness,
                     emissive: *m.emissive,
                     base_color: *m.base_color,
+                    opacity: m.opacity,
                 })
                 .unwrap_or_default();
             Some((

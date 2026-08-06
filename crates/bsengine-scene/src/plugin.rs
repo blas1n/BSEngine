@@ -423,6 +423,7 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
             builder.insert(Material {
                 emissive: entity.emissive.map(Vec3::from).unwrap_or(Vec3::ZERO).into(),
                 base_color: entity.color.map(Vec3::from).unwrap_or(Vec3::ONE).into(),
+                opacity: entity.opacity.unwrap_or(1.0),
                 ..Default::default()
             });
         }

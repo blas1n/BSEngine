@@ -277,6 +277,10 @@ pub struct EntityDescriptor {
     /// Angular counterpart to [`linear_damping`](EntityDescriptor::linear_damping).
     #[serde(default)]
     pub angular_damping: Option<f32>,
+    /// Surface opacity: 1.0 (the default when absent) is solid, and anything
+    /// below it puts the entity in the sorted transparent pass.
+    #[serde(default)]
+    pub opacity: Option<f32>,
     /// Reflected components not covered by this struct's own typed fields
     /// (e.g. `AnimationStateMachine`, `NavMeshAgent`, `Shield`, `Bloom`,
     /// `ToneMap`), as (fully-qualified type path, RON-encoded value) pairs.
@@ -535,6 +539,22 @@ mod tests {
             entity.gltf.as_ref().map(AssetRef::path),
             Some("models/cube.gltf")
         );
+    }
+
+    #[test]
+    fn opacity_defaults_to_absent_and_parses_when_authored() {
+        // A scene written before this field existed must still parse, and must
+        // come back as "no opinion" rather than as an accidental zero. An
+        // entity that silently turned invisible would be the worst possible
+        // failure mode for a defaulted opacity.
+        let older: EntityDescriptor = ron::from_str(r#"EntityDescriptor(name: "A")"#)
+            .expect("a scene written before opacity existed should still parse");
+        assert_eq!(older.opacity, None);
+
+        let authored: EntityDescriptor =
+            ron::from_str(r#"EntityDescriptor(name: "B", opacity: Some(0.25))"#)
+                .expect("opacity should parse when authored");
+        assert_eq!(authored.opacity, Some(0.25));
     }
 
     #[test]

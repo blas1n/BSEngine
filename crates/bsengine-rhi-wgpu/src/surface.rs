@@ -25,7 +25,7 @@ struct ModelUniform {
     emissive: vec3<f32>,
     _pad2: f32,
     base_color: vec3<f32>,
-    _pad3: f32,
+    opacity: f32,
 };
 struct PointLightEntry {
     position: vec3<f32>,
@@ -263,7 +263,7 @@ fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
         }
     }
     let color = light.ambient * albedo + lo + model_data.emissive;
-    return vec4<f32>(color, 1.0);
+    return vec4<f32>(color, model_data.opacity);
 }
 "#;
 
@@ -414,6 +414,9 @@ pub struct MaterialParams {
     pub emissive: Vec3,
     /// Base albedo color multiplied with the surface texture (if any).
     pub base_color: Vec3,
+    /// 1.0 = opaque. Below that the draw leaves the opaque pass for the sorted
+    /// transparent one.
+    pub opacity: f32,
 }
 
 impl Default for MaterialParams {
@@ -423,6 +426,7 @@ impl Default for MaterialParams {
             roughness: 0.5,
             emissive: Vec3::ZERO,
             base_color: Vec3::ONE,
+            opacity: 1.0,
         }
     }
 }
@@ -438,7 +442,9 @@ struct ModelUniformData {
     emissive: [f32; 3],
     _pad2: f32,
     base_color: [f32; 3],
-    _pad3: f32,
+    // Was `_pad3`. The slot the padding occupied is exactly where opacity
+    // belongs, so carrying it costs nothing in size or alignment.
+    opacity: f32,
 }
 
 #[repr(C)]
@@ -661,6 +667,7 @@ pub struct WgpuSurface {
     pub(crate) device: Arc<wgpu::Device>,
     pub(crate) queue: Arc<wgpu::Queue>,
     pipeline: wgpu::RenderPipeline,
+    transparent_pipeline: wgpu::RenderPipeline,
     depth_texture: wgpu::Texture,
     depth_view: wgpu::TextureView,
     camera_buffer: wgpu::Buffer,
@@ -1252,7 +1259,7 @@ impl WgpuSurface {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: "vs_main",
-                buffers: &[vertex_buffer_layout],
+                buffers: &[vertex_buffer_layout.clone()],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -1283,6 +1290,53 @@ impl WgpuSurface {
             cache: None,
         });
 
+        // Same shader, same layout, same vertex format as the opaque pipeline.
+        // Exactly two things differ, and both are what drawing transparent
+        // geometry means:
+        //
+        //   - alpha blending, so what is already in the buffer shows through
+        //   - depth writes off, so one transparent surface does not stop the
+        //     one behind it from being drawn
+        //
+        // The depth *test* stays on: transparent geometry behind an opaque
+        // wall is still hidden by it.
+        let transparent_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("transparent mesh pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_main",
+                buffers: &[vertex_buffer_layout],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_main",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: crate::post_process::HDR_FORMAT,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: Some(wgpu::Face::Back),
+                front_face: wgpu::FrontFace::Ccw,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: false,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
         let egui_ctx = egui::Context::default();
         crate::theme::apply(&egui_ctx);
         let egui_renderer = egui_wgpu::Renderer::new(&device, format, None, 1, false);
@@ -1295,6 +1349,7 @@ impl WgpuSurface {
             device,
             queue,
             pipeline,
+            transparent_pipeline,
             depth_texture,
             depth_view,
             camera_buffer,
@@ -1756,7 +1811,7 @@ impl WgpuSurface {
                 emissive: mat.emissive.to_array(),
                 _pad2: 0.0,
                 base_color: mat.base_color.to_array(),
-                _pad3: 0.0,
+                opacity: mat.opacity,
             };
             self.queue.write_buffer(
                 &self.model_buffer,
@@ -1936,6 +1991,28 @@ impl WgpuSurface {
             }
         }
 
+        // Opaque and transparent draws are separated here, and each keeps its
+        // ORIGINAL index. That index is the model uniform's dynamic offset --
+        // using a position within a filtered list would hand every object
+        // someone else's transform, colour and opacity.
+        let mut opaque: Vec<usize> = Vec::new();
+        let mut transparent: Vec<usize> = Vec::new();
+        for (i, (_, _, _, params, _)) in draw_calls.iter().enumerate().take(MAX_OBJECTS) {
+            if params.opacity < 1.0 {
+                transparent.push(i);
+            } else {
+                opaque.push(i);
+            }
+        }
+        // Back to front, so nearer surfaces blend over farther ones. Sorting by
+        // the distance to each model's origin is the usual approximation: it is
+        // wrong for interpenetrating or very large transparent meshes, which is
+        // a limitation to know rather than a bug to chase here.
+        transparent.sort_by(|&a, &b| {
+            let d = |i: usize| (draw_calls[i].1.w_axis.truncate() - cam_pos).length_squared();
+            d(b).partial_cmp(&d(a)).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
         // --- main pass (into HDR buffer) ---
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1968,10 +2045,8 @@ impl WgpuSurface {
             pass.set_bind_group(0, &self.camera_bind_group, &[]);
             pass.set_bind_group(2, &self.light_bind_group, &[]);
 
-            for (i, (mesh_id, _, tex_id, _, custom_path)) in draw_calls.iter().enumerate() {
-                if i >= MAX_OBJECTS {
-                    break;
-                }
+            for &i in &opaque {
+                let (mesh_id, _, tex_id, _, custom_path) = &draw_calls[i];
                 let Some(mesh) = registry.get(*mesh_id) else {
                     continue;
                 };
@@ -2024,6 +2099,60 @@ impl WgpuSurface {
             sky_pass.set_bind_group(0, &sky.uniform_bg, &[]);
             sky_pass.set_bind_group(1, &sky.texture_bg, &[]);
             sky_pass.draw(0..3, 0..1);
+        }
+
+        // --- transparent pass (after the skybox, so glass shows sky through it) ---
+        if !transparent.is_empty() {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("transparent pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.post_process.hdr_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        // Load, not Clear, on both attachments. Clearing colour
+                        // would wipe the scene this pass is meant to blend
+                        // into; clearing depth would let glass float in front
+                        // of walls it is behind.
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            pass.set_bind_group(0, &self.camera_bind_group, &[]);
+            pass.set_bind_group(2, &self.light_bind_group, &[]);
+            for &i in &transparent {
+                let (mesh_id, _, tex_id, _, custom_path) = &draw_calls[i];
+                let Some(mesh) = registry.get(*mesh_id) else {
+                    continue;
+                };
+                // A custom shader keeps its own pipeline, which is opaque. That
+                // is a documented limitation rather than an oversight: a custom
+                // shader decides its own output, alpha included.
+                let pipeline = custom_path
+                    .as_deref()
+                    .and_then(|p| self.custom_pipelines.get(p))
+                    .unwrap_or(&self.transparent_pipeline);
+                pass.set_pipeline(pipeline);
+                let tex_bg = tex_id
+                    .and_then(|id| tex_registry.and_then(|r| r.get_bind_group(id)))
+                    .unwrap_or(&self.default_texture_bind_group);
+                let offset = (i as u64 * MODEL_STRIDE) as u32;
+                pass.set_bind_group(1, &self.model_bind_group, &[offset]);
+                pass.set_bind_group(3, tex_bg, &[]);
+                pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+            }
         }
 
         // --- post-process passes: bloom → SSAO → composite → swapchain ---

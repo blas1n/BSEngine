@@ -88,6 +88,10 @@ SceneDescriptor(entities: [
         transform: Some((position: (2.0, 0.8, -2.0), scale: (0.4, 0.4, 0.4))),
         color: Some((0.2, 0.6, 1.0)),
         emissive: Some((0.2, 0.6, 1.0)),
+        // A glass orb rather than a solid one. The Pickup floats clear of the
+        // ground with the arena behind it, and the player walks past it, so
+        // this is the spot in the scene where transparency is actually visible.
+        opacity: Some(0.45),
         script: Some((guid: "28c77ead-a2b2-4a44-aad6-2370718af043", path: "assets/scripts/pickup.js")),
         rigidbody: Some(Static),
         collider: Some((shape: Sphere(radius: 0.4), sensor: true)),

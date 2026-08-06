@@ -17,6 +17,9 @@
 pub mod gizmo;
 /// GPU mesh generation and the mesh registry.
 pub mod mesh;
+/// Where a rendered frame goes (window swapchain or offscreen texture) and how
+/// to read it back.
+mod output;
 /// Editor-only egui panels (asset browser, dock, hierarchy, inspector, viewport).
 pub mod panels;
 /// The Bevy plugin that wires the wgpu RHI into the app.

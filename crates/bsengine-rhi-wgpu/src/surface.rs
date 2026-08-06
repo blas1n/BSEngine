@@ -653,12 +653,11 @@ fn point_light_face_view_projs(position: Vec3, range: f32) -> [Mat4; 6] {
     dirs.map(|(dir, up)| proj * Mat4::look_at_rh(position, position + dir, up))
 }
 
-/// Owns the wgpu swapchain, all GPU pipelines/buffers for the main scene and
-/// shadow passes, the egui renderer, and per-frame render state for one window.
+/// Owns the render output target (a window's swapchain or an offscreen
+/// texture), all GPU pipelines/buffers for the main scene and shadow passes,
+/// the egui renderer, and per-frame render state.
 pub struct WgpuSurface {
-    _window: Arc<winit::window::Window>,
-    pub(crate) surface: wgpu::Surface<'static>,
-    config: wgpu::SurfaceConfiguration,
+    output: crate::output::Output,
     pub(crate) device: Arc<wgpu::Device>,
     pub(crate) queue: Arc<wgpu::Queue>,
     pipeline: wgpu::RenderPipeline,
@@ -709,30 +708,7 @@ impl WgpuSurface {
             .create_surface(window.clone())
             .map_err(|e| e.to_string())?;
 
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::None,
-                compatible_surface: Some(&surface),
-                force_fallback_adapter: false,
-            })
-            .await
-            .ok_or("No adapter found compatible with surface")?;
-
-        let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: Some("BSEngine surface device"),
-                    required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::downlevel_defaults(),
-                    memory_hints: wgpu::MemoryHints::default(),
-                },
-                None,
-            )
-            .await
-            .map_err(|e| format!("Device request failed: {e}"))?;
-
-        let device = Arc::new(device);
-        let queue = Arc::new(queue);
+        let (adapter, device, queue) = Self::request_device(&instance, Some(&surface)).await?;
 
         let size = window.inner_size();
         let caps = surface.get_capabilities(&adapter);
@@ -755,8 +731,128 @@ impl WgpuSurface {
         };
         surface.configure(&device, &config);
 
-        let (depth_texture, depth_view) =
-            Self::create_depth_texture(&device, config.width, config.height);
+        Self::build(
+            device,
+            queue,
+            crate::output::Output::Window {
+                surface,
+                config,
+                _window: window,
+            },
+        )
+    }
+
+    /// Creates a renderer with no window at all.
+    ///
+    /// The frame goes to a texture this renderer owns and can be read back with
+    /// [`Self::read_pixels`]. Pipelines come from the same [`Self::build`] the
+    /// windowed path uses, so pixels observed here are the output of the
+    /// pipelines that draw to a window.
+    pub async fn new_offscreen(width: u32, height: u32) -> Result<Self, String> {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..Default::default()
+        });
+        let (_adapter, device, queue) = Self::request_device(&instance, None).await?;
+        let texture = crate::output::create_offscreen_texture(&device, width, height);
+        Self::build(
+            device,
+            queue,
+            crate::output::Output::Offscreen {
+                texture,
+                width,
+                height,
+            },
+        )
+    }
+
+    /// The pixels of the frame most recently rendered, tightly packed RGBA8,
+    /// top row first.
+    ///
+    /// `Err` in windowed mode: a swapchain texture is not created with
+    /// `COPY_SRC` and cannot be copied out of.
+    ///
+    /// The values are **sRGB-encoded**. Comparing them for brightness is fine;
+    /// comparing them against linear colour values is not.
+    pub fn read_pixels(&self) -> Result<Vec<u8>, String> {
+        match &self.output {
+            crate::output::Output::Offscreen {
+                texture,
+                width,
+                height,
+            } => Ok(crate::output::read_pixels(
+                &self.device,
+                &self.queue,
+                texture,
+                *width,
+                *height,
+            )),
+            crate::output::Output::Window { .. } => Err(
+                "read_pixels needs an offscreen renderer; a swapchain texture is not COPY_SRC"
+                    .to_string(),
+            ),
+        }
+    }
+
+    /// This renderer's GPU device, for callers that must put resources on the
+    /// same device -- a `GpuMeshRegistry`, for one.
+    pub fn device_arc(&self) -> Arc<wgpu::Device> {
+        self.device.clone()
+    }
+
+    /// This renderer's GPU queue, needed alongside [`Self::device_arc`] to build
+    /// a `GpuTextureRegistry`.
+    pub fn queue_arc(&self) -> Arc<wgpu::Queue> {
+        self.queue.clone()
+    }
+
+    /// Requests an adapter and a device. The windowed path wants an adapter the
+    /// surface can present on; offscreen takes whatever is available.
+    async fn request_device(
+        instance: &wgpu::Instance,
+        compatible_surface: Option<&wgpu::Surface<'static>>,
+    ) -> Result<(wgpu::Adapter, Arc<wgpu::Device>, Arc<wgpu::Queue>), String> {
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::None,
+                compatible_surface,
+                force_fallback_adapter: false,
+            })
+            .await
+            .ok_or("No adapter found")?;
+
+        let (device, queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    label: Some("BSEngine surface device"),
+                    required_features: wgpu::Features::empty(),
+                    required_limits: wgpu::Limits::downlevel_defaults(),
+                    memory_hints: wgpu::MemoryHints::default(),
+                },
+                None,
+            )
+            .await
+            .map_err(|e| format!("Device request failed: {e}"))?;
+
+        Ok((adapter, Arc::new(device), Arc::new(queue)))
+    }
+
+    /// Everything after the output target is settled: pipelines, buffers, bind
+    /// groups, shadow maps, post-processing.
+    ///
+    /// **Both constructors go through here.** What makes a pixel test worth
+    /// anything is that it exercises the pipelines a real frame uses; a second
+    /// construction path would quietly take that away.
+    fn build(
+        device: Arc<wgpu::Device>,
+        queue: Arc<wgpu::Queue>,
+        output: crate::output::Output,
+    ) -> Result<Self, String> {
+        let format = output.format();
+        let width = output.width();
+        let height = output.height();
+
+        let (depth_texture, depth_view) = Self::create_depth_texture(&device, width, height);
 
         let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("camera uniform"),
@@ -901,7 +997,7 @@ impl WgpuSurface {
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Nearest,
             min_filter: wgpu::FilterMode::Nearest,
-            compare: Some(wgpu::CompareFunction::GreaterEqual),
+            compare: Some(wgpu::CompareFunction::LessEqual),
             ..Default::default()
         });
 
@@ -1191,18 +1287,11 @@ impl WgpuSurface {
         crate::theme::apply(&egui_ctx);
         let egui_renderer = egui_wgpu::Renderer::new(&device, format, None, 1, false);
 
-        let post_process = crate::post_process::PostProcessState::new(
-            &device,
-            config.width,
-            config.height,
-            &depth_view,
-            format,
-        );
+        let post_process =
+            crate::post_process::PostProcessState::new(&device, width, height, &depth_view, format);
 
         Ok(Self {
-            _window: window,
-            surface,
-            config,
+            output,
             device,
             queue,
             pipeline,
@@ -1485,7 +1574,11 @@ impl WgpuSurface {
                     module: &shader,
                     entry_point: "fs_sky",
                     targets: &[Some(wgpu::ColorTargetState {
-                        format: self.config.format,
+                        // The skybox pass draws into the HDR buffer, not the
+                        // final output. Building this pipeline for the output
+                        // format made set_pipeline fail validation the moment
+                        // any project actually set a skybox.
+                        format: crate::post_process::HDR_FORMAT,
                         blend: Some(wgpu::BlendState::REPLACE),
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
@@ -1672,13 +1765,9 @@ impl WgpuSurface {
             );
         }
 
-        let output = self
-            .surface
-            .get_current_texture()
-            .map_err(|e| e.to_string())?;
-        let view = output
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        // `presentable` is the swapchain frame to hand back at the end of the
+        // function, and is `None` when rendering offscreen.
+        let (view, presentable) = self.output.acquire()?;
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -1959,7 +2048,7 @@ impl WgpuSurface {
         if has_ui {
             let screen_rect = egui::Rect::from_min_size(
                 egui::Pos2::ZERO,
-                egui::vec2(self.config.width as f32, self.config.height as f32),
+                egui::vec2(self.output.width() as f32, self.output.height() as f32),
             );
             let modifiers = egui::Modifiers {
                 alt: alt_held,
@@ -2454,7 +2543,7 @@ impl WgpuSurface {
                 .egui_ctx
                 .tessellate(full_output.shapes, full_output.pixels_per_point);
             let screen_descriptor = egui_wgpu::ScreenDescriptor {
-                size_in_pixels: [self.config.width, self.config.height],
+                size_in_pixels: [self.output.width(), self.output.height()],
                 pixels_per_point: full_output.pixels_per_point,
             };
 
@@ -2495,7 +2584,9 @@ impl WgpuSurface {
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
-        output.present();
+        if let Some(frame) = presentable {
+            frame.present();
+        }
         Ok(clicked)
     }
 
@@ -2505,9 +2596,7 @@ impl WgpuSurface {
         if width == 0 || height == 0 {
             return;
         }
-        self.config.width = width;
-        self.config.height = height;
-        self.surface.configure(&self.device, &self.config);
+        self.output.resize(&self.device, width, height);
         let (depth_texture, depth_view) = Self::create_depth_texture(&self.device, width, height);
         self.depth_texture = depth_texture;
         self.depth_view = depth_view;

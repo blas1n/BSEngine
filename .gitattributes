@@ -7,3 +7,30 @@
 *.json text eol=lf
 *.ts text eol=lf
 *.d.ts text eol=lf
+
+# Asset files, and why they need pinning more than the source does.
+#
+# `bsengine-asset`'s sidecars record a blake3 of the asset's *raw bytes*
+# (`measure_file`), and those sidecars are committed. Under `text=auto` alone,
+# a Windows checkout gets CRLF and a Linux one gets LF, so the committed hash
+# can only ever match one of them -- on the other, every scan finds the asset
+# "changed", rewrites the sidecar, and dirties the tree. Pinning eol makes the
+# bytes the same everywhere, which is what makes a committed hash meaningful.
+*.js text eol=lf
+*.ron text eol=lf
+*.wgsl text eol=lf
+*.meta text eol=lf
+
+# And the ones that must never be touched: a CRLF substitution inside a mesh or
+# a sound is silent corruption, not a diff.
+*.glb binary
+*.gltf binary
+*.wav binary
+*.ogg binary
+*.mp3 binary
+*.flac binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ktx2 binary
+*.dds binary

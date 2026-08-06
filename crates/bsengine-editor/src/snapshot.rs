@@ -32,6 +32,8 @@ pub struct EntityInfo {
     pub primitive: Option<bsengine_scene::Primitive>,
     /// Path to the attached gameplay script, if the entity has one.
     pub script_path: Option<String>,
+    /// Base color texture path, if the entity has a `TexturePath`.
+    pub texture_path: Option<String>,
     /// Euler rotation in degrees, if the entity has a `Transform`.
     pub rotation: Option<[f32; 3]>,
     /// Per-axis scale, if the entity has a `Transform`.

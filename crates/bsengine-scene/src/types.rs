@@ -216,6 +216,14 @@ pub struct PrimitiveMesh(pub Primitive);
 #[reflect(Component, Default)]
 pub struct ScriptPath(pub String);
 
+/// The image this entity wants as its base color texture, as resolved at spawn.
+///
+/// Carries the path from the scene to the loader, because `Material` records
+/// only the id it ends up with and has nowhere to keep a path. Removed once the
+/// texture is uploaded and `Material.texture_id` is set.
+#[derive(Component, Debug, Clone, PartialEq)]
+pub struct TexturePath(pub String);
+
 /// Describes a single entity in the scene file.
 ///
 /// All component fields are optional and default to absent; only `name` is
@@ -251,6 +259,14 @@ pub struct EntityDescriptor {
     /// Reference to a JS script to attach via `ScriptPath`.
     #[serde(default)]
     pub script: Option<AssetRef>,
+    /// Reference to an image to use as this entity's base color texture.
+    ///
+    /// Same `AssetRef` shape as [`gltf`](EntityDescriptor::gltf) and
+    /// [`script`](EntityDescriptor::script): a bare path still parses, and an
+    /// identified reference survives the file being renamed. A raw string here
+    /// would put a hole in exactly the guarantee item 30 built.
+    #[serde(default)]
+    pub texture: Option<AssetRef>,
     /// Emissive color as [r, g, b], added on top of the base color.
     #[serde(default)]
     pub emissive: Option<[f32; 3]>,
@@ -555,6 +571,34 @@ mod tests {
             ron::from_str(r#"EntityDescriptor(name: "B", opacity: Some(0.25))"#)
                 .expect("opacity should parse when authored");
         assert_eq!(authored.opacity, Some(0.25));
+    }
+
+    #[test]
+    fn texture_reference_parses_in_both_spellings_and_stays_optional() {
+        // Absent: every scene written before this field existed.
+        let none: EntityDescriptor = ron::from_str(r#"EntityDescriptor(name: "A")"#)
+            .expect("scenes written before this field must still parse");
+        assert_eq!(none.texture, None);
+
+        // The pre-item-30 spelling.
+        let bare: EntityDescriptor = ron::from_str(
+            r#"EntityDescriptor(name: "B", texture: Some("assets/textures/checker.png"))"#,
+        )
+        .expect("a bare path should parse");
+        assert_eq!(
+            bare.texture.as_ref().map(AssetRef::path),
+            Some("assets/textures/checker.png")
+        );
+
+        // The identified spelling, which is what makes a rename survivable.
+        let identified: EntityDescriptor = ron::from_str(
+            r#"EntityDescriptor(name: "C", texture: Some((guid: "abc", path: "assets/textures/checker.png")))"#,
+        )
+        .expect("an identified reference should parse");
+        assert_eq!(
+            identified.texture.as_ref().map(AssetRef::path),
+            Some("assets/textures/checker.png")
+        );
     }
 
     #[test]

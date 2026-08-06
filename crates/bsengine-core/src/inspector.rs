@@ -59,6 +59,8 @@ pub struct InspectorEntityInfo {
     pub tags: Vec<String>,
     /// Path of the attached script asset, if any.
     pub script_path: Option<String>,
+    /// Base color texture path, if a `TexturePath` is attached.
+    pub texture_path: Option<String>,
     /// One of [`PRIMITIVE_KINDS`], or `None` if no `PrimitiveMesh` is
     /// attached. A plain `String`, not `bsengine_scene::Primitive`, because
     /// `bsengine-core` cannot depend on `bsengine-scene` (that crate already

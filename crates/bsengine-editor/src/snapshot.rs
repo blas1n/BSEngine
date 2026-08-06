@@ -54,6 +54,8 @@ pub struct EntityInfo {
     pub camera_fov: Option<f32>,
     /// PBR base color, if the entity has a `Material`.
     pub material_base_color: Option<[f32; 3]>,
+    /// Surface opacity, if the entity has a `Material`. 1.0 is solid.
+    pub material_opacity: Option<f32>,
     /// PBR metallic factor, if the entity has a `Material`.
     pub material_metallic: Option<f32>,
     /// PBR roughness factor, if the entity has a `Material`.

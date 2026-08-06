@@ -46,6 +46,8 @@ pub struct InspectorEntityInfo {
     pub material_base_color: Option<[f32; 3]>,
     /// Metallic factor, if a `Material` is attached.
     pub material_metallic: Option<f32>,
+    /// Surface opacity, if a `Material` is attached. 1.0 is solid.
+    pub material_opacity: Option<f32>,
     /// Roughness factor, if a `Material` is attached.
     pub material_roughness: Option<f32>,
     /// Emissive color, if a `Material` is attached.

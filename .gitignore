@@ -444,6 +444,11 @@ MigrationBackup/
 docs/
 .omc/
 
+# Editor window layout, written by panels/dock.rs when the editor exits. It
+# holds one machine's dock split fractions in absolute pixels, so committing it
+# hands everyone else that person's window size.
+editor_layout.json
+
 # Rust
 target/
 

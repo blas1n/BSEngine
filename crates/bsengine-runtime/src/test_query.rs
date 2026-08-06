@@ -15,7 +15,7 @@ pub fn get_transform(world: &mut World, name: &str) -> Value {
     for (n, t) in q.iter(world) {
         if n.0 == name {
             return json!({
-                "x": t.translation.0.x, "y": t.translation.0.y, "z": t.translation.0.z,
+                "x": t.position.0.x, "y": t.position.0.y, "z": t.position.0.z,
                 "rx": t.rotation.0.x, "ry": t.rotation.0.y, "rz": t.rotation.0.z, "rw": t.rotation.0.w,
                 "sx": t.scale.0.x, "sy": t.scale.0.y, "sz": t.scale.0.z,
             });
@@ -220,7 +220,7 @@ mod tests {
         let mut world = World::new();
         world.spawn((
             Name("Player".to_string()),
-            Transform::from_translation(Vec3::new(1.0, 2.0, 3.0)),
+            Transform::from_position(Vec3::new(1.0, 2.0, 3.0)),
         ));
         let result = get_transform(&mut world, "Player");
         assert_eq!(result["x"], json!(1.0));
@@ -364,7 +364,7 @@ mod tests {
         let mut world = World::new();
         world.spawn((
             Name("Player".to_string()),
-            Transform::from_translation(Vec3::new(0.0, 0.0, 5.0)),
+            Transform::from_position(Vec3::new(0.0, 0.0, 5.0)),
         ));
         let result = run_query(&mut world, "get_transform", &json!({"name": "Player"})).unwrap();
         assert_eq!(result["z"], json!(5.0));

@@ -1042,7 +1042,7 @@ mod tests {
                 // imported, so a stale copy cannot coincidentally match.
                 s.weights[0] += 1.0;
             }
-            data.nodes[0].translation[0] += 7.0;
+            data.nodes[0].position[0] += 7.0;
             data.skins[0].inverse_bind_matrices[0][3][0] += 5.0;
             for clip in &mut data.animations {
                 clip.duration += 1.0;

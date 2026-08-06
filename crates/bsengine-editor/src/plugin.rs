@@ -68,7 +68,7 @@ fn update_editor_snapshot(
                 EntityInfo {
                     id: e.index() as u64,
                     name: name.map(|n| n.0.clone()),
-                    position: transform.map(|t| t.translation.to_array()),
+                    position: transform.map(|t| t.position.to_array()),
                     rotation: transform.map(|t| {
                         let (rx, ry, rz) = t.rotation.to_euler(glam::EulerRot::XYZ);
                         [rx.to_degrees(), ry.to_degrees(), rz.to_degrees()]
@@ -156,7 +156,7 @@ fn process_editor_commands(
             EditorCommand::SetPosition { entity_id, x, y, z } => {
                 for (e, mut t) in params.p1().iter_mut() {
                     if e.index() as u64 == entity_id {
-                        t.translation = glam::Vec3::new(x, y, z).into();
+                        t.position = glam::Vec3::new(x, y, z).into();
                         break;
                     }
                 }
@@ -184,7 +184,12 @@ fn process_editor_commands(
                 if let Some(entity) = target {
                     commands
                         .entity(entity)
-                        .insert(bsengine_scene::PhysicsBodyDesc { rigidbody, collider });
+                        .insert(bsengine_scene::PhysicsBodyDesc {
+                            rigidbody,
+                            collider,
+                            linear_damping: None,
+                            angular_damping: None,
+                        });
                 }
             }
             EditorCommand::DetachPhysicsBody { entity_id } => {
@@ -210,7 +215,7 @@ fn process_editor_commands(
                         intensity,
                         range,
                     },
-                    Transform::from_translation(glam::Vec3::from(position)),
+                    Transform::from_position(glam::Vec3::from(position)),
                     GlobalTransform::default(),
                 ));
             }
@@ -310,7 +315,7 @@ fn process_editor_commands(
             } => {
                 commands.spawn((
                     Camera::perspective(fov_y_degrees, 16.0 / 9.0),
-                    Transform::from_translation(glam::Vec3::from(position)),
+                    Transform::from_position(glam::Vec3::from(position)),
                     GlobalTransform::default(),
                 ));
             }
@@ -343,7 +348,7 @@ fn process_editor_commands(
                     }
                     if let Some([x, y, z]) = info.position {
                         entity.insert((
-                            Transform::from_translation(glam::Vec3::new(x, y, z)),
+                            Transform::from_position(glam::Vec3::new(x, y, z)),
                             GlobalTransform::default(),
                         ));
                     }
@@ -363,7 +368,7 @@ fn process_editor_commands(
             } => {
                 for (e, mut t) in params.p1().iter_mut() {
                     if e.index() as u64 == entity_id {
-                        t.translation.0 += glam::Vec3::new(dx, dy, dz);
+                        t.position.0 += glam::Vec3::new(dx, dy, dz);
                         break;
                     }
                 }
@@ -459,7 +464,7 @@ fn process_editor_commands(
                 for (e, mut t) in params.p1().iter_mut() {
                     if e.index() as u64 == entity_id {
                         if let Some([x, y, z]) = position {
-                            t.translation = glam::Vec3::new(x, y, z).into();
+                            t.position = glam::Vec3::new(x, y, z).into();
                         }
                         if let Some([rx, ry, rz]) = rotation {
                             t.rotation = glam::Quat::from_euler(
@@ -482,7 +487,7 @@ fn process_editor_commands(
                     if let Some([x, y, z]) = pos {
                         commands.spawn((
                             Name(name),
-                            Transform::from_translation(glam::Vec3::new(x, y, z)),
+                            Transform::from_position(glam::Vec3::new(x, y, z)),
                         ));
                     } else {
                         commands.spawn(Name(name));
@@ -505,7 +510,7 @@ fn process_editor_commands(
                         inner_angle_degrees: inner_angle.to_degrees().into(),
                         outer_angle_degrees: outer_angle.to_degrees().into(),
                     },
-                    Transform::from_translation(glam::Vec3::from(position)),
+                    Transform::from_position(glam::Vec3::from(position)),
                     GlobalTransform::default(),
                 ));
             }
@@ -625,7 +630,7 @@ fn process_editor_commands(
                         );
                         eb.insert((
                             Transform {
-                                translation: glam::Vec3::from(t.translation).into(),
+                                position: glam::Vec3::from(t.position).into(),
                                 rotation: rotation.into(),
                                 scale: glam::Vec3::from(t.scale).into(),
                             },
@@ -665,11 +670,11 @@ fn process_editor_commands(
                         let (translation, scale) = entity
                             .transform
                             .as_ref()
-                            .map(|t| (glam::Vec3::from(t.translation), glam::Vec3::from(t.scale)))
+                            .map(|t| (glam::Vec3::from(t.position), glam::Vec3::from(t.scale)))
                             .unwrap_or((glam::Vec3::ZERO, glam::Vec3::ONE));
                         eb.insert((
                             Transform {
-                                translation: translation.into(),
+                                position: translation.into(),
                                 rotation: rotation.into(),
                                 scale: scale.into(),
                             },
@@ -714,6 +719,8 @@ fn process_editor_commands(
                         eb.insert(bsengine_scene::PhysicsBodyDesc {
                             rigidbody: rb.clone(),
                             collider: col.clone(),
+                            linear_damping: entity.linear_damping,
+                            angular_damping: entity.angular_damping,
                         });
                     }
                     for (type_path, value_ron) in &entity.components {
@@ -841,7 +848,7 @@ fn sync_entity_to_info(world: &mut World, entity: Entity, info: &EntityInfo) {
     if let (Some(pos), Some(rot), Some(scale)) = (info.position, info.rotation, info.scale) {
         e.insert((
             Transform {
-                translation: glam::Vec3::from(pos).into(),
+                position: glam::Vec3::from(pos).into(),
                 rotation: glam::Quat::from_euler(
                     glam::EulerRot::XYZ,
                     rot[0].to_radians(),
@@ -958,7 +965,7 @@ fn spawn_entity_from_info(world: &mut World, info: &EntityInfo) -> Entity {
     if let (Some(pos), Some(rot), Some(scale)) = (info.position, info.rotation, info.scale) {
         e.insert((
             Transform {
-                translation: glam::Vec3::from(pos).into(),
+                position: glam::Vec3::from(pos).into(),
                 rotation: glam::Quat::from_euler(
                     glam::EulerRot::XYZ,
                     rot[0].to_radians(),
@@ -1042,11 +1049,11 @@ fn build_entity_descriptors(entities: &[EntityInfo]) -> Vec<EntityDescriptor> {
                 });
                 let transform = if e.position.is_some() || e.rotation.is_some() || e.scale.is_some()
                 {
-                    let translation = e.position.unwrap_or([0.0, 0.0, 0.0]);
+                    let position = e.position.unwrap_or([0.0, 0.0, 0.0]);
                     let scale = e.scale.unwrap_or([1.0, 1.0, 1.0]);
                     let q = quat.unwrap_or(glam::Quat::IDENTITY);
                     Some(bsengine_scene::TransformDescriptor {
-                        translation,
+                        position,
                         rotation: [q.x, q.y, q.z, q.w],
                         scale,
                     })
@@ -1100,6 +1107,8 @@ fn build_entity_descriptors(entities: &[EntityInfo]) -> Vec<EntityDescriptor> {
                     look_at: None,
                     rigidbody: e.physics_body.as_ref().map(|p| p.rigidbody.clone()),
                     collider: e.physics_body.as_ref().map(|p| p.collider.clone()),
+                    linear_damping: e.physics_body.as_ref().and_then(|p| p.linear_damping),
+                    angular_damping: e.physics_body.as_ref().and_then(|p| p.angular_damping),
                 }
             })
         })
@@ -30095,7 +30104,7 @@ mod tests {
         app.add_plugins(EditorPlugin);
         app.world_mut().spawn((
             Name("Box".to_string()),
-            Transform::from_translation(Vec3::new(1.0, 2.0, 3.0)),
+            Transform::from_position(Vec3::new(1.0, 2.0, 3.0)),
         ));
         app.update();
 
@@ -30215,7 +30224,7 @@ mod tests {
             .world_mut()
             .spawn((
                 Name("Box".to_string()),
-                Transform::from_translation(Vec3::new(1.0, 2.0, 3.0)),
+                Transform::from_position(Vec3::new(1.0, 2.0, 3.0)),
             ))
             .id()
             .index() as u64;
@@ -30321,7 +30330,7 @@ mod tests {
             .world_mut()
             .spawn((
                 Name("Box".to_string()),
-                Transform::from_translation(Vec3::new(1.0, 0.0, 0.0)),
+                Transform::from_position(Vec3::new(1.0, 0.0, 0.0)),
             ))
             .id()
             .index() as u64;
@@ -30399,7 +30408,7 @@ mod tests {
             .world_mut()
             .spawn((
                 Name("Box".to_string()),
-                Transform::from_translation(Vec3::new(1.0, 2.0, 3.0)),
+                Transform::from_position(Vec3::new(1.0, 2.0, 3.0)),
             ))
             .id()
             .index() as u64;
@@ -30445,7 +30454,7 @@ mod tests {
             .world_mut()
             .spawn((
                 Name("Box".to_string()),
-                Transform::from_translation(Vec3::ZERO),
+                Transform::from_position(Vec3::ZERO),
             ))
             .id()
             .index() as u64;
@@ -30534,7 +30543,7 @@ mod tests {
             .world_mut()
             .spawn((
                 Name("Shield".to_string()),
-                Transform::from_translation(Vec3::new(5.0, 0.0, 0.0)),
+                Transform::from_position(Vec3::new(5.0, 0.0, 0.0)),
             ))
             .id();
         app.update();
@@ -30584,7 +30593,7 @@ mod tests {
             .world_mut()
             .spawn((
                 Name("Cube".to_string()),
-                Transform::from_translation(Vec3::ZERO),
+                Transform::from_position(Vec3::ZERO),
             ))
             .id();
         app.update();
@@ -30622,7 +30631,7 @@ mod tests {
             .world_mut()
             .spawn((
                 Name("Box".to_string()),
-                Transform::from_translation(Vec3::ZERO),
+                Transform::from_position(Vec3::ZERO),
             ))
             .id();
         app.update();
@@ -90979,7 +90988,7 @@ mod tests {
         app.add_plugins(EditorPlugin);
         app.world_mut().spawn((
             Name("Renderable".to_string()),
-            Transform::from_translation(Vec3::ZERO),
+            Transform::from_position(Vec3::ZERO),
             bsengine_render::MeshRenderer { mesh_id: 99 },
             bsengine_core::GlobalTransform::default(),
         ));
@@ -91010,7 +91019,7 @@ mod tests {
             .world_mut()
             .spawn((
                 Name("WithMesh".to_string()),
-                Transform::from_translation(Vec3::ZERO),
+                Transform::from_position(Vec3::ZERO),
                 bsengine_render::MeshRenderer { mesh_id: 55 },
                 bsengine_core::GlobalTransform::default(),
             ))
@@ -91037,7 +91046,7 @@ mod tests {
             .world_mut()
             .spawn((
                 Name("Sphere".to_string()),
-                Transform::from_translation(Vec3::ZERO),
+                Transform::from_position(Vec3::ZERO),
                 bsengine_render::MeshRenderer { mesh_id: 7 },
                 bsengine_core::GlobalTransform::default(),
             ))
@@ -91070,7 +91079,7 @@ mod tests {
             .world_mut()
             .spawn((
                 Name("Box".to_string()),
-                Transform::from_translation(Vec3::ZERO),
+                Transform::from_position(Vec3::ZERO),
                 bsengine_scene::PhysicsBodyDesc {
                     rigidbody: bsengine_scene::RigidBodyDesc::Static,
                     collider: bsengine_scene::ColliderDesc {
@@ -91079,6 +91088,8 @@ mod tests {
                         friction: 0.5,
                         sensor: false,
                     },
+                    linear_damping: None,
+                    angular_damping: None,
                 },
             ))
             .id();
@@ -91104,7 +91115,7 @@ mod tests {
         app.add_plugins(EditorPlugin);
         app.world_mut().spawn((
             Name("Castle".to_string()),
-            Transform::from_translation(Vec3::new(5.0, 0.0, 0.0)),
+            Transform::from_position(Vec3::new(5.0, 0.0, 0.0)),
         ));
         app.update();
 
@@ -91139,7 +91150,7 @@ mod tests {
             app.add_plugins(EditorPlugin);
             app.world_mut().spawn((
                 Name("Tower".to_string()),
-                Transform::from_translation(Vec3::new(3.0, 1.0, 0.0)),
+                Transform::from_position(Vec3::new(3.0, 1.0, 0.0)),
             ));
             app.update();
             let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
@@ -91170,7 +91181,7 @@ mod tests {
             let mut q = app.world_mut().query::<(&Name, &Transform)>();
             let results: Vec<_> = q
                 .iter(app.world())
-                .map(|(n, t)| (n.0.as_str(), t.translation))
+                .map(|(n, t)| (n.0.as_str(), t.position))
                 .collect();
             let found = results
                 .iter()
@@ -91274,7 +91285,7 @@ mod tests {
                 .world_mut()
                 .spawn((
                     Name("Crate".to_string()),
-                    Transform::from_translation(Vec3::new(2.0, 0.0, 0.0)),
+                    Transform::from_position(Vec3::new(2.0, 0.0, 0.0)),
                 ))
                 .id();
             app.update();
@@ -91440,14 +91451,14 @@ mod tests {
             app.world_mut().spawn((
                 Name("MainCam".to_string()),
                 bsengine_core::Camera::perspective(75.0, 16.0 / 9.0),
-                Transform::from_translation(Vec3::new(0.0, 2.0, 5.0)),
+                Transform::from_position(Vec3::new(0.0, 2.0, 5.0)),
                 bsengine_core::GlobalTransform::default(),
             ));
             app.world_mut().spawn((
                 Name("Crate".to_string()),
                 bsengine_scene::PrimitiveMesh(bsengine_scene::Primitive::Cube),
                 bsengine_scene::ScriptPath("assets/scripts/crate.js".to_string()),
-                Transform::from_translation(Vec3::new(1.0, 0.0, 0.0)),
+                Transform::from_position(Vec3::new(1.0, 0.0, 0.0)),
                 bsengine_core::GlobalTransform::default(),
             ));
             app.world_mut().spawn((
@@ -91457,7 +91468,7 @@ mod tests {
                     intensity: 2.5,
                     range: 15.0,
                 },
-                Transform::from_translation(Vec3::new(0.0, 3.0, 0.0)),
+                Transform::from_position(Vec3::new(0.0, 3.0, 0.0)),
                 bsengine_core::GlobalTransform::default(),
             ));
             app.world_mut().spawn((
@@ -91469,7 +91480,7 @@ mod tests {
                     inner_angle_degrees: 15.0.into(),
                     outer_angle_degrees: 25.0.into(),
                 },
-                Transform::from_translation(Vec3::new(2.0, 4.0, 0.0)),
+                Transform::from_position(Vec3::new(2.0, 4.0, 0.0)),
                 bsengine_core::GlobalTransform::default(),
             ));
             app.update();
@@ -91560,7 +91571,7 @@ mod tests {
             .world_mut()
             .spawn((
                 Name("Crate".to_string()),
-                Transform::from_translation(Vec3::ZERO),
+                Transform::from_position(Vec3::ZERO),
             ))
             .id();
         app.update();

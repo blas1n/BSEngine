@@ -807,7 +807,7 @@ fn run_scripts(world: &mut World) {
                     let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name, &mut Transform)>();
                     q.iter_mut(world).find_map(|(e, n, mut t)| {
                         (n.0 == name).then(|| {
-                            t.translation = Vec3::new(x, y, z).into();
+                            t.position = Vec3::new(x, y, z).into();
                             e
                         })
                     })
@@ -875,7 +875,7 @@ fn run_scripts(world: &mut World) {
                 let mut q = world.query::<(&Name, &mut Transform)>();
                 for (n, mut t) in q.iter_mut(world) {
                     if n.0 == name {
-                        t.translation.0 += Vec3::new(dx, dy, dz);
+                        t.position.0 += Vec3::new(dx, dy, dz);
                         break;
                     }
                 }
@@ -885,7 +885,7 @@ fn run_scripts(world: &mut World) {
                 for (n, mut t) in q.iter_mut(world) {
                     if n.0 == name {
                         let rot = t.rotation;
-                        t.translation.0 += rot.0.mul_vec3(Vec3::new(dx, dy, dz));
+                        t.position.0 += rot.0.mul_vec3(Vec3::new(dx, dy, dz));
                         break;
                     }
                 }
@@ -894,7 +894,7 @@ fn run_scripts(world: &mut World) {
                 let mut q = world.query::<(&Name, &mut Transform)>();
                 for (n, mut t) in q.iter_mut(world) {
                     if n.0 == name {
-                        t.translation.x = x;
+                        t.position.x = x;
                         break;
                     }
                 }
@@ -903,7 +903,7 @@ fn run_scripts(world: &mut World) {
                 let mut q = world.query::<(&Name, &mut Transform)>();
                 for (n, mut t) in q.iter_mut(world) {
                     if n.0 == name {
-                        t.translation.y = y;
+                        t.position.y = y;
                         break;
                     }
                 }
@@ -912,7 +912,7 @@ fn run_scripts(world: &mut World) {
                 let mut q = world.query::<(&Name, &mut Transform)>();
                 for (n, mut t) in q.iter_mut(world) {
                     if n.0 == name {
-                        t.translation.z = z;
+                        t.position.z = z;
                         break;
                     }
                 }
@@ -921,7 +921,7 @@ fn run_scripts(world: &mut World) {
                 let mut q = world.query::<(&Name, &mut Transform)>();
                 for (n, mut t) in q.iter_mut(world) {
                     if n.0 == name {
-                        t.translation.x += dx;
+                        t.position.x += dx;
                         break;
                     }
                 }
@@ -930,7 +930,7 @@ fn run_scripts(world: &mut World) {
                 let mut q = world.query::<(&Name, &mut Transform)>();
                 for (n, mut t) in q.iter_mut(world) {
                     if n.0 == name {
-                        t.translation.y += dy;
+                        t.position.y += dy;
                         break;
                     }
                 }
@@ -939,7 +939,7 @@ fn run_scripts(world: &mut World) {
                 let mut q = world.query::<(&Name, &mut Transform)>();
                 for (n, mut t) in q.iter_mut(world) {
                     if n.0 == name {
-                        t.translation.z += dz;
+                        t.position.z += dz;
                         break;
                     }
                 }
@@ -1347,9 +1347,9 @@ fn run_scripts(world: &mut World) {
                 };
                 if let Some(e) = entity {
                     if let Some(mut t) = world.get_mut::<Transform>(e) {
-                        t.translation.x += dx;
-                        t.translation.y += dy;
-                        t.translation.z += dz;
+                        t.position.x += dx;
+                        t.position.y += dy;
+                        t.position.z += dz;
                     }
                 }
             }
@@ -2852,7 +2852,7 @@ fn spawn_entity(world: &mut World, params: SpawnParams) {
     };
 
     let transform = Transform {
-        translation: Vec3::new(params.x, params.y, params.z).into(),
+        position: Vec3::new(params.x, params.y, params.z).into(),
         rotation: Quat::from_xyzw(params.rx, params.ry, params.rz, params.rw)
             .normalize()
             .into(),
@@ -2884,7 +2884,7 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
     let transform_snapshot: HashMap<String, (Vec3, Quat, Vec3)> = {
         let mut q = world.query::<(&Name, &Transform)>();
         q.iter(world)
-            .map(|(n, t)| (n.0.clone(), (t.translation.0, t.rotation.0, t.scale.0)))
+            .map(|(n, t)| (n.0.clone(), (t.position.0, t.rotation.0, t.scale.0)))
             .collect()
     };
 
@@ -5115,7 +5115,7 @@ mod tests {
         });
         app.world_mut().spawn((
             Name("Hero".to_string()),
-            Transform::from_translation(Vec3::new(5.0, 0.0, 5.0)),
+            Transform::from_position(Vec3::new(5.0, 0.0, 5.0)),
             ScriptPath(script_path.to_string_lossy().to_string()),
         ));
 
@@ -5133,16 +5133,8 @@ mod tests {
         // (which runs `run_scripts`/`onUpdate`). So two `app.update()` calls invoke
         // `onUpdate` twice total (once during update #1, once during update #2), and
         // the (1.0, 0.0, 2.0) delta from `moveEntity` is applied twice: (2.0, 0.0, 4.0).
-        assert!(
-            (t.translation.x - 7.0).abs() < 1e-4,
-            "x: {}",
-            t.translation.x
-        );
-        assert!(
-            (t.translation.z - 9.0).abs() < 1e-4,
-            "z: {}",
-            t.translation.z
-        );
+        assert!((t.position.x - 7.0).abs() < 1e-4, "x: {}", t.position.x);
+        assert!((t.position.z - 9.0).abs() < 1e-4, "z: {}", t.position.z);
 
         let _ = std::fs::remove_file(&script_path);
     }

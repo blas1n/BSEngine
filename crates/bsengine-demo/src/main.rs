@@ -21,7 +21,7 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>, mut 
 
     commands.spawn((
         MeshRenderer { mesh_id },
-        Transform::from_translation(Vec3::new(0.0, 0.0, -4.0)),
+        Transform::from_position(Vec3::new(0.0, 0.0, -4.0)),
         GlobalTransform::default(),
         Material {
             metallic: 0.1,
@@ -32,7 +32,7 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>, mut 
 
     commands.spawn((
         Camera::default(),
-        Transform::from_translation(Vec3::new(0.0, 1.5, 3.0)),
+        Transform::from_position(Vec3::new(0.0, 1.5, 3.0)),
     ));
 
     let dir = Vec3::new(-0.5, -1.0, -0.5).normalize();

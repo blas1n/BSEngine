@@ -3,7 +3,7 @@ SceneDescriptor(entities: [
         name: "Camera",
         camera: true,
         camera_fov: Some(60.0),
-        transform: Some((translation: (0.0, 4.0, 7.0))),
+        transform: Some((position: (0.0, 4.0, 7.0))),
         look_at: Some((0.0, 0.5, 0.0)),
         script: Some((guid: "3997496e-5c62-4993-b921-bcbd075b9b12", path: "assets/scripts/camera.js")),
         components: [
@@ -19,7 +19,7 @@ SceneDescriptor(entities: [
     EntityDescriptor(
         name: "Ground",
         primitive: Some(Cube),
-        transform: Some((translation: (0.0, -0.5, 0.0), scale: (20.0, 1.0, 20.0))),
+        transform: Some((position: (0.0, -0.5, 0.0), scale: (20.0, 1.0, 20.0))),
         color: Some((0.25, 0.28, 0.22)),
         rigidbody: Some(Static),
         collider: Some((shape: Box(hx: 10.0, hy: 0.5, hz: 10.0), friction: 0.7)),
@@ -27,7 +27,7 @@ SceneDescriptor(entities: [
     EntityDescriptor(
         name: "Player",
         gltf: Some((guid: "e6e4ac02-de7e-46ae-a3a9-d3dd1ac62694", path: "assets/models/fox.glb")),
-        transform: Some((translation: (0.0, 0.0, 0.0), scale: (0.02, 0.02, 0.02))),
+        transform: Some((position: (0.0, 0.0, 0.0), scale: (0.02, 0.02, 0.02))),
         rigidbody: Some(Kinematic),
         collider: Some((shape: Capsule(half_height: 0.5, radius: 0.35), friction: 0.3)),
         script: Some((guid: "3ed11a4f-029d-4d48-8d19-e3a2eda7a459", path: "assets/scripts/player.js")),
@@ -67,7 +67,7 @@ SceneDescriptor(entities: [
     EntityDescriptor(
         name: "Enemy",
         gltf: Some((guid: "e6e4ac02-de7e-46ae-a3a9-d3dd1ac62694", path: "assets/models/fox.glb")),
-        transform: Some((translation: (5.0, 0.0, 5.0), scale: (0.02, 0.02, 0.02))),
+        transform: Some((position: (5.0, 0.0, 5.0), scale: (0.02, 0.02, 0.02))),
         rigidbody: Some(Dynamic),
         collider: Some((shape: Capsule(half_height: 0.5, radius: 0.35), friction: 0.3)),
         script: Some((guid: "5eafcc42-9eba-47dd-a0b4-f4a3c60dbb77", path: "assets/scripts/enemy.js")),
@@ -85,7 +85,7 @@ SceneDescriptor(entities: [
     EntityDescriptor(
         name: "Pickup",
         primitive: Some(Sphere),
-        transform: Some((translation: (2.0, 0.8, -2.0), scale: (0.4, 0.4, 0.4))),
+        transform: Some((position: (2.0, 0.8, -2.0), scale: (0.4, 0.4, 0.4))),
         color: Some((0.2, 0.6, 1.0)),
         emissive: Some((0.2, 0.6, 1.0)),
         script: Some((guid: "28c77ead-a2b2-4a44-aad6-2370718af043", path: "assets/scripts/pickup.js")),
@@ -94,7 +94,7 @@ SceneDescriptor(entities: [
     ),
     EntityDescriptor(
         name: "ArenaLight",
-        transform: Some((translation: (0.0, 5.0, 0.0))),
+        transform: Some((position: (0.0, 5.0, 0.0))),
         point_light: Some((color: (1.0, 0.9, 0.8), intensity: 15.0, range: 20.0)),
     ),
     EntityDescriptor(

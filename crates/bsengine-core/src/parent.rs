@@ -18,14 +18,14 @@ mod tests {
 
         let parent = world
             .spawn((
-                crate::Transform::from_translation(glam::Vec3::new(1.0, 0.0, 0.0)),
+                crate::Transform::from_position(glam::Vec3::new(1.0, 0.0, 0.0)),
                 crate::GlobalTransform::default(),
             ))
             .id();
 
         let child = world
             .spawn((
-                crate::Transform::from_translation(glam::Vec3::new(0.0, 1.0, 0.0)),
+                crate::Transform::from_position(glam::Vec3::new(0.0, 1.0, 0.0)),
                 crate::GlobalTransform::default(),
                 Parent(parent),
             ))

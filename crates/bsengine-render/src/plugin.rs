@@ -60,7 +60,7 @@ fn compute_light_view_proj(light_dir: Vec3) -> Mat4 {
 fn spot_light_entry(sl: &SpotLight, gt: Option<&GlobalTransform>, t: &Transform) -> SpotLightEntry {
     let pos = gt
         .map(|g| g.to_matrix().w_axis.truncate())
-        .unwrap_or(t.translation.0);
+        .unwrap_or(t.position.0);
     let dir = gt
         .map(|g| -glam::Mat3::from_mat4(g.to_matrix()).z_axis)
         .unwrap_or_else(|| t.rotation.0 * Vec3::NEG_Z);
@@ -641,7 +641,7 @@ fn render_frame(
                 let proj = cam.projection_matrix();
                 (
                     proj * t.view_matrix(),
-                    t.translation.0,
+                    t.position.0,
                     proj,
                     b.copied(),
                     tm.copied(),
@@ -721,7 +721,7 @@ fn render_frame(
         .map(|(pl, gt, t)| {
             let pos = gt
                 .map(|g| g.to_matrix().w_axis.truncate())
-                .unwrap_or(t.translation.0);
+                .unwrap_or(t.position.0);
             PointLightEntry {
                 position: pos,
                 color: *pl.color,
@@ -1627,7 +1627,7 @@ mod tests {
                 intensity: 2.0,
                 range: 5.0,
             },
-            Transform::from_translation(Vec3::new(0.0, 2.0, 0.0)),
+            Transform::from_position(Vec3::new(0.0, 2.0, 0.0)),
         ));
         app.update();
     }
@@ -1640,7 +1640,7 @@ mod tests {
         app.add_plugins(RenderPlugin);
         app.world_mut().spawn((
             MeshRenderer { mesh_id: 999 },
-            Transform::from_translation(Vec3::ZERO),
+            Transform::from_position(Vec3::ZERO),
             Material {
                 metallic: 0.8,
                 roughness: 0.2,
@@ -1665,7 +1665,7 @@ mod tests {
                 range: 12.0,
                 ..Default::default()
             },
-            Transform::from_translation(Vec3::new(0.0, 5.0, 0.0)),
+            Transform::from_position(Vec3::new(0.0, 5.0, 0.0)),
         ));
         app.update();
     }
@@ -1679,7 +1679,7 @@ mod tests {
             outer_angle_degrees: 60.0.into(),
             ..SpotLight::default()
         };
-        let t = Transform::from_translation(Vec3::new(0.0, 5.0, 0.0));
+        let t = Transform::from_position(Vec3::new(0.0, 5.0, 0.0));
 
         let entry = super::spot_light_entry(&sl, None, &t);
 

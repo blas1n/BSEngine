@@ -25,9 +25,9 @@ pub struct TransformData {
 impl TransformData {
     pub fn from_transform(t: &Transform) -> Self {
         Self {
-            px: t.translation.x,
-            py: t.translation.y,
-            pz: t.translation.z,
+            px: t.position.x,
+            py: t.position.y,
+            pz: t.position.z,
             rx: t.rotation.x,
             ry: t.rotation.y,
             rz: t.rotation.z,
@@ -40,7 +40,7 @@ impl TransformData {
 
     pub fn to_transform(self) -> Transform {
         Transform {
-            translation: Vec3::new(self.px, self.py, self.pz).into(),
+            position: Vec3::new(self.px, self.py, self.pz).into(),
             rotation: Quat::from_xyzw(self.rx, self.ry, self.rz, self.rw)
                 .normalize()
                 .into(),
@@ -125,7 +125,7 @@ mod tests {
     #[test]
     fn transform_data_roundtrip() {
         let t = Transform {
-            translation: Vec3::new(1.0, 2.0, 3.0).into(),
+            position: Vec3::new(1.0, 2.0, 3.0).into(),
             rotation: Quat::from_xyzw(0.0, 0.0, 0.0, 1.0).into(),
             scale: Vec3::ONE.into(),
         };
@@ -133,7 +133,7 @@ mod tests {
         let bytes = td.to_bytes();
         let td2 = TransformData::from_bytes(&bytes);
         let t2 = td2.to_transform();
-        assert!((t.translation.0 - t2.translation.0).length() < 1e-5);
+        assert!((t.position.0 - t2.position.0).length() < 1e-5);
         assert!((t.scale.0 - t2.scale.0).length() < 1e-5);
     }
 

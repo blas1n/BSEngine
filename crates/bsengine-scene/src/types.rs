@@ -266,6 +266,17 @@ pub struct EntityDescriptor {
     /// Collision shape and material; requires `rigidbody` to also be set to take effect.
     #[serde(default)]
     pub collider: Option<ColliderDesc>,
+    /// Per-second linear damping for a dynamic body — how fast it sheds speed
+    /// with nothing pushing it.
+    ///
+    /// `RigidBody` has carried this field all along; until now the scene format
+    /// had no way to say it, so every scene-built dynamic body had zero damping
+    /// and slid until something stopped it. Absent means the engine default.
+    #[serde(default)]
+    pub linear_damping: Option<f32>,
+    /// Angular counterpart to [`linear_damping`](EntityDescriptor::linear_damping).
+    #[serde(default)]
+    pub angular_damping: Option<f32>,
     /// Reflected components not covered by this struct's own typed fields
     /// (e.g. `AnimationStateMachine`, `NavMeshAgent`, `Shield`, `Bloom`,
     /// `ToneMap`), as (fully-qualified type path, RON-encoded value) pairs.
@@ -283,7 +294,7 @@ pub struct EntityDescriptor {
 pub struct TransformDescriptor {
     /// World-space position as [x, y, z]. Defaults to the origin.
     #[serde(default)]
-    pub translation: [f32; 3],
+    pub position: [f32; 3],
     /// Quaternion as [x, y, z, w].  Defaults to identity.
     #[serde(default = "default_rotation")]
     pub rotation: [f32; 4],
@@ -295,7 +306,7 @@ pub struct TransformDescriptor {
 impl Default for TransformDescriptor {
     fn default() -> Self {
         Self {
-            translation: [0.0, 0.0, 0.0],
+            position: [0.0, 0.0, 0.0],
             rotation: default_rotation(),
             scale: default_scale(),
         }
@@ -411,6 +422,10 @@ pub struct PhysicsBodyDesc {
     pub rigidbody: RigidBodyDesc,
     /// Collision shape and material for this body.
     pub collider: ColliderDesc,
+    /// Per-second linear damping, or `None` for the engine default.
+    pub linear_damping: Option<f32>,
+    /// Per-second angular damping, or `None` for the engine default.
+    pub angular_damping: Option<f32>,
 }
 
 /// Signals a runtime scene transition was requested via script.
@@ -506,7 +521,7 @@ mod tests {
             EntityDescriptor(
                 name: "Cube",
                 transform: Some((
-                    translation: (1.0, 2.0, 3.0),
+                    position: (1.0, 2.0, 3.0),
                     rotation: (0.0, 0.0, 0.0, 1.0),
                     scale: (1.0, 1.0, 1.0),
                 )),
@@ -515,7 +530,7 @@ mod tests {
         "#;
         let entity: EntityDescriptor = ron::from_str(ron_str).unwrap();
         let t = entity.transform.unwrap();
-        assert_eq!(t.translation, [1.0, 2.0, 3.0]);
+        assert_eq!(t.position, [1.0, 2.0, 3.0]);
         assert_eq!(
             entity.gltf.as_ref().map(AssetRef::path),
             Some("models/cube.gltf")
@@ -646,7 +661,7 @@ mod tests {
     #[test]
     fn transform_descriptor_default() {
         let t = TransformDescriptor::default();
-        assert_eq!(t.translation, [0.0, 0.0, 0.0]);
+        assert_eq!(t.position, [0.0, 0.0, 0.0]);
         assert_eq!(t.rotation, [0.0, 0.0, 0.0, 1.0]);
         assert_eq!(t.scale, [1.0, 1.0, 1.0]);
     }

@@ -77,9 +77,9 @@ pub fn save_world(world: &mut World, path: &str) -> Result<(), String> {
             EntitySave {
                 name: name.0.clone(),
                 transform: TransformSave {
-                    x: transform.translation.x,
-                    y: transform.translation.y,
-                    z: transform.translation.z,
+                    x: transform.position.x,
+                    y: transform.position.y,
+                    z: transform.position.z,
                     rx: transform.rotation.x,
                     ry: transform.rotation.y,
                     rz: transform.rotation.z,
@@ -127,7 +127,7 @@ pub fn load_world(world: &mut World, path: &str) -> Result<(), String> {
 
         if let Some(entity) = entity {
             if let Some(mut t) = world.get_mut::<Transform>(entity) {
-                t.translation = Vec3::new(ts.x, ts.y, ts.z).into();
+                t.position = Vec3::new(ts.x, ts.y, ts.z).into();
                 t.rotation = Quat::from_xyzw(ts.rx, ts.ry, ts.rz, ts.rw).into();
                 t.scale = Vec3::new(ts.sx, ts.sy, ts.sz).into();
             }
@@ -142,7 +142,7 @@ pub fn load_world(world: &mut World, path: &str) -> Result<(), String> {
             let mut spawned = world.spawn((
                 Name(es.name.clone()),
                 Transform {
-                    translation: Vec3::new(ts.x, ts.y, ts.z).into(),
+                    position: Vec3::new(ts.x, ts.y, ts.z).into(),
                     rotation: Quat::from_xyzw(ts.rx, ts.ry, ts.rz, ts.rw).into(),
                     scale: Vec3::new(ts.sx, ts.sy, ts.sz).into(),
                 },
@@ -207,7 +207,7 @@ mod tests {
         let mut world = World::new();
         world.spawn((
             Name("player".to_string()),
-            Transform::from_translation(Vec3::new(1.0, 2.0, 3.0)),
+            Transform::from_position(Vec3::new(1.0, 2.0, 3.0)),
         ));
 
         let path = temp_path("round_trip");
@@ -222,9 +222,9 @@ mod tests {
             .next()
             .expect("entity must exist after load");
         assert_eq!(name.0, "player");
-        assert!((t.translation.x - 1.0).abs() < 1e-5);
-        assert!((t.translation.y - 2.0).abs() < 1e-5);
-        assert!((t.translation.z - 3.0).abs() < 1e-5);
+        assert!((t.position.x - 1.0).abs() < 1e-5);
+        assert!((t.position.y - 2.0).abs() < 1e-5);
+        assert!((t.position.z - 3.0).abs() < 1e-5);
 
         let _ = fs::remove_file(&path);
     }
@@ -235,7 +235,7 @@ mod tests {
         world.spawn(Name("nameless".to_string()));
         world.spawn((
             Name("located".to_string()),
-            Transform::from_translation(Vec3::X),
+            Transform::from_position(Vec3::X),
         ));
 
         let path = temp_path("skip_notransform");
@@ -255,7 +255,7 @@ mod tests {
         let entity = world
             .spawn((
                 Name("hero".to_string()),
-                Transform::from_translation(Vec3::ZERO),
+                Transform::from_position(Vec3::ZERO),
             ))
             .id();
 
@@ -285,7 +285,7 @@ mod tests {
 
         let t = world.get::<Transform>(entity).unwrap();
         assert!(
-            (t.translation.x - 5.0).abs() < 1e-5,
+            (t.position.x - 5.0).abs() < 1e-5,
             "x should be updated to 5"
         );
 
@@ -323,7 +323,7 @@ mod tests {
         let mut q = world.query::<(&Name, &Transform)>();
         let (name, t) = q.iter(&world).next().expect("entity must be spawned");
         assert_eq!(name.0, "new_entity");
-        assert!((t.translation.y - 10.0).abs() < 1e-5);
+        assert!((t.position.y - 10.0).abs() < 1e-5);
 
         let _ = fs::remove_file(&path);
     }

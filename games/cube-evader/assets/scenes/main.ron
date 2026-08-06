@@ -3,7 +3,7 @@ SceneDescriptor(entities: [
         name: "Camera",
         camera: true,
         transform: Some((
-            translation: (0.0, 18.0, 0.0),
+            position: (0.0, 18.0, 0.0),
             rotation: (-0.7071, 0.0, 0.0, 0.7071),
         )),
     ),
@@ -18,7 +18,7 @@ SceneDescriptor(entities: [
         name: "Floor",
         primitive: Some(Cube),
         transform: Some((
-            translation: (0.0, -0.5, 0.0),
+            position: (0.0, -0.5, 0.0),
             scale: (20.0, 0.2, 20.0),
         )),
     ),
@@ -26,7 +26,7 @@ SceneDescriptor(entities: [
         name: "Player",
         primitive: Some(Cube),
         transform: Some((
-            translation: (0.0, 0.5, 0.0),
+            position: (0.0, 0.5, 0.0),
         )),
         script: Some((guid: "7cb7424f-31b5-44a8-9160-eb9678edff28", path: "assets/scripts/player.js")),
         emissive: Some((0.6, 0.6, 0.0)),
@@ -35,7 +35,7 @@ SceneDescriptor(entities: [
         name: "Enemy1",
         primitive: Some(Cube),
         transform: Some((
-            translation: (5.0, 0.5, 0.0),
+            position: (5.0, 0.5, 0.0),
         )),
         emissive: Some((0.6, 0.0, 0.0)),
     ),
@@ -43,7 +43,7 @@ SceneDescriptor(entities: [
         name: "Enemy2",
         primitive: Some(Cube),
         transform: Some((
-            translation: (-5.0, 0.5, 3.0),
+            position: (-5.0, 0.5, 3.0),
         )),
         emissive: Some((0.6, 0.0, 0.0)),
     ),
@@ -51,7 +51,7 @@ SceneDescriptor(entities: [
         name: "Enemy3",
         primitive: Some(Cube),
         transform: Some((
-            translation: (0.0, 0.5, -5.0),
+            position: (0.0, 0.5, -5.0),
         )),
         emissive: Some((0.6, 0.0, 0.0)),
     ),

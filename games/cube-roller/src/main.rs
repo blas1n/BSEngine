@@ -56,7 +56,7 @@ fn main() {
 fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
     commands.spawn((
         Camera::perspective(60.0, 16.0 / 9.0),
-        Transform::from_translation(Vec3::new(0.0, 8.0, 12.0)),
+        Transform::from_position(Vec3::new(0.0, 8.0, 12.0)),
     ));
 
     commands.spawn((
@@ -78,7 +78,7 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
     commands.spawn((
         MeshRenderer { mesh_id: cube_id },
         Transform {
-            translation: Vec3::new(0.0, -0.5, 0.0).into(),
+            position: Vec3::new(0.0, -0.5, 0.0).into(),
             rotation: Quat::IDENTITY.into(),
             scale: Vec3::new(20.0, 0.2, 20.0).into(),
         },
@@ -86,7 +86,7 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
         RigidBody::fixed(),
         Collider::cuboid(10.0, 0.1, 10.0),
         PhysicsInput {
-            translation: Vec3::new(0.0, -0.5, 0.0).into(),
+            position: Vec3::new(0.0, -0.5, 0.0).into(),
             rotation: Quat::IDENTITY.into(),
         },
         PhysicsTransform::default(),
@@ -97,7 +97,7 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
         Player,
         MeshRenderer { mesh_id: cube_id },
         Transform {
-            translation: Vec3::new(0.0, FLOOR_Y, 0.0).into(),
+            position: Vec3::new(0.0, FLOOR_Y, 0.0).into(),
             rotation: Quat::IDENTITY.into(),
             scale: Vec3::ONE.into(),
         },
@@ -108,7 +108,7 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
         },
         Collider::cuboid(0.5, 0.5, 0.5),
         PhysicsInput {
-            translation: Vec3::new(0.0, FLOOR_Y, 0.0).into(),
+            position: Vec3::new(0.0, FLOOR_Y, 0.0).into(),
             rotation: Quat::IDENTITY.into(),
         },
         PhysicsTransform::default(),
@@ -126,7 +126,7 @@ fn setup(mut commands: Commands, registry: Option<ResMut<GpuMeshRegistry>>) {
             Item,
             MeshRenderer { mesh_id: cube_id },
             Transform {
-                translation: pos.into(),
+                position: pos.into(),
                 rotation: Quat::IDENTITY.into(),
                 scale: Vec3::splat(0.4).into(),
             },
@@ -193,7 +193,7 @@ fn collect_items(
     };
 
     for (entity, item_t) in items.iter() {
-        if (player_t.translation.0 - item_t.translation.0).length() < COLLECT_DIST {
+        if (player_t.position.0 - item_t.position.0).length() < COLLECT_DIST {
             commands.entity(entity).despawn();
             *score += 1;
             println!("Score: {}", *score);
@@ -205,7 +205,7 @@ fn respawn(query: Query<(Entity, &Transform), With<Player>>, mut physics: ResMut
     let Ok((entity, t)) = query.get_single() else {
         return;
     };
-    if t.translation.y < RESPAWN_Y {
+    if t.position.y < RESPAWN_Y {
         // Teleporting a dynamic body means telling Rapier, not writing
         // `Transform` — the physics step is what drives `Transform` here, so a
         // write to it would be overwritten on the very next frame.

@@ -28,7 +28,7 @@ fn tick_tweens(mut query: Query<(&mut Tween, &mut Transform)>, time: Res<Time>) 
 
         match &tween.target {
             TweenTarget::Translation { from, to } => {
-                transform.translation = from.lerp(to.0, eased_t).into();
+                transform.position = from.lerp(to.0, eased_t).into();
             }
             TweenTarget::Rotation { from, to } => {
                 transform.rotation = from.slerp(to.0, eased_t).into();
@@ -97,7 +97,7 @@ mod tests {
         app.update();
 
         let transform = app.world().get::<Transform>(entity).unwrap();
-        assert!((transform.translation.x - 5.0).abs() < 0.01);
+        assert!((transform.position.x - 5.0).abs() < 0.01);
     }
 
     #[test]
@@ -244,6 +244,6 @@ mod tests {
 
         let transform = app.world().get::<Transform>(entity).unwrap();
         // EaseInQuad at t=0.5 is 0.25
-        assert!((transform.translation.x - 0.25).abs() < 0.01);
+        assert!((transform.position.x - 0.25).abs() < 0.01);
     }
 }

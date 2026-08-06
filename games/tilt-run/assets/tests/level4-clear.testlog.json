@@ -4,7 +4,7 @@
   "actions": [
     { "cmd": "step", "frames": 1300 },
     { "cmd": "press_key", "key": "W" },
-    { "cmd": "step", "frames": 20 },
+    { "cmd": "step", "frames": 60 },
     { "cmd": "release_key", "key": "W" },
     { "cmd": "step", "frames": 300 },
     {

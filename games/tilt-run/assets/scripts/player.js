@@ -1,4 +1,10 @@
-const FORCE_MAGNITUDE = 0.045;
+// Newtons, applied for the one step it is added to. The old value was 0.045 --
+// fifty times smaller -- because forces used to survive the step and pile up,
+// so holding a key ramped the push from 0.045 to whatever the hold was long
+// enough to reach, and releasing the key never took it away. The ball weighs
+// about 0.52kg, so 2.5N is roughly 3.4 m/s^2 once a sphere's rolling inertia is
+// paid for: a couple of seconds of holding W to cross a level.
+const FORCE_MAGNITUDE = 2.5;
 const FALL_Y_THRESHOLD = -5.0;
 
 let startX = null;

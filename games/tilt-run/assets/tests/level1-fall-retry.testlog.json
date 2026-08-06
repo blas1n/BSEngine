@@ -3,7 +3,7 @@
   "scene": "assets/scenes/level1.ron",
   "actions": [
     { "cmd": "press_key", "key": "D" },
-    { "cmd": "step", "frames": 25 },
+    { "cmd": "step", "frames": 60 },
     { "cmd": "release_key", "key": "D" },
     { "cmd": "step", "frames": 225 },
     {

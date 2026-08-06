@@ -578,4 +578,136 @@ mod tests {
             "character should still be upright; up vector is {up:?}"
         );
     }
+
+    /// Spawns a dynamic ball with nothing else in the world, one step in, so it
+    /// already has a Rapier body. Force is applied along X, where gravity is
+    /// not, so the numbers below are the force's doing alone.
+    fn spawn_free_body(app: &mut App) -> Entity {
+        let entity = app
+            .world_mut()
+            .spawn((
+                Transform::from_position(Vec3::ZERO),
+                RigidBody::dynamic(),
+                Collider::ball(0.5),
+                PhysicsInput {
+                    position: Vec3::ZERO.into(),
+                    rotation: Quat::IDENTITY.into(),
+                },
+            ))
+            .id();
+        app.update();
+        entity
+    }
+
+    #[test]
+    fn the_same_force_every_step_produces_the_same_acceleration_every_step() {
+        let mut app = new_app();
+        app.add_plugins(PhysicsPlugin);
+        let body = spawn_free_body(&mut app);
+
+        // Hold a constant force for four steps and record what each step adds.
+        let mut deltas = Vec::new();
+        let mut previous = 0.0;
+        for _ in 0..4 {
+            app.world_mut()
+                .resource_mut::<PhysicsWorld>()
+                .apply_force(body, Vec3::X * 10.0);
+            app.update();
+            let vx = app
+                .world()
+                .resource::<PhysicsWorld>()
+                .get_linvel(body)
+                .unwrap()
+                .x;
+            deltas.push(vx - previous);
+            previous = vx;
+        }
+
+        // F = ma with a constant F is a constant a, so every step adds the same
+        // velocity. Rapier does not reset forces itself: without the reset in
+        // `PhysicsWorld::step`, step n carries the sum of steps 1..n and these
+        // deltas come out 1:2:3:4 -- the last one four times the first.
+        let first = deltas[0];
+        assert!(first > 0.0, "the force should have moved the body at all");
+        for (i, delta) in deltas.iter().enumerate() {
+            assert!(
+                (delta - first).abs() < first * 0.01,
+                "step {} added {delta} but step 1 added {first}; a constant force \
+                 must not accelerate harder the longer it is held. All deltas: {deltas:?}",
+                i + 1
+            );
+        }
+    }
+
+    #[test]
+    fn the_same_torque_every_step_produces_the_same_angular_acceleration() {
+        let mut app = new_app();
+        app.add_plugins(PhysicsPlugin);
+        let body = spawn_free_body(&mut app);
+
+        let mut deltas = Vec::new();
+        let mut previous = 0.0;
+        for _ in 0..4 {
+            app.world_mut()
+                .resource_mut::<PhysicsWorld>()
+                .add_torque(body, Vec3::Y * 10.0);
+            app.update();
+            let wy = app
+                .world()
+                .resource::<PhysicsWorld>()
+                .get_angvel(body)
+                .unwrap()
+                .y;
+            deltas.push(wy - previous);
+            previous = wy;
+        }
+
+        let first = deltas[0];
+        assert!(first > 0.0, "the torque should have spun the body at all");
+        for (i, delta) in deltas.iter().enumerate() {
+            assert!(
+                (delta - first).abs() < first * 0.01,
+                "step {} added {delta} but step 1 added {first}; torque accumulates \
+                 the same way force does. All deltas: {deltas:?}",
+                i + 1
+            );
+        }
+    }
+
+    #[test]
+    fn a_force_applied_once_acts_once() {
+        let mut app = new_app();
+        app.add_plugins(PhysicsPlugin);
+        let body = spawn_free_body(&mut app);
+
+        app.world_mut()
+            .resource_mut::<PhysicsWorld>()
+            .apply_force(body, Vec3::X * 10.0);
+        app.update();
+        let after_one = app
+            .world()
+            .resource::<PhysicsWorld>()
+            .get_linvel(body)
+            .unwrap()
+            .x;
+
+        // Nothing applies force now. A body coasting with no damping keeps its
+        // velocity; a body still being pushed by last frame's force gains more.
+        for _ in 0..10 {
+            app.update();
+        }
+        let after_eleven = app
+            .world()
+            .resource::<PhysicsWorld>()
+            .get_linvel(body)
+            .unwrap()
+            .x;
+
+        assert!(
+            (after_eleven - after_one).abs() < after_one * 0.01,
+            "one call to apply_force should push for one step, but velocity went \
+             from {after_one} to {after_eleven} over ten further steps with no \
+             force applied"
+        );
+    }
 }

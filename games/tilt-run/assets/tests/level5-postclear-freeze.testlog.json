@@ -13,7 +13,7 @@
       "label": "waited for the obstacle to swing out to the far -x end of its lane before launching — the ball's roll from the start floor to the obstacle line takes very nearly two full swings, so launching at that end is what puts the obstacle back at that same end, clear of the ball's x~0 lane, at the moment the ball actually arrives"
     },
     { "cmd": "press_key", "key": "W" },
-    { "cmd": "step", "frames": 18 },
+    { "cmd": "step", "frames": 40 },
     { "cmd": "release_key", "key": "W" },
     {
       "cmd": "wait_until",

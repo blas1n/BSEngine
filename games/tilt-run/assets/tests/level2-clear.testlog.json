@@ -5,14 +5,22 @@
     { "cmd": "press_key", "key": "W" },
     { "cmd": "step", "frames": 155 },
     { "cmd": "release_key", "key": "W" },
-    { "cmd": "step", "frames": 30 },
+    { "cmd": "step", "frames": 90 },
     {
       "cmd": "assert",
       "query": { "tool": "get_transform", "args": { "name": "Ball" } },
       "path": "z",
       "op": ">",
       "value": 9.0,
-      "label": "ball crossed the bridge, goal collision fired, and loadScene respawned Ball at level 3's start (z=10)"
+      "label": "ball is back at a level start (z=10) rather than somewhere along level 2's course"
+    },
+    {
+      "cmd": "assert",
+      "query": { "tool": "get_transform", "args": { "name": "MovingPlatform" } },
+      "path": "y",
+      "op": ">",
+      "value": -1.0,
+      "label": "level 3 is the scene that got loaded -- MovingPlatform exists only there, so this fails if the goal never fired. The z assertion above cannot tell: level 2 and level 3 both start the ball at z=10, so it was true before this recording pressed a key"
     }
   ]
 }

@@ -172,24 +172,6 @@ fn sample_scale(channel: &AnimationChannel, time: f32) -> Option<Vec3> {
     })
 }
 
-/// Composes every node's current LOCAL transform: the clip's sampled value
-/// for translation/rotation/scale if `channels` has an entry targeting that
-/// node, otherwise the node's rest/bind-pose value from `nodes`.
-fn compute_local_transforms(
-    nodes: &[NodeTransform],
-    channels: &[AnimationChannel],
-    time: f32,
-) -> Vec<Mat4> {
-    nodes
-        .iter()
-        .enumerate()
-        .map(|(node_index, rest)| {
-            let (t, r, s) = sample_node_trs(node_index, rest, channels, time);
-            Mat4::from_scale_rotation_translation(s, r, t)
-        })
-        .collect()
-}
-
 /// One node's animated translation/rotation/scale at `time`, falling back to
 /// its rest value for anything the clip does not drive.
 fn sample_node_trs(
@@ -342,25 +324,6 @@ fn blend_samples<'a>(
 /// number of passes rather than a proper topological sort, matching the same
 /// pattern `bsengine_core::propagate_global_transforms` already uses for
 /// parent/child Transform hierarchies in this codebase.
-fn compute_joint_matrices(
-    nodes: &[NodeTransform],
-    skin: &SkinData,
-    channels: &[AnimationChannel],
-    time: f32,
-) -> Vec<Mat4> {
-    compute_joint_matrices_blended(
-        nodes,
-        skin,
-        &[ClipSample {
-            channels,
-            time,
-            weight: 1.0,
-        }],
-    )
-}
-
-/// As [`compute_joint_matrices`], but composing the pose from several weighted
-/// clips instead of one.
 fn compute_joint_matrices_blended(
     nodes: &[NodeTransform],
     skin: &SkinData,
@@ -813,7 +776,8 @@ mod tests {
                 weight: 1.0,
             }],
         );
-        let plain = compute_local_transforms(&nodes, &a, 0.0);
+        let (t, r, sc) = sample_node_trs(0, &nodes[0], &a, 0.0);
+        let plain = [Mat4::from_scale_rotation_translation(sc, r, t)];
         assert!(
             blended[0].abs_diff_eq(plain[0], 0.0001),
             "blending one clip must equal sampling it: {:?} vs {:?}",
@@ -847,7 +811,7 @@ mod tests {
             joint_node_indices: vec![0],
             inverse_bind_matrices: vec![Mat4::IDENTITY.to_cols_array_2d()],
         };
-        let matrices = compute_joint_matrices(&nodes, &skin, &[], 0.0);
+        let matrices = compute_joint_matrices_blended(&nodes, &skin, &[]);
         let expected = Mat4::from_translation(Vec3::new(1.0, 0.0, 0.0));
         assert!(matrices[0].abs_diff_eq(expected, 0.001));
     }
@@ -872,7 +836,7 @@ mod tests {
             joint_node_indices: vec![1],
             inverse_bind_matrices: vec![Mat4::IDENTITY.to_cols_array_2d()],
         };
-        let matrices = compute_joint_matrices(&nodes, &skin, &[], 0.0);
+        let matrices = compute_joint_matrices_blended(&nodes, &skin, &[]);
         let world_pos = matrices[0].transform_point3(Vec3::ZERO);
         assert!(world_pos.abs_diff_eq(Vec3::new(1.0, 2.0, 0.0), 0.001));
     }

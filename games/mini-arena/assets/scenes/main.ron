@@ -34,9 +34,9 @@ SceneDescriptor(entities: [
         components: [
             ("bsengine_core::animation_state_machine::AnimationStateMachine", r#"(
                 states: {
-                    "idle": (clip: "Survey", looping: true, speed: 1.0, duration: 1.0),
-                    "walk": (clip: "Walk", looping: true, speed: 1.0, duration: 1.0),
-                    "run": (clip: "Run", looping: true, speed: 1.0, duration: 1.0),
+                    "idle": (clip: "Survey", blend: None, looping: true, speed: 1.0, duration: 1.0),
+                    "walk": (clip: "Walk", blend: None, looping: true, speed: 1.0, duration: 1.0),
+                    "run": (clip: "Run", blend: None, looping: true, speed: 1.0, duration: 1.0),
                 },
                 transitions: [
                     (from: "idle", to: "walk", condition: FloatGreater(param: "speed", threshold: 0.1), blend_duration: 0.15),

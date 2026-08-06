@@ -4,12 +4,88 @@ use bevy_ecs::prelude::{Component, ReflectComponent};
 use bevy_reflect::prelude::ReflectDefault;
 use bevy_reflect::Reflect;
 
+/// One clip's place along a [`BlendTree1D`]'s parameter axis.
+#[derive(Debug, Clone, PartialEq, Default, Reflect)]
+pub struct BlendClip {
+    /// Name/identifier of the animation clip.
+    pub clip: String,
+    /// The parameter value at which this clip plays alone.
+    pub threshold: f32,
+}
+
+/// Blends several clips along one continuous parameter — a 1D blend space.
+///
+/// At a parameter value between two thresholds the two neighbouring clips play
+/// together, weighted by how close the value sits to each. Below the lowest
+/// threshold or above the highest, the end clip plays alone.
+///
+/// This is what a state uses instead of a single clip when the motion is a
+/// continuum rather than a set of poses: walking does not become running at a
+/// threshold, it becomes running gradually, and a crossfade between the two
+/// only looks right for the instant it is halfway.
+#[derive(Debug, Clone, PartialEq, Default, Reflect)]
+pub struct BlendTree1D {
+    /// Name of the float parameter driving the blend, read from
+    /// [`AnimationStateMachine::params_float`].
+    pub param: String,
+    /// The clips along the axis. Sorted by threshold when sampled, so scene
+    /// files do not have to be written in order.
+    pub clips: Vec<BlendClip>,
+}
+
+impl BlendTree1D {
+    /// The clips contributing at `value`, each with its weight.
+    ///
+    /// Returns one entry when the value sits on or past an end of the axis, and
+    /// two while between thresholds. An empty tree returns nothing, which the
+    /// caller treats as "play the state's own clip".
+    pub fn sample(&self, value: f32) -> Vec<(String, f32)> {
+        let mut sorted: Vec<&BlendClip> = self.clips.iter().collect();
+        sorted.sort_by(|a, b| {
+            a.threshold
+                .partial_cmp(&b.threshold)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let Some(&first) = sorted.first() else {
+            return Vec::new();
+        };
+        if value <= first.threshold {
+            return vec![(first.clip.clone(), 1.0)];
+        }
+        let last = sorted[sorted.len() - 1];
+        if value >= last.threshold {
+            return vec![(last.clip.clone(), 1.0)];
+        }
+        for pair in sorted.windows(2) {
+            let (lo, hi) = (pair[0], pair[1]);
+            if value >= lo.threshold && value <= hi.threshold {
+                let span = hi.threshold - lo.threshold;
+                // Equal thresholds would divide by zero; treat the pair as a
+                // step and let the upper clip take it.
+                if span <= f32::EPSILON {
+                    return vec![(hi.clip.clone(), 1.0)];
+                }
+                let t = (value - lo.threshold) / span;
+                return vec![(lo.clip.clone(), 1.0 - t), (hi.clip.clone(), t)];
+            }
+        }
+        vec![(last.clip.clone(), 1.0)]
+    }
+}
+
 /// A single named animation state within an [`AnimationStateMachine`], describing
 /// which clip plays and how, while that state is active.
 #[derive(Debug, Clone, Reflect)]
 pub struct AsmState {
     /// Name/identifier of the animation clip this state plays.
+    ///
+    /// Ignored when [`blend`](AsmState::blend) is set.
     pub clip: String,
+    /// A blend space to play instead of the single [`clip`](AsmState::clip).
+    ///
+    /// Optional and defaulted so every scene written before blend trees
+    /// existed keeps parsing unchanged.
+    pub blend: Option<BlendTree1D>,
     /// Whether the clip wraps back to the start after reaching `duration`.
     pub looping: bool,
     /// Playback rate multiplier (1.0 = normal speed).
@@ -23,10 +99,17 @@ impl AsmState {
     pub fn new(clip: impl Into<String>) -> Self {
         Self {
             clip: clip.into(),
+            blend: None,
             looping: true,
             speed: 1.0,
             duration: 0.0,
         }
+    }
+
+    /// Makes this state play a blend space instead of its single clip.
+    pub fn with_blend(mut self, blend: BlendTree1D) -> Self {
+        self.blend = Some(blend);
+        self
     }
 
     /// Sets whether the clip loops when it reaches the end.

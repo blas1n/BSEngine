@@ -291,30 +291,112 @@ fn blend_samples<'a>(
     time: f32,
     asm: Option<&bsengine_core::AnimationStateMachine>,
 ) -> Vec<ClipSample<'a>> {
-    let mut samples = vec![ClipSample {
-        channels: &current.channels,
-        time,
-        weight: 1.0,
-    }];
     let Some(asm) = asm else {
-        return samples;
+        return vec![ClipSample {
+            channels: &current.channels,
+            time,
+            weight: 1.0,
+        }];
     };
-    let Some(from_clip) = asm
-        .blend_from
-        .as_ref()
-        .and_then(|state| asm.states.get(state))
-        .and_then(|state| library.clips.get(&state.clip))
-    else {
-        return samples;
-    };
+
     let w = asm.blend_weight.clamp(0.0, 1.0);
-    samples[0].weight = w;
-    samples.push(ClipSample {
-        channels: &from_clip.channels,
+    let crossfading = asm.blend_from.is_some();
+
+    let mut samples = Vec::new();
+    push_state_samples(
+        &mut samples,
+        asm.states.get(&asm.current_state),
+        current,
+        library,
+        asm,
         time,
-        weight: 1.0 - w,
-    });
+        if crossfading { w } else { 1.0 },
+    );
+    if crossfading {
+        let from = asm.blend_from.as_ref().and_then(|s| asm.states.get(s));
+        // No fallback clip for the state being left: if its clip is missing
+        // there is nothing to blend out of, and contributing `current` again
+        // under the leaving state's weight would just dim the pose.
+        let before = samples.len();
+        push_state_samples(&mut samples, from, current, library, asm, time, 1.0 - w);
+        if samples.len() == before {
+            // Nothing came from the leaving state, so the entering one is the
+            // whole pose rather than a fraction of it.
+            for sample in &mut samples {
+                sample.weight = 1.0;
+            }
+        }
+    }
+    if samples.is_empty() {
+        samples.push(ClipSample {
+            channels: &current.channels,
+            time,
+            weight: 1.0,
+        });
+    }
     samples
+}
+
+/// Appends one state's contribution, scaled by `scale`.
+///
+/// A state with a blend tree contributes the clips that tree names at the
+/// current parameter value — one or two of them. A state without one
+/// contributes its single clip. `fallback` is what `AnimationPlayer` is already
+/// playing, used when the state names a clip the model does not have, so a
+/// mismatch degrades to "keep animating" rather than to a frozen half pose.
+#[allow(clippy::too_many_arguments)]
+fn push_state_samples<'a>(
+    out: &mut Vec<ClipSample<'a>>,
+    state: Option<&bsengine_core::AsmState>,
+    fallback: &'a AnimationClip,
+    library: &'a AnimationClipLibrary,
+    asm: &bsengine_core::AnimationStateMachine,
+    time: f32,
+    scale: f32,
+) {
+    if scale <= f32::EPSILON {
+        return;
+    }
+    // A state name that is not in the graph contributes nothing at all. It is
+    // tempting to fall back to `fallback` here, but that clip is what the
+    // *entering* state is already playing, so doing so would blend the pose
+    // against itself and dim it — and for a transition out of a state that does
+    // not exist, there is simply nothing to blend out of. The caller restores
+    // full weight when this leaves it with nothing.
+    let Some(state) = state else {
+        return;
+    };
+
+    if let Some(tree) = &state.blend {
+        let value = asm
+            .params_float
+            .get(tree.param.as_str())
+            .copied()
+            .unwrap_or(0.0);
+        let mut any = false;
+        for (name, weight) in tree.sample(value) {
+            if let Some(clip) = library.clips.get(&name) {
+                any = true;
+                out.push(ClipSample {
+                    channels: &clip.channels,
+                    time,
+                    weight: weight * scale,
+                });
+            }
+        }
+        if any {
+            return;
+        }
+        // A tree naming only clips the model lacks is a scene error, not a
+        // reason to stop animating.
+    }
+
+    let clip = library.clips.get(&state.clip).unwrap_or(fallback);
+    out.push(ClipSample {
+        channels: &clip.channels,
+        time,
+        weight: scale,
+    });
 }
 
 /// Walks the node hierarchy to compose each node's GLOBAL transform from its
@@ -629,6 +711,89 @@ mod tests {
             (x - 5.0).abs() < 0.001,
             "halfway through idle -> walk the node should be halfway, got {x}"
         );
+    }
+
+    /// A state machine whose one state is a walk/run blend space.
+    fn blend_tree_machine(speed: f32) -> bsengine_core::AnimationStateMachine {
+        use bsengine_core::{AnimationStateMachine, AsmState, BlendClip, BlendTree1D};
+        let mut asm = AnimationStateMachine::default();
+        asm.states.insert(
+            "locomotion".to_string(),
+            AsmState::new("idle").with_blend(BlendTree1D {
+                param: "speed".to_string(),
+                clips: vec![
+                    BlendClip {
+                        clip: "idle".to_string(),
+                        threshold: 0.0,
+                    },
+                    BlendClip {
+                        clip: "walk".to_string(),
+                        threshold: 4.0,
+                    },
+                ],
+            }),
+        );
+        asm.current_state = "locomotion".to_string();
+        asm.params_float.insert("speed".to_string(), speed);
+        asm
+    }
+
+    #[test]
+    fn a_blend_tree_state_plays_both_neighbouring_clips() {
+        // The point of the whole item: between thresholds the motion is a
+        // mixture, not one clip or the other. A crossfade could only be right
+        // for the instant it was halfway.
+        let library = two_clip_library();
+        let idle = library.clips.get("idle").expect("clip exists");
+        let asm = blend_tree_machine(1.0); // a quarter of the way to walk
+
+        let samples = blend_samples(idle, &library, 0.0, Some(&asm));
+        assert_eq!(samples.len(), 2, "both sides of the axis contribute");
+
+        let pose = compute_local_transforms_blended(&one_node(), &samples);
+        let x = pose[0].to_scale_rotation_translation().2.x;
+        assert!(
+            (x - 2.5).abs() < 0.001,
+            "a quarter of the way from idle (0) to walk (10) is 2.5, got {x}"
+        );
+    }
+
+    #[test]
+    fn a_blend_tree_past_its_end_plays_one_clip() {
+        let library = two_clip_library();
+        let idle = library.clips.get("idle").expect("clip exists");
+        let asm = blend_tree_machine(99.0);
+
+        let samples = blend_samples(idle, &library, 0.0, Some(&asm));
+        assert_eq!(samples.len(), 1);
+
+        let pose = compute_local_transforms_blended(&one_node(), &samples);
+        let x = pose[0].to_scale_rotation_translation().2.x;
+        assert!((x - 10.0).abs() < 0.001, "fully walk, got {x}");
+    }
+
+    #[test]
+    fn a_blend_tree_naming_missing_clips_still_animates() {
+        // A scene error must not freeze the character: fall back to the clip
+        // `AnimationPlayer` is already playing.
+        use bsengine_core::{AsmState, BlendClip, BlendTree1D};
+        let library = two_clip_library();
+        let idle = library.clips.get("idle").expect("clip exists");
+        let mut asm = blend_tree_machine(1.0);
+        asm.states.insert(
+            "locomotion".to_string(),
+            AsmState::new("idle").with_blend(BlendTree1D {
+                param: "speed".to_string(),
+                clips: vec![BlendClip {
+                    clip: "nonexistent".to_string(),
+                    threshold: 0.0,
+                }],
+            }),
+        );
+
+        let samples = blend_samples(idle, &library, 0.0, Some(&asm));
+        assert_eq!(samples.len(), 1);
+        assert!((samples[0].weight - 1.0).abs() < 1e-6);
     }
 
     #[test]

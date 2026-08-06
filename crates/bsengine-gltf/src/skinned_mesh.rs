@@ -184,21 +184,110 @@ fn compute_local_transforms(
         .iter()
         .enumerate()
         .map(|(node_index, rest)| {
-            let mut t = Vec3::from(rest.translation);
-            let mut r = Quat::from_array(rest.rotation);
-            let mut s = Vec3::from(rest.scale);
-            for channel in channels.iter().filter(|c| c.node_index == node_index) {
-                if let Some(v) = sample_translation(channel, time) {
-                    t = v;
-                }
-                if let Some(v) = sample_rotation(channel, time) {
-                    r = v;
-                }
-                if let Some(v) = sample_scale(channel, time) {
-                    s = v;
-                }
-            }
+            let (t, r, s) = sample_node_trs(node_index, rest, channels, time);
             Mat4::from_scale_rotation_translation(s, r, t)
+        })
+        .collect()
+}
+
+/// One node's animated translation/rotation/scale at `time`, falling back to
+/// its rest value for anything the clip does not drive.
+fn sample_node_trs(
+    node_index: usize,
+    rest: &NodeTransform,
+    channels: &[AnimationChannel],
+    time: f32,
+) -> (Vec3, Quat, Vec3) {
+    let mut t = Vec3::from(rest.translation);
+    let mut r = Quat::from_array(rest.rotation);
+    let mut s = Vec3::from(rest.scale);
+    for channel in channels.iter().filter(|c| c.node_index == node_index) {
+        if let Some(v) = sample_translation(channel, time) {
+            t = v;
+        }
+        if let Some(v) = sample_rotation(channel, time) {
+            r = v;
+        }
+        if let Some(v) = sample_scale(channel, time) {
+            s = v;
+        }
+    }
+    (t, r, s)
+}
+
+/// One clip's contribution to a blend: its channels and where in it to sample.
+#[derive(Clone, Copy)]
+pub struct ClipSample<'a> {
+    /// The clip's animation channels.
+    pub channels: &'a [AnimationChannel],
+    /// Playback time within the clip, in seconds.
+    pub time: f32,
+    /// How much of the final pose comes from this clip. Weights are normalised,
+    /// so they do not have to sum to one.
+    pub weight: f32,
+}
+
+/// Composes each node's local transform by blending several clips.
+///
+/// Blending happens on translation/rotation/scale, *before* the matrix is
+/// composed. Averaging the matrices instead would be wrong in a way that looks
+/// almost right: a half-blend of two rotations comes out shrunken and skewed
+/// rather than rotated halfway, because the average of two rotation matrices is
+/// not a rotation matrix.
+///
+/// Rotations use `slerp` accumulated pairwise, and the sign of each quaternion
+/// is aligned to the accumulator first — `q` and `-q` are the same orientation,
+/// and blending toward the wrong one takes the long way round the sphere.
+pub fn compute_local_transforms_blended(
+    nodes: &[NodeTransform],
+    clips: &[ClipSample<'_>],
+) -> Vec<Mat4> {
+    let total: f32 = clips.iter().map(|c| c.weight.max(0.0)).sum();
+    if clips.is_empty() || total <= f32::EPSILON {
+        return nodes
+            .iter()
+            .map(|rest| {
+                Mat4::from_scale_rotation_translation(
+                    Vec3::from(rest.scale),
+                    Quat::from_array(rest.rotation),
+                    Vec3::from(rest.translation),
+                )
+            })
+            .collect();
+    }
+
+    nodes
+        .iter()
+        .enumerate()
+        .map(|(node_index, rest)| {
+            let mut acc_t = Vec3::ZERO;
+            let mut acc_s = Vec3::ZERO;
+            let mut acc_r: Option<Quat> = None;
+            let mut used = 0.0_f32;
+
+            for clip in clips {
+                let w = clip.weight.max(0.0) / total;
+                if w <= f32::EPSILON {
+                    continue;
+                }
+                let (t, r, s) = sample_node_trs(node_index, rest, clip.channels, clip.time);
+                acc_t += t * w;
+                acc_s += s * w;
+                used += w;
+                acc_r = Some(match acc_r {
+                    None => r,
+                    Some(prev) => {
+                        // Align signs: `-q` is the same orientation as `q`, and
+                        // slerping to the wrong representative rotates the long
+                        // way round.
+                        let r = if prev.dot(r) < 0.0 { -r } else { r };
+                        prev.slerp(r, w / used)
+                    }
+                });
+            }
+
+            let r = acc_r.unwrap_or_else(|| Quat::from_array(rest.rotation));
+            Mat4::from_scale_rotation_translation(acc_s, r.normalize(), acc_t)
         })
         .collect()
 }
@@ -422,6 +511,168 @@ mod tests {
         };
         let v = sample_translation(&channel, 0.9).unwrap();
         assert_eq!(v, Vec3::ZERO);
+    }
+
+    // ---- pose blending (roadmap item 29) ---------------------------------
+
+    /// A one-node skeleton at the origin, unrotated and unscaled.
+    fn one_node() -> Vec<NodeTransform> {
+        vec![NodeTransform {
+            translation: [0.0, 0.0, 0.0],
+            rotation: [0.0, 0.0, 0.0, 1.0],
+            scale: [1.0, 1.0, 1.0],
+            parent: None,
+        }]
+    }
+
+    /// A channel holding node 0 at a constant rotation.
+    fn fixed_rotation(q: Quat) -> AnimationChannel {
+        AnimationChannel {
+            node_index: 0,
+            times: vec![0.0, 1.0],
+            values: KeyframeValues::Rotations(vec![q.to_array(), q.to_array()]),
+            interpolation: Interpolation::Linear,
+        }
+    }
+
+    /// A channel holding node 0 at a constant translation.
+    fn fixed_translation(v: Vec3) -> AnimationChannel {
+        AnimationChannel {
+            node_index: 0,
+            times: vec![0.0, 1.0],
+            values: KeyframeValues::Translations(vec![v.to_array(), v.to_array()]),
+            interpolation: Interpolation::Linear,
+        }
+    }
+
+    #[test]
+    fn a_half_blend_of_two_rotations_is_the_midpoint_rotation() {
+        // The property that forces blending to happen on TRS rather than on the
+        // composed matrices. Averaging two rotation matrices gives something
+        // that is not a rotation at all — it comes out shrunken — so this
+        // checks the result still has unit scale as well as the right angle.
+        let a = [fixed_rotation(Quat::IDENTITY)];
+        let b = [fixed_rotation(Quat::from_rotation_y(
+            std::f32::consts::FRAC_PI_2,
+        ))];
+        let nodes = one_node();
+
+        let blended = compute_local_transforms_blended(
+            &nodes,
+            &[
+                ClipSample {
+                    channels: &a,
+                    time: 0.0,
+                    weight: 0.5,
+                },
+                ClipSample {
+                    channels: &b,
+                    time: 0.0,
+                    weight: 0.5,
+                },
+            ],
+        );
+
+        let (scale, rotation, _) = blended[0].to_scale_rotation_translation();
+        let expected = Quat::from_rotation_y(std::f32::consts::FRAC_PI_4);
+        assert!(
+            rotation.abs_diff_eq(expected, 0.001) || (-rotation).abs_diff_eq(expected, 0.001),
+            "expected the 45 degree midpoint, got {rotation:?}"
+        );
+        assert!(
+            scale.abs_diff_eq(Vec3::ONE, 0.001),
+            "a blended rotation must not shrink the node: {scale:?}"
+        );
+    }
+
+    #[test]
+    fn blend_weights_move_the_result_toward_the_heavier_clip() {
+        let a = [fixed_translation(Vec3::ZERO)];
+        let b = [fixed_translation(Vec3::new(10.0, 0.0, 0.0))];
+        let nodes = one_node();
+
+        let quarter = compute_local_transforms_blended(
+            &nodes,
+            &[
+                ClipSample {
+                    channels: &a,
+                    time: 0.0,
+                    weight: 0.75,
+                },
+                ClipSample {
+                    channels: &b,
+                    time: 0.0,
+                    weight: 0.25,
+                },
+            ],
+        );
+        let x = quarter[0].to_scale_rotation_translation().2.x;
+        assert!((x - 2.5).abs() < 0.001, "expected 2.5, got {x}");
+    }
+
+    #[test]
+    fn weights_do_not_have_to_sum_to_one() {
+        // A blend tree hands over raw weights; normalising here means callers
+        // never have to, and a tree that sums to 2 does not send the skeleton
+        // twice as far.
+        let a = [fixed_translation(Vec3::ZERO)];
+        let b = [fixed_translation(Vec3::new(10.0, 0.0, 0.0))];
+        let nodes = one_node();
+
+        let blended = compute_local_transforms_blended(
+            &nodes,
+            &[
+                ClipSample {
+                    channels: &a,
+                    time: 0.0,
+                    weight: 3.0,
+                },
+                ClipSample {
+                    channels: &b,
+                    time: 0.0,
+                    weight: 1.0,
+                },
+            ],
+        );
+        let x = blended[0].to_scale_rotation_translation().2.x;
+        assert!((x - 2.5).abs() < 0.001, "expected 2.5, got {x}");
+    }
+
+    #[test]
+    fn a_single_clip_blends_to_exactly_itself() {
+        // The path every existing animation takes once blending is in place;
+        // if this drifts, every non-blended animation changes.
+        let a = [fixed_translation(Vec3::new(4.0, 5.0, 6.0))];
+        let nodes = one_node();
+
+        let blended = compute_local_transforms_blended(
+            &nodes,
+            &[ClipSample {
+                channels: &a,
+                time: 0.0,
+                weight: 1.0,
+            }],
+        );
+        let plain = compute_local_transforms(&nodes, &a, 0.0);
+        assert!(
+            blended[0].abs_diff_eq(plain[0], 0.0001),
+            "blending one clip must equal sampling it: {:?} vs {:?}",
+            blended[0],
+            plain[0]
+        );
+    }
+
+    #[test]
+    fn no_clips_at_all_leaves_the_rest_pose() {
+        let nodes = vec![NodeTransform {
+            translation: [1.0, 2.0, 3.0],
+            rotation: [0.0, 0.0, 0.0, 1.0],
+            scale: [1.0, 1.0, 1.0],
+            parent: None,
+        }];
+        let blended = compute_local_transforms_blended(&nodes, &[]);
+        let t = blended[0].to_scale_rotation_translation().2;
+        assert!(t.abs_diff_eq(Vec3::new(1.0, 2.0, 3.0), 0.001));
     }
 
     #[test]

@@ -172,35 +172,231 @@ fn sample_scale(channel: &AnimationChannel, time: f32) -> Option<Vec3> {
     })
 }
 
-/// Composes every node's current LOCAL transform: the clip's sampled value
-/// for translation/rotation/scale if `channels` has an entry targeting that
-/// node, otherwise the node's rest/bind-pose value from `nodes`.
-fn compute_local_transforms(
-    nodes: &[NodeTransform],
+/// One node's animated translation/rotation/scale at `time`, falling back to
+/// its rest value for anything the clip does not drive.
+fn sample_node_trs(
+    node_index: usize,
+    rest: &NodeTransform,
     channels: &[AnimationChannel],
     time: f32,
+) -> (Vec3, Quat, Vec3) {
+    let mut t = Vec3::from(rest.translation);
+    let mut r = Quat::from_array(rest.rotation);
+    let mut s = Vec3::from(rest.scale);
+    for channel in channels.iter().filter(|c| c.node_index == node_index) {
+        if let Some(v) = sample_translation(channel, time) {
+            t = v;
+        }
+        if let Some(v) = sample_rotation(channel, time) {
+            r = v;
+        }
+        if let Some(v) = sample_scale(channel, time) {
+            s = v;
+        }
+    }
+    (t, r, s)
+}
+
+/// One clip's contribution to a blend: its channels and where in it to sample.
+#[derive(Clone, Copy)]
+pub struct ClipSample<'a> {
+    /// The clip's animation channels.
+    pub channels: &'a [AnimationChannel],
+    /// Playback time within the clip, in seconds.
+    pub time: f32,
+    /// How much of the final pose comes from this clip. Weights are normalised,
+    /// so they do not have to sum to one.
+    pub weight: f32,
+}
+
+/// Composes each node's local transform by blending several clips.
+///
+/// Blending happens on translation/rotation/scale, *before* the matrix is
+/// composed. Averaging the matrices instead would be wrong in a way that looks
+/// almost right: a half-blend of two rotations comes out shrunken and skewed
+/// rather than rotated halfway, because the average of two rotation matrices is
+/// not a rotation matrix.
+///
+/// Rotations use `slerp` accumulated pairwise, and the sign of each quaternion
+/// is aligned to the accumulator first — `q` and `-q` are the same orientation,
+/// and blending toward the wrong one takes the long way round the sphere.
+pub fn compute_local_transforms_blended(
+    nodes: &[NodeTransform],
+    clips: &[ClipSample<'_>],
 ) -> Vec<Mat4> {
+    let total: f32 = clips.iter().map(|c| c.weight.max(0.0)).sum();
+    if clips.is_empty() || total <= f32::EPSILON {
+        return nodes
+            .iter()
+            .map(|rest| {
+                Mat4::from_scale_rotation_translation(
+                    Vec3::from(rest.scale),
+                    Quat::from_array(rest.rotation),
+                    Vec3::from(rest.translation),
+                )
+            })
+            .collect();
+    }
+
     nodes
         .iter()
         .enumerate()
         .map(|(node_index, rest)| {
-            let mut t = Vec3::from(rest.translation);
-            let mut r = Quat::from_array(rest.rotation);
-            let mut s = Vec3::from(rest.scale);
-            for channel in channels.iter().filter(|c| c.node_index == node_index) {
-                if let Some(v) = sample_translation(channel, time) {
-                    t = v;
+            let mut acc_t = Vec3::ZERO;
+            let mut acc_s = Vec3::ZERO;
+            let mut acc_r: Option<Quat> = None;
+            let mut used = 0.0_f32;
+
+            for clip in clips {
+                let w = clip.weight.max(0.0) / total;
+                if w <= f32::EPSILON {
+                    continue;
                 }
-                if let Some(v) = sample_rotation(channel, time) {
-                    r = v;
-                }
-                if let Some(v) = sample_scale(channel, time) {
-                    s = v;
-                }
+                let (t, r, s) = sample_node_trs(node_index, rest, clip.channels, clip.time);
+                acc_t += t * w;
+                acc_s += s * w;
+                used += w;
+                acc_r = Some(match acc_r {
+                    None => r,
+                    Some(prev) => {
+                        // Align signs: `-q` is the same orientation as `q`, and
+                        // slerping to the wrong representative rotates the long
+                        // way round.
+                        let r = if prev.dot(r) < 0.0 { -r } else { r };
+                        prev.slerp(r, w / used)
+                    }
+                });
             }
-            Mat4::from_scale_rotation_translation(s, r, t)
+
+            let r = acc_r.unwrap_or_else(|| Quat::from_array(rest.rotation));
+            Mat4::from_scale_rotation_translation(acc_s, r.normalize(), acc_t)
         })
         .collect()
+}
+
+/// Decides which clips compose this frame's pose, and at what weights.
+///
+/// One clip normally; two while a state machine is mid-transition — the state
+/// being left and the state being entered. Until this existed, `blend_weight`
+/// was advanced every frame and read by nothing, so every "crossfade" in this
+/// engine was really a hard cut.
+///
+/// Both clips are sampled at the same time value. For the looping locomotion
+/// clips these transitions exist for — idle/walk/run — that is what keeps the
+/// feet in phase across the blend. A clip whose meaning depends on its own
+/// timeline would need its own clock, and nothing here has one yet.
+fn blend_samples<'a>(
+    current: &'a AnimationClip,
+    library: &'a AnimationClipLibrary,
+    time: f32,
+    asm: Option<&bsengine_core::AnimationStateMachine>,
+) -> Vec<ClipSample<'a>> {
+    let Some(asm) = asm else {
+        return vec![ClipSample {
+            channels: &current.channels,
+            time,
+            weight: 1.0,
+        }];
+    };
+
+    let w = asm.blend_weight.clamp(0.0, 1.0);
+    let crossfading = asm.blend_from.is_some();
+
+    let mut samples = Vec::new();
+    push_state_samples(
+        &mut samples,
+        asm.states.get(&asm.current_state),
+        current,
+        library,
+        asm,
+        time,
+        if crossfading { w } else { 1.0 },
+    );
+    if crossfading {
+        let from = asm.blend_from.as_ref().and_then(|s| asm.states.get(s));
+        // No fallback clip for the state being left: if its clip is missing
+        // there is nothing to blend out of, and contributing `current` again
+        // under the leaving state's weight would just dim the pose.
+        let before = samples.len();
+        push_state_samples(&mut samples, from, current, library, asm, time, 1.0 - w);
+        if samples.len() == before {
+            // Nothing came from the leaving state, so the entering one is the
+            // whole pose rather than a fraction of it.
+            for sample in &mut samples {
+                sample.weight = 1.0;
+            }
+        }
+    }
+    if samples.is_empty() {
+        samples.push(ClipSample {
+            channels: &current.channels,
+            time,
+            weight: 1.0,
+        });
+    }
+    samples
+}
+
+/// Appends one state's contribution, scaled by `scale`.
+///
+/// A state with a blend tree contributes the clips that tree names at the
+/// current parameter value — one or two of them. A state without one
+/// contributes its single clip. `fallback` is what `AnimationPlayer` is already
+/// playing, used when the state names a clip the model does not have, so a
+/// mismatch degrades to "keep animating" rather than to a frozen half pose.
+#[allow(clippy::too_many_arguments)]
+fn push_state_samples<'a>(
+    out: &mut Vec<ClipSample<'a>>,
+    state: Option<&bsengine_core::AsmState>,
+    fallback: &'a AnimationClip,
+    library: &'a AnimationClipLibrary,
+    asm: &bsengine_core::AnimationStateMachine,
+    time: f32,
+    scale: f32,
+) {
+    if scale <= f32::EPSILON {
+        return;
+    }
+    // A state name that is not in the graph contributes nothing at all. It is
+    // tempting to fall back to `fallback` here, but that clip is what the
+    // *entering* state is already playing, so doing so would blend the pose
+    // against itself and dim it — and for a transition out of a state that does
+    // not exist, there is simply nothing to blend out of. The caller restores
+    // full weight when this leaves it with nothing.
+    let Some(state) = state else {
+        return;
+    };
+
+    if let Some(tree) = &state.blend {
+        let value = asm
+            .params_float
+            .get(tree.param.as_str())
+            .copied()
+            .unwrap_or(0.0);
+        let mut any = false;
+        for (name, weight) in tree.sample(value) {
+            if let Some(clip) = library.clips.get(&name) {
+                any = true;
+                out.push(ClipSample {
+                    channels: &clip.channels,
+                    time,
+                    weight: weight * scale,
+                });
+            }
+        }
+        if any {
+            return;
+        }
+        // A tree naming only clips the model lacks is a scene error, not a
+        // reason to stop animating.
+    }
+
+    let clip = library.clips.get(&state.clip).unwrap_or(fallback);
+    out.push(ClipSample {
+        channels: &clip.channels,
+        time,
+        weight: scale,
+    });
 }
 
 /// Walks the node hierarchy to compose each node's GLOBAL transform from its
@@ -210,13 +406,12 @@ fn compute_local_transforms(
 /// number of passes rather than a proper topological sort, matching the same
 /// pattern `bsengine_core::propagate_global_transforms` already uses for
 /// parent/child Transform hierarchies in this codebase.
-fn compute_joint_matrices(
+fn compute_joint_matrices_blended(
     nodes: &[NodeTransform],
     skin: &SkinData,
-    channels: &[AnimationChannel],
-    time: f32,
+    clips: &[ClipSample<'_>],
 ) -> Vec<Mat4> {
-    let locals = compute_local_transforms(nodes, channels, time);
+    let locals = compute_local_transforms_blended(nodes, clips);
     let mut globals = locals.clone();
     for _ in 0..8 {
         for (i, node) in nodes.iter().enumerate() {
@@ -293,6 +488,7 @@ fn update_skinned_meshes(
         &SkinnedMesh,
         &AnimationClipLibrary,
         &bsengine_core::AnimationPlayer,
+        Option<&bsengine_core::AnimationStateMachine>,
     )>,
     mesh_registry: Option<ResMut<bsengine_rhi_wgpu::GpuMeshRegistry>>,
     queue: Option<Res<bsengine_rhi_wgpu::GpuQueueResource>>,
@@ -300,16 +496,25 @@ fn update_skinned_meshes(
     let (Some(mut mesh_registry), Some(queue)) = (mesh_registry, queue) else {
         return;
     };
-    for (skinned, library, player) in query.iter() {
+    for (skinned, library, player, asm) in query.iter() {
         let Some(clip) = library.clips.get(&player.clip) else {
             continue;
         };
-        let joint_matrices = compute_joint_matrices(
-            &skinned.nodes,
-            &skinned.skin_data,
-            &clip.channels,
-            player.time,
-        );
+
+        // A state machine mid-transition contributes the state it is leaving as
+        // well as the one it is entering. Until this existed, `blend_weight`
+        // was advanced every frame and read by nothing, so every "crossfade"
+        // was really a hard cut.
+        //
+        // Both clips are sampled at the same `player.time`. For the looping
+        // locomotion clips these transitions are for — idle/walk/run — that is
+        // what keeps the feet in phase across the blend; a clip whose meaning
+        // depends on its own timeline would need its own clock, and nothing
+        // here has one yet.
+        let samples = blend_samples(clip, library, player.time, asm);
+
+        let joint_matrices =
+            compute_joint_matrices_blended(&skinned.nodes, &skinned.skin_data, &samples);
         let deformed: Vec<Vertex> = skinned
             .rest_vertices
             .iter()
@@ -424,6 +629,341 @@ mod tests {
         assert_eq!(v, Vec3::ZERO);
     }
 
+    // ---- pose blending (roadmap item 29) ---------------------------------
+
+    /// A one-node skeleton at the origin, unrotated and unscaled.
+    fn one_node() -> Vec<NodeTransform> {
+        vec![NodeTransform {
+            translation: [0.0, 0.0, 0.0],
+            rotation: [0.0, 0.0, 0.0, 1.0],
+            scale: [1.0, 1.0, 1.0],
+            parent: None,
+        }]
+    }
+
+    /// A channel holding node 0 at a constant rotation.
+    fn fixed_rotation(q: Quat) -> AnimationChannel {
+        AnimationChannel {
+            node_index: 0,
+            times: vec![0.0, 1.0],
+            values: KeyframeValues::Rotations(vec![q.to_array(), q.to_array()]),
+            interpolation: Interpolation::Linear,
+        }
+    }
+
+    /// A channel holding node 0 at a constant translation.
+    fn fixed_translation(v: Vec3) -> AnimationChannel {
+        AnimationChannel {
+            node_index: 0,
+            times: vec![0.0, 1.0],
+            values: KeyframeValues::Translations(vec![v.to_array(), v.to_array()]),
+            interpolation: Interpolation::Linear,
+        }
+    }
+
+    /// A library holding two clips, each pinning node 0 to a translation.
+    fn two_clip_library() -> AnimationClipLibrary {
+        AnimationClipLibrary::from_clips(vec![
+            AnimationClip {
+                name: "idle".to_string(),
+                channels: vec![fixed_translation(Vec3::ZERO)],
+                duration: 1.0,
+            },
+            AnimationClip {
+                name: "walk".to_string(),
+                channels: vec![fixed_translation(Vec3::new(10.0, 0.0, 0.0))],
+                duration: 1.0,
+            },
+        ])
+    }
+
+    /// A state machine halfway through idle -> walk.
+    fn mid_transition() -> bsengine_core::AnimationStateMachine {
+        use bsengine_core::{AnimationStateMachine, AsmState};
+        let mut asm = AnimationStateMachine::default();
+        asm.states.insert("idle".to_string(), AsmState::new("idle"));
+        asm.states.insert("walk".to_string(), AsmState::new("walk"));
+        asm.current_state = "walk".to_string();
+        asm.blend_from = Some("idle".to_string());
+        asm.blend_weight = 0.5;
+        asm
+    }
+
+    #[test]
+    fn a_transitioning_state_machine_contributes_both_clips() {
+        // The bug this item fixes. `blend_weight` has been advanced every frame
+        // since the state machine was written and read by nothing, so a
+        // "crossfade" was a hard cut. Anything that stops passing the leaving
+        // state's clip through puts that back.
+        let library = two_clip_library();
+        let walk = library.clips.get("walk").expect("clip exists");
+        let asm = mid_transition();
+
+        let samples = blend_samples(walk, &library, 0.0, Some(&asm));
+
+        assert_eq!(samples.len(), 2, "both clips take part in a transition");
+        assert!((samples[0].weight - 0.5).abs() < 1e-6, "entering state");
+        assert!((samples[1].weight - 0.5).abs() < 1e-6, "leaving state");
+
+        let pose = compute_local_transforms_blended(&one_node(), &samples);
+        let x = pose[0].to_scale_rotation_translation().2.x;
+        assert!(
+            (x - 5.0).abs() < 0.001,
+            "halfway through idle -> walk the node should be halfway, got {x}"
+        );
+    }
+
+    /// A state machine whose one state is a walk/run blend space.
+    fn blend_tree_machine(speed: f32) -> bsengine_core::AnimationStateMachine {
+        use bsengine_core::{AnimationStateMachine, AsmState, BlendClip, BlendTree1D};
+        let mut asm = AnimationStateMachine::default();
+        asm.states.insert(
+            "locomotion".to_string(),
+            AsmState::new("idle").with_blend(BlendTree1D {
+                param: "speed".to_string(),
+                clips: vec![
+                    BlendClip {
+                        clip: "idle".to_string(),
+                        threshold: 0.0,
+                    },
+                    BlendClip {
+                        clip: "walk".to_string(),
+                        threshold: 4.0,
+                    },
+                ],
+            }),
+        );
+        asm.current_state = "locomotion".to_string();
+        asm.params_float.insert("speed".to_string(), speed);
+        asm
+    }
+
+    #[test]
+    fn a_blend_tree_state_plays_both_neighbouring_clips() {
+        // The point of the whole item: between thresholds the motion is a
+        // mixture, not one clip or the other. A crossfade could only be right
+        // for the instant it was halfway.
+        let library = two_clip_library();
+        let idle = library.clips.get("idle").expect("clip exists");
+        let asm = blend_tree_machine(1.0); // a quarter of the way to walk
+
+        let samples = blend_samples(idle, &library, 0.0, Some(&asm));
+        assert_eq!(samples.len(), 2, "both sides of the axis contribute");
+
+        let pose = compute_local_transforms_blended(&one_node(), &samples);
+        let x = pose[0].to_scale_rotation_translation().2.x;
+        assert!(
+            (x - 2.5).abs() < 0.001,
+            "a quarter of the way from idle (0) to walk (10) is 2.5, got {x}"
+        );
+    }
+
+    #[test]
+    fn a_blend_tree_past_its_end_plays_one_clip() {
+        let library = two_clip_library();
+        let idle = library.clips.get("idle").expect("clip exists");
+        let asm = blend_tree_machine(99.0);
+
+        let samples = blend_samples(idle, &library, 0.0, Some(&asm));
+        assert_eq!(samples.len(), 1);
+
+        let pose = compute_local_transforms_blended(&one_node(), &samples);
+        let x = pose[0].to_scale_rotation_translation().2.x;
+        assert!((x - 10.0).abs() < 0.001, "fully walk, got {x}");
+    }
+
+    #[test]
+    fn a_blend_tree_naming_missing_clips_still_animates() {
+        // A scene error must not freeze the character: fall back to the clip
+        // `AnimationPlayer` is already playing.
+        use bsengine_core::{AsmState, BlendClip, BlendTree1D};
+        let library = two_clip_library();
+        let idle = library.clips.get("idle").expect("clip exists");
+        let mut asm = blend_tree_machine(1.0);
+        asm.states.insert(
+            "locomotion".to_string(),
+            AsmState::new("idle").with_blend(BlendTree1D {
+                param: "speed".to_string(),
+                clips: vec![BlendClip {
+                    clip: "nonexistent".to_string(),
+                    threshold: 0.0,
+                }],
+            }),
+        );
+
+        let samples = blend_samples(idle, &library, 0.0, Some(&asm));
+        assert_eq!(samples.len(), 1);
+        assert!((samples[0].weight - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_settled_state_machine_contributes_one_clip() {
+        let library = two_clip_library();
+        let walk = library.clips.get("walk").expect("clip exists");
+        let mut asm = mid_transition();
+        asm.blend_from = None;
+
+        let samples = blend_samples(walk, &library, 0.0, Some(&asm));
+        assert_eq!(samples.len(), 1);
+        assert!((samples[0].weight - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn an_entity_without_a_state_machine_still_animates() {
+        // Not every skinned mesh has a state machine; those play their
+        // `AnimationPlayer` clip and must not be disturbed by any of this.
+        let library = two_clip_library();
+        let walk = library.clips.get("walk").expect("clip exists");
+        let samples = blend_samples(walk, &library, 0.0, None);
+        assert_eq!(samples.len(), 1);
+        assert!((samples[0].weight - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_transition_from_a_missing_clip_falls_back_to_one() {
+        // A state naming a clip the model does not have must not blend against
+        // nothing and freeze the character at half pose.
+        let library = two_clip_library();
+        let walk = library.clips.get("walk").expect("clip exists");
+        let mut asm = mid_transition();
+        asm.blend_from = Some("nonexistent".to_string());
+
+        let samples = blend_samples(walk, &library, 0.0, Some(&asm));
+        assert_eq!(samples.len(), 1);
+        assert!((samples[0].weight - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_half_blend_of_two_rotations_is_the_midpoint_rotation() {
+        // The property that forces blending to happen on TRS rather than on the
+        // composed matrices. Averaging two rotation matrices gives something
+        // that is not a rotation at all — it comes out shrunken — so this
+        // checks the result still has unit scale as well as the right angle.
+        let a = [fixed_rotation(Quat::IDENTITY)];
+        let b = [fixed_rotation(Quat::from_rotation_y(
+            std::f32::consts::FRAC_PI_2,
+        ))];
+        let nodes = one_node();
+
+        let blended = compute_local_transforms_blended(
+            &nodes,
+            &[
+                ClipSample {
+                    channels: &a,
+                    time: 0.0,
+                    weight: 0.5,
+                },
+                ClipSample {
+                    channels: &b,
+                    time: 0.0,
+                    weight: 0.5,
+                },
+            ],
+        );
+
+        let (scale, rotation, _) = blended[0].to_scale_rotation_translation();
+        let expected = Quat::from_rotation_y(std::f32::consts::FRAC_PI_4);
+        assert!(
+            rotation.abs_diff_eq(expected, 0.001) || (-rotation).abs_diff_eq(expected, 0.001),
+            "expected the 45 degree midpoint, got {rotation:?}"
+        );
+        assert!(
+            scale.abs_diff_eq(Vec3::ONE, 0.001),
+            "a blended rotation must not shrink the node: {scale:?}"
+        );
+    }
+
+    #[test]
+    fn blend_weights_move_the_result_toward_the_heavier_clip() {
+        let a = [fixed_translation(Vec3::ZERO)];
+        let b = [fixed_translation(Vec3::new(10.0, 0.0, 0.0))];
+        let nodes = one_node();
+
+        let quarter = compute_local_transforms_blended(
+            &nodes,
+            &[
+                ClipSample {
+                    channels: &a,
+                    time: 0.0,
+                    weight: 0.75,
+                },
+                ClipSample {
+                    channels: &b,
+                    time: 0.0,
+                    weight: 0.25,
+                },
+            ],
+        );
+        let x = quarter[0].to_scale_rotation_translation().2.x;
+        assert!((x - 2.5).abs() < 0.001, "expected 2.5, got {x}");
+    }
+
+    #[test]
+    fn weights_do_not_have_to_sum_to_one() {
+        // A blend tree hands over raw weights; normalising here means callers
+        // never have to, and a tree that sums to 2 does not send the skeleton
+        // twice as far.
+        let a = [fixed_translation(Vec3::ZERO)];
+        let b = [fixed_translation(Vec3::new(10.0, 0.0, 0.0))];
+        let nodes = one_node();
+
+        let blended = compute_local_transforms_blended(
+            &nodes,
+            &[
+                ClipSample {
+                    channels: &a,
+                    time: 0.0,
+                    weight: 3.0,
+                },
+                ClipSample {
+                    channels: &b,
+                    time: 0.0,
+                    weight: 1.0,
+                },
+            ],
+        );
+        let x = blended[0].to_scale_rotation_translation().2.x;
+        assert!((x - 2.5).abs() < 0.001, "expected 2.5, got {x}");
+    }
+
+    #[test]
+    fn a_single_clip_blends_to_exactly_itself() {
+        // The path every existing animation takes once blending is in place;
+        // if this drifts, every non-blended animation changes.
+        let a = [fixed_translation(Vec3::new(4.0, 5.0, 6.0))];
+        let nodes = one_node();
+
+        let blended = compute_local_transforms_blended(
+            &nodes,
+            &[ClipSample {
+                channels: &a,
+                time: 0.0,
+                weight: 1.0,
+            }],
+        );
+        let (t, r, sc) = sample_node_trs(0, &nodes[0], &a, 0.0);
+        let plain = [Mat4::from_scale_rotation_translation(sc, r, t)];
+        assert!(
+            blended[0].abs_diff_eq(plain[0], 0.0001),
+            "blending one clip must equal sampling it: {:?} vs {:?}",
+            blended[0],
+            plain[0]
+        );
+    }
+
+    #[test]
+    fn no_clips_at_all_leaves_the_rest_pose() {
+        let nodes = vec![NodeTransform {
+            translation: [1.0, 2.0, 3.0],
+            rotation: [0.0, 0.0, 0.0, 1.0],
+            scale: [1.0, 1.0, 1.0],
+            parent: None,
+        }];
+        let blended = compute_local_transforms_blended(&nodes, &[]);
+        let t = blended[0].to_scale_rotation_translation().2;
+        assert!(t.abs_diff_eq(Vec3::new(1.0, 2.0, 3.0), 0.001));
+    }
+
     #[test]
     fn compute_joint_matrices_uses_bind_pose_when_no_channels_animate_a_node() {
         let nodes = vec![NodeTransform {
@@ -436,7 +976,7 @@ mod tests {
             joint_node_indices: vec![0],
             inverse_bind_matrices: vec![Mat4::IDENTITY.to_cols_array_2d()],
         };
-        let matrices = compute_joint_matrices(&nodes, &skin, &[], 0.0);
+        let matrices = compute_joint_matrices_blended(&nodes, &skin, &[]);
         let expected = Mat4::from_translation(Vec3::new(1.0, 0.0, 0.0));
         assert!(matrices[0].abs_diff_eq(expected, 0.001));
     }
@@ -461,7 +1001,7 @@ mod tests {
             joint_node_indices: vec![1],
             inverse_bind_matrices: vec![Mat4::IDENTITY.to_cols_array_2d()],
         };
-        let matrices = compute_joint_matrices(&nodes, &skin, &[], 0.0);
+        let matrices = compute_joint_matrices_blended(&nodes, &skin, &[]);
         let world_pos = matrices[0].transform_point3(Vec3::ZERO);
         assert!(world_pos.abs_diff_eq(Vec3::new(1.0, 2.0, 0.0), 0.001));
     }

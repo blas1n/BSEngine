@@ -93,7 +93,7 @@ pub mod visible;
 pub use ambient_occlusion::AmbientOcclusion;
 pub use animation_player::AnimationPlayer;
 pub use animation_state_machine::{
-    AnimationStateMachine, AsmState, AsmTransition, TransitionCondition,
+    AnimationStateMachine, AsmState, AsmTransition, BlendClip, BlendTree1D, TransitionCondition,
 };
 pub use bloom::Bloom;
 pub use camera::Camera;

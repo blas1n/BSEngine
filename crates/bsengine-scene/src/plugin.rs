@@ -526,6 +526,15 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     app.register_type::<bsengine_core::GlobalTransform>();
     app.register_type::<bsengine_core::Parent>();
     app.register_type::<bsengine_core::AnimationStateMachine>();
+    // `AsmState` holds an `Option<BlendTree1D>`, and a field type the registry
+    // does not know does not make deserialization *fail* — the containing map
+    // comes back empty and nothing warns. A state machine whose `states` is
+    // silently `{}` still loads, still runs, and simply never animates, which
+    // is why `a_state_machine_written_before_blend_trees_still_parses` asserts
+    // on the states rather than on the component being present.
+    app.register_type::<bsengine_core::BlendTree1D>();
+    app.register_type::<bsengine_core::BlendClip>();
+    app.register_type::<Option<bsengine_core::BlendTree1D>>();
     // AnimationStateMachine::triggers is a HashSet<String>; unlike Map/List/Struct
     // fields, HashSet isn't structurally recursed by TypedReflectDeserializer and
     // needs its value-kind ReflectDeserialize registered explicitly, or JSON/RON
@@ -719,6 +728,126 @@ mod tests {
         assert_eq!(results[0].0 .0, "Enemy");
         assert!((results[0].1.speed - 3.5).abs() < 1e-5);
         assert!(results[0].1.enabled);
+    }
+
+    #[test]
+    fn a_state_machines_states_survive_deserialization() {
+        // Guards a failure mode with no diagnostic at all.
+        //
+        // Reflected deserialization requires every field of a struct to be
+        // present in the RON. When one is missing the *containing collection*
+        // comes back empty rather than erroring, so a state machine whose
+        // `states` silently became `{}` still loads, still runs, and simply
+        // never animates. Adding `AsmState::blend` did exactly that to
+        // mini-arena until its scene was updated, and no warning was printed.
+        //
+        // So this asserts on the states, not on the component being present:
+        // the component is always present, which is the whole problem.
+        let ron = r##"SceneDescriptor(entities: [
+            EntityDescriptor(
+                name: "Player",
+                components: [
+                    ("bsengine_core::animation_state_machine::AnimationStateMachine", r#"(
+                        states: {
+                            "idle": (clip: "Survey", blend: None, looping: true, speed: 1.0, duration: 1.0),
+                            "walk": (clip: "Walk", blend: None, looping: true, speed: 1.0, duration: 1.0),
+                        },
+                        transitions: [
+                            (from: "idle", to: "walk", condition: FloatGreater(param: "speed", threshold: 0.1), blend_duration: 0.15),
+                        ],
+                        current_state: "idle",
+                        params_float: {"speed": 0.0},
+                        params_bool: {},
+                        triggers: [],
+                        blend_from: None,
+                        blend_weight: 1.0,
+                        blend_duration: 0.0,
+                        blend_elapsed: 0.0,
+                    )"#),
+                ],
+            )
+        ])"##;
+        let path = write_temp_scene("test_asm_without_blend_field.ron", ron);
+
+        let mut app = new_app();
+        // The whole function, not a bare `register_type`: this component's
+        // `triggers` is a `HashSet<String>`, which `TypedReflectDeserializer`
+        // does not structurally recurse, so it needs the extra registration
+        // that lives in there. Registering only the component itself fails with
+        // "doesn't have ReflectDeserialize" — which reads exactly like the
+        // field this test is about having broken something, and does not.
+        super::register_gameplay_reflect_types(&mut app);
+        app.add_plugins(ScenePlugin::from_file(&path));
+        app.update();
+
+        let mut q = app
+            .world_mut()
+            .query::<&bsengine_core::AnimationStateMachine>();
+        let results: Vec<_> = q.iter(app.world()).collect();
+        assert_eq!(results.len(), 1, "the state machine must survive the load");
+        assert_eq!(results[0].current_state, "idle");
+        assert_eq!(results[0].states.len(), 2);
+        assert!(
+            results[0].states["idle"].blend.is_none(),
+            "a state that names no blend tree has none"
+        );
+    }
+
+    #[test]
+    fn a_blend_tree_authored_in_a_scene_arrives_intact() {
+        // mini-arena's spelling. Worth its own test for the same reason as the
+        // one above: a blend tree that failed to deserialize would leave the
+        // state's `blend` as None, the character would animate from the single
+        // `clip` instead, and nothing anywhere would say so — it would just
+        // stop blending.
+        let ron = r##"SceneDescriptor(entities: [
+            EntityDescriptor(
+                name: "Player",
+                components: [
+                    ("bsengine_core::animation_state_machine::AnimationStateMachine", r#"(
+                        states: {
+                            "locomotion": (clip: "Survey", blend: Some((
+                                param: "speed",
+                                clips: [
+                                    (clip: "Survey", threshold: 0.0),
+                                    (clip: "Walk", threshold: 4.5),
+                                    (clip: "Run", threshold: 8.1),
+                                ],
+                            )), looping: true, speed: 1.0, duration: 1.0),
+                        },
+                        transitions: [],
+                        current_state: "locomotion",
+                        params_float: {"speed": 0.0},
+                        params_bool: {},
+                        triggers: [],
+                        blend_from: None,
+                        blend_weight: 1.0,
+                        blend_duration: 0.0,
+                        blend_elapsed: 0.0,
+                    )"#),
+                ],
+            )
+        ])"##;
+        let path = write_temp_scene("test_blend_tree_scene.ron", ron);
+
+        let mut app = new_app();
+        super::register_gameplay_reflect_types(&mut app);
+        app.add_plugins(ScenePlugin::from_file(&path));
+        app.update();
+
+        let mut q = app
+            .world_mut()
+            .query::<&bsengine_core::AnimationStateMachine>();
+        let results: Vec<_> = q.iter(app.world()).collect();
+        assert_eq!(results.len(), 1);
+        let tree = results[0].states["locomotion"]
+            .blend
+            .as_ref()
+            .expect("the blend tree must survive the load");
+        assert_eq!(tree.param, "speed");
+        assert_eq!(tree.clips.len(), 3);
+        assert_eq!(tree.clips[2].clip, "Run");
+        assert!((tree.clips[2].threshold - 8.1).abs() < 1e-5);
     }
 
     #[test]

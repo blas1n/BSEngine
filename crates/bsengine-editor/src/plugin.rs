@@ -91348,8 +91348,8 @@ mod tests {
 
         let value_json = r#"{
             "states": {
-                "idle": {"clip": "idle_clip", "looping": true, "speed": 1.0, "duration": 1.0},
-                "walk": {"clip": "walk_clip", "looping": true, "speed": 1.0, "duration": 1.0}
+                "idle": {"clip": "idle_clip", "blend": null, "looping": true, "speed": 1.0, "duration": 1.0},
+                "walk": {"clip": "walk_clip", "blend": null, "looping": true, "speed": 1.0, "duration": 1.0}
             },
             "transitions": [
                 {"from": "idle", "to": "walk", "condition": {"FloatGreater": {"param": "speed", "threshold": 0.1}}, "blend_duration": 0.2}
@@ -92056,8 +92056,8 @@ mod tests {
 
         let value_json = r#"{
             "states": {
-                "idle": {"clip": "idle_clip", "looping": true, "speed": 1.0, "duration": 1.0},
-                "walk": {"clip": "walk_clip", "looping": true, "speed": 1.0, "duration": 1.0}
+                "idle": {"clip": "idle_clip", "blend": null, "looping": true, "speed": 1.0, "duration": 1.0},
+                "walk": {"clip": "walk_clip", "blend": null, "looping": true, "speed": 1.0, "duration": 1.0}
             },
             "transitions": [
                 {"from": "idle", "to": "walk", "condition": {"FloatGreater": {"param": "speed", "threshold": 0.1}}, "blend_duration": 0.2}

@@ -25,7 +25,7 @@ struct ModelUniform {
     emissive: vec3<f32>,
     _pad2: f32,
     base_color: vec3<f32>,
-    _pad3: f32,
+    opacity: f32,
 };
 struct PointLightEntry {
     position: vec3<f32>,
@@ -263,7 +263,7 @@ fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
         }
     }
     let color = light.ambient * albedo + lo + model_data.emissive;
-    return vec4<f32>(color, 1.0);
+    return vec4<f32>(color, model_data.opacity);
 }
 "#;
 
@@ -414,6 +414,9 @@ pub struct MaterialParams {
     pub emissive: Vec3,
     /// Base albedo color multiplied with the surface texture (if any).
     pub base_color: Vec3,
+    /// 1.0 = opaque. Below that the draw leaves the opaque pass for the sorted
+    /// transparent one.
+    pub opacity: f32,
 }
 
 impl Default for MaterialParams {
@@ -423,6 +426,7 @@ impl Default for MaterialParams {
             roughness: 0.5,
             emissive: Vec3::ZERO,
             base_color: Vec3::ONE,
+            opacity: 1.0,
         }
     }
 }
@@ -438,7 +442,9 @@ struct ModelUniformData {
     emissive: [f32; 3],
     _pad2: f32,
     base_color: [f32; 3],
-    _pad3: f32,
+    // Was `_pad3`. The slot the padding occupied is exactly where opacity
+    // belongs, so carrying it costs nothing in size or alignment.
+    opacity: f32,
 }
 
 #[repr(C)]
@@ -1756,7 +1762,7 @@ impl WgpuSurface {
                 emissive: mat.emissive.to_array(),
                 _pad2: 0.0,
                 base_color: mat.base_color.to_array(),
-                _pad3: 0.0,
+                opacity: mat.opacity,
             };
             self.queue.write_buffer(
                 &self.model_buffer,

@@ -33,6 +33,7 @@ pub struct Draw {
     pub emissive: Vec3,
     pub metallic: f32,
     pub roughness: f32,
+    pub opacity: f32,
     pub custom_shader: Option<String>,
 }
 
@@ -46,6 +47,7 @@ impl Draw {
             emissive: Vec3::ZERO,
             metallic: 0.0,
             roughness: 0.5,
+            opacity: 1.0,
             custom_shader: None,
         }
     }
@@ -70,6 +72,12 @@ impl Draw {
         self
     }
 
+    /// Below 1.0 sends the draw to the transparent pass.
+    pub fn opacity(mut self, a: f32) -> Self {
+        self.opacity = a;
+        self
+    }
+
     pub fn shader(mut self, path: &str) -> Self {
         self.custom_shader = Some(path.to_string());
         self
@@ -81,6 +89,7 @@ impl Draw {
             roughness: self.roughness,
             emissive: self.emissive,
             base_color: self.base_color,
+            opacity: self.opacity,
         }
     }
 }

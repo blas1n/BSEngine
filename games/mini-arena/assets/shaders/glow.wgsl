@@ -26,7 +26,7 @@ struct ModelUniform {
     emissive: vec3<f32>,
     _pad2: f32,
     base_color: vec3<f32>,
-    _pad3: f32,
+    opacity: f32,
 };
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
 @group(1) @binding(0) var<uniform> model_data: ModelUniform;

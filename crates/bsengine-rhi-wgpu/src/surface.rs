@@ -991,7 +991,7 @@ impl WgpuSurface {
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Nearest,
             min_filter: wgpu::FilterMode::Nearest,
-            compare: Some(wgpu::CompareFunction::GreaterEqual),
+            compare: Some(wgpu::CompareFunction::LessEqual),
             ..Default::default()
         });
 

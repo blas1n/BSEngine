@@ -1281,13 +1281,8 @@ impl WgpuSurface {
         crate::theme::apply(&egui_ctx);
         let egui_renderer = egui_wgpu::Renderer::new(&device, format, None, 1, false);
 
-        let post_process = crate::post_process::PostProcessState::new(
-            &device,
-            width,
-            height,
-            &depth_view,
-            format,
-        );
+        let post_process =
+            crate::post_process::PostProcessState::new(&device, width, height, &depth_view, format);
 
         Ok(Self {
             output,

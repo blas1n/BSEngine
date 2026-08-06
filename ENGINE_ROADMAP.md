@@ -1553,6 +1553,39 @@ egui가 이미 창에 독립적이다.
 
 ---
 
+### 38. 경로→텍스처 배관
+
+**목표:** 씬이 텍스처 파일을 지목하면 그것이 `Material.texture_id`가 된다.
+
+설계: [docs/superpowers/specs/2026-08-06-texture-asset-refs-design.md](docs/superpowers/specs/2026-08-06-texture-asset-refs-design.md)
+
+item 28(파티클)을 텍스처까지 포함해 설계하다 나왔다. **이 엔진에는 경로로 텍스처를 받는
+길이 없다** — `Material.texture_id`를 채우는 건 glTF 임포터뿐이고, 그 사실은 이미
+`nav_mesh_agent.rs:29`에 "a pre-existing gap ... from #1702"로 적혀 있었다. 지금 어떤
+씬도 큐브에 텍스처를 입힐 수 없다.
+
+파티클만을 위한 로드 경로를 따로 만들면 같은 상태 기계가 하나 더 생기므로, 배관을 한 번
+만들어 머티리얼과 파티클이 공유한다. **28보다 먼저 온다.**
+
+**완료 조건:**
+- [ ] `EntityDescriptor.texture: Option<AssetRef>` — `gltf`/`script`와 같은 guid+경로
+      형식. raw 경로면 item 30의 리네임 내성에 구멍이 난다. 기존 해석 패스에 합류
+- [ ] 해석된 경로를 나르는 `TexturePath(String)` 컴포넌트 (`ScriptPath`와 같은 모양)
+- [ ] `bsengine-render`의 `TextureCache` — 경로별 상태, `Ready`가 핸들 보유(놓으면
+      핫리로드가 조용히 꺼진다). **같은 경로는 한 번만 업로드** — `GpuTextureRegistry`는
+      `next_id`로 발급만 하고 중복을 막지 않는다
+- [ ] 실패는 `LoadState::Failed` → 한 번 경고 + `AssetStatuses` 기록 (E2E가 볼 수 있다)
+- [ ] 체커보드 텍스처 생성(저장소에 `.png`가 하나도 없다), mini-arena에 적용
+- [ ] 테스트 4층, 각각 변이 검증. 픽셀 테스트는 중복하지 않는다 — item 36이 이미
+      "id가 있으면 샘플링된다"를 증명했고 이 항목이 더하는 건 그 앞단이다
+
+**드러난 사실 하나.** 경로→에셋 상태 기계가 `bsengine-render`에 **이미 둘**(스카이박스,
+커스텀 셰이더) 있고 이것이 셋째다. 합치는 것은 이 항목의 범위가 아니지만 새 모양을
+발명하지 않고 기존 둘과 같은 형태를 쓴다. **셋을 하나로 합치기는 별도 항목으로 승격할
+가치가 있다.**
+
+---
+
 ## 컴포넌트/op 감사 결과 (2026-08-05)
 
 item 32의 카탈로그로 공개 컴포넌트 49개와 op 298개를 훑은 결과다. 항목 32는 **도구를 세웠을 뿐**이고

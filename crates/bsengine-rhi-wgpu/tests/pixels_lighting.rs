@@ -18,7 +18,7 @@
 
 mod common;
 
-use common::{Draw, Harness, Light, Pixels, Scene};
+use common::{Draw, Harness, Light, Pixels, PointLight, Scene};
 use glam::Vec3;
 
 /// A big flat floor at the origin.
@@ -205,5 +205,70 @@ fn the_shadow_does_not_cover_the_whole_floor() {
         "shadowed floor at ({sx}, {sy}) read {} while floor far from the cube read {far}; \
          a shadow has to be darker than the floor around it",
         occluded.luma(sx, sy)
+    );
+}
+
+#[test]
+fn a_point_light_is_blocked_by_an_occluder() {
+    let mut h = Harness::new();
+    let plane = h.plane();
+    let cube = h.cube();
+    let camera_pos = Vec3::new(0.0, 5.0, 6.0);
+
+    // Directional light off entirely, so only the point light can brighten
+    // anything and only its cube shadow map can darken it.
+    let light = || Light {
+        color: Vec3::ZERO,
+        ambient: Vec3::splat(0.02),
+        points: vec![PointLight {
+            position: Vec3::new(0.0, 4.0, 0.0),
+            color: Vec3::ONE,
+            intensity: 60.0,
+            range: 40.0,
+        }],
+        ..Light::default()
+    };
+
+    let open = h.render(&Scene {
+        draws: vec![floor(plane)],
+        light: light(),
+        camera_pos,
+        ..Scene::default()
+    });
+    let occluded = h.render(&Scene {
+        draws: vec![floor(plane), Draw::new(cube, Vec3::new(0.0, 2.0, 0.0))],
+        light: light(),
+        camera_pos,
+        ..Scene::default()
+    });
+
+    // The same silhouette exclusion as the directional case: a cube standing in
+    // front of floor darkens those pixels whether or not it casts a shadow.
+    let empty = h.render(&Scene {
+        light: light(),
+        camera_pos,
+        ..Scene::default()
+    });
+    let cube_only = h.render(&Scene {
+        draws: vec![Draw::new(cube, Vec3::new(0.0, 2.0, 0.0))],
+        light: light(),
+        camera_pos,
+        ..Scene::default()
+    });
+    let silhouette: Vec<bool> = (0..(empty.width * empty.height))
+        .map(|i| {
+            let (x, y) = (i % empty.width, i / empty.width);
+            empty.at(x, y) != cube_only.at(x, y)
+        })
+        .collect();
+
+    let (delta, x, y) = biggest_darkening_off_the_caster(&open, &occluded, &silhouette);
+    assert!(
+        delta > 30.0,
+        "the cube should cast a point-light shadow on floor it does not cover; the \
+         strongest darkening away from its silhouette was {delta} at ({x}, {y}), \
+         open {:?} occluded {:?}",
+        open.at(x, y),
+        occluded.at(x, y)
     );
 }

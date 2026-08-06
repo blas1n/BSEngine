@@ -46,6 +46,9 @@ pub mod material;
 pub mod nav_mesh;
 /// Nav-mesh-driven pathing agent component and its runtime state.
 pub mod nav_mesh_agent;
+/// Convex decomposition of walkable space into rectangles, and the portals
+/// between them.
+pub mod nav_poly;
 /// Networked entity identity and authority components.
 pub mod network_id;
 /// Parent-entity reference for building transform hierarchies.

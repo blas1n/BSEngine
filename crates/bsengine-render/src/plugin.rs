@@ -825,9 +825,16 @@ impl Plugin for RenderPlugin {
             .init_resource::<UiState>()
             .init_resource::<PendingShaders>()
             .init_resource::<PendingSkybox>()
+            .init_resource::<crate::texture_cache::TextureCache>()
             .add_event::<WindowResized>()
             .add_event::<KeyInput>()
-            .add_systems(Update, update_camera_aspect)
+            .add_systems(
+                Update,
+                (
+                    update_camera_aspect,
+                    crate::texture_cache::resolve_texture_paths,
+                ),
+            )
             .add_systems(
                 PostUpdate,
                 (

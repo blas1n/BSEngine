@@ -17,6 +17,8 @@ pub mod components;
 pub mod plugin;
 /// Custom WGSL shader source asset and its loader.
 pub mod shader_asset;
+/// Turning a texture path into a `Material.texture_id`.
+pub mod texture_cache;
 
 pub use components::MeshRenderer;
 pub use plugin::RenderPlugin;

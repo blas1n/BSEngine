@@ -1066,6 +1066,7 @@ dependencies = [
  "bsengine-rhi-wgpu",
  "bsengine-window",
  "glam 0.29.3",
+ "pollster",
  "tracing",
 ]
 

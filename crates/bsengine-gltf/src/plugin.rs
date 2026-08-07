@@ -46,18 +46,19 @@ impl Plugin for GltfPlugin {
 /// The in-flight load for a [`GltfAsset`], held so the request is made once
 /// rather than re-issued every frame.
 ///
-/// Re-calling `AssetServer::load` for a path whose load has *failed* resets it
-/// to `Loading` and starts the load again (`bevy_asset` 0.14.2,
-/// `server/info.rs:216-221`). `LoadState::Failed` is set in `PreUpdate` while
-/// this system runs in `Update`, so a polling loop that re-requests erases the
-/// failure before it can observe it — retrying a missing file forever and
-/// spawning a fresh filesystem task every frame. Holding the handle also keeps
-/// it strong; nothing else does between frames.
+/// See [`bsengine_asset::AssetSlot`] for why re-requesting a path whose load
+/// has failed is the specific thing that must not happen, and why the handle is
+/// kept strong between frames.
+///
+/// The terminal state here is not [`bsengine_asset::AssetSlot::GaveUp`] but the
+/// removal of this component *and* `GltfAsset`: with nothing left naming the
+/// path, a re-request becomes structurally impossible rather than merely
+/// avoided. The slot reports; [`load_gltf_assets`] decides what that means.
 ///
 /// Internal to this system — `GltfAsset.path` stays a plain `String`, so scene
 /// RON, the scripting API and the MCP tools are unaffected.
 #[derive(Component)]
-struct PendingGltf(bevy_asset::Handle<LoadedGltf>);
+struct PendingGltf(bsengine_asset::AssetSlot<LoadedGltf>);
 
 /// What a resolved [`GltfAsset`] produced, kept on the entity so a later reload
 /// can rebuild it.
@@ -82,8 +83,13 @@ struct GltfLoaded {
 
 fn load_gltf_assets(
     mut commands: Commands,
-    query: Query<
-        (Entity, &GltfAsset, Option<&PendingGltf>, Option<&Transform>),
+    mut query: Query<
+        (
+            Entity,
+            &GltfAsset,
+            Option<&mut PendingGltf>,
+            Option<&Transform>,
+        ),
         Without<MeshRenderer>,
     >,
     mut mesh_registry: Option<ResMut<GpuMeshRegistry>>,
@@ -91,9 +97,9 @@ fn load_gltf_assets(
     mut gltf_assets: ResMut<bevy_asset::Assets<LoadedGltf>>,
     asset_server: Res<bevy_asset::AssetServer>,
 ) {
-    for (entity, asset, pending, existing_transform) in query.iter() {
+    for (entity, asset, pending, existing_transform) in query.iter_mut() {
         // Request exactly once, then retain the handle. See `PendingGltf`.
-        let Some(pending) = pending else {
+        let Some(mut pending) = pending else {
             match bsengine_asset::load(
                 bsengine_asset::LoadMode::Async,
                 &asset_server,
@@ -102,7 +108,9 @@ fn load_gltf_assets(
                 GltfLoader::load_full,
             ) {
                 Ok(handle) => {
-                    commands.entity(entity).insert(PendingGltf(handle));
+                    commands
+                        .entity(entity)
+                        .insert(PendingGltf(bsengine_asset::AssetSlot::from_handle(handle)));
                 }
                 Err(e) => {
                     // Unreachable: `LoadMode::Async` is infallible. This arm
@@ -115,14 +123,23 @@ fn load_gltf_assets(
             continue;
         };
 
-        let Some(loaded) = gltf_assets.get(&pending.0) else {
-            // Not resolved yet. A failed load never resolves, so ask whether
-            // it failed -- otherwise a missing file retries silently forever,
-            // where the old blocking path warned once and gave up.
-            if let bevy_asset::LoadState::Failed(e) = asset_server.load_state(&pending.0) {
-                warn!("Failed to load GLTF {}: {e}", asset.path);
-                commands.entity(entity).remove::<(GltfAsset, PendingGltf)>();
-            }
+        if let bsengine_asset::Polled::Failed(e) = pending.0.poll(&asset_server, &gltf_assets) {
+            // A failed load never resolves, so the path is dropped entirely --
+            // otherwise a missing file retries silently forever, where the old
+            // blocking path warned once and gave up.
+            warn!("Failed to load GLTF {}: {e}", asset.path);
+            commands.entity(entity).remove::<(GltfAsset, PendingGltf)>();
+            continue;
+        }
+        // Deliberately not `Arrived`-only: the data can land before
+        // `GpuMeshRegistry` exists, and the spawn below then retries every frame
+        // until it does. Acting only on the arrival frame would drop those loads.
+        // Cloned out so the handle outlives the borrow of `pending`; a `Handle`
+        // is refcounted, so this is a bump rather than a copy of the asset.
+        let Some(handle) = pending.0.handle().cloned() else {
+            continue;
+        };
+        let Some(loaded) = gltf_assets.get(&handle) else {
             continue;
         };
 
@@ -214,7 +231,7 @@ fn load_gltf_assets(
             // all-`None` (absent), never mixed, so flattening keeps
             // `LoadedGltf::images` order intact.
             commands.entity(entity).insert(GltfLoaded {
-                handle: pending.0.clone(),
+                handle: handle.clone(),
                 mesh_ids,
                 texture_ids: tex_ids.iter().flatten().copied().collect(),
             });

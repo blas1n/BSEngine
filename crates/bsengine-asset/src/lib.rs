@@ -41,6 +41,9 @@ pub mod load_mode;
 /// Wires `bevy_asset`'s `AssetPlugin` into the app and registers this
 /// crate's own asset types.
 pub mod plugin;
+/// `AssetSlot`: the request-once / poll / never-re-request-a-failure state
+/// machine every asynchronous asset consumer in this engine needs.
+pub mod slot;
 /// `AssetStatusPlugin`: records what became of each asset the engine tried to
 /// load, so "what happened to this asset?" is answerable from code rather than
 /// from a log line.
@@ -63,6 +66,7 @@ pub use bevy_asset::{Asset, AssetServer, Assets, Handle};
 pub use identity::{AssetGuid, AssetIdentityPlugin, AssetIndex};
 pub use load_mode::{load, load_async, LoadMode};
 pub use plugin::AssetPlugin;
+pub use slot::{AssetSlot, Polled};
 pub use status::{AssetStatus, AssetStatusPlugin, AssetStatuses};
 pub use texture_loader::TextureAssetLoader;
 pub use types::TextureAsset;

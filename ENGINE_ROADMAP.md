@@ -398,7 +398,7 @@ self-hit, (8) player.js: 레이캐스트 origin 높이(+0.9)가 콜라이더 상
 
 ---
 
-### 23. bevy_asset 도입 + glTF/텍스처/셰이더/오디오 통합
+### 23. bevy_asset 도입 + glTF/텍스처/셰이더/오디오 통합 ✅
 
 **목표:** `bsengine-asset`의 `Handle`/`AssetServer`(사실상 고아 상태 — `load_bytes`를
 실제로 쓰는 곳이 에디터 인스펙터/뷰포트 텍스처 로딩과 테스트 1개뿐)를 걷어내고, 이미
@@ -472,7 +472,7 @@ libtest는 모든 `#[test]`를 spawn된 스레드에서 실행하고, Rust는 �
 
 ---
 
-### 24. 파일 워처 핫리로드 + 로드 상태 조회 API
+### 24. 파일 워처 핫리로드 + 로드 상태 조회 API ✅
 
 **목표:** item 23이 확립한 `Handle<T>` 기반 파이프라인 위에, 실행 중인 게임/에디터에 파일
 변경을 자동 반영하는 핫리로드와 로드 실패/리로드 상태 조회 기능을 얹는다 (원래 item 23
@@ -1166,7 +1166,7 @@ item 24 Phase 5에서 이관 — 그 단계의 전제가 틀렸음이 설계 중
 
 ---
 
-### 31. 스크립트를 에셋으로 승격 (+ 스크립트 핫리로드)
+### 31. 스크립트를 에셋으로 승격 (+ 스크립트 핫리로드) ✅
 
 **목표:** JS 스크립트를 `std::fs::read_to_string` 직접 읽기에서 `bevy_asset` 에셋으로 옮긴다.
 그 부수 효과로 **스크립트 핫리로드**가 딸려 오고, 스크립트도 안정적 식별자를 가질 수 있게 된다.
@@ -1377,7 +1377,7 @@ velocity의 크기라는 것, 두 `Name`이 같은 개념이라는 것은 판단
 
 ---
 
-### 33. 운동학 운동 스택 제거 (Rapier로 일원화)
+### 33. 운동학 운동 스택 제거 (Rapier로 일원화) ✅
 
 **목표:** `bsengine-core`/`bsengine-app`의 운동학 물리 스택을 지우고 운동을 Rapier 한 곳으로 모은다.
 
@@ -1400,13 +1400,13 @@ velocity의 크기라는 것, 두 `Name`이 같은 개념이라는 것은 판단
 Rapier로 간다(`pw.set_gravity_scale`). 이름이 같은데 다른 시스템을 건드린다.
 
 **완료 조건:**
-- [ ] `games/cube-roller`를 Rapier로 포팅 — **먼저 한다.** 그래야 삭제 시점에 의존자가 없다
-- [ ] `bsengine-core`에서 `Velocity`/`AngularVelocity`/`Damping`/`GravityScale`/`Gravity`(리소스)/
+- [x] `games/cube-roller`를 Rapier로 포팅 — **먼저 한다.** 그래야 삭제 시점에 의존자가 없다
+- [x] `bsengine-core`에서 `Velocity`/`AngularVelocity`/`Damping`/`GravityScale`/`Gravity`(리소스)/
       `ExternalImpulse`/`Mass` 삭제
-- [ ] `bsengine-app`의 velocity·angular_velocity·damping·gravity·external_impulse 플러그인 삭제
-- [ ] 스크립팅 `setDamping` 제거 — Rapier용 `setLinearDamping`이 이미 있어 중복이다
-- [ ] 리플렉션 등록과 인스펙터 항목 정리 (`catalog --check`가 초록을 유지해야 한다)
-- [ ] 테스트 추가, CI 통과, E2E 8개 통과
+- [x] `bsengine-app`의 velocity·angular_velocity·damping·gravity·external_impulse 플러그인 삭제
+- [x] 스크립팅 `setDamping` 제거 — Rapier용 `setLinearDamping`이 이미 있어 중복이다
+- [x] 리플렉션 등록과 인스펙터 항목 정리 (`catalog --check`가 초록을 유지해야 한다)
+- [x] 테스트 추가, CI 통과, E2E 8개 통과
 
 **item 27이 이 항목의 첫 소비자다.** 캐릭터 컨트롤러는 Rapier의 `KinematicCharacterController`
 위에 서고, 운동학 컴포넌트를 다시 만들지 않는다.

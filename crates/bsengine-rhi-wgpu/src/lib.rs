@@ -22,6 +22,8 @@ pub mod mesh;
 mod output;
 /// Editor-only egui panels (asset browser, dock, hierarchy, inspector, viewport).
 pub mod panels;
+/// Billboarded particle quads, drawn instanced.
+pub mod particles;
 /// The Bevy plugin that wires the wgpu RHI into the app.
 pub mod plugin;
 /// Post-processing render passes (bloom, tonemapping, etc).

@@ -156,6 +156,8 @@ pub struct Scene {
     pub ssao: Option<bsengine_core::AmbientOcclusion>,
     pub hud: HashMap<String, String>,
     pub with_skybox: bool,
+    /// Particle batches for the pass that runs after transparency.
+    pub particles: Vec<bsengine_rhi_wgpu::particles::ParticleBatch>,
 }
 
 impl Default for Scene {
@@ -170,6 +172,7 @@ impl Default for Scene {
             ssao: None,
             hud: HashMap::new(),
             with_skybox: false,
+            particles: Vec::new(),
         }
     }
 }
@@ -406,6 +409,7 @@ struct VertOut {{
                 None,
                 None,
                 0.0,
+                &scene.particles,
             )
             .expect("render_frame failed");
 

@@ -613,6 +613,46 @@ mod tests {
     }
 
     #[test]
+    fn mini_arenas_hit_spark_emitter_survives_deserialization() {
+        // A reflected component can fail to deserialize *silently*: the scene
+        // parses, the entity spawns, a warning goes to the log and the
+        // component is simply not there. This one did exactly that until
+        // `ReflectColor` was given `ReflectDeserialize` -- an opaque type
+        // without it takes the whole containing component down with it.
+        //
+        // Missing *fields* are tolerated, which is worth knowing and is not
+        // what item 29 was about: the value is applied over a Default, so a
+        // field left out of the RON keeps its default rather than voiding the
+        // component. Item 29's silent emptying was a collection whose element
+        // type had gained a field, which is a different failure.
+        //
+        // Reads the real scene rather than a fixture, because the point is to
+        // fail when someone edits that file.
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .expect("workspace root is two levels above crates/bsengine-scene");
+        let text = std::fs::read_to_string(root.join("games/mini-arena/assets/scenes/main.ron"))
+            .expect("mini-arena's scene should be readable");
+        let scene: crate::types::SceneDescriptor =
+            ron::from_str(&text).expect("mini-arena's scene should parse");
+
+        // The reflect registry is what reflected components deserialize
+        // against; without it every one of them comes back absent, which is
+        // the very failure this test exists to detect.
+        let mut app = new_app();
+        super::register_gameplay_reflect_types(&mut app);
+        super::spawn_scene_entities(app.world_mut(), &scene.entities);
+
+        let mut query = app.world_mut().query::<&bsengine_core::ParticleEmitter>();
+        assert_eq!(
+            query.iter(app.world()).count(),
+            1,
+            "the emitter did not survive deserialization. Run with RUST_LOG=warn:              the scene loader logs why, and the usual cause is a field whose              type is opaque to reflection and has no ReflectDeserialize"
+        );
+    }
+
+    #[test]
     fn a_scene_texture_reference_becomes_a_texture_path_component() {
         // Parsing the field proves nothing on its own: the resolved path has to
         // reach the entity, because that component is the only thing the loader

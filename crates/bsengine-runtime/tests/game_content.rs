@@ -78,6 +78,38 @@ fn mini_arenas_floor_is_textured() {
 }
 
 #[test]
+fn mini_arena_has_a_hit_spark_emitter() {
+    // No replay can see a particle: the harness has no query that reaches an
+    // emitter, so "sparks fly when you hit something" is a claim only a test
+    // like this can hold.
+    let scene = load("games/mini-arena/assets/scenes/main.ron");
+    let sparks = scene
+        .entities
+        .iter()
+        .find(|e| e.name == "HitSparks")
+        .expect("mini-arena should carry the hit-spark emitter");
+
+    assert!(
+        sparks
+            .components
+            .iter()
+            .any(|(path, _)| path.ends_with("ParticleEmitter")),
+        "the entity exists but has no emitter on it: {:?}",
+        sparks.components
+    );
+
+    // And the script that fires it still does. A scene with an emitter nobody
+    // bursts is the same as no emitter at all.
+    let player =
+        std::fs::read_to_string(workspace_root().join("games/mini-arena/assets/scripts/player.js"))
+            .expect("player.js should be readable");
+    assert!(
+        player.contains("burstParticles(\"HitSparks\")"),
+        "player.js no longer bursts the emitter, so nothing would ever emit"
+    );
+}
+
+#[test]
 fn every_other_mini_arena_entity_stays_solid() {
     // The counterpart that makes the test above mean something: transparency is
     // one deliberate object, not a setting that leaked across the scene.

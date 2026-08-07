@@ -100,6 +100,13 @@ function onUpdate(self) {
                 ATTACK_RANGE
             );
             if (hit && hit.entityName === "Enemy") {
+                // Sparks at the impact point. The emitter is a parked entity
+                // that gets moved there first, because a burst emits from
+                // wherever its entity currently is.
+                if (hit.point) {
+                    Bsengine.setTransform("HitSparks", hit.point[0], hit.point[1], hit.point[2]);
+                    Bsengine.burstParticles("HitSparks");
+                }
                 // Bsengine.damageShield() only queues a ScriptCommand,
                 // applied to the world after every script finishes this
                 // frame; Bsengine.getShield() reads a snapshot captured at

@@ -10,4 +10,8 @@ tracing-subscriber.workspace = true
 bevy_ecs.workspace = true
 bevy_reflect.workspace = true
 glam.workspace = true
+# `ReflectColor` carries Serialize/Deserialize so a scene can author a colour
+# inside a reflected component. Without them the reflect deserializer has no
+# ReflectDeserialize for the type and the whole component comes back absent.
+serde.workspace = true
 egui.workspace = true

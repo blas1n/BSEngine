@@ -19,10 +19,12 @@
 //! The macro's custom-path form, `impl_reflect_value!((in crate_name::module) Type(...))`, is the
 //! documented way to reflect a local type: the bare `Type` resolves normally in this scope, while
 //! `(in ...)` only supplies the string used for `reflect_type_path()`.
-use bevy_reflect::{impl_reflect_value, prelude::ReflectDefault};
+use bevy_reflect::{
+    impl_reflect_value, prelude::ReflectDefault, ReflectDeserialize, ReflectSerialize,
+};
 
 macro_rules! reflect_glam_wrapper {
-    ($doc:expr, $wrapper:ident, $inner:ty) => {
+    ($doc:expr, $wrapper:ident, $inner:ty, $array:ty) => {
         #[doc = $doc]
         #[derive(Debug, Clone, Copy, PartialEq, Default)]
         pub struct $wrapper(pub $inner);
@@ -52,34 +54,86 @@ macro_rules! reflect_glam_wrapper {
                 value.0
             }
         }
+
+        // Serialised as a plain sequence of floats, so a scene writes
+        // `(1.0, 2.0, 3.0)`. Hand-written rather than derived to keep `glam`'s
+        // optional `serde` feature off: these are two to sixteen f32s and
+        // nothing about the representation needs `glam` to know how.
+        //
+        // The point of having them at all is `ReflectDeserialize`, registered
+        // below. `impl_reflect_value!` makes each wrapper an *opaque* leaf as
+        // far as reflection is concerned, and an opaque type without that data
+        // cannot be deserialised -- which takes the whole containing component
+        // down silently, with a warning and no error.
+        impl serde::Serialize for $wrapper {
+            #[allow(clippy::needless_borrow)]
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                serde::Serialize::serialize(&self.0.to_array(), serializer)
+            }
+        }
+
+        impl<'de> serde::Deserialize<'de> for $wrapper {
+            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                let raw = <$array>::deserialize(deserializer)?;
+                Ok(Self(<$inner>::from_array(raw)))
+            }
+        }
     };
 }
 
 reflect_glam_wrapper!(
     "Reflectable wrapper around a `glam::Vec2`.",
     ReflectVec2,
-    glam::Vec2
+    glam::Vec2,
+    [f32; 2]
 );
 reflect_glam_wrapper!(
     "Reflectable wrapper around a `glam::Vec3`.",
     ReflectVec3,
-    glam::Vec3
+    glam::Vec3,
+    [f32; 3]
 );
 reflect_glam_wrapper!(
     "Reflectable wrapper around a `glam::Vec4`.",
     ReflectVec4,
-    glam::Vec4
+    glam::Vec4,
+    [f32; 4]
 );
 reflect_glam_wrapper!(
     "Reflectable wrapper around a `glam::Quat`.",
     ReflectQuat,
-    glam::Quat
+    glam::Quat,
+    [f32; 4]
 );
 
-impl_reflect_value!((in bsengine_core::reflect_glam) ReflectVec2(Debug, PartialEq, Default));
-impl_reflect_value!((in bsengine_core::reflect_glam) ReflectVec3(Debug, PartialEq, Default));
-impl_reflect_value!((in bsengine_core::reflect_glam) ReflectVec4(Debug, PartialEq, Default));
-impl_reflect_value!((in bsengine_core::reflect_glam) ReflectQuat(Debug, PartialEq, Default));
+impl_reflect_value!((in bsengine_core::reflect_glam) ReflectVec2(
+    Debug,
+    PartialEq,
+    Default,
+    Serialize,
+    Deserialize
+));
+impl_reflect_value!((in bsengine_core::reflect_glam) ReflectVec3(
+    Debug,
+    PartialEq,
+    Default,
+    Serialize,
+    Deserialize
+));
+impl_reflect_value!((in bsengine_core::reflect_glam) ReflectVec4(
+    Debug,
+    PartialEq,
+    Default,
+    Serialize,
+    Deserialize
+));
+impl_reflect_value!((in bsengine_core::reflect_glam) ReflectQuat(
+    Debug,
+    PartialEq,
+    Default,
+    Serialize,
+    Deserialize
+));
 
 #[cfg(test)]
 mod tests {

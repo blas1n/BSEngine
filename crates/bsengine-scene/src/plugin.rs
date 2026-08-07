@@ -613,6 +613,82 @@ mod tests {
     }
 
     #[test]
+    fn every_reflect_wrapper_can_be_authored_in_a_scene() {
+        // `impl_reflect_value!` makes these opaque leaf types, and an opaque
+        // type can only be deserialized through `ReflectDeserialize`. Without
+        // it the whole *containing component* comes back absent -- a warning in
+        // the log, no error, and an entity quietly missing what the scene said
+        // it had. `ReflectColor` had exactly that until item 28 tripped over
+        // it; this covers the siblings so the next one is caught here rather
+        // than in a game.
+        //
+        // Driven through real components, because the wrappers are only
+        // reachable that way: Transform holds two ReflectVec3s and a
+        // ReflectQuat, SpotLight a ReflectDegrees.
+        //
+        // ReflectVec2, ReflectVec4 and ReflectMat4 are fixed the same way but
+        // cannot be covered here: no component has a field of those types, so
+        // there is nothing to author. They are done for uniformity -- six
+        // near-identical wrappers where three behave differently is its own
+        // trap.
+        // `Follow` is deliberately not in this list even though it holds a
+        // ReflectVec3: its other field is a `bevy_ecs::entity::Entity`, which
+        // has no ReflectDeserialize either -- and should not. An entity id is a
+        // runtime handle, so a scene naming one would be pointing at whichever
+        // entity happened to land in that slot. Not authorable is the right
+        // answer there, and it is a different fact from the one this test is
+        // about.
+        let cases: [(&str, &str); 2] = [
+            (
+                "bsengine_core::transform::Transform",
+                "(position: (1.0, 2.0, 3.0), rotation: (0.0, 0.0, 0.0, 1.0), scale: (1.0, 1.0, 1.0))",
+            ),
+            (
+                "bsengine_core::light::SpotLight",
+                "(color: (1.0, 1.0, 1.0), intensity: 1.0, range: 10.0, inner_angle_degrees: 15.0, outer_angle_degrees: 30.0)",
+            ),
+        ];
+
+        for (path, value) in cases {
+            // Built rather than parsed: nesting a RON value inside a RON
+            // string inside a Rust raw string is three levels of quoting for
+            // no gain.
+            let mut scene: crate::types::SceneDescriptor =
+                ron::from_str(r#"SceneDescriptor(entities: [EntityDescriptor(name: "E")])"#)
+                    .expect("the base scene should parse");
+            scene.entities[0].components = vec![(path.to_string(), value.to_string())];
+
+            let mut app = new_app();
+            super::register_gameplay_reflect_types(&mut app);
+            super::spawn_scene_entities(app.world_mut(), &scene.entities);
+
+            let entity = app
+                .world()
+                .iter_entities()
+                .next()
+                .expect("the entity should exist")
+                .id();
+            let registry = app
+                .world()
+                .resource::<bevy_ecs::reflect::AppTypeRegistry>()
+                .clone();
+            let registry = registry.read();
+            let registration = registry
+                .get_with_type_path(path)
+                .unwrap_or_else(|| panic!("{path} is not registered for reflection"));
+            let reflect_component = registration
+                .data::<bevy_ecs::reflect::ReflectComponent>()
+                .unwrap_or_else(|| panic!("{path} has no ReflectComponent"));
+            assert!(
+                reflect_component
+                    .reflect(app.world().entity(entity))
+                    .is_some(),
+                "{path} did not survive deserialization -- one of its fields is an                  opaque wrapper with no ReflectDeserialize"
+            );
+        }
+    }
+
+    #[test]
     fn mini_arenas_hit_spark_emitter_survives_deserialization() {
         // A reflected component can fail to deserialize *silently*: the scene
         // parses, the entity spawns, a warning goes to the log and the

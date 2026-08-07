@@ -126,6 +126,20 @@ impl<A: Asset> AssetSlot<A> {
         Polled::Nothing
     }
 
+    /// Records that the asset is present after all.
+    ///
+    /// For a caller that learned it from an `AssetEvent` rather than from
+    /// [`Self::poll`]: a file that was missing and has since been created
+    /// arrives that way, and a `GaveUp` slot has to be able to leave that state
+    /// or the next frame would forget the recovery just performed.
+    /// `bsengine-scripting` uses this when a given-up script's file appears.
+    ///
+    /// This never re-requests, which is the thing that must not happen — it
+    /// only writes down what an event already proved.
+    pub fn mark_arrived(&mut self) {
+        *self = Self::Ready(self.handle().clone());
+    }
+
     /// The retained handle. Present in every state — see
     /// [`Self::GaveUp`] for why a failed load keeps one too.
     pub fn handle(&self) -> &Handle<A> {

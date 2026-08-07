@@ -51,23 +51,6 @@ pub struct Script {
     pub source: String,
 }
 
-/// Where one entity's script is between "asked for" and "running".
-#[derive(Debug, PartialEq, Eq)]
-enum ScriptLoadState {
-    /// Requested; waiting for `Assets<ScriptSource>` to have it.
-    Loading,
-    /// Arrived and executed. The entity also carries a [`Script`].
-    Ready,
-    /// The load failed. Warned once, and the path is never asked for again --
-    /// re-requesting a path whose state is `Failed` resets it to `Loading` and
-    /// restarts the load (`bevy_asset` 0.14.2, `server/info.rs:212-221`), and
-    /// because `Failed` is set in `PreUpdate` while this is polled in
-    /// `Update`, a re-requesting poll loop erases the failure before it can
-    /// ever observe it -- retrying forever and spawning a fresh filesystem
-    /// task every frame.
-    GaveUp,
-}
-
 /// One entity's script file, as an asset request that outlives the frame it
 /// was made on.
 ///
@@ -92,16 +75,19 @@ enum ScriptLoadState {
 /// reverse: the entry is what stops the path being requested a second time.
 #[derive(Component, Debug)]
 struct ScriptLoad {
-    /// Retained strong handle -- see the type docs for why it outlives the
-    /// execution it was requested for.
-    handle: bevy_asset::Handle<crate::script_asset::ScriptSource>,
+    /// The load, and with it the retained strong handle -- see the type docs
+    /// for why that outlives the execution it was requested for, and
+    /// [`bsengine_asset::AssetSlot`] for why a failed load keeps one too.
+    ///
+    /// `Ready` here doubles as "already executed": `execute_loaded_scripts`
+    /// only polls slots still `Loading`, so the arrival that runs a script is
+    /// also what takes it out of that set. Nothing else records having run it.
+    slot: bsengine_asset::AssetSlot<crate::script_asset::ScriptSource>,
     /// The path as this engine spelled it when it asked. Kept rather than
     /// re-derived from `AssetServer::get_path`, which can only answer while
     /// the `AssetInfo` exists -- and the message that most needs a path is
     /// the one about a load that failed.
     path: String,
-    /// How far along this request is.
-    state: ScriptLoadState,
 }
 
 /// Non-Send wrapper around the entity's V8 isolate; stored as a non-send
@@ -433,7 +419,7 @@ fn capture_collision_events(
 /// again -- which a scene load does -- never re-requests a path. That matters
 /// most for a path that *failed*: `AssetServer::load` on a `Failed` path
 /// resets it to `Loading` and starts over, which would make the failure
-/// permanently unobservable. See [`ScriptLoadState::GaveUp`].
+/// permanently unobservable. See [`bsengine_asset::AssetSlot::GaveUp`].
 pub fn load_scripts(world: &mut World) {
     let project_dir = world
         .get_resource::<ProjectDir>()
@@ -485,13 +471,11 @@ pub fn load_scripts(world: &mut World) {
         // script that loaded and a script nothing ever asked for would read
         // back identically through `Bsengine.getAssetStatus`. It is also what
         // resolves a path an asset has since moved away from.
-        let handle =
-            bsengine_asset::load_async::<crate::script_asset::ScriptSource>(&asset_server, &path);
-        world.entity_mut(entity).insert(ScriptLoad {
-            handle,
-            path,
-            state: ScriptLoadState::Loading,
-        });
+        let slot = bsengine_asset::AssetSlot::<crate::script_asset::ScriptSource>::requesting(
+            &asset_server,
+            &path,
+        );
+        world.entity_mut(entity).insert(ScriptLoad { slot, path });
     }
 }
 
@@ -518,7 +502,7 @@ fn execute_loaded_scripts(world: &mut World) {
     let pending: Vec<Entity> = {
         let mut q = world.query::<(Entity, &ScriptLoad)>();
         q.iter(world)
-            .filter(|(_, load)| load.state == ScriptLoadState::Loading)
+            .filter(|(_, load)| matches!(load.slot, bsengine_asset::AssetSlot::Loading(_)))
             .map(|(entity, _)| entity)
             .collect()
     };
@@ -526,41 +510,39 @@ fn execute_loaded_scripts(world: &mut World) {
         return;
     }
 
-    // Decided first, so the shared borrows of `Assets`/`AssetServer` end
-    // before the world is mutated below.
+    let asset_server = world.resource::<bevy_asset::AssetServer>().clone();
+    // Decided first, so the borrows end before the world is mutated below.
     let mut ready: Vec<(Entity, String, String)> = Vec::new();
-    let mut failed: Vec<(Entity, String, String)> = Vec::new();
-    {
-        let assets = world.resource::<bevy_asset::Assets<crate::script_asset::ScriptSource>>();
-        let asset_server = world.resource::<bevy_asset::AssetServer>();
-        for entity in pending {
-            let Some(load) = world.get::<ScriptLoad>(entity) else {
-                continue;
-            };
-            match assets.get(&load.handle) {
-                Some(source) => ready.push((entity, load.path.clone(), source.0.clone())),
-                // Absent is inconclusive -- still loading, or failed. Only
-                // the load state can tell those apart, and it is read from
-                // the handle already held, never from a fresh request.
-                None => {
-                    if let bevy_asset::LoadState::Failed(e) = asset_server.load_state(&load.handle)
-                    {
-                        failed.push((entity, load.path.clone(), e.to_string()));
+
+    // `resource_scope` lifts `Assets` out of the world for the duration. A slot
+    // lives on a component, so polling it needs `&mut World` at the same time
+    // as the assets it polls against -- which the borrow checker will not give
+    // while `Assets` is still a resource in there.
+    world.resource_scope(
+        |world, assets: bevy_ecs::world::Mut<
+            bevy_asset::Assets<crate::script_asset::ScriptSource>,
+        >| {
+            for entity in pending {
+                let Some(mut load) = world.get_mut::<ScriptLoad>(entity) else {
+                    continue;
+                };
+                match load.slot.poll(&asset_server, &assets) {
+                    bsengine_asset::Polled::Arrived => {
+                        if let Some(source) = assets.get(load.slot.handle()) {
+                            ready.push((entity, load.path.clone(), source.0.clone()));
+                        }
                     }
+                    // Once per entity, because the slot settles once: a
+                    // per-frame warning for a path that will never load is how
+                    // the log that should carry this line gets buried.
+                    bsengine_asset::Polled::Failed(e) => {
+                        tracing::warn!("[scripting] giving up on {}: {e}", load.path);
+                    }
+                    bsengine_asset::Polled::Nothing => {}
                 }
             }
-        }
-    }
-
-    for (entity, path, error) in failed {
-        // Once per entity, because the state transition below happens once:
-        // a per-frame warning for a path that will never load is how the log
-        // that should carry this line gets buried.
-        tracing::warn!("[scripting] giving up on {path}: {error}");
-        if let Some(mut load) = world.get_mut::<ScriptLoad>(entity) {
-            load.state = ScriptLoadState::GaveUp;
-        }
-    }
+        },
+    );
 
     for (entity, path, source) in ready {
         match adopt_script_source(world, entity, &path, source) {
@@ -611,7 +593,12 @@ fn adopt_script_source(
     let mut entity_mut = world.get_entity_mut(entity)?;
     entity_mut.insert(Script { source });
     if let Some(mut load) = entity_mut.get_mut::<ScriptLoad>() {
-        load.state = ScriptLoadState::Ready;
+        // A no-op on the ordinary path, where `execute_loaded_scripts` polled
+        // the slot to `Ready` moments ago. It matters for a recovery: a script
+        // whose file was missing is revived by `reexecute_modified_scripts`
+        // from an `AssetEvent`, never by a poll, so nothing else would take its
+        // slot out of `GaveUp`.
+        load.slot.mark_arrived();
     }
     let mut rt = world.get_non_send_resource_mut::<ScriptRuntimeResource>()?;
     Some(rt.0.exec_source(&wrapped, path))
@@ -669,7 +656,8 @@ fn adopt_script_source(
 /// for it never comes. Without that arm a single typo in a filename, or one
 /// non-UTF-8 byte, would be permanent for the rest of the run even after the
 /// file was fixed: [`execute_loaded_scripts`] deliberately never revisits
-/// [`ScriptLoadState::GaveUp`], and it is right not to, since re-requesting is
+/// [`bsengine_asset::AssetSlot::GaveUp`], and it is right not to, since
+/// re-requesting is
 /// what erases the failure. Nothing here re-requests either; recovery arrives
 /// because [`ScriptLoad`] kept the handle even for a load that failed.
 ///
@@ -710,21 +698,24 @@ fn reexecute_modified_scripts(
         let mut q = world.query::<(Entity, &ScriptLoad)>();
         let assets = world.resource::<bevy_asset::Assets<crate::script_asset::ScriptSource>>();
         for (entity, load) in q.iter(world) {
-            let Some(&(_, added)) = changed.iter().find(|(id, _)| *id == load.handle.id()) else {
+            let Some(&(_, added)) = changed
+                .iter()
+                .find(|(id, _)| *id == load.slot.handle().id())
+            else {
                 continue;
             };
-            let recovered = match load.state {
+            let recovered = match &load.slot {
+                // Fixed on disk, by either spelling of the event.
+                bsengine_asset::AssetSlot::GaveUp(_) => true,
                 // The reload proper. An `Added` here is the frame-late echo of
                 // this entity's own first load; see the type docs.
-                ScriptLoadState::Ready if !added => false,
-                ScriptLoadState::Ready => continue,
-                // Fixed on disk, by either spelling of the event.
-                ScriptLoadState::GaveUp => true,
+                bsengine_asset::AssetSlot::Ready(_) if !added => false,
+                bsengine_asset::AssetSlot::Ready(_) => continue,
                 // `execute_loaded_scripts` owns this transition and has
                 // already made it this frame, ahead of this system.
-                ScriptLoadState::Loading => continue,
+                bsengine_asset::AssetSlot::Loading(_) => continue,
             };
-            let Some(source) = assets.get(&load.handle) else {
+            let Some(source) = assets.get(load.slot.handle()) else {
                 continue;
             };
             to_run.push((entity, load.path.clone(), source.0.clone(), recovered));
@@ -3691,8 +3682,8 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
 #[cfg(test)]
 mod tests {
     use super::{
-        HudTexts, Name, PendingSounds, Script, ScriptLoad, ScriptLoadState, ScriptPath,
-        ScriptRuntimeResource, ScriptingPlugin, SoundLoad, SoundLoads, Transform, Vec3,
+        HudTexts, Name, PendingSounds, Script, ScriptLoad, ScriptPath, ScriptRuntimeResource,
+        ScriptingPlugin, SoundLoad, SoundLoads, Transform, Vec3,
     };
     use bsengine_app::new_app;
 
@@ -3912,10 +3903,9 @@ mod tests {
              the id `_runAll` looks it up under"
         );
         assert!(
-            matches!(
-                app.world().get::<ScriptLoad>(entity).map(|l| &l.state),
-                Some(ScriptLoadState::Ready)
-            ),
+            app.world()
+                .get::<ScriptLoad>(entity)
+                .is_some_and(|l| l.slot.is_ready()),
             "an executed script must be recorded as Ready, holding the handle \
              that keeps the source tracked"
         );
@@ -3974,10 +3964,9 @@ mod tests {
              Captured logs were:\n{logs}"
         );
         assert!(
-            matches!(
-                app.world().get::<ScriptLoad>(entity).map(|l| &l.state),
-                Some(ScriptLoadState::GaveUp)
-            ),
+            app.world()
+                .get::<ScriptLoad>(entity)
+                .is_some_and(|l| l.slot.gave_up()),
             "the entity must end up recorded as given-up on; still `Loading` \
              after 200 frames means the load is being restarted every frame"
         );
@@ -4154,10 +4143,9 @@ mod tests {
                  reader concludes the wrong thing about what is running"
             );
             assert!(
-                matches!(
-                    app.world().get::<ScriptLoad>(entity).map(|l| &l.state),
-                    Some(ScriptLoadState::Ready)
-                ),
+                app.world()
+                    .get::<ScriptLoad>(entity)
+                    .is_some_and(|l| l.slot.is_ready()),
                 "{who} must still be Ready after a reload, holding the handle \
                  that makes the *next* edit reloadable too"
             );
@@ -4196,10 +4184,9 @@ mod tests {
             .id();
 
         run_until(&mut app, "the missing script was given up on", |app| {
-            matches!(
-                app.world().get::<ScriptLoad>(entity).map(|l| &l.state),
-                Some(ScriptLoadState::GaveUp)
-            )
+            app.world()
+                .get::<ScriptLoad>(entity)
+                .is_some_and(|l| l.slot.gave_up())
         });
         assert!(
             phase(&app, "Ghost").is_none(),
@@ -4216,10 +4203,9 @@ mod tests {
             |app| phase(app, "Ghost").as_deref() == Some("fixed"),
         );
         assert!(
-            matches!(
-                app.world().get::<ScriptLoad>(entity).map(|l| &l.state),
-                Some(ScriptLoadState::Ready)
-            ),
+            app.world()
+                .get::<ScriptLoad>(entity)
+                .is_some_and(|l| l.slot.is_ready()),
             "a recovered script must be recorded as Ready, or the *next* edit to \
              it is filtered out again"
         );

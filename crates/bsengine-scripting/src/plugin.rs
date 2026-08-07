@@ -483,14 +483,12 @@ pub fn load_scripts(world: &mut World) {
 /// once, out loud -- on each one that cannot arrive.
 ///
 /// This is the polling half of the pair described on [`load_scripts`]. It
-/// reads the handle [`ScriptLoad`] already holds and **never requests
-/// anything**: `AssetServer::load` on a path whose state is `Failed` resets it
-/// to `Loading` and respawns the filesystem task (`bevy_asset` 0.14.2,
-/// `server/info.rs:212-221`), and since `Failed` is set in `PreUpdate` while
-/// this runs in `Update`, a poll that re-requested would never once observe a
-/// failure -- it would retry forever and leak a task per frame. Phase 2 of
-/// item 24 measured that shape at 200 errors over 200 frames against one for
-/// this one.
+/// advances the [`bsengine_asset::AssetSlot`] that [`ScriptLoad`] already holds
+/// and **never requests anything** — see
+/// [`AssetSlot::GaveUp`](bsengine_asset::AssetSlot::GaveUp) for why a
+/// re-requesting poll loop can never observe a failure at all. Phase 2 of item
+/// 24 measured that shape at 200 errors over 200 frames against one for this
+/// one.
 ///
 /// Executing a script is what inserts its [`Script`] component, so an entity
 /// whose source never arrives is simply never offered to `Bsengine._runAll`

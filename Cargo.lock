@@ -829,6 +829,7 @@ dependencies = [
  "bsengine-window",
  "glam 0.29.3",
  "serde_json",
+ "tracing",
 ]
 
 [[package]]
@@ -888,6 +889,7 @@ dependencies = [
  "bevy_reflect",
  "egui",
  "glam 0.29.3",
+ "serde",
  "tracing",
  "tracing-subscriber",
 ]

@@ -19,6 +19,8 @@ pub mod follow;
 pub mod lifetime;
 /// `NavMeshPlugin`: paths and moves `NavMeshAgent` entities across a `NavMesh`.
 pub mod nav_mesh;
+/// `ParticlePlugin`: emits, integrates and ages particles.
+pub mod particles;
 /// `ShieldPlugin`: recharges `Shield` components over time.
 pub mod shield;
 /// `TimePlugin`: ticks the `Time` resource once per frame.
@@ -34,6 +36,7 @@ pub use app::{new_app, App, BsPlugin, Last, PostUpdate, PreUpdate, Startup, Upda
 pub use follow::FollowPlugin;
 pub use lifetime::LifetimePlugin;
 pub use nav_mesh::NavMeshPlugin;
+pub use particles::ParticlePlugin;
 pub use shield::ShieldPlugin;
 pub use time::TimePlugin;
 pub use timer::TimerPlugin;

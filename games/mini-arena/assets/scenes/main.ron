@@ -84,6 +84,19 @@ SceneDescriptor(entities: [
         ],
     ),
     EntityDescriptor(
+        name: "HitSparks",
+        // Starts far below the arena: the script moves it to the impact point
+        // before every burst, and an emitter parked at the origin would show
+        // its sparks in mid-arena the first time anything hit.
+        transform: Some((position: (0.0, -100.0, 0.0))),
+        components: [
+            // Every reflected field has to be present. item 29: a reflected
+            // component whose RON is missing one comes back absent, with no
+            // error and no warning -- the scene simply spawns without it.
+            ("bsengine_core::particles::ParticleEmitter", "(rate: 0.0, burst_count: 20, particle_lifetime: 0.5, initial_speed: 5.0, spread_degrees: 60.0, start_size: 0.09, end_size: 0.0, start_color: (1.0, 0.85, 0.4), end_color: (1.0, 0.25, 0.0), gravity: 12.0, enabled: true)"),
+        ],
+    ),
+    EntityDescriptor(
         name: "Hud",
         script: Some((guid: "20bf72ff-be56-45e4-9f95-2c29ad1c0e41", path: "assets/scripts/hud.js")),
     ),

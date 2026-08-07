@@ -7,7 +7,7 @@ use std::io::{self, BufRead, Write};
 
 use bevy_app::App;
 use bevy_ecs::event::Events;
-use bsengine_app::{NavMeshPlugin, TimePlugin};
+use bsengine_app::{LifetimePlugin, NavMeshPlugin, ParticlePlugin, TimePlugin};
 use bsengine_asset::{AssetIdentityPlugin, AssetPlugin, AssetStatusPlugin};
 use bsengine_audio::AudioPlugin;
 use bsengine_core::{EditorPlayState, InspectorState};
@@ -90,6 +90,13 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>) -> App {
         .add_plugins(AudioPlugin)
         .add_plugins(PhysicsPlugin)
         .add_plugins(NavMeshPlugin)
+        // Same two as the windowed runtime, and for the reason item 11/12
+        // recorded: a plugin present in one host and absent in the other is a
+        // feature that works when you look at it and not when you test it.
+        // Both are pure CPU counters -- no thread, no GPU, no wall clock -- so
+        // a replay stays exactly as reproducible with them as without.
+        .add_plugins(LifetimePlugin)
+        .add_plugins(ParticlePlugin)
         .add_plugins(ScenePlugin::from_file(&scene_path))
         .add_plugins(ScriptingPlugin {
             project_dir: project_dir.to_string(),
@@ -525,6 +532,68 @@ mod tests {
         let names: Vec<String> = serde_json::from_value(names).unwrap();
         assert!(names.contains(&"SceneA".to_string()), "names: {names:?}");
         assert!(!names.contains(&"SceneB".to_string()), "names: {names:?}");
+    }
+
+    #[test]
+    fn a_lifetime_actually_counts_down_in_the_test_app() {
+        // LifetimePlugin was defined, exported and installed by nobody, so
+        // `Bsengine.setLifetime()` had never despawned anything in a running
+        // game. Asserting the plugin is "in the list" would not have caught
+        // that -- there was no list entry to check. Asserting the behaviour
+        // would have.
+        let dir = write_two_scene_project();
+        let mut app = build_test_app(dir.path().to_str().unwrap(), None);
+        let doomed = app
+            .world_mut()
+            .spawn(bsengine_core::Lifetime::from_seconds(0.05))
+            .id();
+        assert!(app.world().get_entity(doomed).is_some());
+
+        // The test app pins its step to 1/60, so four frames is past 0.05s.
+        for _ in 0..4 {
+            app.update();
+        }
+        assert!(
+            app.world().get_entity(doomed).is_none(),
+            "an expired Lifetime has to despawn its entity"
+        );
+    }
+
+    #[test]
+    fn a_particle_emitter_actually_emits_in_the_test_app() {
+        // Same guard, same reason: a simulation plugin present in one host and
+        // absent in the other is a feature that works when you look at it and
+        // not when you test it.
+        let dir = write_two_scene_project();
+        let mut app = build_test_app(dir.path().to_str().unwrap(), None);
+        let e = app
+            .world_mut()
+            .spawn((
+                bsengine_core::Transform::default(),
+                bsengine_core::ParticleEmitter {
+                    rate: 0.0,
+                    burst_count: 6,
+                    particle_lifetime: 100.0,
+                    ..Default::default()
+                },
+            ))
+            .id();
+        app.world_mut()
+            .get_mut::<bsengine_core::ParticleEmitter>(e)
+            .unwrap()
+            .burst();
+
+        app.update();
+
+        assert_eq!(
+            app.world()
+                .get::<bsengine_core::ParticleEmitter>(e)
+                .unwrap()
+                .live
+                .len(),
+            6,
+            "a queued burst has to be emitted by the headless app too"
+        );
     }
 
     #[test]

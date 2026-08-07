@@ -595,9 +595,17 @@ fn render_frame(
         Query<(&DirectionalLight, Option<&GlobalTransform>, &Transform)>,
         Query<(&PointLight, Option<&GlobalTransform>, &Transform)>,
         Query<(&SpotLight, Option<&GlobalTransform>, &Transform)>,
+        Query<(
+            &bsengine_core::ParticleEmitter,
+            Option<&bsengine_core::TexturePath>,
+        )>,
     )>,
     editor_panels: Option<Res<EditorPanelRegistry>>,
     type_registry: Option<Res<bevy_ecs::reflect::AppTypeRegistry>>,
+    // Emitters name a texture by path, like materials do; this is where that
+    // path becomes the id the GPU knows. Absent until item 38's cache exists,
+    // in which case particles draw against the default white texture.
+    texture_cache: Option<Res<crate::texture_cache::TextureCache>>,
 ) {
     let (Some(mut surface), Some(registry)) = (surface, registry) else {
         return;
@@ -757,6 +765,38 @@ fn render_frame(
         }
     };
 
+    // One batch per emitter: the texture is bound once per draw, and the
+    // particles inside a batch cost one instance each.
+    let particle_batches: Vec<bsengine_rhi_wgpu::particles::ParticleBatch> = render_queries
+        .p5()
+        .iter()
+        .filter(|(emitter, _)| !emitter.live.is_empty())
+        .map(|(emitter, texture)| {
+            let start = *emitter.start_color;
+            let end = *emitter.end_color;
+            let instances = emitter
+                .live
+                .iter()
+                .map(|p| {
+                    let t = (p.age / emitter.particle_lifetime.max(1e-6)).clamp(0.0, 1.0);
+                    let colour = start.lerp(end, t);
+                    bsengine_rhi_wgpu::particles::ParticleInstance {
+                        position: p.position.to_array(),
+                        size: emitter.start_size + (emitter.end_size - emitter.start_size) * t,
+                        // Alpha fades to nothing over the life, so a particle
+                        // thins out instead of blinking away at full opacity.
+                        color: [colour.x, colour.y, colour.z, 1.0 - t],
+                    }
+                })
+                .collect();
+            bsengine_rhi_wgpu::particles::ParticleBatch {
+                texture_id: texture
+                    .and_then(|t| texture_cache.as_deref().and_then(|c| c.id_for(&t.0))),
+                instances,
+            }
+        })
+        .collect();
+
     let light_view_proj = compute_light_view_proj(light.direction);
     let tex_reg_ref = tex_registry.as_deref();
 
@@ -787,6 +827,7 @@ fn render_frame(
         editor_panels.as_deref(),
         type_registry.as_deref(),
         time.as_deref().map(|t| t.elapsed_seconds).unwrap_or(0.0),
+        &particle_batches,
     ) {
         Ok(clicked) => {
             if let Some(ref mut state) = ui_state {

@@ -370,7 +370,7 @@ fn fs_sky(in: SkyOut) -> @location(0) vec4<f32> {
 }
 "#;
 
-const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+pub(crate) const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 const MAX_OBJECTS: usize = 1024;
 const MODEL_STRIDE: u64 = 256;
 // view_proj(64) + light_view_proj(64) + cam_pos(12) + pad(4) = 144
@@ -668,6 +668,7 @@ pub struct WgpuSurface {
     pub(crate) queue: Arc<wgpu::Queue>,
     pipeline: wgpu::RenderPipeline,
     transparent_pipeline: wgpu::RenderPipeline,
+    particles: crate::particles::ParticleRenderer,
     depth_texture: wgpu::Texture,
     depth_view: wgpu::TextureView,
     camera_buffer: wgpu::Buffer,
@@ -1337,6 +1338,8 @@ impl WgpuSurface {
             cache: None,
         });
 
+        let particles = crate::particles::ParticleRenderer::new(&device, &camera_bgl);
+
         let egui_ctx = egui::Context::default();
         crate::theme::apply(&egui_ctx);
         let egui_renderer = egui_wgpu::Renderer::new(&device, format, None, 1, false);
@@ -1350,6 +1353,7 @@ impl WgpuSurface {
             queue,
             pipeline,
             transparent_pipeline,
+            particles,
             depth_texture,
             depth_view,
             camera_buffer,
@@ -1721,6 +1725,7 @@ impl WgpuSurface {
         editor_panels: Option<&bsengine_core::EditorPanelRegistry>,
         type_registry: Option<&bevy_ecs::reflect::AppTypeRegistry>,
         elapsed_seconds: f32,
+        particles: &[crate::particles::ParticleBatch],
     ) -> Result<std::collections::HashSet<String>, String> {
         let camera_data = CameraUniformData {
             view_proj: view_proj.to_cols_array_2d(),
@@ -2153,6 +2158,20 @@ impl WgpuSurface {
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
             }
+        }
+
+        // --- particle pass (after transparency, so sparks read over glass) ---
+        if !particles.is_empty() {
+            self.particles.draw(
+                &mut encoder,
+                &self.queue,
+                &self.post_process.hdr_view,
+                &self.depth_view,
+                &self.camera_bind_group,
+                particles,
+                tex_registry,
+                &self.default_texture_bind_group,
+            );
         }
 
         // --- post-process passes: bloom → SSAO → composite → swapchain ---

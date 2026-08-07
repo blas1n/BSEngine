@@ -1074,6 +1074,11 @@ pub enum ScriptCommand {
         /// Name of the entity to modify.
         name: String,
     },
+    /// Emit one burst from the named entity's `ParticleEmitter`.
+    BurstParticles {
+        /// Name of the entity holding the emitter.
+        name: String,
+    },
     /// Set a rigid body's linear velocity.
     SetVelocity {
         /// Name of the entity to modify.
@@ -5015,6 +5020,14 @@ pub fn bsengine_reset_forces(#[string] name: String) {
     });
 }
 
+/// Queue one burst from an entity's particle emitter.
+#[op2(fast)]
+pub fn bsengine_burst_particles(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::BurstParticles { name });
+    });
+}
+
 #[op2(fast)]
 pub fn bsengine_set_velocity(#[string] name: String, vx: f32, vy: f32, vz: f32) {
     COMMAND_BUFFER.with(|c| {
@@ -6098,6 +6111,7 @@ deno_core::extension!(
         bsengine_add_force,
         bsengine_add_force_at_point,
         bsengine_reset_forces,
+        bsengine_burst_particles,
         bsengine_set_velocity,
         bsengine_set_velocity_x,
         bsengine_set_velocity_y,
@@ -6573,6 +6587,10 @@ var Bsengine = {
     // for "something already pushed this frame and now we want it not to" —
     // a teleport or a freeze. setVelocity(0,0,0) alone is enough otherwise.
     resetForces:      (name) => Deno.core.ops.bsengine_reset_forces(name),
+    // Emits one burst of `burst_count` particles from the entity's emitter, at
+    // wherever that entity currently is -- so a hit effect moves the emitter to
+    // the impact point first.
+    burstParticles:   (name) => Deno.core.ops.bsengine_burst_particles(name),
     setVelocity:      (name, vx, vy, vz) => Deno.core.ops.bsengine_set_velocity(name, vx, vy, vz),
     setVelocityX:     (name, vx) => Deno.core.ops.bsengine_set_velocity_x(name, vx),
     setVelocityY:     (name, vy) => Deno.core.ops.bsengine_set_velocity_y(name, vy),
@@ -8157,6 +8175,20 @@ JSON.stringify(received)
                         && (*vz - 0.3).abs() < 1e-6)
             });
             assert!(found, "AddAngularVelocity not in buffer");
+        });
+    }
+
+    #[test]
+    fn burst_particles_enqueues_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.burstParticles("Sparks");"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::BurstParticles { name } if name == "Sparks")
+            });
+            assert!(found, "BurstParticles not in buffer");
         });
     }
 

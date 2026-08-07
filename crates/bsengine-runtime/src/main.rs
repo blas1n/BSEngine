@@ -1,7 +1,8 @@
 use std::env;
 
 use bsengine_app::{
-    new_app, AnimationPlugin, AnimationStateMachinePlugin, NavMeshPlugin, TimePlugin,
+    new_app, AnimationPlugin, AnimationStateMachinePlugin, LifetimePlugin, NavMeshPlugin,
+    ParticlePlugin, TimePlugin,
 };
 use bsengine_asset::{AssetIdentityPlugin, AssetPlugin, AssetStatusPlugin, AssetWatcherPlugin};
 use bsengine_audio::AudioPlugin;
@@ -191,6 +192,12 @@ fn run_windowed(project_dir: &str) {
         .add_plugins(AnimationPlugin)
         .add_plugins(AnimationStateMachinePlugin)
         .add_plugins(NavMeshPlugin)
+        // Both of these count something down each frame, and neither was
+        // installed anywhere until now. `Bsengine.setLifetime()` has existed as
+        // a scripting API the whole time with nothing to tick it, so it has
+        // never despawned anything in a running game.
+        .add_plugins(LifetimePlugin)
+        .add_plugins(ParticlePlugin)
         .add_plugins(ScenePlugin::from_file(&scene_path))
         .add_plugins(ScriptingPlugin {
             project_dir: project_dir.to_string(),

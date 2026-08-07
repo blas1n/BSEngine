@@ -2251,6 +2251,19 @@ fn run_scripts(world: &mut World) {
                     pw.reset_forces(e);
                 }
             }
+            ScriptCommand::BurstParticles { name } => {
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                // Queued, not emitted here: emission needs the emitter's world
+                // position and runs in `ParticlePlugin` on the next tick.
+                if let Some(mut emitter) =
+                    entity.and_then(|e| world.get_mut::<bsengine_core::ParticleEmitter>(e))
+                {
+                    emitter.burst();
+                }
+            }
             ScriptCommand::SetVelocity { name, vx, vy, vz } => {
                 let entity = {
                     let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();

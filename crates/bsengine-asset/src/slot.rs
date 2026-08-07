@@ -45,7 +45,13 @@ pub enum AssetSlot<A: Asset> {
     /// `Update`, so a loop that re-requests erases the failure before it can
     /// observe it — retrying a missing file forever and spawning a fresh
     /// filesystem task every frame. Holding this state is what stops that.
-    GaveUp,
+    ///
+    /// The handle is kept even here. Never re-requesting is not the same as
+    /// giving up on the file: if it later appears on disk, that arrives as an
+    /// `AssetEvent` naming this asset id, and a caller can only recognise it as
+    /// *its* file by matching the handle it still holds. `bsengine-scripting`
+    /// recovers a given-up script exactly that way.
+    GaveUp(Handle<A>),
 }
 
 /// Written by hand rather than derived so it does not demand `A: Debug` —
@@ -56,7 +62,7 @@ impl<A: Asset> std::fmt::Debug for AssetSlot<A> {
         match self {
             Self::Loading(h) => write!(f, "Loading({:?})", h.path()),
             Self::Ready(h) => write!(f, "Ready({:?})", h.path()),
-            Self::GaveUp => write!(f, "GaveUp"),
+            Self::GaveUp(h) => write!(f, "GaveUp({:?})", h.path()),
         }
     }
 }
@@ -114,17 +120,17 @@ impl<A: Asset> AssetSlot<A> {
         // state tells those apart, and it is read from the handle already held,
         // never from a fresh request.
         if let bevy_asset::LoadState::Failed(e) = server.load_state(&handle) {
-            *self = Self::GaveUp;
+            *self = Self::GaveUp(handle);
             return Polled::Failed(e.to_string());
         }
         Polled::Nothing
     }
 
-    /// The retained handle, for `Loading` and `Ready`.
-    pub fn handle(&self) -> Option<&Handle<A>> {
+    /// The retained handle. Present in every state — see
+    /// [`Self::GaveUp`] for why a failed load keeps one too.
+    pub fn handle(&self) -> &Handle<A> {
         match self {
-            Self::Loading(h) | Self::Ready(h) => Some(h),
-            Self::GaveUp => None,
+            Self::Loading(h) | Self::Ready(h) | Self::GaveUp(h) => h,
         }
     }
 
@@ -139,7 +145,7 @@ impl<A: Asset> AssetSlot<A> {
     /// test that cannot tell those apart cannot tell a give-up from an infinite
     /// retry, which is the failure mode this state exists to prevent.
     pub fn gave_up(&self) -> bool {
-        matches!(self, Self::GaveUp)
+        matches!(self, Self::GaveUp(_))
     }
 }
 
@@ -253,6 +259,30 @@ mod tests {
     }
 
     #[test]
+    fn a_given_up_slot_still_holds_its_handle() {
+        // Never re-requesting is not the same as forgetting the file. When a
+        // missing path is later created, that arrives as an `AssetEvent` naming
+        // an asset id, and the only way a caller recognises it as *its* file is
+        // the handle it kept -- which is how `bsengine-scripting` brings a
+        // given-up script back to life.
+        let (project, _guard) = probe_project("slot-gaveup-handle", false);
+        let mut app = app();
+        let path = format!("{project}/absent.png");
+        let mut slot = {
+            let server = app.world().resource::<AssetServer>();
+            AssetSlot::<TextureAsset>::requesting(server, &path)
+        };
+
+        poll_until(&mut app, &mut slot, |s| s.gave_up());
+        assert!(slot.gave_up(), "precondition: the load must fail");
+        assert_eq!(
+            slot.handle().path().map(ToString::to_string).as_deref(),
+            Some(path.as_str()),
+            "a given-up slot must keep the handle naming the file it wanted"
+        );
+    }
+
+    #[test]
     fn failure_is_reported_exactly_once() {
         // The reason the five callers' warnings fire once instead of every
         // frame. A per-frame warning for a path that will never load is how the
@@ -305,10 +335,11 @@ mod tests {
             1,
             "an arrival should be reported exactly once"
         );
-        assert!(
-            slot.handle().is_some(),
-            "a Ready slot must keep its handle, or AssetEvent::Modified stops \
-             firing and hot reload dies silently"
+        assert_eq!(
+            slot.handle().path().map(ToString::to_string).as_deref(),
+            Some(format!("{project}/probe.png").as_str()),
+            "a Ready slot must keep the handle naming its file, or \
+             AssetEvent::Modified stops firing and hot reload dies silently"
         );
     }
 }

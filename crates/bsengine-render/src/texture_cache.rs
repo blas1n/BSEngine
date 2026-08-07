@@ -97,7 +97,7 @@ pub fn resolve_texture_paths(
 
         match entry.slot.poll(&asset_server, &textures) {
             bsengine_asset::Polled::Arrived => {
-                if let Some(tex) = entry.slot.handle().and_then(|h| textures.get(h)) {
+                if let Some(tex) = textures.get(entry.slot.handle()) {
                     entry.id = Some(registry.load_from_rgba(tex.width, tex.height, &tex.data));
                 }
                 // The id is deliberately not written to `material` here. The

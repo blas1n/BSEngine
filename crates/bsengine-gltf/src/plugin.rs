@@ -136,9 +136,7 @@ fn load_gltf_assets(
         // until it does. Acting only on the arrival frame would drop those loads.
         // Cloned out so the handle outlives the borrow of `pending`; a `Handle`
         // is refcounted, so this is a bump rather than a copy of the asset.
-        let Some(handle) = pending.0.handle().cloned() else {
-            continue;
-        };
+        let handle = pending.0.handle().clone();
         let Some(loaded) = gltf_assets.get(&handle) else {
             continue;
         };

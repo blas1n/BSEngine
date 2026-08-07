@@ -220,9 +220,11 @@ fn compile_pending_shaders(
                 Err(e) => {
                     // Unreachable: `LoadMode::Async` is infallible. Present
                     // only because the shared `load()` signature returns
-                    // `Result` for `Sync` callers.
+                    // `Result` for `Sync` callers -- and with no handle back
+                    // there is no slot to record, so nothing is inserted and
+                    // the path is simply tried again next frame.
                     tracing::warn!("[custom_shader] cannot request '{}': {e}", cs.path);
-                    bsengine_asset::AssetSlot::GaveUp
+                    continue;
                 }
             };
             pending.0.insert(
@@ -254,9 +256,7 @@ fn compile_pending_shaders(
         }
         // Cloned so the verdict can be written back below; a `Handle` is
         // refcounted, so this is a bump rather than a copy of the source.
-        let Some(handle) = entry.slot.handle().cloned() else {
-            continue;
-        };
+        let handle = entry.slot.handle().clone();
         let (Some(src), Some(surface)) = (shader_assets.get(&handle), surface.as_mut()) else {
             continue;
         };
@@ -279,7 +279,7 @@ fn wants_rebuild(
     state: &PendingShader,
     id: bevy_asset::AssetId<crate::shader_asset::ShaderSource>,
 ) -> bool {
-    state.slot.is_ready() && state.slot.handle().is_some_and(|h| h.id() == id)
+    state.slot.is_ready() && state.slot.handle().id() == id
 }
 
 /// Recompiles a custom shader whose source was replaced.
@@ -327,7 +327,7 @@ fn rebuild_modified_shaders(
             .0
             .iter()
             .filter(|(_, state)| wants_rebuild(state, *id))
-            .filter_map(|(path, state)| Some((path.clone(), state.slot.handle()?.clone())))
+            .map(|(path, state)| (path.clone(), state.slot.handle().clone()))
             .collect();
         for (path, handle) in rebuilt {
             let Some(src) = shader_assets.get(&handle) else {
@@ -465,10 +465,10 @@ fn upload_pending_skybox(
     if !load.slot.is_ready() {
         return;
     }
-    let (Some(handle), Some(surface)) = (load.slot.handle(), surface.as_mut()) else {
+    let Some(surface) = surface.as_mut() else {
         return;
     };
-    let Some(tex) = texture_assets.get(handle) else {
+    let Some(tex) = texture_assets.get(load.slot.handle()) else {
         return;
     };
     surface
@@ -509,9 +509,7 @@ fn rebuild_modified_skybox(
         let Some(load) = pending.0.as_ref().filter(|load| load.slot.is_ready()) else {
             continue;
         };
-        let (path, Some(handle)) = (&load.path, load.slot.handle()) else {
-            continue;
-        };
+        let (path, handle) = (&load.path, load.slot.handle());
         if handle.id() != *id {
             continue;
         }
@@ -1098,10 +1096,10 @@ mod tests {
 
         let asset_id = {
             let pending = app.world().resource::<PendingShaders>();
-            let Some(handle) = pending.0.get(&path).and_then(|state| state.slot.handle()) else {
+            let Some(state) = pending.0.get(&path) else {
                 unreachable!("just asserted Ready")
             };
-            handle.id()
+            state.slot.handle().id()
         };
 
         // A few more frames so `track_assets` (PreUpdate) has had every chance
@@ -1193,7 +1191,7 @@ mod tests {
                 .0
                 .get(&path)
                 .filter(|state| state.slot.is_ready())
-                .and_then(|state| state.slot.handle())
+                .map(|state| state.slot.handle())
             {
                 asset_id = Some(handle.id());
                 break;
@@ -1217,8 +1215,7 @@ mod tests {
         let state = app.world().resource::<PendingShaders>().0.get(&path);
         assert!(
             state.is_some_and(|state| {
-                state.compile == CompileStatus::Failed
-                    && state.slot.handle().is_some_and(|h| h.id() == asset_id)
+                state.compile == CompileStatus::Failed && state.slot.handle().id() == asset_id
             }),
             "a shader that failed to compile must stay Failed, holding the same \
              handle: anything that moves it back to NotYet makes the next frame \
@@ -1304,7 +1301,7 @@ mod tests {
             "a successful compile must be recorded as Ok"
         );
         assert!(
-            state.slot.handle().is_some_and(|h| h.id() == handle.id()),
+            state.slot.handle().id() == handle.id(),
             "recording a verdict must not disturb the load's handle"
         );
 
@@ -1316,7 +1313,7 @@ mod tests {
              next frame recompile the same broken source"
         );
         assert!(
-            state.slot.handle().is_some_and(|h| h.id() == handle.id()),
+            state.slot.handle().id() == handle.id(),
             "a failed compile must leave the handle alone, or the fix can never \
              arrive as AssetEvent::Modified"
         );
@@ -1367,7 +1364,7 @@ mod tests {
         };
         assert!(!super::wants_rebuild(&still_loading, id));
         let gave_up = PendingShader {
-            slot: bsengine_asset::AssetSlot::GaveUp,
+            slot: bsengine_asset::AssetSlot::GaveUp(handle.clone()),
             compile: CompileStatus::NotYet,
         };
         assert!(!super::wants_rebuild(&gave_up, id));
@@ -1499,10 +1496,10 @@ mod tests {
 
         let asset_id = {
             let pending = &app.world().resource::<PendingSkybox>().0;
-            let Some(handle) = pending.as_ref().and_then(|load| load.slot.handle()) else {
+            let Some(load) = pending.as_ref() else {
                 unreachable!("just asserted Ready")
             };
-            handle.id()
+            load.slot.handle().id()
         };
 
         // A few more frames so `track_assets` (PreUpdate) has had every chance

@@ -350,39 +350,26 @@ fn rebuild_modified_shaders(
     }
 }
 
-/// Whether the skybox named by [`PendingSkybox`] is still loading, has
-/// arrived, or was given up on.
+/// The skybox image this engine asked for, and how far it has got.
 #[derive(Debug)]
-enum PendingSkyboxState {
-    /// Requested; waiting for `Assets<TextureAsset>` to have it.
-    Loading(bevy_asset::Handle<bsengine_asset::TextureAsset>),
-    /// Image decoded and the handle retained. Kept rather than dropped because
-    /// `AssetEvent::Modified` only fires while a strong handle exists; dropping
-    /// it here would make `AssetServer::reload` on this path a silent no-op
-    /// (measured by `reload_emits_modified_only_while_a_handle_is_retained` in
-    /// `bsengine-gltf`).
-    ///
-    /// Says nothing about the *upload*, which needs a GPU the decode does not:
-    /// an image that arrives before `WgpuSurfaceResource` exists is `Ready`
-    /// with nothing uploaded, and this arm uploads it once one shows up.
-    Ready(bevy_asset::Handle<bsengine_asset::TextureAsset>),
-    /// The load failed. Kept so the warning fires once and the path is never
-    /// re-requested -- re-requesting a failed path restarts it, which is why a
-    /// re-requesting poll loop can never see the failure.
-    GaveUp,
+struct PendingSkyboxLoad {
+    /// The path this request was made for, so a `SkyboxPath` change mid-load
+    /// abandons the old request instead of uploading a texture nobody asked
+    /// for any more.
+    path: String,
+    /// The load itself. See [`bsengine_asset::AssetSlot`].
+    slot: bsengine_asset::AssetSlot<bsengine_asset::TextureAsset>,
 }
 
 /// The skybox load in flight, if any.
 ///
-/// One slot rather than a map: there is only ever one skybox. The path is kept
-/// alongside the state so a `SkyboxPath` change mid-load abandons the old
-/// request instead of uploading a texture nobody asked for any more.
+/// One slot rather than a map: there is only ever one skybox.
 ///
 /// Internal to this system, like `bsengine_gltf`'s `PendingGltf`: `SkyboxPath`
 /// stays a plain `String`, so scene RON, the scripting API and the MCP tools
 /// are unaffected by how a load is tracked.
 #[derive(bevy_ecs::prelude::Resource, Default)]
-struct PendingSkybox(Option<(String, PendingSkyboxState)>);
+struct PendingSkybox(Option<PendingSkyboxLoad>);
 
 /// Keeps the surface's skybox in sync with `SkyboxPath`, reading the image
 /// through `Assets<TextureAsset>` and uploading it with
@@ -425,7 +412,7 @@ fn upload_pending_skybox(
         .is_some_and(|s| s.0.loaded_skybox_path() == wanted)
     {
         let holds_the_wanted_skybox = match (&pending.0, wanted) {
-            (Some((path, PendingSkyboxState::Ready(_))), Some(wanted)) => path == wanted,
+            (Some(load), Some(wanted)) => load.slot.is_ready() && load.path == wanted,
             _ => false,
         };
         if pending.0.is_some() && !holds_the_wanted_skybox {
@@ -447,70 +434,56 @@ fn upload_pending_skybox(
 
     // `SkyboxPath` changed mid-load: abandon the old request rather than
     // upload a texture nobody asked for any more.
-    if pending.0.as_ref().is_some_and(|(p, _)| p != wanted) {
+    if pending.0.as_ref().is_some_and(|load| load.path != wanted) {
         pending.0 = None;
     }
 
-    // Cloned out so the poll below can write back to `pending` (a `Handle` is
-    // refcounted, so this is a cheap bump, not a copy of the image).
-    let in_flight = match &pending.0 {
-        Some((_, PendingSkyboxState::GaveUp)) => return,
-        Some((_, PendingSkyboxState::Loading(handle))) => Some(handle.clone()),
-        // Image in hand, handle retained: nothing left to request, and never
-        // re-requested. Reaching here at all means the dedupe check above found
-        // the surface *not* showing this path -- i.e. the image arrived before
-        // `WgpuSurfaceResource` did -- so upload it now if a surface has since
-        // appeared. That makes the dedupe check match from the next frame on,
-        // so this runs exactly once.
-        Some((_, PendingSkyboxState::Ready(handle))) => {
-            if let (Some(tex), Some(surface)) = (texture_assets.get(handle), surface.as_mut()) {
-                surface
-                    .0
-                    .set_skybox_from_rgba(tex.width, tex.height, &tex.data);
-                surface.0.set_loaded_skybox_path(wanted);
-            }
-            return;
-        }
-        None => None,
-    };
+    // Requested exactly once, on the first frame this path is wanted, and
+    // polled from then on. `AssetSlot::requesting` goes through `load_async`
+    // rather than `bsengine_asset::load` because that dispatcher takes a
+    // `sync_loader` closure for its `LoadMode::Sync` arm and there is no
+    // synchronous texture loader in this codebase: item 23 only ever wrote
+    // `TextureAssetLoader`, for the async path. This used to call
+    // `AssetServer::load` directly for that reason, which is precisely how the
+    // skybox stayed invisible to `AssetStatuses` until it failed -- `load_async`
+    // is the recording half of `load` with the unreachable `Sync` arm left out.
+    let load = pending.0.get_or_insert_with(|| PendingSkyboxLoad {
+        path: wanted.to_string(),
+        slot: bsengine_asset::AssetSlot::requesting(&asset_server, wanted),
+    });
 
-    let Some(handle) = in_flight else {
-        // Requested exactly once, then polled -- never re-requested.
-        // `load_async` rather than `bsengine_asset::load` because that
-        // dispatcher takes a `sync_loader` closure for its `LoadMode::Sync`
-        // arm and there is no synchronous texture loader in this codebase:
-        // item 23 only ever wrote `TextureAssetLoader`, for the async path.
-        // It used to call `AssetServer::load` directly for that reason, which
-        // is precisely how the skybox stayed invisible to `AssetStatuses`
-        // until it failed -- `load_async` is the recording half of `load`
-        // with the unreachable `Sync` arm left out.
-        let handle =
-            bsengine_asset::load_async::<bsengine_asset::TextureAsset>(&asset_server, wanted);
-        pending.0 = Some((wanted.to_string(), PendingSkyboxState::Loading(handle)));
+    if let bsengine_asset::Polled::Failed(e) = load.slot.poll(&asset_server, &texture_assets) {
+        tracing::warn!("skybox: cannot read '{wanted}': {e}");
+        return;
+    }
+
+    // The pixels are here; only the upload needs the GPU. Reaching this at all
+    // means the dedupe check above found the surface *not* showing this path --
+    // i.e. the image arrived before `WgpuSurfaceResource` did -- so upload now
+    // if a surface has since appeared. That makes the dedupe check match from
+    // the next frame on, so this runs exactly once.
+    // No "already uploaded" flag guards this: `set_loaded_skybox_path` below
+    // makes the dedupe check at the top of this function match from the next
+    // frame on, which is what stops a re-upload -- and it is also what lets a
+    // surface that was rebuilt get its skybox back. A flag here would pass the
+    // tests and quietly break that second case. (Measured: adding one changed
+    // nothing any test could see.)
+    if !load.slot.is_ready() {
+        return;
+    }
+    let (Some(handle), Some(surface)) = (load.slot.handle(), surface.as_mut()) else {
         return;
     };
-
-    if let Some(tex) = texture_assets.get(&handle) {
-        // The pixels are here; only the upload needs the GPU. The slot becomes
-        // `Ready` either way: `Ready` is what retains the handle, and staying
-        // `Loading` until a surface exists would leave hot reload switched off
-        // for exactly as long. The `Ready` arm above picks the upload up
-        // instead.
-        if let Some(surface) = surface.as_mut() {
-            surface
-                .0
-                .set_skybox_from_rgba(tex.width, tex.height, &tex.data);
-            // `set_skybox_from_rgba` doesn't record the path (that bookkeeping
-            // lived in the now-deleted blocking `set_skybox`), so do it here —
-            // the dedupe check above is what stops this re-uploading every
-            // frame.
-            surface.0.set_loaded_skybox_path(wanted);
-        }
-        pending.0 = Some((wanted.to_string(), PendingSkyboxState::Ready(handle)));
-    } else if let bevy_asset::LoadState::Failed(e) = asset_server.load_state(&handle) {
-        tracing::warn!("skybox: cannot read '{wanted}': {e}");
-        pending.0 = Some((wanted.to_string(), PendingSkyboxState::GaveUp));
-    }
+    let Some(tex) = texture_assets.get(handle) else {
+        return;
+    };
+    surface
+        .0
+        .set_skybox_from_rgba(tex.width, tex.height, &tex.data);
+    // `set_skybox_from_rgba` doesn't record the path (that bookkeeping lived in
+    // the now-deleted blocking `set_skybox`), so do it here — the dedupe check
+    // above is what stops this re-uploading every frame.
+    surface.0.set_loaded_skybox_path(wanted);
 }
 
 /// Re-uploads the skybox when its image is replaced.
@@ -539,7 +512,10 @@ fn rebuild_modified_skybox(
         let bevy_asset::AssetEvent::Modified { id } = event else {
             continue;
         };
-        let Some((path, PendingSkyboxState::Ready(handle))) = pending.0.as_ref() else {
+        let Some(load) = pending.0.as_ref().filter(|load| load.slot.is_ready()) else {
+            continue;
+        };
+        let (path, Some(handle)) = (&load.path, load.slot.handle()) else {
             continue;
         };
         if handle.id() != *id {
@@ -894,7 +870,7 @@ impl Plugin for RenderPlugin {
 
 #[cfg(test)]
 mod tests {
-    use super::{PendingShader, PendingShaders, PendingSkybox, PendingSkyboxState, RenderPlugin};
+    use super::{PendingShader, PendingShaders, PendingSkybox, RenderPlugin};
     use crate::components::MeshRenderer;
     use bsengine_app::new_app;
     use bsengine_core::{Camera, Material, PointLight, Transform};
@@ -1406,10 +1382,13 @@ mod tests {
         let mut ready = false;
         for _ in 0..200 {
             app.update();
-            if matches!(
-                app.world().resource::<PendingSkybox>().0,
-                Some((_, PendingSkyboxState::Ready(_)))
-            ) {
+            if app
+                .world()
+                .resource::<PendingSkybox>()
+                .0
+                .as_ref()
+                .is_some_and(|load| load.slot.is_ready())
+            {
                 ready = true;
                 break;
             }
@@ -1422,7 +1401,7 @@ mod tests {
 
         let asset_id = {
             let pending = &app.world().resource::<PendingSkybox>().0;
-            let Some((_, PendingSkyboxState::Ready(handle))) = pending else {
+            let Some(handle) = pending.as_ref().and_then(|load| load.slot.handle()) else {
                 unreachable!("just asserted Ready")
             };
             handle.id()
@@ -1542,15 +1521,39 @@ mod tests {
             "definitely/not/a/real/sky.png".to_string(),
         )));
 
+        let gave_up = |app: &bsengine_app::App| {
+            app.world()
+                .resource::<PendingSkybox>()
+                .0
+                .as_ref()
+                .is_some_and(|load| load.slot.gave_up())
+        };
+
+        let mut settled = false;
         for _ in 0..200 {
             app.update();
+            if gave_up(&app) {
+                settled = true;
+                break;
+            }
         }
+        assert!(settled, "an unloadable skybox path must end up given up on");
 
-        let pending = &app.world().resource::<PendingSkybox>().0;
-        assert!(
-            matches!(pending, Some((_, PendingSkyboxState::GaveUp))),
-            "an unloadable skybox path must end up given up on, got {pending:?}"
-        );
+        // Then *stays* given up on, on every frame rather than merely on the
+        // one this happens to sample. A loop that re-requests the failed path
+        // also passes through `GaveUp` repeatedly, so a single reading taken
+        // after N frames cannot tell a give-up from an infinite retry -- which
+        // is the entire property this test is named for. Measured: re-clearing
+        // the slot when it reports `gave_up` leaves the end-state assertion
+        // green and fails this one.
+        for frame in 0..60 {
+            app.update();
+            assert!(
+                gave_up(&app),
+                "a given-up skybox left GaveUp on frame {frame}, which means \
+                 something re-requested the failed path"
+            );
+        }
     }
 
     // Changing `SkyboxPath` mid-load must abandon the in-flight request and
@@ -1575,7 +1578,10 @@ mod tests {
         app.update();
         let pending = &app.world().resource::<PendingSkybox>().0;
         assert!(
-            matches!(pending, Some((p, PendingSkyboxState::Loading(_))) if p == "first/sky.png"),
+            pending.as_ref().is_some_and(|load| {
+                matches!(load.slot, bsengine_asset::AssetSlot::Loading(_))
+                    && load.path == "first/sky.png"
+            }),
             "precondition: one frame must leave the first path in flight, got {pending:?}"
         );
 
@@ -1585,7 +1591,10 @@ mod tests {
         app.update();
 
         let pending = &app.world().resource::<PendingSkybox>().0;
-        let Some((path, PendingSkyboxState::Loading(handle))) = pending else {
+        let Some((path, handle)) = pending.as_ref().and_then(|load| match &load.slot {
+            bsengine_asset::AssetSlot::Loading(handle) => Some((&load.path, handle)),
+            _ => None,
+        }) else {
             panic!("a changed SkyboxPath must leave a load for the new path in flight, got {pending:?}");
         };
         assert_eq!(
@@ -1618,7 +1627,9 @@ mod tests {
         app.update();
         let pending = &app.world().resource::<PendingSkybox>().0;
         assert!(
-            matches!(pending, Some((_, PendingSkyboxState::Loading(_)))),
+            pending
+                .as_ref()
+                .is_some_and(|load| matches!(load.slot, bsengine_asset::AssetSlot::Loading(_))),
             "precondition: one frame must leave a load in flight, got {pending:?}"
         );
 

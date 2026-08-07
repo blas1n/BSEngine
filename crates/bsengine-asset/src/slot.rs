@@ -48,6 +48,19 @@ pub enum AssetSlot<A: Asset> {
     GaveUp,
 }
 
+/// Written by hand rather than derived so it does not demand `A: Debug` —
+/// `LoadedGltf` and `ScriptSource` are not — and so a failing assertion names
+/// the *path*, which is what a reader of that message wants to know.
+impl<A: Asset> std::fmt::Debug for AssetSlot<A> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Loading(h) => write!(f, "Loading({:?})", h.path()),
+            Self::Ready(h) => write!(f, "Ready({:?})", h.path()),
+            Self::GaveUp => write!(f, "GaveUp"),
+        }
+    }
+}
+
 /// What [`AssetSlot::poll`] just did, so a caller can act exactly once.
 ///
 /// A transition rather than a state: every caller of this type does one thing

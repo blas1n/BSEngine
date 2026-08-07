@@ -311,7 +311,7 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
     // takes `world` mutably, and the alternative — cloning the whole index —
     // would copy a string per identified asset in the project to answer at most
     // two questions per entity. This borrows it, answers, and drops it.
-    let resolved_refs: Vec<(Option<String>, Option<String>)> = {
+    let resolved_refs: Vec<(Option<String>, Option<String>, Option<String>)> = {
         let index = world.get_resource::<AssetIndex>();
         entities
             .iter()
@@ -322,12 +322,13 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
                 (
                     entity.gltf.as_ref().map(|r| resolve("gltf", r)),
                     entity.script.as_ref().map(|r| resolve("script", r)),
+                    entity.texture.as_ref().map(|r| resolve("texture", r)),
                 )
             })
             .collect()
     };
 
-    for (entity, (gltf_path, script_path)) in entities.iter().zip(&resolved_refs) {
+    for (entity, (gltf_path, script_path, texture_path)) in entities.iter().zip(&resolved_refs) {
         let mut builder = world.spawn(Name(entity.name.clone()));
 
         if let Some(t) = &entity.transform {
@@ -419,7 +420,14 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
             builder.insert(ScriptPath(script_path.clone()));
         }
 
-        if entity.emissive.is_some() || entity.color.is_some() {
+        if let Some(texture_path) = texture_path {
+            builder.insert(bsengine_core::TexturePath(texture_path.clone()));
+        }
+
+        // `texture` counts here too: an entity that names only a texture still
+        // needs a Material, because the id the loader produces has nowhere else
+        // to go and the texture would silently never appear.
+        if entity.emissive.is_some() || entity.color.is_some() || entity.texture.is_some() {
             builder.insert(Material {
                 emissive: entity.emissive.map(Vec3::from).unwrap_or(Vec3::ZERO).into(),
                 base_color: entity.color.map(Vec3::from).unwrap_or(Vec3::ONE).into(),
@@ -510,6 +518,7 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     app.register_type::<bsengine_core::DirectionalLight>();
     app.register_type::<bsengine_core::SpotLight>();
     app.register_type::<bsengine_core::Material>();
+    app.register_type::<bsengine_core::TexturePath>();
     app.register_type::<bsengine_core::AmbientOcclusion>();
     app.register_type::<bsengine_core::AnimationPlayer>();
     app.register_type::<bsengine_core::Bloom>();
@@ -600,6 +609,41 @@ mod tests {
         let path = std::env::temp_dir().join(filename);
         std::fs::write(&path, content).unwrap();
         path.to_str().unwrap().to_string()
+    }
+
+    #[test]
+    fn a_scene_texture_reference_becomes_a_texture_path_component() {
+        // Parsing the field proves nothing on its own: the resolved path has to
+        // reach the entity, because that component is the only thing the loader
+        // downstream can see.
+        let ron = r#"SceneDescriptor(entities: [
+            EntityDescriptor(name: "Floor", texture: Some("assets/textures/checker.png")),
+        ])"#;
+        let scene: crate::types::SceneDescriptor = ron::from_str(ron).expect("scene should parse");
+
+        let mut app = new_app();
+        super::spawn_scene_entities(app.world_mut(), &scene.entities);
+
+        let mut query = app.world_mut().query::<&bsengine_core::TexturePath>();
+        let paths: Vec<String> = query.iter(app.world()).map(|p| p.0.clone()).collect();
+        assert_eq!(paths, vec!["assets/textures/checker.png".to_string()]);
+    }
+
+    #[test]
+    fn an_entity_with_only_a_texture_still_gets_a_material() {
+        // The id the loader produces is written onto Material. An entity naming
+        // a texture but no colour used to get no Material at all, which would
+        // have left the texture nowhere to land.
+        let ron = r#"SceneDescriptor(entities: [
+            EntityDescriptor(name: "Floor", texture: Some("t.png")),
+        ])"#;
+        let scene: crate::types::SceneDescriptor = ron::from_str(ron).expect("scene should parse");
+
+        let mut app = new_app();
+        super::spawn_scene_entities(app.world_mut(), &scene.entities);
+
+        let mut query = app.world_mut().query::<&bsengine_core::Material>();
+        assert_eq!(query.iter(app.world()).count(), 1);
     }
 
     #[test]

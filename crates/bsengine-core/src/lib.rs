@@ -110,7 +110,7 @@ pub use inspector::{
 pub use lifetime::Lifetime;
 pub use light::{DirectionalLight, PointLight, SpotLight};
 pub use logging::init_logging;
-pub use material::Material;
+pub use material::{Material, TexturePath};
 pub use nav_mesh::NavMesh;
 pub use nav_mesh_agent::{NavAgentState, NavMeshAgent};
 pub use network_id::{NetworkAuthority, NetworkId};

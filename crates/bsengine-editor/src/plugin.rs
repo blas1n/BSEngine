@@ -38,6 +38,7 @@ fn update_editor_snapshot(
         (
             Option<&PrimitiveMesh>,
             Option<&bsengine_scene::ScriptPath>,
+            Option<&bsengine_core::TexturePath>,
             Option<&bsengine_scene::PhysicsBodyDesc>,
         ),
     )>,
@@ -47,7 +48,7 @@ fn update_editor_snapshot(
     snapshot.entities = query
         .iter()
         .map(
-            |(e, name, transform, mesh, pt, dir, spot, cam, parent, tags, vis, mat, (prim, script, physics_body))| {
+            |(e, name, transform, mesh, pt, dir, spot, cam, parent, tags, vis, mat, (prim, script, texture, physics_body))| {
                 let light_type = if pt.is_some() {
                     Some("point".to_string())
                 } else if dir.is_some() {
@@ -77,6 +78,7 @@ fn update_editor_snapshot(
                     mesh_id: mesh.map(|m| m.mesh_id),
                     primitive: prim.map(|p| p.0.clone()),
                     script_path: script.map(|s| s.0.clone()),
+                    texture_path: texture.map(|t| t.0.clone()),
                     light_type,
                     light_color,
                     light_intensity,
@@ -1103,6 +1105,7 @@ fn build_entity_descriptors(entities: &[EntityInfo]) -> Vec<EntityDescriptor> {
                     spot_light,
                     primitive: e.primitive.clone(),
                     script: e.script_path.clone().map(bsengine_scene::AssetRef::Path),
+                    texture: e.texture_path.clone().map(bsengine_scene::AssetRef::Path),
                     emissive: e.material_emissive,
                     color: e.material_base_color,
                     opacity: e.material_opacity,
@@ -1597,6 +1600,7 @@ fn populate_inspector(
             parent_id: e.parent_id,
             tags: e.tags.clone(),
             script_path: e.script_path.clone(),
+            texture_path: e.texture_path.clone(),
             primitive: e.primitive.as_ref().map(primitive_to_str),
             visible: e.visible,
             selected: e.selected,

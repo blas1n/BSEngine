@@ -28,6 +28,22 @@ pub struct Material {
     pub opacity: f32,
 }
 
+/// The image this entity wants as its base color texture, named by path.
+///
+/// Lives beside [`Material`] rather than in the scene crate because it is what
+/// a material is *asking for*: the scene writes it, the renderer reads it, and
+/// the editor round-trips it, and all three already depend on this crate. Put
+/// in the scene crate it would have made the renderer depend on the scene file
+/// format, which is not a thing rendering should know about.
+///
+/// Kept after the texture loads rather than removed. `Material` records only
+/// the id it ended up with, and an id cannot be turned back into a path, so
+/// removing this would mean the editor could not write the reference back out
+/// when saving a scene.
+#[derive(Component, Debug, Clone, PartialEq, Default, Reflect)]
+#[reflect(Component, Default)]
+pub struct TexturePath(pub String);
+
 impl Default for Material {
     fn default() -> Self {
         Self {

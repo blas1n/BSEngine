@@ -21,6 +21,11 @@ SceneDescriptor(entities: [
         primitive: Some(Cube),
         transform: Some((position: (0.0, -0.5, 0.0), scale: (20.0, 1.0, 20.0))),
         color: Some((0.25, 0.28, 0.22)),
+        // The arena floor is the widest thing on screen and was a flat colour,
+        // so a checkerboard on it is visible at a glance and its squares make a
+        // flipped UV obvious -- a single-colour image would look identical
+        // either way.
+        texture: Some("assets/textures/checker.png"),
         rigidbody: Some(Static),
         collider: Some((shape: Box(hx: 10.0, hy: 0.5, hz: 10.0), friction: 0.7)),
     ),

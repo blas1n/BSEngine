@@ -40,7 +40,8 @@ pub struct Material {
 /// the id it ended up with, and an id cannot be turned back into a path, so
 /// removing this would mean the editor could not write the reference back out
 /// when saving a scene.
-#[derive(Component, Debug, Clone, PartialEq)]
+#[derive(Component, Debug, Clone, PartialEq, Default, Reflect)]
+#[reflect(Component, Default)]
 pub struct TexturePath(pub String);
 
 impl Default for Material {

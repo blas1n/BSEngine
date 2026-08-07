@@ -197,17 +197,38 @@ mod tests {
             TexturePath("does/not/exist.png".into()),
         ));
 
-        for _ in 0..80 {
-            app.update();
-        }
-
-        assert!(
+        let gave_up = |app: &bsengine_app::App| {
             app.world()
                 .resource::<TextureCache>()
-                .gave_up("does/not/exist.png"),
+                .gave_up("does/not/exist.png")
+        };
+
+        let mut settled = false;
+        for _ in 0..80 {
+            app.update();
+            if gave_up(&app) {
+                settled = true;
+                break;
+            }
+        }
+        assert!(
+            settled,
             "a texture that cannot load has to end up in GaveUp; staying in Loading \
              is indistinguishable from still trying, which is the bug"
         );
+
+        // And stays there on every frame, not merely on the one this happens to
+        // sample. A loop that re-requests the failed path passes back through
+        // GaveUp repeatedly, so a single late reading cannot tell a give-up
+        // from an infinite retry -- the very distinction being tested.
+        for frame in 0..40 {
+            app.update();
+            assert!(
+                gave_up(&app),
+                "the texture left GaveUp on frame {frame}, which means something \
+                 re-requested the failed path"
+            );
+        }
     }
 
     #[test]

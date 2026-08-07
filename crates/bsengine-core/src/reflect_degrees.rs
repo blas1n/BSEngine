@@ -19,7 +19,9 @@
 //! `SpotLight.inner_angle_degrees`/`outer_angle_degrees` ("PR C-3") is the
 //! second. Both Camera and SpotLight now store their angle fields in
 //! degrees internally.
-use bevy_reflect::{impl_reflect_value, prelude::ReflectDefault};
+use bevy_reflect::{
+    impl_reflect_value, prelude::ReflectDefault, ReflectDeserialize, ReflectSerialize,
+};
 
 /// Reflectable `f32` wrapper representing an angle in degrees, used to signal
 /// to the generic reflected-field editor that a field should render as an angle.
@@ -52,7 +54,30 @@ impl From<ReflectDegrees> for f32 {
     }
 }
 
-impl_reflect_value!((in bsengine_core::reflect_degrees) ReflectDegrees(Debug, PartialEq, Default));
+// Serialised as the bare float it wraps, so a scene writes `30.0`.
+//
+// `Serialize`/`Deserialize` in the list below are what register
+// `ReflectDeserialize`, and without it any component holding this type fails
+// to deserialize -- silently, taking the whole component with it.
+impl serde::Serialize for ReflectDegrees {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serde::Serialize::serialize(&self.0, serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ReflectDegrees {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Ok(Self(f32::deserialize(deserializer)?))
+    }
+}
+
+impl_reflect_value!((in bsengine_core::reflect_degrees) ReflectDegrees(
+    Debug,
+    PartialEq,
+    Default,
+    Serialize,
+    Deserialize
+));
 
 #[cfg(test)]
 mod tests {

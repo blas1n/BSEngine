@@ -6,7 +6,9 @@
 //! reason documented in `reflect_glam.rs`: neither `Reflect` nor `glam::Mat4`
 //! is local to this crate, so `Reflect` can't be implemented for `Mat4`
 //! directly.
-use bevy_reflect::{impl_reflect_value, prelude::ReflectDefault};
+use bevy_reflect::{
+    impl_reflect_value, prelude::ReflectDefault, ReflectDeserialize, ReflectSerialize,
+};
 
 /// Reflectable wrapper around a `glam::Mat4`.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -38,7 +40,32 @@ impl From<ReflectMat4> for glam::Mat4 {
     }
 }
 
-impl_reflect_value!((in bsengine_core::reflect_mat4) ReflectMat4(Debug, PartialEq, Default));
+// Serialised as sixteen floats in column-major order, which is `to_cols_array`'s
+// own layout. Hand-written to keep glam's serde feature off.
+//
+// Registered with `Serialize`/`Deserialize` for the same reason as the other
+// wrappers: an opaque reflect type without `ReflectDeserialize` cannot be
+// deserialized, and its absence takes the containing component down silently.
+impl serde::Serialize for ReflectMat4 {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serde::Serialize::serialize(&self.0.to_cols_array(), serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ReflectMat4 {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = <[f32; 16]>::deserialize(deserializer)?;
+        Ok(Self(glam::Mat4::from_cols_array(&raw)))
+    }
+}
+
+impl_reflect_value!((in bsengine_core::reflect_mat4) ReflectMat4(
+    Debug,
+    PartialEq,
+    Default,
+    Serialize,
+    Deserialize
+));
 
 #[cfg(test)]
 mod tests {

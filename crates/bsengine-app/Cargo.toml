@@ -22,6 +22,9 @@ bsengine-editor.workspace = true
 bsengine-scene.workspace = true
 bsengine-physics.workspace = true
 glam.workspace = true
+# The particle emitter logs when it hits its per-emitter cap; a silently
+# truncated effect looks exactly like a broken one.
+tracing.workspace = true
 
 [dev-dependencies]
 bsengine-ecs.workspace = true

@@ -943,60 +943,6 @@ fn run_scripts(world: &mut World) {
                     }
                 }
             }
-            ScriptCommand::SetPositionX { name, x } => {
-                let mut q = world.query::<(&Name, &mut Transform)>();
-                for (n, mut t) in q.iter_mut(world) {
-                    if n.0 == name {
-                        t.position.x = x;
-                        break;
-                    }
-                }
-            }
-            ScriptCommand::SetPositionY { name, y } => {
-                let mut q = world.query::<(&Name, &mut Transform)>();
-                for (n, mut t) in q.iter_mut(world) {
-                    if n.0 == name {
-                        t.position.y = y;
-                        break;
-                    }
-                }
-            }
-            ScriptCommand::SetPositionZ { name, z } => {
-                let mut q = world.query::<(&Name, &mut Transform)>();
-                for (n, mut t) in q.iter_mut(world) {
-                    if n.0 == name {
-                        t.position.z = z;
-                        break;
-                    }
-                }
-            }
-            ScriptCommand::AddPositionX { name, dx } => {
-                let mut q = world.query::<(&Name, &mut Transform)>();
-                for (n, mut t) in q.iter_mut(world) {
-                    if n.0 == name {
-                        t.position.x += dx;
-                        break;
-                    }
-                }
-            }
-            ScriptCommand::AddPositionY { name, dy } => {
-                let mut q = world.query::<(&Name, &mut Transform)>();
-                for (n, mut t) in q.iter_mut(world) {
-                    if n.0 == name {
-                        t.position.y += dy;
-                        break;
-                    }
-                }
-            }
-            ScriptCommand::AddPositionZ { name, dz } => {
-                let mut q = world.query::<(&Name, &mut Transform)>();
-                for (n, mut t) in q.iter_mut(world) {
-                    if n.0 == name {
-                        t.position.z += dz;
-                        break;
-                    }
-                }
-            }
             ScriptCommand::SetEmissive { name, r, g, b } => {
                 let entity = {
                     let mut q = world.query::<(Entity, &Name)>();
@@ -2329,39 +2275,6 @@ fn run_scripts(world: &mut World) {
                     pw.set_linvel(e, Vec3::new(vx, vy, vz));
                 }
             }
-            ScriptCommand::SetVelocityX { name, vx } => {
-                let entity = {
-                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
-                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
-                };
-                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
-                {
-                    let cur = pw.get_linvel(e).unwrap_or(Vec3::ZERO);
-                    pw.set_linvel(e, Vec3::new(vx, cur.y, cur.z));
-                }
-            }
-            ScriptCommand::SetVelocityY { name, vy } => {
-                let entity = {
-                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
-                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
-                };
-                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
-                {
-                    let cur = pw.get_linvel(e).unwrap_or(Vec3::ZERO);
-                    pw.set_linvel(e, Vec3::new(cur.x, vy, cur.z));
-                }
-            }
-            ScriptCommand::SetVelocityZ { name, vz } => {
-                let entity = {
-                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
-                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
-                };
-                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
-                {
-                    let cur = pw.get_linvel(e).unwrap_or(Vec3::ZERO);
-                    pw.set_linvel(e, Vec3::new(cur.x, cur.y, vz));
-                }
-            }
             ScriptCommand::SetGravity { magnitude } => {
                 if let Some(mut pw) = world.get_resource_mut::<PhysicsWorld>() {
                     pw.set_gravity(magnitude);
@@ -2375,39 +2288,6 @@ fn run_scripts(world: &mut World) {
                 if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
                 {
                     pw.set_angvel(e, Vec3::new(vx, vy, vz));
-                }
-            }
-            ScriptCommand::SetAngularVelocityX { name, vx } => {
-                let entity = {
-                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
-                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
-                };
-                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
-                {
-                    let cur = pw.get_angvel(e).unwrap_or(Vec3::ZERO);
-                    pw.set_angvel(e, Vec3::new(vx, cur.y, cur.z));
-                }
-            }
-            ScriptCommand::SetAngularVelocityY { name, vy } => {
-                let entity = {
-                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
-                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
-                };
-                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
-                {
-                    let cur = pw.get_angvel(e).unwrap_or(Vec3::ZERO);
-                    pw.set_angvel(e, Vec3::new(cur.x, vy, cur.z));
-                }
-            }
-            ScriptCommand::SetAngularVelocityZ { name, vz } => {
-                let entity = {
-                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
-                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
-                };
-                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
-                {
-                    let cur = pw.get_angvel(e).unwrap_or(Vec3::ZERO);
-                    pw.set_angvel(e, Vec3::new(cur.x, cur.y, vz));
                 }
             }
             ScriptCommand::AddVelocity { name, vx, vy, vz } => {
@@ -2598,125 +2478,11 @@ fn run_scripts(world: &mut World) {
                     }
                 }
             }
-            ScriptCommand::AddRotationEulerX { name, deg } => {
-                let mut q = world.query::<(&Name, &mut Transform)>();
-                for (n, mut t) in q.iter_mut(world) {
-                    if n.0 == name {
-                        let delta = Quat::from_euler(EulerRot::XYZ, deg.to_radians(), 0.0, 0.0);
-                        t.rotation = (t.rotation.0 * delta).normalize().into();
-                        break;
-                    }
-                }
-            }
-            ScriptCommand::AddRotationEulerY { name, deg } => {
-                let mut q = world.query::<(&Name, &mut Transform)>();
-                for (n, mut t) in q.iter_mut(world) {
-                    if n.0 == name {
-                        let delta = Quat::from_euler(EulerRot::XYZ, 0.0, deg.to_radians(), 0.0);
-                        t.rotation = (t.rotation.0 * delta).normalize().into();
-                        break;
-                    }
-                }
-            }
-            ScriptCommand::AddRotationEulerZ { name, deg } => {
-                let mut q = world.query::<(&Name, &mut Transform)>();
-                for (n, mut t) in q.iter_mut(world) {
-                    if n.0 == name {
-                        let delta = Quat::from_euler(EulerRot::XYZ, 0.0, 0.0, deg.to_radians());
-                        t.rotation = (t.rotation.0 * delta).normalize().into();
-                        break;
-                    }
-                }
-            }
-            ScriptCommand::SetScaleX { name, x } => {
-                let mut q = world.query::<(&Name, &mut Transform)>();
-                for (n, mut t) in q.iter_mut(world) {
-                    if n.0 == name {
-                        t.scale.x = x;
-                        break;
-                    }
-                }
-            }
-            ScriptCommand::SetScaleY { name, y } => {
-                let mut q = world.query::<(&Name, &mut Transform)>();
-                for (n, mut t) in q.iter_mut(world) {
-                    if n.0 == name {
-                        t.scale.y = y;
-                        break;
-                    }
-                }
-            }
-            ScriptCommand::SetScaleZ { name, z } => {
-                let mut q = world.query::<(&Name, &mut Transform)>();
-                for (n, mut t) in q.iter_mut(world) {
-                    if n.0 == name {
-                        t.scale.z = z;
-                        break;
-                    }
-                }
-            }
-            ScriptCommand::AddScaleX { name, dx } => {
-                let mut q = world.query::<(&Name, &mut Transform)>();
-                for (n, mut t) in q.iter_mut(world) {
-                    if n.0 == name {
-                        t.scale.x += dx;
-                        break;
-                    }
-                }
-            }
-            ScriptCommand::AddScaleY { name, dy } => {
-                let mut q = world.query::<(&Name, &mut Transform)>();
-                for (n, mut t) in q.iter_mut(world) {
-                    if n.0 == name {
-                        t.scale.y += dy;
-                        break;
-                    }
-                }
-            }
-            ScriptCommand::AddScaleZ { name, dz } => {
-                let mut q = world.query::<(&Name, &mut Transform)>();
-                for (n, mut t) in q.iter_mut(world) {
-                    if n.0 == name {
-                        t.scale.z += dz;
-                        break;
-                    }
-                }
-            }
             ScriptCommand::AddScale { name, sx, sy, sz } => {
                 let mut q = world.query::<(&Name, &mut Transform)>();
                 for (n, mut t) in q.iter_mut(world) {
                     if n.0 == name {
                         t.scale.0 += Vec3::new(sx, sy, sz);
-                        break;
-                    }
-                }
-            }
-            ScriptCommand::SetRotationEulerX { name, deg } => {
-                let mut q = world.query::<(&Name, &mut Transform)>();
-                for (n, mut t) in q.iter_mut(world) {
-                    if n.0 == name {
-                        let (_, y, z) = t.rotation.0.to_euler(EulerRot::XYZ);
-                        t.rotation = Quat::from_euler(EulerRot::XYZ, deg.to_radians(), y, z).into();
-                        break;
-                    }
-                }
-            }
-            ScriptCommand::SetRotationEulerY { name, deg } => {
-                let mut q = world.query::<(&Name, &mut Transform)>();
-                for (n, mut t) in q.iter_mut(world) {
-                    if n.0 == name {
-                        let (x, _, z) = t.rotation.0.to_euler(EulerRot::XYZ);
-                        t.rotation = Quat::from_euler(EulerRot::XYZ, x, deg.to_radians(), z).into();
-                        break;
-                    }
-                }
-            }
-            ScriptCommand::SetRotationEulerZ { name, deg } => {
-                let mut q = world.query::<(&Name, &mut Transform)>();
-                for (n, mut t) in q.iter_mut(world) {
-                    if n.0 == name {
-                        let (x, y, _) = t.rotation.0.to_euler(EulerRot::XYZ);
-                        t.rotation = Quat::from_euler(EulerRot::XYZ, x, y, deg.to_radians()).into();
                         break;
                     }
                 }

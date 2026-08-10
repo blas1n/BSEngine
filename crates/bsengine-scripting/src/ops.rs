@@ -6959,6 +6959,36 @@ mod tests {
     }
 
     #[test]
+    fn the_prelude_survives_being_run_twice() {
+        // A scene reload re-executes the prelude in the SAME V8 isolate. A
+        // top-level `class Vec3` or `const` throws "Identifier has already
+        // been declared" on the second run -- which would break scene reload
+        // while every single-run test in this file stayed green. That is why
+        // the value types are `function` declarations hung off the Bsengine
+        // object rather than top-level classes.
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>")
+            .expect("the prelude must load once");
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>")
+            .expect("and again in the same isolate, as a scene reload does");
+
+        let r = rt
+            .eval(
+                r#"JSON.stringify([
+                    Bsengine.vec3(3, 4, 0).magnitude,
+                    Bsengine.Vec3.forward.z,
+                    Bsengine.Quat.identity.w,
+                ])"#,
+            )
+            .unwrap();
+        assert_eq!(
+            r.trim(),
+            "[5,1,1]",
+            "the value types and their statics must survive a reload"
+        );
+    }
+
+    #[test]
     fn op_log_callable_from_script() {
         let mut rt = ScriptRuntime::new_with_ops();
         let result = rt.eval(r#"Deno.core.ops.bsengine_log("hello from script"); "ok""#);

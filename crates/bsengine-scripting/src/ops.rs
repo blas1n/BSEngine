@@ -6416,6 +6416,80 @@ mod tests {
     }
 
     #[test]
+    fn lerp_clamps_but_lerp_unclamped_does_not() {
+        // The difference is why Unity ships both. Reaching t > 1 with the
+        // clamped form stops at the target; with the unclamped form it
+        // overshoots -- a real effect and a real bug, depending which you meant.
+        let r = eval_js(
+            r#"
+            const V = Bsengine.Vec3, v = Bsengine.vec3;
+            const a = v(0,0,0), b = v(10,0,0);
+            JSON.stringify([V.lerp(a,b,2).x, V.lerpUnclamped(a,b,2).x,
+                            V.lerp(a,b,-1).x, V.lerpUnclamped(a,b,-1).x])"#,
+        );
+        assert_eq!(r.trim(), "[10,20,0,-10]");
+    }
+
+    #[test]
+    fn move_towards_stops_exactly_at_the_target() {
+        // Unity's MoveTowards never overshoots, which is what lets a caller
+        // use it as a per-frame step with no epsilon check at the call site.
+        let r = eval_js(
+            r#"
+            const V = Bsengine.Vec3, v = Bsengine.vec3;
+            JSON.stringify([V.moveTowards(v(0,0,0), v(3,0,0), 100).x,
+                            V.moveTowards(v(0,0,0), v(10,0,0), 2).x])"#,
+        );
+        assert_eq!(r.trim(), "[3,2]");
+    }
+
+    #[test]
+    fn slerp_keeps_the_length_a_lerp_would_cut_across() {
+        // Halfway between two perpendicular unit vectors a lerp lands inside
+        // the unit circle (~0.707) and a slerp stays on it. Swinging a camera
+        // or a turret with the wrong one is visible.
+        let r = eval_js(
+            r#"
+            const V = Bsengine.Vec3, v = Bsengine.vec3;
+            const s = V.slerp(v(1,0,0), v(0,0,1), 0.5).magnitude;
+            const l = V.lerp(v(1,0,0), v(0,0,1), 0.5).magnitude;
+            JSON.stringify([Math.abs(s - 1) < 1e-6, Math.abs(l - 1) < 1e-6])"#,
+        );
+        assert_eq!(r.trim(), "[true,false]");
+    }
+
+    #[test]
+    fn smooth_damp_returns_the_velocity_the_caller_must_thread() {
+        // Unity takes `ref currentVelocity`; JS has no ref, so it comes back
+        // in the return value and the caller keeps it between frames. A
+        // version that dropped it would ease once and then jitter forever.
+        let r = eval_js(
+            r#"
+            const V = Bsengine.Vec3, v = Bsengine.vec3;
+            let vel = v(0,0,0), pos = v(0,0,0);
+            for (let i = 0; i < 60; i++) {
+                const s = V.smoothDamp(pos, v(10,0,0), vel, 0.2, Infinity, 1/60);
+                pos = s.value; vel = s.velocity;
+            }
+            JSON.stringify([pos.x > 9.5, pos.x <= 10.0001, vel.x > 0])"#,
+        );
+        assert_eq!(r.trim(), "[true,true,true]");
+    }
+
+    #[test]
+    fn ortho_normalize_returns_both_vectors_rather_than_mutating() {
+        let r = eval_js(
+            r#"
+            const V = Bsengine.Vec3, v = Bsengine.vec3;
+            const o = V.orthoNormalize(v(0,2,0), v(3,3,0));
+            JSON.stringify([o.normal.x, o.normal.y,
+                            Math.abs(V.dot(o.normal, o.tangent)) < 1e-6,
+                            Math.abs(o.tangent.magnitude - 1) < 1e-6])"#,
+        );
+        assert_eq!(r.trim(), "[0,1,true,true]");
+    }
+
+    #[test]
     fn op_log_callable_from_script() {
         let mut rt = ScriptRuntime::new_with_ops();
         let result = rt.eval(r#"Deno.core.ops.bsengine_log("hello from script"); "ok""#);

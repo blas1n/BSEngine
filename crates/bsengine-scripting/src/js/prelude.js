@@ -775,3 +775,78 @@ Bsengine.Vec3.project = (v, onNormal) => {
 Bsengine.Vec3.projectOnPlane = (v, planeNormal) => v.sub(Bsengine.Vec3.project(v, planeNormal));
 Bsengine.Vec3.reflect = (inDirection, inNormal) =>
     inDirection.sub(inNormal.mul(2 * Bsengine.Vec3.dot(inDirection, inNormal)));
+
+// --- Vec3 interpolation ------------------------------------------------
+Bsengine.Vec3.lerpUnclamped = (a, b, t) => a.add(b.sub(a).mul(t));
+Bsengine.Vec3.lerp = (a, b, t) =>
+    Bsengine.Vec3.lerpUnclamped(a, b, Math.max(0, Math.min(1, t)));
+
+Bsengine.Vec3.slerpUnclamped = (a, b, t) => {
+    const ma = a.magnitude, mb = b.magnitude;
+    // With a zero-length end the arc is undefined; the straight line is what
+    // it degenerates to.
+    if (ma < 1e-9 || mb < 1e-9) return Bsengine.Vec3.lerpUnclamped(a, b, t);
+    const na = a.div(ma), nb = b.div(mb);
+    const c = Math.max(-1, Math.min(1, Bsengine.Vec3.dot(na, nb)));
+    const theta = Math.acos(c);
+    if (theta < 1e-6) return Bsengine.Vec3.lerpUnclamped(a, b, t);
+    const len = ma + (mb - ma) * t;
+    const s = Math.sin(theta);
+    return na.mul(Math.sin((1 - t) * theta) / s)
+             .add(nb.mul(Math.sin(t * theta) / s))
+             .mul(len);
+};
+Bsengine.Vec3.slerp = (a, b, t) =>
+    Bsengine.Vec3.slerpUnclamped(a, b, Math.max(0, Math.min(1, t)));
+
+// Never overshoots -- the property that lets a caller use this as a per-frame
+// step without an epsilon check of its own.
+Bsengine.Vec3.moveTowards = (current, target, maxDistanceDelta) => {
+    const d = target.sub(current);
+    const m = d.magnitude;
+    if (m <= maxDistanceDelta || m < 1e-9) return target.clone();
+    return current.add(d.div(m).mul(maxDistanceDelta));
+};
+
+Bsengine.Vec3.rotateTowards = (current, target, maxRadiansDelta, maxMagnitudeDelta) => {
+    const len = Bsengine.Vec3.moveTowards(
+        new _V3(current.magnitude, 0, 0),
+        new _V3(target.magnitude, 0, 0),
+        maxMagnitudeDelta).x;
+    const angleRad = Bsengine.Vec3.angle(current, target) * Math.PI / 180;
+    if (angleRad < 1e-6) return target.normalized.mul(len);
+    const t = Math.min(1, maxRadiansDelta / angleRad);
+    return Bsengine.Vec3.slerp(current, target, t).normalized.mul(len);
+};
+
+// Unity takes `ref currentVelocity`; JS has no ref, so the new velocity comes
+// back beside the value and the CALLER threads it between frames. Dropping it
+// eases on the first frame and jitters after.
+Bsengine.Vec3.smoothDamp = (current, target, currentVelocity, smoothTime, maxSpeed, deltaTime) => {
+    // The critically damped spring Unity uses (Game Programming Gems 4).
+    const st = Math.max(0.0001, smoothTime);
+    const omega = 2 / st;
+    const x = omega * deltaTime;
+    const exp = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
+    let change = current.sub(target);
+    const maxChange = maxSpeed * st;
+    if (isFinite(maxChange) && change.sqrMagnitude > maxChange * maxChange) {
+        change = change.normalized.mul(maxChange);
+    }
+    const dest = current.sub(change);
+    const temp = currentVelocity.add(change.mul(omega)).mul(deltaTime);
+    let newVel = currentVelocity.sub(temp.mul(omega)).mul(exp);
+    let output = dest.add(change.add(temp).mul(exp));
+    // Do not step past the target.
+    if (Bsengine.Vec3.dot(target.sub(current), output.sub(target)) > 0) {
+        output = target.clone();
+        newVel = output.sub(target).div(deltaTime);
+    }
+    return { value: output, velocity: newVel };
+};
+
+// Unity mutates two `ref` parameters; both come back here instead.
+Bsengine.Vec3.orthoNormalize = (normal, tangent) => {
+    const n = normal.normalized;
+    return { normal: n, tangent: tangent.sub(Bsengine.Vec3.project(tangent, n)).normalized };
+};

@@ -99,18 +99,46 @@ pub struct ScriptRuntimeResource(pub ScriptRuntime);
 pub struct SoundHandles(pub HashMap<u32, kira::sound::static_sound::StaticSoundHandle>);
 
 /// What the audio consumer knows about one sound path.
+///
+/// Two cases rather than one, because "the load failed" and "there was never
+/// anything to ask" are different facts that used to share a `GaveUp`. Only the
+/// first is [`bsengine_asset::AssetSlot`]'s business.
 #[derive(Debug)]
 enum SoundLoad {
-    /// Requested; waiting for `Assets<AudioSourceAsset>` to have it.
-    Loading(bevy_asset::Handle<bsengine_audio::AudioSourceAsset>),
-    /// Decoded and resident. See [`SoundLoads`] for why the handle is kept
-    /// rather than dropped once the play that asked for it has started.
-    Ready(bevy_asset::Handle<bsengine_audio::AudioSourceAsset>),
-    /// The load failed. Kept so the path is never re-requested --
-    /// re-requesting a failed path resets it to `Loading` and starts the load
-    /// over (`bevy_asset` 0.14.2, `server/info.rs:212-221`), which is why a
-    /// re-requesting poll loop can never see the failure.
-    GaveUp,
+    /// A request was made; this is what became of it.
+    ///
+    /// The handle is kept even once the sound is resident -- see [`SoundLoads`]
+    /// for why -- and even once the load has failed, for the reason
+    /// [`bsengine_asset::AssetSlot::GaveUp`] gives.
+    Requested(bsengine_asset::AssetSlot<bsengine_audio::AudioSourceAsset>),
+    /// The request could not even be made, so there is no handle to hold.
+    ///
+    /// Not a failed load, which is why this cannot be an
+    /// [`AssetSlot`](bsengine_asset::AssetSlot) at all: that type starts from a
+    /// handle, and here none was ever produced.
+    ///
+    /// Both ways in are defensive rather than reachable — `LoadMode::Async` is
+    /// infallible, and [`ScriptingPlugin`] registers
+    /// `Assets<AudioSourceAsset>` itself, so an app that can call `playSound`
+    /// has one. Recorded as a state anyway so that if either ever does happen,
+    /// the warning fires once instead of once per call: a script calling
+    /// `playSound` every frame would otherwise print sixty lines a second
+    /// about a wiring mistake.
+    Unrequestable,
+}
+
+impl SoundLoad {
+    /// Whether a play on this path can never start.
+    ///
+    /// Both cases are hopeless for the same *caller* reason even though they
+    /// are different engine facts: `PlaySound` refuses to queue, and
+    /// `start_pending_sounds` drops anything already queued.
+    fn hopeless(&self) -> bool {
+        match self {
+            Self::Requested(slot) => slot.gave_up(),
+            Self::Unrequestable => true,
+        }
+    }
 }
 
 /// Every sound path `playSound` has ever asked for, keyed by resolved path.
@@ -1842,7 +1870,7 @@ fn run_scripts(world: &mut World) {
                 let known = world
                     .get_resource::<SoundLoads>()
                     .and_then(|loads| loads.0.get(&full_path));
-                if matches!(known, Some(SoundLoad::GaveUp)) {
+                if known.is_some_and(SoundLoad::hopeless) {
                     // Dropped now rather than queued: this play can never
                     // start, and a queue entry that can never resolve is
                     // exactly the unbounded growth this map prevents.
@@ -1868,26 +1896,28 @@ fn run_scripts(world: &mut World) {
                         None => None,
                     };
                     let load = match requested {
-                        Some(Ok(handle)) => SoundLoad::Loading(handle),
+                        Some(Ok(handle)) => {
+                            SoundLoad::Requested(bsengine_asset::AssetSlot::from_handle(handle))
+                        }
                         Some(Err(e)) => {
                             // Unreachable: `LoadMode::Async` is infallible.
                             // Present only because the shared `load()`
                             // signature returns `Result` for `Sync` callers.
                             tracing::warn!("[audio] failed to request {full_path}: {e}");
-                            SoundLoad::GaveUp
+                            SoundLoad::Unrequestable
                         }
                         None => {
                             tracing::warn!(
                                 "[audio] Assets<AudioSourceAsset> resource missing (AssetPlugin not registered?)"
                             );
-                            SoundLoad::GaveUp
+                            SoundLoad::Unrequestable
                         }
                     };
-                    let gave_up = matches!(load, SoundLoad::GaveUp);
+                    let hopeless = load.hopeless();
                     if let Some(mut loads) = world.get_resource_mut::<SoundLoads>() {
                         loads.0.insert(full_path.clone(), load);
                     }
-                    if gave_up {
+                    if hopeless {
                         continue;
                     }
                 }
@@ -2744,57 +2774,43 @@ fn start_pending_sounds(world: &mut World) {
     // mutably below.
     let mut still_pending = Vec::new();
     let mut ready = Vec::new();
-    let mut resolved_paths = HashSet::new();
-    // Keyed by path so N plays queued on one bad path warn once, not N times.
-    let mut failed: HashMap<String, String> = HashMap::new();
-    {
-        let assets = world.resource::<bevy_asset::Assets<bsengine_audio::AudioSourceAsset>>();
-        let asset_server = world.resource::<bevy_asset::AssetServer>();
-        let loads = world.resource::<SoundLoads>();
-        for entry in entries {
-            // The handle is read from `SoundLoads`, never re-requested here:
-            // `AssetServer::load` on a path already in `Failed` restarts it,
-            // which would make the failure below unobservable.
-            let handle = match loads.0.get(&entry.path) {
-                Some(SoundLoad::Loading(handle) | SoundLoad::Ready(handle)) => handle,
-                // Unreachable: `PlaySound` records the path before queueing,
-                // and refuses to queue at all once it is `GaveUp`.
-                Some(SoundLoad::GaveUp) | None => continue,
-            };
-            match assets.get(handle) {
-                Some(src) => {
-                    resolved_paths.insert(entry.path.clone());
-                    ready.push((entry, src.0.clone()));
-                }
-                None => match asset_server.load_state(handle) {
-                    bevy_asset::LoadState::Failed(e) => {
-                        failed.insert(entry.path.clone(), format!("{e}"));
-                    }
-                    _ => still_pending.push(entry),
-                },
-            }
-        }
-    }
+    let asset_server = world.resource::<bevy_asset::AssetServer>().clone();
 
-    for (path, e) in &failed {
-        tracing::warn!("[audio] failed to load queued sound {path}: {e}");
-    }
-    if let Some(mut loads) = world.get_resource_mut::<SoundLoads>() {
-        // `Loading` -> `Ready`: the handle stays held so the decoded sound
-        // stays resident and a repeat play starts instantly (see `SoundLoads`).
-        for path in resolved_paths {
-            if let Some(slot) = loads.0.get_mut(&path) {
-                if let SoundLoad::Loading(handle) = slot {
-                    *slot = SoundLoad::Ready(handle.clone());
+    // `resource_scope` lifts `Assets` out of the world so the slots in
+    // `SoundLoads` can be advanced -- which needs the map mutably -- while the
+    // assets they poll against are still readable.
+    world.resource_scope(
+        |world,
+         assets: bevy_ecs::world::Mut<
+            bevy_asset::Assets<bsengine_audio::AudioSourceAsset>,
+        >| {
+            let mut loads = world.resource_mut::<SoundLoads>();
+            for entry in entries {
+                // The handle is read from `SoundLoads`, never re-requested
+                // here: `AssetServer::load` on a path already in `Failed`
+                // restarts it, which would make the failure unobservable.
+                let Some(SoundLoad::Requested(slot)) = loads.0.get_mut(&entry.path) else {
+                    // Unreachable: `PlaySound` records the path before queueing
+                    // and refuses to queue at all once it is hopeless.
+                    continue;
+                };
+                // Warned inline rather than collected per path: the slot
+                // reports `Failed` once, so N plays queued on one bad path
+                // still produce one line between them.
+                if let bsengine_asset::Polled::Failed(e) = slot.poll(&asset_server, &assets) {
+                    tracing::warn!("[audio] failed to load queued sound {}: {e}", entry.path);
+                }
+                if slot.gave_up() {
+                    // Dropped, not requeued: this play can never start.
+                    continue;
+                }
+                match assets.get(slot.handle()) {
+                    Some(src) => ready.push((entry, src.0.clone())),
+                    None => still_pending.push(entry),
                 }
             }
-        }
-        // `Loading` -> `GaveUp`: the path is never requested again, so the
-        // failure stays observable and later plays on it are refused outright.
-        for path in failed.into_keys() {
-            loads.0.insert(path, SoundLoad::GaveUp);
-        }
-    }
+        },
+    );
     if let Some(mut pending) = world.get_resource_mut::<PendingSounds>() {
         still_pending.append(&mut pending.0);
         pending.0 = still_pending;
@@ -4292,14 +4308,27 @@ mod tests {
                     .resource::<SoundLoads>()
                     .0
                     .get("definitely/not/a/real/sound.wav"),
-                Some(SoundLoad::GaveUp)
+                Some(SoundLoad::Requested(slot)) if slot.gave_up()
             ),
-            "the failed path must be remembered as given-up on, or the next \
-             playSound restarts the load and the failure is never observed"
+            "the failed path must be remembered as a request that gave up -- \
+             `Unrequestable` would be the wrong answer here, since the request \
+             was made and it is the load that failed -- or the next playSound \
+             restarts the load and the failure is never observed"
         );
         assert!(
             logs.contains("[audio] failed to load queued sound"),
             "the developer must be told the sound could not be loaded; captured logs were:\n{logs}"
+        );
+        // The `PlaySound` handler's own refusal, which is a different line from
+        // the one above and reached on a different frame: once the path is
+        // known-bad, later plays are turned away at the command rather than
+        // queued and dropped a frame later. Nothing else measures that guard --
+        // removing it leaves every other assertion here green, because
+        // `start_pending_sounds` drops the entry either way.
+        assert!(
+            logs.contains("[audio] not playing") && logs.contains("its load already failed"),
+            "a play on an already-failed path must be refused at the command \
+             handler, and say so; captured logs were:\n{logs}"
         );
 
         let _ = std::fs::remove_file(&script_path);
@@ -4394,7 +4423,7 @@ mod tests {
         // Keyed by exactly the string the script passed, which is what
         // `PlaySound` resolves and `AssetServer` was handed.
         let handle = match loads.0.get(&sound_path_js) {
-            Some(SoundLoad::Ready(handle)) => handle.clone(),
+            Some(SoundLoad::Requested(slot)) if slot.is_ready() => slot.handle().clone(),
             other => panic!("the resolved path must be retained as Ready, got {other:?}"),
         };
         assert!(
@@ -4473,7 +4502,7 @@ mod tests {
             frames += 1;
             let resolved = matches!(
                 app.world().resource::<SoundLoads>().0.values().next(),
-                Some(SoundLoad::Ready(_))
+                Some(SoundLoad::Requested(slot)) if slot.is_ready()
             );
             if resolved && app.world().resource::<PendingSounds>().0.is_empty() {
                 break;
@@ -4499,10 +4528,14 @@ mod tests {
                 loads.0
             );
             let (path, load) = loads.0.iter().next().unwrap();
-            let SoundLoad::Ready(handle) = load else {
-                unreachable!("the loop above only exits on Ready, got {load:?}")
+            let SoundLoad::Requested(slot) = load else {
+                unreachable!("the loop above only exits on a requested load, got {load:?}")
             };
-            (path.clone(), handle.id())
+            assert!(
+                slot.is_ready(),
+                "the loop above only exits on Ready, got {slot:?}"
+            );
+            (path.clone(), slot.handle().id())
         };
         assert_eq!(
             resolved_path, sound_path_js,
@@ -4569,12 +4602,12 @@ mod tests {
         );
 
         let loads = app.world().resource::<SoundLoads>();
-        let Some(SoundLoad::Ready(handle)) = loads.0.get(&resolved_path) else {
-            panic!(
+        let handle = match loads.0.get(&resolved_path) {
+            Some(SoundLoad::Requested(slot)) if slot.is_ready() => slot.handle(),
+            other => panic!(
                 "a reload must leave the path Ready, not evict or downgrade it; \
-                 got {:?}",
-                loads.0.get(&resolved_path)
-            );
+                 got {other:?}"
+            ),
         };
         assert_eq!(
             handle.id(),

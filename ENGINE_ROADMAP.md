@@ -1705,6 +1705,47 @@ nothing about the *compile* / *upload*, which needs a GPU the load does not". �
 진짜 이득은 줄 수가 아니라 `bevy_asset` 재요청 함정에 대한 **같은 설명 다섯 벌이 한 벌이 된 것**,
 그리고 그 과정에서 **give-up 테스트 셋이 실은 아무것도 재지 않았다는 사실이 드러난 것**이다.
 
+### 40. 여섯 번째 상태 기계 — `SoundLoad` ✅
+
+**목표:** item 39가 범위 밖으로 남긴 오디오 로드 경로를 `AssetSlot`으로.
+
+item 39를 마치고 `server/info.rs` 인용을 훑다가 나왔다. `bsengine-scripting`의
+`SoundLoads`(`HashMap<String, SoundLoad>`)가 **여섯 번째** 같은 모양이다. 39에서 곧장 folding
+하지 않고 남긴 이유는 하나였다: **요청 자체가 실패할 수 있어 핸들 없는 `GaveUp`이 필요한데**,
+`AssetSlot::GaveUp(Handle)`은 핸들에서 출발한다.
+
+**해법은 슬롯을 넓히는 것이 아니라 두 사실을 갈라 놓는 것이었다.**
+
+```rust
+enum SoundLoad {
+    Requested(AssetSlot<AudioSourceAsset>),  // 요청했다. 그 뒤는 슬롯이 안다
+    Unrequestable,                           // 애초에 물어볼 곳이 없었다
+}
+```
+
+"로드가 실패했다"와 "물어볼 서버가 없었다"는 다른 사실인데 오늘까지 `GaveUp` 하나로
+뭉쳐 있었다. 슬롯의 소관은 앞의 것뿐이다. `Unrequestable`로 가는 두 갈래(`LoadMode::Async`가
+`Err`, `Assets<AudioSourceAsset>` 부재)는 **둘 다 도달 불가**임을 확인했다 — `ScriptingPlugin`이
+그 에셋 타입을 직접 등록한다(`plugin.rs:285`). 방어 분기로 남기되 주석에 그렇게 적었다.
+
+**완료 조건:**
+- [x] `SoundLoad`를 슬롯 + `Unrequestable`로, `hopeless()`가 두 경우를 호출자 관점에서 합침
+- [x] `start_pending_sounds`의 수동 폴링을 `slot.poll`로. 경로별 `failed` 맵과
+      `resolved_paths` 집합이 통째로 사라진다 — `Polled::Failed`가 슬롯당 한 번이므로
+      "한 경로에 N개 재생이 걸려도 경고는 한 줄"이 공짜로 나온다
+- [x] 기존 사운드 테스트 17개 초록, 워크스페이스 68개 스위트 초록
+
+**이 사이트의 give-up 테스트는 강했다.** item 39에서 셋이나 실패할 수 없었던 것과 달리,
+`sound_played_every_frame_on_a_missing_path_is_given_up_on`은 **201프레임 동안 큐 최대치**를
+잰다 — 매 프레임 재요청하면 큐가 프레임당 하나씩 자라므로 실제로 잡힌다. 강화할 것이 없었다.
+
+**변이가 찾은 미측정 가드 하나.** `PlaySound`가 이미 실패한 경로를 **명령 단계에서** 거부하는
+가드를 없애도 모든 테스트가 초록이었다 — `start_pending_sounds`가 어차피 드롭하므로 큐는 자라지
+않는다. 그 가드의 유일한 고유 효과는 자기 경고 문구인데, 그 문구는 **이미 기존 테스트의 로그
+캡처 안에 들어 있었고 단언만 없었다.** 한 줄 더해 가드를 실측 대상으로 만들었다.
+
+---
+
 ---
 
 ## 컴포넌트/op 감사 결과 (2026-08-05)

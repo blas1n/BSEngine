@@ -736,3 +736,42 @@ Bsengine.Vec3.forward = new _V3(0, 0, 1);
 Bsengine.Vec3.back    = new _V3(0, 0, -1);
 Bsengine.Vec3.positiveInfinity = new _V3(Infinity, Infinity, Infinity);
 Bsengine.Vec3.negativeInfinity = new _V3(-Infinity, -Infinity, -Infinity);
+
+// --- Vec3 geometry -----------------------------------------------------
+Bsengine.Vec3.dot   = (a, b) => a.x * b.x + a.y * b.y + a.z * b.z;
+Bsengine.Vec3.cross = (a, b) => new _V3(
+    a.y * b.z - a.z * b.y,
+    a.z * b.x - a.x * b.z,
+    a.x * b.y - a.y * b.x);
+Bsengine.Vec3.distance  = (a, b) => a.sub(b).magnitude;
+Bsengine.Vec3.normalize = (v) => v.normalized;
+Bsengine.Vec3.scale = (a, b) => new _V3(a.x * b.x, a.y * b.y, a.z * b.z);
+Bsengine.Vec3.min   = (a, b) => new _V3(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.min(a.z, b.z));
+Bsengine.Vec3.max   = (a, b) => new _V3(Math.max(a.x, b.x), Math.max(a.y, b.y), Math.max(a.z, b.z));
+
+// Degrees, 0..180 -- Unity's convention. Radians here would be a silent
+// factor of ~57 in every script that turns to face something.
+Bsengine.Vec3.angle = (a, b) => {
+    const d = a.magnitude * b.magnitude;
+    if (d < 1e-9) return 0;
+    // Clamped because floating point can push the quotient just past +/-1,
+    // where Math.acos returns NaN -- and a NaN angle becomes a NaN rotation
+    // and an entity that renders nowhere.
+    const c = Math.max(-1, Math.min(1, Bsengine.Vec3.dot(a, b) / d));
+    return Math.acos(c) * 180 / Math.PI;
+};
+Bsengine.Vec3.signedAngle = (a, b, axis) => {
+    const unsigned = Bsengine.Vec3.angle(a, b);
+    const sign = Math.sign(Bsengine.Vec3.dot(axis, Bsengine.Vec3.cross(a, b)));
+    return unsigned * (sign === 0 ? 1 : sign);
+};
+
+Bsengine.Vec3.clampMagnitude = (v, maxLength) =>
+    v.sqrMagnitude > maxLength * maxLength ? v.normalized.mul(maxLength) : v.clone();
+Bsengine.Vec3.project = (v, onNormal) => {
+    const d = onNormal.sqrMagnitude;
+    return d < 1e-9 ? new _V3(0, 0, 0) : onNormal.mul(Bsengine.Vec3.dot(v, onNormal) / d);
+};
+Bsengine.Vec3.projectOnPlane = (v, planeNormal) => v.sub(Bsengine.Vec3.project(v, planeNormal));
+Bsengine.Vec3.reflect = (inDirection, inNormal) =>
+    inDirection.sub(inNormal.mul(2 * Bsengine.Vec3.dot(inDirection, inNormal)));

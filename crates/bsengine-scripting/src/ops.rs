@@ -6315,6 +6315,107 @@ mod tests {
     }
 
     #[test]
+    fn vec3_geometry_statics_match_unity() {
+        let r = eval_js(
+            r#"
+            const V = Bsengine.Vec3, v = Bsengine.vec3;
+            const a = v(1, 0, 0), b = v(0, 1, 0);
+            // The cross operands are deliberately not axis-aligned: with
+            // a=(1,0,0), b=(0,1,0) every term of the x component is zero, so a
+            // swapped pair of factors there reads the same as the correct one.
+            const c1 = v(1, 2, 3), c2 = v(4, 5, 6);
+            JSON.stringify({
+                dot: V.dot(a, b),
+                cross: [V.cross(c1, c2).x, V.cross(c1, c2).y, V.cross(c1, c2).z],
+                distance: V.distance(v(0,0,0), v(3,4,0)),
+                angle: Math.round(V.angle(a, b)),
+                scale: V.scale(v(2,3,4), v(10,10,10)).x,
+                min: [V.min(v(1,5,3), v(4,2,6)).x, V.min(v(1,5,3), v(4,2,6)).y],
+                max: [V.max(v(1,5,3), v(4,2,6)).x, V.max(v(1,5,3), v(4,2,6)).y],
+            })"#,
+        );
+        assert_eq!(
+            r.trim(),
+            r#"{"dot":0,"cross":[-3,6,-3],"distance":5,"angle":90,"scale":20,"min":[1,2],"max":[4,5]}"#
+        );
+    }
+
+    #[test]
+    fn vec3_angle_is_degrees_and_unsigned_but_signed_angle_is_signed() {
+        // Unity's Angle returns 0..180 unsigned; SignedAngle uses the axis to
+        // pick a sign. Returning radians here would be a silent factor of ~57
+        // in every script that turns one thing to face another.
+        let r = eval_js(
+            r#"
+            const V = Bsengine.Vec3, v = Bsengine.vec3;
+            JSON.stringify([
+                Math.round(V.angle(v(1,0,0), v(0,0,1))),
+                Math.round(V.signedAngle(v(1,0,0), v(0,0,1), v(0,1,0))),
+                Math.round(V.signedAngle(v(0,0,1), v(1,0,0), v(0,1,0))),
+            ])"#,
+        );
+        assert_eq!(r.trim(), "[90,-90,90]");
+    }
+
+    #[test]
+    fn angle_between_identical_vectors_is_zero_not_nan() {
+        // Floating point can push the cosine just past 1, where Math.acos is
+        // NaN. A NaN angle propagates into a rotation and the entity vanishes.
+        let r = eval_js(
+            r#"
+            const V = Bsengine.Vec3, v = Bsengine.vec3;
+            // Swept rather than a single sample: whether the cosine rounds
+            // past 1 depends on the exact components, so one vector can miss
+            // the case entirely -- as an earlier version of this test did,
+            // leaving the clamp inside `angle` unmeasured.
+            let nan = 0, worstSame = 0, worstOpposite = 180;
+            for (let i = 1; i <= 400; i++) {
+                const a = v(i * 0.017, i * 0.031, i * 0.043);
+                const same = V.angle(a, a), opposite = V.angle(a, a.neg());
+                if (isNaN(same) || isNaN(opposite)) nan++;
+                worstSame = Math.max(worstSame, same);
+                worstOpposite = Math.min(worstOpposite, opposite);
+            }
+            JSON.stringify([nan, worstSame < 0.01, worstOpposite > 179.99])"#,
+        );
+        assert_eq!(
+            r.trim(),
+            "[0,true,true]",
+            "no angle may be NaN: acos of a cosine that rounded past 1 is how a              NaN reaches a rotation and an entity ends up rendering nowhere"
+        );
+    }
+
+    #[test]
+    fn vec3_projection_and_reflection() {
+        let r = eval_js(
+            r#"
+            const V = Bsengine.Vec3, v = Bsengine.vec3;
+            const p  = V.project(v(2, 3, 0), v(1, 0, 0));
+            const pp = V.projectOnPlane(v(2, 3, 0), v(0, 1, 0));
+            const rf = V.reflect(v(1, -1, 0), v(0, 1, 0));
+            JSON.stringify([[p.x,p.y],[pp.x,pp.y],[rf.x,rf.y]])"#,
+        );
+        assert_eq!(r.trim(), "[[2,0],[2,0],[1,1]]");
+    }
+
+    #[test]
+    fn clamp_magnitude_shortens_but_never_lengthens() {
+        let r = eval_js(
+            r#"
+            const V = Bsengine.Vec3, v = Bsengine.vec3;
+            JSON.stringify([
+                Math.abs(V.clampMagnitude(v(3,4,0), 2.5).magnitude - 2.5) < 1e-9,
+                V.clampMagnitude(v(3,4,0), 99).magnitude,
+            ])"#,
+        );
+        assert_eq!(
+            r.trim(),
+            "[true,5]",
+            "clamping past the length must be a no-op"
+        );
+    }
+
+    #[test]
     fn op_log_callable_from_script() {
         let mut rt = ScriptRuntime::new_with_ops();
         let result = rt.eval(r#"Deno.core.ops.bsengine_log("hello from script"); "ok""#);

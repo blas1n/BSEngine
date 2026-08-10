@@ -6490,6 +6490,130 @@ mod tests {
     }
 
     #[test]
+    fn quat_euler_round_trips_in_the_engines_convention() {
+        // The engine composes YXZ -- `SetRotationEuler` calls
+        // `Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll)`. If Quat.euler
+        // disagrees, a script that reads eulerAngles and writes them back
+        // rotates the entity somewhere else.
+        let r = eval_js(
+            r#"
+            const Q = Bsengine.Quat;
+            const cases = [[0,90,0],[30,0,0],[0,0,45],[15,40,-70],[-10,200,80]];
+            JSON.stringify(cases.map(c => {
+                const e = Q.euler(c[0], c[1], c[2]).eulerAngles;
+                // Compared as rotations, not as triples: two different euler
+                // triples can name the same rotation.
+                const back = Q.euler(e.x, e.y, e.z);
+                return Q.angle(Q.euler(c[0], c[1], c[2]), back) < 0.001;
+            }))"#,
+        );
+        assert_eq!(r.trim(), "[true,true,true,true,true]");
+    }
+
+    #[test]
+    fn quat_euler_agrees_with_glam_not_merely_with_itself() {
+        // The round-trip test above only proves `Quat.euler` and
+        // `eulerAngles` are each other's inverse -- they could both be wrong
+        // in the same way and still pass. This compares against glam, which is
+        // what `ScriptCommand::SetRotationEuler` actually calls, so it is the
+        // definition rather than a second opinion.
+        use glam::EulerRot;
+        let cases = [
+            (0.0f32, 90.0f32, 0.0f32),
+            (30.0, 0.0, 0.0),
+            (0.0, 0.0, 45.0),
+            (15.0, 40.0, -70.0),
+            (-10.0, 200.0, 80.0),
+        ];
+        for (pitch, yaw, roll) in cases {
+            let expected = glam::Quat::from_euler(
+                EulerRot::YXZ,
+                yaw.to_radians(),
+                pitch.to_radians(),
+                roll.to_radians(),
+            );
+            let got = eval_js(&format!(
+                "const q = Bsengine.Quat.euler({pitch}, {yaw}, {roll}); \
+                 JSON.stringify([q.x, q.y, q.z, q.w])"
+            ));
+            let parsed: Vec<f64> = serde_json::from_str(got.trim())
+                .unwrap_or_else(|e| panic!("expected a JSON array, got {got:?}: {e}"));
+            let got_q = glam::Quat::from_xyzw(
+                parsed[0] as f32,
+                parsed[1] as f32,
+                parsed[2] as f32,
+                parsed[3] as f32,
+            );
+            // Compared as rotations: q and -q name the same one.
+            let agreement = expected.dot(got_q).abs();
+            assert!(
+                (agreement - 1.0).abs() < 1e-5,
+                "Quat.euler({pitch}, {yaw}, {roll}) = {got_q:?} disagrees with \
+                 glam's {expected:?} (|dot| = {agreement}); the JS and the \
+                 engine would rotate the same entity differently"
+            );
+        }
+    }
+
+    #[test]
+    fn quat_rotate_turns_a_vector() {
+        let r = eval_js(
+            r#"
+            const v = Bsengine.Quat.euler(0, 90, 0).rotate(Bsengine.Vec3.forward);
+            JSON.stringify([Math.round(v.x), Math.round(v.y), Math.round(v.z)])"#,
+        );
+        assert_eq!(r.trim(), "[1,0,0]", "yaw +90 must take +Z to +X");
+    }
+
+    #[test]
+    fn quat_inverse_undoes_a_rotation() {
+        let r = eval_js(
+            r#"
+            const Q = Bsengine.Quat, V = Bsengine.Vec3;
+            const q = Q.euler(15, 40, -70);
+            const back = Q.inverse(q).rotate(q.rotate(V.right));
+            JSON.stringify(back.equals(V.right, 1e-5))"#,
+        );
+        assert_eq!(r.trim(), "true");
+    }
+
+    #[test]
+    fn quat_mul_applies_the_right_hand_first() {
+        // Unity's `a * b` applies b first, then a. Backwards is invisible for
+        // a single axis and wrong for everything else.
+        let r = eval_js(
+            r#"
+            const Q = Bsengine.Quat, V = Bsengine.Vec3;
+            // Every component non-zero on purpose: with single-axis rotations
+            // like euler(0,90,0) the y*q.z and z*q.y terms of the product are
+            // both zero, so a sign flip there reads the same as the correct
+            // formula. An earlier version of this test used exactly those and
+            // let that mutation through.
+            const a = Q.euler(25, 40, -15), b = Q.euler(-35, 10, 55);
+            const composed = a.mul(b).rotate(V.forward);
+            const applied  = a.rotate(b.rotate(V.forward));
+            const swapped  = b.mul(a).rotate(V.forward);
+            JSON.stringify([composed.equals(applied, 1e-5),
+                            composed.equals(swapped, 1e-5)])"#,
+        );
+        assert_eq!(
+            r.trim(),
+            "[true,false]",
+            "a.mul(b) must mean 'b then a', and the two orders must differ"
+        );
+    }
+
+    #[test]
+    fn quat_angle_axis_round_trips() {
+        let r = eval_js(
+            r#"
+            const aa = Bsengine.Quat.angleAxis(90, Bsengine.Vec3.up).toAngleAxis();
+            JSON.stringify([Math.round(aa.angle), Math.round(aa.axis.y)])"#,
+        );
+        assert_eq!(r.trim(), "[90,1]");
+    }
+
+    #[test]
     fn op_log_callable_from_script() {
         let mut rt = ScriptRuntime::new_with_ops();
         let result = rt.eval(r#"Deno.core.ops.bsengine_log("hello from script"); "ok""#);

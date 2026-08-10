@@ -55,8 +55,68 @@ _V3.prototype = {
 // than spinning up a new isolate. `const`/`let` at top level would throw
 // "Identifier 'Bsengine' has already been declared" on the second run;
 // `var` (and plain reassignment) is redeclaration-safe.
+function _Q(x, y, z, w) {
+    this.x = x;
+    this.y = y;
+    this.z = z;
+    this.w = w;
+}
+_Q.prototype = {
+    get normalized() {
+        const m = Math.sqrt(this.x*this.x + this.y*this.y + this.z*this.z + this.w*this.w);
+        return m > 1e-9 ? new _Q(this.x/m, this.y/m, this.z/m, this.w/m) : new _Q(0, 0, 0, 1);
+    },
+    // Degrees, and the YXZ order the engine itself composes -- see
+    // `ScriptCommand::SetRotationEuler`, which calls
+    // `Quat::from_euler(EulerRot::YXZ, yaw, pitch, roll)`. Disagreeing with it
+    // would make a script that reads these and writes them back point the
+    // entity somewhere else. Derived as the inverse of R = Ry*Rx*Rz.
+    get eulerAngles() {
+        const x = this.x, y = this.y, z = this.z, w = this.w;
+        const sinPitch = Math.max(-1, Math.min(1, 2 * (w * x - y * z)));
+        const pitch = Math.asin(sinPitch);
+        const yaw   = Math.atan2(2 * (w * y + x * z), 1 - 2 * (x * x + y * y));
+        const roll  = Math.atan2(2 * (w * z + x * y), 1 - 2 * (x * x + z * z));
+        const d = 180 / Math.PI;
+        return new _V3(pitch * d, yaw * d, roll * d);
+    },
+    // Unity's `a * b`: b is applied first, then a.
+    mul(q) {
+        return new _Q(
+            this.w*q.x + this.x*q.w + this.y*q.z - this.z*q.y,
+            this.w*q.y - this.x*q.z + this.y*q.w + this.z*q.x,
+            this.w*q.z + this.x*q.y - this.y*q.x + this.z*q.w,
+            this.w*q.w - this.x*q.x - this.y*q.y - this.z*q.z);
+    },
+    // Unity's `q * v`.
+    rotate(v) {
+        const u = new _V3(this.x, this.y, this.z);
+        const s = this.w;
+        return u.mul(2 * Bsengine.Vec3.dot(u, v))
+            .add(v.mul(s * s - u.sqrMagnitude))
+            .add(Bsengine.Vec3.cross(u, v).mul(2 * s));
+    },
+    toAngleAxis() {
+        const q = this.normalized;
+        const angle = 2 * Math.acos(Math.max(-1, Math.min(1, q.w)));
+        const s = Math.sqrt(Math.max(0, 1 - q.w * q.w));
+        // Near zero rotation the axis is arbitrary; Unity returns +X.
+        const axis = s < 1e-6 ? new _V3(1, 0, 0) : new _V3(q.x / s, q.y / s, q.z / s);
+        return { angle: angle * 180 / Math.PI, axis };
+    },
+    equals(q, tolerance) {
+        const t = tolerance === undefined ? 1e-5 : tolerance;
+        return Math.abs(this.x - q.x) <= t && Math.abs(this.y - q.y) <= t
+            && Math.abs(this.z - q.z) <= t && Math.abs(this.w - q.w) <= t;
+    },
+    clone() { return new _Q(this.x, this.y, this.z, this.w); },
+    toString() { return "(" + this.x + ", " + this.y + ", " + this.z + ", " + this.w + ")"; },
+};
+
 var Bsengine = {
     Vec3: _V3,
+    Quat: _Q,
+    quat: (x, y, z, w) => new _Q(x, y, z, w),
     vec3: (x, y, z) => new _V3(x, y, z),
     log:            (msg)                  => Deno.core.ops.bsengine_log(msg),
     version:        ()                     => Deno.core.ops.bsengine_version(),
@@ -849,4 +909,35 @@ Bsengine.Vec3.smoothDamp = (current, target, currentVelocity, smoothTime, maxSpe
 Bsengine.Vec3.orthoNormalize = (normal, tangent) => {
     const n = normal.normalized;
     return { normal: n, tangent: tangent.sub(Bsengine.Vec3.project(tangent, n)).normalized };
+};
+
+// --- Quat statics ------------------------------------------------------
+Bsengine.Quat.identity = new _Q(0, 0, 0, 1);
+
+Bsengine.Quat.angleAxis = (angleDeg, axis) => {
+    const a = axis.normalized;
+    const h = angleDeg * Math.PI / 360;
+    const s = Math.sin(h);
+    return new _Q(a.x * s, a.y * s, a.z * s, Math.cos(h));
+};
+
+// Composed Y, then X, then Z -- the engine's own order, spelled out rather
+// than as a closed-form so it cannot silently drift from
+// `Quat::from_euler(EulerRot::YXZ, ...)`.
+Bsengine.Quat.euler = (pitch, yaw, roll) =>
+    Bsengine.Quat.angleAxis(yaw, Bsengine.Vec3.up)
+        .mul(Bsengine.Quat.angleAxis(pitch, Bsengine.Vec3.right))
+        .mul(Bsengine.Quat.angleAxis(roll, Bsengine.Vec3.forward));
+
+Bsengine.Quat.dot = (a, b) => a.x*b.x + a.y*b.y + a.z*b.z + a.w*b.w;
+Bsengine.Quat.normalize = (q) => q.normalized;
+// The conjugate of a unit quaternion is its inverse.
+Bsengine.Quat.inverse = (q) => {
+    const n = q.normalized;
+    return new _Q(-n.x, -n.y, -n.z, n.w);
+};
+Bsengine.Quat.angle = (a, b) => {
+    const d = Math.abs(Math.max(-1, Math.min(1,
+        Bsengine.Quat.dot(a.normalized, b.normalized))));
+    return 2 * Math.acos(d) * 180 / Math.PI;
 };

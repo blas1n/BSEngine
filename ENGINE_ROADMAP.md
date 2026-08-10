@@ -1746,46 +1746,61 @@ enum SoundLoad {
 
 ---
 
-### 41. 스크립팅 값 타입 (`Vec3` / `Quat` / `Transform`)
+### 41. 스크립팅 값 타입 (`Vec3` / `Quat` / `Transform`) ✅
 
 **목표:** 스크립팅 API가 3-벡터를 한 가지 방식으로 말하게 한다.
 
 설계: [docs/superpowers/specs/2026-08-10-scripting-value-types-design.md](docs/superpowers/specs/2026-08-10-scripting-value-types-design.md)
 
 감사 후속 후보 4번("축별 op 45개 축소")을 설계하러 들어갔다가 나왔다. **줄일 것은 op 수가
-아니라 방언이었다** — 이 API에는 3-벡터를 적는 방식이 셋 있다:
-
-| 모양 | 개수 |
-|---|---|
-| JS 배열 `[x,y,z]` | op 8개 (`getForwardVector`, `getVelocity`, …) |
-| 객체 `{x,y,z}` | JS 래퍼 6개 (`getPosition`, `getWorldScale`, …) |
-| 평평한 `{x,y,z,rx,…,sz}` | `getTransform` 1개 |
-
-`mini-arena/player.js:95`가 한 줄 안에서 `fwd[0]`과 `pos.x`를 섞어 쓴다.
-
-**그리고 데모 하나가 깨져 있었다.** `games/net-2p-demo`의 두 스크립트가 `Bsengine.setPosition`을
-부르는데 그 이름은 어디에도 없다. `onUpdate` 안이라 매 프레임 던지고, 두 플레이어가 원을 그리는
-게 전부인 데모에서 아무도 움직이지 않는다. 원인은 이름이다 — 위치만 설정하는 op의 JS 이름이
-`setTransform`이고, 그 op의 독 주석조차 "absolute **position**"이라고 적혀 있다. 반대로
-`getTransform`은 위치·회전·스케일을 전부 준다. **같은 이름의 get/set이 다른 것을 가리킨다.**
-
-**사람이 벡터 연산을 손으로 쓰고 있다.** 데모 20개·706줄에 9곳 — 78줄에 한 번꼴이다.
-`Math.sqrt(dx*dx + dz*dz)`만 네 번. 값 타입은 설탕이 아니라 세 방언을 하나로 만드는 일이다.
+아니라 방언이었다** — 이 API에는 3-벡터를 적는 방식이 셋 있었다(배열 8곳, 객체 6곳,
+평평한 `getTransform` 1곳). `mini-arena/player.js:95`가 한 줄 안에서 `fwd[0]`과 `pos.x`를
+섞어 쓰던 이유다.
 
 **완료 조건:**
-- [ ] `BOOTSTRAP_JS`(`ops.rs` 안 670줄·42KB 문자열)를 `src/js/prelude.js`로 분리
-- [ ] `Bsengine.Vec3`/`Bsengine.Quat` — **유니티 `Vector3`/`Quaternion` 전체 표면**을 옮긴다.
-      이름과 static/instance 구분까지 유니티를 따르고, JS가 강제하는 곳만 다르다: 연산자가 없어
-      `add`/`mul`/`rotate` 메서드가 되고, `ref`/`out`이 없어 `smoothDamp`·`orthoNormalize`·
-      `toAngleAxis`가 객체를 반환하며, **값 타입이 아니라 참조라 전부 불변으로** 만든다
-      (유니티의 변이 메서드 `Set`/`Normalize`는 두지 않는다). 최상위 `class`는 씬 리로드를
-      깨므로 객체의 속성으로 단다
-- [ ] 범위를 측정으로 자르지 않는 이유: 처음엔 데모 9곳으로 잘랐다가 `lookRotation`이 빠졌는데,
-      그것은 `mini-arena/player.js`가 이미 손으로 쓰다 **한 번 틀린** 연산이었다
-- [ ] 공간 3-벡터 접근자 13개가 `Vec3`/`Quat` 반환, `getTransform`은 `{position, rotation, scale}`
-- [ ] 세터가 벡터·스칼라 둘 다 수용 (왕복이 성립해야 get/set 짝이 정직하다)
-- [ ] `setPosition` 신설, `setTransform`은 통짜, 게임 18곳 이전, net-2p-demo가 실제로 움직인다
-- [ ] **가드**: 저장소의 모든 `.js`가 부르는 `Bsengine.<name>`이 실재하는지 검사
+- [x] `BOOTSTRAP_JS`(669줄·42KB 문자열)를 `src/js/prelude.js`로 — `ops.rs` 11,368 → 10,702줄
+- [x] `Bsengine.Vec3`/`Bsengine.Quat` — 유니티 전체 표면, 객체의 속성으로
+- [x] 공간 3-벡터 접근자 13개가 값 타입 반환, `getTransform`은 `{position, rotation, scale}`
+- [x] 세터 21개가 벡터·스칼라 둘 다 수용
+- [x] `setPosition` 신설, `setTransform`은 통짜(왕복 테스트), 게임 29곳 이전
+- [x] 가드 2종 + 테스트 344개(시작 309개), op 299 → 300
+
+**깨져 있던 데모 하나를 고쳤다.** `games/net-2p-demo`의 두 스크립트가 `Bsengine.setPosition`을
+불렀는데 그 이름이 없었다. 그리고 가드를 넣자 **같은 버그의 나머지 절반**이 나왔다:
+`Bsengine.onUpdate(cb)`도 없다 — 이 엔진의 진입점은 전역 `function onUpdate(self)`다.
+**없는 함수를 둘 부르고 있었으니 이 데모는 한 번도 동작한 적이 없다.**
+
+**가드는 런타임에 묻는다.** 처음엔 `prelude.js`를 파싱했더니 ES6 메서드 축약형으로 선언된
+`onUpdate`/`onMessage`/`onCollision`을 없다고 신고했다. 손으로 쓴 파서에는 그런 게 더 있고,
+오경보 하나하나가 사람에게 이 테스트를 무시하도록 가르친다. 실제 런타임에 프렐류드를 올려
+`Object.keys(Bsengine)`를 읽으면 그 실패 모드가 없다. 스크립트 쪽도 주석을 걷어내고 훑는다 —
+API 이름이 적힌 주석은 호출이 아니라 산문이다.
+
+**측정으로 범위를 자르려다 한 번 틀렸다.** 처음엔 데모 9곳이 쓰는 연산만 넣기로 했는데
+그 절단이 `lookRotation`을 잘랐다 — `mini-arena/player.js`가 `atan2`로 손수 쓰다가 **한 번
+틀린** 바로 그 연산이고, 주석이 "opposite way the player was actually walking"이라 적고 있다.
+706줄짜리 데모는 벡터 타입에 무엇이 필요한지 정하기엔 너무 얇은 표본이었다. 그래서 유니티
+전체를 옮겼고, JS가 강제하는 셋만 다르다: 연산자 없음, `ref`/`out` 없음, 그리고 **참조 타입이라
+전부 불변**(유니티의 변이 메서드는 두지 않는다).
+
+**변이 테스트가 내 테스트 여섯 개를 반증했다.** 셋은 같은 부류였다 — **테스트 데이터가
+축 정렬이거나 표본이 하나여서 결함을 가린다**:
+
+| 통과하고 있던 변이 | 왜 |
+|---|---|
+| `cross`의 인자 뒤바뀜 | `(1,0,0)×(0,1,0)`은 x 성분의 두 항이 **둘 다 0** |
+| `angle`의 acos 클램프 제거 | 표본 하나가 범위를 안 넘음 — 400개로 쓸어 보니 **100개가 NaN** |
+| `Quat.mul`의 부호 뒤집기 | 단일 축 회전이라 `y*q.z`, `z*q.y`가 **둘 다 0** |
+| `lookRotation`의 cross 뒤바뀜 | forward만 검사 — **`up` 인자가 아무것도 재지 않고 있었다** |
+| `rotateTowards`의 클램프 제거 | 테스트가 아니라 **죽은 코드**(`slerp`가 이미 클램프) — 제거 |
+| 최상위 `class`가 씬 리로드를 깸 | 단일 실행 테스트는 전부 초록 — 2회 실행 테스트를 따로 뒀다 |
+
+`Quat.euler`는 자기 왕복만으로 부족해 **glam과 직접 대조**한다 — `euler`와 `eulerAngles`가
+서로의 역함수이면서 둘 다 엔진과 어긋날 수 있기 때문이다.
+
+**남긴 것:** net-2p-demo가 실제로 움직이는지는 **확인하지 못했다.** 가드는 이름이 실재함을
+증명하지만 실행을 증명하지 않는다. 그 프로젝트는 리플레이 녹화가 없고, 네트워킹 데모라
+헤드리스로 돌리려면 별도 작업이 필요하다.
 
 ---
 

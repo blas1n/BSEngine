@@ -5,10 +5,10 @@
 //! That is this cache, and answering it is what stops ten entities sharing one
 //! image from uploading it ten times.
 //!
-//! The state machine is deliberately the same shape as the two already in
-//! `plugin.rs` (the skybox and custom shaders). Not because three is a good
-//! number -- it is not, and unifying them is worth its own item -- but because
-//! whoever unifies them should find three that look alike.
+//! The load state machine that used to live here is now
+//! [`bsengine_asset::AssetSlot`], shared with the skybox, custom shaders,
+//! scripts and glTF. What stays is the part that is only about textures: one
+//! GPU id per path.
 
 use std::collections::HashMap;
 
@@ -17,58 +17,46 @@ use bsengine_asset::TextureAsset;
 use bsengine_core::{Material, TexturePath};
 use bsengine_rhi_wgpu::GpuTextureRegistry;
 
-/// What has happened to one texture path.
-enum TextureState {
-    /// Requested once. The handle is polled, never re-requested.
-    Loading(bevy_asset::Handle<TextureAsset>),
-    /// Uploaded. The handle is retained because dropping it releases the asset
-    /// and switches hot reload off silently -- the same reason the skybox keeps
-    /// its own.
-    Ready {
-        id: u64,
-        _handle: bevy_asset::Handle<TextureAsset>,
-    },
-    /// The load failed.
-    ///
-    /// Held as a state rather than forgotten, for the reason the custom-shader
-    /// path spells out: re-requesting a failed path resets it to `Loading` and
-    /// starts the load over, so a re-requesting poll loop can never see the
-    /// failure at all. Keeping it also makes the warning fire once instead of
-    /// every frame.
-    GaveUp,
+/// One texture path's load, and the GPU id it produced.
+///
+/// Two facts, not one: the load either arrived or did not, and separately the
+/// image either reached the GPU or is still waiting for a registry. They used
+/// to share an enum, whose `Ready` therefore could not describe an image that
+/// had decoded before a surface existed.
+struct CachedTexture {
+    /// The load. Its handle is retained even after the upload, because dropping
+    /// it releases the asset and switches hot reload off silently.
+    slot: bsengine_asset::AssetSlot<TextureAsset>,
+    /// `Some` once the image is on the GPU.
+    id: Option<u64>,
 }
 
-/// One state per texture path.
+/// One entry per texture path.
 #[derive(Resource, Default)]
 pub struct TextureCache {
-    by_path: HashMap<String, TextureState>,
+    by_path: HashMap<String, CachedTexture>,
 }
 
 impl TextureCache {
     /// The GPU id for a path, once it has finished uploading.
     pub fn id_for(&self, path: &str) -> Option<u64> {
-        match self.by_path.get(path) {
-            Some(TextureState::Ready { id, .. }) => Some(*id),
-            _ => None,
-        }
+        self.by_path.get(path).and_then(|c| c.id)
     }
 
     /// Whether this path reached a terminal failure.
     ///
     /// Distinct from "has no id": a path still loading also has no id, and a
     /// test that cannot tell those apart cannot tell a give-up from an infinite
-    /// retry, which is the failure mode this whole state exists to prevent.
+    /// retry, which is the failure mode [`bsengine_asset::AssetSlot::GaveUp`]
+    /// exists to prevent.
     pub fn gave_up(&self, path: &str) -> bool {
-        matches!(self.by_path.get(path), Some(TextureState::GaveUp))
+        self.by_path.get(path).is_some_and(|c| c.slot.gave_up())
     }
 
     /// How many distinct paths have reached the GPU. Uploading each one exactly
     /// once is what this cache is for, so tests count it.
     pub fn uploaded_count(&self) -> usize {
-        self.by_path
-            .values()
-            .filter(|s| matches!(s, TextureState::Ready { .. }))
-            .count()
+        self.by_path.values().filter(|c| c.id.is_some()).count()
     }
 }
 
@@ -96,37 +84,35 @@ pub fn resolve_texture_paths(
             continue;
         }
         let path = wanted.0.as_str();
-        match cache.by_path.get(path) {
-            Some(TextureState::Ready { id, .. }) => {
-                material.texture_id = Some(*id);
-            }
-            Some(TextureState::GaveUp) => {}
-            Some(TextureState::Loading(handle)) => {
-                if let Some(tex) = textures.get(handle) {
-                    let id = registry.load_from_rgba(tex.width, tex.height, &tex.data);
-                    let handle = handle.clone();
-                    cache.by_path.insert(
-                        path.to_string(),
-                        TextureState::Ready {
-                            id,
-                            _handle: handle,
-                        },
-                    );
-                    // Deliberately not written here. The `Ready` arm above does
-                    // it on the next frame, and doing it in both places is a
-                    // line whose removal changes nothing observable -- which is
-                    // exactly what a mutation test found when it was there.
-                } else if let bevy_asset::LoadState::Failed(e) = asset_server.load_state(handle) {
-                    tracing::warn!("[texture] '{path}' failed to load: {e}");
-                    cache.by_path.insert(path.to_string(), TextureState::GaveUp);
+        // Requested here, the first time any entity asks for this path, so
+        // "request exactly once" is a property of the map rather than of the
+        // control flow below.
+        let entry = cache
+            .by_path
+            .entry(path.to_string())
+            .or_insert_with(|| CachedTexture {
+                slot: bsengine_asset::AssetSlot::requesting(&asset_server, path),
+                id: None,
+            });
+
+        match entry.slot.poll(&asset_server, &textures) {
+            bsengine_asset::Polled::Arrived => {
+                if let Some(tex) = textures.get(entry.slot.handle()) {
+                    entry.id = Some(registry.load_from_rgba(tex.width, tex.height, &tex.data));
                 }
+                // The id is deliberately not written to `material` here. The
+                // block below does it on the next frame, and doing it in both
+                // places is a line whose removal changes nothing observable --
+                // which is exactly what a mutation test found when it was there.
             }
-            None => {
-                let handle = bsengine_asset::load_async::<TextureAsset>(&asset_server, path);
-                cache
-                    .by_path
-                    .insert(path.to_string(), TextureState::Loading(handle));
+            bsengine_asset::Polled::Failed(e) => {
+                tracing::warn!("[texture] '{path}' failed to load: {e}");
             }
+            bsengine_asset::Polled::Nothing => {}
+        }
+
+        if let Some(id) = entry.id {
+            material.texture_id = Some(id);
         }
     }
 }
@@ -211,17 +197,38 @@ mod tests {
             TexturePath("does/not/exist.png".into()),
         ));
 
-        for _ in 0..80 {
-            app.update();
-        }
-
-        assert!(
+        let gave_up = |app: &bsengine_app::App| {
             app.world()
                 .resource::<TextureCache>()
-                .gave_up("does/not/exist.png"),
+                .gave_up("does/not/exist.png")
+        };
+
+        let mut settled = false;
+        for _ in 0..80 {
+            app.update();
+            if gave_up(&app) {
+                settled = true;
+                break;
+            }
+        }
+        assert!(
+            settled,
             "a texture that cannot load has to end up in GaveUp; staying in Loading \
              is indistinguishable from still trying, which is the bug"
         );
+
+        // And stays there on every frame, not merely on the one this happens to
+        // sample. A loop that re-requests the failed path passes back through
+        // GaveUp repeatedly, so a single late reading cannot tell a give-up
+        // from an infinite retry -- the very distinction being tested.
+        for frame in 0..40 {
+            app.update();
+            assert!(
+                gave_up(&app),
+                "the texture left GaveUp on frame {frame}, which means something \
+                 re-requested the failed path"
+            );
+        }
     }
 
     #[test]

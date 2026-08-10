@@ -1774,7 +1774,14 @@ enum SoundLoad {
 
 **완료 조건:**
 - [ ] `BOOTSTRAP_JS`(`ops.rs` 안 670줄·42KB 문자열)를 `src/js/prelude.js`로 분리
-- [ ] `Bsengine.Vec3`/`Bsengine.Quat` — 최상위 `class`는 씬 리로드를 깨므로 객체의 속성으로
+- [ ] `Bsengine.Vec3`/`Bsengine.Quat` — **유니티 `Vector3`/`Quaternion` 전체 표면**을 옮긴다.
+      이름과 static/instance 구분까지 유니티를 따르고, JS가 강제하는 곳만 다르다: 연산자가 없어
+      `add`/`mul`/`rotate` 메서드가 되고, `ref`/`out`이 없어 `smoothDamp`·`orthoNormalize`·
+      `toAngleAxis`가 객체를 반환하며, **값 타입이 아니라 참조라 전부 불변으로** 만든다
+      (유니티의 변이 메서드 `Set`/`Normalize`는 두지 않는다). 최상위 `class`는 씬 리로드를
+      깨므로 객체의 속성으로 단다
+- [ ] 범위를 측정으로 자르지 않는 이유: 처음엔 데모 9곳으로 잘랐다가 `lookRotation`이 빠졌는데,
+      그것은 `mini-arena/player.js`가 이미 손으로 쓰다 **한 번 틀린** 연산이었다
 - [ ] 공간 3-벡터 접근자 13개가 `Vec3`/`Quat` 반환, `getTransform`은 `{position, rotation, scale}`
 - [ ] 세터가 벡터·스칼라 둘 다 수용 (왕복이 성립해야 get/set 짝이 정직하다)
 - [ ] `setPosition` 신설, `setTransform`은 통짜, 게임 18곳 이전, net-2p-demo가 실제로 움직인다

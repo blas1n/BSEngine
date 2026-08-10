@@ -7,13 +7,10 @@
 const FORCE_MAGNITUDE = 2.5;
 const FALL_Y_THRESHOLD = -5.0;
 
-let startX = null;
-let startY = null;
-let startZ = null;
-let startRotX = null;
-let startRotY = null;
-let startRotZ = null;
-let startRotW = null;
+// Where the ball began, captured on the first frame and restored after a
+// fall. One record rather than seven loose numbers, now that the transform
+// accessors hand back value types.
+let start = null;
 let gameOver = false;
 
 // Sent by the final level's goal script once IS_FINAL_LEVEL clears — stops
@@ -27,22 +24,18 @@ Bsengine.onMessage("Ball", "gameOver", () => {
 });
 
 function onUpdate(self) {
+    // getTransform, not getPosition: this script also remembers the ball's
+    // starting rotation so a fall can restore it.
     const t = Bsengine.getTransform(self);
     if (!t) return;
 
-    if (startX === null) {
-        startX = t.x;
-        startY = t.y;
-        startZ = t.z;
-        startRotX = t.rx;
-        startRotY = t.ry;
-        startRotZ = t.rz;
-        startRotW = t.rw;
+    if (start === null) {
+        start = { position: t.position.clone(), rotation: t.rotation.clone() };
     }
 
-    if (t.y < FALL_Y_THRESHOLD) {
-        Bsengine.setTransform(self, startX, startY, startZ);
-        Bsengine.setRotation(self, startRotX, startRotY, startRotZ, startRotW);
+    if (t.position.y < FALL_Y_THRESHOLD) {
+        Bsengine.setPosition(self, start.position);
+        Bsengine.setRotation(self, start.rotation);
         Bsengine.setVelocity(self, 0.0, 0.0, 0.0);
         Bsengine.setAngularVelocity(self, 0.0, 0.0, 0.0);
         Bsengine.resetForces(self);

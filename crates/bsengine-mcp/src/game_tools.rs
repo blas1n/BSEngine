@@ -43,16 +43,27 @@ Rules:
 - primitive: Some(Cube) renders a white cube; use color to tint it
 - look_at on a camera entity auto-computes rotation to face the target point
 - color sets the albedo/surface color; emissive makes the entity glow
-- name is the key used by JS Bsengine.getTransform/setTransform"#;
+- name is the key used by JS Bsengine.getPosition/setPosition"#;
 
 const SCRIPT_API_DOCS: &str = r#"BSEngine JavaScript API (runs in V8 via Deno Core):
 
 Transform:
-  Bsengine.getTransform(name: string) → { x, y, z } | null
-    Get world position of an entity by name. Returns null if not found.
+  Bsengine.getPosition(name: string) → Vec3 | null
+    Get an entity's position by name. Returns null if not found.
+    A Vec3 has .x/.y/.z plus Unity-style helpers: .magnitude, .normalized,
+    .add(v), .sub(v), .mul(s), and statics on Bsengine.Vec3 such as
+    Bsengine.Vec3.distance(a, b), .lerp(a, b, t), .dot(a, b), .cross(a, b).
 
-  Bsengine.setTransform(name: string, x: number, y: number, z: number)
-    Set world position of an entity by name.
+  Bsengine.setPosition(name: string, x, y, z)   // or setPosition(name, vec3)
+    Set an entity's position by name. Accepts loose scalars or a Vec3, so
+    Bsengine.setPosition("B", Bsengine.getPosition("A")) works.
+
+  Bsengine.getTransform(name: string) → { position: Vec3, rotation: Quat, scale: Vec3 } | null
+  Bsengine.setTransform(name: string, t)
+    The whole transform. setTransform takes exactly what getTransform returns.
+
+  Bsengine.vec3(x, y, z), Bsengine.Quat.euler(pitch, yaw, roll),
+  Bsengine.Quat.lookRotation(forward, up)  // face a direction
 
 Input:
   Bsengine.isKeyPressed(key: string) → boolean
@@ -82,28 +93,28 @@ Each entity's script runs independently. Use `self` to reference the owning enti
 Example (WASD movement on the entity this script is attached to):
   const SPEED = 0.05;
   function onUpdate(self) {
-    const t = Bsengine.getTransform(self);
-    if (!t) return;
-    let { x, y, z } = t;
+    const p = Bsengine.getPosition(self);
+    if (!p) return;
+    let { x, y, z } = p;
     if (Bsengine.isKeyPressed("W")) z -= SPEED;
     if (Bsengine.isKeyPressed("S")) z += SPEED;
     if (Bsengine.isKeyPressed("A")) x -= SPEED;
     if (Bsengine.isKeyPressed("D")) x += SPEED;
-    Bsengine.setTransform(self, x, y, z);
+    Bsengine.setPosition(self, x, y, z);
   }
 
 Example (flash red when near origin):
   function onUpdate(self) {
-    const t = Bsengine.getTransform(self);
-    if (!t) return;
-    const dist = Math.sqrt(t.x * t.x + t.z * t.z);
+    const p = Bsengine.getPosition(self);
+    if (!p) return;
+    const dist = Bsengine.Vec3.distance(p, Bsengine.Vec3.zero);
     Bsengine.setEmissive(self, dist < 2.0 ? 1.0 : 0.0, 0.0, 0.0);
   }
 
 Example (controlling another entity by name from this script):
   function onUpdate(self) {
-    const enemy = Bsengine.getTransform("Enemy");
-    if (enemy) Bsengine.setTransform("Enemy", enemy.x + 0.01, enemy.y, enemy.z);
+    const enemy = Bsengine.getPosition("Enemy");
+    if (enemy) Bsengine.setPosition("Enemy", enemy.add(Bsengine.vec3(0.01, 0, 0)));
   }
 
 Notes:

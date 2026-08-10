@@ -92,11 +92,11 @@ function onUpdate(self) {
             // the ray inside the capsule's cylindrical midsection.
             const hit = Bsengine.raycast(
                 {
-                    x: pos.x + fwd[0] * SELF_RADIUS_CLEARANCE,
+                    x: pos.x + fwd.x * SELF_RADIUS_CLEARANCE,
                     y: pos.y + 0.5,
-                    z: pos.z + fwd[2] * SELF_RADIUS_CLEARANCE,
+                    z: pos.z + fwd.z * SELF_RADIUS_CLEARANCE,
                 },
-                { x: fwd[0], y: fwd[1], z: fwd[2] },
+                { x: fwd.x, y: fwd.y, z: fwd.z },
                 ATTACK_RANGE
             );
             if (hit && hit.entityName === "Enemy") {
@@ -104,7 +104,7 @@ function onUpdate(self) {
                 // that gets moved there first, because a burst emits from
                 // wherever its entity currently is.
                 if (hit.point) {
-                    Bsengine.setTransform("HitSparks", hit.point[0], hit.point[1], hit.point[2]);
+                    Bsengine.setPosition("HitSparks", hit.point[0], hit.point[1], hit.point[2]);
                     Bsengine.burstParticles("HitSparks");
                 }
                 // Bsengine.damageShield() only queues a ScriptCommand,
@@ -123,7 +123,7 @@ function onUpdate(self) {
                 // steps the staleness entirely.
                 const preHitShield = Bsengine.getShield("Enemy");
                 Bsengine.damageShield("Enemy", ATTACK_DAMAGE);
-                Bsengine.sendMessage("Enemy", "hit", { dirX: fwd[0], dirZ: fwd[2] });
+                Bsengine.sendMessage("Enemy", "hit", { dirX: fwd.x, dirZ: fwd.z });
                 if (preHitShield - ATTACK_DAMAGE <= 0.0) {
                     Bsengine.destroy("Enemy");
                     Bsengine.sendMessage("Hud", "score", { amount: 100 });

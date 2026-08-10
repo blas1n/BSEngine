@@ -187,7 +187,7 @@ impl PhysicsWorld {
     /// component. For a `Dynamic` body, `Transform` is overwritten every
     /// frame from the simulated Rapier position (see
     /// `sync_transform_from_physics` in bsengine-runtime's physics plugin),
-    /// so a script calling `Bsengine.setTransform` on one needs this to make
+    /// so a script calling `Bsengine.setPosition` on one needs this to make
     /// the teleport actually stick instead of being silently undone next
     /// frame.
     pub fn set_translation(&mut self, entity: Entity, pos: Vec3) {

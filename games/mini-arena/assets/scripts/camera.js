@@ -5,7 +5,7 @@ function onUpdate(self) {
     const target = Bsengine.getPosition("Player");
     if (!target) return;
 
-    const cam = Bsengine.getTransform(self);
+    const cam = Bsengine.getPosition(self);
     if (!cam) return;
 
     const dt = Bsengine.getDeltaTime();
@@ -19,6 +19,6 @@ function onUpdate(self) {
     const newY = cam.y + (desiredY - cam.y) * t;
     const newZ = cam.z + (desiredZ - cam.z) * t;
 
-    Bsengine.setTransform(self, newX, newY, newZ);
+    Bsengine.setPosition(self, newX, newY, newZ);
     Bsengine.lookAt(self, target.x, target.y + 0.5, target.z);
 }

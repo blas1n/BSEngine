@@ -17,7 +17,7 @@ const enemies = ENEMY_NAMES.map(() => {
 let score = 0;
 
 function onUpdate() {
-    const pt = Bsengine.getTransform("Player");
+    const pt = Bsengine.getPosition("Player");
     if (!pt) return;
 
     let { x, y, z } = pt;
@@ -28,12 +28,12 @@ function onUpdate() {
 
     x = Math.max(-BOUNDS, Math.min(BOUNDS, x));
     z = Math.max(-BOUNDS, Math.min(BOUNDS, z));
-    Bsengine.setTransform("Player", x, y, z);
+    Bsengine.setPosition("Player", x, y, z);
 
     for (let i = 0; i < ENEMY_NAMES.length; i++) {
         const name = ENEMY_NAMES[i];
         const state = enemies[i];
-        const et = Bsengine.getTransform(name);
+        const et = Bsengine.getPosition(name);
         if (!et) continue;
 
         state.timer++;
@@ -51,14 +51,14 @@ function onUpdate() {
         if (ex < -BOUNDS || ex > BOUNDS) { state.dx = -state.dx; ex = et.x; }
         if (ez < -BOUNDS || ez > BOUNDS) { state.dz = -state.dz; ez = et.z; }
 
-        Bsengine.setTransform(name, ex, et.y, ez);
+        Bsengine.setPosition(name, ex, et.y, ez);
 
         const dx = x - ex;
         const dz = z - ez;
         if (Math.sqrt(dx * dx + dz * dz) < COLLISION_DIST) {
             score++;
             Bsengine.log("Caught! Score: " + score);
-            Bsengine.setTransform("Player", 0, 0.5, 0);
+            Bsengine.setPosition("Player", 0, 0.5, 0);
         }
     }
 }

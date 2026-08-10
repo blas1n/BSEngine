@@ -819,7 +819,7 @@ fn run_scripts(world: &mut World) {
     let commands: Vec<ScriptCommand> = COMMAND_BUFFER.with(|c| c.borrow().clone());
     for cmd in commands {
         match cmd {
-            ScriptCommand::SetTransform { name, x, y, z } => {
+            ScriptCommand::SetPosition { name, x, y, z } => {
                 let entity = {
                     let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name, &mut Transform)>();
                     q.iter_mut(world).find_map(|(e, n, mut t)| {
@@ -835,6 +835,42 @@ fn run_scripts(world: &mut World) {
                 if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
                 {
                     pw.set_translation(e, Vec3::new(x, y, z));
+                }
+            }
+            ScriptCommand::SetTransform {
+                name,
+                x,
+                y,
+                z,
+                rx,
+                ry,
+                rz,
+                rw,
+                sx,
+                sy,
+                sz,
+            } => {
+                let position = Vec3::new(x, y, z);
+                let rotation = Quat::from_xyzw(rx, ry, rz, rw);
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name, &mut Transform)>();
+                    q.iter_mut(world).find_map(|(e, n, mut t)| {
+                        (n.0 == name).then(|| {
+                            t.position = position.into();
+                            t.rotation = rotation.into();
+                            t.scale = Vec3::new(sx, sy, sz).into();
+                            e
+                        })
+                    })
+                };
+                // Both halves teleported for the reason the position-only arm
+                // gives: a Dynamic body overwrites `Transform` from the
+                // simulation on the next frame. Scale has no Rapier
+                // counterpart, so there is nothing to mirror for it.
+                if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
+                {
+                    pw.set_translation(e, position);
+                    pw.set_rotation(e, rotation);
                 }
             }
             ScriptCommand::SetRotation {

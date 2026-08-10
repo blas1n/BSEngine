@@ -6697,6 +6697,87 @@ mod tests {
     }
 
     #[test]
+    fn transform_accessors_return_value_types() {
+        super::TRANSFORM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "A".to_string(),
+                (
+                    glam::Vec3::new(1.0, 2.0, 3.0),
+                    glam::Quat::IDENTITY,
+                    glam::Vec3::new(4.0, 5.0, 6.0),
+                ),
+            );
+        });
+        let r = eval_js(
+            r#"
+            const t = Bsengine.getTransform("A");
+            JSON.stringify([
+                typeof t.position.magnitude,       // a Vec3, not a bare record
+                typeof t.rotation.eulerAngles,
+                [t.position.x, t.position.y, t.position.z],
+                [t.scale.x, t.scale.y, t.scale.z],
+                typeof Bsengine.getPosition("A").add,
+                typeof Bsengine.getRotation("A").rotate,
+                typeof Bsengine.getScale("A").normalized,
+            ])"#,
+        );
+        super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert_eq!(
+            r.trim(),
+            r#"["number","object",[1,2,3],[4,5,6],"function","function","object"]"#
+        );
+    }
+
+    #[test]
+    fn direction_accessors_return_vec3_rather_than_an_array() {
+        // These returned `[x, y, z]` and had to be read as `fwd[0]` --
+        // mini-arena/player.js:95 mixes `fwd[0]` and `pos.x` on one line
+        // because the API spoke two dialects.
+        super::TRANSFORM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "A".to_string(),
+                (glam::Vec3::ZERO, glam::Quat::IDENTITY, glam::Vec3::ONE),
+            );
+        });
+        let r = eval_js(
+            r#"
+            const f = Bsengine.getForwardVector("A");
+            const u = Bsengine.getUpVector("A");
+            JSON.stringify([typeof f.magnitude, Array.isArray(f),
+                            typeof u.magnitude, Array.isArray(u)])"#,
+        );
+        super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert_eq!(r.trim(), r#"["number",false,"number",false]"#);
+    }
+
+    #[test]
+    fn a_missing_entity_still_reads_back_as_null() {
+        // The wrappers must not turn "no such entity" into a zero vector --
+        // a script that cannot tell those apart silently acts on the origin.
+        let r = eval_js(
+            r#"JSON.stringify([
+                Bsengine.getTransform("__none__"),
+                Bsengine.getPosition("__none__"),
+                Bsengine.getForwardVector("__none__"),
+            ])"#,
+        );
+        assert_eq!(r.trim(), "[null,null,null]");
+    }
+
+    #[test]
+    fn colours_stay_arrays_because_a_colour_is_not_a_direction() {
+        // rgb is not a spatial vector: `distanceTo` and `normalize` on one are
+        // meaningless. Folding it into Vec3 would be the wrong common
+        // denominator, which is the mistake item 39 was built to avoid.
+        let r = eval_js(r#"String(Bsengine.getMaterialColor("__none__"))"#);
+        assert_eq!(
+            r.trim(),
+            "null",
+            "and the shape is unchanged for real entities too"
+        );
+    }
+
+    #[test]
     fn op_log_callable_from_script() {
         let mut rt = ScriptRuntime::new_with_ops();
         let result = rt.eval(r#"Deno.core.ops.bsengine_log("hello from script"); "ok""#);

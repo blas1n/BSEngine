@@ -113,6 +113,19 @@ _Q.prototype = {
     toString() { return "(" + this.x + ", " + this.y + ", " + this.z + ", " + this.w + ")"; },
 };
 
+// The op layer speaks flat records and bare arrays; these two functions are
+// the only places that translation happens.
+function _tf(t) {
+    return {
+        position: new _V3(t.x, t.y, t.z),
+        rotation: new _Q(t.rx, t.ry, t.rz, t.rw),
+        scale:    new _V3(t.sx, t.sy, t.sz),
+    };
+}
+function _v3OrNull(a) {
+    return a ? new _V3(a[0], a[1], a[2]) : null;
+}
+
 var Bsengine = {
     Vec3: _V3,
     Quat: _Q,
@@ -120,19 +133,19 @@ var Bsengine = {
     vec3: (x, y, z) => new _V3(x, y, z),
     log:            (msg)                  => Deno.core.ops.bsengine_log(msg),
     version:        ()                     => Deno.core.ops.bsengine_version(),
-    getTransform:      (name)                 => Deno.core.ops.bsengine_get_transform(name),
-    getPosition:       (name)                 => { const t = Deno.core.ops.bsengine_get_transform(name); return t ? { x: t.x, y: t.y, z: t.z } : null; },
-    getRotation:       (name)                 => { const t = Deno.core.ops.bsengine_get_transform(name); return t ? { x: t.rx, y: t.ry, z: t.rz, w: t.rw } : null; },
-    getScale:          (name)                 => { const t = Deno.core.ops.bsengine_get_transform(name); return t ? { x: t.sx, y: t.sy, z: t.sz } : null; },
-    getForwardVector:  (name)                 => Deno.core.ops.bsengine_get_forward_vector(name),
-    getRightVector:    (name)                 => Deno.core.ops.bsengine_get_right_vector(name),
-    getUpVector:       (name)                 => Deno.core.ops.bsengine_get_up_vector(name),
+    getTransform:      (name)                 => { const t = Deno.core.ops.bsengine_get_transform(name); return t ? _tf(t) : null; },
+    getPosition:       (name)                 => { const t = Deno.core.ops.bsengine_get_transform(name); return t ? new _V3(t.x, t.y, t.z) : null; },
+    getRotation:       (name)                 => { const t = Deno.core.ops.bsengine_get_transform(name); return t ? new _Q(t.rx, t.ry, t.rz, t.rw) : null; },
+    getScale:          (name)                 => { const t = Deno.core.ops.bsengine_get_transform(name); return t ? new _V3(t.sx, t.sy, t.sz) : null; },
+    getForwardVector:  (name)                 => _v3OrNull(Deno.core.ops.bsengine_get_forward_vector(name)),
+    getRightVector:    (name)                 => _v3OrNull(Deno.core.ops.bsengine_get_right_vector(name)),
+    getUpVector:       (name)                 => _v3OrNull(Deno.core.ops.bsengine_get_up_vector(name)),
     distanceTo:        (nameA, nameB)         => Deno.core.ops.bsengine_distance_to(nameA, nameB),
     distanceToPoint:   (name, x, y, z)       => Deno.core.ops.bsengine_distance_to_point(name, x, y, z),
-    getWorldTransform: (name)                 => Deno.core.ops.bsengine_get_world_transform(name),
-    getWorldPosition:  (name)                 => { const t = Deno.core.ops.bsengine_get_world_transform(name); return t ? { x: t.x, y: t.y, z: t.z } : null; },
-    getWorldRotation:  (name)                 => { const t = Deno.core.ops.bsengine_get_world_transform(name); return t ? { x: t.rx, y: t.ry, z: t.rz, w: t.rw } : null; },
-    getWorldScale:     (name)                 => { const t = Deno.core.ops.bsengine_get_world_transform(name); return t ? { x: t.sx, y: t.sy, z: t.sz } : null; },
+    getWorldTransform: (name)                 => { const t = Deno.core.ops.bsengine_get_world_transform(name); return t ? _tf(t) : null; },
+    getWorldPosition:  (name)                 => { const t = Deno.core.ops.bsengine_get_world_transform(name); return t ? new _V3(t.x, t.y, t.z) : null; },
+    getWorldRotation:  (name)                 => { const t = Deno.core.ops.bsengine_get_world_transform(name); return t ? new _Q(t.rx, t.ry, t.rz, t.rw) : null; },
+    getWorldScale:     (name)                 => { const t = Deno.core.ops.bsengine_get_world_transform(name); return t ? new _V3(t.sx, t.sy, t.sz) : null; },
     setTransform:   (name, x, y, z)        => Deno.core.ops.bsengine_set_transform(name, x, y, z),
     setRotation:      (name, rx, ry, rz, rw)        => Deno.core.ops.bsengine_set_rotation(name, rx, ry, rz, rw),
     setRotationEuler: (name, pitch, yaw, roll)      => Deno.core.ops.bsengine_set_rotation_euler(name, pitch, yaw, roll),
@@ -444,7 +457,7 @@ var Bsengine = {
     getChildren:         (name)         => JSON.parse(Deno.core.ops.bsengine_get_children(name)),
     getChildrenCount:    (name)         => JSON.parse(Deno.core.ops.bsengine_get_children(name)).length,
     getChildAt:          (name, index)  => { const c = JSON.parse(Deno.core.ops.bsengine_get_children(name)); return c[index] ?? null; },
-    getVelocity:      (name)    => { const v = Deno.core.ops.bsengine_get_velocity(name); return v ? { x: v[0], y: v[1], z: v[2] } : null; },
+    getVelocity:      (name)    => _v3OrNull(Deno.core.ops.bsengine_get_velocity(name)),
     getLinearSpeed:   (name)    => { const s = Deno.core.ops.bsengine_get_linear_speed(name); return s !== null && s !== undefined ? s[0] : -1; },
     getVelocityX:     (name) => Deno.core.ops.bsengine_get_velocity_x(name),
     getVelocityY:     (name) => Deno.core.ops.bsengine_get_velocity_y(name),
@@ -468,7 +481,7 @@ var Bsengine = {
     setVelocityZ:     (name, vz) => Deno.core.ops.bsengine_set_velocity_z(name, vz),
     getGravity:           ()                     => Deno.core.ops.bsengine_get_gravity(),
     setGravity:           (magnitude)             => Deno.core.ops.bsengine_set_gravity(magnitude),
-    getAngularVelocity:   (name)                  => { const v = Deno.core.ops.bsengine_get_angular_velocity(name); return v ? { x: v[0], y: v[1], z: v[2] } : null; },
+    getAngularVelocity:   (name)                  => _v3OrNull(Deno.core.ops.bsengine_get_angular_velocity(name)),
     getAngularVelocityX:  (name) => Deno.core.ops.bsengine_get_angular_velocity_x(name),
     getAngularVelocityY:  (name) => Deno.core.ops.bsengine_get_angular_velocity_y(name),
     getAngularVelocityZ:  (name) => Deno.core.ops.bsengine_get_angular_velocity_z(name),

@@ -27,7 +27,7 @@ Bsengine.onMessage("Ball", "gameOver", () => {
 });
 
 function onUpdate(self) {
-    const t = Bsengine.getTransform(self);
+    const t = Bsengine.getPosition(self);
     if (!t) return;
 
     if (startX === null) {

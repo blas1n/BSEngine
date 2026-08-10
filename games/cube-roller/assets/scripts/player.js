@@ -1,7 +1,7 @@
 const SPEED = 0.1;
 
 function onUpdate(self) {
-    const t = Bsengine.getTransform(self);
+    const t = Bsengine.getPosition(self);
     if (!t) return;
 
     let { x, y, z } = t;

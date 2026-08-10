@@ -49,7 +49,7 @@ function onUpdate(self) {
         return;
     }
 
-    const paddle = Bsengine.getTransform("Paddle");
+    const paddle = Bsengine.getPosition("Paddle");
     if (!paddle) return;
     let px = paddle.x;
     if (Bsengine.isKeyPressed("A") || Bsengine.isKeyPressed("Left"))  px -= PADDLE_SPEED;
@@ -57,7 +57,7 @@ function onUpdate(self) {
     px = Math.max(-6.0, Math.min(6.0, px));
     Bsengine.setTransform("Paddle", px, paddle.y, paddle.z);
 
-    const ball = Bsengine.getTransform(self);
+    const ball = Bsengine.getPosition(self);
     if (!ball) return;
     let bx = ball.x + ballDx;
     let by = ball.y + ballDy;
@@ -85,7 +85,7 @@ function onUpdate(self) {
 
     for (let i = 0; i < BRICK_NAMES.length; i++) {
         const name = BRICK_NAMES[i];
-        const bt = Bsengine.getTransform(name);
+        const bt = Bsengine.getPosition(name);
         if (!bt || bt.x > OFF_SCREEN - 1) continue;
 
         if (Math.abs(bx - bt.x) < BRICK_HALF_W + 0.3 &&

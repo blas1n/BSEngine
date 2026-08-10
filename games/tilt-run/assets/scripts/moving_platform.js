@@ -7,7 +7,7 @@ let centerZ = null;
 
 function onUpdate(self) {
     if (centerX === null) {
-        const t = Bsengine.getTransform(self);
+        const t = Bsengine.getPosition(self);
         if (!t) return;
         centerX = t.x;
         centerY = t.y;

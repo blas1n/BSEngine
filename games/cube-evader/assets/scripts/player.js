@@ -17,7 +17,7 @@ const enemies = ENEMY_NAMES.map(() => {
 let score = 0;
 
 function onUpdate() {
-    const pt = Bsengine.getTransform("Player");
+    const pt = Bsengine.getPosition("Player");
     if (!pt) return;
 
     let { x, y, z } = pt;
@@ -33,7 +33,7 @@ function onUpdate() {
     for (let i = 0; i < ENEMY_NAMES.length; i++) {
         const name = ENEMY_NAMES[i];
         const state = enemies[i];
-        const et = Bsengine.getTransform(name);
+        const et = Bsengine.getPosition(name);
         if (!et) continue;
 
         state.timer++;

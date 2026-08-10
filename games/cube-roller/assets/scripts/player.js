@@ -11,5 +11,5 @@ function onUpdate(self) {
     if (Bsengine.isKeyPressed("A")) x -= SPEED;
     if (Bsengine.isKeyPressed("D")) x += SPEED;
 
-    Bsengine.setTransform(self, x, y, z);
+    Bsengine.setPosition(self, x, y, z);
 }

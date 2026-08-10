@@ -215,7 +215,7 @@ fn sync_from_rapier(
 ///
 /// Only applies to `Dynamic` bodies. For `Static`/`Kinematic` bodies,
 /// `Transform` is authoritative (scene-authored or script-driven via
-/// `Bsengine.setTransform`) and physics follows it, not the other way
+/// `Bsengine.setPosition`) and physics follows it, not the other way
 /// around — see `sync_physics_input_from_transform_for_kinematic`.
 fn sync_transform_from_physics(
     mut query: Query<(&RigidBody, &PhysicsTransform, &mut bsengine_core::Transform)>,
@@ -230,7 +230,7 @@ fn sync_transform_from_physics(
 
 /// For kinematic bodies, copies the script/scene-authoritative `Transform`
 /// into `PhysicsInput` each frame, so `step_world` picks up script-driven
-/// movement (e.g. a moving platform using `Bsengine.setTransform`) and
+/// movement (e.g. a moving platform using `Bsengine.setPosition`) and
 /// Rapier's collision resolution reflects where the body actually is.
 /// Dynamic bodies don't need this — their `Transform` is physics-driven,
 /// not the other way around.
@@ -399,7 +399,7 @@ mod tests {
 
         app.update();
 
-        // Simulate a script moving the platform via Bsengine.setTransform.
+        // Simulate a script moving the platform via Bsengine.setPosition.
         let moved = Vec3::new(5.0, 0.0, 0.0);
         app.world_mut()
             .get_mut::<Transform>(entity)

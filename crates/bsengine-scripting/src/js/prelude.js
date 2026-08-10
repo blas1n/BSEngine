@@ -158,7 +158,17 @@ var Bsengine = {
     getWorldPosition:  (name)                 => { const t = Deno.core.ops.bsengine_get_world_transform(name); return t ? new _V3(t.x, t.y, t.z) : null; },
     getWorldRotation:  (name)                 => { const t = Deno.core.ops.bsengine_get_world_transform(name); return t ? new _Q(t.rx, t.ry, t.rz, t.rw) : null; },
     getWorldScale:     (name)                 => { const t = Deno.core.ops.bsengine_get_world_transform(name); return t ? new _V3(t.sx, t.sy, t.sz) : null; },
-    setTransform:   (name, x, y, z)        => Deno.core.ops.bsengine_set_transform(name, x, y, z),
+    setPosition:    (name, a, b, c) => { const [x, y, z] = _xyz(a, b, c); Deno.core.ops.bsengine_set_position(name, x, y, z); },
+    // Takes exactly what getTransform returns, so `setTransform(b,
+    // getTransform(a))` copies one entity onto another. Until this existed,
+    // `setTransform` set only the position while `getTransform` returned all
+    // three -- the asymmetry that made someone write a `setPosition` that was
+    // not there, in games/net-2p-demo, for as long as it existed.
+    setTransform:   (name, t) => Deno.core.ops.bsengine_set_transform(
+        name,
+        t.position.x, t.position.y, t.position.z,
+        t.rotation.x, t.rotation.y, t.rotation.z, t.rotation.w,
+        t.scale.x, t.scale.y, t.scale.z),
     setRotation: (name, a, b, c, d) => { const [x, y, z, w] = _xyzw(a, b, c, d); Deno.core.ops.bsengine_set_rotation(name, x, y, z, w); },
     setRotationEuler: (name, a, b, c) => { const [x, y, z] = _xyz(a, b, c); Deno.core.ops.bsengine_set_rotation_euler(name, x, y, z); },
     setScale: (name, a, b, c) => { const [x, y, z] = _xyz(a, b, c); Deno.core.ops.bsengine_set_scale(name, x, y, z); },

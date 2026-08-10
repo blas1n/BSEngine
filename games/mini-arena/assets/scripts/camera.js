@@ -19,6 +19,6 @@ function onUpdate(self) {
     const newY = cam.y + (desiredY - cam.y) * t;
     const newZ = cam.z + (desiredZ - cam.z) * t;
 
-    Bsengine.setTransform(self, newX, newY, newZ);
+    Bsengine.setPosition(self, newX, newY, newZ);
     Bsengine.lookAt(self, target.x, target.y + 0.5, target.z);
 }

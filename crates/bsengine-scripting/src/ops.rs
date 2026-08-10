@@ -81,6 +81,19 @@ fn default_one() -> f32 {
 #[derive(Clone, Debug)]
 pub enum ScriptCommand {
     /// Set an entity's absolute world position.
+    SetPosition {
+        /// Name of the entity to modify.
+        name: String,
+        /// New absolute X position.
+        x: f32,
+        /// New absolute Y position.
+        y: f32,
+        /// New absolute Z position.
+        z: f32,
+    },
+    /// Set an entity's whole local transform -- position, rotation and scale.
+    ///
+    /// The three-scalar command this name used to be is now [`Self::SetPosition`].
     SetTransform {
         /// Name of the entity to modify.
         name: String,
@@ -90,6 +103,20 @@ pub enum ScriptCommand {
         y: f32,
         /// New absolute Z position.
         z: f32,
+        /// New rotation quaternion X.
+        rx: f32,
+        /// New rotation quaternion Y.
+        ry: f32,
+        /// New rotation quaternion Z.
+        rz: f32,
+        /// New rotation quaternion W.
+        rw: f32,
+        /// New X scale.
+        sx: f32,
+        /// New Y scale.
+        sy: f32,
+        /// New Z scale.
+        sz: f32,
     },
     /// Set an entity's absolute rotation, as a quaternion.
     SetRotation {
@@ -2442,10 +2469,48 @@ pub fn bsengine_distance_to_point(#[string] name: String, x: f32, y: f32, z: f32
 
 /// Queue setting an entity's absolute position.
 #[op2(fast)]
-pub fn bsengine_set_transform(#[string] name: String, x: f32, y: f32, z: f32) {
+pub fn bsengine_set_position(#[string] name: String, x: f32, y: f32, z: f32) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
-            .push(ScriptCommand::SetTransform { name, x, y, z });
+            .push(ScriptCommand::SetPosition { name, x, y, z });
+    });
+}
+
+/// Queue setting an entity's whole local transform.
+///
+/// Takes exactly what `bsengine_get_transform` returns, so copying one entity
+/// onto another is `setTransform(b, getTransform(a))`. Scalars rather than a
+/// serde record so `ScriptCommand` stays free of serialisation types, as every
+/// other variant is.
+#[allow(clippy::too_many_arguments)] // one transform's worth of components
+#[op2(fast)]
+pub fn bsengine_set_transform(
+    #[string] name: String,
+    x: f32,
+    y: f32,
+    z: f32,
+    rx: f32,
+    ry: f32,
+    rz: f32,
+    rw: f32,
+    sx: f32,
+    sy: f32,
+    sz: f32,
+) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetTransform {
+            name,
+            x,
+            y,
+            z,
+            rx,
+            ry,
+            rz,
+            rw,
+            sx,
+            sy,
+            sz,
+        });
     });
 }
 
@@ -5945,6 +6010,7 @@ deno_core::extension!(
         bsengine_distance_to,
         bsengine_distance_to_point,
         bsengine_get_world_transform,
+        bsengine_set_position,
         bsengine_set_transform,
         bsengine_set_rotation,
         bsengine_set_rotation_euler,
@@ -6821,6 +6887,75 @@ mod tests {
             format!("{:?}", queued[1]),
             "setRotation(name, getRotation(other)) has to work"
         );
+    }
+
+    #[test]
+    fn set_transform_sets_rotation_and_scale_too() {
+        // Its name said "transform" while it set only position, and its own
+        // doc comment said "absolute position"; getTransform returned all
+        // three. That asymmetry is what made someone write a setPosition that
+        // did not exist.
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        eval_js(
+            r#"Bsengine.setTransform("A", {
+                position: Bsengine.vec3(1, 2, 3),
+                rotation: Bsengine.Quat.euler(0, 90, 0),
+                scale:    Bsengine.vec3(7, 8, 9),
+            });"#,
+        );
+        let queued = super::COMMAND_BUFFER.with(|c| c.borrow().clone());
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        assert_eq!(queued.len(), 1);
+        let text = format!("{:?}", queued[0]);
+        assert!(text.starts_with("SetTransform"), "got {text}");
+        for needle in ["1.0", "2.0", "3.0", "7.0", "8.0", "9.0"] {
+            assert!(
+                text.contains(needle),
+                "the command must carry scale and rotation, not just position: {text}"
+            );
+        }
+    }
+
+    #[test]
+    fn set_transform_round_trips_what_get_transform_returns() {
+        // The property the whole pair exists for. If this fails, one of the
+        // two is speaking a shape the other does not.
+        super::TRANSFORM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "A".to_string(),
+                (
+                    glam::Vec3::new(1.5, -2.5, 3.5),
+                    glam::Quat::from_rotation_y(0.7),
+                    glam::Vec3::new(2.0, 3.0, 4.0),
+                ),
+            );
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let r = eval_js(
+            r#"Bsengine.setTransform("B", Bsengine.getTransform("A"));
+               "queued""#,
+        );
+        let queued = super::COMMAND_BUFFER.with(|c| c.borrow().clone());
+        super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        assert_eq!(r.trim(), "queued");
+        assert_eq!(queued.len(), 1, "the round trip must produce one command");
+        let text = format!("{:?}", queued[0]);
+        for needle in ["1.5", "-2.5", "3.5", "2.0", "3.0", "4.0"] {
+            assert!(text.contains(needle), "round trip lost a component: {text}");
+        }
+    }
+
+    #[test]
+    fn set_position_exists_and_queues_one_command() {
+        // games/net-2p-demo called this every frame for as long as it existed,
+        // and no such function was defined.
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        eval_js(r#"Bsengine.setPosition("A", 1, 2, 3);"#);
+        let queued = super::COMMAND_BUFFER.with(|c| c.borrow().clone());
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        assert_eq!(queued.len(), 1);
+        assert!(format!("{:?}", queued[0]).starts_with("SetPosition"));
     }
 
     #[test]

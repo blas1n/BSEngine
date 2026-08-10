@@ -41,7 +41,7 @@ function onUpdate(self) {
     }
 
     if (t.y < FALL_Y_THRESHOLD) {
-        Bsengine.setTransform(self, startX, startY, startZ);
+        Bsengine.setPosition(self, startX, startY, startZ);
         Bsengine.setRotation(self, startRotX, startRotY, startRotZ, startRotW);
         Bsengine.setVelocity(self, 0.0, 0.0, 0.0);
         Bsengine.setAngularVelocity(self, 0.0, 0.0, 0.0);

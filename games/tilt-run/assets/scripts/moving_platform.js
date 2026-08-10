@@ -16,5 +16,5 @@ function onUpdate(self) {
     const time = Bsengine.getTime();
     const phase = (time / PERIOD_SECONDS) * Math.PI * 2.0;
     const offset = Math.sin(phase) * AMPLITUDE;
-    Bsengine.setTransform(self, centerX + offset, centerY, centerZ);
+    Bsengine.setPosition(self, centerX + offset, centerY, centerZ);
 }

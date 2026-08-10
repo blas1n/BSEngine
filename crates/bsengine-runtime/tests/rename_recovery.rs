@@ -94,7 +94,7 @@ const STEP = 0.1;
 function onUpdate() {
     const t = Bsengine.getPosition(\"Runner\");
     if (!t) return;
-    Bsengine.setTransform(\"Runner\", t.x + STEP, t.y, t.z);
+    Bsengine.setPosition(\"Runner\", t.x + STEP, t.y, t.z);
 }
 ";
 

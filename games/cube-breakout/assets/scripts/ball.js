@@ -32,11 +32,11 @@ function resetGame() {
     gameOver = false;
     gameWon = false;
     restartCooldown = 0;
-    Bsengine.setTransform("Ball", 0.0, -2.0, 0.0);
-    Bsengine.setTransform("Paddle", 0.0, -4.0, 0.0);
+    Bsengine.setPosition("Ball", 0.0, -2.0, 0.0);
+    Bsengine.setPosition("Paddle", 0.0, -4.0, 0.0);
     for (let row = 0; row < 5; row++) {
         for (let col = 0; col < 4; col++) {
-            Bsengine.setTransform("Brick_" + row + "_" + col, BRICK_COLS[col], BRICK_ROWS[row], 0.0);
+            Bsengine.setPosition("Brick_" + row + "_" + col, BRICK_COLS[col], BRICK_ROWS[row], 0.0);
         }
     }
     Bsengine.log("Restarted! Good luck!");
@@ -55,7 +55,7 @@ function onUpdate(self) {
     if (Bsengine.isKeyPressed("A") || Bsengine.isKeyPressed("Left"))  px -= PADDLE_SPEED;
     if (Bsengine.isKeyPressed("D") || Bsengine.isKeyPressed("Right")) px += PADDLE_SPEED;
     px = Math.max(-6.0, Math.min(6.0, px));
-    Bsengine.setTransform("Paddle", px, paddle.y, paddle.z);
+    Bsengine.setPosition("Paddle", px, paddle.y, paddle.z);
 
     const ball = Bsengine.getPosition(self);
     if (!ball) return;
@@ -79,7 +79,7 @@ function onUpdate(self) {
         gameOver = true;
         restartCooldown = 120;
         Bsengine.log("GAME OVER! Press Space to retry.");
-        Bsengine.setTransform(self, bx, by, ball.z);
+        Bsengine.setPosition(self, bx, by, ball.z);
         return;
     }
 
@@ -90,19 +90,19 @@ function onUpdate(self) {
 
         if (Math.abs(bx - bt.x) < BRICK_HALF_W + 0.3 &&
             Math.abs(by - bt.y) < BRICK_HALF_H + 0.3) {
-            Bsengine.setTransform(name, OFF_SCREEN, OFF_SCREEN, OFF_SCREEN);
+            Bsengine.setPosition(name, OFF_SCREEN, OFF_SCREEN, OFF_SCREEN);
             ballDy = -ballDy;
             bricksRemaining--;
             Bsengine.log("Brick destroyed! Remaining: " + bricksRemaining);
             if (bricksRemaining <= 0) {
                 gameWon = true;
                 Bsengine.log("YOU WIN! All bricks cleared! Press Space to play again.");
-                Bsengine.setTransform(self, bx, by, ball.z);
+                Bsengine.setPosition(self, bx, by, ball.z);
                 return;
             }
             break;
         }
     }
 
-    Bsengine.setTransform(self, bx, by, ball.z);
+    Bsengine.setPosition(self, bx, by, ball.z);
 }

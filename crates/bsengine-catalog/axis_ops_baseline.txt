@@ -1,50 +1,9 @@
-# Per-axis scripting ops that existed when R2 was introduced (roadmap item 32).
+# Per-axis scripting ops that R2 grandfathers. Deliberately empty.
 #
-# R2 blocks *new* per-axis ops; these are grandfathered. Shrinking this list is
-# its own piece of work. Adding a line here is a deliberate act: say why in a
+# It held 45 lines from roadmap item 32 until item 42 deleted every one of
+# them: nothing outside the JS binding block had ever called any of them, and
+# item 41 gave every concept they covered a whole-vector accessor first.
+#
+# Empty means R2 now forbids per-axis ops outright rather than merely holding
+# the count where it was. Adding a line here is a deliberate act: say why in a
 # comment above it.
-bsengine_add_position_x
-bsengine_add_position_y
-bsengine_add_position_z
-bsengine_add_rotation_euler_x
-bsengine_add_rotation_euler_y
-bsengine_add_rotation_euler_z
-bsengine_add_scale_x
-bsengine_add_scale_y
-bsengine_add_scale_z
-bsengine_get_angular_velocity_x
-bsengine_get_angular_velocity_y
-bsengine_get_angular_velocity_z
-bsengine_get_follow_offset_x
-bsengine_get_follow_offset_y
-bsengine_get_follow_offset_z
-bsengine_get_look_at_up_x
-bsengine_get_look_at_up_y
-bsengine_get_look_at_up_z
-bsengine_get_position_x
-bsengine_get_position_y
-bsengine_get_position_z
-bsengine_get_rotation_euler_x
-bsengine_get_rotation_euler_y
-bsengine_get_rotation_euler_z
-bsengine_get_scale_x
-bsengine_get_scale_y
-bsengine_get_scale_z
-bsengine_get_velocity_x
-bsengine_get_velocity_y
-bsengine_get_velocity_z
-bsengine_set_angular_velocity_x
-bsengine_set_angular_velocity_y
-bsengine_set_angular_velocity_z
-bsengine_set_position_x
-bsengine_set_position_y
-bsengine_set_position_z
-bsengine_set_rotation_euler_x
-bsengine_set_rotation_euler_y
-bsengine_set_rotation_euler_z
-bsengine_set_scale_x
-bsengine_set_scale_y
-bsengine_set_scale_z
-bsengine_set_velocity_x
-bsengine_set_velocity_y
-bsengine_set_velocity_z

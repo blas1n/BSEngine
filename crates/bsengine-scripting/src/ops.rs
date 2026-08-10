@@ -1117,27 +1117,6 @@ pub enum ScriptCommand {
         /// Z component of the velocity.
         vz: f32,
     },
-    /// Set the X component of a rigid body's linear velocity.
-    SetVelocityX {
-        /// Name of the entity to modify.
-        name: String,
-        /// X component of the velocity.
-        vx: f32,
-    },
-    /// Set the Y component of a rigid body's linear velocity.
-    SetVelocityY {
-        /// Name of the entity to modify.
-        name: String,
-        /// Y component of the velocity.
-        vy: f32,
-    },
-    /// Set the Z component of a rigid body's linear velocity.
-    SetVelocityZ {
-        /// Name of the entity to modify.
-        name: String,
-        /// Z component of the velocity.
-        vz: f32,
-    },
     /// Set the world's global gravity magnitude.
     SetGravity {
         /// World gravity magnitude.
@@ -1151,27 +1130,6 @@ pub enum ScriptCommand {
         vx: f32,
         /// Y component of the velocity.
         vy: f32,
-        /// Z component of the velocity.
-        vz: f32,
-    },
-    /// Set the X component of a rigid body's angular velocity.
-    SetAngularVelocityX {
-        /// Name of the entity to modify.
-        name: String,
-        /// X component of the velocity.
-        vx: f32,
-    },
-    /// Set the Y component of a rigid body's angular velocity.
-    SetAngularVelocityY {
-        /// Name of the entity to modify.
-        name: String,
-        /// Y component of the velocity.
-        vy: f32,
-    },
-    /// Set the Z component of a rigid body's angular velocity.
-    SetAngularVelocityZ {
-        /// Name of the entity to modify.
-        name: String,
         /// Z component of the velocity.
         vz: f32,
     },
@@ -1314,48 +1272,6 @@ pub enum ScriptCommand {
         /// Name of the entity to modify.
         name: String,
     },
-    /// Set the X component of an entity's position.
-    SetPositionX {
-        /// Name of the entity to modify.
-        name: String,
-        /// New absolute X position.
-        x: f32,
-    },
-    /// Set the Y component of an entity's position.
-    SetPositionY {
-        /// Name of the entity to modify.
-        name: String,
-        /// New absolute Y position.
-        y: f32,
-    },
-    /// Set the Z component of an entity's position.
-    SetPositionZ {
-        /// Name of the entity to modify.
-        name: String,
-        /// New absolute Z position.
-        z: f32,
-    },
-    /// Add to the X component of an entity's position.
-    AddPositionX {
-        /// Name of the entity to modify.
-        name: String,
-        /// Position delta along X.
-        dx: f32,
-    },
-    /// Add to the Y component of an entity's position.
-    AddPositionY {
-        /// Name of the entity to modify.
-        name: String,
-        /// Position delta along Y.
-        dy: f32,
-    },
-    /// Add to the Z component of an entity's position.
-    AddPositionZ {
-        /// Name of the entity to modify.
-        name: String,
-        /// Position delta along Z.
-        dz: f32,
-    },
     /// Compose an additional rotation onto an entity's current rotation.
     RotateBy {
         /// Name of the entity to modify.
@@ -1393,69 +1309,6 @@ pub enum ScriptCommand {
         /// Roll delta, in degrees.
         roll: f32,
     },
-    /// Add a rotation delta around the X axis, in degrees.
-    AddRotationEulerX {
-        /// Name of the entity to modify.
-        name: String,
-        /// Angle, in degrees.
-        deg: f32,
-    },
-    /// Add a rotation delta around the Y axis, in degrees.
-    AddRotationEulerY {
-        /// Name of the entity to modify.
-        name: String,
-        /// Angle, in degrees.
-        deg: f32,
-    },
-    /// Add a rotation delta around the Z axis, in degrees.
-    AddRotationEulerZ {
-        /// Name of the entity to modify.
-        name: String,
-        /// Angle, in degrees.
-        deg: f32,
-    },
-    /// Set the X component of an entity's scale.
-    SetScaleX {
-        /// Name of the entity to modify.
-        name: String,
-        /// New absolute X position.
-        x: f32,
-    },
-    /// Set the Y component of an entity's scale.
-    SetScaleY {
-        /// Name of the entity to modify.
-        name: String,
-        /// New absolute Y position.
-        y: f32,
-    },
-    /// Set the Z component of an entity's scale.
-    SetScaleZ {
-        /// Name of the entity to modify.
-        name: String,
-        /// New absolute Z position.
-        z: f32,
-    },
-    /// Add to the X component of an entity's scale.
-    AddScaleX {
-        /// Name of the entity to modify.
-        name: String,
-        /// Position delta along X.
-        dx: f32,
-    },
-    /// Add to the Y component of an entity's scale.
-    AddScaleY {
-        /// Name of the entity to modify.
-        name: String,
-        /// Position delta along Y.
-        dy: f32,
-    },
-    /// Add to the Z component of an entity's scale.
-    AddScaleZ {
-        /// Name of the entity to modify.
-        name: String,
-        /// Position delta along Z.
-        dz: f32,
-    },
     /// Set an entity's absolute rotation from Euler angles, in degrees.
     SetRotationEuler {
         /// Name of the entity to modify.
@@ -1477,27 +1330,6 @@ pub enum ScriptCommand {
         sy: f32,
         /// New Z scale factor.
         sz: f32,
-    },
-    /// Set the pitch component of an entity's rotation, in degrees.
-    SetRotationEulerX {
-        /// Name of the entity to modify.
-        name: String,
-        /// Angle, in degrees.
-        deg: f32,
-    },
-    /// Set the yaw component of an entity's rotation, in degrees.
-    SetRotationEulerY {
-        /// Name of the entity to modify.
-        name: String,
-        /// Angle, in degrees.
-        deg: f32,
-    },
-    /// Set the roll component of an entity's rotation, in degrees.
-    SetRotationEulerZ {
-        /// Name of the entity to modify.
-        name: String,
-        /// Angle, in degrees.
-        deg: f32,
     },
     /// Multiply an entity's current scale by the given factors.
     MultiplyScale {
@@ -2587,57 +2419,6 @@ pub fn bsengine_add_position_local(#[string] name: String, dx: f32, dy: f32, dz:
     });
 }
 
-/// Queue setting the X component of an entity's position.
-#[op2(fast)]
-pub fn bsengine_set_position_x(#[string] name: String, x: f32) {
-    COMMAND_BUFFER.with(|c| {
-        c.borrow_mut().push(ScriptCommand::SetPositionX { name, x });
-    });
-}
-
-/// Queue setting the Y component of an entity's position.
-#[op2(fast)]
-pub fn bsengine_set_position_y(#[string] name: String, y: f32) {
-    COMMAND_BUFFER.with(|c| {
-        c.borrow_mut().push(ScriptCommand::SetPositionY { name, y });
-    });
-}
-
-/// Queue setting the Z component of an entity's position.
-#[op2(fast)]
-pub fn bsengine_set_position_z(#[string] name: String, z: f32) {
-    COMMAND_BUFFER.with(|c| {
-        c.borrow_mut().push(ScriptCommand::SetPositionZ { name, z });
-    });
-}
-
-/// Queue adding to the X component of an entity's position.
-#[op2(fast)]
-pub fn bsengine_add_position_x(#[string] name: String, dx: f32) {
-    COMMAND_BUFFER.with(|c| {
-        c.borrow_mut()
-            .push(ScriptCommand::AddPositionX { name, dx });
-    });
-}
-
-/// Queue adding to the Y component of an entity's position.
-#[op2(fast)]
-pub fn bsengine_add_position_y(#[string] name: String, dy: f32) {
-    COMMAND_BUFFER.with(|c| {
-        c.borrow_mut()
-            .push(ScriptCommand::AddPositionY { name, dy });
-    });
-}
-
-/// Queue adding to the Z component of an entity's position.
-#[op2(fast)]
-pub fn bsengine_add_position_z(#[string] name: String, dz: f32) {
-    COMMAND_BUFFER.with(|c| {
-        c.borrow_mut()
-            .push(ScriptCommand::AddPositionZ { name, dz });
-    });
-}
-
 /// Queue rotating an entity around an arbitrary axis by an angle, in degrees.
 #[op2(fast)]
 pub fn bsengine_rotate_around_axis(
@@ -2671,183 +2452,12 @@ pub fn bsengine_add_rotation_euler(#[string] name: String, pitch: f32, yaw: f32,
     });
 }
 
-/// Queue a rotation delta around the X axis, in degrees.
-#[op2(fast)]
-pub fn bsengine_add_rotation_euler_x(#[string] name: String, deg: f32) {
-    COMMAND_BUFFER.with(|c| {
-        c.borrow_mut()
-            .push(ScriptCommand::AddRotationEulerX { name, deg });
-    });
-}
-
-/// Queue a rotation delta around the Y axis, in degrees.
-#[op2(fast)]
-pub fn bsengine_add_rotation_euler_y(#[string] name: String, deg: f32) {
-    COMMAND_BUFFER.with(|c| {
-        c.borrow_mut()
-            .push(ScriptCommand::AddRotationEulerY { name, deg });
-    });
-}
-
-/// Queue a rotation delta around the Z axis, in degrees.
-#[op2(fast)]
-pub fn bsengine_add_rotation_euler_z(#[string] name: String, deg: f32) {
-    COMMAND_BUFFER.with(|c| {
-        c.borrow_mut()
-            .push(ScriptCommand::AddRotationEulerZ { name, deg });
-    });
-}
-
-/// Queue setting the X component of an entity's scale.
-#[op2(fast)]
-pub fn bsengine_set_scale_x(#[string] name: String, x: f32) {
-    COMMAND_BUFFER.with(|c| {
-        c.borrow_mut().push(ScriptCommand::SetScaleX { name, x });
-    });
-}
-
-/// Queue setting the Y component of an entity's scale.
-#[op2(fast)]
-pub fn bsengine_set_scale_y(#[string] name: String, y: f32) {
-    COMMAND_BUFFER.with(|c| {
-        c.borrow_mut().push(ScriptCommand::SetScaleY { name, y });
-    });
-}
-
-/// Queue setting the Z component of an entity's scale.
-#[op2(fast)]
-pub fn bsengine_set_scale_z(#[string] name: String, z: f32) {
-    COMMAND_BUFFER.with(|c| {
-        c.borrow_mut().push(ScriptCommand::SetScaleZ { name, z });
-    });
-}
-
-/// Queue adding to the X component of an entity's scale.
-#[op2(fast)]
-pub fn bsengine_add_scale_x(#[string] name: String, dx: f32) {
-    COMMAND_BUFFER.with(|c| {
-        c.borrow_mut().push(ScriptCommand::AddScaleX { name, dx });
-    });
-}
-
-/// Queue adding to the Y component of an entity's scale.
-#[op2(fast)]
-pub fn bsengine_add_scale_y(#[string] name: String, dy: f32) {
-    COMMAND_BUFFER.with(|c| {
-        c.borrow_mut().push(ScriptCommand::AddScaleY { name, dy });
-    });
-}
-
-/// Queue adding to the Z component of an entity's scale.
-#[op2(fast)]
-pub fn bsengine_add_scale_z(#[string] name: String, dz: f32) {
-    COMMAND_BUFFER.with(|c| {
-        c.borrow_mut().push(ScriptCommand::AddScaleZ { name, dz });
-    });
-}
-
-/// Get the X component of an entity's position.
-#[op2(fast)]
-pub fn bsengine_get_position_x(#[string] name: String) -> f32 {
-    TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |t| t.0.x))
-}
-
-/// Get the Y component of an entity's position.
-#[op2(fast)]
-pub fn bsengine_get_position_y(#[string] name: String) -> f32 {
-    TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |t| t.0.y))
-}
-
-/// Get the Z component of an entity's position.
-#[op2(fast)]
-pub fn bsengine_get_position_z(#[string] name: String) -> f32 {
-    TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |t| t.0.z))
-}
-
-/// Get the X component of an entity's scale.
-#[op2(fast)]
-pub fn bsengine_get_scale_x(#[string] name: String) -> f32 {
-    TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |t| t.2.x))
-}
-
-/// Get the Y component of an entity's scale.
-#[op2(fast)]
-pub fn bsengine_get_scale_y(#[string] name: String) -> f32 {
-    TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |t| t.2.y))
-}
-
-/// Get the Z component of an entity's scale.
-#[op2(fast)]
-pub fn bsengine_get_scale_z(#[string] name: String) -> f32 {
-    TRANSFORM_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |t| t.2.z))
-}
-
-/// Get the pitch component of an entity's rotation, in degrees.
-#[op2(fast)]
-pub fn bsengine_get_rotation_euler_x(#[string] name: String) -> f32 {
-    TRANSFORM_SNAPSHOT.with(|s| {
-        s.borrow().get(&name).map_or(f32::NAN, |t| {
-            let (x, _, _) = t.1.to_euler(glam::EulerRot::XYZ);
-            x.to_degrees()
-        })
-    })
-}
-
-/// Get the yaw component of an entity's rotation, in degrees.
-#[op2(fast)]
-pub fn bsengine_get_rotation_euler_y(#[string] name: String) -> f32 {
-    TRANSFORM_SNAPSHOT.with(|s| {
-        s.borrow().get(&name).map_or(f32::NAN, |t| {
-            let (_, y, _) = t.1.to_euler(glam::EulerRot::XYZ);
-            y.to_degrees()
-        })
-    })
-}
-
-/// Get the roll component of an entity's rotation, in degrees.
-#[op2(fast)]
-pub fn bsengine_get_rotation_euler_z(#[string] name: String) -> f32 {
-    TRANSFORM_SNAPSHOT.with(|s| {
-        s.borrow().get(&name).map_or(f32::NAN, |t| {
-            let (_, _, z) = t.1.to_euler(glam::EulerRot::XYZ);
-            z.to_degrees()
-        })
-    })
-}
-
 /// Queue adding to all three components of an entity's scale.
 #[op2(fast)]
 pub fn bsengine_add_scale(#[string] name: String, sx: f32, sy: f32, sz: f32) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::AddScale { name, sx, sy, sz });
-    });
-}
-
-/// Queue setting the pitch component of an entity's rotation, in degrees.
-#[op2(fast)]
-pub fn bsengine_set_rotation_euler_x(#[string] name: String, deg: f32) {
-    COMMAND_BUFFER.with(|c| {
-        c.borrow_mut()
-            .push(ScriptCommand::SetRotationEulerX { name, deg });
-    });
-}
-
-/// Queue setting the yaw component of an entity's rotation, in degrees.
-#[op2(fast)]
-pub fn bsengine_set_rotation_euler_y(#[string] name: String, deg: f32) {
-    COMMAND_BUFFER.with(|c| {
-        c.borrow_mut()
-            .push(ScriptCommand::SetRotationEulerY { name, deg });
-    });
-}
-
-/// Queue setting the roll component of an entity's rotation, in degrees.
-#[op2(fast)]
-pub fn bsengine_set_rotation_euler_z(#[string] name: String, deg: f32) {
-    COMMAND_BUFFER.with(|c| {
-        c.borrow_mut()
-            .push(ScriptCommand::SetRotationEulerZ { name, deg });
     });
 }
 
@@ -4489,39 +4099,6 @@ pub fn bsengine_get_look_at_up(#[string] name: String) -> Option<Vec<f32>> {
     LOOK_AT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, x, y, z)| vec![*x, *y, *z]))
 }
 
-/// Get the X component of a follow-behavior's target offset.
-#[op2(fast)]
-pub fn bsengine_get_follow_offset_x(#[string] name: String) -> f32 {
-    FOLLOW_SNAPSHOT.with(|s| {
-        s.borrow()
-            .get(&name)
-            .map(|(_, x, _, _, _)| *x)
-            .unwrap_or(0.0)
-    })
-}
-
-/// Get the Y component of a follow-behavior's target offset.
-#[op2(fast)]
-pub fn bsengine_get_follow_offset_y(#[string] name: String) -> f32 {
-    FOLLOW_SNAPSHOT.with(|s| {
-        s.borrow()
-            .get(&name)
-            .map(|(_, _, y, _, _)| *y)
-            .unwrap_or(0.0)
-    })
-}
-
-/// Get the Z component of a follow-behavior's target offset.
-#[op2(fast)]
-pub fn bsengine_get_follow_offset_z(#[string] name: String) -> f32 {
-    FOLLOW_SNAPSHOT.with(|s| {
-        s.borrow()
-            .get(&name)
-            .map(|(_, _, _, z, _)| *z)
-            .unwrap_or(0.0)
-    })
-}
-
 /// Get a follow-behavior's catch-up speed.
 #[op2(fast)]
 pub fn bsengine_get_follow_speed(#[string] name: String) -> f32 {
@@ -4561,24 +4138,6 @@ pub fn bsengine_get_look_at_target(#[string] name: String) -> String {
             .map(|(t, _, _, _)| format!("\"{t}\""))
             .unwrap_or_else(|| "null".to_string())
     })
-}
-
-/// Get the X component of a look-at behavior's up vector.
-#[op2(fast)]
-pub fn bsengine_get_look_at_up_x(#[string] name: String) -> f32 {
-    LOOK_AT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, x, _, _)| *x).unwrap_or(0.0))
-}
-
-/// Get the Y component of a look-at behavior's up vector.
-#[op2(fast)]
-pub fn bsengine_get_look_at_up_y(#[string] name: String) -> f32 {
-    LOOK_AT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, _, y, _)| *y).unwrap_or(1.0))
-}
-
-/// Get the Z component of a look-at behavior's up vector.
-#[op2(fast)]
-pub fn bsengine_get_look_at_up_z(#[string] name: String) -> f32 {
-    LOOK_AT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, _, _, z)| *z).unwrap_or(0.0))
 }
 
 // --- Burn ---
@@ -5017,24 +4576,6 @@ pub fn bsengine_get_linear_speed(#[string] name: String) -> Option<Vec<f32>> {
     VELOCITY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| vec![v.length()]))
 }
 
-/// Get the X component of a rigid body's linear velocity.
-#[op2(fast)]
-pub fn bsengine_get_velocity_x(#[string] name: String) -> f32 {
-    VELOCITY_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |v| v.x))
-}
-
-/// Get the Y component of a rigid body's linear velocity.
-#[op2(fast)]
-pub fn bsengine_get_velocity_y(#[string] name: String) -> f32 {
-    VELOCITY_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |v| v.y))
-}
-
-/// Get the Z component of a rigid body's linear velocity.
-#[op2(fast)]
-pub fn bsengine_get_velocity_z(#[string] name: String) -> f32 {
-    VELOCITY_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |v| v.z))
-}
-
 /// Queue applying an instantaneous impulse to a rigid body's center of mass.
 #[op2(fast)]
 pub fn bsengine_add_impulse(#[string] name: String, fx: f32, fy: f32, fz: f32) {
@@ -5125,33 +4666,6 @@ pub fn bsengine_set_velocity(#[string] name: String, vx: f32, vy: f32, vz: f32) 
     });
 }
 
-/// Queue setting the X component of a rigid body's linear velocity.
-#[op2(fast)]
-pub fn bsengine_set_velocity_x(#[string] name: String, vx: f32) {
-    COMMAND_BUFFER.with(|c| {
-        c.borrow_mut()
-            .push(ScriptCommand::SetVelocityX { name, vx });
-    });
-}
-
-/// Queue setting the Y component of a rigid body's linear velocity.
-#[op2(fast)]
-pub fn bsengine_set_velocity_y(#[string] name: String, vy: f32) {
-    COMMAND_BUFFER.with(|c| {
-        c.borrow_mut()
-            .push(ScriptCommand::SetVelocityY { name, vy });
-    });
-}
-
-/// Queue setting the Z component of a rigid body's linear velocity.
-#[op2(fast)]
-pub fn bsengine_set_velocity_z(#[string] name: String, vz: f32) {
-    COMMAND_BUFFER.with(|c| {
-        c.borrow_mut()
-            .push(ScriptCommand::SetVelocityZ { name, vz });
-    });
-}
-
 /// Get the world's global gravity magnitude.
 #[op2(fast)]
 pub fn bsengine_get_gravity() -> f32 {
@@ -5173,57 +4687,12 @@ pub fn bsengine_get_angular_velocity(#[string] name: String) -> Option<Vec<f32>>
     ANGULAR_VELOCITY_SNAPSHOT.with(|s| s.borrow().get(&name).map(|v| vec![v.x, v.y, v.z]))
 }
 
-/// Get the X component of a rigid body's angular velocity.
-#[op2(fast)]
-pub fn bsengine_get_angular_velocity_x(#[string] name: String) -> f32 {
-    ANGULAR_VELOCITY_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |v| v.x))
-}
-
-/// Get the Y component of a rigid body's angular velocity.
-#[op2(fast)]
-pub fn bsengine_get_angular_velocity_y(#[string] name: String) -> f32 {
-    ANGULAR_VELOCITY_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |v| v.y))
-}
-
-/// Get the Z component of a rigid body's angular velocity.
-#[op2(fast)]
-pub fn bsengine_get_angular_velocity_z(#[string] name: String) -> f32 {
-    ANGULAR_VELOCITY_SNAPSHOT.with(|s| s.borrow().get(&name).map_or(f32::NAN, |v| v.z))
-}
-
 /// Queue setting a rigid body's angular velocity.
 #[op2(fast)]
 pub fn bsengine_set_angular_velocity(#[string] name: String, vx: f32, vy: f32, vz: f32) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut()
             .push(ScriptCommand::SetAngularVelocity { name, vx, vy, vz });
-    });
-}
-
-/// Queue setting the X component of a rigid body's angular velocity.
-#[op2(fast)]
-pub fn bsengine_set_angular_velocity_x(#[string] name: String, vx: f32) {
-    COMMAND_BUFFER.with(|c| {
-        c.borrow_mut()
-            .push(ScriptCommand::SetAngularVelocityX { name, vx });
-    });
-}
-
-/// Queue setting the Y component of a rigid body's angular velocity.
-#[op2(fast)]
-pub fn bsengine_set_angular_velocity_y(#[string] name: String, vy: f32) {
-    COMMAND_BUFFER.with(|c| {
-        c.borrow_mut()
-            .push(ScriptCommand::SetAngularVelocityY { name, vy });
-    });
-}
-
-/// Queue setting the Z component of a rigid body's angular velocity.
-#[op2(fast)]
-pub fn bsengine_set_angular_velocity_z(#[string] name: String, vz: f32) {
-    COMMAND_BUFFER.with(|c| {
-        c.borrow_mut()
-            .push(ScriptCommand::SetAngularVelocityZ { name, vz });
     });
 }
 
@@ -6041,37 +5510,10 @@ deno_core::extension!(
         bsengine_set_scale,
         bsengine_add_position,
         bsengine_add_position_local,
-        bsengine_set_position_x,
-        bsengine_set_position_y,
-        bsengine_set_position_z,
-        bsengine_add_position_x,
-        bsengine_add_position_y,
-        bsengine_add_position_z,
         bsengine_rotate_by,
         bsengine_rotate_around_axis,
         bsengine_add_rotation_euler,
-        bsengine_add_rotation_euler_x,
-        bsengine_add_rotation_euler_y,
-        bsengine_add_rotation_euler_z,
-        bsengine_set_scale_x,
-        bsengine_set_scale_y,
-        bsengine_set_scale_z,
-        bsengine_add_scale_x,
-        bsengine_add_scale_y,
-        bsengine_add_scale_z,
-        bsengine_get_position_x,
-        bsengine_get_position_y,
-        bsengine_get_position_z,
-        bsengine_get_scale_x,
-        bsengine_get_scale_y,
-        bsengine_get_scale_z,
-        bsengine_get_rotation_euler_x,
-        bsengine_get_rotation_euler_y,
-        bsengine_get_rotation_euler_z,
         bsengine_add_scale,
-        bsengine_set_rotation_euler_x,
-        bsengine_set_rotation_euler_y,
-        bsengine_set_rotation_euler_z,
         bsengine_multiply_scale,
         bsengine_is_key_pressed,
         bsengine_is_key_down,
@@ -6164,16 +5606,10 @@ deno_core::extension!(
         bsengine_get_follow_target,
         bsengine_get_follow_offset,
         bsengine_get_look_at_up,
-        bsengine_get_follow_offset_x,
-        bsengine_get_follow_offset_y,
-        bsengine_get_follow_offset_z,
         bsengine_get_follow_speed,
         bsengine_set_look_at_target,
         bsengine_set_look_at_up,
         bsengine_get_look_at_target,
-        bsengine_get_look_at_up_x,
-        bsengine_get_look_at_up_y,
-        bsengine_get_look_at_up_z,
         bsengine_get_network_id,
         bsengine_get_network_authority,
         bsengine_get_network_peer_id,
@@ -6195,9 +5631,6 @@ deno_core::extension!(
         bsengine_get_children,
         bsengine_get_velocity,
         bsengine_get_linear_speed,
-        bsengine_get_velocity_x,
-        bsengine_get_velocity_y,
-        bsengine_get_velocity_z,
         bsengine_add_impulse,
         bsengine_apply_impulse_at_point,
         bsengine_add_force,
@@ -6205,19 +5638,10 @@ deno_core::extension!(
         bsengine_reset_forces,
         bsengine_burst_particles,
         bsengine_set_velocity,
-        bsengine_set_velocity_x,
-        bsengine_set_velocity_y,
-        bsengine_set_velocity_z,
         bsengine_get_gravity,
         bsengine_set_gravity,
         bsengine_get_angular_velocity,
-        bsengine_get_angular_velocity_x,
-        bsengine_get_angular_velocity_y,
-        bsengine_get_angular_velocity_z,
         bsengine_set_angular_velocity,
-        bsengine_set_angular_velocity_x,
-        bsengine_set_angular_velocity_y,
-        bsengine_set_angular_velocity_z,
         bsengine_add_velocity,
         bsengine_add_angular_velocity,
         bsengine_add_angular_impulse,
@@ -7012,6 +6436,47 @@ mod tests {
             "[5,1,1]",
             "the value types and their statics must survive a reload"
         );
+    }
+
+    #[test]
+    fn follow_read_ops_report_target_offset_and_speed() {
+        // Migrated from `test_follow_read_ops`, which item 42 could not simply
+        // delete with the per-axis getters it exercised: it also covered
+        // getFollowTarget and getFollowSpeed, neither of which is going away.
+        super::FOLLOW_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(
+                "Player".to_string(),
+                ("Camera".to_string(), 0.0, 2.0, -5.0, 10.0),
+            );
+        });
+        let r = eval_js(
+            r#"
+            const o = Bsengine.getFollowOffset("Player");
+            JSON.stringify([
+                Bsengine.getFollowTarget("Player"),
+                [o.x, o.y, o.z],
+                Bsengine.getFollowSpeed("Player"),
+            ])"#,
+        );
+        super::FOLLOW_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert_eq!(r.trim(), r#"["Camera",[0,2,-5],10]"#);
+    }
+
+    #[test]
+    fn look_at_read_ops_report_target_and_up() {
+        // Migrated from `test_look_at_component_read_ops`, for the same reason:
+        // it also covered getLookAtTarget.
+        super::LOOK_AT_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("Camera".to_string(), ("Enemy".to_string(), 0.0, 1.0, 0.0));
+        });
+        let r = eval_js(
+            r#"
+            const u = Bsengine.getLookAtUp("Camera");
+            JSON.stringify([Bsengine.getLookAtTarget("Camera"), [u.x, u.y, u.z]])"#,
+        );
+        super::LOOK_AT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert_eq!(r.trim(), r#"["Enemy",[0,1,0]]"#);
     }
 
     #[test]
@@ -8038,51 +7503,6 @@ JSON.stringify(received)
     }
 
     #[test]
-    fn set_velocity_x_enqueues_command() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        rt.eval(r#"Bsengine.setVelocityX("Ball", 3.0);"#).unwrap();
-        super::COMMAND_BUFFER.with(|c| {
-            let buf = c.borrow();
-            let found = buf.iter().any(|cmd| {
-                matches!(cmd, super::ScriptCommand::SetVelocityX { name, vx }
-                    if name == "Ball" && (*vx - 3.0).abs() < 1e-6)
-            });
-            assert!(found, "SetVelocityX not in buffer");
-        });
-    }
-
-    #[test]
-    fn set_velocity_y_enqueues_command() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        rt.eval(r#"Bsengine.setVelocityY("Ball", 4.0);"#).unwrap();
-        super::COMMAND_BUFFER.with(|c| {
-            let buf = c.borrow();
-            let found = buf.iter().any(|cmd| {
-                matches!(cmd, super::ScriptCommand::SetVelocityY { name, vy }
-                    if name == "Ball" && (*vy - 4.0).abs() < 1e-6)
-            });
-            assert!(found, "SetVelocityY not in buffer");
-        });
-    }
-
-    #[test]
-    fn set_velocity_z_enqueues_command() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        rt.eval(r#"Bsengine.setVelocityZ("Ball", 2.0);"#).unwrap();
-        super::COMMAND_BUFFER.with(|c| {
-            let buf = c.borrow();
-            let found = buf.iter().any(|cmd| {
-                matches!(cmd, super::ScriptCommand::SetVelocityZ { name, vz }
-                    if name == "Ball" && (*vz - 2.0).abs() < 1e-6)
-            });
-            assert!(found, "SetVelocityZ not in buffer");
-        });
-    }
-
-    #[test]
     fn add_position_enqueues_command() {
         let mut rt = ScriptRuntime::new_with_ops();
         rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
@@ -8222,54 +7642,6 @@ JSON.stringify(received)
                     if name == "Top" && (*vy - 5.0).abs() < 1e-6)
             });
             assert!(found, "SetAngularVelocity not in buffer");
-        });
-    }
-
-    #[test]
-    fn set_angular_velocity_x_enqueues_command() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        rt.eval(r#"Bsengine.setAngularVelocityX("Top", 1.5);"#)
-            .unwrap();
-        super::COMMAND_BUFFER.with(|c| {
-            let buf = c.borrow();
-            let found = buf.iter().any(|cmd| {
-                matches!(cmd, super::ScriptCommand::SetAngularVelocityX { name, vx }
-                    if name == "Top" && (*vx - 1.5).abs() < 1e-6)
-            });
-            assert!(found, "SetAngularVelocityX not in buffer");
-        });
-    }
-
-    #[test]
-    fn set_angular_velocity_y_enqueues_command() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        rt.eval(r#"Bsengine.setAngularVelocityY("Top", 2.5);"#)
-            .unwrap();
-        super::COMMAND_BUFFER.with(|c| {
-            let buf = c.borrow();
-            let found = buf.iter().any(|cmd| {
-                matches!(cmd, super::ScriptCommand::SetAngularVelocityY { name, vy }
-                    if name == "Top" && (*vy - 2.5).abs() < 1e-6)
-            });
-            assert!(found, "SetAngularVelocityY not in buffer");
-        });
-    }
-
-    #[test]
-    fn set_angular_velocity_z_enqueues_command() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        rt.eval(r#"Bsengine.setAngularVelocityZ("Top", 3.5);"#)
-            .unwrap();
-        super::COMMAND_BUFFER.with(|c| {
-            let buf = c.borrow();
-            let found = buf.iter().any(|cmd| {
-                matches!(cmd, super::ScriptCommand::SetAngularVelocityZ { name, vz }
-                    if name == "Top" && (*vz - 3.5).abs() < 1e-6)
-            });
-            assert!(found, "SetAngularVelocityZ not in buffer");
         });
     }
 
@@ -8822,65 +8194,6 @@ JSON.stringify(received)
     }
 
     #[test]
-    fn set_position_x_enqueues_command() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        rt.eval(r#"Bsengine.setPositionX("Player", 5.0);"#).unwrap();
-        super::COMMAND_BUFFER.with(|c| {
-            let buf = c.borrow();
-            assert_eq!(buf.len(), 1);
-            match &buf[0] {
-                super::ScriptCommand::SetPositionX { name, x } => {
-                    assert_eq!(name, "Player");
-                    assert!((x - 5.0).abs() < 1e-4);
-                }
-                _ => panic!("expected SetPositionX command"),
-            }
-        });
-        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
-    }
-
-    #[test]
-    fn set_position_y_enqueues_command() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        rt.eval(r#"Bsengine.setPositionY("Player", -3.0);"#)
-            .unwrap();
-        super::COMMAND_BUFFER.with(|c| {
-            let buf = c.borrow();
-            assert_eq!(buf.len(), 1);
-            match &buf[0] {
-                super::ScriptCommand::SetPositionY { name, y } => {
-                    assert_eq!(name, "Player");
-                    assert!((y - (-3.0)).abs() < 1e-4);
-                }
-                _ => panic!("expected SetPositionY command"),
-            }
-        });
-        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
-    }
-
-    #[test]
-    fn set_position_z_enqueues_command() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        rt.eval(r#"Bsengine.setPositionZ("Player", 10.0);"#)
-            .unwrap();
-        super::COMMAND_BUFFER.with(|c| {
-            let buf = c.borrow();
-            assert_eq!(buf.len(), 1);
-            match &buf[0] {
-                super::ScriptCommand::SetPositionZ { name, z } => {
-                    assert_eq!(name, "Player");
-                    assert!((z - 10.0).abs() < 1e-4);
-                }
-                _ => panic!("expected SetPositionZ command"),
-            }
-        });
-        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
-    }
-
-    #[test]
     fn rotate_by_enqueues_command() {
         let mut rt = ScriptRuntime::new_with_ops();
         rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
@@ -8922,63 +8235,6 @@ JSON.stringify(received)
                     assert!((angle_deg - 90.0).abs() < 1e-4);
                 }
                 _ => panic!("expected RotateAroundAxis command"),
-            }
-        });
-        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
-    }
-
-    #[test]
-    fn set_scale_x_enqueues_command() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        rt.eval(r#"Bsengine.setScaleX("Cube", 2.0);"#).unwrap();
-        super::COMMAND_BUFFER.with(|c| {
-            let buf = c.borrow();
-            assert_eq!(buf.len(), 1);
-            match &buf[0] {
-                super::ScriptCommand::SetScaleX { name, x } => {
-                    assert_eq!(name, "Cube");
-                    assert!((x - 2.0).abs() < 1e-4);
-                }
-                _ => panic!("expected SetScaleX command"),
-            }
-        });
-        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
-    }
-
-    #[test]
-    fn set_scale_y_enqueues_command() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        rt.eval(r#"Bsengine.setScaleY("Cube", 3.0);"#).unwrap();
-        super::COMMAND_BUFFER.with(|c| {
-            let buf = c.borrow();
-            assert_eq!(buf.len(), 1);
-            match &buf[0] {
-                super::ScriptCommand::SetScaleY { name, y } => {
-                    assert_eq!(name, "Cube");
-                    assert!((y - 3.0).abs() < 1e-4);
-                }
-                _ => panic!("expected SetScaleY command"),
-            }
-        });
-        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
-    }
-
-    #[test]
-    fn set_scale_z_enqueues_command() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        rt.eval(r#"Bsengine.setScaleZ("Cube", 0.5);"#).unwrap();
-        super::COMMAND_BUFFER.with(|c| {
-            let buf = c.borrow();
-            assert_eq!(buf.len(), 1);
-            match &buf[0] {
-                super::ScriptCommand::SetScaleZ { name, z } => {
-                    assert_eq!(name, "Cube");
-                    assert!((z - 0.5).abs() < 1e-4);
-                }
-                _ => panic!("expected SetScaleZ command"),
             }
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
@@ -9107,57 +8363,6 @@ JSON.stringify(received)
                 }
                 _ => panic!("expected AddRotationEuler command"),
             }
-        });
-        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
-    }
-
-    #[test]
-    fn add_rotation_euler_x_enqueues_command() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        rt.eval(r#"Bsengine.addRotationEulerX("Cube", 45.0);"#)
-            .unwrap();
-        super::COMMAND_BUFFER.with(|c| {
-            let buf = c.borrow();
-            let found = buf.iter().any(|cmd| {
-                matches!(cmd, super::ScriptCommand::AddRotationEulerX { name, deg }
-                    if name == "Cube" && (*deg - 45.0).abs() < 1e-4)
-            });
-            assert!(found, "AddRotationEulerX not in buffer");
-        });
-        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
-    }
-
-    #[test]
-    fn add_rotation_euler_y_enqueues_command() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        rt.eval(r#"Bsengine.addRotationEulerY("Cube", 90.0);"#)
-            .unwrap();
-        super::COMMAND_BUFFER.with(|c| {
-            let buf = c.borrow();
-            let found = buf.iter().any(|cmd| {
-                matches!(cmd, super::ScriptCommand::AddRotationEulerY { name, deg }
-                    if name == "Cube" && (*deg - 90.0).abs() < 1e-4)
-            });
-            assert!(found, "AddRotationEulerY not in buffer");
-        });
-        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
-    }
-
-    #[test]
-    fn add_rotation_euler_z_enqueues_command() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        rt.eval(r#"Bsengine.addRotationEulerZ("Cube", 30.0);"#)
-            .unwrap();
-        super::COMMAND_BUFFER.with(|c| {
-            let buf = c.borrow();
-            let found = buf.iter().any(|cmd| {
-                matches!(cmd, super::ScriptCommand::AddRotationEulerZ { name, deg }
-                    if name == "Cube" && (*deg - 30.0).abs() < 1e-4)
-            });
-            assert!(found, "AddRotationEulerZ not in buffer");
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }
@@ -9505,66 +8710,6 @@ JSON.stringify(received)
     }
 
     #[test]
-    fn set_rotation_euler_x_enqueues_command() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        rt.eval(r#"Bsengine.setRotationEulerX("Box", 45.0);"#)
-            .unwrap();
-        super::COMMAND_BUFFER.with(|c| {
-            let buf = c.borrow();
-            assert_eq!(buf.len(), 1);
-            match &buf[0] {
-                super::ScriptCommand::SetRotationEulerX { name, deg } => {
-                    assert_eq!(name, "Box");
-                    assert!((deg - 45.0).abs() < 1e-4);
-                }
-                _ => panic!("expected SetRotationEulerX command"),
-            }
-        });
-        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
-    }
-
-    #[test]
-    fn set_rotation_euler_y_enqueues_command() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        rt.eval(r#"Bsengine.setRotationEulerY("Box", 90.0);"#)
-            .unwrap();
-        super::COMMAND_BUFFER.with(|c| {
-            let buf = c.borrow();
-            assert_eq!(buf.len(), 1);
-            match &buf[0] {
-                super::ScriptCommand::SetRotationEulerY { name, deg } => {
-                    assert_eq!(name, "Box");
-                    assert!((deg - 90.0).abs() < 1e-4);
-                }
-                _ => panic!("expected SetRotationEulerY command"),
-            }
-        });
-        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
-    }
-
-    #[test]
-    fn set_rotation_euler_z_enqueues_command() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        rt.eval(r#"Bsengine.setRotationEulerZ("Box", 180.0);"#)
-            .unwrap();
-        super::COMMAND_BUFFER.with(|c| {
-            let buf = c.borrow();
-            assert_eq!(buf.len(), 1);
-            match &buf[0] {
-                super::ScriptCommand::SetRotationEulerZ { name, deg } => {
-                    assert_eq!(name, "Box");
-                    assert!((deg - 180.0).abs() < 1e-4);
-                }
-                _ => panic!("expected SetRotationEulerZ command"),
-            }
-        });
-        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
-    }
-
-    #[test]
     fn multiply_scale_enqueues_command() {
         let mut rt = ScriptRuntime::new_with_ops();
         rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
@@ -9581,385 +8726,6 @@ JSON.stringify(received)
                     assert!((sz - 0.5).abs() < 1e-4);
                 }
                 _ => panic!("expected MultiplyScale command"),
-            }
-        });
-        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
-    }
-
-    #[test]
-    fn get_position_x_returns_value() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        super::TRANSFORM_SNAPSHOT.with(|s| {
-            s.borrow_mut().insert(
-                "Obj".to_string(),
-                (
-                    glam::Vec3::new(3.0, 5.0, 7.0),
-                    glam::Quat::IDENTITY,
-                    glam::Vec3::ONE,
-                ),
-            );
-        });
-        let r = rt.eval(r#"Bsengine.getPositionX("Obj")"#).unwrap();
-        super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
-        let v: f32 = r.trim().parse().expect("expected a number");
-        assert!((v - 3.0).abs() < 1e-4, "expected 3.0, got {v}");
-    }
-
-    #[test]
-    fn get_position_y_returns_value() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        super::TRANSFORM_SNAPSHOT.with(|s| {
-            s.borrow_mut().insert(
-                "Obj".to_string(),
-                (
-                    glam::Vec3::new(3.0, 5.0, 7.0),
-                    glam::Quat::IDENTITY,
-                    glam::Vec3::ONE,
-                ),
-            );
-        });
-        let r = rt.eval(r#"Bsengine.getPositionY("Obj")"#).unwrap();
-        super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
-        let v: f32 = r.trim().parse().expect("expected a number");
-        assert!((v - 5.0).abs() < 1e-4, "expected 5.0, got {v}");
-    }
-
-    #[test]
-    fn get_position_z_returns_value() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        super::TRANSFORM_SNAPSHOT.with(|s| {
-            s.borrow_mut().insert(
-                "Obj".to_string(),
-                (
-                    glam::Vec3::new(3.0, 5.0, 7.0),
-                    glam::Quat::IDENTITY,
-                    glam::Vec3::ONE,
-                ),
-            );
-        });
-        let r = rt.eval(r#"Bsengine.getPositionZ("Obj")"#).unwrap();
-        super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
-        let v: f32 = r.trim().parse().expect("expected a number");
-        assert!((v - 7.0).abs() < 1e-4, "expected 7.0, got {v}");
-    }
-
-    #[test]
-    fn get_scale_x_returns_value() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        super::TRANSFORM_SNAPSHOT.with(|s| {
-            s.borrow_mut().insert(
-                "Obj".to_string(),
-                (
-                    glam::Vec3::ZERO,
-                    glam::Quat::IDENTITY,
-                    glam::Vec3::new(2.0, 3.0, 4.0),
-                ),
-            );
-        });
-        let r = rt.eval(r#"Bsengine.getScaleX("Obj")"#).unwrap();
-        super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
-        let v: f32 = r.trim().parse().expect("expected a number");
-        assert!((v - 2.0).abs() < 1e-4, "expected 2.0, got {v}");
-    }
-
-    #[test]
-    fn get_scale_y_returns_value() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        super::TRANSFORM_SNAPSHOT.with(|s| {
-            s.borrow_mut().insert(
-                "Obj".to_string(),
-                (
-                    glam::Vec3::ZERO,
-                    glam::Quat::IDENTITY,
-                    glam::Vec3::new(2.0, 3.0, 4.0),
-                ),
-            );
-        });
-        let r = rt.eval(r#"Bsengine.getScaleY("Obj")"#).unwrap();
-        super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
-        let v: f32 = r.trim().parse().expect("expected a number");
-        assert!((v - 3.0).abs() < 1e-4, "expected 3.0, got {v}");
-    }
-
-    #[test]
-    fn get_scale_z_returns_value() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        super::TRANSFORM_SNAPSHOT.with(|s| {
-            s.borrow_mut().insert(
-                "Obj".to_string(),
-                (
-                    glam::Vec3::ZERO,
-                    glam::Quat::IDENTITY,
-                    glam::Vec3::new(2.0, 3.0, 4.0),
-                ),
-            );
-        });
-        let r = rt.eval(r#"Bsengine.getScaleZ("Obj")"#).unwrap();
-        super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
-        let v: f32 = r.trim().parse().expect("expected a number");
-        assert!((v - 4.0).abs() < 1e-4, "expected 4.0, got {v}");
-    }
-
-    #[test]
-    fn get_rotation_euler_x_returns_value() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        super::TRANSFORM_SNAPSHOT.with(|s| {
-            s.borrow_mut().insert(
-                "Obj".to_string(),
-                (
-                    glam::Vec3::ZERO,
-                    glam::Quat::from_euler(glam::EulerRot::XYZ, 30f32.to_radians(), 0.0, 0.0),
-                    glam::Vec3::ONE,
-                ),
-            );
-        });
-        let r = rt.eval(r#"Bsengine.getRotationEulerX("Obj")"#).unwrap();
-        super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
-        let v: f32 = r.trim().parse().expect("expected a number");
-        assert!((v - 30.0).abs() < 1e-3, "expected 30.0, got {v}");
-    }
-
-    #[test]
-    fn get_rotation_euler_y_returns_value() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        super::TRANSFORM_SNAPSHOT.with(|s| {
-            s.borrow_mut().insert(
-                "Obj".to_string(),
-                (
-                    glam::Vec3::ZERO,
-                    glam::Quat::from_euler(glam::EulerRot::XYZ, 0.0, 45f32.to_radians(), 0.0),
-                    glam::Vec3::ONE,
-                ),
-            );
-        });
-        let r = rt.eval(r#"Bsengine.getRotationEulerY("Obj")"#).unwrap();
-        super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
-        let v: f32 = r.trim().parse().expect("expected a number");
-        assert!((v - 45.0).abs() < 1e-3, "expected 45.0, got {v}");
-    }
-
-    #[test]
-    fn get_rotation_euler_z_returns_value() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        super::TRANSFORM_SNAPSHOT.with(|s| {
-            s.borrow_mut().insert(
-                "Obj".to_string(),
-                (
-                    glam::Vec3::ZERO,
-                    glam::Quat::from_euler(glam::EulerRot::XYZ, 0.0, 0.0, 90f32.to_radians()),
-                    glam::Vec3::ONE,
-                ),
-            );
-        });
-        let r = rt.eval(r#"Bsengine.getRotationEulerZ("Obj")"#).unwrap();
-        super::TRANSFORM_SNAPSHOT.with(|s| s.borrow_mut().clear());
-        let v: f32 = r.trim().parse().expect("expected a number");
-        assert!((v - 90.0).abs() < 1e-3, "expected 90.0, got {v}");
-    }
-
-    #[test]
-    fn get_velocity_x_returns_value() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        super::VELOCITY_SNAPSHOT.with(|s| {
-            s.borrow_mut()
-                .insert("Ball".to_string(), glam::Vec3::new(5.0, 2.0, -3.0));
-        });
-        let r = rt.eval(r#"Bsengine.getVelocityX("Ball")"#).unwrap();
-        super::VELOCITY_SNAPSHOT.with(|s| s.borrow_mut().clear());
-        let v: f32 = r.trim().parse().expect("expected a number");
-        assert!((v - 5.0).abs() < 1e-4, "expected 5.0, got {v}");
-    }
-
-    #[test]
-    fn get_velocity_y_returns_value() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        super::VELOCITY_SNAPSHOT.with(|s| {
-            s.borrow_mut()
-                .insert("Ball".to_string(), glam::Vec3::new(5.0, 2.0, -3.0));
-        });
-        let r = rt.eval(r#"Bsengine.getVelocityY("Ball")"#).unwrap();
-        super::VELOCITY_SNAPSHOT.with(|s| s.borrow_mut().clear());
-        let v: f32 = r.trim().parse().expect("expected a number");
-        assert!((v - 2.0).abs() < 1e-4, "expected 2.0, got {v}");
-    }
-
-    #[test]
-    fn get_velocity_z_returns_value() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        super::VELOCITY_SNAPSHOT.with(|s| {
-            s.borrow_mut()
-                .insert("Ball".to_string(), glam::Vec3::new(5.0, 2.0, -3.0));
-        });
-        let r = rt.eval(r#"Bsengine.getVelocityZ("Ball")"#).unwrap();
-        super::VELOCITY_SNAPSHOT.with(|s| s.borrow_mut().clear());
-        let v: f32 = r.trim().parse().expect("expected a number");
-        assert!((v - (-3.0)).abs() < 1e-4, "expected -3.0, got {v}");
-    }
-
-    #[test]
-    fn get_angular_velocity_x_returns_value() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        super::ANGULAR_VELOCITY_SNAPSHOT.with(|s| {
-            s.borrow_mut()
-                .insert("Wheel".to_string(), glam::Vec3::new(1.0, 2.0, 3.0));
-        });
-        let r = rt.eval(r#"Bsengine.getAngularVelocityX("Wheel")"#).unwrap();
-        super::ANGULAR_VELOCITY_SNAPSHOT.with(|s| s.borrow_mut().clear());
-        let v: f32 = r.trim().parse().expect("expected a number");
-        assert!((v - 1.0).abs() < 1e-4, "expected 1.0, got {v}");
-    }
-
-    #[test]
-    fn get_angular_velocity_y_returns_value() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        super::ANGULAR_VELOCITY_SNAPSHOT.with(|s| {
-            s.borrow_mut()
-                .insert("Wheel".to_string(), glam::Vec3::new(1.0, 2.0, 3.0));
-        });
-        let r = rt.eval(r#"Bsengine.getAngularVelocityY("Wheel")"#).unwrap();
-        super::ANGULAR_VELOCITY_SNAPSHOT.with(|s| s.borrow_mut().clear());
-        let v: f32 = r.trim().parse().expect("expected a number");
-        assert!((v - 2.0).abs() < 1e-4, "expected 2.0, got {v}");
-    }
-
-    #[test]
-    fn get_angular_velocity_z_returns_value() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        super::ANGULAR_VELOCITY_SNAPSHOT.with(|s| {
-            s.borrow_mut()
-                .insert("Wheel".to_string(), glam::Vec3::new(1.0, 2.0, 3.0));
-        });
-        let r = rt.eval(r#"Bsengine.getAngularVelocityZ("Wheel")"#).unwrap();
-        super::ANGULAR_VELOCITY_SNAPSHOT.with(|s| s.borrow_mut().clear());
-        let v: f32 = r.trim().parse().expect("expected a number");
-        assert!((v - 3.0).abs() < 1e-4, "expected 3.0, got {v}");
-    }
-
-    #[test]
-    fn add_position_x_enqueues_command() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        rt.eval(r#"Bsengine.addPositionX("Player", 5.0);"#).unwrap();
-        super::COMMAND_BUFFER.with(|c| {
-            let buf = c.borrow();
-            assert_eq!(buf.len(), 1);
-            match &buf[0] {
-                super::ScriptCommand::AddPositionX { name, dx } => {
-                    assert_eq!(name, "Player");
-                    assert!((dx - 5.0).abs() < 1e-4);
-                }
-                _ => panic!("expected AddPositionX command"),
-            }
-        });
-        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
-    }
-
-    #[test]
-    fn add_position_y_enqueues_command() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        rt.eval(r#"Bsengine.addPositionY("Player", -2.0);"#)
-            .unwrap();
-        super::COMMAND_BUFFER.with(|c| {
-            let buf = c.borrow();
-            assert_eq!(buf.len(), 1);
-            match &buf[0] {
-                super::ScriptCommand::AddPositionY { name, dy } => {
-                    assert_eq!(name, "Player");
-                    assert!((dy - (-2.0)).abs() < 1e-4);
-                }
-                _ => panic!("expected AddPositionY command"),
-            }
-        });
-        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
-    }
-
-    #[test]
-    fn add_position_z_enqueues_command() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        rt.eval(r#"Bsengine.addPositionZ("Player", 3.0);"#).unwrap();
-        super::COMMAND_BUFFER.with(|c| {
-            let buf = c.borrow();
-            assert_eq!(buf.len(), 1);
-            match &buf[0] {
-                super::ScriptCommand::AddPositionZ { name, dz } => {
-                    assert_eq!(name, "Player");
-                    assert!((dz - 3.0).abs() < 1e-4);
-                }
-                _ => panic!("expected AddPositionZ command"),
-            }
-        });
-        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
-    }
-
-    #[test]
-    fn add_scale_x_enqueues_command() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        rt.eval(r#"Bsengine.addScaleX("Box", 0.5);"#).unwrap();
-        super::COMMAND_BUFFER.with(|c| {
-            let buf = c.borrow();
-            assert_eq!(buf.len(), 1);
-            match &buf[0] {
-                super::ScriptCommand::AddScaleX { name, dx } => {
-                    assert_eq!(name, "Box");
-                    assert!((dx - 0.5).abs() < 1e-4);
-                }
-                _ => panic!("expected AddScaleX command"),
-            }
-        });
-        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
-    }
-
-    #[test]
-    fn add_scale_y_enqueues_command() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        rt.eval(r#"Bsengine.addScaleY("Box", 1.0);"#).unwrap();
-        super::COMMAND_BUFFER.with(|c| {
-            let buf = c.borrow();
-            assert_eq!(buf.len(), 1);
-            match &buf[0] {
-                super::ScriptCommand::AddScaleY { name, dy } => {
-                    assert_eq!(name, "Box");
-                    assert!((dy - 1.0).abs() < 1e-4);
-                }
-                _ => panic!("expected AddScaleY command"),
-            }
-        });
-        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
-    }
-
-    #[test]
-    fn add_scale_z_enqueues_command() {
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        rt.eval(r#"Bsengine.addScaleZ("Box", -0.25);"#).unwrap();
-        super::COMMAND_BUFFER.with(|c| {
-            let buf = c.borrow();
-            assert_eq!(buf.len(), 1);
-            match &buf[0] {
-                super::ScriptCommand::AddScaleZ { name, dz } => {
-                    assert_eq!(name, "Box");
-                    assert!((dz - (-0.25)).abs() < 1e-4);
-                }
-                _ => panic!("expected AddScaleZ command"),
             }
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
@@ -11083,29 +9849,6 @@ JSON.stringify(received)
     }
 
     #[test]
-    fn test_follow_read_ops() {
-        super::FOLLOW_SNAPSHOT.with(|s| {
-            s.borrow_mut().insert(
-                "Player".to_string(),
-                ("Camera".to_string(), 0.0, 2.0, -5.0, 10.0),
-            );
-        });
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        let target = rt.eval(r#"Bsengine.getFollowTarget("Player");"#).unwrap();
-        assert_eq!(target.trim(), "Camera");
-        let ox = rt.eval(r#"Bsengine.getFollowOffsetX("Player");"#).unwrap();
-        assert!((ox.trim().parse::<f32>().unwrap() - 0.0).abs() < 0.001);
-        let oy = rt.eval(r#"Bsengine.getFollowOffsetY("Player");"#).unwrap();
-        assert!((oy.trim().parse::<f32>().unwrap() - 2.0).abs() < 0.001);
-        let oz = rt.eval(r#"Bsengine.getFollowOffsetZ("Player");"#).unwrap();
-        assert!((oz.trim().parse::<f32>().unwrap() - (-5.0)).abs() < 0.001);
-        let sp = rt.eval(r#"Bsengine.getFollowSpeed("Player");"#).unwrap();
-        assert!((sp.trim().parse::<f32>().unwrap() - 10.0).abs() < 0.001);
-        super::FOLLOW_SNAPSHOT.with(|s| s.borrow_mut().clear());
-    }
-
-    #[test]
     fn test_follow_write_ops_queue_commands() {
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
         let mut rt = ScriptRuntime::new_with_ops();
@@ -11135,25 +9878,6 @@ JSON.stringify(received)
             )));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
-    }
-
-    #[test]
-    fn test_look_at_component_read_ops() {
-        super::LOOK_AT_SNAPSHOT.with(|s| {
-            s.borrow_mut()
-                .insert("Camera".to_string(), ("Enemy".to_string(), 0.0, 1.0, 0.0));
-        });
-        let mut rt = ScriptRuntime::new_with_ops();
-        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
-        let target = rt.eval(r#"Bsengine.getLookAtTarget("Camera");"#).unwrap();
-        assert_eq!(target.trim(), "Enemy");
-        let ux = rt.eval(r#"Bsengine.getLookAtUpX("Camera");"#).unwrap();
-        assert!((ux.trim().parse::<f32>().unwrap() - 0.0).abs() < 0.001);
-        let uy = rt.eval(r#"Bsengine.getLookAtUpY("Camera");"#).unwrap();
-        assert!((uy.trim().parse::<f32>().unwrap() - 1.0).abs() < 0.001);
-        let uz = rt.eval(r#"Bsengine.getLookAtUpZ("Camera");"#).unwrap();
-        assert!((uz.trim().parse::<f32>().unwrap() - 0.0).abs() < 0.001);
-        super::LOOK_AT_SNAPSHOT.with(|s| s.borrow_mut().clear());
     }
 
     #[test]

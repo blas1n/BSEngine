@@ -165,12 +165,25 @@ mod tests {
              duplication item 33 removed. Found: {:?}",
             hits.components.iter().map(|c| &c.name).collect::<Vec<_>>()
         );
-        assert!(
-            hits.ops.len() >= 10,
-            "velocity is exposed through a family of ops; found {}",
-            hits.ops.len()
-        );
-        assert!(hits.ops.iter().any(|o| o.name == "bsengine_get_velocity"));
+        // Named rather than counted. This was `len() >= 10` while eighteen
+        // per-axis velocity ops existed; item 42 deleted twelve of them and the
+        // count assertion failed for a change that was the point of the work.
+        // What the concept needs is that it is reachable and that no component
+        // owns it -- not how many spellings it has.
+        for expected in [
+            "bsengine_get_velocity",
+            "bsengine_set_velocity",
+            "bsengine_add_velocity",
+            "bsengine_get_angular_velocity",
+            "bsengine_set_angular_velocity",
+            "bsengine_add_angular_velocity",
+        ] {
+            assert!(
+                hits.ops.iter().any(|o| o.name == expected),
+                "velocity is exposed through a family of ops and {expected} is                  missing from it; found {:?}",
+                hits.ops.iter().map(|o| &o.name).collect::<Vec<_>>()
+            );
+        }
     }
 
     #[test]

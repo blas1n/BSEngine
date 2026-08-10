@@ -1746,6 +1746,58 @@ enum SoundLoad {
 
 ---
 
+### 41. 스크립팅 값 타입 (`Vec3` / `Quat` / `Transform`)
+
+**목표:** 스크립팅 API가 3-벡터를 한 가지 방식으로 말하게 한다.
+
+설계: [docs/superpowers/specs/2026-08-10-scripting-value-types-design.md](docs/superpowers/specs/2026-08-10-scripting-value-types-design.md)
+
+감사 후속 후보 4번("축별 op 45개 축소")을 설계하러 들어갔다가 나왔다. **줄일 것은 op 수가
+아니라 방언이었다** — 이 API에는 3-벡터를 적는 방식이 셋 있다:
+
+| 모양 | 개수 |
+|---|---|
+| JS 배열 `[x,y,z]` | op 8개 (`getForwardVector`, `getVelocity`, …) |
+| 객체 `{x,y,z}` | JS 래퍼 6개 (`getPosition`, `getWorldScale`, …) |
+| 평평한 `{x,y,z,rx,…,sz}` | `getTransform` 1개 |
+
+`mini-arena/player.js:95`가 한 줄 안에서 `fwd[0]`과 `pos.x`를 섞어 쓴다.
+
+**그리고 데모 하나가 깨져 있었다.** `games/net-2p-demo`의 두 스크립트가 `Bsengine.setPosition`을
+부르는데 그 이름은 어디에도 없다. `onUpdate` 안이라 매 프레임 던지고, 두 플레이어가 원을 그리는
+게 전부인 데모에서 아무도 움직이지 않는다. 원인은 이름이다 — 위치만 설정하는 op의 JS 이름이
+`setTransform`이고, 그 op의 독 주석조차 "absolute **position**"이라고 적혀 있다. 반대로
+`getTransform`은 위치·회전·스케일을 전부 준다. **같은 이름의 get/set이 다른 것을 가리킨다.**
+
+**사람이 벡터 연산을 손으로 쓰고 있다.** 데모 20개·706줄에 9곳 — 78줄에 한 번꼴이다.
+`Math.sqrt(dx*dx + dz*dz)`만 네 번. 값 타입은 설탕이 아니라 세 방언을 하나로 만드는 일이다.
+
+**완료 조건:**
+- [ ] `BOOTSTRAP_JS`(`ops.rs` 안 670줄·42KB 문자열)를 `src/js/prelude.js`로 분리
+- [ ] `Bsengine.Vec3`/`Bsengine.Quat` — 최상위 `class`는 씬 리로드를 깨므로 객체의 속성으로
+- [ ] 공간 3-벡터 접근자 13개가 `Vec3`/`Quat` 반환, `getTransform`은 `{position, rotation, scale}`
+- [ ] 세터가 벡터·스칼라 둘 다 수용 (왕복이 성립해야 get/set 짝이 정직하다)
+- [ ] `setPosition` 신설, `setTransform`은 통짜, 게임 18곳 이전, net-2p-demo가 실제로 움직인다
+- [ ] **가드**: 저장소의 모든 `.js`가 부르는 `Bsengine.<name>`이 실재하는지 검사
+
+---
+
+### 42. 축별 op 45개 삭제
+
+**목표:** 항목 41이 통짜 접근자를 만들어 놓은 뒤, 쓰이지 않는 축별 op를 지운다.
+
+45개 전부 JS에 바인딩돼 있지만 **바인딩 블록 밖에서는 아무도 호출하지 않는다** — 게임
+스크립트·테스트·MCP 툴·문서 어디에도 없다. R2 래칫이 신규 유입을 막고 있으므로 급하지 않다.
+
+**완료 조건:**
+- [ ] op 45개 + JS 바인딩 45줄 + `ScriptCommand` 변형 24개와 그 match arm을 **한 작업 안에서**
+      제거 (코어 enum이 wildcard 없는 exhaustive match라 쪼개면 중간 커밋이 컴파일되지 않는다)
+- [ ] 삭제로 접근성을 잃는 `getFollowOffset`/`getLookAtUp`의 통짜 형태를 먼저 만든다
+- [ ] `axis_ops_baseline.txt`를 비우고, R2가 이제 "하나도 없음"을 지키게 한다
+- [ ] op 299 → 254
+
+---
+
 ---
 
 ## 컴포넌트/op 감사 결과 (2026-08-05)

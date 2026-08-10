@@ -4465,6 +4465,30 @@ pub fn bsengine_get_follow_target(#[string] name: String) -> String {
     })
 }
 
+/// Get a follow-behavior's whole target offset.
+///
+/// `None` for an entity with no `Follow`, which the per-axis getters this
+/// replaced could not express -- they returned 0.0, indistinguishable from an
+/// offset that really is zero.
+#[op2]
+#[serde]
+pub fn bsengine_get_follow_offset(#[string] name: String) -> Option<Vec<f32>> {
+    FOLLOW_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .map(|(_, x, y, z, _)| vec![*x, *y, *z])
+    })
+}
+
+/// Get a look-at behavior's whole up vector.
+///
+/// `None` for an entity with no `LookAt`; see [`bsengine_get_follow_offset`].
+#[op2]
+#[serde]
+pub fn bsengine_get_look_at_up(#[string] name: String) -> Option<Vec<f32>> {
+    LOOK_AT_SNAPSHOT.with(|s| s.borrow().get(&name).map(|(_, x, y, z)| vec![*x, *y, *z]))
+}
+
 /// Get the X component of a follow-behavior's target offset.
 #[op2(fast)]
 pub fn bsengine_get_follow_offset_x(#[string] name: String) -> f32 {
@@ -6138,6 +6162,8 @@ deno_core::extension!(
         bsengine_set_follow_offset,
         bsengine_set_follow_speed,
         bsengine_get_follow_target,
+        bsengine_get_follow_offset,
+        bsengine_get_look_at_up,
         bsengine_get_follow_offset_x,
         bsengine_get_follow_offset_y,
         bsengine_get_follow_offset_z,
@@ -6985,6 +7011,39 @@ mod tests {
             r.trim(),
             "[5,1,1]",
             "the value types and their statics must survive a reload"
+        );
+    }
+
+    #[test]
+    fn follow_offset_and_look_at_up_read_back_as_whole_vectors() {
+        // The per-axis getters these replace returned 0.0 for an entity that
+        // has no Follow at all, which reads exactly like an offset of zero.
+        // A whole-vector getter can say null instead, as every other one does.
+        super::FOLLOW_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("A".to_string(), ("Target".to_string(), 1.0, 2.0, 3.0, 0.0));
+        });
+        super::LOOK_AT_SNAPSHOT.with(|s| {
+            s.borrow_mut()
+                .insert("A".to_string(), ("Target".to_string(), 0.0, 1.0, 0.0));
+        });
+        let r = eval_js(
+            r#"
+            const o = Bsengine.getFollowOffset("A");
+            const u = Bsengine.getLookAtUp("A");
+            JSON.stringify([
+                [o.x, o.y, o.z], typeof o.magnitude,
+                [u.x, u.y, u.z],
+                Bsengine.getFollowOffset("__none__"),
+                Bsengine.getLookAtUp("__none__"),
+            ])"#,
+        );
+        super::FOLLOW_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        super::LOOK_AT_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        assert_eq!(
+            r.trim(),
+            r#"[[1,2,3],"number",[0,1,0],null,null]"#,
+            "a missing entity must read back as null, not as a zero vector"
         );
     }
 

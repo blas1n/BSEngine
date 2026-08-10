@@ -6614,6 +6614,89 @@ mod tests {
     }
 
     #[test]
+    fn look_rotation_faces_the_given_direction() {
+        // The operation mini-arena/player.js hand-rolls with atan2 -- and got
+        // backwards once, per its own comment. Facing +X must put forward on
+        // +X, not on -X.
+        let r = eval_js(
+            r#"
+            const Q = Bsengine.Quat, V = Bsengine.Vec3;
+            const dirs = [V.right, V.left, V.forward, V.back, Bsengine.vec3(1,0,1).normalized];
+            // Both axes checked. Facing alone is not enough: swapping the
+            // cross operands leaves forward correct and rolls the result 180
+            // degrees, so an earlier version of this test let that through and
+            // the `up` argument did nothing measurable.
+            JSON.stringify(dirs.map(d => {
+                const q = Q.lookRotation(d, V.up);
+                return q.rotate(V.forward).equals(d, 1e-5)
+                    && V.dot(q.rotate(V.up), V.up) > 0.99;
+            }))"#,
+        );
+        assert_eq!(r.trim(), "[true,true,true,true,true]");
+    }
+
+    #[test]
+    fn look_rotation_survives_a_zero_direction() {
+        // A chase script calls this every frame, including the frame the
+        // target and the chaser occupy the same spot. NaN here becomes a
+        // Transform full of NaN and an entity that renders nowhere.
+        let r = eval_js(
+            r#"
+            const Q = Bsengine.Quat, V = Bsengine.Vec3;
+            const zero = Q.lookRotation(V.zero, V.up);
+            const parallel = Q.lookRotation(V.up, V.up);
+            JSON.stringify([zero.equals(Q.identity, 1e-6),
+                            isNaN(parallel.x) || isNaN(parallel.w)])"#,
+        );
+        assert_eq!(
+            r.trim(),
+            "[true,false]",
+            "neither a zero direction nor one parallel to `up` may produce NaN"
+        );
+    }
+
+    #[test]
+    fn quat_slerp_takes_the_short_way_round() {
+        // Two rotations 350 degrees apart are 10 degrees apart the other way.
+        // A slerp that does not flip the sign when the dot product is negative
+        // spins the long way -- a full turn where there should be a twitch.
+        let r = eval_js(
+            r#"
+            const Q = Bsengine.Quat;
+            const a = Q.euler(0, 0, 0), b = Q.euler(0, 350, 0);
+            JSON.stringify(Q.angle(a, Q.slerp(a, b, 0.5)) < 10)"#,
+        );
+        assert_eq!(r.trim(), "true");
+    }
+
+    #[test]
+    fn quat_rotate_towards_never_overshoots() {
+        let r = eval_js(
+            r#"
+            const Q = Bsengine.Quat;
+            const a = Q.euler(0, 0, 0), b = Q.euler(0, 30, 0);
+            JSON.stringify([Q.angle(Q.rotateTowards(a, b, 500), b) < 1e-3,
+                            Math.round(Q.angle(a, Q.rotateTowards(a, b, 10)))])"#,
+        );
+        assert_eq!(r.trim(), "[true,10]");
+    }
+
+    #[test]
+    fn from_to_rotation_turns_one_direction_into_another() {
+        let r = eval_js(
+            r#"
+            const Q = Bsengine.Quat, V = Bsengine.Vec3;
+            const pairs = [[V.forward, V.right], [V.up, V.down], [V.right, V.right]];
+            JSON.stringify(pairs.map(p => Q.fromToRotation(p[0], p[1]).rotate(p[0]).equals(p[1], 1e-5)))"#,
+        );
+        assert_eq!(
+            r.trim(),
+            "[true,true,true]",
+            "including the opposite and identical cases"
+        );
+    }
+
+    #[test]
     fn op_log_callable_from_script() {
         let mut rt = ScriptRuntime::new_with_ops();
         let result = rt.eval(r#"Deno.core.ops.bsengine_log("hello from script"); "ok""#);

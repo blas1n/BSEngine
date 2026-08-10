@@ -941,3 +941,96 @@ Bsengine.Quat.angle = (a, b) => {
         Bsengine.Quat.dot(a.normalized, b.normalized))));
     return 2 * Math.acos(d) * 180 / Math.PI;
 };
+
+// --- Quat: facing and interpolation ------------------------------------
+//
+// The rotation whose forward is `forward` and whose up is as close to `up` as
+// that allows. Returns identity for a degenerate direction rather than NaN --
+// a chase script calls this on the frame it reaches its target, and a NaN
+// rotation is an entity that renders nowhere.
+Bsengine.Quat.lookRotation = (forward, up) => {
+    const u = up === undefined ? Bsengine.Vec3.up : up;
+    const f = forward.normalized;
+    if (f.sqrMagnitude < 1e-9) return Bsengine.Quat.identity;
+    let r = Bsengine.Vec3.cross(u, f);
+    if (r.sqrMagnitude < 1e-9) {
+        // forward is parallel to up; any perpendicular will do.
+        r = Bsengine.Vec3.cross(
+            Math.abs(f.y) > 0.99 ? Bsengine.Vec3.right : Bsengine.Vec3.up, f);
+    }
+    r = r.normalized;
+    const realUp = Bsengine.Vec3.cross(f, r);
+    // Rotation matrix with columns (right, up, forward) -> quaternion.
+    const m00 = r.x, m01 = realUp.x, m02 = f.x;
+    const m10 = r.y, m11 = realUp.y, m12 = f.y;
+    const m20 = r.z, m21 = realUp.z, m22 = f.z;
+    const tr = m00 + m11 + m22;
+    if (tr > 0) {
+        const s = Math.sqrt(tr + 1) * 2;
+        return new _Q((m21 - m12) / s, (m02 - m20) / s, (m10 - m01) / s, s / 4);
+    }
+    if (m00 > m11 && m00 > m22) {
+        const s = Math.sqrt(1 + m00 - m11 - m22) * 2;
+        return new _Q(s / 4, (m01 + m10) / s, (m02 + m20) / s, (m21 - m12) / s);
+    }
+    if (m11 > m22) {
+        const s = Math.sqrt(1 + m11 - m00 - m22) * 2;
+        return new _Q((m01 + m10) / s, s / 4, (m12 + m21) / s, (m02 - m20) / s);
+    }
+    const s = Math.sqrt(1 + m22 - m00 - m11) * 2;
+    return new _Q((m02 + m20) / s, (m12 + m21) / s, s / 4, (m10 - m01) / s);
+};
+
+Bsengine.Quat.fromToRotation = (from, to) => {
+    const f = from.normalized, t = to.normalized;
+    const d = Bsengine.Vec3.dot(f, t);
+    if (d > 1 - 1e-9) return Bsengine.Quat.identity;
+    if (d < -1 + 1e-9) {
+        // Opposite: half a turn about any perpendicular axis.
+        let axis = Bsengine.Vec3.cross(Bsengine.Vec3.right, f);
+        if (axis.sqrMagnitude < 1e-9) axis = Bsengine.Vec3.cross(Bsengine.Vec3.up, f);
+        return Bsengine.Quat.angleAxis(180, axis.normalized);
+    }
+    const c = Bsengine.Vec3.cross(f, t);
+    return new _Q(c.x, c.y, c.z, 1 + d).normalized;
+};
+
+// Sign-flipped when the dot product is negative so the interpolation takes the
+// short way round; without it, rotations more than 180 degrees apart spin the
+// long way -- a full turn where there should be a twitch.
+Bsengine.Quat.lerpUnclamped = (a, b, t) => {
+    const s = Bsengine.Quat.dot(a, b) < 0 ? -1 : 1;
+    return new _Q(
+        a.x + (b.x * s - a.x) * t,
+        a.y + (b.y * s - a.y) * t,
+        a.z + (b.z * s - a.z) * t,
+        a.w + (b.w * s - a.w) * t).normalized;
+};
+Bsengine.Quat.lerp = (a, b, t) =>
+    Bsengine.Quat.lerpUnclamped(a, b, Math.max(0, Math.min(1, t)));
+
+Bsengine.Quat.slerpUnclamped = (a, b, t) => {
+    let cos = Bsengine.Quat.dot(a.normalized, b.normalized);
+    let end = b;
+    if (cos < 0) { cos = -cos; end = new _Q(-b.x, -b.y, -b.z, -b.w); }
+    if (cos > 1 - 1e-6) return Bsengine.Quat.lerpUnclamped(a, end, t);
+    const theta = Math.acos(Math.max(-1, Math.min(1, cos)));
+    const s = Math.sin(theta);
+    const wa = Math.sin((1 - t) * theta) / s;
+    const wb = Math.sin(t * theta) / s;
+    return new _Q(
+        a.x * wa + end.x * wb,
+        a.y * wa + end.y * wb,
+        a.z * wa + end.z * wb,
+        a.w * wa + end.w * wb).normalized;
+};
+Bsengine.Quat.slerp = (a, b, t) =>
+    Bsengine.Quat.slerpUnclamped(a, b, Math.max(0, Math.min(1, t)));
+
+Bsengine.Quat.rotateTowards = (from, to, maxDegreesDelta) => {
+    const total = Bsengine.Quat.angle(from, to);
+    if (total < 1e-6) return to.clone();
+    // No clamp on the fraction: `slerp` clamps t to [0,1] itself, so one here
+    // would be a line whose removal changes nothing observable.
+    return Bsengine.Quat.slerp(from, to, maxDegreesDelta / total);
+};

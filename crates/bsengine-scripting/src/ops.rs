@@ -23,7 +23,7 @@ use glam::{Quat, Vec3};
 use serde::{Deserialize, Serialize};
 
 /// JS-provided parameters for spawning a new entity via `Bsengine.spawn`.
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct SpawnParams {
     /// Name to assign the spawned entity.
     pub name: String,
@@ -78,7 +78,7 @@ fn default_one() -> f32 {
 }
 
 /// Deferred world-mutating command produced by a `Bsengine.*` script call; queued and applied to the ECS world on the next update.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum ScriptCommand {
     /// Set an entity's absolute world position.
     SetTransform {
@@ -6774,6 +6774,52 @@ mod tests {
             r.trim(),
             "null",
             "and the shape is unchanged for real entities too"
+        );
+    }
+
+    #[test]
+    fn setters_accept_both_a_vector_and_loose_scalars() {
+        // The round trip is the whole justification for accepting two shapes:
+        // if a setter cannot take what its getter returns, the pair lies.
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        eval_js(
+            r#"Bsengine.setScale("A", 2, 3, 4);
+               Bsengine.setScale("A", Bsengine.vec3(2, 3, 4));
+               Bsengine.setScale("A", { x: 2, y: 3, z: 4 });
+               Bsengine.setVelocity("A", 5, 6, 7);
+               Bsengine.setVelocity("A", Bsengine.vec3(5, 6, 7));"#,
+        );
+        let queued = super::COMMAND_BUFFER.with(|c| c.borrow().clone());
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        assert_eq!(queued.len(), 5, "every call must queue a command");
+        let text: Vec<String> = queued.iter().map(|c| format!("{c:?}")).collect();
+        assert_eq!(
+            text[0], text[1],
+            "a Vec3 and loose scalars must queue the same command"
+        );
+        assert_eq!(
+            text[1], text[2],
+            "a plain {{x,y,z}} literal must work too -- a scene reload replaces \
+             the prototype, so the check is on shape, not instanceof"
+        );
+        assert_eq!(text[3], text[4], "and the same for a physics setter");
+    }
+
+    #[test]
+    fn a_quaternion_setter_accepts_a_quat_or_four_scalars() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        eval_js(
+            r#"const q = Bsengine.Quat.euler(10, 20, 30);
+               Bsengine.setRotation("A", q.x, q.y, q.z, q.w);
+               Bsengine.setRotation("A", q);"#,
+        );
+        let queued = super::COMMAND_BUFFER.with(|c| c.borrow().clone());
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        assert_eq!(queued.len(), 2);
+        assert_eq!(
+            format!("{:?}", queued[0]),
+            format!("{:?}", queued[1]),
+            "setRotation(name, getRotation(other)) has to work"
         );
     }
 

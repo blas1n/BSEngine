@@ -126,6 +126,18 @@ function _v3OrNull(a) {
     return a ? new _V3(a[0], a[1], a[2]) : null;
 }
 
+// A setter takes either loose scalars or one vector, because the getter it
+// pairs with returns a vector: `setPosition(n, getPosition(m))` has to work or
+// the pair is lying. Judged by shape rather than `instanceof` -- a scene
+// reload replaces the prototype, and a plain {x,y,z} literal is a perfectly
+// good argument.
+function _xyz(a, b, c) {
+    return (a !== null && typeof a === "object") ? [a.x, a.y, a.z] : [a, b, c];
+}
+function _xyzw(a, b, c, d) {
+    return (a !== null && typeof a === "object") ? [a.x, a.y, a.z, a.w] : [a, b, c, d];
+}
+
 var Bsengine = {
     Vec3: _V3,
     Quat: _Q,
@@ -147,20 +159,20 @@ var Bsengine = {
     getWorldRotation:  (name)                 => { const t = Deno.core.ops.bsengine_get_world_transform(name); return t ? new _Q(t.rx, t.ry, t.rz, t.rw) : null; },
     getWorldScale:     (name)                 => { const t = Deno.core.ops.bsengine_get_world_transform(name); return t ? new _V3(t.sx, t.sy, t.sz) : null; },
     setTransform:   (name, x, y, z)        => Deno.core.ops.bsengine_set_transform(name, x, y, z),
-    setRotation:      (name, rx, ry, rz, rw)        => Deno.core.ops.bsengine_set_rotation(name, rx, ry, rz, rw),
-    setRotationEuler: (name, pitch, yaw, roll)      => Deno.core.ops.bsengine_set_rotation_euler(name, pitch, yaw, roll),
-    setScale:            (name, sx, sy, sz)     => Deno.core.ops.bsengine_set_scale(name, sx, sy, sz),
-    addPosition:         (name, dx, dy, dz)     => Deno.core.ops.bsengine_add_position(name, dx, dy, dz),
-    addPositionLocal:    (name, dx, dy, dz)     => Deno.core.ops.bsengine_add_position_local(name, dx, dy, dz),
+    setRotation: (name, a, b, c, d) => { const [x, y, z, w] = _xyzw(a, b, c, d); Deno.core.ops.bsengine_set_rotation(name, x, y, z, w); },
+    setRotationEuler: (name, a, b, c) => { const [x, y, z] = _xyz(a, b, c); Deno.core.ops.bsengine_set_rotation_euler(name, x, y, z); },
+    setScale: (name, a, b, c) => { const [x, y, z] = _xyz(a, b, c); Deno.core.ops.bsengine_set_scale(name, x, y, z); },
+    addPosition: (name, a, b, c) => { const [x, y, z] = _xyz(a, b, c); Deno.core.ops.bsengine_add_position(name, x, y, z); },
+    addPositionLocal: (name, a, b, c) => { const [x, y, z] = _xyz(a, b, c); Deno.core.ops.bsengine_add_position_local(name, x, y, z); },
     setPositionX:        (name, x)              => Deno.core.ops.bsengine_set_position_x(name, x),
     setPositionY:        (name, y)              => Deno.core.ops.bsengine_set_position_y(name, y),
     setPositionZ:        (name, z)              => Deno.core.ops.bsengine_set_position_z(name, z),
     addPositionX:        (name, dx)             => Deno.core.ops.bsengine_add_position_x(name, dx),
     addPositionY:        (name, dy)             => Deno.core.ops.bsengine_add_position_y(name, dy),
     addPositionZ:        (name, dz)             => Deno.core.ops.bsengine_add_position_z(name, dz),
-    rotateBy:          (name, rx, ry, rz, rw)   => Deno.core.ops.bsengine_rotate_by(name, rx, ry, rz, rw),
+    rotateBy: (name, a, b, c, d) => { const [x, y, z, w] = _xyzw(a, b, c, d); Deno.core.ops.bsengine_rotate_by(name, x, y, z, w); },
     rotateAroundAxis:  (name, ax, ay, az, deg)  => Deno.core.ops.bsengine_rotate_around_axis(name, ax, ay, az, deg),
-    addRotationEuler:  (name, pitch, yaw, roll) => Deno.core.ops.bsengine_add_rotation_euler(name, pitch, yaw, roll),
+    addRotationEuler: (name, a, b, c) => { const [x, y, z] = _xyz(a, b, c); Deno.core.ops.bsengine_add_rotation_euler(name, x, y, z); },
     addRotationEulerX: (name, deg) => Deno.core.ops.bsengine_add_rotation_euler_x(name, deg),
     addRotationEulerY: (name, deg) => Deno.core.ops.bsengine_add_rotation_euler_y(name, deg),
     addRotationEulerZ: (name, deg) => Deno.core.ops.bsengine_add_rotation_euler_z(name, deg),
@@ -179,11 +191,11 @@ var Bsengine = {
     getRotationEulerX: (name) => Deno.core.ops.bsengine_get_rotation_euler_x(name),
     getRotationEulerY: (name) => Deno.core.ops.bsengine_get_rotation_euler_y(name),
     getRotationEulerZ: (name) => Deno.core.ops.bsengine_get_rotation_euler_z(name),
-    addScale:          (name, sx, sy, sz)       => Deno.core.ops.bsengine_add_scale(name, sx, sy, sz),
+    addScale: (name, a, b, c) => { const [x, y, z] = _xyz(a, b, c); Deno.core.ops.bsengine_add_scale(name, x, y, z); },
     setRotationEulerX: (name, deg) => Deno.core.ops.bsengine_set_rotation_euler_x(name, deg),
     setRotationEulerY: (name, deg) => Deno.core.ops.bsengine_set_rotation_euler_y(name, deg),
     setRotationEulerZ: (name, deg) => Deno.core.ops.bsengine_set_rotation_euler_z(name, deg),
-    multiplyScale:     (name, sx, sy, sz) => Deno.core.ops.bsengine_multiply_scale(name, sx, sy, sz),
+    multiplyScale: (name, a, b, c) => { const [x, y, z] = _xyz(a, b, c); Deno.core.ops.bsengine_multiply_scale(name, x, y, z); },
     isKeyPressed:   (key)                  => Deno.core.ops.bsengine_is_key_pressed(key),
     isKeyDown:      (key)                  => Deno.core.ops.bsengine_is_key_down(key),
     isKeyUp:        (key)                  => Deno.core.ops.bsengine_is_key_up(key),
@@ -222,7 +234,7 @@ var Bsengine = {
     setSpotLightOuterAngle: (name, deg)         => Deno.core.ops.bsengine_set_spot_light_outer_angle(name, deg),
     setDirectionalLightColor:     (name, r, g, b) => Deno.core.ops.bsengine_set_directional_light_color(name, r, g, b),
     setDirectionalLightAmbient:   (name, r, g, b) => Deno.core.ops.bsengine_set_directional_light_ambient(name, r, g, b),
-    setDirectionalLightDirection: (name, x, y, z) => Deno.core.ops.bsengine_set_directional_light_direction(name, x, y, z),
+    setDirectionalLightDirection: (name, a, b, c) => { const [x, y, z] = _xyz(a, b, c); Deno.core.ops.bsengine_set_directional_light_direction(name, x, y, z); },
     setCameraFov:   (name, deg)            => Deno.core.ops.bsengine_set_camera_fov(name, deg),
     setCameraNear:  (name, value)          => Deno.core.ops.bsengine_set_camera_near(name, value),
     setCameraFar:   (name, value)          => Deno.core.ops.bsengine_set_camera_far(name, value),
@@ -260,7 +272,7 @@ var Bsengine = {
     getTimerFraction:       (name)          => Deno.core.ops.bsengine_get_timer_fraction(name),
     isTimerFinished:        (name)          => Deno.core.ops.bsengine_is_timer_finished(name),
     isTimerJustFinished:    (name)          => Deno.core.ops.bsengine_is_timer_just_finished(name),
-    setNavDestination:      (name, x, y, z) => Deno.core.ops.bsengine_set_nav_destination(name, x, y, z),
+    setNavDestination: (name, a, b, c) => { const [x, y, z] = _xyz(a, b, c); Deno.core.ops.bsengine_set_nav_destination(name, x, y, z); },
     clearNavDestination:    (name)          => Deno.core.ops.bsengine_clear_nav_destination(name),
     setNavSpeed:            (name, speed)   => Deno.core.ops.bsengine_set_nav_speed(name, speed),
     setNavAngularSpeed:     (name, speed)   => Deno.core.ops.bsengine_set_nav_angular_speed(name, speed),
@@ -313,7 +325,7 @@ var Bsengine = {
     isTweenFinished:(name)                 => Deno.core.ops.bsengine_is_tween_finished(name),
     isTweenReversed:(name)                 => Deno.core.ops.bsengine_is_tween_reversed(name),
     setFollowTarget:(name, target)         => Deno.core.ops.bsengine_set_follow_target(name, target),
-    setFollowOffset:(name, x, y, z)        => Deno.core.ops.bsengine_set_follow_offset(name, x, y, z),
+    setFollowOffset: (name, a, b, c) => { const [x, y, z] = _xyz(a, b, c); Deno.core.ops.bsengine_set_follow_offset(name, x, y, z); },
     setFollowSpeed: (name, speed)          => Deno.core.ops.bsengine_set_follow_speed(name, speed),
     getFollowTarget:(name)                 => JSON.parse(Deno.core.ops.bsengine_get_follow_target(name)),
     getFollowOffsetX:(name)               => Deno.core.ops.bsengine_get_follow_offset_x(name),
@@ -321,7 +333,7 @@ var Bsengine = {
     getFollowOffsetZ:(name)               => Deno.core.ops.bsengine_get_follow_offset_z(name),
     getFollowSpeed: (name)                 => Deno.core.ops.bsengine_get_follow_speed(name),
     setLookAtTarget:(name, target)         => Deno.core.ops.bsengine_set_look_at_target(name, target),
-    setLookAtUp:    (name, x, y, z)        => Deno.core.ops.bsengine_set_look_at_up(name, x, y, z),
+    setLookAtUp: (name, a, b, c) => { const [x, y, z] = _xyz(a, b, c); Deno.core.ops.bsengine_set_look_at_up(name, x, y, z); },
     getLookAtTarget:(name)                 => JSON.parse(Deno.core.ops.bsengine_get_look_at_target(name)),
     getLookAtUpX:   (name)                 => Deno.core.ops.bsengine_get_look_at_up_x(name),
     getLookAtUpY:   (name)                 => Deno.core.ops.bsengine_get_look_at_up_y(name),
@@ -445,7 +457,7 @@ var Bsengine = {
 
 
 
-    lookAt:         (name, tx, ty, tz)     => Deno.core.ops.bsengine_look_at(name, tx, ty, tz),
+    lookAt: (name, a, b, c) => { const [x, y, z] = _xyz(a, b, c); Deno.core.ops.bsengine_look_at(name, x, y, z); },
 
     // Time
     getTime:        ()                     => Deno.core.ops.bsengine_get_time(),
@@ -462,9 +474,9 @@ var Bsengine = {
     getVelocityX:     (name) => Deno.core.ops.bsengine_get_velocity_x(name),
     getVelocityY:     (name) => Deno.core.ops.bsengine_get_velocity_y(name),
     getVelocityZ:     (name) => Deno.core.ops.bsengine_get_velocity_z(name),
-    addImpulse:       (name, fx, fy, fz) => Deno.core.ops.bsengine_add_impulse(name, fx, fy, fz),
+    addImpulse: (name, a, b, c) => { const [x, y, z] = _xyz(a, b, c); Deno.core.ops.bsengine_add_impulse(name, x, y, z); },
     applyImpulseAtPoint: (name, fx, fy, fz, px, py, pz) => Deno.core.ops.bsengine_apply_impulse_at_point(name, fx, fy, fz, px, py, pz),
-    addForce:         (name, fx, fy, fz) => Deno.core.ops.bsengine_add_force(name, fx, fy, fz),
+    addForce: (name, a, b, c) => { const [x, y, z] = _xyz(a, b, c); Deno.core.ops.bsengine_add_force(name, x, y, z); },
     addForceAtPoint:  (name, fx, fy, fz, px, py, pz) => Deno.core.ops.bsengine_add_force_at_point(name, fx, fy, fz, px, py, pz),
     // Discards force/torque added earlier in this same frame, before the
     // physics step applies it. Forces last exactly one step, so this is only
@@ -475,7 +487,7 @@ var Bsengine = {
     // wherever that entity currently is -- so a hit effect moves the emitter to
     // the impact point first.
     burstParticles:   (name) => Deno.core.ops.bsengine_burst_particles(name),
-    setVelocity:      (name, vx, vy, vz) => Deno.core.ops.bsengine_set_velocity(name, vx, vy, vz),
+    setVelocity: (name, a, b, c) => { const [x, y, z] = _xyz(a, b, c); Deno.core.ops.bsengine_set_velocity(name, x, y, z); },
     setVelocityX:     (name, vx) => Deno.core.ops.bsengine_set_velocity_x(name, vx),
     setVelocityY:     (name, vy) => Deno.core.ops.bsengine_set_velocity_y(name, vy),
     setVelocityZ:     (name, vz) => Deno.core.ops.bsengine_set_velocity_z(name, vz),
@@ -485,13 +497,13 @@ var Bsengine = {
     getAngularVelocityX:  (name) => Deno.core.ops.bsengine_get_angular_velocity_x(name),
     getAngularVelocityY:  (name) => Deno.core.ops.bsengine_get_angular_velocity_y(name),
     getAngularVelocityZ:  (name) => Deno.core.ops.bsengine_get_angular_velocity_z(name),
-    setAngularVelocity:   (name, vx, vy, vz)      => Deno.core.ops.bsengine_set_angular_velocity(name, vx, vy, vz),
+    setAngularVelocity: (name, a, b, c) => { const [x, y, z] = _xyz(a, b, c); Deno.core.ops.bsengine_set_angular_velocity(name, x, y, z); },
     setAngularVelocityX:  (name, vx) => Deno.core.ops.bsengine_set_angular_velocity_x(name, vx),
     setAngularVelocityY:  (name, vy) => Deno.core.ops.bsengine_set_angular_velocity_y(name, vy),
     setAngularVelocityZ:  (name, vz) => Deno.core.ops.bsengine_set_angular_velocity_z(name, vz),
-    addVelocity:          (name, vx, vy, vz) => Deno.core.ops.bsengine_add_velocity(name, vx, vy, vz),
-    addAngularVelocity:   (name, vx, vy, vz) => Deno.core.ops.bsengine_add_angular_velocity(name, vx, vy, vz),
-    addAngularImpulse:    (name, vx, vy, vz)      => Deno.core.ops.bsengine_add_angular_impulse(name, vx, vy, vz),
+    addVelocity: (name, a, b, c) => { const [x, y, z] = _xyz(a, b, c); Deno.core.ops.bsengine_add_velocity(name, x, y, z); },
+    addAngularVelocity: (name, a, b, c) => { const [x, y, z] = _xyz(a, b, c); Deno.core.ops.bsengine_add_angular_velocity(name, x, y, z); },
+    addAngularImpulse: (name, a, b, c) => { const [x, y, z] = _xyz(a, b, c); Deno.core.ops.bsengine_add_angular_impulse(name, x, y, z); },
     addTorque:            (name, vx, vy, vz)      => Deno.core.ops.bsengine_add_torque(name, vx, vy, vz),
     setCCDEnabled:        (name, enabled)           => Deno.core.ops.bsengine_set_ccd_enabled(name, enabled),
     setLinearDamping:     (name, damping)          => Deno.core.ops.bsengine_set_linear_damping(name, damping),

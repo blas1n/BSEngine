@@ -1,9 +1,63 @@
+// --- Value types -------------------------------------------------------
+//
+// Modelled on Unity's Vector3/Quaternion: same names, same static/instance
+// split, so knowledge transfers. Three things differ, and only because JS
+// forces them:
+//
+//   1. No operator overloading. `a + b` is `a.add(b)`; `q * v` is
+//      `q.rotate(v)`; `q * p` is `q.mul(p)`.
+//   2. No `ref`/`out`. The Unity methods that hand back extra values return
+//      objects instead: smoothDamp -> {value, velocity},
+//      orthoNormalize -> {normal, tangent}, toAngleAxis -> {angle, axis}.
+//   3. **These are immutable.** Unity's Vector3 is a struct, so its Set() and
+//      instance Normalize() mutate a copy and are safe. A JS object is a
+//      reference, so the same methods would let one script corrupt a vector
+//      another script is still holding. Every operation returns a new
+//      instance, and Unity's mutating methods are deliberately absent.
+//
+// `function` rather than `class`, and hung off `Bsengine` rather than declared
+// at top level, for the same reason the global is a `var`: the prelude is
+// re-executed in the SAME V8 isolate on scene reload, and a top-level `class`
+// throws "Identifier has already been declared" on the second run.
+
+function _V3(x, y, z) {
+    this.x = x;
+    this.y = y;
+    this.z = z;
+}
+_V3.prototype = {
+    get magnitude() { return Math.sqrt(this.x * this.x + this.y * this.y + this.z * this.z); },
+    get sqrMagnitude() { return this.x * this.x + this.y * this.y + this.z * this.z; },
+    get normalized() {
+        const m = this.magnitude;
+        // Unity returns zero rather than NaN for a zero-length vector. A NaN
+        // that escapes into a Transform is invisible until something
+        // downstream renders nothing at all.
+        return m > 1e-9 ? new _V3(this.x / m, this.y / m, this.z / m) : new _V3(0, 0, 0);
+    },
+    add(v) { return new _V3(this.x + v.x, this.y + v.y, this.z + v.z); },
+    sub(v) { return new _V3(this.x - v.x, this.y - v.y, this.z - v.z); },
+    mul(s) { return new _V3(this.x * s, this.y * s, this.z * s); },
+    div(s) { return new _V3(this.x / s, this.y / s, this.z / s); },
+    neg()  { return new _V3(-this.x, -this.y, -this.z); },
+    equals(v, tolerance) {
+        const t = tolerance === undefined ? 1e-5 : tolerance;
+        return Math.abs(this.x - v.x) <= t
+            && Math.abs(this.y - v.y) <= t
+            && Math.abs(this.z - v.z) <= t;
+    },
+    clone() { return new _V3(this.x, this.y, this.z); },
+    toString() { return "(" + this.x + ", " + this.y + ", " + this.z + ")"; },
+};
+
 // `var`, not `const`: scene reload re-runs this bootstrap in the SAME V8
 // isolate/global scope (see handle_scene_load in bsengine-runtime) rather
 // than spinning up a new isolate. `const`/`let` at top level would throw
 // "Identifier 'Bsengine' has already been declared" on the second run;
 // `var` (and plain reassignment) is redeclaration-safe.
 var Bsengine = {
+    Vec3: _V3,
+    vec3: (x, y, z) => new _V3(x, y, z),
     log:            (msg)                  => Deno.core.ops.bsengine_log(msg),
     version:        ()                     => Deno.core.ops.bsengine_version(),
     getTransform:      (name)                 => Deno.core.ops.bsengine_get_transform(name),
@@ -667,3 +721,18 @@ var Bsengine = {
         }
     },
 };
+
+// --- Vec3 statics ------------------------------------------------------
+//
+// Shared instances, which is safe only because the type is immutable: with a
+// mutating method, `Bsengine.Vec3.up.x = 5` would poison every later reader.
+Bsengine.Vec3.zero    = new _V3(0, 0, 0);
+Bsengine.Vec3.one     = new _V3(1, 1, 1);
+Bsengine.Vec3.up      = new _V3(0, 1, 0);
+Bsengine.Vec3.down    = new _V3(0, -1, 0);
+Bsengine.Vec3.left    = new _V3(-1, 0, 0);
+Bsengine.Vec3.right   = new _V3(1, 0, 0);
+Bsengine.Vec3.forward = new _V3(0, 0, 1);
+Bsengine.Vec3.back    = new _V3(0, 0, -1);
+Bsengine.Vec3.positiveInfinity = new _V3(Infinity, Infinity, Infinity);
+Bsengine.Vec3.negativeInfinity = new _V3(-Infinity, -Infinity, -Infinity);

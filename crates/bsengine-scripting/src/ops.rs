@@ -6250,6 +6250,70 @@ pub const BOOTSTRAP_JS: &str = include_str!("js/prelude.js");
 mod tests {
     use crate::runtime::ScriptRuntime;
 
+    /// Evaluates `expr` against a runtime with the prelude loaded.
+    fn eval_js(expr: &str) -> String {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(expr).unwrap()
+    }
+
+    #[test]
+    fn vec3_has_unitys_constants() {
+        // Names and values taken from Unity's Vector3 statics, so knowledge
+        // transfers: someone who knows `Vector3.forward` is +Z finds it here.
+        let r = eval_js(
+            r#"JSON.stringify([
+                Bsengine.Vec3.zero, Bsengine.Vec3.one, Bsengine.Vec3.up,
+                Bsengine.Vec3.down, Bsengine.Vec3.left, Bsengine.Vec3.right,
+                Bsengine.Vec3.forward, Bsengine.Vec3.back,
+            ].map(v => [v.x, v.y, v.z]))"#,
+        );
+        assert_eq!(
+            r.trim(),
+            "[[0,0,0],[1,1,1],[0,1,0],[0,-1,0],[-1,0,0],[1,0,0],[0,0,1],[0,0,-1]]"
+        );
+    }
+
+    #[test]
+    fn vec3_operators_are_methods_and_do_not_mutate() {
+        // JS has no operator overloading, so Unity's `a + b` is `a.add(b)`.
+        // And because a JS object is a reference where Unity's Vector3 is a
+        // struct, every operation must return a NEW instance -- otherwise one
+        // script mutating a vector it got from another silently corrupts it.
+        let r = eval_js(
+            r#"
+            const a = Bsengine.vec3(1, 2, 3);
+            const b = Bsengine.vec3(10, 20, 30);
+            const sum = a.add(b);
+            JSON.stringify([[sum.x, sum.y, sum.z], [a.x, a.y, a.z]])"#,
+        );
+        assert_eq!(
+            r.trim(),
+            "[[11,22,33],[1,2,3]]",
+            "add must return a new vector and leave the operand untouched"
+        );
+    }
+
+    #[test]
+    fn vec3_magnitude_and_normalized() {
+        let r = eval_js(
+            r#"
+            const v = Bsengine.vec3(3, 4, 0);
+            const n = v.normalized;
+            JSON.stringify([v.magnitude, v.sqrMagnitude, n.x, n.y, n.z])"#,
+        );
+        assert_eq!(r.trim(), "[5,25,0.6,0.8,0]");
+    }
+
+    #[test]
+    fn normalizing_a_zero_vector_gives_zero_rather_than_nan() {
+        // Unity returns Vector3.zero here rather than (NaN, NaN, NaN), and a
+        // NaN that escapes into a Transform is invisible until something
+        // downstream renders nothing at all.
+        let r = eval_js(r#"String(Bsengine.vec3(0,0,0).normalized.x)"#);
+        assert_eq!(r.trim(), "0");
+    }
+
     #[test]
     fn op_log_callable_from_script() {
         let mut rt = ScriptRuntime::new_with_ops();

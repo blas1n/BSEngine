@@ -399,7 +399,7 @@ mod tests {
     fn gltf_plugin_builds_and_runs() {
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
-        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(GltfPlugin);
         app.update();
     }
@@ -424,7 +424,7 @@ mod tests {
         // returns early and the GltfAsset marker stays on the entity.
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
-        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(GltfPlugin);
         let e = app.world_mut().spawn(GltfAsset::new("bad.gltf")).id();
         app.update();
@@ -440,7 +440,7 @@ mod tests {
         // Task 7, once a real .glb fixture exists).
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
-        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(GltfPlugin);
         let e = app.world_mut().spawn(GltfAsset::new("missing.gltf")).id();
         app.update();
@@ -465,7 +465,7 @@ mod tests {
 
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
-        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(GltfPlugin);
 
         let handle = {
@@ -791,7 +791,7 @@ mod tests {
 
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
-        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(GltfPlugin);
         insert_headless_gpu_registries(&mut app);
         let e = app.world_mut().spawn(GltfAsset::new(path.clone())).id();
@@ -958,7 +958,7 @@ mod tests {
 
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
-        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(GltfPlugin);
         app.add_plugins(SkinnedMeshPlugin);
         insert_headless_gpu_registries(&mut app);
@@ -1291,7 +1291,7 @@ mod tests {
     fn missing_gltf_is_given_up_on_instead_of_retried_forever() {
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
-        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(GltfPlugin);
         let e = app
             .world_mut()

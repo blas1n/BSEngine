@@ -36,7 +36,7 @@ struct Item;
 
 fn main() {
     new_app()
-        .add_plugins(WgpuRHIPlugin)
+        .add_plugins(WgpuRHIPlugin::windowed())
         .add_plugins(WindowPlugin {
             descriptor: WindowDescriptor {
                 title: "Cube Roller".to_string(),

@@ -74,7 +74,7 @@ fn main() {
         // editor ever grows an open-a-project flow that swaps it, this scan
         // and the watcher both need rerunning, together.
         .add_plugins(AssetIdentityPlugin)
-        .add_plugins(WgpuRHIPlugin)
+        .add_plugins(WgpuRHIPlugin::windowed())
         .add_plugins(WindowPlugin {
             descriptor: WindowDescriptor {
                 title: "BSEngine Editor".to_string(),

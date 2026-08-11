@@ -16,7 +16,7 @@ use glam::{Quat, Vec3};
 
 fn main() {
     new_app()
-        .add_plugins(WgpuRHIPlugin)
+        .add_plugins(WgpuRHIPlugin::windowed())
         .add_plugins(WindowPlugin::default())
         .add_plugins(InputPlugin)
         .add_plugins(RenderPlugin)

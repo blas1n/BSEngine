@@ -71,7 +71,7 @@ fn main() {
             resizable: true,
         },
     });
-    app.add_plugins(WgpuRHIPlugin);
+    app.add_plugins(WgpuRHIPlugin::windowed());
     app.add_plugins(RenderPlugin);
     app.add_plugins(GltfPlugin);
     app.add_systems(Update, (setup, spin));

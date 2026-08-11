@@ -1069,7 +1069,7 @@ mod tests {
 
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
-        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(RenderPlugin);
         app.world_mut()
             .spawn(bsengine_core::CustomShader { path: path.clone() });
@@ -1177,7 +1177,7 @@ mod tests {
 
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
-        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(RenderPlugin);
         app.world_mut()
             .spawn(bsengine_core::CustomShader { path: path.clone() });
@@ -1389,7 +1389,7 @@ mod tests {
     fn missing_shader_is_given_up_on_instead_of_retried_forever() {
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
-        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(RenderPlugin);
         app.world_mut().spawn(bsengine_core::CustomShader {
             path: "definitely/not/a/real/shader.wgsl".to_string(),
@@ -1470,7 +1470,7 @@ mod tests {
 
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
-        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(RenderPlugin);
         app.insert_resource(bsengine_core::SkyboxPath(Some(path.clone())));
 
@@ -1578,7 +1578,7 @@ mod tests {
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(AssetStatusPlugin);
-        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(RenderPlugin);
         app.insert_resource(bsengine_core::SkyboxPath(Some(path.clone())));
 
@@ -1610,7 +1610,7 @@ mod tests {
     fn missing_skybox_is_given_up_on_instead_of_retried_forever() {
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
-        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(RenderPlugin);
         app.insert_resource(bsengine_core::SkyboxPath(Some(
             "definitely/not/a/real/sky.png".to_string(),
@@ -1666,7 +1666,7 @@ mod tests {
     fn skybox_path_change_mid_load_requests_the_new_path_instead() {
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
-        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(RenderPlugin);
         app.insert_resource(bsengine_core::SkyboxPath(Some("first/sky.png".to_string())));
 
@@ -1715,7 +1715,7 @@ mod tests {
     fn turning_the_skybox_off_mid_load_drops_the_in_flight_request() {
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
-        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(RenderPlugin);
         app.insert_resource(bsengine_core::SkyboxPath(Some("some/sky.png".to_string())));
 
@@ -1743,7 +1743,7 @@ mod tests {
     #[test]
     fn render_plugin_runs_with_rhi_headless() {
         let mut app = new_app();
-        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(RenderPlugin);
         app.update();
@@ -1754,7 +1754,7 @@ mod tests {
     #[test]
     fn camera_aspect_updates_on_window_resize() {
         let mut app = new_app();
-        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(RenderPlugin);
 
@@ -1773,7 +1773,7 @@ mod tests {
     #[test]
     fn render_plugin_accepts_point_lights() {
         let mut app = new_app();
-        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(RenderPlugin);
         app.world_mut().spawn((
@@ -1790,7 +1790,7 @@ mod tests {
     #[test]
     fn render_plugin_uses_pbr_material() {
         let mut app = new_app();
-        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(RenderPlugin);
         app.world_mut().spawn((
@@ -1810,7 +1810,7 @@ mod tests {
     fn render_plugin_accepts_spot_lights() {
         use bsengine_core::SpotLight;
         let mut app = new_app();
-        app.add_plugins(WgpuRHIPlugin);
+        app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(RenderPlugin);
         app.world_mut().spawn((

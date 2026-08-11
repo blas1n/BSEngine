@@ -293,10 +293,9 @@ mod tests {
     /// codebase's own tests crashed wgpu with "Dimension X is zero".
     #[test]
     fn window_section_defaults_to_1280x720_when_window_table_is_absent() {
-        let manifest: super::ProjectManifest = toml::from_str(
-            "[project]\nname = \"Test\"\nentry_scene = \"assets/scenes/a.ron\"\n",
-        )
-        .expect("a project.toml with no [window] table must still parse");
+        let manifest: super::ProjectManifest =
+            toml::from_str("[project]\nname = \"Test\"\nentry_scene = \"assets/scenes/a.ron\"\n")
+                .expect("a project.toml with no [window] table must still parse");
         assert_eq!(
             manifest.window.width, 1280,
             "width must fall back to the same default a present-but-empty \

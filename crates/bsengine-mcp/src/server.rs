@@ -119,9 +119,7 @@ impl McpServer {
         match reg.execute(&name, args) {
             Ok(out) => {
                 if out.is_ok() {
-                    json!({
-                        "content": [{ "type": "text", "text": out.content.to_string() }],
-                    })
+                    json!({ "content": [content_block(&out.content)] })
                 } else {
                     json!({
                         "content": [{ "type": "text", "text": out.error.unwrap_or_default() }],
@@ -143,6 +141,19 @@ impl McpServer {
             "error": { "code": code, "message": message },
         })
     }
+}
+
+/// A successful tool output's MCP content block. A `screenshot` query's
+/// `{"format": "png", "data_base64": "..."}` becomes a standard MCP image
+/// block so a client renders it as a picture instead of a wall of base64
+/// text; everything else keeps going out as text, exactly as before.
+fn content_block(content: &Value) -> Value {
+    if content.get("format").and_then(|v| v.as_str()) == Some("png") {
+        if let Some(data) = content.get("data_base64").and_then(|v| v.as_str()) {
+            return json!({ "type": "image", "data": data, "mimeType": "image/png" });
+        }
+    }
+    json!({ "type": "text", "text": content.to_string() })
 }
 
 #[cfg(test)]
@@ -205,6 +216,49 @@ mod tests {
         let content = resp["result"]["content"].as_array().unwrap();
         assert_eq!(content[0]["type"], "text");
         assert!(content[0]["text"].as_str().unwrap().contains("pong"));
+    }
+
+    #[test]
+    fn tools_call_wraps_a_png_payload_as_an_image_content_block() {
+        let mut reg = McpToolRegistry::new();
+        reg.register(McpTool {
+            name: "fake_screenshot".to_string(),
+            description: "test".to_string(),
+            input_schema: None,
+            handler: Box::new(|_| {
+                McpToolOutput::success(json!({
+                    "width": 1,
+                    "height": 1,
+                    "format": "png",
+                    "data_base64": "iVBORw0KGgo=",
+                }))
+            }),
+        });
+        let server = McpServer::new(Arc::new(Mutex::new(reg)));
+        let resp = server
+            .handle_message(json!({
+                "jsonrpc": "2.0", "id": 7,
+                "method": "tools/call",
+                "params": { "name": "fake_screenshot", "arguments": {} }
+            }))
+            .unwrap();
+        let content = &resp["result"]["content"][0];
+        assert_eq!(content["type"], "image");
+        assert_eq!(content["mimeType"], "image/png");
+        assert_eq!(content["data"], "iVBORw0KGgo=");
+    }
+
+    #[test]
+    fn tools_call_still_wraps_non_png_output_as_text() {
+        let server = make_server();
+        let resp = server
+            .handle_message(json!({
+                "jsonrpc": "2.0", "id": 8,
+                "method": "tools/call",
+                "params": { "name": "ping", "arguments": {} }
+            }))
+            .unwrap();
+        assert_eq!(resp["result"]["content"][0]["type"], "text");
     }
 
     #[test]

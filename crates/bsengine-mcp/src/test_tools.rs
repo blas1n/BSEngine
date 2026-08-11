@@ -205,10 +205,10 @@ fn asset_status_tool(registry: Arc<SessionRegistry>) -> McpTool {
             \"failed: \" plus the reason. Spell `path` project-relative, exactly as a \
             scene or script spells it — e.g. \"assets/sounds/hit.wav\", the same string \
             you would pass to Bsengine.playSound. (The engine's own fully-qualified key, \
-            this session's project directory followed by that, also works.) NOTE: a \
-            --test session builds no renderer and no glTF importer, so meshes, shaders \
-            and textures are never requested there and read \"unknown\" no matter how \
-            they are spelled; sounds and scripts are requested and are tracked. When the \
+            this session's project directory followed by that, also works.) A \
+            --test session now builds a renderer and a glTF importer too, so meshes, \
+            shaders and textures are requested and tracked exactly as sounds and scripts \
+            already were. When the \
             answer is \"unknown\", the result also carries `known_paths`: every path this \
             session does know about, so a spelling mistake is visible rather than \
             guessable. Also available as the get_asset_status query tool, so \

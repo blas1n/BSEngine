@@ -115,10 +115,11 @@ pub fn get_asset_status(world: &mut World, path: &str) -> Value {
 /// # Why this exists next to [`get_asset_status`]
 ///
 /// `"unknown"` is the one answer that is indistinguishable from a typo. It is
-/// also the answer a caller gets for a path this app genuinely never requested
-/// — and in `--test` mode that is a large, non-obvious set, because the
-/// headless app builds no `RenderPlugin` and no `GltfPlugin`, so no mesh,
-/// shader or texture is ever asked for (see `test_mode::build_test_app`).
+/// also the answer a caller gets for a path this app genuinely never requested.
+/// `--test` mode carries `RenderPlugin`/`GltfPlugin` (see
+/// `test_mode::build_test_app`), so meshes, shaders and textures are asked
+/// for exactly as they are in the windowed runtime; "unknown" here means
+/// what it says.
 /// Handing back the keys the engine *does* hold turns "I cannot tell which of
 /// those two happened" into a fact the caller can read, without a second
 /// guess at the spelling.

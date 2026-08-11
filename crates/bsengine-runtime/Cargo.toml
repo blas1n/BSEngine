@@ -26,6 +26,8 @@ bsengine-network   = { workspace = true }
 bsengine-editor    = { workspace = true }
 bsengine-scripting = { workspace = true }
 bsengine-window    = { workspace = true }
+image           = { workspace = true }
+base64          = { workspace = true }
 bevy_ecs        = { workspace = true }
 kira            = { workspace = true }
 ron             = { workspace = true }

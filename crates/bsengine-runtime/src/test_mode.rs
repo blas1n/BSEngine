@@ -958,6 +958,39 @@ mod tests {
         );
     }
 
+    #[test]
+    fn screenshot_returns_a_decodable_png() {
+        let project_dir = format!("{}/../../games/cube-evader", env!("CARGO_MANIFEST_DIR"));
+        let mut app = build_test_app(&project_dir, None);
+        app.update();
+
+        let result = crate::test_query::run_query(app.world_mut(), "screenshot", &json!({}))
+            .expect("screenshot should succeed once RenderPlugin has drawn a frame");
+        let data_base64 = result["data_base64"]
+            .as_str()
+            .expect("screenshot should return a data_base64 string");
+        use base64::Engine;
+        let png_bytes = base64::engine::general_purpose::STANDARD
+            .decode(data_base64)
+            .expect("data_base64 should be valid base64");
+        assert!(
+            png_bytes.starts_with(&[0x89, b'P', b'N', b'G']),
+            "screenshot bytes should start with the PNG magic number"
+        );
+
+        let decoded = image::load_from_memory(&png_bytes).expect("PNG should actually decode");
+        assert_eq!(
+            decoded.width(),
+            result["width"].as_u64().unwrap() as u32,
+            "decoded PNG width should match the reported width"
+        );
+        assert_eq!(
+            decoded.height(),
+            result["height"].as_u64().unwrap() as u32,
+            "decoded PNG height should match the reported height"
+        );
+    }
+
     // Regression test for the PressKey/ReleaseKey protocol commands: they
     // must route through Events<KeyInput>, not mutate Input<KeyCode>
     // directly, or edge-triggered checks (just_pressed/just_released --

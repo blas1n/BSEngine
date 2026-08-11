@@ -3,6 +3,7 @@
 //! `World` — no scripting/V8 involvement — using the same shapes as the
 //! `Bsengine.*` JS getters for consistency.
 
+use base64::Engine;
 use bevy_ecs::world::World;
 use bsengine_asset::{AssetStatus, AssetStatuses};
 use bsengine_core::{HudTexts, ProjectDir, Transform, Visible};
@@ -158,6 +159,38 @@ pub fn get_pixel(world: &mut World, x: u32, y: u32) -> Result<Value, String> {
     Ok(json!({ "r": r, "g": g, "b": b, "a": a, "luma": luma }))
 }
 
+/// Encodes the most recently rendered frame as a PNG, base64-encoded so it
+/// travels as one JSON string field. Errors when no renderer is attached (no
+/// `WgpuSurfaceResource`), when the buffer `read_pixels()` returns doesn't
+/// match the surface's own width/height (shouldn't happen in practice --
+/// `read_pixels` always returns exactly `width*height*4` bytes, but this
+/// turns a future contract violation into a clean error instead of a panic
+/// in `RgbaImage::from_raw`), or if PNG encoding itself fails.
+pub fn screenshot(world: &mut World) -> Result<Value, String> {
+    let surface = world.get_resource::<WgpuSurfaceResource>().ok_or_else(|| {
+        "no renderer attached: screenshot needs a WgpuSurfaceResource".to_string()
+    })?;
+    let width = surface.0.width();
+    let height = surface.0.height();
+    let data = surface.0.read_pixels()?;
+    let image = image::RgbaImage::from_raw(width, height, data)
+        .ok_or_else(|| "read_pixels returned a buffer the wrong size for the frame".to_string())?;
+    let mut png_bytes = Vec::new();
+    image
+        .write_to(
+            &mut std::io::Cursor::new(&mut png_bytes),
+            image::ImageFormat::Png,
+        )
+        .map_err(|e| format!("failed to encode PNG: {e}"))?;
+    let data_base64 = base64::engine::general_purpose::STANDARD.encode(&png_bytes);
+    Ok(json!({
+        "width": width,
+        "height": height,
+        "format": "png",
+        "data_base64": data_base64,
+    }))
+}
+
 pub fn run_query(world: &mut World, tool: &str, args: &Value) -> Result<Value, String> {
     match tool {
         "get_transform" => {
@@ -203,6 +236,7 @@ pub fn run_query(world: &mut World, tool: &str, args: &Value) -> Result<Value, S
                 as u32;
             get_pixel(world, x, y)
         }
+        "screenshot" => screenshot(world),
         other => Err(format!("unknown query tool: {other}")),
     }
 }
@@ -448,6 +482,13 @@ mod tests {
     fn run_query_get_pixel_errors_when_no_renderer_is_attached() {
         let mut world = World::new();
         let err = run_query(&mut world, "get_pixel", &json!({"x": 0, "y": 0})).unwrap_err();
+        assert!(err.contains("renderer"), "unhelpful error: {err}");
+    }
+
+    #[test]
+    fn run_query_screenshot_errors_when_no_renderer_is_attached() {
+        let mut world = World::new();
+        let err = run_query(&mut world, "screenshot", &json!({})).unwrap_err();
         assert!(err.contains("renderer"), "unhelpful error: {err}");
     }
 }

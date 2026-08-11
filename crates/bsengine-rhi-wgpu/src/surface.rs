@@ -2744,6 +2744,29 @@ impl WgpuSurface {
         self.queue.submit(std::iter::once(encoder.finish()));
         if let Some(frame) = presentable {
             frame.present();
+        } else {
+            // Offscreen mode (headless E2E replays, MCP test sessions) has no
+            // swapchain to present to, so nothing else provides the
+            // backpressure `present()` gives the windowed path above --
+            // every `submit()` here would otherwise queue GPU work with zero
+            // synchronization between frames. Submitting faster than the GPU
+            // retires work can wrap wgpu-hal's D3D12 command-allocator ring
+            // before the GPU has finished an allocator's previous use,
+            // producing a hard D3D12 validation error (COMMAND_ALLOCATOR_SYNC
+            // / OBJECT_DELETED_WHILE_STILL_IN_USE) -- reproduced by every one
+            // of this workspace's E2E replays on Windows CI once offscreen
+            // rendering was turned on for the headless test runtime.
+            //
+            // Has to be inline here, not in `WgpuSurface`'s `Drop` impl: both
+            // teardown paths that hit this bug skip Rust destructors
+            // entirely -- an E2E replay's process exits via
+            // `std::process::exit` (`bsengine-runtime/src/main.rs`), and an
+            // MCP session's child is torn down via `Child::kill`
+            // (`bsengine-mcp/src/session.rs`) -- so a `Drop`-based wait alone
+            // (tried first; still present below, for the paths that *do*
+            // drop normally, e.g. this crate's own tests) never runs on
+            // either failing path.
+            self.device.poll(wgpu::Maintain::Wait);
         }
         Ok(clicked)
     }
@@ -2922,17 +2945,18 @@ impl WgpuSurface {
 
 impl Drop for WgpuSurface {
     fn drop(&mut self) {
-        // Every frame submits GPU work via `queue.submit` in `render_frame`.
-        // The windowed path gets implicit backpressure from `frame.present()`
-        // and the swapchain's PresentMode::Fifo; the offscreen path (headless
-        // E2E replays, MCP test sessions) has no swapchain and nothing to
-        // present, so nothing else ever waits for the GPU to catch up. Without
-        // this, dropping a WgpuSurface right after the last frame's submit can
-        // release the device/queue/staging buffers while the GPU still has
-        // that work in flight -- on Windows this is a hard D3D12 validation
-        // error (COMMAND_ALLOCATOR_SYNC / OBJECT_DELETED_WHILE_STILL_IN_USE),
-        // reproduced by every one of this workspace's E2E replays once
-        // offscreen rendering was turned on for the headless test runtime.
+        // Defense in depth for hosts that drop a WgpuSurface normally --
+        // this crate's own tests build an offscreen surface and let it go
+        // out of scope at the end of the test function, which does run
+        // Drop. It does NOT cover headless E2E replays or MCP test
+        // sessions: both tear their process down by means that skip Rust
+        // destructors entirely (`std::process::exit` in
+        // `bsengine-runtime/src/main.rs`, `Child::kill` in
+        // `bsengine-mcp/src/session.rs`), so this never runs on either of
+        // those paths. `render_frame`'s inline `device.poll(Maintain::Wait)`
+        // on the offscreen branch (see there) is what actually covers those
+        // -- this Drop impl alone was tried first and confirmed
+        // insufficient: CI failed identically with only this in place.
         self.device.poll(wgpu::Maintain::Wait);
     }
 }

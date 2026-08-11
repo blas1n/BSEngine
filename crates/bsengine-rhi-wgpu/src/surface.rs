@@ -802,6 +802,16 @@ impl WgpuSurface {
         }
     }
 
+    /// The width of the render target, in pixels.
+    pub fn width(&self) -> u32 {
+        self.output.width()
+    }
+
+    /// The height of the render target, in pixels.
+    pub fn height(&self) -> u32 {
+        self.output.height()
+    }
+
     /// This renderer's GPU device, for callers that must put resources on the
     /// same device -- a `GpuMeshRegistry`, for one.
     pub fn device_arc(&self) -> Arc<wgpu::Device> {

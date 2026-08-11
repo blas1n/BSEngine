@@ -943,6 +943,21 @@ mod tests {
         );
     }
 
+    #[test]
+    fn get_pixel_reads_the_last_rendered_frame() {
+        let project_dir = format!("{}/../../games/cube-evader", env!("CARGO_MANIFEST_DIR"));
+        let mut app = build_test_app(&project_dir, None);
+        app.update();
+
+        let result =
+            crate::test_query::run_query(app.world_mut(), "get_pixel", &json!({"x": 0, "y": 0}))
+                .expect("get_pixel should succeed once RenderPlugin has drawn a frame");
+        assert!(
+            result.get("luma").and_then(|v| v.as_f64()).is_some(),
+            "get_pixel should report a luma value, got {result:?}"
+        );
+    }
+
     // Regression test for the PressKey/ReleaseKey protocol commands: they
     // must route through Events<KeyInput>, not mutate Input<KeyCode>
     // directly, or edge-triggered checks (just_pressed/just_released --

@@ -2920,6 +2920,23 @@ impl WgpuSurface {
     }
 }
 
+impl Drop for WgpuSurface {
+    fn drop(&mut self) {
+        // Every frame submits GPU work via `queue.submit` in `render_frame`.
+        // The windowed path gets implicit backpressure from `frame.present()`
+        // and the swapchain's PresentMode::Fifo; the offscreen path (headless
+        // E2E replays, MCP test sessions) has no swapchain and nothing to
+        // present, so nothing else ever waits for the GPU to catch up. Without
+        // this, dropping a WgpuSurface right after the last frame's submit can
+        // release the device/queue/staging buffers while the GPU still has
+        // that work in flight -- on Windows this is a hard D3D12 validation
+        // error (COMMAND_ALLOCATOR_SYNC / OBJECT_DELETED_WHILE_STILL_IN_USE),
+        // reproduced by every one of this workspace's E2E replays once
+        // offscreen rendering was turned on for the headless test runtime.
+        self.device.poll(wgpu::Maintain::Wait);
+    }
+}
+
 /// ECS resource wrapping the app's [`WgpuSurface`].
 #[derive(Resource)]
 pub struct WgpuSurfaceResource(pub WgpuSurface);

@@ -1112,6 +1112,7 @@ dependencies = [
 name = "bsengine-runtime"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "bevy_app",
  "bevy_ecs",
  "bsengine-app",
@@ -1130,6 +1131,7 @@ dependencies = [
  "bsengine-scripting",
  "bsengine-window",
  "glam 0.29.3",
+ "image",
  "kira",
  "ron",
  "serde",

@@ -105,6 +105,106 @@ fn full_session_round_trip() {
     assert!(out.is_ok(), "{:?}", out.error);
 }
 
+#[test]
+fn get_pixel_and_screenshot_work_through_test_query_state() {
+    let tools = test_tools(test_registry());
+
+    let start = find(&tools, "test_session_start");
+    let out = (start.handler)(json!({"game": "cube-evader"}));
+    assert!(out.is_ok(), "{:?}", out.error);
+    let session_id = out.content["session_id"].as_str().unwrap().to_string();
+
+    let step = find(&tools, "test_step");
+    let out = (step.handler)(json!({"session_id": session_id, "frames": 1}));
+    assert!(out.is_ok(), "{:?}", out.error);
+
+    let query = find(&tools, "test_query_state");
+    let out = (query.handler)(json!({
+        "session_id": session_id,
+        "tool": "get_pixel",
+        "args": {"x": 0, "y": 0},
+    }));
+    assert!(out.is_ok(), "{:?}", out.error);
+    assert!(out.content["luma"].is_number(), "{:?}", out.content);
+
+    let out = (query.handler)(json!({
+        "session_id": session_id,
+        "tool": "screenshot",
+        "args": {},
+    }));
+    assert!(out.is_ok(), "{:?}", out.error);
+    assert_eq!(out.content["format"], "png");
+    assert!(out.content["data_base64"].is_string());
+}
+
+/// The property `get_pixel_and_screenshot_work_through_test_query_state` does
+/// not cover: that a real `screenshot` payload from a real running game,
+/// wrapped by a real `McpServer::handle_message`'s `tools/call` path, comes
+/// out as an MCP image content block. That test calls `test_query_state`'s
+/// handler directly, bypassing `handle_message`/`content_block` entirely, so
+/// nothing proved the two halves — real PNG bytes, and the JSON-RPC layer
+/// that recognizes them — actually compose. `server.rs`'s own
+/// `tools_call_wraps_a_png_payload_as_an_image_content_block` proves
+/// `content_block`'s detection logic against a synthetic fixture; this proves
+/// the same wrapping against the genuine `screenshot` tool's output.
+#[test]
+fn screenshot_reaches_an_mcp_client_as_an_image_content_block() {
+    use std::sync::Mutex;
+
+    use bsengine_mcp::{McpServer, McpToolRegistry};
+
+    let tools = test_tools(test_registry());
+
+    // Session lifecycle via direct handler calls, same pattern as every
+    // other test in this file — the part under test is the query call, not
+    // session setup.
+    let start = find(&tools, "test_session_start");
+    let out = (start.handler)(json!({"game": "cube-evader"}));
+    assert!(out.is_ok(), "{:?}", out.error);
+    let session_id = out.content["session_id"].as_str().unwrap().to_string();
+
+    let step = find(&tools, "test_step");
+    let out = (step.handler)(json!({"session_id": session_id, "frames": 1}));
+    assert!(out.is_ok(), "{:?}", out.error);
+
+    // Now hand the same tools (still bound to the session that's live above)
+    // to a real McpServer, and drive the screenshot query the way an actual
+    // MCP client would: a JSON-RPC tools/call request through handle_message.
+    let mut registry = McpToolRegistry::new();
+    for tool in tools {
+        registry.register(tool);
+    }
+    let server = McpServer::new(Arc::new(Mutex::new(registry)));
+
+    let resp = server
+        .handle_message(json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "test_query_state",
+                "arguments": {
+                    "session_id": session_id,
+                    "tool": "screenshot",
+                    "args": {},
+                },
+            },
+        }))
+        .expect("tools/call must produce a response");
+
+    assert!(
+        !resp["result"]["isError"].as_bool().unwrap_or(false),
+        "tools/call reported an error: {resp:?}"
+    );
+    let content = &resp["result"]["content"][0];
+    assert_eq!(content["type"], "image", "{resp:?}");
+    assert_eq!(content["mimeType"], "image/png", "{resp:?}");
+    assert!(
+        content["data"].as_str().is_some_and(|d| !d.is_empty()),
+        "the image block must carry real PNG bytes, not an empty placeholder: {resp:?}"
+    );
+}
+
 // Being present in `passthrough_specs()` is not the same as reaching an MCP
 // client: the tool only works if the assembled list carries it and its
 // `child_cmd` is a command the runtime actually parses. Drive it against a

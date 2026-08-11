@@ -44,11 +44,10 @@ fn mini_arenas_pickup_is_transparent() {
 
 #[test]
 fn mini_arenas_floor_is_textured() {
-    // No replay can check this. The headless test app deliberately runs without
-    // RenderPlugin, so nothing there ever requests a texture and
-    // `get_asset_status` correctly answers "unknown" for every image -- the
-    // absence is documented in test_mode.rs, not an oversight. That leaves the
-    // scene file itself as the only place to assert the claim.
+    // A replay can now confirm the texture actually loads (see test_mode.rs's
+    // mini_arenas_fox_mesh_loads_now_that_rendering_is_on and get_asset_status),
+    // but that only proves *a* texture loaded, not that the scene names the
+    // *right* one at the *right* entity. This stays as the check for that.
     let scene = load("games/mini-arena/assets/scenes/main.ron");
     let ground = scene
         .entities

@@ -172,7 +172,7 @@ fn run_windowed(project_dir: &str) {
         // Startup system runs — the same arrangement `AssetWatcherPlugin`
         // relies on above.
         .add_plugins(AssetIdentityPlugin)
-        .add_plugins(WgpuRHIPlugin)
+        .add_plugins(WgpuRHIPlugin::windowed())
         .add_plugins(WindowPlugin {
             descriptor: WindowDescriptor {
                 title,

@@ -3,9 +3,11 @@
 //! `World` — no scripting/V8 involvement — using the same shapes as the
 //! `Bsengine.*` JS getters for consistency.
 
+use base64::Engine;
 use bevy_ecs::world::World;
 use bsengine_asset::{AssetStatus, AssetStatuses};
 use bsengine_core::{HudTexts, ProjectDir, Transform, Visible};
+use bsengine_rhi_wgpu::WgpuSurfaceResource;
 use bsengine_scene::Name;
 use bsengine_scripting::ops::render_asset_status;
 use serde_json::{json, Value};
@@ -113,10 +115,11 @@ pub fn get_asset_status(world: &mut World, path: &str) -> Value {
 /// # Why this exists next to [`get_asset_status`]
 ///
 /// `"unknown"` is the one answer that is indistinguishable from a typo. It is
-/// also the answer a caller gets for a path this app genuinely never requested
-/// — and in `--test` mode that is a large, non-obvious set, because the
-/// headless app builds no `RenderPlugin` and no `GltfPlugin`, so no mesh,
-/// shader or texture is ever asked for (see `test_mode::build_test_app`).
+/// also the answer a caller gets for a path this app genuinely never requested.
+/// `--test` mode carries `RenderPlugin`/`GltfPlugin` (see
+/// `test_mode::build_test_app`), so meshes, shaders and textures are asked
+/// for exactly as they are in the windowed runtime; "unknown" here means
+/// what it says.
 /// Handing back the keys the engine *does* hold turns "I cannot tell which of
 /// those two happened" into a fact the caller can read, without a second
 /// guess at the spelling.
@@ -131,6 +134,62 @@ pub fn get_known_asset_paths(world: &mut World) -> Value {
     };
     paths.sort_unstable();
     json!(paths)
+}
+
+/// Reads one pixel from the most recently rendered frame, as sRGB-encoded
+/// RGBA plus a perceptual brightness (`luma`) computed the same way
+/// `bsengine-rhi-wgpu`'s pixel test harness does. Errors when no renderer is
+/// attached (no `WgpuSurfaceResource` -- a host with no `WgpuRHIPlugin`, or
+/// one still waiting on a `WindowHandle`) or when `x`/`y` fall outside the
+/// frame.
+pub fn get_pixel(world: &mut World, x: u32, y: u32) -> Result<Value, String> {
+    let surface = world
+        .get_resource::<WgpuSurfaceResource>()
+        .ok_or_else(|| "no renderer attached: get_pixel needs a WgpuSurfaceResource".to_string())?;
+    let width = surface.0.width();
+    let height = surface.0.height();
+    if x >= width || y >= height {
+        return Err(format!(
+            "pixel ({x}, {y}) is outside the {width}x{height} frame"
+        ));
+    }
+    let data = surface.0.read_pixels()?;
+    let i = ((y * width + x) * 4) as usize;
+    let (r, g, b, a) = (data[i], data[i + 1], data[i + 2], data[i + 3]);
+    let luma = 0.2126 * r as f32 + 0.7152 * g as f32 + 0.0722 * b as f32;
+    Ok(json!({ "r": r, "g": g, "b": b, "a": a, "luma": luma }))
+}
+
+/// Encodes the most recently rendered frame as a PNG, base64-encoded so it
+/// travels as one JSON string field. Errors when no renderer is attached (no
+/// `WgpuSurfaceResource`), when the buffer `read_pixels()` returns doesn't
+/// match the surface's own width/height (shouldn't happen in practice --
+/// `read_pixels` always returns exactly `width*height*4` bytes, but this
+/// turns a future contract violation into a clean error instead of a panic
+/// in `RgbaImage::from_raw`), or if PNG encoding itself fails.
+pub fn screenshot(world: &mut World) -> Result<Value, String> {
+    let surface = world.get_resource::<WgpuSurfaceResource>().ok_or_else(|| {
+        "no renderer attached: screenshot needs a WgpuSurfaceResource".to_string()
+    })?;
+    let width = surface.0.width();
+    let height = surface.0.height();
+    let data = surface.0.read_pixels()?;
+    let image = image::RgbaImage::from_raw(width, height, data)
+        .ok_or_else(|| "read_pixels returned a buffer the wrong size for the frame".to_string())?;
+    let mut png_bytes = Vec::new();
+    image
+        .write_to(
+            &mut std::io::Cursor::new(&mut png_bytes),
+            image::ImageFormat::Png,
+        )
+        .map_err(|e| format!("failed to encode PNG: {e}"))?;
+    let data_base64 = base64::engine::general_purpose::STANDARD.encode(&png_bytes);
+    Ok(json!({
+        "width": width,
+        "height": height,
+        "format": "png",
+        "data_base64": data_base64,
+    }))
 }
 
 pub fn run_query(world: &mut World, tool: &str, args: &Value) -> Result<Value, String> {
@@ -165,6 +224,20 @@ pub fn run_query(world: &mut World, tool: &str, args: &Value) -> Result<Value, S
             Ok(get_asset_status(world, path))
         }
         "get_known_asset_paths" => Ok(get_known_asset_paths(world)),
+        "get_pixel" => {
+            let x = args
+                .get("x")
+                .and_then(|v| v.as_u64())
+                .ok_or_else(|| "get_pixel requires integer 'x'".to_string())?
+                as u32;
+            let y = args
+                .get("y")
+                .and_then(|v| v.as_u64())
+                .ok_or_else(|| "get_pixel requires integer 'y'".to_string())?
+                as u32;
+            get_pixel(world, x, y)
+        }
+        "screenshot" => screenshot(world),
         other => Err(format!("unknown query tool: {other}")),
     }
 }
@@ -404,5 +477,19 @@ mod tests {
     #[test]
     fn eval_op_unknown_operator_errors() {
         assert!(eval_op(&json!(1), "~=", &json!(1)).is_err());
+    }
+
+    #[test]
+    fn run_query_get_pixel_errors_when_no_renderer_is_attached() {
+        let mut world = World::new();
+        let err = run_query(&mut world, "get_pixel", &json!({"x": 0, "y": 0})).unwrap_err();
+        assert!(err.contains("renderer"), "unhelpful error: {err}");
+    }
+
+    #[test]
+    fn run_query_screenshot_errors_when_no_renderer_is_attached() {
+        let mut world = World::new();
+        let err = run_query(&mut world, "screenshot", &json!({})).unwrap_err();
+        assert!(err.contains("renderer"), "unhelpful error: {err}");
     }
 }

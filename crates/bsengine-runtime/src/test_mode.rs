@@ -17,6 +17,10 @@ use bsengine_scene::ScenePlugin;
 use bsengine_scripting::{ScriptingPlugin, KEY_MAPPINGS};
 use serde_json::{json, Value};
 
+use bsengine_gltf::{GltfPlugin, SkinnedMeshPlugin};
+use bsengine_render::RenderPlugin;
+use bsengine_rhi_wgpu::WgpuRHIPlugin;
+
 use crate::scene_systems::{register_scene_systems, ProjectManifest};
 use crate::test_protocol::{Command, CommandResponse};
 use crate::test_query::{eval_op, eval_path, run_query};
@@ -57,17 +61,21 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>) -> App {
         // mode most likely to be automating that check — the same
         // registered-nowhere failure this plugin's absence caused before.
         //
-        // What it records here today is narrower than in the windowed
-        // runtime, and worth knowing before someone concludes it is broken:
-        // this app has no `RenderPlugin`, `GltfPlugin` or `SkinnedMeshPlugin`,
-        // so nothing ever requests a mesh, a shader or a texture. Replaying
-        // `games/mini-arena` records zero paths, while the same game windowed
-        // records its `fox.glb` and `glow.wgsl` as `Loaded`. Sounds *are*
-        // requested here (`AudioPlugin` and `playSound` are both present), so
-        // those are tracked. The distinction matters: an empty map means
-        // "genuinely nothing was requested", which is a true answer, whereas
-        // a missing resource would have meant "the engine cannot say" while
-        // sounding identical to a script.
+        // Historical note, since this comment predates the `RenderPlugin`/
+        // `GltfPlugin`/`SkinnedMeshPlugin` stack added below: before those
+        // existed here, nothing in this app ever requested a mesh, a shader
+        // or a texture, so replaying `games/mini-arena` recorded zero such
+        // paths while the same game windowed recorded its `fox.glb` and
+        // `glow.wgsl` as `Loaded`. See
+        // `mini_arenas_fox_mesh_loads_now_that_rendering_is_on` below for the
+        // regression test that closed that gap; mesh/shader/texture requests
+        // are tracked here the same as in the windowed runtime now. Sounds
+        // were always tracked too (`AudioPlugin` and `playSound` are both
+        // present). The distinction below still matters for anything this
+        // app genuinely never requests: an empty map means "genuinely
+        // nothing was requested", which is a true answer, whereas a missing
+        // resource would have meant "the engine cannot say" while sounding
+        // identical to a script.
         .add_plugins(AssetStatusPlugin)
         // Here for a blunter reason than the status plugin above: this app
         // adds `ScenePlugin`, and a scene is where an asset reference lives.
@@ -86,9 +94,33 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>) -> App {
         // Costs one walk of `<project_dir>/assets` at Startup, no thread and
         // no per-frame work, so a replay stays as reproducible as it was.
         .add_plugins(AssetIdentityPlugin)
+        // The point of this task: renders every frame now, offscreen
+        // instead of not at all. `WgpuRHIPlugin::offscreen` takes its
+        // dimensions from `manifest.window` rather than a fixed constant so
+        // a headless run renders at the same resolution the windowed
+        // runtime would actually open a window at -- letting the two modes
+        // diverge here would undermine any pixel comparison built on top of
+        // this later. `RenderPlugin`, `GltfPlugin` and `SkinnedMeshPlugin`
+        // are what actually request and draw a mesh or texture; without
+        // them `get_asset_status` could never answer anything about a
+        // `.glb`, which is the gap
+        // `mini_arenas_fox_mesh_loads_now_that_rendering_is_on` below closes.
+        //
+        // Both this block's position (between `PhysicsPlugin` and
+        // `NavMeshPlugin`) and its internal order deliberately mirror
+        // `main.rs`'s windowed chain -- a headless GPU stack built in a
+        // different order than the real runtime is a regression that would
+        // pass every test here while behaving differently windowed.
+        .add_plugins(WgpuRHIPlugin::offscreen(
+            manifest.window.width,
+            manifest.window.height,
+        ))
         .add_plugins(InputPlugin)
         .add_plugins(AudioPlugin)
         .add_plugins(PhysicsPlugin)
+        .add_plugins(RenderPlugin)
+        .add_plugins(GltfPlugin)
+        .add_plugins(SkinnedMeshPlugin)
         .add_plugins(NavMeshPlugin)
         // Same two as the windowed runtime, and for the reason item 11/12
         // recorded: a plugin present in one host and absent in the other is a
@@ -883,6 +915,80 @@ mod tests {
             "error must report how many frames were consumed, got {error:?}"
         );
         assert_eq!(frame, 2, "frames stepped before giving up must be counted");
+    }
+
+    // mini-arena is the one recording whose scene names a real mesh
+    // (fox.glb) and a real texture (the floor). Until this task, the
+    // headless app built no RenderPlugin/GltfPlugin, so nothing here ever
+    // requested either and get_asset_status answered "unknown" for both no
+    // matter how they were spelled -- see game_content.rs's
+    // mini_arenas_floor_is_textured for the test that had to work around
+    // that gap by reading the scene file directly instead.
+    #[test]
+    fn mini_arenas_fox_mesh_loads_now_that_rendering_is_on() {
+        let project_dir = format!("{}/../../games/mini-arena", env!("CARGO_MANIFEST_DIR"));
+        let mut app = build_test_app(&project_dir, None);
+        let mut status = Value::Null;
+        for _ in 0..200 {
+            app.update();
+            status = crate::test_query::get_asset_status(app.world_mut(), "assets/models/fox.glb");
+            if status == json!("loaded") {
+                break;
+            }
+        }
+        assert_eq!(
+            status,
+            json!("loaded"),
+            "fox.glb should load now that build_test_app includes GltfPlugin; last status: {status}"
+        );
+    }
+
+    #[test]
+    fn get_pixel_reads_the_last_rendered_frame() {
+        let project_dir = format!("{}/../../games/cube-evader", env!("CARGO_MANIFEST_DIR"));
+        let mut app = build_test_app(&project_dir, None);
+        app.update();
+
+        let result =
+            crate::test_query::run_query(app.world_mut(), "get_pixel", &json!({"x": 0, "y": 0}))
+                .expect("get_pixel should succeed once RenderPlugin has drawn a frame");
+        assert!(
+            result.get("luma").and_then(|v| v.as_f64()).is_some(),
+            "get_pixel should report a luma value, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn screenshot_returns_a_decodable_png() {
+        let project_dir = format!("{}/../../games/cube-evader", env!("CARGO_MANIFEST_DIR"));
+        let mut app = build_test_app(&project_dir, None);
+        app.update();
+
+        let result = crate::test_query::run_query(app.world_mut(), "screenshot", &json!({}))
+            .expect("screenshot should succeed once RenderPlugin has drawn a frame");
+        let data_base64 = result["data_base64"]
+            .as_str()
+            .expect("screenshot should return a data_base64 string");
+        use base64::Engine;
+        let png_bytes = base64::engine::general_purpose::STANDARD
+            .decode(data_base64)
+            .expect("data_base64 should be valid base64");
+        assert!(
+            png_bytes.starts_with(&[0x89, b'P', b'N', b'G']),
+            "screenshot bytes should start with the PNG magic number"
+        );
+
+        let decoded = image::load_from_memory(&png_bytes).expect("PNG should actually decode");
+        assert_eq!(
+            decoded.width(),
+            result["width"].as_u64().unwrap() as u32,
+            "decoded PNG width should match the reported width"
+        );
+        assert_eq!(
+            decoded.height(),
+            result["height"].as_u64().unwrap() as u32,
+            "decoded PNG height should match the reported height"
+        );
     }
 
     // Regression test for the PressKey/ReleaseKey protocol commands: they

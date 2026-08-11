@@ -16,7 +16,7 @@ fn count_frames(mut count: ResMut<FrameCount>) {
 fn render_pipeline_runs_multiple_frames() {
     let mut app = new_app();
     app.add_plugins(AssetPlugin)
-        .add_plugins(WgpuRHIPlugin)
+        .add_plugins(WgpuRHIPlugin::windowed())
         .add_plugins(RenderPlugin)
         .init_resource::<FrameCount>()
         .add_systems(Update, count_frames);
@@ -32,7 +32,7 @@ fn render_pipeline_runs_multiple_frames() {
 fn rhi_resource_accessible_after_plugin() {
     let mut app = new_app();
     app.add_plugins(AssetPlugin)
-        .add_plugins(WgpuRHIPlugin)
+        .add_plugins(WgpuRHIPlugin::windowed())
         .add_plugins(RenderPlugin);
 
     app.update();

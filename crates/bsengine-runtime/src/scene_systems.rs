@@ -30,7 +30,7 @@ pub struct ProjectSection {
     pub entry_scene: String,
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Deserialize)]
 pub struct WindowSection {
     #[serde(default)]
     pub title: Option<String>,
@@ -40,6 +40,25 @@ pub struct WindowSection {
     pub height: u32,
     #[serde(default = "default_true")]
     pub resizable: bool,
+}
+
+// Not `#[derive(Default)]`: a derived impl gives every field its type's
+// zero value (width/height: 0, resizable: false), which disagrees with the
+// field-level `#[serde(default = "default_width")]` etc. above. The two
+// have to agree, because `ProjectManifest.window` is itself
+// `#[serde(default)]` -- a `project.toml` that omits `[window]` entirely
+// falls back to this impl, while one with a present-but-empty `[window]`
+// table falls back to the field-level defaults. Reusing the same functions
+// here is what makes "table absent" and "table empty" mean the same thing.
+impl Default for WindowSection {
+    fn default() -> Self {
+        Self {
+            title: None,
+            width: default_width(),
+            height: default_height(),
+            resizable: default_true(),
+        }
+    }
 }
 
 fn default_width() -> u32 {
@@ -259,6 +278,36 @@ pub fn resolve_physics_bodies_world(world: &mut World) {
 mod tests {
     use super::Name;
     use bsengine_core::HudTexts;
+
+    /// `ProjectManifest.window` is `#[serde(default)]`, so a `project.toml`
+    /// that omits `[window]` entirely (every hand-written fixture in this
+    /// file and most of `test_mode.rs`'s do) falls back to
+    /// `WindowSection::default()` rather than the field-level
+    /// `#[serde(default = "default_width")]`/etc. those two must agree, or
+    /// "no `[window]` table" silently means something different from
+    /// "`[window]` table present but empty" -- which is exactly what
+    /// happened when `WindowSection` derived its `Default` instead of
+    /// defining one: the derived impl gives `width: 0, height: 0`, and once
+    /// `build_test_app` started feeding those straight into
+    /// `WgpuRHIPlugin::offscreen`, every minimal `project.toml` in this
+    /// codebase's own tests crashed wgpu with "Dimension X is zero".
+    #[test]
+    fn window_section_defaults_to_1280x720_when_window_table_is_absent() {
+        let manifest: super::ProjectManifest = toml::from_str(
+            "[project]\nname = \"Test\"\nentry_scene = \"assets/scenes/a.ron\"\n",
+        )
+        .expect("a project.toml with no [window] table must still parse");
+        assert_eq!(
+            manifest.window.width, 1280,
+            "width must fall back to the same default a present-but-empty \
+             [window] table gets, not the derived Default's 0"
+        );
+        assert_eq!(
+            manifest.window.height, 720,
+            "height must fall back to the same default a present-but-empty \
+             [window] table gets, not the derived Default's 0"
+        );
+    }
 
     /// A two-scene project where scene A's script chains to scene B on its
     /// first `onUpdate`, and each scene's script announces itself through the

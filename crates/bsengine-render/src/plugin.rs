@@ -1,9 +1,9 @@
 use bevy_app::{App, Plugin, PostUpdate, Update};
-use bevy_ecs::prelude::{Entity, EventReader, IntoSystemConfigs, ParamSet, Query, ResMut, Without};
+use bevy_ecs::prelude::{EventReader, IntoSystemConfigs, ParamSet, Query, ResMut};
 use bsengine_core::{
     AmbientOcclusion, Bloom, Camera, CustomShader, DirectionalLight, EditorPanelRegistry,
-    EditorPlayState, GlobalTransform, HudTexts, InspectorState, Material, Parent, PointLight,
-    SkyboxPath, SpotLight, Time, ToneMap, Transform, UiState, Visible,
+    EditorPlayState, GlobalTransform, HudTexts, InspectorState, Material, PointLight, SkyboxPath,
+    SpotLight, Time, ToneMap, Transform, UiState, Visible,
 };
 use bsengine_ecs::Res;
 use bsengine_input::{Input, KeyCode, KeyInput, MouseButton, MouseState};
@@ -13,7 +13,6 @@ use bsengine_rhi_wgpu::{
 };
 use bsengine_window::WindowResized;
 use glam::{Mat4, Vec3, Vec4};
-use std::collections::HashMap;
 
 use crate::components::MeshRenderer;
 
@@ -72,30 +71,6 @@ fn spot_light_entry(sl: &SpotLight, gt: Option<&GlobalTransform>, t: &Transform)
         range: sl.range,
         inner_angle: sl.inner_angle_degrees.to_radians(),
         outer_angle: sl.outer_angle_degrees.to_radians(),
-    }
-}
-
-/// Pass 1: root entities (no Parent) get GlobalTransform = local Transform.
-fn propagate_roots(mut query: Query<(&Transform, &mut GlobalTransform), Without<Parent>>) {
-    for (t, mut gt) in query.iter_mut() {
-        gt.0 = t.to_matrix().into();
-    }
-}
-
-/// Pass 2: children get GlobalTransform = parent's GT * local Transform.
-/// Uses ParamSet to safely read root GlobalTransforms and write child GlobalTransforms.
-fn propagate_children(
-    mut set: ParamSet<(
-        Query<(Entity, &GlobalTransform), Without<Parent>>,
-        Query<(&Transform, &mut GlobalTransform, &Parent)>,
-    )>,
-) {
-    let parent_mats: HashMap<Entity, Mat4> = set.p0().iter().map(|(e, gt)| (e, gt.0 .0)).collect();
-
-    for (t, mut gt, parent) in set.p1().iter_mut() {
-        if let Some(&mat) = parent_mats.get(&parent.0) {
-            gt.0 = (mat * t.to_matrix()).into();
-        }
     }
 }
 
@@ -847,8 +822,7 @@ impl Plugin for RenderPlugin {
             .add_systems(
                 PostUpdate,
                 (
-                    propagate_roots,
-                    propagate_children,
+                    bsengine_core::propagate_global_transforms,
                     compile_pending_shaders,
                     rebuild_modified_shaders,
                     upload_pending_skybox,
@@ -865,7 +839,7 @@ mod tests {
     use super::{CompileStatus, PendingShader, PendingShaders, PendingSkybox, RenderPlugin};
     use crate::components::MeshRenderer;
     use bsengine_app::new_app;
-    use bsengine_core::{Camera, Material, PointLight, Transform};
+    use bsengine_core::{Camera, GlobalTransform, Material, Parent, PointLight, Transform};
     use bsengine_rhi_wgpu::WgpuRHIPlugin;
     use bsengine_window::WindowResized;
     use glam::Vec3;
@@ -1038,6 +1012,48 @@ mod tests {
             "rebuild_modified_skybox (index {rebuild_idx}) must run before \
              render_frame (index {render_idx}) so a skybox re-uploaded this \
              frame is the one drawn; actual PostUpdate order: {names:?}"
+        );
+    }
+
+    #[test]
+    fn grandchild_transform_reflects_grandparent_and_parent_after_one_update() {
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(RenderPlugin);
+
+        let grandparent = app
+            .world_mut()
+            .spawn((
+                Transform::from_position(Vec3::new(10.0, 0.0, 0.0)),
+                GlobalTransform::default(),
+            ))
+            .id();
+        let parent = app
+            .world_mut()
+            .spawn((
+                Transform::from_position(Vec3::new(0.0, 1.0, 0.0)),
+                GlobalTransform::default(),
+                Parent(grandparent),
+            ))
+            .id();
+        let child = app
+            .world_mut()
+            .spawn((
+                Transform::from_position(Vec3::new(0.0, 0.0, 1.0)),
+                GlobalTransform::default(),
+                Parent(parent),
+            ))
+            .id();
+
+        app.update();
+
+        let child_gt = app.world().get::<GlobalTransform>(child).unwrap();
+        let pos = child_gt.0.w_axis.truncate();
+        assert!(
+            (pos - Vec3::new(10.0, 1.0, 1.0)).length() < 1e-4,
+            "grandchild GlobalTransform should reflect both ancestors after one RenderPlugin \
+             update, got {pos:?} (this fails today because RenderPlugin's transform \
+             propagation is one-level-only)"
         );
     }
 

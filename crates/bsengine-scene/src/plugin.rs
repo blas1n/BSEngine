@@ -2,7 +2,7 @@ use crate::types::{
     AssetRef, EntityDescriptor, PhysicsBodyDesc, PrimitiveMesh, SceneDescriptor, ScriptPath,
 };
 use bevy_app::{App, Plugin, Startup};
-use bevy_ecs::prelude::{Component, IntoSystemConfigs, ReflectComponent, World};
+use bevy_ecs::prelude::{Component, Entity, IntoSystemConfigs, ReflectComponent, World};
 use bevy_reflect::prelude::ReflectDefault;
 use bevy_reflect::Reflect;
 use bsengine_asset::{AssetGuid, AssetIndex};
@@ -328,8 +328,11 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
             .collect()
     };
 
+    let mut spawned: Vec<Entity> = Vec::with_capacity(entities.len());
+
     for (entity, (gltf_path, script_path, texture_path)) in entities.iter().zip(&resolved_refs) {
         let mut builder = world.spawn(Name(entity.name.clone()));
+        spawned.push(builder.id());
 
         if let Some(t) = &entity.transform {
             let mut rotation =
@@ -489,6 +492,42 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
                         ),
                     }
                 }
+            }
+        }
+    }
+
+    // Pass 3: resolve `parent: Some(name)` into a real `Parent(Entity)` now
+    // that every entity in this call has spawned. A name map built only from
+    // entities spawned *by this call* -- an entity left over from a previous
+    // scene is never a valid parent target.
+    let name_to_entity: std::collections::HashMap<&str, Entity> = entities
+        .iter()
+        .map(|e| e.name.as_str())
+        .zip(spawned.iter().copied())
+        .collect();
+    for (entity, &child_entity) in entities.iter().zip(&spawned) {
+        let Some(parent_name) = &entity.parent else {
+            continue;
+        };
+        if parent_name == &entity.name {
+            tracing::warn!(
+                "scene: entity '{}' names itself as its own parent; leaving it a root",
+                entity.name
+            );
+            continue;
+        }
+        match name_to_entity.get(parent_name.as_str()) {
+            Some(&parent_entity) => {
+                world
+                    .entity_mut(child_entity)
+                    .insert(bsengine_core::Parent(parent_entity));
+            }
+            None => {
+                tracing::warn!(
+                    "scene: entity '{}' names parent '{parent_name}', which does not exist \
+                     in this scene; leaving it a root",
+                    entity.name
+                );
             }
         }
     }
@@ -761,6 +800,75 @@ mod tests {
 
         let mut query = app.world_mut().query::<&bsengine_core::Material>();
         assert_eq!(query.iter(app.world()).count(), 1);
+    }
+
+    #[test]
+    fn parent_field_resolves_to_a_real_parent_component() {
+        let scene: crate::types::SceneDescriptor = ron::from_str(
+            r#"SceneDescriptor(entities: [
+                EntityDescriptor(name: "Body"),
+                EntityDescriptor(name: "Wheel", parent: Some("Body")),
+            ])"#,
+        )
+        .expect("a scene entity naming its parent should parse");
+
+        let mut app = new_app();
+        super::spawn_scene_entities(app.world_mut(), &scene.entities);
+
+        let mut query = app.world_mut().query::<(
+            bevy_ecs::prelude::Entity,
+            &Name,
+            Option<&bsengine_core::Parent>,
+        )>();
+        let rows: Vec<(
+            bevy_ecs::prelude::Entity,
+            String,
+            Option<bevy_ecs::prelude::Entity>,
+        )> = query
+            .iter(app.world())
+            .map(|(e, n, p)| (e, n.0.clone(), p.map(|p| p.0)))
+            .collect();
+
+        let body_entity = rows
+            .iter()
+            .find(|(_, name, _)| name == "Body")
+            .map(|(e, _, _)| *e)
+            .expect("Body should have spawned");
+        let wheel_parent = rows
+            .iter()
+            .find(|(_, name, _)| name == "Wheel")
+            .and_then(|(_, _, p)| *p)
+            .expect("Wheel should have a Parent component");
+        assert_eq!(
+            wheel_parent, body_entity,
+            "Wheel's parent should be the Body entity"
+        );
+    }
+
+    #[test]
+    fn unresolvable_or_self_named_parent_leaves_the_entity_a_root() {
+        let scene: crate::types::SceneDescriptor = ron::from_str(
+            r#"SceneDescriptor(entities: [
+                EntityDescriptor(name: "Typo", parent: Some("Doesnt Exist")),
+                EntityDescriptor(name: "SelfRef", parent: Some("SelfRef")),
+            ])"#,
+        )
+        .expect("a scene should parse even with an unresolvable parent name");
+
+        let mut app = new_app();
+        super::spawn_scene_entities(app.world_mut(), &scene.entities);
+
+        let mut query = app
+            .world_mut()
+            .query::<(&Name, Option<&bsengine_core::Parent>)>();
+        for (name, parent) in query.iter(app.world()) {
+            assert!(
+                parent.is_none(),
+                "{} should have no Parent component (unresolvable or self-referential), got {:?}",
+                name.0,
+                parent.map(|p| p.0)
+            );
+        }
     }
 
     #[test]

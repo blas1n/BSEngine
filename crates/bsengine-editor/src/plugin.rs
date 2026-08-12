@@ -1114,6 +1114,10 @@ fn build_entity_descriptors(entities: &[EntityInfo]) -> Vec<EntityDescriptor> {
                     collider: e.physics_body.as_ref().map(|p| p.collider.clone()),
                     linear_damping: e.physics_body.as_ref().and_then(|p| p.linear_damping),
                     angular_damping: e.physics_body.as_ref().and_then(|p| p.angular_damping),
+                    // Placeholder unblocking compilation for `EntityDescriptor.parent`
+                    // (scene-hierarchy plan, Task 2). The editor save path doesn't yet
+                    // read/write a parent reference from `InspectorState` — that's Task 4.
+                    parent: None,
                 }
             })
         })

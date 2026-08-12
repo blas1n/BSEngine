@@ -289,6 +289,14 @@ pub struct EntityDescriptor {
     /// below it puts the entity in the sorted transparent pass.
     #[serde(default)]
     pub opacity: Option<f32>,
+    /// Name of this entity's parent, if any. Resolved against the other
+    /// entities in the same scene file after all of them have spawned — see
+    /// `spawn_scene_entities` in `plugin.rs`. Absent (the default) means a
+    /// root entity, exactly as every scene written before this field
+    /// existed. Must name an entity in the *same* scene file; cross-scene
+    /// parent references are not supported.
+    #[serde(default)]
+    pub parent: Option<String>,
     /// Reflected components not covered by this struct's own typed fields
     /// (e.g. `AnimationStateMachine`, `NavMeshAgent`, `Shield`, `Bloom`,
     /// `ToneMap`), as (fully-qualified type path, RON-encoded value) pairs.
@@ -598,6 +606,19 @@ mod tests {
         let ron_str = r#"EntityDescriptor(name: "Cam", camera: true)"#;
         let entity: EntityDescriptor = ron::from_str(ron_str).unwrap();
         assert!(entity.camera);
+    }
+
+    #[test]
+    fn entity_descriptor_with_parent_deserializes_and_defaults_to_absent() {
+        let with_parent: EntityDescriptor =
+            ron::from_str(r#"EntityDescriptor(name: "Wheel", parent: Some("Body"))"#)
+                .expect("a scene entity should be able to name its parent");
+        assert_eq!(with_parent.parent.as_deref(), Some("Body"));
+
+        // Every scene written before this field existed must still parse.
+        let older: EntityDescriptor = ron::from_str(r#"EntityDescriptor(name: "Root")"#)
+            .expect("a scene written before `parent` existed should still parse");
+        assert_eq!(older.parent, None);
     }
 
     #[test]

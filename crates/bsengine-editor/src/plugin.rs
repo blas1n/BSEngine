@@ -1038,6 +1038,11 @@ fn spawn_entity_from_info(world: &mut World, info: &EntityInfo) -> Entity {
 /// scene files). GLTF paths are not tracked by `EntityInfo` and are
 /// intentionally left `None` here.
 fn build_entity_descriptors(entities: &[EntityInfo]) -> Vec<EntityDescriptor> {
+    let id_to_name: std::collections::HashMap<u64, &str> = entities
+        .iter()
+        .filter_map(|e| Some((e.id, e.name.as_deref()?)))
+        .collect();
+
     entities
         .iter()
         .filter_map(|e| {
@@ -1114,10 +1119,18 @@ fn build_entity_descriptors(entities: &[EntityInfo]) -> Vec<EntityDescriptor> {
                     collider: e.physics_body.as_ref().map(|p| p.collider.clone()),
                     linear_damping: e.physics_body.as_ref().and_then(|p| p.linear_damping),
                     angular_damping: e.physics_body.as_ref().and_then(|p| p.angular_damping),
-                    // Placeholder unblocking compilation for `EntityDescriptor.parent`
-                    // (scene-hierarchy plan, Task 2). The editor save path doesn't yet
-                    // read/write a parent reference from `InspectorState` — that's Task 4.
-                    parent: None,
+                    parent: e.parent_id.and_then(|pid| match id_to_name.get(&pid) {
+                        Some(name) => Some(name.to_string()),
+                        None => {
+                            tracing::warn!(
+                                "scene save: entity '{}' is parented to entity {pid}, which has \
+                                 no Name component, so this scene file cannot preserve that \
+                                 parent link",
+                                e.name.as_deref().unwrap_or("<unnamed>")
+                            );
+                            None
+                        }
+                    }),
                 }
             })
         })
@@ -29408,7 +29421,7 @@ fn parse_vec3_input(v: &serde_json::Value) -> Option<[f32; 3]> {
 
 #[cfg(test)]
 mod tests {
-    use super::EditorPlugin;
+    use super::{build_entity_descriptors, EditorPlugin};
     use bsengine_app::new_app;
     use bsengine_core::{InspectorCmd, InspectorState, Parent, Transform};
     use bsengine_mcp::{McpPlugin, McpRegistryResource};
@@ -29418,7 +29431,7 @@ mod tests {
 
     use crate::snapshot::{
         EditorCommand, EditorCommandQueueResource, EditorSelectionResource, EditorSnapshotResource,
-        Tags,
+        EntityInfo, Tags,
     };
 
     #[test]
@@ -29438,6 +29451,71 @@ mod tests {
 
         let registry = app.world().resource::<bsengine_core::EditorPanelRegistry>();
         assert!(registry.0.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn build_entity_descriptors_resolves_parent_id_to_the_parents_name() {
+        let entities = vec![
+            EntityInfo {
+                id: 1,
+                name: Some("Body".to_string()),
+                parent_id: None,
+                ..Default::default()
+            },
+            EntityInfo {
+                id: 2,
+                name: Some("Wheel".to_string()),
+                parent_id: Some(1),
+                ..Default::default()
+            },
+        ];
+
+        let descriptors = build_entity_descriptors(&entities);
+        let wheel = descriptors
+            .iter()
+            .find(|d| d.name == "Wheel")
+            .expect("Wheel should be in the output");
+        assert_eq!(wheel.parent.as_deref(), Some("Body"));
+
+        let body = descriptors
+            .iter()
+            .find(|d| d.name == "Body")
+            .expect("Body should be in the output");
+        assert_eq!(body.parent, None, "Body has no parent_id, so no parent name");
+    }
+
+    #[test]
+    fn build_entity_descriptors_warns_and_drops_parent_link_when_parent_has_no_name() {
+        // Ensures the tracing subscriber exists even when this test runs in
+        // isolation (e.g. via a `cargo test <name>` filter), so the warn!
+        // below is actually visible under `--nocapture`.
+        bsengine_core::init_logging();
+
+        let entities = vec![
+            // e.g. a spawned point light: has an id but no Name component.
+            EntityInfo {
+                id: 1,
+                name: None,
+                parent_id: None,
+                ..Default::default()
+            },
+            EntityInfo {
+                id: 2,
+                name: Some("Wheel".to_string()),
+                parent_id: Some(1),
+                ..Default::default()
+            },
+        ];
+
+        let descriptors = build_entity_descriptors(&entities);
+        let wheel = descriptors
+            .iter()
+            .find(|d| d.name == "Wheel")
+            .expect("Wheel should be in the output");
+        assert_eq!(
+            wheel.parent, None,
+            "parent entity has no Name, so the link can't be preserved in the scene file"
+        );
     }
 
     #[test]

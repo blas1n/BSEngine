@@ -530,6 +530,7 @@ pub fn run_replay_mode(project_dir: &str, log_path: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy_ecs::prelude::Entity;
     use bsengine_input::Input;
 
     fn write_two_scene_project() -> tempfile::TempDir {
@@ -988,6 +989,114 @@ mod tests {
             decoded.height(),
             result["height"].as_u64().unwrap() as u32,
             "decoded PNG height should match the reported height"
+        );
+    }
+
+    // Proves a scene-file `parent:` chain actually renders, not just that it
+    // parses into a Parent component (Task 3's own tests already cover
+    // that): moving only the grandparent's Transform must move the child on
+    // screen, even though the scene file never names the grandparent on the
+    // child directly -- only Parent -> GrandParent, one level at a time.
+    #[test]
+    fn moving_a_grandparent_moves_the_grandchild_on_screen() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("assets/scenes")).unwrap();
+        std::fs::write(
+            root.join("project.toml"),
+            "[project]\nname = \"Hierarchy Test\"\nentry_scene = \"assets/scenes/hierarchy.ron\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("assets/scenes/hierarchy.ron"),
+            r#"SceneDescriptor(entities: [
+    EntityDescriptor(
+        name: "Camera",
+        camera: true,
+        transform: Some((
+            position: (0.0, 0.0, 8.0),
+        )),
+    ),
+    EntityDescriptor(
+        name: "GrandParent",
+        transform: Some((
+            position: (0.0, 0.0, 0.0),
+        )),
+    ),
+    EntityDescriptor(
+        name: "Parent",
+        parent: Some("GrandParent"),
+        transform: Some((
+            position: (2.0, 0.0, 0.0),
+        )),
+    ),
+    EntityDescriptor(
+        name: "Child",
+        parent: Some("Parent"),
+        primitive: Some(Cube),
+        emissive: Some((1.0, 0.0, 0.0)),
+        transform: Some((
+            position: (0.0, 0.0, 0.0),
+        )),
+    ),
+])"#,
+        )
+        .unwrap();
+
+        let project_dir = root.to_str().unwrap().to_string();
+        let mut app = build_test_app(&project_dir, None);
+        app.update();
+
+        // Window defaults to 1280x720 (no [window] table -- see
+        // WindowSection::default() in scene_systems.rs), so the exact
+        // screen center is always (640, 360).
+        let before = crate::test_query::run_query(
+            app.world_mut(),
+            "get_pixel",
+            &json!({"x": 640, "y": 360}),
+        )
+        .expect("get_pixel should succeed once RenderPlugin has drawn a frame");
+        let before_r = before["r"].as_u64().unwrap();
+        let before_g = before["g"].as_u64().unwrap();
+        assert!(
+            before_r <= before_g + 20,
+            "GrandParent is at the origin, so Child sits at world x=2 -- off the \
+             camera's center axis (x=0) and should not read as red at the center \
+             pixel yet, got {before:?}"
+        );
+
+        // Move only the grandparent. Child's world position becomes
+        // GrandParent(-2,0,0) + Parent-local(2,0,0) + Child-local(0,0,0) =
+        // (0,0,0) -- dead center of a camera looking straight down -Z.
+        let mut grandparent_query = app.world_mut().query::<(&bsengine_scene::Name, Entity)>();
+        let grandparent = grandparent_query
+            .iter(app.world())
+            .find(|(n, _)| n.0 == "GrandParent")
+            .map(|(_, e)| e)
+            .expect("GrandParent should have spawned from the scene file");
+        app.world_mut()
+            .get_mut::<bsengine_core::Transform>(grandparent)
+            .unwrap()
+            .position = glam::Vec3::new(-2.0, 0.0, 0.0).into();
+
+        app.update();
+
+        let after = crate::test_query::run_query(
+            app.world_mut(),
+            "get_pixel",
+            &json!({"x": 640, "y": 360}),
+        )
+        .expect("get_pixel should succeed once RenderPlugin has drawn a frame");
+        let after_r = after["r"].as_u64().unwrap();
+        let after_g = after["g"].as_u64().unwrap();
+        assert!(
+            after_r > after_g + 20,
+            "after moving only GrandParent's Transform, Child (parented to Parent, \
+             which is parented to GrandParent -- never parented to GrandParent \
+             directly) should now be dead center and red. This is what proves a \
+             scene-file parent chain actually renders through more than one \
+             level, not just that spawn_scene_entities attaches a Parent \
+             component. got {after:?}"
         );
     }
 

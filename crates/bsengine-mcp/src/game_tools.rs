@@ -35,6 +35,15 @@ SceneDescriptor(entities: [
     emissive: Some((0.0, 0.0, 0.0)), // optional: self-illumination color; default black (none)
     script: Some("assets/scripts/player.js"),  // relative to game root
   ),
+  EntityDescriptor(
+    name: "Wheel",
+    parent: Some("Player"),    // optional: name of another entity in this same scene file;
+                                // this entity's transform becomes relative to the parent's.
+                                // Absent means a root entity. Unknown/self-referential names
+                                // are dropped with a warning at load time, not a hard error.
+    primitive: Some(Cube),
+    transform: Some((position: (1.0, 0.0, 0.0))),  // relative to Player, not world space
+  ),
 ])
 
 Rules:
@@ -43,6 +52,7 @@ Rules:
 - primitive: Some(Cube) renders a white cube; use color to tint it
 - look_at on a camera entity auto-computes rotation to face the target point
 - color sets the albedo/surface color; emissive makes the entity glow
+- parent makes this entity's transform relative to another entity by name (same scene file only)
 - name is the key used by JS Bsengine.getPosition/setPosition"#;
 
 const SCRIPT_API_DOCS: &str = r#"BSEngine JavaScript API (runs in V8 via Deno Core):

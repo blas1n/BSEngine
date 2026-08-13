@@ -118,47 +118,53 @@ impl Drop for ResolvingGuard {
     }
 }
 
-/// Resolves one `entity.prefab` reference: reads and parses the file, then
-/// instantiates it in the entity's place. Returns `None` (after logging a
-/// warning) on any failure -- missing file, parse error, bad root count,
-/// or a cycle -- so the caller can keep `spawned`'s length in lockstep
-/// with `entities` even when this entity contributes no real `Entity`.
-fn resolve_prefab_reference(
+/// Instantiates the prefab at `prefab_path` into `world`, guarded against
+/// cyclic prefab references via [`RESOLVING_PREFABS`]/[`ResolvingGuard`].
+///
+/// This is the one choke point every prefab-instantiation entry point --
+/// the scene-file `prefab:` field (via [`resolve_prefab_reference`] below),
+/// `Bsengine.instantiatePrefab` (`bsengine-scripting`), and the editor's
+/// drag-and-drop (`bsengine-editor`) -- must route its *top-level* call
+/// through, precisely so that call gets registered into
+/// [`RESOLVING_PREFABS`] before anything inside the prefab can recurse.
+///
+/// That used to only be true for the scene-file path: the other two called
+/// [`crate::prefab::instantiate_prefab`] directly with an already-parsed
+/// descriptor, which never touches `RESOLVING_PREFABS` at all (nor should
+/// it -- it has no path to key on). A prefab whose non-root child names its
+/// own containing file was still caught -- `instantiate_prefab` delegates
+/// to `spawn_scene_entities`, and a nested `prefab:` field there always
+/// comes back through `resolve_prefab_reference` -> here -- but only on the
+/// *second* encounter, since the first (top-level) call was never
+/// registered. That let the prefab's real content silently spawn twice (one
+/// extra recursion level) via those two paths, instead of once with a
+/// warning like the identical file gets via a scene file. Routing all three
+/// entry points through this function closes that gap by construction
+/// rather than by each caller remembering to register itself.
+///
+/// Returns an error (never a warning of its own -- that's each caller's
+/// job, matching how each already logs) on any failure: an unreadable file,
+/// a parse error, or a cycle.
+pub fn instantiate_prefab_from_path(
     world: &mut World,
-    entity_name: &str,
     prefab_path: &str,
-    transform: Option<TransformDescriptor>,
-) -> Option<Entity> {
+    root_name: Option<&str>,
+    root_transform: Option<TransformDescriptor>,
+    parent: Option<Entity>,
+) -> Result<Entity, String> {
     let already_resolving = RESOLVING_PREFABS.with(|r| r.borrow().contains(prefab_path));
     if already_resolving {
-        tracing::warn!(
-            "scene: entity '{entity_name}' references prefab '{prefab_path}', which is \
-             already being resolved earlier in this same instantiation chain -- skipping \
-             to avoid infinite recursion (cyclic prefab reference)"
-        );
-        return None;
+        return Err(format!(
+            "prefab '{prefab_path}' is already being resolved earlier in this same \
+             instantiation chain -- skipping to avoid infinite recursion (cyclic prefab \
+             reference)"
+        ));
     }
 
-    let content = match std::fs::read_to_string(prefab_path) {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::warn!(
-                "scene: entity '{entity_name}' references prefab '{prefab_path}', which \
-                 could not be read: {e}"
-            );
-            return None;
-        }
-    };
-    let prefab: crate::types::PrefabDescriptor = match ron::from_str(&content) {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::warn!(
-                "scene: entity '{entity_name}' references prefab '{prefab_path}', which \
-                 failed to parse: {e}"
-            );
-            return None;
-        }
-    };
+    let content = std::fs::read_to_string(prefab_path)
+        .map_err(|e| format!("prefab '{prefab_path}' could not be read: {e}"))?;
+    let prefab: crate::types::PrefabDescriptor = ron::from_str(&content)
+        .map_err(|e| format!("prefab '{prefab_path}' failed to parse: {e}"))?;
 
     RESOLVING_PREFABS.with(|r| r.borrow_mut().insert(prefab_path.to_string()));
     // Guarantees the entry above is removed on every exit from this point on
@@ -168,10 +174,22 @@ fn resolve_prefab_reference(
     // why a missed removal would be a silent, permanent, process-lifetime
     // false positive rather than a one-off glitch.
     let _guard = ResolvingGuard(prefab_path.to_string());
-    let result =
-        crate::prefab::instantiate_prefab(world, &prefab, Some(entity_name), transform, None);
+    crate::prefab::instantiate_prefab(world, &prefab, root_name, root_transform, parent)
+}
 
-    match result {
+/// Resolves one `entity.prefab` reference: instantiates the file in the
+/// entity's place via [`instantiate_prefab_from_path`]. Returns `None`
+/// (after logging a warning) on any failure -- missing file, parse error,
+/// bad root count, or a cycle -- so the caller can keep `spawned`'s length
+/// in lockstep with `entities` even when this entity contributes no real
+/// `Entity`.
+fn resolve_prefab_reference(
+    world: &mut World,
+    entity_name: &str,
+    prefab_path: &str,
+    transform: Option<TransformDescriptor>,
+) -> Option<Entity> {
+    match instantiate_prefab_from_path(world, prefab_path, Some(entity_name), transform, None) {
         Ok(root) => Some(root),
         Err(e) => {
             tracing::warn!(

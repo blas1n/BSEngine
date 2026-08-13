@@ -22,10 +22,6 @@ bevy_ecs.workspace = true
 bevy_reflect.workspace = true
 deno_core.workspace = true
 glam.workspace = true
-# `Bsengine.instantiatePrefab` reads a prefab file straight from disk and
-# parses it itself (`instantiate_prefab_command` in `plugin.rs`) -- the same
-# RON format `bsengine-scene` already parses scene/prefab files with.
-ron.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true

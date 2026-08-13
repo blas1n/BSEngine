@@ -1535,8 +1535,16 @@ fn process_reflect_commands(world: &mut World) {
 }
 
 /// Drains `PrefabCommandQueueResource` each frame and instantiates each
-/// queued prefab via `bsengine_scene::instantiate_prefab`, which needs
-/// `&mut World` directly -- see `PrefabInstantiateCommand`'s doc comment.
+/// queued prefab via `bsengine_scene::instantiate_prefab_from_path`, which
+/// needs `&mut World` directly -- see `PrefabInstantiateCommand`'s doc
+/// comment. Going through `instantiate_prefab_from_path` (rather than
+/// reading/parsing the file here and calling
+/// `bsengine_scene::instantiate_prefab` directly, as this used to) is what
+/// registers this top-level call into the crate's cycle-detection set
+/// before a nested `prefab:` reference inside the file can recurse --
+/// skipping it meant a prefab whose own child referenced its containing
+/// file silently double-spawned via drag-and-drop, since the guard only
+/// ever caught such a reference on its second encounter, not its first.
 fn process_prefab_commands(world: &mut World) {
     let cmds: Vec<PrefabInstantiateCommand> = {
         let Some(queue_res) = world.get_resource::<PrefabCommandQueueResource>() else {
@@ -1565,20 +1573,6 @@ fn process_prefab_commands(world: &mut World) {
     let project_dir = world.get_resource::<bsengine_core::ProjectDir>().cloned();
     for cmd in cmds {
         let resolved_path = bsengine_core::resolve_project_path(project_dir.as_ref(), &cmd.path);
-        let content = match std::fs::read_to_string(&resolved_path) {
-            Ok(c) => c,
-            Err(e) => {
-                tracing::warn!("prefab: could not read '{resolved_path}': {e}");
-                continue;
-            }
-        };
-        let prefab: bsengine_scene::types::PrefabDescriptor = match ron::from_str(&content) {
-            Ok(p) => p,
-            Err(e) => {
-                tracing::warn!("prefab: '{resolved_path}' failed to parse: {e}");
-                continue;
-            }
-        };
         let parent_entity = cmd
             .parent_id
             .and_then(|id| world.iter_entities().find(|e| e.id().index() as u64 == id))
@@ -1587,9 +1581,9 @@ fn process_prefab_commands(world: &mut World) {
             position: [cmd.x, cmd.y, cmd.z],
             ..Default::default()
         };
-        if let Err(e) = bsengine_scene::instantiate_prefab(
+        if let Err(e) = bsengine_scene::instantiate_prefab_from_path(
             world,
-            &prefab,
+            &resolved_path,
             cmd.name.as_deref(),
             Some(transform),
             parent_entity,

@@ -2709,12 +2709,22 @@ fn spawn_entity(world: &mut World, params: SpawnParams) {
     }
 }
 
-/// Reads and parses the referenced prefab file, then instantiates it with
-/// the already-decided root `name` (computed synchronously back in the op
-/// -- see `bsengine_instantiate_prefab`) and the given world position.
-/// Warns and does nothing on any failure (missing/unparseable file, bad
-/// root count) rather than panicking -- consistent with every other
-/// scene/prefab-loading failure mode in this codebase.
+/// Instantiates the referenced prefab file (resolved against `ProjectDir`)
+/// with the already-decided root `name` (computed synchronously back in the
+/// op -- see `bsengine_instantiate_prefab`) and the given world position, via
+/// `bsengine_scene::instantiate_prefab_from_path` -- the same cycle-guarded
+/// entry point the scene-file `prefab:` field uses. Routing through it here
+/// (rather than reading/parsing the file and calling
+/// `bsengine_scene::instantiate_prefab` directly, as this used to) matters
+/// for more than avoiding duplicated file I/O: it's what registers this
+/// top-level call into the crate's cycle-detection set before any nested
+/// `prefab:` reference inside the file can recurse. Skipping it silently
+/// double-spawned a prefab whose own child referenced its containing file,
+/// since the cycle guard only ever caught such a reference on its *second*
+/// encounter, not its first. Warns and does nothing on any failure
+/// (missing/unparseable file, bad root count, or a cycle) rather than
+/// panicking -- consistent with every other scene/prefab-loading failure
+/// mode in this codebase.
 pub(crate) fn instantiate_prefab_command(
     world: &mut World,
     path: String,
@@ -2725,27 +2735,17 @@ pub(crate) fn instantiate_prefab_command(
 ) {
     let project_dir = world.get_resource::<ProjectDir>().cloned();
     let resolved_path = resolve_project_path(project_dir.as_ref(), &path);
-    let content = match std::fs::read_to_string(&resolved_path) {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::warn!("instantiatePrefab: could not read '{resolved_path}': {e}");
-            return;
-        }
-    };
-    let prefab: bsengine_scene::types::PrefabDescriptor = match ron::from_str(&content) {
-        Ok(p) => p,
-        Err(e) => {
-            tracing::warn!("instantiatePrefab: '{resolved_path}' failed to parse: {e}");
-            return;
-        }
-    };
     let transform = bsengine_scene::TransformDescriptor {
         position: [x, y, z],
         ..Default::default()
     };
-    if let Err(e) =
-        bsengine_scene::instantiate_prefab(world, &prefab, Some(&name), Some(transform), None)
-    {
+    if let Err(e) = bsengine_scene::instantiate_prefab_from_path(
+        world,
+        &resolved_path,
+        Some(&name),
+        Some(transform),
+        None,
+    ) {
         tracing::warn!("instantiatePrefab: '{resolved_path}' failed to instantiate: {e}");
     }
 }
@@ -5185,6 +5185,77 @@ mod tests {
             .expect("the prefab root should have spawned with the given name");
         assert_eq!(name.0, "Boss");
         assert!((transform.position.0.x - 3.0).abs() < 1e-5);
+    }
+
+    /// Regression test for a cycle-detection gap: `instantiate_prefab_command`
+    /// used to call `bsengine_scene::instantiate_prefab` directly with an
+    /// already-parsed descriptor, which never registers the top-level path
+    /// into the crate's cycle-detection set -- only the scene-file `prefab:`
+    /// entry point did that. A nested `prefab:` reference *inside* the
+    /// loaded file still routed back through the guarded path (via
+    /// `spawn_scene_entities` -> `resolve_prefab_reference`), so a prefab
+    /// whose non-root child names its own containing file was still caught
+    /// -- but only on the *second* encounter, since the first (top-level)
+    /// call was never registered. That let the prefab's one real entity
+    /// ("Root") silently spawn twice: once as the top-level instantiation's
+    /// root, and again as the nested call's root before the guard caught the
+    /// reference one level further in.
+    ///
+    /// This fixture is deliberately a *self*-reference (a prefab whose own
+    /// child points back at the same file), not the mutual A/B cycle
+    /// `bsengine-scene`'s own `cyclic_prefab_reference_fails_loudly_instead_of_recursing_forever`
+    /// uses -- both are cycles, but a self-reference is the realistic
+    /// leftover-after-copy-paste authoring mistake this bug was found from,
+    /// and it is what actually exercises the top-level-vs-nested asymmetry:
+    /// with a two-file A/B cycle the *first* file's top-level call was never
+    /// the one under test.
+    ///
+    /// Asserts the exact entity count (1, not 2) rather than merely "did not
+    /// hang", since the pre-fix bug was silent duplication, not a hang or a
+    /// crash -- a test that only checked "returns without hanging" (like the
+    /// scene-file crate's own cyclic test) would not have caught this at
+    /// all. Mutation-verified: reverting the fix (making this call
+    /// `bsengine_scene::instantiate_prefab` directly again, as it did before)
+    /// makes this test fail with 2 entities instead of 1.
+    #[test]
+    fn instantiate_prefab_command_self_referencing_child_does_not_double_spawn() {
+        let project = bsengine_asset::test_support::unique("instantiate-prefab-command-self-cycle");
+        let root = std::path::PathBuf::from(&project);
+        std::fs::create_dir_all(root.join("assets").join("prefabs")).unwrap();
+        let _guard = bsengine_asset::test_support::ProbeDir(root.clone());
+        std::fs::write(
+            root.join("assets").join("prefabs").join("enemy.ron"),
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Root", primitive: Some(Cube)),
+                EntityDescriptor(name: "Child", parent: Some("Root"), prefab: Some("assets/prefabs/enemy.ron")),
+            ])"#,
+        )
+        .unwrap();
+
+        let mut world = bevy_ecs::prelude::World::new();
+        world.insert_resource(bsengine_core::ProjectDir(project.clone()));
+
+        super::instantiate_prefab_command(
+            &mut world,
+            "assets/prefabs/enemy.ron".to_string(),
+            "Boss".to_string(),
+            3.0,
+            0.0,
+            0.0,
+        );
+
+        let mut q = world.query::<&Name>();
+        let names: Vec<String> = q.iter(&world).map(|n| n.0.clone()).collect();
+        assert_eq!(
+            names,
+            vec!["Boss".to_string()],
+            "the self-referencing child must be cleanly skipped by the cycle guard on \
+             its FIRST encounter (exactly like the scene-file `prefab:` path already \
+             does for an identical file), spawning the prefab's real content exactly \
+             once -- not twice, which is what happened when this top-level call bypassed \
+             the cycle-guard registration and the self-reference was only caught one \
+             recursion level later. names: {names:?}"
+        );
     }
 
     /// The design doc's own test plan called for this ("does the actual

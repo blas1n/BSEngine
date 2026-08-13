@@ -52,8 +52,11 @@ pub fn instantiate_prefab(
     root_transform: Option<TransformDescriptor>,
     parent: Option<Entity>,
 ) -> Result<Entity, String> {
-    let roots: Vec<&EntityDescriptor> =
-        prefab.entities.iter().filter(|e| e.parent.is_none()).collect();
+    let roots: Vec<&EntityDescriptor> = prefab
+        .entities
+        .iter()
+        .filter(|e| e.parent.is_none())
+        .collect();
 
     // Every entity name in the prefab must be unique, checked before any
     // rewriting happens. Without this, the rewrite step below determines
@@ -131,7 +134,9 @@ pub fn instantiate_prefab(
 
     let root_entity = {
         let mut q = world.query::<(Entity, &Name)>();
-        q.iter(world).find(|(_, n)| n.0 == final_root_name).map(|(e, _)| e)
+        q.iter(world)
+            .find(|(_, n)| n.0 == final_root_name)
+            .map(|(e, _)| e)
     };
     let Some(root_entity) = root_entity else {
         // spawn_scene_entities always spawns every entity it's given
@@ -143,7 +148,9 @@ pub fn instantiate_prefab(
     };
 
     if let Some(parent_entity) = parent {
-        world.entity_mut(root_entity).insert(bsengine_core::Parent(parent_entity));
+        world
+            .entity_mut(root_entity)
+            .insert(bsengine_core::Parent(parent_entity));
     }
 
     Ok(root_entity)
@@ -173,7 +180,9 @@ mod tests {
         let root = instantiate_prefab(app.world_mut(), &prefab, None, None, None)
             .expect("a well-formed 2-entity prefab should instantiate");
 
-        let mut q = app.world_mut().query::<(&crate::plugin::Name, Option<&bsengine_core::Parent>)>();
+        let mut q = app
+            .world_mut()
+            .query::<(&crate::plugin::Name, Option<&bsengine_core::Parent>)>();
         let rows: Vec<(String, Option<Entity>)> = q
             .iter(app.world())
             .map(|(n, p)| (n.0.clone(), p.map(|p| p.0)))
@@ -191,7 +200,10 @@ mod tests {
             .expect("Wheel should have spawned with a numeric suffix");
         let body_suffix = body_row.0.strip_prefix("Body#").unwrap();
         let wheel_suffix = wheel_row.0.strip_prefix("Wheel#").unwrap();
-        assert_eq!(body_suffix, wheel_suffix, "root and child must share one instance suffix");
+        assert_eq!(
+            body_suffix, wheel_suffix,
+            "root and child must share one instance suffix"
+        );
 
         let mut root_name_q = app.world_mut().query::<&crate::plugin::Name>();
         assert_eq!(
@@ -227,7 +239,10 @@ mod tests {
     #[test]
     fn instantiate_prefab_parents_the_root_under_a_given_entity() {
         let mut app = new_app();
-        let anchor = app.world_mut().spawn(crate::plugin::Name("Anchor".to_string())).id();
+        let anchor = app
+            .world_mut()
+            .spawn(crate::plugin::Name("Anchor".to_string()))
+            .id();
         let prefab = two_entity_prefab();
 
         let root = instantiate_prefab(app.world_mut(), &prefab, None, None, Some(anchor))
@@ -253,7 +268,10 @@ mod tests {
         .unwrap();
 
         let result = instantiate_prefab(app.world_mut(), &bad, None, None, None);
-        assert!(result.is_err(), "a prefab with no root entity must fail to instantiate");
+        assert!(
+            result.is_err(),
+            "a prefab with no root entity must fail to instantiate"
+        );
     }
 
     #[test]
@@ -268,7 +286,10 @@ mod tests {
         .unwrap();
 
         let result = instantiate_prefab(app.world_mut(), &bad, None, None, None);
-        assert!(result.is_err(), "a prefab with two root entities must fail to instantiate");
+        assert!(
+            result.is_err(),
+            "a prefab with two root entities must fail to instantiate"
+        );
     }
 
     #[test]
@@ -311,9 +332,14 @@ mod tests {
             ..Default::default()
         };
 
-        let root =
-            instantiate_prefab(app.world_mut(), &prefab, None, Some(override_transform), None)
-                .expect("instantiation should succeed");
+        let root = instantiate_prefab(
+            app.world_mut(),
+            &prefab,
+            None,
+            Some(override_transform),
+            None,
+        )
+        .expect("instantiation should succeed");
 
         let root_position = app
             .world()
@@ -327,7 +353,9 @@ mod tests {
             "root_transform must override the root's own authored transform"
         );
 
-        let mut q = app.world_mut().query::<(&crate::plugin::Name, &bsengine_core::Transform)>();
+        let mut q = app
+            .world_mut()
+            .query::<(&crate::plugin::Name, &bsengine_core::Transform)>();
         let wheel_position = q
             .iter(app.world())
             .find(|(n, _)| n.0.starts_with("Wheel#"))

@@ -266,6 +266,26 @@ pub enum InspectorCmd {
         /// Edited component value to write back.
         value: Box<dyn bevy_reflect::Reflect>,
     },
+    /// Instantiate a prefab at the given world position, optionally
+    /// parented under an existing entity (by editor entity id). Routed
+    /// through the dedicated `PrefabCommandQueueResource`/
+    /// `process_prefab_commands` pipeline (`bsengine-editor`), not the
+    /// plain `EditorCommand` queue, since `bsengine_scene::instantiate_prefab`
+    /// needs `&mut World` -- see `PrefabInstantiateCommand`.
+    InstantiatePrefab {
+        /// Project-relative path to the prefab file.
+        path: String,
+        /// Explicit root name; `None` auto-generates one.
+        name: Option<String>,
+        /// World-space X position for the instantiated root.
+        x: f32,
+        /// World-space Y position for the instantiated root.
+        y: f32,
+        /// World-space Z position for the instantiated root.
+        z: f32,
+        /// Id of the entity to parent the instantiated root under, if any.
+        parent_id: Option<u64>,
+    },
 }
 
 /// Whether the editor is showing the static scene or running gameplay.

@@ -471,6 +471,35 @@ pub struct EditorCommandQueueResource(pub SharedCommandQueue);
 #[derive(Resource)]
 pub struct ReflectCommandQueueResource(pub SharedReflectCommandQueue);
 
+/// A queued "instantiate this prefab" request from the editor UI (e.g. an
+/// asset dragged onto the viewport). Handled by a dedicated exclusive
+/// system (`process_prefab_commands`), for the same reason `ReflectCommand`
+/// is: `bsengine_scene::instantiate_prefab` needs `&mut World`, which
+/// `process_editor_commands`'s typed system params can't provide.
+#[derive(Clone, Debug)]
+pub struct PrefabInstantiateCommand {
+    /// Project-relative path to the prefab file.
+    pub path: String,
+    /// Explicit root name; `None` auto-generates one.
+    pub name: Option<String>,
+    /// World-space X position for the instantiated root.
+    pub x: f32,
+    /// World-space Y position for the instantiated root.
+    pub y: f32,
+    /// World-space Z position for the instantiated root.
+    pub z: f32,
+    /// Editor entity id to parent the instantiated root under, if any.
+    pub parent_id: Option<u64>,
+}
+
+/// Shared handle to the pending `PrefabInstantiateCommand` queue, drained
+/// each frame by `process_prefab_commands`.
+pub type SharedPrefabCommandQueue = Arc<Mutex<Vec<PrefabInstantiateCommand>>>;
+
+/// Bevy resource exposing the shared prefab-instantiate queue to systems.
+#[derive(Resource)]
+pub struct PrefabCommandQueueResource(pub SharedPrefabCommandQueue);
+
 /// Bevy resource exposing the shared selection set to systems inside the
 /// `App`.
 #[derive(Resource)]

@@ -17,6 +17,10 @@ pub enum AssetKind {
     Directory,
     /// A `.ron` scene file, double-click loads it.
     Scene,
+    /// A `.ron` file under an `assets/prefabs/` directory -- draggable
+    /// into the viewport to instantiate, distinct from `Scene` (which is
+    /// also `.ron` but double-click-loads instead).
+    Prefab,
     /// A `.js` script file, draggable onto an entity to attach it.
     Script,
     /// A `.glb`/`.gltf` model file, draggable into the viewport to spawn it.
@@ -32,13 +36,27 @@ pub enum AssetKind {
 /// here, since a bare path string can't be checked against the filesystem
 /// in a pure function — this function only looks at the extension string.
 fn categorize_by_extension(path: &Path) -> AssetKind {
+    let is_ron = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case("ron"))
+        .unwrap_or(false);
+    if is_ron {
+        let under_prefabs = path
+            .components()
+            .any(|c| c.as_os_str().eq_ignore_ascii_case("prefabs"));
+        return if under_prefabs {
+            AssetKind::Prefab
+        } else {
+            AssetKind::Scene
+        };
+    }
     match path
         .extension()
         .and_then(|e| e.to_str())
         .map(|e| e.to_lowercase())
         .as_deref()
     {
-        Some("ron") => AssetKind::Scene,
         Some("js") => AssetKind::Script,
         Some("glb") | Some("gltf") => AssetKind::Mesh,
         Some("png") | Some("jpg") | Some("jpeg") => AssetKind::Texture,
@@ -326,6 +344,11 @@ impl AssetBrowserPanel {
         match kind {
             AssetKind::Directory => egui_phosphor::regular::FOLDER,
             AssetKind::Scene => egui_phosphor::regular::FILM_STRIP,
+            // No dedicated prefab icon exists in this codebase's icon set
+            // yet; reuse Mesh's icon since dragging a Prefab tile into the
+            // viewport spawns an entity the same way dragging a Mesh tile
+            // does (see viewport.rs's drop handling).
+            AssetKind::Prefab => egui_phosphor::regular::CUBE,
             AssetKind::Script => egui_phosphor::regular::FILE_JS,
             AssetKind::Mesh => egui_phosphor::regular::CUBE,
             AssetKind::Texture => egui_phosphor::regular::FILE_IMAGE,
@@ -367,7 +390,7 @@ impl AssetBrowserPanel {
                         self.pending_load_scene = Some(entry.path.to_string_lossy().to_string());
                     }
                 }
-                AssetKind::Mesh | AssetKind::Script => {
+                AssetKind::Mesh | AssetKind::Script | AssetKind::Prefab => {
                     // Sense::click_and_drag() here, not Sense::drag() alone:
                     // this interact is registered after (on top of, in
                     // hit-test z-order) `response`'s own click-sensing
@@ -429,6 +452,18 @@ mod tests {
             categorize_by_extension(Path::new("no_extension")),
             AssetKind::Other
         );
+    }
+
+    #[test]
+    fn a_ron_file_under_prefabs_is_categorized_as_prefab_not_scene() {
+        let path = std::path::Path::new("games/demo/assets/prefabs/enemy.ron");
+        assert_eq!(categorize_by_extension(path), AssetKind::Prefab);
+    }
+
+    #[test]
+    fn a_ron_file_outside_prefabs_is_still_categorized_as_scene() {
+        let path = std::path::Path::new("games/demo/assets/scenes/main.ron");
+        assert_eq!(categorize_by_extension(path), AssetKind::Scene);
     }
 
     #[test]

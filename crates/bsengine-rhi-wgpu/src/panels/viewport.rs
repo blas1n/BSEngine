@@ -46,6 +46,18 @@ impl EditorPanel for ViewportPanel {
                     name,
                     path: payload.path.to_string_lossy().to_string(),
                 });
+            } else if payload.kind == crate::panels::AssetKind::Prefab {
+                // Same origin-drop simplification SpawnMeshAsset already
+                // makes -- neither reads the drop location, since there's
+                // no cursor-to-world raycast wired into this panel yet.
+                insp.cmd_queue.push(InspectorCmd::InstantiatePrefab {
+                    path: payload.path.to_string_lossy().to_string(),
+                    name: None,
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                    parent_id: None,
+                });
             }
         }
 

@@ -1131,6 +1131,14 @@ fn build_entity_descriptors(entities: &[EntityInfo]) -> Vec<EntityDescriptor> {
                             None
                         }
                     }),
+                    // Always None: this build has no way to know whether a
+                    // live entity was originally instantiated from a
+                    // prefab (EntityInfo tracks no such provenance), and
+                    // saving that link is out of scope for prefab
+                    // instantiation -- it belongs to a future live-sync
+                    // feature that doesn't exist yet, not to any task in
+                    // this plan.
+                    prefab: None,
                 }
             })
         })

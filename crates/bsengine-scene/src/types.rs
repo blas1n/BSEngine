@@ -187,6 +187,22 @@ pub struct SceneDescriptor {
     pub skybox: Option<String>,
 }
 
+/// Root of a prefab file: a reusable entity subtree, instantiated by name
+/// reference from a scene file, a runtime script/MCP call, or the editor.
+///
+/// Deliberately not `SceneDescriptor` reused verbatim -- `SceneDescriptor`
+/// carries a scene-wide `skybox` field that has no meaning on a reusable
+/// entity template, and a prefab author setting it would silently do
+/// nothing once the entities are instantiated into a scene.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrefabDescriptor {
+    /// Entities in this prefab, in file order. Exactly one must have no
+    /// `parent:` (the root); this is validated at instantiation time, not
+    /// at parse time, since RON itself has no way to express the
+    /// constraint.
+    pub entities: Vec<EntityDescriptor>,
+}
+
 /// Built-in primitive mesh shapes that the runtime can spawn without an asset file.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default, Reflect)]
 #[reflect(Default)]
@@ -297,6 +313,13 @@ pub struct EntityDescriptor {
     /// parent references are not supported.
     #[serde(default)]
     pub parent: Option<String>,
+    /// Reference to a prefab asset. If present, this descriptor acts as an
+    /// *instantiation point* rather than a normal entity: none of this
+    /// descriptor's own component fields (transform aside) are used --
+    /// instead the referenced prefab's own entity subtree is spawned in
+    /// its place. See `instantiate_prefab` in `prefab.rs`.
+    #[serde(default)]
+    pub prefab: Option<AssetRef>,
     /// Reflected components not covered by this struct's own typed fields
     /// (e.g. `AnimationStateMachine`, `NavMeshAgent`, `Shield`, `Bloom`,
     /// `ToneMap`), as (fully-qualified type path, RON-encoded value) pairs.
@@ -619,6 +642,35 @@ mod tests {
         let older: EntityDescriptor = ron::from_str(r#"EntityDescriptor(name: "Root")"#)
             .expect("a scene written before `parent` existed should still parse");
         assert_eq!(older.parent, None);
+    }
+
+    #[test]
+    fn entity_descriptor_with_prefab_deserializes_and_defaults_to_absent() {
+        let with_prefab: EntityDescriptor = ron::from_str(
+            r#"EntityDescriptor(name: "Spawn1", prefab: Some("assets/prefabs/enemy.ron"))"#,
+        )
+        .expect("a scene entity should be able to reference a prefab");
+        assert_eq!(
+            with_prefab.prefab.as_ref().map(|r| r.path().to_string()),
+            Some("assets/prefabs/enemy.ron".to_string())
+        );
+
+        let older: EntityDescriptor = ron::from_str(r#"EntityDescriptor(name: "Root")"#)
+            .expect("a scene written before `prefab` existed should still parse");
+        assert_eq!(older.prefab, None);
+    }
+
+    #[test]
+    fn prefab_descriptor_parses_a_root_and_a_child() {
+        let prefab: PrefabDescriptor = ron::from_str(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(name: "Wheel", parent: Some("Body"), primitive: Some(Cube)),
+            ])"#,
+        )
+        .expect("a prefab file with a root and a child should parse");
+        assert_eq!(prefab.entities.len(), 2);
+        assert_eq!(prefab.entities[1].parent.as_deref(), Some("Body"));
     }
 
     #[test]

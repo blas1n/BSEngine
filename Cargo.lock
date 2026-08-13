@@ -1179,6 +1179,7 @@ dependencies = [
  "deno_core",
  "glam 0.29.3",
  "kira",
+ "ron",
  "serde",
  "serde_json",
  "tracing",

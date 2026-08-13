@@ -77,6 +77,27 @@ fn default_one() -> f32 {
     1.0
 }
 
+/// JS-provided parameters for instantiating a prefab via `Bsengine.instantiatePrefab`.
+#[derive(Clone, Debug, Deserialize)]
+pub struct InstantiatePrefabParams {
+    /// Project-relative path to the prefab `.ron` file.
+    pub path: String,
+    /// Explicit root entity name. `None` auto-generates one from the
+    /// prefab's own root name plus a unique suffix -- same as leaving
+    /// `root_name` absent when calling `instantiate_prefab` directly.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// World-space X position for the instantiated root.
+    #[serde(default)]
+    pub x: f32,
+    /// World-space Y position for the instantiated root.
+    #[serde(default)]
+    pub y: f32,
+    /// World-space Z position for the instantiated root.
+    #[serde(default)]
+    pub z: f32,
+}
+
 /// Deferred world-mutating command produced by a `Bsengine.*` script call; queued and applied to the ECS world on the next update.
 #[derive(Clone, Debug)]
 pub enum ScriptCommand {
@@ -836,6 +857,21 @@ pub enum ScriptCommand {
     },
     /// Spawn a new entity from the given parameters.
     Spawn(SpawnParams),
+    /// Instantiate a prefab. Unlike `Spawn`, the root's final name is
+    /// already decided (computed synchronously in the op, before this
+    /// command was even queued) -- this variant just carries it through.
+    InstantiatePrefab {
+        /// Project-relative path to the prefab `.ron` file.
+        path: String,
+        /// The root entity's final name, already computed by the op.
+        name: String,
+        /// World-space X position for the instantiated root.
+        x: f32,
+        /// World-space Y position for the instantiated root.
+        y: f32,
+        /// World-space Z position for the instantiated root.
+        z: f32,
+    },
     /// Destroy a named entity.
     Destroy {
         /// Name of the entity to modify.
@@ -2565,6 +2601,51 @@ pub fn bsengine_set_color(#[string] name: String, r: f32, g: f32, b: f32) {
 #[op2]
 pub fn bsengine_spawn(#[serde] params: SpawnParams) {
     COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::Spawn(params)));
+}
+
+/// Instantiate a prefab, returning the spawned root entity's *name*
+/// synchronously -- but not the entity itself, which does not exist yet.
+///
+/// Unlike `Bsengine.spawn` (which hands back nothing to identify its
+/// entity by), this name is decided and stable the instant the call
+/// returns: it's computed up front via `bsengine_scene::next_instance_suffix`,
+/// a `World`-free atomic counter, before the command is even queued. That
+/// makes the name itself safe to use immediately -- store it, log it, pass
+/// it to another queued `Bsengine.*` call by name.
+///
+/// What is **not** true is that the entity is queryable that same tick.
+/// The actual spawn is deferred through the same `COMMAND_BUFFER` every
+/// other `Bsengine.*` mutator uses, and `run_scripts` only drains that
+/// buffer into the `World` *after* every script's `onUpdate` for the
+/// current tick has already run -- while `getPosition` and friends read
+/// `TRANSFORM_SNAPSHOT`, which is captured *before* any of those
+/// `onUpdate`s run. So `const e = Bsengine.instantiatePrefab({...});
+/// Bsengine.getPosition(e)` on consecutive lines in the same tick reads a
+/// snapshot taken before `e` existed and returns `null` -- silently, not
+/// as an error. The name only resolves to a real, positioned entity
+/// starting the *next* tick, once that tick's `run_scripts` has both
+/// applied the deferred spawn and re-collected the snapshot from the
+/// now-current `World`.
+#[op2]
+#[string]
+pub fn bsengine_instantiate_prefab(#[serde] params: InstantiatePrefabParams) -> String {
+    let name = params.name.clone().unwrap_or_else(|| {
+        let stem = std::path::Path::new(&params.path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Prefab");
+        format!("{stem}#{}", bsengine_scene::next_instance_suffix())
+    });
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::InstantiatePrefab {
+            path: params.path,
+            name: name.clone(),
+            x: params.x,
+            y: params.y,
+            z: params.z,
+        })
+    });
+    name
 }
 
 /// Queue destroying a named entity.
@@ -5529,6 +5610,7 @@ deno_core::extension!(
         bsengine_set_emissive,
         bsengine_set_color,
         bsengine_spawn,
+        bsengine_instantiate_prefab,
         bsengine_destroy,
         bsengine_set_visible,
         bsengine_get_visible,
@@ -10219,5 +10301,41 @@ JSON.stringify(received)
         let result = rt.eval(r#"Bsengine.asmGetState("Hero")"#).unwrap();
         assert_eq!(result, "run");
         super::ASM_STATE_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    // `#[op2]`-annotated functions are not directly callable Rust functions
+    // (the macro turns the name into an `OpDecl`-producing item, consumed by
+    // the `extension!` op list) -- every other op test in this file goes
+    // through `Bsengine.*` in JS instead, so this one does too, matching
+    // e.g. `test_anim_get_state_returns_snapshot` above.
+    #[test]
+    fn bsengine_instantiate_prefab_returns_a_name_synchronously_and_queues_a_command() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+
+        let result = eval_js(
+            r#"JSON.stringify([
+                Bsengine.instantiatePrefab({ path: "assets/prefabs/enemy.ron", x: 1, y: 0, z: 0 }),
+                Bsengine.instantiatePrefab({ path: "assets/prefabs/enemy.ron", x: 2, y: 0, z: 0 }),
+            ])"#,
+        );
+
+        let names: Vec<String> = serde_json::from_str(&result)
+            .expect("instantiatePrefab must return a plain string both times");
+        assert_ne!(
+            names[0], names[1],
+            "two instantiations must get distinct names"
+        );
+        assert!(
+            names[0].starts_with("enemy#"),
+            "the default name should be the prefab file stem plus a unique suffix, got {:?}",
+            names[0]
+        );
+
+        let queued = super::COMMAND_BUFFER.with(|c| c.borrow().len());
+        assert_eq!(
+            queued, 2,
+            "both instantiations must be queued for deferred spawning"
+        );
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }
 }

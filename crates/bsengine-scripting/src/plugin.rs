@@ -1814,6 +1814,15 @@ fn run_scripts(world: &mut World) {
             ScriptCommand::Spawn(params) => {
                 spawn_entity(world, params);
             }
+            ScriptCommand::InstantiatePrefab {
+                path,
+                name,
+                x,
+                y,
+                z,
+            } => {
+                instantiate_prefab_command(world, path, name, x, y, z);
+            }
             ScriptCommand::Destroy { name } => {
                 let entity = {
                     let mut q = world.query::<(Entity, &Name)>();
@@ -2697,6 +2706,47 @@ fn spawn_entity(world: &mut World, params: SpawnParams) {
 
     if let Some(script) = params.script {
         cmd.insert(ScriptPath(script));
+    }
+}
+
+/// Reads and parses the referenced prefab file, then instantiates it with
+/// the already-decided root `name` (computed synchronously back in the op
+/// -- see `bsengine_instantiate_prefab`) and the given world position.
+/// Warns and does nothing on any failure (missing/unparseable file, bad
+/// root count) rather than panicking -- consistent with every other
+/// scene/prefab-loading failure mode in this codebase.
+pub(crate) fn instantiate_prefab_command(
+    world: &mut World,
+    path: String,
+    name: String,
+    x: f32,
+    y: f32,
+    z: f32,
+) {
+    let project_dir = world.get_resource::<ProjectDir>().cloned();
+    let resolved_path = resolve_project_path(project_dir.as_ref(), &path);
+    let content = match std::fs::read_to_string(&resolved_path) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("instantiatePrefab: could not read '{resolved_path}': {e}");
+            return;
+        }
+    };
+    let prefab: bsengine_scene::types::PrefabDescriptor = match ron::from_str(&content) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!("instantiatePrefab: '{resolved_path}' failed to parse: {e}");
+            return;
+        }
+    };
+    let transform = bsengine_scene::TransformDescriptor {
+        position: [x, y, z],
+        ..Default::default()
+    };
+    if let Err(e) =
+        bsengine_scene::instantiate_prefab(world, &prefab, Some(&name), Some(transform), None)
+    {
+        tracing::warn!("instantiatePrefab: '{resolved_path}' failed to instantiate: {e}");
     }
 }
 
@@ -5089,5 +5139,159 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&project_dir);
+    }
+
+    /// The end-to-end counterpart to
+    /// `ops::tests::bsengine_instantiate_prefab_returns_a_name_synchronously_and_queues_a_command`:
+    /// that test proves the op returns a name and queues a command; this one
+    /// proves the queued command, once actually applied to a `World`, reads
+    /// and parses a real prefab file from disk and spawns a real entity
+    /// under the requested name and position.
+    ///
+    /// This crate has no `tempfile` dev-dependency; `bsengine_asset::test_support::{ProbeDir,
+    /// unique}` is the convention this file already uses for exactly this
+    /// need (a real temp directory, removed even if the test panics) --
+    /// see `script_probe` above for the established pattern this mirrors.
+    #[test]
+    fn instantiate_prefab_command_actually_spawns_the_prefab_into_the_world() {
+        let project = bsengine_asset::test_support::unique("instantiate-prefab-command");
+        let root = std::path::PathBuf::from(&project);
+        std::fs::create_dir_all(root.join("assets").join("prefabs")).unwrap();
+        let _guard = bsengine_asset::test_support::ProbeDir(root.clone());
+        std::fs::write(
+            root.join("assets").join("prefabs").join("enemy.ron"),
+            r#"PrefabDescriptor(entities: [EntityDescriptor(name: "Enemy", primitive: Some(Cube))])"#,
+        )
+        .unwrap();
+
+        let mut world = bevy_ecs::prelude::World::new();
+        // `ProjectDir` is `ProjectDir(pub String)`, not `PathBuf` -- see
+        // `bsengine_core::project_dir::ProjectDir`.
+        world.insert_resource(bsengine_core::ProjectDir(project.clone()));
+
+        super::instantiate_prefab_command(
+            &mut world,
+            "assets/prefabs/enemy.ron".to_string(),
+            "Boss".to_string(),
+            3.0,
+            0.0,
+            0.0,
+        );
+
+        let mut q = world.query::<(&Name, &Transform)>();
+        let (name, transform) = q
+            .iter(&world)
+            .find(|(n, _)| n.0 == "Boss")
+            .expect("the prefab root should have spawned with the given name");
+        assert_eq!(name.0, "Boss");
+        assert!((transform.position.0.x - 3.0).abs() < 1e-5);
+    }
+
+    /// The design doc's own test plan called for this ("does the actual
+    /// spawn happen on the next tick") and it was never written -- proof
+    /// that the name `Bsengine.instantiatePrefab` hands back synchronously
+    /// is not yet a queryable entity in the SAME tick, and only resolves to
+    /// one on the tick after. This is the exact timing
+    /// `bsengine_instantiate_prefab`'s doc comment describes, and the
+    /// silent-`null` failure mode a script chaining `getPosition` on the
+    /// very next line would hit if it didn't know that.
+    ///
+    /// Modelled on `pause_then_is_paused_reports_true_next_frame` above: a
+    /// script whose `onUpdate` behaves differently on its first and second
+    /// call (a `called` flag), driven across real ticks by real
+    /// `app.update()`s, with each tick's observation recorded into
+    /// `SaveData` so both can be asserted after the fact -- reading state
+    /// back out through JS/`Bsengine.getPosition` itself, not by peeking at
+    /// `COMMAND_BUFFER` or the `World` directly, so this proves what a real
+    /// script would actually observe.
+    #[test]
+    fn instantiated_prefab_position_is_not_available_until_the_next_tick() {
+        let project = bsengine_asset::test_support::unique("instantiate-prefab-tick-timing");
+        let root = std::path::PathBuf::from(&project);
+        std::fs::create_dir_all(root.join("assets").join("prefabs")).unwrap();
+        std::fs::create_dir_all(root.join("assets").join("scripts")).unwrap();
+        let _guard = bsengine_asset::test_support::ProbeDir(root.clone());
+        std::fs::write(
+            root.join("assets").join("prefabs").join("enemy.ron"),
+            r#"PrefabDescriptor(entities: [EntityDescriptor(name: "Enemy", primitive: Some(Cube))])"#,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("assets").join("scripts").join("driver.js"),
+            "let called = false;\n\
+             function onUpdate(name) {\n\
+                 if (!called) {\n\
+                     called = true;\n\
+                     Bsengine.instantiatePrefab({ path: \"assets/prefabs/enemy.ron\", name: \"Boss\", x: 3, y: 0, z: 0 });\n\
+                     const pos = Bsengine.getPosition(\"Boss\");\n\
+                     Bsengine.setSaveField(name, \"tick1\", pos === null ? \"null\" : \"present\");\n\
+                     return;\n\
+                 }\n\
+                 const pos = Bsengine.getPosition(\"Boss\");\n\
+                 Bsengine.setSaveField(name, \"tick2\", pos === null ? \"null\" : JSON.stringify(pos));\n\
+             }",
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: project.clone(),
+        });
+        app.world_mut().spawn((
+            Name("Hero".to_string()),
+            bsengine_core::SaveData::new(0),
+            ScriptPath("assets/scripts/driver.js".to_string()),
+        ));
+
+        // Three updates for the same reason `pause_then_is_paused_reports_true_next_frame`
+        // uses three: the first `app.update()` both loads the script
+        // (`PostStartup` runs before that same call's `Update`) and runs its
+        // first `onUpdate` (tick 1: `instantiatePrefab` followed immediately
+        // by the `getPosition` check, both on the same tick); the second
+        // `app.update()` runs `onUpdate` a second time (tick 2: the delayed
+        // check) -- but only after that same call's `run_scripts` has both
+        // drained tick 1's `COMMAND_BUFFER` into the `World` and re-collected
+        // `TRANSFORM_SNAPSHOT` from it, ahead of tick 2's `onUpdate`. The
+        // third is the same margin the precedent test keeps.
+        app.update();
+        app.update();
+        app.update();
+
+        let world = app.world_mut();
+        let mut q = world.query::<(&Name, &bsengine_core::SaveData)>();
+        let (_, save) = q
+            .iter(world)
+            .find(|(n, _)| n.0 == "Hero")
+            .expect("Hero entity with SaveData not found");
+
+        assert_eq!(
+            save.get("tick1"),
+            Some(b"null".as_slice()),
+            "in the SAME tick instantiatePrefab was called, the command has \
+             not been applied to the World yet (that only happens after every \
+             script's onUpdate for the tick has run), and TRANSFORM_SNAPSHOT \
+             was captured before this tick's onUpdate calls ran at all -- so \
+             getPosition must read this as \"entity not found\", not the \
+             pre-spawn origin or any other stand-in value"
+        );
+
+        let tick2 = save
+            .get("tick2")
+            .map(|b| String::from_utf8_lossy(b).into_owned())
+            .expect("tick2 SaveData field must have been set by the second onUpdate");
+        assert_ne!(
+            tick2, "null",
+            "by the NEXT tick the deferred InstantiatePrefab command has been \
+             applied to the World, so getPosition must now find the real, \
+             spawned entity"
+        );
+        let pos: serde_json::Value = serde_json::from_str(&tick2)
+            .expect("tick2's getPosition result must have serialized as real JSON, not null");
+        assert!(
+            (pos["x"].as_f64().unwrap() - 3.0).abs() < 1e-4,
+            "the spawned entity must be at the position instantiatePrefab was \
+             called with, not the origin: {tick2}"
+        );
     }
 }

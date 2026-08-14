@@ -196,6 +196,7 @@ var Bsengine = {
     setEmissive:    (name, r, g, b)        => Deno.core.ops.bsengine_set_emissive(name, r, g, b),
     setColor:       (name, r, g, b)        => Deno.core.ops.bsengine_set_color(name, r, g, b),
     spawn:          (params)               => Deno.core.ops.bsengine_spawn(params),
+    instantiatePrefab: (params)            => Deno.core.ops.bsengine_instantiate_prefab(params),
     destroy:        (name)                 => Deno.core.ops.bsengine_destroy(name),
     setVisible:     (name, v)              => Deno.core.ops.bsengine_set_visible(name, v),
     getVisible:     (name)                 => Deno.core.ops.bsengine_get_visible(name),

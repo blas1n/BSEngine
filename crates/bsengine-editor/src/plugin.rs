@@ -1,8 +1,9 @@
 use crate::snapshot::{
     EditorCommand, EditorCommandQueueResource, EditorHistory, EditorHistoryResource,
-    EditorSelectionResource, EditorSnapshot, EditorSnapshotResource, EntityInfo, ReflectCommand,
-    ReflectCommandQueueResource, SharedCommandQueue, SharedHistory, SharedReflectCommandQueue,
-    SharedSelection, SharedSnapshot, Tags,
+    EditorSelectionResource, EditorSnapshot, EditorSnapshotResource, EntityInfo,
+    PrefabCommandQueueResource, PrefabInstantiateCommand, ReflectCommand,
+    ReflectCommandQueueResource, SharedCommandQueue, SharedHistory, SharedPrefabCommandQueue,
+    SharedReflectCommandQueue, SharedSelection, SharedSnapshot, Tags,
 };
 use bevy_app::{App, Plugin, Update};
 use bevy_ecs::prelude::{Commands, Entity, IntoSystemConfigs, ParamSet, Query, ResMut, World};
@@ -1131,6 +1132,14 @@ fn build_entity_descriptors(entities: &[EntityInfo]) -> Vec<EntityDescriptor> {
                             None
                         }
                     }),
+                    // Always None: this build has no way to know whether a
+                    // live entity was originally instantiated from a
+                    // prefab (EntityInfo tracks no such provenance), and
+                    // saving that link is out of scope for prefab
+                    // instantiation -- it belongs to a future live-sync
+                    // feature that doesn't exist yet, not to any task in
+                    // this plan.
+                    prefab: None,
                 }
             })
         })
@@ -1525,6 +1534,65 @@ fn process_reflect_commands(world: &mut World) {
     }
 }
 
+/// Drains `PrefabCommandQueueResource` each frame and instantiates each
+/// queued prefab via `bsengine_scene::instantiate_prefab_from_path`, which
+/// needs `&mut World` directly -- see `PrefabInstantiateCommand`'s doc
+/// comment. Going through `instantiate_prefab_from_path` (rather than
+/// reading/parsing the file here and calling
+/// `bsengine_scene::instantiate_prefab` directly, as this used to) is what
+/// registers this top-level call into the crate's cycle-detection set
+/// before a nested `prefab:` reference inside the file can recurse --
+/// skipping it meant a prefab whose own child referenced its containing
+/// file silently double-spawned via drag-and-drop, since the guard only
+/// ever caught such a reference on its second encounter, not its first.
+fn process_prefab_commands(world: &mut World) {
+    let cmds: Vec<PrefabInstantiateCommand> = {
+        let Some(queue_res) = world.get_resource::<PrefabCommandQueueResource>() else {
+            return;
+        };
+        let mut queue = queue_res.0.lock().unwrap();
+        queue.drain(..).collect()
+    };
+    if cmds.is_empty() {
+        return;
+    }
+
+    if let (Some(snapshot_res), Some(history_res)) = (
+        world.get_resource::<EditorSnapshotResource>(),
+        world.get_resource::<EditorHistoryResource>(),
+    ) {
+        let checkpoint = snapshot_res.0.lock().unwrap().clone();
+        let mut history = history_res.0.lock().unwrap();
+        history.undo_stack.push(checkpoint);
+        history.redo_stack.clear();
+        if history.undo_stack.len() > MAX_UNDO_HISTORY {
+            history.undo_stack.remove(0);
+        }
+    }
+
+    let project_dir = world.get_resource::<bsengine_core::ProjectDir>().cloned();
+    for cmd in cmds {
+        let resolved_path = bsengine_core::resolve_project_path(project_dir.as_ref(), &cmd.path);
+        let parent_entity = cmd
+            .parent_id
+            .and_then(|id| world.iter_entities().find(|e| e.id().index() as u64 == id))
+            .map(|e| e.id());
+        let transform = bsengine_scene::TransformDescriptor {
+            position: [cmd.x, cmd.y, cmd.z],
+            ..Default::default()
+        };
+        if let Err(e) = bsengine_scene::instantiate_prefab_from_path(
+            world,
+            &resolved_path,
+            cmd.name.as_deref(),
+            Some(transform),
+            parent_entity,
+        ) {
+            tracing::warn!("prefab: '{resolved_path}' failed to instantiate: {e}");
+        }
+    }
+}
+
 fn update_editor_camera(
     inspector: Option<ResMut<InspectorState>>,
     mouse: Option<bsengine_ecs::Res<bsengine_input::MouseState>>,
@@ -1656,6 +1724,7 @@ fn apply_inspector_cmds(
     inspector: Option<ResMut<InspectorState>>,
     queue_res: Res<EditorCommandQueueResource>,
     reflect_queue_res: Res<ReflectCommandQueueResource>,
+    prefab_queue_res: Res<PrefabCommandQueueResource>,
     selection_res: Res<EditorSelectionResource>,
     mut commands: Commands,
 ) {
@@ -1792,6 +1861,16 @@ fn apply_inspector_cmds(
                     value,
                 });
             }
+            InspectorCmd::InstantiatePrefab { path, name, x, y, z, parent_id } => {
+                prefab_queue_res.0.lock().unwrap().push(PrefabInstantiateCommand {
+                    path,
+                    name,
+                    x,
+                    y,
+                    z,
+                    parent_id,
+                });
+            }
         }
     }
 }
@@ -1806,12 +1885,14 @@ impl Plugin for EditorPlugin {
         let snapshot: SharedSnapshot = Arc::new(Mutex::new(EditorSnapshot::default()));
         let cmd_queue: SharedCommandQueue = Arc::new(Mutex::new(Vec::new()));
         let reflect_cmd_queue: SharedReflectCommandQueue = Arc::new(Mutex::new(Vec::new()));
+        let prefab_cmd_queue: SharedPrefabCommandQueue = Arc::new(Mutex::new(Vec::new()));
         let selection: SharedSelection = Arc::new(Mutex::new(std::collections::HashSet::new()));
         let history: SharedHistory = Arc::new(Mutex::new(EditorHistory::default()));
 
         app.insert_resource(EditorSnapshotResource(snapshot.clone()));
         app.insert_resource(EditorCommandQueueResource(cmd_queue.clone()));
         app.insert_resource(ReflectCommandQueueResource(reflect_cmd_queue.clone()));
+        app.insert_resource(PrefabCommandQueueResource(prefab_cmd_queue.clone()));
         app.insert_resource(EditorSelectionResource(selection.clone()));
         app.insert_resource(EditorHistoryResource(history.clone()));
         app.insert_resource(InspectorState::editor());
@@ -1849,6 +1930,7 @@ impl Plugin for EditorPlugin {
         app.add_systems(Update, apply_inspector_cmds.before(process_editor_commands));
         app.add_systems(Update, process_editor_commands);
         app.add_systems(Update, process_reflect_commands.after(process_editor_commands));
+        app.add_systems(Update, process_prefab_commands.after(process_editor_commands));
         app.add_systems(Update, apply_history_action.after(process_editor_commands));
 
         // Captured once here (rather than inside the `if let` below) and cloned
@@ -92232,5 +92314,97 @@ mod tests {
             })).expect("tool should be registered")
         };
         assert!(!out.is_ok());
+    }
+
+    #[test]
+    fn process_prefab_commands_instantiates_a_queued_prefab() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("assets/prefabs")).unwrap();
+        std::fs::write(
+            root.join("assets/prefabs/enemy.ron"),
+            r#"PrefabDescriptor(entities: [EntityDescriptor(name: "Enemy", primitive: Some(Cube))])"#,
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.insert_resource(bsengine_core::ProjectDir(root.to_string_lossy().to_string()));
+
+        {
+            let queue = app.world().resource::<crate::snapshot::PrefabCommandQueueResource>();
+            queue.0.lock().unwrap().push(crate::snapshot::PrefabInstantiateCommand {
+                path: "assets/prefabs/enemy.ron".to_string(),
+                name: None,
+                x: 1.0,
+                y: 0.0,
+                z: 0.0,
+                parent_id: None,
+            });
+        }
+
+        app.update();
+
+        let mut q = app.world_mut().query::<&Name>();
+        let names: Vec<String> = q.iter(app.world()).map(|n| n.0.clone()).collect();
+        assert!(
+            names.iter().any(|n| n.starts_with("Enemy#")),
+            "queued prefab command should have been instantiated by the next update, names: {names:?}"
+        );
+    }
+
+    #[test]
+    fn process_prefab_commands_pushes_undo_checkpoint() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("assets/prefabs")).unwrap();
+        std::fs::write(
+            root.join("assets/prefabs/enemy.ron"),
+            r#"PrefabDescriptor(entities: [EntityDescriptor(name: "Enemy", primitive: Some(Cube))])"#,
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.insert_resource(bsengine_core::ProjectDir(root.to_string_lossy().to_string()));
+        app.update();
+
+        let history_len_before = app
+            .world()
+            .resource::<crate::snapshot::EditorHistoryResource>()
+            .0
+            .lock()
+            .unwrap()
+            .undo_stack
+            .len();
+
+        {
+            let queue = app.world().resource::<crate::snapshot::PrefabCommandQueueResource>();
+            queue.0.lock().unwrap().push(crate::snapshot::PrefabInstantiateCommand {
+                path: "assets/prefabs/enemy.ron".to_string(),
+                name: None,
+                x: 1.0,
+                y: 0.0,
+                z: 0.0,
+                parent_id: None,
+            });
+        }
+        app.update();
+
+        let history_len_after = app
+            .world()
+            .resource::<crate::snapshot::EditorHistoryResource>()
+            .0
+            .lock()
+            .unwrap()
+            .undo_stack
+            .len();
+        assert_eq!(
+            history_len_after,
+            history_len_before + 1,
+            "process_prefab_commands should push an undo checkpoint, same as ReflectCommand/EditorCommand do"
+        );
     }
 }

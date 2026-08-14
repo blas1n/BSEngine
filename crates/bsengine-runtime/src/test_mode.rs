@@ -1100,6 +1100,93 @@ mod tests {
         );
     }
 
+    // Proves a scene-file `prefab:` reference actually renders end to end
+    // (parse -> load the referenced .ron -> instantiate -> propagate ->
+    // draw), not just that entities appear.
+    #[test]
+    fn prefab_referenced_from_a_scene_file_renders_at_the_instantiation_points_position() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("assets/prefabs")).unwrap();
+        std::fs::create_dir_all(root.join("assets/scenes")).unwrap();
+        std::fs::write(
+            root.join("project.toml"),
+            "[project]\nname = \"Prefab Test\"\nentry_scene = \"assets/scenes/main.ron\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("assets/prefabs/blip.ron"),
+            r#"PrefabDescriptor(entities: [
+    EntityDescriptor(
+        name: "Blip",
+        primitive: Some(Cube),
+        emissive: Some((1.0, 0.0, 0.0)),
+    ),
+])"#,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("assets/scenes/main.ron"),
+            r#"SceneDescriptor(entities: [
+    EntityDescriptor(
+        name: "Camera",
+        camera: true,
+        transform: Some((
+            position: (0.0, 0.0, 8.0),
+        )),
+    ),
+    EntityDescriptor(
+        name: "Spawn1",
+        prefab: Some("assets/prefabs/blip.ron"),
+        transform: Some((position: (0.0, 0.0, 0.0))),
+    ),
+])"#,
+        )
+        .unwrap();
+
+        let project_dir = root.to_str().unwrap().to_string();
+        let mut app = build_test_app(&project_dir, None);
+        app.update();
+
+        // Window defaults to 1280x720 (no [window] table), so the exact
+        // screen center is always (640, 360). The camera at (0,0,8) with
+        // identity rotation looks straight down -Z, so a prefab
+        // instantiated at the world origin lands dead center on screen.
+        let pixel = crate::test_query::run_query(
+            app.world_mut(),
+            "get_pixel",
+            &json!({"x": 640, "y": 360}),
+        )
+        .expect("get_pixel should succeed once RenderPlugin has drawn a frame");
+        let r = pixel["r"].as_u64().unwrap();
+        let g = pixel["g"].as_u64().unwrap();
+        assert!(
+            r > g + 20,
+            "the prefab's emissive-red cube should render dead center, got {pixel:?}"
+        );
+
+        let mut q = app.world_mut().query::<&bsengine_scene::Name>();
+        let names: Vec<String> = q.iter(app.world()).map(|n| n.0.clone()).collect();
+        // The prefab's root (its only entity, "Blip") takes over the
+        // instantiation point's own name verbatim -- see Task 3's identical
+        // assertion and its comment for why. This prefab has no non-root
+        // entity, so there's nothing to check a suffix on here; that's
+        // already covered by Task 3's own unit tests. This test's job is
+        // purely to prove the pixel actually renders, which the assertion
+        // above already did.
+        assert_eq!(
+            names.iter().filter(|n| n.as_str() == "Spawn1").count(),
+            1,
+            "the prefab's root should be named exactly 'Spawn1', the instantiation \
+             point's own name, taken over verbatim, names: {names:?}"
+        );
+        assert_eq!(
+            names.len(),
+            2,
+            "exactly Camera and the instantiated prefab root should exist, names: {names:?}"
+        );
+    }
+
     // Regression test for the PressKey/ReleaseKey protocol commands: they
     // must route through Events<KeyInput>, not mutate Input<KeyCode>
     // directly, or edge-triggered checks (just_pressed/just_released --

@@ -1,5 +1,6 @@
 use crate::types::{
     AssetRef, EntityDescriptor, PhysicsBodyDesc, PrimitiveMesh, SceneDescriptor, ScriptPath,
+    TransformDescriptor,
 };
 use bevy_app::{App, Plugin, Startup};
 use bevy_ecs::prelude::{Component, Entity, IntoSystemConfigs, ReflectComponent, World};
@@ -79,6 +80,124 @@ impl Plugin for ScenePlugin {
             // hosts, are such apps.
             .after(bsengine_asset::identity::build_asset_index),
         );
+    }
+}
+
+thread_local! {
+    /// Paths of prefab files currently being resolved, on this call stack.
+    /// Threaded through nested `instantiate_prefab` → `spawn_scene_entities`
+    /// → `instantiate_prefab` recursion without changing either function's
+    /// public signature. Cleared entry-by-entry as each recursive call
+    /// returns, so a sibling prefab reference at the same level is never
+    /// mistaken for a cycle.
+    static RESOLVING_PREFABS: std::cell::RefCell<std::collections::HashSet<String>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
+}
+
+/// Removes one path from [`RESOLVING_PREFABS`] on drop, unconditionally --
+/// including on an unwinding panic partway through resolving this prefab.
+///
+/// Nothing in the reachable call graph (`spawn_scene_entities`, reflected
+/// component deserialization of scene-author-controlled data, ...) panics
+/// today, so a plain insert-call-remove sequence has never actually leaked
+/// in practice. But `RESOLVING_PREFABS` only ever clears entries one at a
+/// time -- it has no other expiry -- so the day something downstream does
+/// panic, a bare `remove(...)` statement placed after the call it guards
+/// would simply never run, permanently marking that one prefab path as
+/// "still resolving" for the rest of the process's life and turning every
+/// future legitimate reference to it into a false-positive cycle warning.
+/// An RAII guard makes the removal run on every exit path, not just the
+/// non-panicking one.
+struct ResolvingGuard(String);
+
+impl Drop for ResolvingGuard {
+    fn drop(&mut self) {
+        RESOLVING_PREFABS.with(|r| {
+            r.borrow_mut().remove(&self.0);
+        });
+    }
+}
+
+/// Instantiates the prefab at `prefab_path` into `world`, guarded against
+/// cyclic prefab references via [`RESOLVING_PREFABS`]/[`ResolvingGuard`].
+///
+/// This is the one choke point every prefab-instantiation entry point --
+/// the scene-file `prefab:` field (via [`resolve_prefab_reference`] below),
+/// `Bsengine.instantiatePrefab` (`bsengine-scripting`), and the editor's
+/// drag-and-drop (`bsengine-editor`) -- must route its *top-level* call
+/// through, precisely so that call gets registered into
+/// [`RESOLVING_PREFABS`] before anything inside the prefab can recurse.
+///
+/// That used to only be true for the scene-file path: the other two called
+/// [`crate::prefab::instantiate_prefab`] directly with an already-parsed
+/// descriptor, which never touches `RESOLVING_PREFABS` at all (nor should
+/// it -- it has no path to key on). A prefab whose non-root child names its
+/// own containing file was still caught -- `instantiate_prefab` delegates
+/// to `spawn_scene_entities`, and a nested `prefab:` field there always
+/// comes back through `resolve_prefab_reference` -> here -- but only on the
+/// *second* encounter, since the first (top-level) call was never
+/// registered. That let the prefab's real content silently spawn twice (one
+/// extra recursion level) via those two paths, instead of once with a
+/// warning like the identical file gets via a scene file. Routing all three
+/// entry points through this function closes that gap by construction
+/// rather than by each caller remembering to register itself.
+///
+/// Returns an error (never a warning of its own -- that's each caller's
+/// job, matching how each already logs) on any failure: an unreadable file,
+/// a parse error, or a cycle.
+pub fn instantiate_prefab_from_path(
+    world: &mut World,
+    prefab_path: &str,
+    root_name: Option<&str>,
+    root_transform: Option<TransformDescriptor>,
+    parent: Option<Entity>,
+) -> Result<Entity, String> {
+    let already_resolving = RESOLVING_PREFABS.with(|r| r.borrow().contains(prefab_path));
+    if already_resolving {
+        return Err(format!(
+            "prefab '{prefab_path}' is already being resolved earlier in this same \
+             instantiation chain -- skipping to avoid infinite recursion (cyclic prefab \
+             reference)"
+        ));
+    }
+
+    let content = std::fs::read_to_string(prefab_path)
+        .map_err(|e| format!("prefab '{prefab_path}' could not be read: {e}"))?;
+    let prefab: crate::types::PrefabDescriptor = ron::from_str(&content)
+        .map_err(|e| format!("prefab '{prefab_path}' failed to parse: {e}"))?;
+
+    RESOLVING_PREFABS.with(|r| r.borrow_mut().insert(prefab_path.to_string()));
+    // Guarantees the entry above is removed on every exit from this point on
+    // -- including an unwinding panic from `instantiate_prefab` or anything
+    // it calls -- rather than only on the path that reaches a plain
+    // `remove(...)` statement after it. See `ResolvingGuard`'s own doc for
+    // why a missed removal would be a silent, permanent, process-lifetime
+    // false positive rather than a one-off glitch.
+    let _guard = ResolvingGuard(prefab_path.to_string());
+    crate::prefab::instantiate_prefab(world, &prefab, root_name, root_transform, parent)
+}
+
+/// Resolves one `entity.prefab` reference: instantiates the file in the
+/// entity's place via [`instantiate_prefab_from_path`]. Returns `None`
+/// (after logging a warning) on any failure -- missing file, parse error,
+/// bad root count, or a cycle -- so the caller can keep `spawned`'s length
+/// in lockstep with `entities` even when this entity contributes no real
+/// `Entity`.
+fn resolve_prefab_reference(
+    world: &mut World,
+    entity_name: &str,
+    prefab_path: &str,
+    transform: Option<TransformDescriptor>,
+) -> Option<Entity> {
+    match instantiate_prefab_from_path(world, prefab_path, Some(entity_name), transform, None) {
+        Ok(root) => Some(root),
+        Err(e) => {
+            tracing::warn!(
+                "scene: entity '{entity_name}' references prefab '{prefab_path}', which \
+                 failed to instantiate: {e}"
+            );
+            None
+        }
     }
 }
 
@@ -328,11 +447,39 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
             .collect()
     };
 
-    let mut spawned: Vec<Entity> = Vec::with_capacity(entities.len());
+    let mut spawned: Vec<Option<Entity>> = Vec::with_capacity(entities.len());
 
     for (entity, (gltf_path, script_path, texture_path)) in entities.iter().zip(&resolved_refs) {
+        if let Some(prefab_ref) = &entity.prefab {
+            // `resolve_asset_ref` only ever returns the path a scene *stores*
+            // (identity-resolved or not) -- exactly like it does for
+            // `gltf_path` below, which is why that branch separately joins
+            // its result with `ProjectDir` before touching the filesystem.
+            // Skipping this step here meant every project-relative
+            // `prefab:` reference (the realistic case every game under
+            // `games/*` actually uses) tried to open a path relative to
+            // wherever the process happened to be running from and failed
+            // with a plain "could not be read" I/O error.
+            let prefab_path = resolve_asset_ref(
+                world.get_resource::<AssetIndex>(),
+                project_dir.as_ref(),
+                &entity.name,
+                "prefab",
+                prefab_ref,
+            );
+            let prefab_path =
+                bsengine_core::resolve_project_path(project_dir.as_ref(), &prefab_path);
+            spawned.push(resolve_prefab_reference(
+                world,
+                &entity.name,
+                &prefab_path,
+                entity.transform.clone(),
+            ));
+            continue;
+        }
+
         let mut builder = world.spawn(Name(entity.name.clone()));
-        spawned.push(builder.id());
+        spawned.push(Some(builder.id()));
 
         if let Some(t) = &entity.transform {
             let mut rotation =
@@ -502,10 +649,13 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
     // scene is never a valid parent target.
     let name_to_entity: std::collections::HashMap<&str, Entity> = entities
         .iter()
-        .map(|e| e.name.as_str())
         .zip(spawned.iter().copied())
+        .filter_map(|(e, s)| s.map(|entity| (e.name.as_str(), entity)))
         .collect();
     for (entity, &child_entity) in entities.iter().zip(&spawned) {
+        let Some(child_entity) = child_entity else {
+            continue; // a prefab reference that failed to instantiate -- nothing to parent
+        };
         let Some(parent_name) = &entity.parent else {
             continue;
         };
@@ -642,6 +792,7 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
 mod tests {
     use super::{Name, ScenePlugin};
     use bsengine_app::new_app;
+    use bsengine_asset::test_support::{unique, ProbeDir};
     use bsengine_core::{Camera, DirectionalLight, GlobalTransform, Transform};
     use glam::Vec3;
 
@@ -843,6 +994,247 @@ mod tests {
             wheel_parent, body_entity,
             "Wheel's parent should be the Body entity"
         );
+    }
+
+    #[test]
+    fn scene_file_prefab_reference_instantiates_the_prefab() {
+        // `ProbeDir`/`unique` (not `tempfile`, which this crate does not
+        // depend on) are the exact real-filesystem-fixture pattern the
+        // `identity` submodule below already uses for a real `AssetIndex`
+        // scan; borrowed here for the same reason -- a prefab reference has
+        // to name a real file on disk, and there is no way to fake that.
+        let dir = ProbeDir(std::env::temp_dir().join(unique("scene-prefab-basic")));
+        let root = &dir.0;
+        std::fs::create_dir_all(root.join("assets/prefabs")).unwrap();
+        std::fs::write(
+            root.join("assets/prefabs/enemy.ron"),
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(name: "Gun", parent: Some("Body"), primitive: Some(Cube)),
+            ])"#,
+        )
+        .unwrap();
+
+        let scene: crate::types::SceneDescriptor = ron::from_str(&format!(
+            r#"SceneDescriptor(entities: [
+                EntityDescriptor(
+                    name: "Spawn1",
+                    prefab: Some("{}"),
+                    transform: Some((position: (5.0, 0.0, 0.0))),
+                ),
+            ])"#,
+            root.join("assets/prefabs/enemy.ron")
+                .to_str()
+                .unwrap()
+                .replace('\\', "/")
+        ))
+        .unwrap();
+
+        // No `ProjectDir` here on purpose -- the prefab reference above is
+        // already the temp directory's absolute path, and `ProjectDir`
+        // resolution (see the dedicated test right below this one) would
+        // join it onto that absolute path rather than leave it alone.
+        let mut app = new_app();
+        super::spawn_scene_entities(app.world_mut(), &scene.entities);
+
+        let mut q = app.world_mut().query::<&Name>();
+        let names: Vec<String> = q.iter(app.world()).map(|n| n.0.clone()).collect();
+        // The prefab's root always takes over the instantiation point's own
+        // name verbatim (no suffix) -- that's what "Spawn1: prefab: Some(...)"
+        // means: "instantiate this prefab and call the result Spawn1", not
+        // "spawn a separate Spawn1 next to an auto-named prefab root". Only
+        // *non-root* entities inside the prefab (here, "Gun") get the shared
+        // instance suffix, since only those need in-file uniqueness, not a
+        // caller-meaningful name.
+        assert_eq!(
+            names.iter().filter(|n| n.as_str() == "Spawn1").count(),
+            1,
+            "the prefab's root should be named exactly 'Spawn1' -- the \
+             instantiation point's own name, taken over verbatim -- and only \
+             once (not left behind as a separate stray entity), names: {names:?}"
+        );
+        assert!(
+            names.iter().any(|n| n.starts_with("Gun#")),
+            "the prefab's non-root child should have been instantiated with a \
+             shared-suffix name, names: {names:?}"
+        );
+        assert_eq!(
+            names.len(),
+            2,
+            "exactly two entities should exist: the renamed root and the child, names: {names:?}"
+        );
+    }
+
+    #[test]
+    fn scene_file_prefab_reference_resolves_against_project_dir() {
+        // The realistic case every game under `games/*` actually uses:
+        // `prefab:` written as a path relative to the project root, exactly
+        // like every other asset reference (`gltf:`, `script:`, `texture:`)
+        // already resolves against `ProjectDir` before touching the
+        // filesystem (see the `gltf_path` branch right below the prefab
+        // branch in `spawn_scene_entities`). The test above this one
+        // deliberately does not cover this: it writes the temp directory's
+        // own *absolute* path straight into `prefab: Some(...)`, so a
+        // regression that resolved `prefab:` against the process's working
+        // directory instead of `ProjectDir` would have passed that test
+        // while failing every real project's scene file.
+        let dir = ProbeDir(std::env::temp_dir().join(unique("scene-prefab-project-relative")));
+        let root = &dir.0;
+        std::fs::create_dir_all(root.join("assets/prefabs")).unwrap();
+        std::fs::write(
+            root.join("assets/prefabs/enemy.ron"),
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(name: "Gun", parent: Some("Body"), primitive: Some(Cube)),
+            ])"#,
+        )
+        .unwrap();
+
+        // Project-relative, not the temp dir's absolute path -- the whole
+        // point of this test.
+        let scene: crate::types::SceneDescriptor = ron::from_str(
+            r#"SceneDescriptor(entities: [
+                EntityDescriptor(
+                    name: "Spawn1",
+                    prefab: Some("assets/prefabs/enemy.ron"),
+                ),
+            ])"#,
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.insert_resource(bsengine_core::ProjectDir(
+            root.to_str().unwrap().to_string(),
+        ));
+        super::spawn_scene_entities(app.world_mut(), &scene.entities);
+
+        let mut q = app.world_mut().query::<&Name>();
+        let names: Vec<String> = q.iter(app.world()).map(|n| n.0.clone()).collect();
+        assert_eq!(
+            names.iter().filter(|n| n.as_str() == "Spawn1").count(),
+            1,
+            "a project-relative prefab reference must resolve against ProjectDir and \
+             actually instantiate -- it must not silently fail to read the file just \
+             because it isn't already an absolute path, names: {names:?}"
+        );
+        assert!(
+            names.iter().any(|n| n.starts_with("Gun#")),
+            "the prefab's non-root child should have instantiated too, names: {names:?}"
+        );
+        assert_eq!(
+            names.len(),
+            2,
+            "exactly two entities should exist: the renamed root and the child, names: {names:?}"
+        );
+    }
+
+    #[test]
+    fn nested_prefab_reference_instantiates_recursively() {
+        let dir = ProbeDir(std::env::temp_dir().join(unique("scene-prefab-nested")));
+        let root = &dir.0;
+        std::fs::create_dir_all(root.join("assets/prefabs")).unwrap();
+        std::fs::write(
+            root.join("assets/prefabs/wheel.ron"),
+            r#"PrefabDescriptor(entities: [EntityDescriptor(name: "WheelRoot", primitive: Some(Cube))])"#,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("assets/prefabs/car.ron"),
+            format!(
+                r#"PrefabDescriptor(entities: [
+                    EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                    EntityDescriptor(name: "WheelSlot", parent: Some("Body"), prefab: Some("{}")),
+                ])"#,
+                root.join("assets/prefabs/wheel.ron")
+                    .to_str()
+                    .unwrap()
+                    .replace('\\', "/")
+            ),
+        )
+        .unwrap();
+
+        let scene: crate::types::SceneDescriptor = ron::from_str(&format!(
+            r#"SceneDescriptor(entities: [
+                EntityDescriptor(name: "Spawn1", prefab: Some("{}")),
+            ])"#,
+            root.join("assets/prefabs/car.ron")
+                .to_str()
+                .unwrap()
+                .replace('\\', "/")
+        ))
+        .unwrap();
+
+        // No `ProjectDir` here either, for the same reason as the top-level
+        // test above: both prefab references (`car.ron` and, inside it,
+        // `wheel.ron`) are already absolute temp-directory paths.
+        let mut app = new_app();
+        super::spawn_scene_entities(app.world_mut(), &scene.entities);
+
+        let mut q = app.world_mut().query::<&Name>();
+        let names: Vec<String> = q.iter(app.world()).map(|n| n.0.clone()).collect();
+        // Car's root ("Body") takes over the scene's instantiation point
+        // name "Spawn1" verbatim. Car's non-root "WheelSlot" (itself a
+        // nested prefab reference) gets the shared suffix like any other
+        // non-root entity -- "WheelSlot#N". Wheel's own root ("WheelRoot")
+        // then takes over *that* name in turn, the same rule applied one
+        // level deeper: nesting is just this same rule recursing, so the
+        // wheel's actual spawned name is "WheelSlot#N", not "WheelRoot#N".
+        assert_eq!(
+            names.iter().filter(|n| n.as_str() == "Spawn1").count(),
+            1,
+            "car's root should be renamed to the scene's instantiation point name, \
+             names: {names:?}"
+        );
+        assert!(
+            names.iter().any(|n| n.starts_with("WheelSlot#")),
+            "the nested prefab's root should take over its own referencing entity's \
+             (already-suffixed) name, not keep its own original name, names: {names:?}"
+        );
+        assert!(
+            !names.iter().any(|n| n.starts_with("WheelRoot")),
+            "the wheel prefab's original entity name should not survive instantiation \
+             at all, names: {names:?}"
+        );
+    }
+
+    #[test]
+    fn cyclic_prefab_reference_fails_loudly_instead_of_recursing_forever() {
+        let dir = ProbeDir(std::env::temp_dir().join(unique("scene-prefab-cycle")));
+        let root = &dir.0;
+        std::fs::create_dir_all(root.join("assets/prefabs")).unwrap();
+        let a_path = root.join("assets/prefabs/a.ron");
+        let b_path = root.join("assets/prefabs/b.ron");
+        std::fs::write(
+            &a_path,
+            format!(
+                r#"PrefabDescriptor(entities: [EntityDescriptor(name: "A", prefab: Some("{}"))])"#,
+                b_path.to_str().unwrap().replace('\\', "/")
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            &b_path,
+            format!(
+                r#"PrefabDescriptor(entities: [EntityDescriptor(name: "B", prefab: Some("{}"))])"#,
+                a_path.to_str().unwrap().replace('\\', "/")
+            ),
+        )
+        .unwrap();
+
+        let scene: crate::types::SceneDescriptor = ron::from_str(&format!(
+            r#"SceneDescriptor(entities: [EntityDescriptor(name: "Spawn1", prefab: Some("{}"))])"#,
+            a_path.to_str().unwrap().replace('\\', "/")
+        ))
+        .unwrap();
+
+        // No `ProjectDir` here either -- same reason as the other two tests
+        // above that write an absolute prefab path straight into the RON.
+        let mut app = new_app();
+        // Must not hang/stack-overflow. spawn_scene_entities itself doesn't
+        // return a Result, so the observable contract is: it returns at
+        // all (this test having a timeout via the test harness itself is
+        // the real safety net) and logs a warning rather than crashing.
+        super::spawn_scene_entities(app.world_mut(), &scene.entities);
     }
 
     #[test]

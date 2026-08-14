@@ -26,3 +26,4 @@ tracing          = { workspace = true }
 
 [dev-dependencies]
 bsengine-app = { workspace = true }
+tempfile     = "3"

@@ -57,6 +57,8 @@ pub mod parent;
 pub mod particles;
 /// Whether gameplay simulation is currently paused.
 pub mod pause_state;
+/// Marks an entity as the root of a live prefab instance, tracking its source file.
+pub mod prefab_instance;
 /// Root directory of the current project, used to resolve project-relative asset paths.
 pub mod project_dir;
 /// `bevy_reflect`-friendly wrapper for RGBA color values.
@@ -119,6 +121,7 @@ pub use network_id::{NetworkAuthority, NetworkId};
 pub use parent::Parent;
 pub use particles::{Particle, ParticleEmitter, Rng};
 pub use pause_state::PauseState;
+pub use prefab_instance::PrefabInstance;
 pub use project_dir::{resolve_project_path, ProjectDir};
 pub use reflect_color::ReflectColor;
 pub use reflect_degrees::ReflectDegrees;

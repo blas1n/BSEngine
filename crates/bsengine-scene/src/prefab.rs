@@ -161,9 +161,11 @@ pub fn instantiate_prefab(
             .entity_mut(root_entity)
             .insert(bsengine_core::Parent(parent_entity));
     }
-    world.entity_mut(root_entity).insert(bsengine_core::PrefabInstance {
-        source_path: source_path.to_string(),
-    });
+    world
+        .entity_mut(root_entity)
+        .insert(bsengine_core::PrefabInstance {
+            source_path: source_path.to_string(),
+        });
 
     Ok(root_entity)
 }

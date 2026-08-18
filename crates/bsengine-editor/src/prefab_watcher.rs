@@ -54,10 +54,11 @@ fn despawn_subtree(world: &mut World, root: Entity) {
 /// re-instantiates it fresh from the file's current content, preserving each
 /// instance's original name, transform, and parent.
 ///
-/// A missing or unparseable file leaves every matching instance untouched
-/// rather than despawning anything -- the existence/parse check happens
-/// before any entity is touched, precisely so a bad edit can't destroy a
-/// working instance on the way to failing.
+/// A missing, unparseable, or structurally invalid (wrong root count, a
+/// duplicate entity name) file leaves every matching instance untouched
+/// rather than despawning anything -- the existence/parse/structural-validity
+/// check happens before any entity is touched, precisely so a bad edit can't
+/// destroy a working instance on the way to failing.
 pub(crate) fn resync_prefab_instances(world: &mut World, changed_source_path: &str) {
     let roots: Vec<Entity> = {
         let mut q = world.query::<(Entity, &PrefabInstance)>();

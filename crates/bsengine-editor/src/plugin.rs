@@ -92769,6 +92769,44 @@ mod tests {
     }
 
     #[test]
+    fn a_prefab_saved_from_live_entities_round_trips_through_instantiate_prefab() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = bsengine_core::ProjectDir(dir.path().to_string_lossy().to_string());
+
+        let entities = vec![EntityInfo {
+            id: 1,
+            name: Some("Turret".to_string()),
+            position: Some([2.0, 0.0, 0.0]),
+            primitive: Some(bsengine_scene::Primitive::Cube),
+            ..Default::default()
+        }];
+
+        let path = save_entities_as_prefab(&entities, 1, "turret", Some(&project_dir)).unwrap();
+
+        let mut app = new_app();
+        let root = bsengine_scene::instantiate_prefab_from_path(
+            app.world_mut(),
+            &path,
+            None,
+            None,
+            None,
+        )
+        .expect("a prefab saved by save_entities_as_prefab must re-instantiate cleanly");
+
+        let name = app.world().get::<Name>(root).unwrap().0.clone();
+        assert!(
+            name.starts_with("Turret#"),
+            "expected an auto-suffixed instance name, got {name}"
+        );
+        let transform = app.world().get::<Transform>(root).unwrap();
+        assert!(
+            (transform.position.x - 2.0).abs() < 1e-4,
+            "position did not round-trip: {:?}",
+            transform.position
+        );
+    }
+
+    #[test]
     fn mcp_prefab_write_saves_a_subtree_to_a_ron_file() {
         let dir = tempfile::tempdir().unwrap();
         let mut app = new_app();

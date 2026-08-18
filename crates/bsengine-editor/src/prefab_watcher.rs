@@ -31,39 +31,87 @@ use std::time::Duration;
 use tracing::{info, warn};
 
 /// Every project-relative prefab path this prefab's own entities reference
-/// via a `prefab:` field -- i.e. every nested prefab that is a *compositional*
-/// part of `prefab` itself, resolved the same bare-path spelling
-/// [`PrefabInstance::source_path`] stores (`AssetRef::path()`, unresolved
-/// against `AssetIndex`/`ProjectDir` -- exactly what every test fixture in
-/// this module and the overwhelming common case use; see `AssetRef`'s own
-/// doc on why a bare path is the supported, common spelling).
+/// via a `prefab:` field, transitively -- i.e. every nested prefab that is a
+/// compositional part of `prefab` itself, at any depth, resolved to the same
+/// bare-path spelling [`PrefabInstance::source_path`] stores.
 ///
 /// Exists so [`despawn_subtree`] can tell "a nested prefab reference `prefab`
-/// itself authored" apart from "an unrelated instance someone reparented
-/// underneath via `SetParent`" -- both end up looking identical in live ECS
-/// state (a `Parent` link plus the child's own, different-sourced,
-/// `PrefabInstance`; see `resolve_prefab_reference`/`spawn_scene_entities` in
-/// `bsengine_scene::plugin`, which attaches a resolved prefab reference's
-/// `Parent` through the exact same `parent:`-field pass every other entity
-/// gets, with no special case for prefab-reference entities), so only the
-/// prefab file's own text can answer which is which.
+/// itself authored, directly or through further nesting" apart from "an
+/// unrelated instance someone reparented underneath via `SetParent`" -- both
+/// end up looking identical in live ECS state (a `Parent` link plus the
+/// child's own, different-sourced, `PrefabInstance`; see
+/// `resolve_prefab_reference`/`spawn_scene_entities` in `bsengine_scene::plugin`,
+/// which attaches a resolved prefab reference's `Parent` through the exact
+/// same `parent:`-field pass every other entity gets, with no special case
+/// for prefab-reference entities), so only the prefab file's own text --
+/// recursively -- can answer which is which.
 ///
-/// Only one level deep: a nested prefab that itself nests a further prefab
-/// is not walked recursively here, so resyncing the outermost file would
-/// (correctly) protect its nested instance from collateral despawn, but
-/// would also (incorrectly, if this ever comes up) fail to recognize a
-/// *grand*-nested reference as compositional. No test in this module
-/// exercises 2+-level nesting today; if one is added later, this is the
-/// function to extend into a transitive closure.
+/// Recurses through each nested reference's own file, bounded by a
+/// visited-set (so a cyclic reference terminates rather than looping
+/// forever -- mirrors `RESOLVING_PREFABS`/`ResolvingGuard`'s cycle
+/// discipline in `bsengine_scene::plugin`), because the instantiation
+/// machinery this is protecting against (`instantiate_prefab_from_path` ->
+/// `resolve_prefab_reference` -> recursion) supports arbitrary-depth
+/// nesting, not just one level -- proven by
+/// `bsengine_scene::plugin::tests::nested_prefab_reference_instantiates_recursively`.
+/// A file this function can't read or parse (e.g. it was deleted, or is
+/// itself invalid) is simply not recursed into further -- its own direct
+/// reference is still recorded, just not anything IT might nest, since
+/// `resync_prefab_instances`'s own read/parse of the top-level file is
+/// already the gate for whether a resync proceeds at all; a broken nested
+/// file is a pre-existing condition this function doesn't need to diagnose.
 fn nested_prefab_source_paths(
+    root_source_path: &str,
     prefab: &bsengine_scene::types::PrefabDescriptor,
+    project_dir: Option<&bsengine_core::ProjectDir>,
 ) -> std::collections::HashSet<String> {
-    prefab
-        .entities
-        .iter()
-        .filter_map(|e| e.prefab.as_ref())
-        .map(|r| r.path().to_string())
-        .collect()
+    // Seeded into `result`, not just `visited`: `own_source_paths` (this
+    // function's return value) must itself contain the resync's own source
+    // path, since `despawn_subtree` treats anything NOT in the returned set
+    // as foreign -- including a second live instance that shares the exact
+    // same source path as the one being resynced (two placements of the
+    // same prefab, one reparented under the other). Seeding only `visited`
+    // (the recursion cycle-guard) and leaving `result` to be populated
+    // purely by `collect_nested_prefab_source_paths` would silently omit
+    // `root_source_path` from the returned set whenever `prefab` has no
+    // `prefab:` references of its own to walk -- which is the common case,
+    // not an edge case.
+    let mut result = std::collections::HashSet::new();
+    result.insert(root_source_path.to_string());
+    let mut visited = std::collections::HashSet::new();
+    visited.insert(root_source_path.to_string());
+    collect_nested_prefab_source_paths(prefab, project_dir, &mut visited, &mut result);
+    result
+}
+
+/// Recursion helper for [`nested_prefab_source_paths`]. See its doc comment
+/// for the cycle-guard and unreadable/unparseable-file rationale.
+fn collect_nested_prefab_source_paths(
+    prefab: &bsengine_scene::types::PrefabDescriptor,
+    project_dir: Option<&bsengine_core::ProjectDir>,
+    visited: &mut std::collections::HashSet<String>,
+    result: &mut std::collections::HashSet<String>,
+) {
+    for entity in &prefab.entities {
+        let Some(asset_ref) = entity.prefab.as_ref() else {
+            continue;
+        };
+        let nested_path = asset_ref.path().to_string();
+        if !visited.insert(nested_path.clone()) {
+            continue;
+        }
+        result.insert(nested_path.clone());
+
+        let resolved = bsengine_core::resolve_project_path(project_dir, &nested_path);
+        let Ok(content) = std::fs::read_to_string(&resolved) else {
+            continue;
+        };
+        let Ok(nested_prefab) = ron::from_str::<bsengine_scene::types::PrefabDescriptor>(&content)
+        else {
+            continue;
+        };
+        collect_nested_prefab_source_paths(&nested_prefab, project_dir, visited, result);
+    }
 }
 
 /// Despawns `root` and every entity transitively parented under it (via a
@@ -198,8 +246,8 @@ pub(crate) fn resync_prefab_instances(world: &mut World, changed_source_path: &s
         return;
     }
 
-    let mut own_source_paths = nested_prefab_source_paths(&prefab);
-    own_source_paths.insert(changed_source_path.to_string());
+    let own_source_paths =
+        nested_prefab_source_paths(changed_source_path, &prefab, project_dir.as_ref());
 
     for root in roots {
         if world.get_entity(root).is_none() {
@@ -845,6 +893,95 @@ mod tests {
         assert_eq!(
             nested_instance_count, 1,
             "resyncing the outer file must re-resolve its nested prefab reference exactly once"
+        );
+    }
+
+    #[test]
+    fn resync_of_an_outer_file_does_not_leak_a_zombie_grand_nested_instance() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = ProjectDir(dir.path().to_string_lossy().to_string());
+
+        let mut app = new_app();
+        app.insert_resource(project_dir.clone());
+        register(&mut app);
+
+        // A 3-level nesting chain: outer.ron -> middle.ron -> inner.ron. The
+        // instantiation machinery (instantiate_prefab_from_path ->
+        // resolve_prefab_reference -> recursion) supports arbitrary-depth
+        // nesting -- see
+        // bsengine_scene::plugin::tests::nested_prefab_reference_instantiates_recursively
+        // -- so live-sync's own protection against collateral despawn has to
+        // recognize the *whole* chain as part of outer's own composition,
+        // not just its direct child, or a grand-nested instance (inner.ron
+        // here) gets wrongly protected from outer's despawn, orphaned under
+        // a despawned entity, while outer's re-instantiation creates a
+        // second, fresh one -- leaking a zombie.
+        write_prefab(
+            dir.path(),
+            "inner",
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "InnerRoot", primitive: Some(Cube)),
+            ])"#,
+        );
+        write_prefab(
+            dir.path(),
+            "middle",
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "MiddleRoot", primitive: Some(Cube)),
+                EntityDescriptor(name: "InnerRef", parent: Some("MiddleRoot"), prefab: Some("assets/prefabs/inner.ron")),
+            ])"#,
+        );
+        let outer_path = write_prefab(
+            dir.path(),
+            "outer",
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Outer", primitive: Some(Cube)),
+                EntityDescriptor(name: "MiddleRef", parent: Some("Outer"), prefab: Some("assets/prefabs/middle.ron")),
+            ])"#,
+        );
+
+        let resolved_outer = bsengine_core::resolve_project_path(Some(&project_dir), &outer_path);
+        bsengine_scene::instantiate_prefab_from_path(
+            app.world_mut(),
+            &resolved_outer,
+            Some("OuterInstance"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        write_prefab(
+            dir.path(),
+            "outer",
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Outer", primitive: Some(Cube)),
+                EntityDescriptor(name: "MiddleRef", parent: Some("Outer"), prefab: Some("assets/prefabs/middle.ron")),
+                EntityDescriptor(name: "ExtraChild", parent: Some("Outer"), primitive: Some(Cube)),
+            ])"#,
+        );
+        resync_prefab_instances(app.world_mut(), &outer_path);
+
+        let names: Vec<String> = app
+            .world_mut()
+            .query::<&Name>()
+            .iter(app.world())
+            .map(|n| n.0.clone())
+            .collect();
+        assert!(
+            names.iter().any(|n| n.starts_with("ExtraChild#")),
+            "the resynced outer subtree must reflect outer.ron's new content: {names:?}"
+        );
+
+        let inner_instance_count = {
+            let mut q = app.world_mut().query::<&PrefabInstance>();
+            q.iter(app.world())
+                .filter(|i| i.source_path == "assets/prefabs/inner.ron")
+                .count()
+        };
+        assert_eq!(
+            inner_instance_count, 1,
+            "resyncing the outer file must not leave a zombie grand-nested inner.ron \
+             instance behind alongside the freshly re-resolved one: {names:?}"
         );
     }
 

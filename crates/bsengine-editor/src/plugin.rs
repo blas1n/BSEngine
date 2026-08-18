@@ -1427,6 +1427,12 @@ fn excluded_from_extra_components() -> std::collections::HashSet<std::any::TypeI
 /// `populate_reflected_component_snapshot` is: reading a component
 /// generically by `TypeRegistry` entry needs `ReflectComponent::reflect`,
 /// which takes an entity reference obtained from the world.
+///
+/// This system's implicit tie-break against `process_editor_commands` is
+/// fragile enough that `EditorPlugin::build`'s `PrefabWatcherPlugin`
+/// registration has to stay positioned after it (see the comment at that
+/// call site) -- moving either one can silently flip which side of the
+/// tie-break wins.
 fn populate_snapshot_extra_components(world: &mut World) {
     let Some(snapshot_res) = world.get_resource::<EditorSnapshotResource>() else {
         return;
@@ -2051,6 +2057,18 @@ impl Plugin for EditorPlugin {
         app.add_systems(Update, process_reflect_commands.after(process_editor_commands));
         app.add_systems(Update, process_prefab_commands.after(process_editor_commands));
         app.add_systems(Update, apply_history_action.after(process_editor_commands));
+        // Registration position matters here, and is not incidental: this has
+        // to come after every `add_systems` call above, not next to the other
+        // cross-crate registration calls near the top of this function (where
+        // it originally sat). `PrefabWatcherPlugin` adds its own unordered
+        // `Update` systems, and registering them earlier shifted the implicit
+        // registration-order tie-break `populate_snapshot_extra_components`'s
+        // doc comment already relies on between it and
+        // `process_editor_commands`/`process_reflect_commands` -- which broke
+        // `mcp_set_transform_moves_entity`. If you add or reorder systems in
+        // this function, keep this line last, or re-run the full test suite
+        // (not just tests that look related) to confirm that tie-break still
+        // resolves the same way.
         app.add_plugins(crate::prefab_watcher::PrefabWatcherPlugin);
 
         // Captured once here (rather than inside the `if let` below) and cloned

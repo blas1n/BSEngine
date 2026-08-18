@@ -2051,6 +2051,7 @@ impl Plugin for EditorPlugin {
         app.add_systems(Update, process_reflect_commands.after(process_editor_commands));
         app.add_systems(Update, process_prefab_commands.after(process_editor_commands));
         app.add_systems(Update, apply_history_action.after(process_editor_commands));
+        app.add_plugins(crate::prefab_watcher::PrefabWatcherPlugin);
 
         // Captured once here (rather than inside the `if let` below) and cloned
         // per-tool like `snapshot`/`cmd_queue` are -- `app.world_mut()` backs the

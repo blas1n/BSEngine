@@ -936,6 +936,7 @@ dependencies = [
  "bsengine-render",
  "bsengine-scene",
  "glam 0.29.3",
+ "notify-debouncer-full",
  "ron",
  "serde",
  "serde_json",

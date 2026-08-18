@@ -15,9 +15,20 @@
 //! is lost the next time that instance's source prefab changes and gets
 //! synced.
 
-use bevy_ecs::prelude::{Entity, World};
+use bevy_app::{App, Plugin, Startup, Update};
+use bevy_ecs::prelude::{Commands, Entity, IntoSystemConfigs, Res, Resource, World};
 use bsengine_core::{Parent, PrefabInstance, Transform};
 use bsengine_scene::{Name, TransformDescriptor};
+use notify_debouncer_full::{
+    new_debouncer,
+    notify::{RecommendedWatcher, RecursiveMode, Watcher},
+    DebounceEventResult, Debouncer, FileIdMap,
+};
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::sync::Mutex;
+use std::time::Duration;
+use tracing::{info, warn};
 
 /// Despawns `root` and every entity transitively parented under it (via a
 /// live [`Parent`] component chain), so a resync can safely re-instantiate a
@@ -147,6 +158,205 @@ pub(crate) fn resync_prefab_instances(world: &mut World, changed_source_path: &s
                  '{changed_source_path}': {e}"
             );
         }
+    }
+}
+
+/// Same debounce window as `bsengine-asset`'s `AssetWatcherPlugin`, for the
+/// same reason: a save is rarely one write, and 200ms is long enough to
+/// collapse a burst of them into one change without making an edit feel
+/// slow to take effect.
+const DEBOUNCE: Duration = Duration::from_millis(200);
+
+/// Editor-only convenience: watches `<ProjectDir>/assets/prefabs` and
+/// despawn-and-reinstantiates every live [`PrefabInstance`] whose source file
+/// changes on disk, so an edit made to a prefab file while the editor is
+/// running is reflected in every placed instance without a manual reload.
+///
+/// Not added to the headless runtime/game app -- this is a live-editing
+/// feature, not gameplay behavior. Requires a `ProjectDir` resource inserted
+/// before `Startup` runs; with no `ProjectDir`, an empty one, or a missing
+/// `assets/prefabs` directory, the plugin logs once at info and starts no
+/// watcher.
+pub struct PrefabWatcherPlugin;
+
+impl Plugin for PrefabWatcherPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Startup, start_prefab_watcher)
+            .add_systems(Update, drain_prefab_changes)
+            .add_systems(Update, resync_changed_prefabs.after(drain_prefab_changes));
+    }
+}
+
+/// Live watch state. Absent when watching is disabled -- see
+/// [`PrefabWatcherPlugin`].
+#[derive(Resource)]
+struct PrefabWatcher {
+    /// Held purely for its `Drop`, which stops the watch. See
+    /// `bsengine_asset::watcher::AssetWatcher` for why this is a `Mutex`
+    /// used only as a `Send + Sync` shim, never actually locked for
+    /// synchronisation.
+    _debouncer: Mutex<Debouncer<RecommendedWatcher, FileIdMap>>,
+    /// Receiving end of the watcher thread's channel. Only ever `try_recv`'d.
+    events: Mutex<Receiver<DebounceEventResult>>,
+    /// `current_dir().join(<ProjectDir>)` -- the prefix every path `notify`
+    /// reports carries. Stripping it off a reported path and keeping the
+    /// remainder (which already reads e.g. `assets/prefabs/turret.ron`, since
+    /// the watch root is `<ProjectDir>/assets/prefabs`) recovers exactly the
+    /// project-relative spelling `PrefabInstance::source_path` stores.
+    strip_base: PathBuf,
+}
+
+/// Paths this resync system has been told to look at since the last time it
+/// ran, deduped by path. Populated by [`drain_prefab_changes`] (a regular
+/// system, so it can read `PrefabWatcher` via `Res`), consumed by
+/// [`resync_changed_prefabs`] (an exclusive system, needed because
+/// [`resync_prefab_instances`] mutates the `World` arbitrarily) -- the same
+/// split this crate already uses for `PrefabCommandQueueResource` /
+/// `process_prefab_commands`.
+#[derive(Resource, Default)]
+struct PendingPrefabResync(Vec<String>);
+
+/// Starts the watcher, or explains once why it is not starting. Mirrors
+/// `bsengine_asset::watcher::start_asset_watcher` closely -- see that
+/// function's doc comments for the reasoning behind each guard.
+fn start_prefab_watcher(
+    mut commands: Commands,
+    project_dir: Option<Res<bsengine_core::ProjectDir>>,
+) {
+    let Some(project_dir) = project_dir.map(|p| p.0.clone()).filter(|p| !p.is_empty()) else {
+        info!("prefab live-sync: no project directory set, not watching");
+        return;
+    };
+
+    let watch_root = PathBuf::from(format!("{project_dir}/assets/prefabs"));
+    if !watch_root.is_dir() {
+        info!(
+            "prefab live-sync: {} does not exist, not watching",
+            watch_root.display()
+        );
+        return;
+    }
+
+    // Deliberately NOT canonicalize() -- see AssetWatcherPlugin's identical
+    // comment: notify reports the CWD-absolutised spelling, never the
+    // canonical one.
+    let strip_base = std::env::current_dir()
+        .unwrap_or_default()
+        .join(&project_dir);
+
+    let (tx, rx) = mpsc::channel();
+    let mut debouncer = match new_debouncer(DEBOUNCE, None, tx) {
+        Ok(d) => d,
+        Err(e) => {
+            warn!("prefab live-sync: cannot start the file watcher ({e}), not watching");
+            return;
+        }
+    };
+    if let Err(e) = debouncer
+        .watcher()
+        .watch(&watch_root, RecursiveMode::Recursive)
+    {
+        warn!(
+            "prefab live-sync: cannot watch {} ({e}), not watching",
+            watch_root.display()
+        );
+        return;
+    }
+
+    info!("prefab live-sync: watching {}", watch_root.display());
+    commands.insert_resource(PrefabWatcher {
+        _debouncer: Mutex::new(debouncer),
+        events: Mutex::new(rx),
+        strip_base,
+    });
+}
+
+/// Rebuilds the project-relative spelling `PrefabInstance::source_path`
+/// stores (e.g. `"assets/prefabs/turret.ron"`) from the absolutised path
+/// `notify` reported. Returns `None` for anything not a `.ron` file, or a
+/// path that can't be expressed relative to `strip_base`.
+fn reconstruct_source_path(changed: &Path, strip_base: &Path) -> Option<String> {
+    let extension = changed.extension()?.to_str()?.to_ascii_lowercase();
+    if extension != "ron" {
+        return None;
+    }
+    let relative = changed.strip_prefix(strip_base).ok()?;
+    let relative = relative.to_str()?.replace('\\', "/");
+    if relative.is_empty() {
+        return None;
+    }
+    Some(relative)
+}
+
+/// Drains everything the watcher thread has posted, reconstructs each
+/// changed path's project-relative spelling, dedupes, and queues the result
+/// in [`PendingPrefabResync`] for [`resync_changed_prefabs`] to act on.
+/// Never waits -- see `bsengine_asset::watcher::drain_asset_changes` for the
+/// identical poisoned-lock / disconnected-channel handling this mirrors.
+fn drain_prefab_changes(mut commands: Commands, watcher: Option<Res<PrefabWatcher>>) {
+    let Some(watcher) = watcher else {
+        return;
+    };
+
+    let mut changed: Vec<String> = Vec::new();
+    {
+        let events = match watcher.events.lock() {
+            Ok(events) => events,
+            Err(_) => {
+                warn!(
+                    "prefab live-sync: the change queue was poisoned by an earlier panic; \
+                     live-sync has stopped until the app is restarted"
+                );
+                commands.remove_resource::<PrefabWatcher>();
+                return;
+            }
+        };
+        loop {
+            match events.try_recv() {
+                Ok(Ok(batch)) => {
+                    for event in batch.iter() {
+                        for path in event.event.paths.iter() {
+                            let Some(source_path) =
+                                reconstruct_source_path(path, &watcher.strip_base)
+                            else {
+                                continue;
+                            };
+                            if !changed.iter().any(|c| c == &source_path) {
+                                changed.push(source_path);
+                            }
+                        }
+                    }
+                }
+                Ok(Err(errors)) => warn!("prefab live-sync: watcher error: {errors:?}"),
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    warn!(
+                        "prefab live-sync: the file watcher thread has stopped; live-sync \
+                         has stopped until the app is restarted"
+                    );
+                    commands.remove_resource::<PrefabWatcher>();
+                    break;
+                }
+            }
+        }
+    }
+
+    if !changed.is_empty() {
+        commands.insert_resource(PendingPrefabResync(changed));
+    }
+}
+
+/// Consumes [`PendingPrefabResync`] (if any) and resyncs every path in it.
+/// Exclusive because [`resync_prefab_instances`] despawns and re-instantiates
+/// entities arbitrarily, which needs `&mut World` directly.
+fn resync_changed_prefabs(world: &mut World) {
+    let Some(mut pending) = world.get_resource_mut::<PendingPrefabResync>() else {
+        return;
+    };
+    let paths = std::mem::take(&mut pending.0);
+    world.remove_resource::<PendingPrefabResync>();
+    for path in paths {
+        resync_prefab_instances(world, &path);
     }
 }
 
@@ -559,6 +769,111 @@ mod tests {
         assert_eq!(
             nested_instance_count, 1,
             "resyncing the outer file must re-resolve its nested prefab reference exactly once"
+        );
+    }
+
+    /// Runs frames until `done`, or panics with `what` after 20 seconds.
+    /// Bounded by wall clock, not a frame count, since what's being waited on
+    /// is a filesystem notification on another thread -- mirrors
+    /// `bsengine_asset::watcher`'s tests' identical `run_until` helper.
+    fn run_until(app: &mut App, what: &str, mut done: impl FnMut(&mut App) -> bool) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        while std::time::Instant::now() < deadline {
+            app.update();
+            if done(app) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        panic!("{what} did not happen within 20s");
+    }
+
+    #[test]
+    fn prefab_watcher_plugin_resyncs_a_placed_instance_when_its_source_file_changes() {
+        // A relative ProjectDir, under the crate's CWD -- the shape the
+        // engine actually uses, and the one that actually exercises
+        // reconstruct_source_path's stripping logic (an absolute ProjectDir
+        // would make the reported path already equal the engine form,
+        // leaving the reconstruction untested -- same rationale as
+        // AssetWatcherPlugin's own end-to-end test).
+        let project = format!(
+            "bsengine-prefab-watch-probe-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .subsec_nanos()
+        );
+        let root = PathBuf::from(&project);
+        let prefabs_dir = root.join("assets").join("prefabs");
+        std::fs::create_dir_all(&prefabs_dir).unwrap();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+
+        std::fs::write(prefabs_dir.join("turret.ron"), TURRET_V1).unwrap();
+
+        let mut app = new_app();
+        app.insert_resource(ProjectDir(project.clone()));
+        register(&mut app);
+        app.add_plugins(PrefabWatcherPlugin);
+
+        let resolved = format!("{project}/assets/prefabs/turret.ron");
+        bsengine_scene::instantiate_prefab_from_path(
+            app.world_mut(),
+            &resolved,
+            Some("MyTurret"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        run_until(&mut app, "the watcher to start", |app| {
+            app.world().get_resource::<PrefabWatcher>().is_some()
+        });
+
+        // Let the OS backend settle before writing, then discard whatever
+        // the initial load/watch start stirred up -- mirrors
+        // AssetWatcherPlugin's own tests' identical settle-then-discard step.
+        std::thread::sleep(DEBOUNCE * 3);
+        for _ in 0..5 {
+            app.update();
+        }
+
+        std::fs::write(prefabs_dir.join("turret.ron"), TURRET_V2).unwrap();
+
+        run_until(
+            &mut app,
+            "the placed instance to pick up Scope from the edited file",
+            |app| {
+                let mut q = app.world_mut().query::<&Name>();
+                q.iter(app.world()).any(|n| n.0.starts_with("Scope#"))
+            },
+        );
+
+        // Not `(Entity, &Name, &Transform)`: neither TURRET_V1 nor TURRET_V2
+        // gives any entity an explicit `transform:` field, and the initial
+        // instantiate call above passes no transform_override either, so the
+        // root never carries a Transform component before or after resync --
+        // there is nothing here to preserve. Transform preservation across a
+        // resync is already covered by
+        // `resync_preserves_the_instances_name_transform_and_parent`, whose
+        // fixture does give the root an explicit transform_override; this
+        // test's job is only to prove the real plugin -- watcher thread,
+        // debounce, drain, exclusive resync system -- actually drives
+        // resync_prefab_instances end to end.
+        let mut q = app.world_mut().query::<(Entity, &Name)>();
+        let resynced = q
+            .iter(app.world())
+            .find(|(_, n)| n.0 == "MyTurret")
+            .expect("the instance must still be named MyTurret after resyncing");
+        assert!(
+            app.world().get::<PrefabInstance>(resynced.0).is_some(),
+            "the resynced root must still carry PrefabInstance"
         );
     }
 }

@@ -16,7 +16,7 @@ use bevy_reflect::Reflect;
 /// reflected components, this one should never appear in the editor's "Add
 /// Component" picker (which only lists `ReflectDefault`-constructible types) —
 /// it is a provenance marker `instantiate_prefab` attaches itself, not
-/// something meaningful to attach by hand. `Parent`/`Follow`/`LookAt`/`Tween`
+/// something meaningful to attach by hand. `Parent`/`Follow`/`LookAt`
 /// already establish this same pattern for other components with no sensible
 /// default.
 #[derive(Component, Clone, Debug, Reflect)]

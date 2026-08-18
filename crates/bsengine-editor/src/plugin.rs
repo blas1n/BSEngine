@@ -1146,6 +1146,111 @@ fn build_entity_descriptors(entities: &[EntityInfo]) -> Vec<EntityDescriptor> {
         .collect()
 }
 
+/// Turns `root_id` and its descendants (read from `entities`, a live
+/// snapshot) into a new `assets/prefabs/<name>.ron` file, auto-suffixing
+/// the filename (`<name>#2.ron`, `<name>#3.ron`, ...) if one already
+/// exists. Returns the actual path written.
+///
+/// Reuses `build_entity_descriptors` unchanged: that function only
+/// resolves a `parent:` link for a parent id present in the *same slice*
+/// it's given, so passing just the collected subtree automatically drops
+/// the chosen root's link to whatever it used to be parented to outside
+/// that subtree -- no separate re-rooting step is needed. (If the root
+/// did have an outside parent, `build_entity_descriptors` logs one
+/// pre-existing, slightly-imprecisely-worded warning about a missing
+/// Name link; that's accepted, existing behavior from the scene-save
+/// path, not something this function introduces.)
+fn save_entities_as_prefab(
+    entities: &[EntityInfo],
+    root_id: u64,
+    name: &str,
+    project_dir: Option<&bsengine_core::ProjectDir>,
+) -> Result<String, String> {
+    if name.contains('/') || name.contains('\\') || name.contains("..") {
+        return Err(format!(
+            "prefab name '{name}' must not contain path separators or '..'"
+        ));
+    }
+
+    let Some(root) = entities.iter().find(|e| e.id == root_id) else {
+        return Err(format!("entity {root_id} not found"));
+    };
+    if root.name.is_none() {
+        return Err(format!(
+            "entity {root_id} has no Name component and cannot be saved as a prefab"
+        ));
+    }
+
+    // `visited` is defensive, not merely theoretical: nothing in the
+    // command-processing layer (EditorCommand::SetParent, the MCP
+    // set_parent tool) checks for cycles when writing parent_id -- only
+    // the Hierarchy panel's drag-and-drop UI calls would_create_cycle --
+    // so a malformed live snapshot with a real parent_id cycle can reach
+    // this BFS. Mirrors HierarchyPanel::push_dfs's guard in
+    // crates/bsengine-rhi-wgpu/src/panels/hierarchy.rs.
+    let mut subtree: Vec<EntityInfo> = Vec::new();
+    let mut visited: std::collections::HashSet<u64> = std::collections::HashSet::new();
+    let mut queue = vec![root_id];
+    while let Some(cur) = queue.pop() {
+        if !visited.insert(cur) {
+            continue;
+        }
+        if let Some(info) = entities.iter().find(|e| e.id == cur) {
+            subtree.push(info.clone());
+        }
+        for child in entities.iter().filter(|e| e.parent_id == Some(cur)) {
+            queue.push(child.id);
+        }
+    }
+
+    if let Some(unnamed) = subtree.iter().find(|e| e.name.is_none()) {
+        return Err(format!(
+            "entity {} in the selected subtree has no Name component and cannot be saved as a prefab",
+            unnamed.id
+        ));
+    }
+
+    let descriptors = build_entity_descriptors(&subtree);
+    let prefab = bsengine_scene::types::PrefabDescriptor {
+        entities: descriptors,
+    };
+    let ron_str = ron::to_string(&prefab).map_err(|e| format!("serialize failed: {e}"))?;
+
+    let dest = resolve_unique_prefab_path(project_dir, name);
+    if let Some(parent) = std::path::Path::new(&dest).parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("could not create directory: {e}"))?;
+    }
+    std::fs::write(&dest, &ron_str).map_err(|e| format!("write failed: {e}"))?;
+    Ok(dest)
+}
+
+/// Resolves `assets/prefabs/<name>.ron` against `project_dir`, retrying
+/// with `<name>#2.ron`, `<name>#3.ron`, ... until a path that doesn't
+/// already exist on disk is found -- mirrors `instantiate_prefab`'s
+/// runtime `#N` instance-name suffixing, applied here to filenames.
+fn resolve_unique_prefab_path(
+    project_dir: Option<&bsengine_core::ProjectDir>,
+    name: &str,
+) -> String {
+    let candidate =
+        bsengine_core::resolve_project_path(project_dir, &format!("assets/prefabs/{name}.ron"));
+    if !std::path::Path::new(&candidate).exists() {
+        return candidate;
+    }
+    let mut n = 2;
+    loop {
+        let candidate = bsengine_core::resolve_project_path(
+            project_dir,
+            &format!("assets/prefabs/{name}#{n}.ron"),
+        );
+        if !std::path::Path::new(&candidate).exists() {
+            return candidate;
+        }
+        n += 1;
+    }
+}
+
 fn apply_history_action(world: &mut World) {
     let is_undo = {
         let Some(mut insp) = world.get_resource_mut::<InspectorState>() else {
@@ -29503,7 +29608,7 @@ fn parse_vec3_input(v: &serde_json::Value) -> Option<[f32; 3]> {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_entity_descriptors, EditorPlugin};
+    use super::{build_entity_descriptors, save_entities_as_prefab, EditorPlugin};
     use bsengine_app::new_app;
     use bsengine_core::{InspectorCmd, InspectorState, Parent, Transform};
     use bsengine_mcp::{McpPlugin, McpRegistryResource};
@@ -92406,5 +92511,207 @@ mod tests {
             history_len_before + 1,
             "process_prefab_commands should push an undo checkpoint, same as ReflectCommand/EditorCommand do"
         );
+    }
+
+    fn entity_info(id: u64, name: &str, parent_id: Option<u64>) -> EntityInfo {
+        EntityInfo {
+            id,
+            name: Some(name.to_string()),
+            parent_id,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn save_entities_as_prefab_collects_the_subtree_and_writes_a_ron_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = bsengine_core::ProjectDir(dir.path().to_string_lossy().to_string());
+
+        let entities = vec![
+            entity_info(1, "Root", None),
+            entity_info(2, "Child", Some(1)),
+            entity_info(3, "Grandchild", Some(2)),
+            entity_info(4, "Unrelated", None),
+        ];
+
+        let path = save_entities_as_prefab(&entities, 1, "boss", Some(&project_dir)).unwrap();
+        assert!(
+            path.ends_with("assets/prefabs/boss.ron"),
+            "unexpected path: {path}"
+        );
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        let parsed: bsengine_scene::types::PrefabDescriptor = ron::from_str(&content).unwrap();
+        let names: Vec<&str> = parsed.entities.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(
+            names.len(),
+            3,
+            "expected Root+Child+Grandchild, not Unrelated: {names:?}"
+        );
+        assert!(names.contains(&"Root"));
+        assert!(names.contains(&"Child"));
+        assert!(names.contains(&"Grandchild"));
+
+        let root_desc = parsed.entities.iter().find(|e| e.name == "Root").unwrap();
+        assert!(
+            root_desc.parent.is_none(),
+            "prefab root must have no parent:, got {:?}",
+            root_desc.parent
+        );
+    }
+
+    #[test]
+    fn save_entities_as_prefab_drops_the_roots_link_to_a_parent_outside_the_subtree() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = bsengine_core::ProjectDir(dir.path().to_string_lossy().to_string());
+        let entities = vec![
+            entity_info(1, "Outside", None),
+            entity_info(2, "SelectedRoot", Some(1)),
+            entity_info(3, "Child", Some(2)),
+        ];
+        let path = save_entities_as_prefab(&entities, 2, "sub", Some(&project_dir)).unwrap();
+        let parsed: bsengine_scene::types::PrefabDescriptor =
+            ron::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            parsed.entities.len(),
+            2,
+            "the entity outside the selected subtree must not be included: {:?}",
+            parsed.entities.iter().map(|e| &e.name).collect::<Vec<_>>()
+        );
+        let root_desc = parsed
+            .entities
+            .iter()
+            .find(|e| e.name == "SelectedRoot")
+            .unwrap();
+        assert!(root_desc.parent.is_none());
+    }
+
+    #[test]
+    fn save_entities_as_prefab_auto_suffixes_on_a_name_collision() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = bsengine_core::ProjectDir(dir.path().to_string_lossy().to_string());
+        let entities = vec![entity_info(1, "Boss", None)];
+
+        let first = save_entities_as_prefab(&entities, 1, "boss", Some(&project_dir)).unwrap();
+        let second = save_entities_as_prefab(&entities, 1, "boss", Some(&project_dir)).unwrap();
+        assert_ne!(first, second);
+        assert!(
+            second.ends_with("assets/prefabs/boss#2.ron"),
+            "unexpected: {second}"
+        );
+        assert!(std::path::Path::new(&first).exists());
+        assert!(std::path::Path::new(&second).exists());
+    }
+
+    #[test]
+    fn save_entities_as_prefab_rejects_a_root_with_no_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = bsengine_core::ProjectDir(dir.path().to_string_lossy().to_string());
+        let entities = vec![EntityInfo {
+            id: 1,
+            name: None,
+            ..Default::default()
+        }];
+        let err = save_entities_as_prefab(&entities, 1, "boss", Some(&project_dir)).unwrap_err();
+        assert!(
+            err.contains('1'),
+            "error should mention the entity id: {err}"
+        );
+    }
+
+    #[test]
+    fn save_entities_as_prefab_rejects_an_unnamed_descendant() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = bsengine_core::ProjectDir(dir.path().to_string_lossy().to_string());
+        let entities = vec![
+            entity_info(1, "Root", None),
+            EntityInfo {
+                id: 2,
+                name: None,
+                parent_id: Some(1),
+                ..Default::default()
+            },
+        ];
+        let err = save_entities_as_prefab(&entities, 1, "boss", Some(&project_dir)).unwrap_err();
+        assert!(
+            err.contains('2'),
+            "error should mention the unnamed descendant's id: {err}"
+        );
+    }
+
+    #[test]
+    fn save_entities_as_prefab_rejects_an_unknown_root_id() {
+        let entities = vec![entity_info(1, "Root", None)];
+        let err = save_entities_as_prefab(&entities, 999, "boss", None).unwrap_err();
+        assert!(err.contains("999"));
+    }
+
+    #[test]
+    fn save_entities_as_prefab_rejects_a_name_with_path_traversal_characters() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = bsengine_core::ProjectDir(dir.path().to_string_lossy().to_string());
+        let entities = vec![entity_info(1, "Root", None)];
+
+        let err =
+            save_entities_as_prefab(&entities, 1, "../evil", Some(&project_dir)).unwrap_err();
+        assert!(
+            err.contains("../evil"),
+            "error should mention the rejected name: {err}"
+        );
+
+        let err2 =
+            save_entities_as_prefab(&entities, 1, "sub/evil", Some(&project_dir)).unwrap_err();
+        assert!(
+            err2.contains("sub/evil"),
+            "error should mention the rejected name: {err2}"
+        );
+
+        // Nothing should have been written anywhere, including outside the
+        // temp project dir (walk up from the temp dir's parent to make sure
+        // no "evil" file leaked out).
+        let outside = dir.path().parent().unwrap().join("evil");
+        assert!(
+            !outside.exists(),
+            "path traversal must not escape the project dir"
+        );
+        assert!(
+            std::fs::read_dir(dir.path())
+                .unwrap()
+                .next()
+                .is_none(),
+            "nothing should have been written into the project dir either"
+        );
+    }
+
+    #[test]
+    fn save_entities_as_prefab_terminates_when_the_snapshot_has_a_parent_cycle() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = bsengine_core::ProjectDir(dir.path().to_string_lossy().to_string());
+        let entities = vec![
+            entity_info(1, "A", Some(2)),
+            entity_info(2, "B", Some(1)),
+        ];
+
+        // The primary point of this test is that it returns at all: an
+        // unguarded BFS over a parent_id cycle would loop forever and hang
+        // the test binary. But returning isn't enough on its own to catch a
+        // regression cleanly -- a future change that reintroduces the
+        // missing guard would hang cargo test itself rather than fail it,
+        // which is a bad failure mode to rely on alone. So this also pins
+        // down the actual bounded result: both cycle members ended up in
+        // the subtree exactly once each (matches HierarchyPanel::push_dfs's
+        // same guard -- a visited id is skipped, not re-collected).
+        let path = save_entities_as_prefab(&entities, 1, "cyclic", Some(&project_dir))
+            .expect("a 2-entity mutual-parent cycle should still resolve, just bounded to visiting each member once");
+        let parsed: bsengine_scene::types::PrefabDescriptor =
+            ron::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let names: Vec<&str> = parsed.entities.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(
+            names.len(),
+            2,
+            "each cycle member should be collected exactly once, not zero or repeated: {names:?}"
+        );
+        assert!(names.contains(&"A"));
+        assert!(names.contains(&"B"));
     }
 }

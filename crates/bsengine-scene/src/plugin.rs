@@ -1426,6 +1426,32 @@ mod tests {
     }
 
     #[test]
+    fn scene_plugin_applies_prefab_instance_from_ron_value() {
+        let ron = r#"SceneDescriptor(entities: [
+            EntityDescriptor(
+                name: "Turret",
+                components: [
+                    ("bsengine_core::prefab_instance::PrefabInstance", "(source_path: \"assets/prefabs/turret.ron\")"),
+                ],
+            )
+        ])"#;
+        let path = write_temp_scene("test_prefab_instance_component.ron", ron);
+
+        let mut app = new_app();
+        app.register_type::<bsengine_core::PrefabInstance>();
+        app.add_plugins(ScenePlugin::from_file(&path));
+        app.update();
+
+        let mut q = app
+            .world_mut()
+            .query::<(&Name, &bsengine_core::PrefabInstance)>();
+        let results: Vec<_> = q.iter(app.world()).collect();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0 .0, "Turret");
+        assert_eq!(results[0].1.source_path, "assets/prefabs/turret.ron");
+    }
+
+    #[test]
     fn a_state_machines_states_survive_deserialization() {
         // Guards a failure mode with no diagnostic at all.
         //

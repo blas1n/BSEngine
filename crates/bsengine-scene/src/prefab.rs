@@ -24,6 +24,14 @@ pub fn next_instance_suffix() -> u64 {
 
 /// Instantiates a prefab's entity subtree into `world`.
 ///
+/// `source_path`: project-relative path to the prefab file being
+/// instantiated (e.g. `"assets/prefabs/turret.ron"`), stored verbatim on the
+/// spawned root's `PrefabInstance` component so live-sync can later find every
+/// instance of a given prefab file. The caller is responsible for this being
+/// project-relative, not a resolved filesystem path — see
+/// `instantiate_prefab_from_path`, the only real caller, for how it derives
+/// that spelling.
+///
 /// `root_name`: `None` draws a fresh unique suffix and applies it to every
 /// entity's name (`"{original}#{suffix}"`), including the root. `Some(n)`
 /// uses `n` verbatim as the root's name (no suffix) -- the caller is
@@ -48,6 +56,7 @@ pub fn next_instance_suffix() -> u64 {
 pub fn instantiate_prefab(
     world: &mut World,
     prefab: &PrefabDescriptor,
+    source_path: &str,
     root_name: Option<&str>,
     root_transform: Option<TransformDescriptor>,
     parent: Option<Entity>,
@@ -152,6 +161,9 @@ pub fn instantiate_prefab(
             .entity_mut(root_entity)
             .insert(bsengine_core::Parent(parent_entity));
     }
+    world.entity_mut(root_entity).insert(bsengine_core::PrefabInstance {
+        source_path: source_path.to_string(),
+    });
 
     Ok(root_entity)
 }
@@ -177,8 +189,15 @@ mod tests {
         let mut app = new_app();
         let prefab = two_entity_prefab();
 
-        let root = instantiate_prefab(app.world_mut(), &prefab, None, None, None)
-            .expect("a well-formed 2-entity prefab should instantiate");
+        let root = instantiate_prefab(
+            app.world_mut(),
+            &prefab,
+            "assets/prefabs/test.ron",
+            None,
+            None,
+            None,
+        )
+        .expect("a well-formed 2-entity prefab should instantiate");
 
         let mut q = app
             .world_mut()
@@ -223,8 +242,15 @@ mod tests {
         let mut app = new_app();
         let prefab = two_entity_prefab();
 
-        let root = instantiate_prefab(app.world_mut(), &prefab, Some("Boss"), None, None)
-            .expect("instantiation should succeed");
+        let root = instantiate_prefab(
+            app.world_mut(),
+            &prefab,
+            "assets/prefabs/test.ron",
+            Some("Boss"),
+            None,
+            None,
+        )
+        .expect("instantiation should succeed");
 
         let mut q = app.world_mut().query::<&crate::plugin::Name>();
         assert_eq!(
@@ -245,8 +271,15 @@ mod tests {
             .id();
         let prefab = two_entity_prefab();
 
-        let root = instantiate_prefab(app.world_mut(), &prefab, None, None, Some(anchor))
-            .expect("instantiation should succeed");
+        let root = instantiate_prefab(
+            app.world_mut(),
+            &prefab,
+            "assets/prefabs/test.ron",
+            None,
+            None,
+            Some(anchor),
+        )
+        .expect("instantiation should succeed");
 
         let parent = app.world().get::<bsengine_core::Parent>(root);
         assert_eq!(
@@ -267,7 +300,14 @@ mod tests {
         )
         .unwrap();
 
-        let result = instantiate_prefab(app.world_mut(), &bad, None, None, None);
+        let result = instantiate_prefab(
+            app.world_mut(),
+            &bad,
+            "assets/prefabs/test.ron",
+            None,
+            None,
+            None,
+        );
         assert!(
             result.is_err(),
             "a prefab with no root entity must fail to instantiate"
@@ -285,7 +325,14 @@ mod tests {
         )
         .unwrap();
 
-        let result = instantiate_prefab(app.world_mut(), &bad, None, None, None);
+        let result = instantiate_prefab(
+            app.world_mut(),
+            &bad,
+            "assets/prefabs/test.ron",
+            None,
+            None,
+            None,
+        );
         assert!(
             result.is_err(),
             "a prefab with two root entities must fail to instantiate"
@@ -308,7 +355,14 @@ mod tests {
         )
         .unwrap();
 
-        let result = instantiate_prefab(app.world_mut(), &bad, None, None, None);
+        let result = instantiate_prefab(
+            app.world_mut(),
+            &bad,
+            "assets/prefabs/test.ron",
+            None,
+            None,
+            None,
+        );
         assert!(
             result.is_err(),
             "a prefab with two entities sharing the same name must fail to instantiate, \
@@ -335,6 +389,7 @@ mod tests {
         let root = instantiate_prefab(
             app.world_mut(),
             &prefab,
+            "assets/prefabs/test.ron",
             None,
             Some(override_transform),
             None,
@@ -366,6 +421,57 @@ mod tests {
             glam::Vec3::new(0.5, 0.0, 0.0),
             "root_transform override must be scoped to the root only; the child keeps its \
              own prefab-authored local transform"
+        );
+    }
+
+    #[test]
+    fn instantiate_prefab_attaches_prefab_instance_to_the_root_with_the_given_source_path() {
+        let mut app = new_app();
+        let prefab = two_entity_prefab();
+
+        let root = instantiate_prefab(
+            app.world_mut(),
+            &prefab,
+            "assets/prefabs/car.ron",
+            None,
+            None,
+            None,
+        )
+        .expect("a well-formed 2-entity prefab should instantiate");
+
+        let instance = app
+            .world()
+            .get::<bsengine_core::PrefabInstance>(root)
+            .expect("the instantiated root must carry a PrefabInstance");
+        assert_eq!(instance.source_path, "assets/prefabs/car.ron");
+    }
+
+    #[test]
+    fn instantiate_prefab_does_not_attach_prefab_instance_to_descendants() {
+        let mut app = new_app();
+        let prefab = two_entity_prefab();
+
+        instantiate_prefab(
+            app.world_mut(),
+            &prefab,
+            "assets/prefabs/car.ron",
+            None,
+            None,
+            None,
+        )
+        .expect("a well-formed 2-entity prefab should instantiate");
+
+        let mut q = app
+            .world_mut()
+            .query::<(&crate::plugin::Name, Option<&bsengine_core::PrefabInstance>)>();
+        let wheel_has_instance = q
+            .iter(app.world())
+            .find(|(n, _)| n.0.starts_with("Wheel#"))
+            .map(|(_, instance)| instance.is_some())
+            .expect("Wheel should have spawned");
+        assert!(
+            !wheel_has_instance,
+            "only the prefab's root entity should carry PrefabInstance, not its descendants"
         );
     }
 }

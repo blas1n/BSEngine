@@ -118,6 +118,28 @@ impl Drop for ResolvingGuard {
     }
 }
 
+/// Reverses `resolve_project_path`: strips a `<ProjectDir>/` prefix back off
+/// `prefab_path`, recovering the project-relative spelling
+/// `PrefabInstance::source_path` is documented to hold. A no-op when no
+/// `ProjectDir` is set or it's empty (every call site already passes the
+/// project-relative form as-is in that case, since `resolve_project_path`
+/// itself is a no-op then) or when `prefab_path` doesn't start with the
+/// project dir's own prefix (defensive; shouldn't happen given every real
+/// call site resolves through `resolve_project_path` first).
+fn project_relative_prefab_path(world: &World, prefab_path: &str) -> String {
+    let Some(project_dir) = world.get_resource::<bsengine_core::ProjectDir>() else {
+        return prefab_path.to_string();
+    };
+    if project_dir.0.is_empty() {
+        return prefab_path.to_string();
+    }
+    let prefix = format!("{}/", project_dir.0);
+    prefab_path
+        .strip_prefix(prefix.as_str())
+        .unwrap_or(prefab_path)
+        .to_string()
+}
+
 /// Instantiates the prefab at `prefab_path` into `world`, guarded against
 /// cyclic prefab references via [`RESOLVING_PREFABS`]/[`ResolvingGuard`].
 ///
@@ -174,7 +196,15 @@ pub fn instantiate_prefab_from_path(
     // why a missed removal would be a silent, permanent, process-lifetime
     // false positive rather than a one-off glitch.
     let _guard = ResolvingGuard(prefab_path.to_string());
-    crate::prefab::instantiate_prefab(world, &prefab, root_name, root_transform, parent)
+    let source_path = project_relative_prefab_path(world, prefab_path);
+    crate::prefab::instantiate_prefab(
+        world,
+        &prefab,
+        &source_path,
+        root_name,
+        root_transform,
+        parent,
+    )
 }
 
 /// Resolves one `entity.prefab` reference: instantiates the file in the
@@ -715,6 +745,7 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     app.register_type::<bsengine_core::CustomShader>();
     app.register_type::<bsengine_core::Lifetime>();
     app.register_type::<bsengine_core::NetworkId>();
+    app.register_type::<bsengine_core::PrefabInstance>();
     app.register_type::<bsengine_core::SaveData>();
     app.register_type::<bsengine_core::Shield>();
     app.register_type::<bsengine_core::Skybox>();

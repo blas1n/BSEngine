@@ -1206,6 +1206,51 @@ mod tests {
         );
     }
 
+    #[test]
+    fn nested_prefab_source_paths_terminates_on_a_cyclic_nested_reference() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = ProjectDir(dir.path().to_string_lossy().to_string());
+
+        // a.ron nests b.ron; b.ron nests a.ron right back -- a direct cycle.
+        // instantiate_prefab_from_path's own RESOLVING_PREFABS guard refuses
+        // to actually instantiate this (see
+        // bsengine_scene::plugin::tests::cyclic_prefab_reference_fails_loudly_instead_of_recursing_forever),
+        // but nested_prefab_source_paths only reads and parses files -- it
+        // never instantiates anything -- so it needs its own, independent
+        // cycle guard. This proves it terminates rather than hanging or
+        // overflowing the stack, and that it doesn't drop either side of
+        // the cycle from the returned set.
+        let a_path = write_prefab(
+            dir.path(),
+            "a",
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "ARoot", primitive: Some(Cube)),
+                EntityDescriptor(name: "BRef", parent: Some("ARoot"), prefab: Some("assets/prefabs/b.ron")),
+            ])"#,
+        );
+        write_prefab(
+            dir.path(),
+            "b",
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "BRoot", primitive: Some(Cube)),
+                EntityDescriptor(name: "ARef", parent: Some("BRoot"), prefab: Some("assets/prefabs/a.ron")),
+            ])"#,
+        );
+
+        let resolved_a = bsengine_core::resolve_project_path(Some(&project_dir), &a_path);
+        let content = std::fs::read_to_string(&resolved_a).unwrap();
+        let a_descriptor: bsengine_scene::types::PrefabDescriptor = ron::from_str(&content).unwrap();
+
+        let paths = nested_prefab_source_paths(&a_path, &a_descriptor, Some(&project_dir));
+
+        assert_eq!(
+            paths,
+            std::collections::HashSet::from([a_path.clone(), "assets/prefabs/b.ron".to_string()]),
+            "a direct cycle must terminate with exactly the two files actually involved, \
+             not hang, overflow the stack, or silently drop either side of the cycle"
+        );
+    }
+
     /// Runs frames until `done`, or panics with `what` after 20 seconds.
     /// Bounded by wall clock, not a frame count, since what's being waited on
     /// is a filesystem notification on another thread -- mirrors

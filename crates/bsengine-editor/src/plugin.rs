@@ -2046,6 +2046,14 @@ impl Plugin for EditorPlugin {
             .world()
             .resource::<bevy_ecs::reflect::AppTypeRegistry>()
             .clone();
+        // Captured once here for the same reason as `type_registry` above --
+        // `app.world_mut()` backs `mcp` for the rest of this function, so
+        // `app.world()` can't be called again inside the `if let` block
+        // below (e.g. from within `prefab_write`'s registration).
+        let project_dir = app
+            .world()
+            .get_resource::<bsengine_core::ProjectDir>()
+            .cloned();
 
         if let Some(mcp) = app.world_mut().get_resource_mut::<McpRegistryResource>() {
             // list_entities
@@ -2225,6 +2233,40 @@ impl Plugin for EditorPlugin {
                             Err(e) => McpToolOutput::error(&format!("write failed: {e}")),
                         },
                         Err(e) => McpToolOutput::error(&format!("serialize failed: {e}")),
+                    }
+                }),
+            });
+
+            // prefab_write
+            let snap_pw = snapshot.clone();
+            let project_dir_pw = project_dir.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "prefab_write".to_string(),
+                description: "Extract an entity and its descendants from the live scene into a \
+                    new assets/prefabs/<name>.ron file. Auto-suffixes the filename (#2, #3, ...) \
+                    if it already exists."
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer", "description": "Root entity id; itself and all descendants are saved" },
+                        "name": { "type": "string", "description": "Prefab file name, no extension or directory (written to assets/prefabs/<name>.ron)" },
+                    },
+                    "required": ["entity_id", "name"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing 'entity_id' field"),
+                    };
+                    let name = match input["name"].as_str() {
+                        Some(n) => n.to_string(),
+                        None => return McpToolOutput::error("missing 'name' field"),
+                    };
+                    let s = snap_pw.lock().unwrap();
+                    match save_entities_as_prefab(&s.entities, entity_id, &name, project_dir_pw.as_ref()) {
+                        Ok(path) => McpToolOutput::success(json!({ "status": "saved", "path": path })),
+                        Err(e) => McpToolOutput::error(&e),
                     }
                 }),
             });
@@ -92713,5 +92755,103 @@ mod tests {
         );
         assert!(names.contains(&"A"));
         assert!(names.contains(&"B"));
+    }
+
+    #[test]
+    fn mcp_prefab_write_saves_a_subtree_to_a_ron_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut app = new_app();
+        app.insert_resource(bsengine_core::ProjectDir(
+            dir.path().to_string_lossy().to_string(),
+        ));
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Turret"},
+                        {"name": "Barrel"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (turret_id, barrel_id) = (id_of("Turret"), id_of("Barrel"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": barrel_id, "parent_id": turret_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("prefab_write", json!({"entity_id": turret_id, "name": "turret"}))
+            .expect("prefab_write not registered");
+        assert!(out.is_ok(), "prefab_write failed: {:?}", out.error);
+        let path = out.content["path"].as_str().unwrap().to_string();
+        assert!(path.ends_with("assets/prefabs/turret.ron"), "{path}");
+
+        let parsed: bsengine_scene::types::PrefabDescriptor =
+            ron::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let names: Vec<&str> = parsed.entities.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names.len(), 2, "{names:?}");
+        assert!(names.contains(&"Turret"));
+        assert!(names.contains(&"Barrel"));
+    }
+
+    #[test]
+    fn mcp_prefab_write_reports_an_error_for_an_unknown_entity_id() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("prefab_write", json!({"entity_id": 999999, "name": "x"}))
+            .expect("prefab_write not registered");
+        assert!(!out.is_ok());
     }
 }

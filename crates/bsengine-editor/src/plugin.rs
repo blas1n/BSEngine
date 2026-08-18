@@ -1146,6 +1146,114 @@ fn build_entity_descriptors(entities: &[EntityInfo]) -> Vec<EntityDescriptor> {
         .collect()
 }
 
+/// Turns `root_id` and its descendants (read from `entities`, a live
+/// snapshot) into a new `assets/prefabs/<name>.ron` file, auto-suffixing
+/// the filename (`<name>#2.ron`, `<name>#3.ron`, ...) if one already
+/// exists. Returns the actual path written.
+///
+/// Reuses `build_entity_descriptors` unchanged: that function only
+/// resolves a `parent:` link for a parent id present in the *same slice*
+/// it's given, so passing just the collected subtree automatically drops
+/// the chosen root's link to whatever it used to be parented to outside
+/// that subtree -- no separate re-rooting step is needed. (If the root
+/// did have an outside parent, `build_entity_descriptors` logs one
+/// pre-existing, slightly-imprecisely-worded warning about a missing
+/// Name link; that's accepted, existing behavior from the scene-save
+/// path, not something this function introduces.)
+fn save_entities_as_prefab(
+    entities: &[EntityInfo],
+    root_id: u64,
+    name: &str,
+    project_dir: Option<&bsengine_core::ProjectDir>,
+) -> Result<String, String> {
+    if name.is_empty() {
+        return Err("prefab name must not be empty".to_string());
+    }
+    if name.contains('/') || name.contains('\\') || name.contains("..") {
+        return Err(format!(
+            "prefab name '{name}' must not contain path separators or '..'"
+        ));
+    }
+
+    let Some(root) = entities.iter().find(|e| e.id == root_id) else {
+        return Err(format!("entity {root_id} not found"));
+    };
+    if root.name.is_none() {
+        return Err(format!(
+            "entity {root_id} has no Name component and cannot be saved as a prefab"
+        ));
+    }
+
+    // `visited` is defensive, not merely theoretical: nothing in the
+    // command-processing layer (EditorCommand::SetParent, the MCP
+    // set_parent tool) checks for cycles when writing parent_id -- only
+    // the Hierarchy panel's drag-and-drop UI calls would_create_cycle --
+    // so a malformed live snapshot with a real parent_id cycle can reach
+    // this BFS. Mirrors HierarchyPanel::push_dfs's guard in
+    // crates/bsengine-rhi-wgpu/src/panels/hierarchy.rs.
+    let mut subtree: Vec<EntityInfo> = Vec::new();
+    let mut visited: std::collections::HashSet<u64> = std::collections::HashSet::new();
+    let mut queue = vec![root_id];
+    while let Some(cur) = queue.pop() {
+        if !visited.insert(cur) {
+            continue;
+        }
+        if let Some(info) = entities.iter().find(|e| e.id == cur) {
+            subtree.push(info.clone());
+        }
+        for child in entities.iter().filter(|e| e.parent_id == Some(cur)) {
+            queue.push(child.id);
+        }
+    }
+
+    if let Some(unnamed) = subtree.iter().find(|e| e.name.is_none()) {
+        return Err(format!(
+            "entity {} in the selected subtree has no Name component and cannot be saved as a prefab",
+            unnamed.id
+        ));
+    }
+
+    let descriptors = build_entity_descriptors(&subtree);
+    let prefab = bsengine_scene::types::PrefabDescriptor {
+        entities: descriptors,
+    };
+    let ron_str = ron::to_string(&prefab).map_err(|e| format!("serialize failed: {e}"))?;
+
+    let dest = resolve_unique_prefab_path(project_dir, name);
+    if let Some(parent) = std::path::Path::new(&dest).parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("could not create directory: {e}"))?;
+    }
+    std::fs::write(&dest, &ron_str).map_err(|e| format!("write failed: {e}"))?;
+    Ok(dest)
+}
+
+/// Resolves `assets/prefabs/<name>.ron` against `project_dir`, retrying
+/// with `<name>#2.ron`, `<name>#3.ron`, ... until a path that doesn't
+/// already exist on disk is found -- mirrors `instantiate_prefab`'s
+/// runtime `#N` instance-name suffixing, applied here to filenames.
+fn resolve_unique_prefab_path(
+    project_dir: Option<&bsengine_core::ProjectDir>,
+    name: &str,
+) -> String {
+    let candidate =
+        bsengine_core::resolve_project_path(project_dir, &format!("assets/prefabs/{name}.ron"));
+    if !std::path::Path::new(&candidate).exists() {
+        return candidate;
+    }
+    let mut n = 2;
+    loop {
+        let candidate = bsengine_core::resolve_project_path(
+            project_dir,
+            &format!("assets/prefabs/{name}#{n}.ron"),
+        );
+        if !std::path::Path::new(&candidate).exists() {
+            return candidate;
+        }
+        n += 1;
+    }
+}
+
 fn apply_history_action(world: &mut World) {
     let is_undo = {
         let Some(mut insp) = world.get_resource_mut::<InspectorState>() else {
@@ -1720,12 +1828,15 @@ fn str_to_primitive(s: &str) -> Option<bsengine_scene::Primitive> {
     }
 }
 
+#[allow(clippy::too_many_arguments)] // Bevy system params; splitting into a struct is a larger refactor
 fn apply_inspector_cmds(
     inspector: Option<ResMut<InspectorState>>,
     queue_res: Res<EditorCommandQueueResource>,
     reflect_queue_res: Res<ReflectCommandQueueResource>,
     prefab_queue_res: Res<PrefabCommandQueueResource>,
     selection_res: Res<EditorSelectionResource>,
+    snapshot_res: Res<EditorSnapshotResource>,
+    project_dir: Option<Res<bsengine_core::ProjectDir>>,
     mut commands: Commands,
 ) {
     let Some(mut inspector) = inspector else {
@@ -1871,6 +1982,14 @@ fn apply_inspector_cmds(
                     parent_id,
                 });
             }
+            InspectorCmd::CreatePrefab { entity_id, name } => {
+                let s = snapshot_res.0.lock().unwrap();
+                if let Err(e) =
+                    save_entities_as_prefab(&s.entities, entity_id, &name, project_dir.as_deref())
+                {
+                    tracing::warn!("create_prefab: entity {entity_id} -> '{name}' failed: {e}");
+                }
+            }
         }
     }
 }
@@ -1941,6 +2060,14 @@ impl Plugin for EditorPlugin {
             .world()
             .resource::<bevy_ecs::reflect::AppTypeRegistry>()
             .clone();
+        // Captured once here for the same reason as `type_registry` above --
+        // `app.world_mut()` backs `mcp` for the rest of this function, so
+        // `app.world()` can't be called again inside the `if let` block
+        // below (e.g. from within `prefab_write`'s registration).
+        let project_dir = app
+            .world()
+            .get_resource::<bsengine_core::ProjectDir>()
+            .cloned();
 
         if let Some(mcp) = app.world_mut().get_resource_mut::<McpRegistryResource>() {
             // list_entities
@@ -2120,6 +2247,40 @@ impl Plugin for EditorPlugin {
                             Err(e) => McpToolOutput::error(&format!("write failed: {e}")),
                         },
                         Err(e) => McpToolOutput::error(&format!("serialize failed: {e}")),
+                    }
+                }),
+            });
+
+            // prefab_write
+            let snap_pw = snapshot.clone();
+            let project_dir_pw = project_dir.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "prefab_write".to_string(),
+                description: "Extract an entity and its descendants from the live scene into a \
+                    new assets/prefabs/<name>.ron file. Auto-suffixes the filename (#2, #3, ...) \
+                    if it already exists."
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer", "description": "Root entity id; itself and all descendants are saved" },
+                        "name": { "type": "string", "description": "Prefab file name, no extension or directory (written to assets/prefabs/<name>.ron)" },
+                    },
+                    "required": ["entity_id", "name"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing 'entity_id' field"),
+                    };
+                    let name = match input["name"].as_str() {
+                        Some(n) => n.to_string(),
+                        None => return McpToolOutput::error("missing 'name' field"),
+                    };
+                    let s = snap_pw.lock().unwrap();
+                    match save_entities_as_prefab(&s.entities, entity_id, &name, project_dir_pw.as_ref()) {
+                        Ok(path) => McpToolOutput::success(json!({ "status": "saved", "path": path })),
+                        Err(e) => McpToolOutput::error(&e),
                     }
                 }),
             });
@@ -29503,7 +29664,7 @@ fn parse_vec3_input(v: &serde_json::Value) -> Option<[f32; 3]> {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_entity_descriptors, EditorPlugin};
+    use super::{build_entity_descriptors, save_entities_as_prefab, EditorPlugin};
     use bsengine_app::new_app;
     use bsengine_core::{InspectorCmd, InspectorState, Parent, Transform};
     use bsengine_mcp::{McpPlugin, McpRegistryResource};
@@ -92406,5 +92567,483 @@ mod tests {
             history_len_before + 1,
             "process_prefab_commands should push an undo checkpoint, same as ReflectCommand/EditorCommand do"
         );
+    }
+
+    fn entity_info(id: u64, name: &str, parent_id: Option<u64>) -> EntityInfo {
+        EntityInfo {
+            id,
+            name: Some(name.to_string()),
+            parent_id,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn save_entities_as_prefab_collects_the_subtree_and_writes_a_ron_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = bsengine_core::ProjectDir(dir.path().to_string_lossy().to_string());
+
+        let entities = vec![
+            entity_info(1, "Root", None),
+            entity_info(2, "Child", Some(1)),
+            entity_info(3, "Grandchild", Some(2)),
+            entity_info(4, "Unrelated", None),
+        ];
+
+        let path = save_entities_as_prefab(&entities, 1, "boss", Some(&project_dir)).unwrap();
+        assert!(
+            path.ends_with("assets/prefabs/boss.ron"),
+            "unexpected path: {path}"
+        );
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        let parsed: bsengine_scene::types::PrefabDescriptor = ron::from_str(&content).unwrap();
+        let names: Vec<&str> = parsed.entities.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(
+            names.len(),
+            3,
+            "expected Root+Child+Grandchild, not Unrelated: {names:?}"
+        );
+        assert!(names.contains(&"Root"));
+        assert!(names.contains(&"Child"));
+        assert!(names.contains(&"Grandchild"));
+
+        let root_desc = parsed.entities.iter().find(|e| e.name == "Root").unwrap();
+        assert!(
+            root_desc.parent.is_none(),
+            "prefab root must have no parent:, got {:?}",
+            root_desc.parent
+        );
+    }
+
+    #[test]
+    fn save_entities_as_prefab_drops_the_roots_link_to_a_parent_outside_the_subtree() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = bsengine_core::ProjectDir(dir.path().to_string_lossy().to_string());
+        let entities = vec![
+            entity_info(1, "Outside", None),
+            entity_info(2, "SelectedRoot", Some(1)),
+            entity_info(3, "Child", Some(2)),
+        ];
+        let path = save_entities_as_prefab(&entities, 2, "sub", Some(&project_dir)).unwrap();
+        let parsed: bsengine_scene::types::PrefabDescriptor =
+            ron::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            parsed.entities.len(),
+            2,
+            "the entity outside the selected subtree must not be included: {:?}",
+            parsed.entities.iter().map(|e| &e.name).collect::<Vec<_>>()
+        );
+        let root_desc = parsed
+            .entities
+            .iter()
+            .find(|e| e.name == "SelectedRoot")
+            .unwrap();
+        assert!(root_desc.parent.is_none());
+    }
+
+    #[test]
+    fn save_entities_as_prefab_auto_suffixes_on_a_name_collision() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = bsengine_core::ProjectDir(dir.path().to_string_lossy().to_string());
+        let entities = vec![entity_info(1, "Boss", None)];
+
+        let first = save_entities_as_prefab(&entities, 1, "boss", Some(&project_dir)).unwrap();
+        let second = save_entities_as_prefab(&entities, 1, "boss", Some(&project_dir)).unwrap();
+        assert_ne!(first, second);
+        assert!(
+            second.ends_with("assets/prefabs/boss#2.ron"),
+            "unexpected: {second}"
+        );
+        assert!(std::path::Path::new(&first).exists());
+        assert!(std::path::Path::new(&second).exists());
+    }
+
+    #[test]
+    fn save_entities_as_prefab_rejects_a_root_with_no_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = bsengine_core::ProjectDir(dir.path().to_string_lossy().to_string());
+        let entities = vec![EntityInfo {
+            id: 1,
+            name: None,
+            ..Default::default()
+        }];
+        let err = save_entities_as_prefab(&entities, 1, "boss", Some(&project_dir)).unwrap_err();
+        assert!(
+            err.contains('1'),
+            "error should mention the entity id: {err}"
+        );
+    }
+
+    #[test]
+    fn save_entities_as_prefab_rejects_an_unnamed_descendant() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = bsengine_core::ProjectDir(dir.path().to_string_lossy().to_string());
+        let entities = vec![
+            entity_info(1, "Root", None),
+            EntityInfo {
+                id: 2,
+                name: None,
+                parent_id: Some(1),
+                ..Default::default()
+            },
+        ];
+        let err = save_entities_as_prefab(&entities, 1, "boss", Some(&project_dir)).unwrap_err();
+        assert!(
+            err.contains('2'),
+            "error should mention the unnamed descendant's id: {err}"
+        );
+    }
+
+    #[test]
+    fn save_entities_as_prefab_rejects_an_unknown_root_id() {
+        let entities = vec![entity_info(1, "Root", None)];
+        let err = save_entities_as_prefab(&entities, 999, "boss", None).unwrap_err();
+        assert!(err.contains("999"));
+    }
+
+    #[test]
+    fn save_entities_as_prefab_rejects_a_name_with_path_traversal_characters() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = bsengine_core::ProjectDir(dir.path().to_string_lossy().to_string());
+        let entities = vec![entity_info(1, "Root", None)];
+
+        let err =
+            save_entities_as_prefab(&entities, 1, "../evil", Some(&project_dir)).unwrap_err();
+        assert!(
+            err.contains("../evil"),
+            "error should mention the rejected name: {err}"
+        );
+
+        let err2 =
+            save_entities_as_prefab(&entities, 1, "sub/evil", Some(&project_dir)).unwrap_err();
+        assert!(
+            err2.contains("sub/evil"),
+            "error should mention the rejected name: {err2}"
+        );
+
+        // Nothing should have been written anywhere, including outside the
+        // temp project dir (walk up from the temp dir's parent to make sure
+        // no "evil" file leaked out).
+        let outside = dir.path().parent().unwrap().join("evil");
+        assert!(
+            !outside.exists(),
+            "path traversal must not escape the project dir"
+        );
+        assert!(
+            std::fs::read_dir(dir.path())
+                .unwrap()
+                .next()
+                .is_none(),
+            "nothing should have been written into the project dir either"
+        );
+    }
+
+    #[test]
+    fn save_entities_as_prefab_rejects_an_empty_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = bsengine_core::ProjectDir(dir.path().to_string_lossy().to_string());
+        let entities = vec![entity_info(1, "Root", None)];
+
+        let err = save_entities_as_prefab(&entities, 1, "", Some(&project_dir)).unwrap_err();
+        assert!(err.contains("empty"), "unexpected error: {err}");
+        assert!(
+            std::fs::read_dir(dir.path()).unwrap().next().is_none(),
+            "nothing should have been written for an empty name"
+        );
+    }
+
+    #[test]
+    fn save_entities_as_prefab_terminates_when_the_snapshot_has_a_parent_cycle() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = bsengine_core::ProjectDir(dir.path().to_string_lossy().to_string());
+        let entities = vec![
+            entity_info(1, "A", Some(2)),
+            entity_info(2, "B", Some(1)),
+        ];
+
+        // The primary point of this test is that it returns at all: an
+        // unguarded BFS over a parent_id cycle would loop forever and hang
+        // the test binary. But returning isn't enough on its own to catch a
+        // regression cleanly -- a future change that reintroduces the
+        // missing guard would hang cargo test itself rather than fail it,
+        // which is a bad failure mode to rely on alone. So this also pins
+        // down the actual bounded result: both cycle members ended up in
+        // the subtree exactly once each (matches HierarchyPanel::push_dfs's
+        // same guard -- a visited id is skipped, not re-collected).
+        let path = save_entities_as_prefab(&entities, 1, "cyclic", Some(&project_dir))
+            .expect("a 2-entity mutual-parent cycle should still resolve, just bounded to visiting each member once");
+        let parsed: bsengine_scene::types::PrefabDescriptor =
+            ron::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let names: Vec<&str> = parsed.entities.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(
+            names.len(),
+            2,
+            "each cycle member should be collected exactly once, not zero or repeated: {names:?}"
+        );
+        assert!(names.contains(&"A"));
+        assert!(names.contains(&"B"));
+    }
+
+    #[test]
+    fn a_prefab_saved_from_live_entities_round_trips_through_instantiate_prefab() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = bsengine_core::ProjectDir(dir.path().to_string_lossy().to_string());
+
+        let entities = vec![EntityInfo {
+            id: 1,
+            name: Some("Turret".to_string()),
+            position: Some([2.0, 0.0, 0.0]),
+            primitive: Some(bsengine_scene::Primitive::Cube),
+            ..Default::default()
+        }];
+
+        let path = save_entities_as_prefab(&entities, 1, "turret", Some(&project_dir)).unwrap();
+
+        let mut app = new_app();
+        let root = bsengine_scene::instantiate_prefab_from_path(
+            app.world_mut(),
+            &path,
+            None,
+            None,
+            None,
+        )
+        .expect("a prefab saved by save_entities_as_prefab must re-instantiate cleanly");
+
+        let name = app.world().get::<Name>(root).unwrap().0.clone();
+        assert!(
+            name.starts_with("Turret#"),
+            "expected an auto-suffixed instance name, got {name}"
+        );
+        let transform = app.world().get::<Transform>(root).unwrap();
+        assert!(
+            (transform.position.x - 2.0).abs() < 1e-4,
+            "position did not round-trip: {:?}",
+            transform.position
+        );
+    }
+
+    #[test]
+    fn mcp_prefab_write_saves_a_subtree_to_a_ron_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut app = new_app();
+        app.insert_resource(bsengine_core::ProjectDir(
+            dir.path().to_string_lossy().to_string(),
+        ));
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "batch_spawn",
+                    json!({"entities": [
+                        {"name": "Turret"},
+                        {"name": "Barrel"},
+                    ]}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let all = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        };
+        let id_of = |name: &str| {
+            all.iter()
+                .find(|e| e["name"].as_str() == Some(name))
+                .unwrap()["id"]
+                .as_u64()
+                .unwrap()
+        };
+        let (turret_id, barrel_id) = (id_of("Turret"), id_of("Barrel"));
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute(
+                    "set_parent",
+                    json!({"entity_id": barrel_id, "parent_id": turret_id}),
+                )
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("prefab_write", json!({"entity_id": turret_id, "name": "turret"}))
+            .expect("prefab_write not registered");
+        assert!(out.is_ok(), "prefab_write failed: {:?}", out.error);
+        let path = out.content["path"].as_str().unwrap().to_string();
+        assert!(path.ends_with("assets/prefabs/turret.ron"), "{path}");
+
+        let parsed: bsengine_scene::types::PrefabDescriptor =
+            ron::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let names: Vec<&str> = parsed.entities.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names.len(), 2, "{names:?}");
+        assert!(names.contains(&"Turret"));
+        assert!(names.contains(&"Barrel"));
+    }
+
+    #[test]
+    fn create_prefab_inspector_cmd_saves_the_subtree() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut app = new_app();
+        app.insert_resource(bsengine_core::ProjectDir(
+            dir.path().to_string_lossy().to_string(),
+        ));
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("batch_spawn", json!({"entities": [{"name": "Turret"}]}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // batch_spawn only queues the spawn and reports back a count, not
+        // the new entity's id (it's applied on the following frame) -- so
+        // the id has to be read back via list_entities, same as
+        // mcp_prefab_write_saves_a_subtree_to_a_ron_file above does.
+        let entity_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"][0]["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mut inspector = app.world_mut().resource_mut::<InspectorState>();
+            inspector.cmd_queue.push(InspectorCmd::CreatePrefab {
+                entity_id,
+                name: "turret".to_string(),
+            });
+        }
+        app.update();
+
+        let path = dir
+            .path()
+            .join("assets/prefabs/turret.ron")
+            .to_string_lossy()
+            .to_string();
+        assert!(
+            std::path::Path::new(&path).exists(),
+            "expected {path} to exist"
+        );
+        let parsed: bsengine_scene::types::PrefabDescriptor =
+            ron::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(parsed.entities.len(), 1);
+        assert_eq!(parsed.entities[0].name, "Turret");
+    }
+
+    #[test]
+    fn create_prefab_inspector_cmd_with_an_unknown_entity_id_does_not_panic_and_does_not_block_later_commands(
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let mut app = new_app();
+        app.insert_resource(bsengine_core::ProjectDir(
+            dir.path().to_string_lossy().to_string(),
+        ));
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("batch_spawn", json!({"entities": [{"name": "Turret"}]}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let entity_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"][0]["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mut inspector = app.world_mut().resource_mut::<InspectorState>();
+            // First command targets an entity that doesn't exist -- must
+            // warn-and-continue (matching every other arm in this match),
+            // not panic and not stop the queue from draining the rest.
+            inspector.cmd_queue.push(InspectorCmd::CreatePrefab {
+                entity_id: 999999,
+                name: "ghost".to_string(),
+            });
+            inspector.cmd_queue.push(InspectorCmd::CreatePrefab {
+                entity_id,
+                name: "turret".to_string(),
+            });
+        }
+        app.update();
+
+        assert!(
+            !dir.path().join("assets/prefabs/ghost.ron").exists(),
+            "no file should be written for the unknown entity id"
+        );
+        let path = dir
+            .path()
+            .join("assets/prefabs/turret.ron")
+            .to_string_lossy()
+            .to_string();
+        assert!(
+            std::path::Path::new(&path).exists(),
+            "the second, valid command must still have been processed: expected {path} to exist"
+        );
+    }
+
+    #[test]
+    fn mcp_prefab_write_reports_an_error_for_an_unknown_entity_id() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let out = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("prefab_write", json!({"entity_id": 999999, "name": "x"}))
+            .expect("prefab_write not registered");
+        assert!(!out.is_ok());
     }
 }

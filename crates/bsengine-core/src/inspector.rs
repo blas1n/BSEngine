@@ -286,6 +286,19 @@ pub enum InspectorCmd {
         /// Id of the entity to parent the instantiated root under, if any.
         parent_id: Option<u64>,
     },
+    /// Extract an entity and its descendants from the live scene into a
+    /// new `assets/prefabs/<name>.ron` file, via `save_entities_as_prefab`
+    /// (`bsengine-editor`). Unlike `InstantiatePrefab`, this never needs
+    /// `&mut World` -- it only reads the already-tracked entity snapshot
+    /// and writes a file -- so it's handled directly inside
+    /// `apply_inspector_cmds`, with no separate command queue/exclusive
+    /// system needed.
+    CreatePrefab {
+        /// Root entity id; itself and all descendants are saved.
+        entity_id: u64,
+        /// Prefab file name, no extension or directory.
+        name: String,
+    },
 }
 
 /// Whether the editor is showing the static scene or running gameplay.

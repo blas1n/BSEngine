@@ -11,6 +11,17 @@ struct RenameState {
     buffer: String,
 }
 
+/// Which row's "Create Prefab" name prompt is currently open (opened via
+/// the context menu), and the in-progress name buffer. `None` when no
+/// prompt is open. Mirrors `RenameState` exactly -- same temp-storage
+/// mechanism, same inline-row-replacement rendering -- just commits to
+/// `InspectorCmd::CreatePrefab` instead of `InspectorCmd::RenameEntity`.
+#[derive(Clone, Default)]
+struct CreatePrefabState {
+    entity_id: u64,
+    buffer: String,
+}
+
 /// Read-only, whole-tree context threaded through the `draw_row` recursion
 /// unchanged at every depth — bundled into one struct rather than three
 /// separate positional parameters to keep `draw_row`'s already-long
@@ -86,6 +97,11 @@ impl EditorPanel for HierarchyPanel {
         let rename_id = egui::Id::new("hierarchy_rename_state");
         let mut rename_state: Option<RenameState> = ui.data(|d| d.get_temp(rename_id));
 
+        let create_prefab_id = egui::Id::new("hierarchy_create_prefab_state");
+        let mut create_prefab_state: Option<CreatePrefabState> =
+            ui.data(|d| d.get_temp(create_prefab_id));
+        let mut create_prefab_commit: Option<(u64, String)> = None;
+
         let order = Self::dfs_order(entities_snapshot);
         let tree = TreeCtx {
             all_entities: entities_snapshot,
@@ -109,6 +125,8 @@ impl EditorPanel for HierarchyPanel {
                         &mut rename_state,
                         &mut rename_commit,
                         &mut attach_script,
+                        &mut create_prefab_state,
+                        &mut create_prefab_commit,
                         0,
                     );
                 }
@@ -144,6 +162,14 @@ impl EditorPanel for HierarchyPanel {
                 d.insert_temp(rename_id, state);
             } else {
                 d.remove_temp::<RenameState>(rename_id);
+            }
+        });
+
+        ui.data_mut(|d| {
+            if let Some(state) = create_prefab_state {
+                d.insert_temp(create_prefab_id, state);
+            } else {
+                d.remove_temp::<CreatePrefabState>(create_prefab_id);
             }
         });
 
@@ -226,6 +252,14 @@ impl EditorPanel for HierarchyPanel {
         }
         if let Some((id, path)) = attach_script {
             insp.cmd_queue.push(InspectorCmd::AttachScript { id, path });
+        }
+        if let Some((id, name)) = create_prefab_commit {
+            if !name.is_empty() {
+                insp.cmd_queue.push(InspectorCmd::CreatePrefab {
+                    entity_id: id,
+                    name,
+                });
+            }
         }
     }
 }
@@ -334,6 +368,8 @@ impl HierarchyPanel {
         rename_state: &mut Option<RenameState>,
         rename_commit: &mut Option<(u64, String)>,
         attach_script: &mut Option<(u64, String)>,
+        create_prefab_state: &mut Option<CreatePrefabState>,
+        create_prefab_commit: &mut Option<(u64, String)>,
         depth: usize,
     ) {
         let children: Vec<&InspectorEntityInfo> = tree
@@ -344,6 +380,9 @@ impl HierarchyPanel {
         let label = info.name.as_deref().unwrap_or("(unnamed)");
         let text = format!("{} [{}] {}", Self::icon_for(info), info.id, label);
         let is_renaming = rename_state
+            .as_ref()
+            .is_some_and(|r| r.entity_id == info.id);
+        let is_creating_prefab = create_prefab_state
             .as_ref()
             .is_some_and(|r| r.entity_id == info.id);
 
@@ -360,6 +399,22 @@ impl HierarchyPanel {
                     *rename_state = None;
                 } else if ui.ctx().input(|i| i.key_pressed(egui::Key::Escape)) {
                     *rename_state = None;
+                }
+                edit_response
+            } else if is_creating_prefab {
+                let state = create_prefab_state
+                    .as_mut()
+                    .expect("checked by is_creating_prefab");
+                let edit_response = ui.add(
+                    egui::TextEdit::singleline(&mut state.buffer)
+                        .id_salt(("create_prefab", info.id)),
+                );
+                if edit_response.lost_focus() && ui.ctx().input(|i| i.key_pressed(egui::Key::Enter))
+                {
+                    *create_prefab_commit = Some((info.id, state.buffer.clone()));
+                    *create_prefab_state = None;
+                } else if ui.ctx().input(|i| i.key_pressed(egui::Key::Escape)) {
+                    *create_prefab_state = None;
                 }
                 edit_response
             } else if children.is_empty() {
@@ -383,6 +438,8 @@ impl HierarchyPanel {
                                 rename_state,
                                 rename_commit,
                                 attach_script,
+                                create_prefab_state,
+                                create_prefab_commit,
                                 depth + 1,
                             );
                         }
@@ -390,7 +447,7 @@ impl HierarchyPanel {
                     .header_response
             };
 
-            if is_renaming {
+            if is_renaming || is_creating_prefab {
                 return;
             }
 
@@ -502,6 +559,13 @@ impl HierarchyPanel {
                 }
                 if info.parent_id.is_some() && ui.button("Unparent").clicked() {
                     *remove_parent = Some(info.id);
+                    ui.close_menu();
+                }
+                if ui.button("Create Prefab").clicked() {
+                    *create_prefab_state = Some(CreatePrefabState {
+                        entity_id: info.id,
+                        buffer: info.name.clone().unwrap_or_default(),
+                    });
                     ui.close_menu();
                 }
             });

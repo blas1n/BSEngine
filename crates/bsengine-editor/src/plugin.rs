@@ -1825,12 +1825,15 @@ fn str_to_primitive(s: &str) -> Option<bsengine_scene::Primitive> {
     }
 }
 
+#[allow(clippy::too_many_arguments)] // Bevy system params; splitting into a struct is a larger refactor
 fn apply_inspector_cmds(
     inspector: Option<ResMut<InspectorState>>,
     queue_res: Res<EditorCommandQueueResource>,
     reflect_queue_res: Res<ReflectCommandQueueResource>,
     prefab_queue_res: Res<PrefabCommandQueueResource>,
     selection_res: Res<EditorSelectionResource>,
+    snapshot_res: Res<EditorSnapshotResource>,
+    project_dir: Option<Res<bsengine_core::ProjectDir>>,
     mut commands: Commands,
 ) {
     let Some(mut inspector) = inspector else {
@@ -1975,6 +1978,14 @@ fn apply_inspector_cmds(
                     z,
                     parent_id,
                 });
+            }
+            InspectorCmd::CreatePrefab { entity_id, name } => {
+                let s = snapshot_res.0.lock().unwrap();
+                if let Err(e) =
+                    save_entities_as_prefab(&s.entities, entity_id, &name, project_dir.as_deref())
+                {
+                    tracing::warn!("create_prefab: entity {entity_id} -> '{name}' failed: {e}");
+                }
             }
         }
     }
@@ -92836,6 +92847,132 @@ mod tests {
         assert_eq!(names.len(), 2, "{names:?}");
         assert!(names.contains(&"Turret"));
         assert!(names.contains(&"Barrel"));
+    }
+
+    #[test]
+    fn create_prefab_inspector_cmd_saves_the_subtree() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut app = new_app();
+        app.insert_resource(bsengine_core::ProjectDir(
+            dir.path().to_string_lossy().to_string(),
+        ));
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("batch_spawn", json!({"entities": [{"name": "Turret"}]}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        // batch_spawn only queues the spawn and reports back a count, not
+        // the new entity's id (it's applied on the following frame) -- so
+        // the id has to be read back via list_entities, same as
+        // mcp_prefab_write_saves_a_subtree_to_a_ron_file above does.
+        let entity_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"][0]["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mut inspector = app.world_mut().resource_mut::<InspectorState>();
+            inspector.cmd_queue.push(InspectorCmd::CreatePrefab {
+                entity_id,
+                name: "turret".to_string(),
+            });
+        }
+        app.update();
+
+        let path = dir
+            .path()
+            .join("assets/prefabs/turret.ron")
+            .to_string_lossy()
+            .to_string();
+        assert!(
+            std::path::Path::new(&path).exists(),
+            "expected {path} to exist"
+        );
+        let parsed: bsengine_scene::types::PrefabDescriptor =
+            ron::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(parsed.entities.len(), 1);
+        assert_eq!(parsed.entities[0].name, "Turret");
+    }
+
+    #[test]
+    fn create_prefab_inspector_cmd_with_an_unknown_entity_id_does_not_panic_and_does_not_block_later_commands(
+    ) {
+        let dir = tempfile::tempdir().unwrap();
+        let mut app = new_app();
+        app.insert_resource(bsengine_core::ProjectDir(
+            dir.path().to_string_lossy().to_string(),
+        ));
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("batch_spawn", json!({"entities": [{"name": "Turret"}]}))
+                .unwrap();
+        }
+        app.update();
+        app.update();
+
+        let entity_id = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            mcp.0
+                .lock()
+                .unwrap()
+                .execute("list_entities", json!({}))
+                .unwrap()
+                .content["entities"][0]["id"]
+                .as_u64()
+                .unwrap()
+        };
+
+        {
+            let mut inspector = app.world_mut().resource_mut::<InspectorState>();
+            // First command targets an entity that doesn't exist -- must
+            // warn-and-continue (matching every other arm in this match),
+            // not panic and not stop the queue from draining the rest.
+            inspector.cmd_queue.push(InspectorCmd::CreatePrefab {
+                entity_id: 999999,
+                name: "ghost".to_string(),
+            });
+            inspector.cmd_queue.push(InspectorCmd::CreatePrefab {
+                entity_id,
+                name: "turret".to_string(),
+            });
+        }
+        app.update();
+
+        assert!(
+            !dir.path().join("assets/prefabs/ghost.ron").exists(),
+            "no file should be written for the unknown entity id"
+        );
+        let path = dir
+            .path()
+            .join("assets/prefabs/turret.ron")
+            .to_string_lossy()
+            .to_string();
+        assert!(
+            std::path::Path::new(&path).exists(),
+            "the second, valid command must still have been processed: expected {path} to exist"
+        );
     }
 
     #[test]

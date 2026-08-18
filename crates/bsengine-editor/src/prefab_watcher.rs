@@ -30,6 +30,42 @@ use std::sync::Mutex;
 use std::time::Duration;
 use tracing::{info, warn};
 
+/// Every project-relative prefab path this prefab's own entities reference
+/// via a `prefab:` field -- i.e. every nested prefab that is a *compositional*
+/// part of `prefab` itself, resolved the same bare-path spelling
+/// [`PrefabInstance::source_path`] stores (`AssetRef::path()`, unresolved
+/// against `AssetIndex`/`ProjectDir` -- exactly what every test fixture in
+/// this module and the overwhelming common case use; see `AssetRef`'s own
+/// doc on why a bare path is the supported, common spelling).
+///
+/// Exists so [`despawn_subtree`] can tell "a nested prefab reference `prefab`
+/// itself authored" apart from "an unrelated instance someone reparented
+/// underneath via `SetParent`" -- both end up looking identical in live ECS
+/// state (a `Parent` link plus the child's own, different-sourced,
+/// `PrefabInstance`; see `resolve_prefab_reference`/`spawn_scene_entities` in
+/// `bsengine_scene::plugin`, which attaches a resolved prefab reference's
+/// `Parent` through the exact same `parent:`-field pass every other entity
+/// gets, with no special case for prefab-reference entities), so only the
+/// prefab file's own text can answer which is which.
+///
+/// Only one level deep: a nested prefab that itself nests a further prefab
+/// is not walked recursively here, so resyncing the outermost file would
+/// (correctly) protect its nested instance from collateral despawn, but
+/// would also (incorrectly, if this ever comes up) fail to recognize a
+/// *grand*-nested reference as compositional. No test in this module
+/// exercises 2+-level nesting today; if one is added later, this is the
+/// function to extend into a transitive closure.
+fn nested_prefab_source_paths(
+    prefab: &bsengine_scene::types::PrefabDescriptor,
+) -> std::collections::HashSet<String> {
+    prefab
+        .entities
+        .iter()
+        .filter_map(|e| e.prefab.as_ref())
+        .map(|r| r.path().to_string())
+        .collect()
+}
+
 /// Despawns `root` and every entity transitively parented under it (via a
 /// live [`Parent`] component chain), so a resync can safely re-instantiate a
 /// fresh subtree in its place without leaving orphaned children behind.
@@ -38,7 +74,31 @@ use tracing::{info, warn};
 /// BFS does (`crates/bsengine-editor/src/plugin.rs`): nothing that writes
 /// `Parent` today checks for cycles, so a malformed live hierarchy reaching
 /// this function must still terminate rather than loop forever.
-fn despawn_subtree(world: &mut World, root: Entity) {
+///
+/// Also stops at (and does not despawn) any descendant carrying its own
+/// [`PrefabInstance`] whose source path is not in `own_source_paths` -- that
+/// entity isn't part of this resync and isn't ours to destroy just because it
+/// happened to get reparented here (this codebase's `SetParent`/MCP
+/// `set_parent` has no guard preventing exactly that). `own_source_paths` is
+/// the resync's own source path plus every nested prefab reference the file
+/// itself authors (see [`nested_prefab_source_paths`]) -- without that
+/// second part, a legitimate nested `prefab:` reference (which produces the
+/// exact same `Parent` + differently-sourced-`PrefabInstance` shape as a
+/// reparented stranger) would be wrongly protected too, breaking the
+/// intentional cascade a resync of the *outer* file is supposed to have on
+/// its own nested instances.
+///
+/// A protected descendant's own ancestor chain up to (but not including) it
+/// still gets despawned as normal; the foreign instance survives as an
+/// entity, now with a stale `Parent` pointing at a despawned entity -- an
+/// already-tolerated state elsewhere in this codebase (plain
+/// `EditorCommand::Despawn` doesn't cascade to children either) -- and a
+/// warning is logged so this is never silent.
+fn despawn_subtree(
+    world: &mut World,
+    root: Entity,
+    own_source_paths: &std::collections::HashSet<String>,
+) {
     let mut children_q = world.query::<(Entity, &Parent)>();
     let mut visited: std::collections::HashSet<Entity> = std::collections::HashSet::new();
     let mut to_despawn = Vec::new();
@@ -50,6 +110,19 @@ fn despawn_subtree(world: &mut World, root: Entity) {
         to_despawn.push(cur);
         for (child, parent) in children_q.iter(world) {
             if parent.0 == cur {
+                if let Some(instance) = world.get::<PrefabInstance>(child) {
+                    if !own_source_paths.contains(&instance.source_path) {
+                        tracing::warn!(
+                            "prefab live-sync: entity carrying its own PrefabInstance \
+                             (source '{}') was found reparented underneath a subtree being \
+                             resynced; leaving it and its subtree untouched rather than \
+                             despawning it as collateral damage -- it is now parented under \
+                             a despawned entity and will need to be re-parented manually",
+                            instance.source_path
+                        );
+                        continue;
+                    }
+                }
                 frontier.push(child);
             }
         }
@@ -125,6 +198,9 @@ pub(crate) fn resync_prefab_instances(world: &mut World, changed_source_path: &s
         return;
     }
 
+    let mut own_source_paths = nested_prefab_source_paths(&prefab);
+    own_source_paths.insert(changed_source_path.to_string());
+
     for root in roots {
         if world.get_entity(root).is_none() {
             tracing::warn!(
@@ -144,7 +220,7 @@ pub(crate) fn resync_prefab_instances(world: &mut World, changed_source_path: &s
         });
         let parent = world.get::<Parent>(root).map(|p| p.0);
 
-        despawn_subtree(world, root);
+        despawn_subtree(world, root, &own_source_paths);
 
         if let Err(e) = bsengine_scene::instantiate_prefab_from_path(
             world,
@@ -769,6 +845,227 @@ mod tests {
         assert_eq!(
             nested_instance_count, 1,
             "resyncing the outer file must re-resolve its nested prefab reference exactly once"
+        );
+    }
+
+    #[test]
+    fn resync_does_not_destroy_an_unrelated_prefab_instance_reparented_underneath_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = ProjectDir(dir.path().to_string_lossy().to_string());
+        let source_path_a = write_prefab(dir.path(), "turret", TURRET_V1);
+        let source_path_b = write_prefab(
+            dir.path(),
+            "widget",
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "WidgetRoot", primitive: Some(Cube)),
+            ])"#,
+        );
+
+        let mut app = new_app();
+        app.insert_resource(project_dir.clone());
+        register(&mut app);
+
+        let resolved_a = bsengine_core::resolve_project_path(Some(&project_dir), &source_path_a);
+        let instance_a_root = bsengine_scene::instantiate_prefab_from_path(
+            app.world_mut(),
+            &resolved_a,
+            Some("InstanceA"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let resolved_b = bsengine_core::resolve_project_path(Some(&project_dir), &source_path_b);
+        let instance_b_root = bsengine_scene::instantiate_prefab_from_path(
+            app.world_mut(),
+            &resolved_b,
+            Some("InstanceB"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Simulate reparenting InstanceB underneath InstanceA the way the
+        // Hierarchy panel / EditorCommand::SetParent would (neither guards
+        // against this today) -- a direct Parent insert is the simplest way
+        // to construct this state in a unit test.
+        app.world_mut()
+            .entity_mut(instance_b_root)
+            .insert(Parent(instance_a_root));
+
+        write_prefab(dir.path(), "turret", TURRET_V2);
+        resync_prefab_instances(app.world_mut(), &source_path_a);
+
+        assert!(
+            app.world().get_entity(instance_b_root).is_some(),
+            "an unrelated PrefabInstance reparented underneath the instance being resynced \
+             must survive, not be despawned as collateral damage"
+        );
+        assert_eq!(
+            app.world()
+                .get::<PrefabInstance>(instance_b_root)
+                .map(|i| i.source_path.clone()),
+            Some(source_path_b.clone()),
+            "the surviving unrelated instance's PrefabInstance must be unchanged"
+        );
+
+        let names: Vec<String> = app
+            .world_mut()
+            .query::<&Name>()
+            .iter(app.world())
+            .map(|n| n.0.clone())
+            .collect();
+        assert!(
+            names.iter().any(|n| n.starts_with("Scope#")),
+            "InstanceA must still have been resynced despite InstanceB being found \
+             underneath it: {names:?}"
+        );
+    }
+
+    #[test]
+    fn resync_warns_rather_than_panics_when_a_matching_root_is_a_live_descendant_of_another() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = ProjectDir(dir.path().to_string_lossy().to_string());
+        let source_path = write_prefab(dir.path(), "turret", TURRET_V1);
+
+        let mut app = new_app();
+        app.insert_resource(project_dir.clone());
+        register(&mut app);
+
+        let resolved = bsengine_core::resolve_project_path(Some(&project_dir), &source_path);
+        let instance_a_root = bsengine_scene::instantiate_prefab_from_path(
+            app.world_mut(),
+            &resolved,
+            Some("InstanceA"),
+            None,
+            None,
+        )
+        .unwrap();
+        let instance_b_root = bsengine_scene::instantiate_prefab_from_path(
+            app.world_mut(),
+            &resolved,
+            Some("InstanceB"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Two instances of the *same* source path, with B a live descendant
+        // of A -- exercises the `world.get_entity(root).is_none()` branch at
+        // the top of the `for root in roots` loop (B is swept up as a normal
+        // part of A's real despawn_subtree, since both share
+        // `protected_source_path`, so by the time the loop reaches B's own
+        // entry in `roots` it is already gone).
+        app.world_mut()
+            .entity_mut(instance_b_root)
+            .insert(Parent(instance_a_root));
+
+        write_prefab(dir.path(), "turret", TURRET_V2);
+        resync_prefab_instances(app.world_mut(), &source_path);
+
+        // Must not panic (implicit -- reaching this point proves it).
+        let names: Vec<String> = app
+            .world_mut()
+            .query::<&Name>()
+            .iter(app.world())
+            .map(|n| n.0.clone())
+            .collect();
+        assert!(
+            names.contains(&"InstanceA".to_string()),
+            "InstanceA must have been resynced successfully: {names:?}"
+        );
+        assert!(
+            !names.contains(&"InstanceB".to_string()),
+            "InstanceB was a live descendant of InstanceA and got swept up in A's real \
+             despawn (same source path, so not protected); it must not reappear: {names:?}"
+        );
+
+        let instance_count = {
+            let mut q = app.world_mut().query::<&PrefabInstance>();
+            q.iter(app.world())
+                .filter(|i| i.source_path == source_path)
+                .count()
+        };
+        assert_eq!(
+            instance_count, 1,
+            "exactly one live instance of the shared source path should remain: {names:?}"
+        );
+    }
+
+    #[test]
+    fn resync_updates_a_prefab_used_both_standalone_and_nested_in_another_instance() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = ProjectDir(dir.path().to_string_lossy().to_string());
+
+        let mut app = new_app();
+        app.insert_resource(project_dir.clone());
+        register(&mut app);
+        let (_outer_path, nested_path) = setup_nested_fixture(&mut app, &project_dir);
+
+        // A second, independent top-level instance of the *same* nested.ron
+        // -- not reached through outer.ron's `prefab:` reference at all.
+        let resolved_nested = bsengine_core::resolve_project_path(Some(&project_dir), &nested_path);
+        let standalone_root = bsengine_scene::instantiate_prefab_from_path(
+            app.world_mut(),
+            &resolved_nested,
+            Some("StandaloneNested"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let sibling_before = {
+            let mut q = app.world_mut().query::<(Entity, &Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0.starts_with("Sibling#"))
+                .map(|(e, _)| e)
+                .expect("Sibling should have spawned as part of the outer instance")
+        };
+
+        write_prefab(dir.path(), "nested", NESTED_V2);
+        resync_prefab_instances(app.world_mut(), &nested_path);
+
+        assert!(
+            app.world().get_entity(sibling_before).is_some(),
+            "editing the shared nested.ron must leave the outer instance's unrelated \
+             sibling entity untouched"
+        );
+        assert!(
+            app.world().get_entity(standalone_root).is_none(),
+            "the standalone top-level nested instance must have been despawned and \
+             re-instantiated fresh, not left as the old entity"
+        );
+
+        let names: Vec<String> = app
+            .world_mut()
+            .query::<&Name>()
+            .iter(app.world())
+            .map(|n| n.0.clone())
+            .collect();
+        assert!(
+            names.iter().any(|n| n == "StandaloneNested"),
+            "the resynced standalone instance must still exist under the same name: {names:?}"
+        );
+        let new_child_count = names
+            .iter()
+            .filter(|n| n.starts_with("NestedChild#"))
+            .count();
+        assert_eq!(
+            new_child_count, 2,
+            "both the nested-inside-outer instance and the standalone instance must pick up \
+             nested.ron's new content: {names:?}"
+        );
+
+        let instance_count = {
+            let mut q = app.world_mut().query::<&PrefabInstance>();
+            q.iter(app.world())
+                .filter(|i| i.source_path == nested_path)
+                .count()
+        };
+        assert_eq!(
+            instance_count, 2,
+            "exactly two live instances of nested.ron should remain: one nested inside \
+             outer, one standalone: {names:?}"
         );
     }
 

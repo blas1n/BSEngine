@@ -1166,6 +1166,9 @@ fn save_entities_as_prefab(
     name: &str,
     project_dir: Option<&bsengine_core::ProjectDir>,
 ) -> Result<String, String> {
+    if name.is_empty() {
+        return Err("prefab name must not be empty".to_string());
+    }
     if name.contains('/') || name.contains('\\') || name.contains("..") {
         return Err(format!(
             "prefab name '{name}' must not contain path separators or '..'"
@@ -92733,6 +92736,20 @@ mod tests {
                 .next()
                 .is_none(),
             "nothing should have been written into the project dir either"
+        );
+    }
+
+    #[test]
+    fn save_entities_as_prefab_rejects_an_empty_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = bsengine_core::ProjectDir(dir.path().to_string_lossy().to_string());
+        let entities = vec![entity_info(1, "Root", None)];
+
+        let err = save_entities_as_prefab(&entities, 1, "", Some(&project_dir)).unwrap_err();
+        assert!(err.contains("empty"), "unexpected error: {err}");
+        assert!(
+            std::fs::read_dir(dir.path()).unwrap().next().is_none(),
+            "nothing should have been written for an empty name"
         );
     }
 

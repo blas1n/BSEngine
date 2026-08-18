@@ -22,6 +22,44 @@ pub fn next_instance_suffix() -> u64 {
     PREFAB_INSTANCE_COUNTER.fetch_add(1, Ordering::Relaxed)
 }
 
+/// Validates a prefab's entity list for the properties `instantiate_prefab`
+/// requires before it will spawn anything, without touching a `World`:
+/// every entity name unique, and exactly one root (an entity with no
+/// `parent:`). Returns the root's own `EntityDescriptor` on success.
+///
+/// Exists as its own function -- not just inlined into `instantiate_prefab`
+/// -- so a caller that needs to know *whether* a prefab is instantiable
+/// without committing to instantiating it (live-sync's resync, which must
+/// not despawn a working instance only to find the replacement invalid) can
+/// ask the same question `instantiate_prefab` itself would answer, instead
+/// of re-deriving a subtly different check.
+pub fn validate_prefab_descriptor(prefab: &PrefabDescriptor) -> Result<&EntityDescriptor, String> {
+    let mut seen_names = std::collections::HashSet::new();
+    for e in &prefab.entities {
+        if !seen_names.insert(e.name.as_str()) {
+            return Err(format!("prefab has a duplicate entity name: '{}'", e.name));
+        }
+    }
+
+    let roots: Vec<&EntityDescriptor> = prefab
+        .entities
+        .iter()
+        .filter(|e| e.parent.is_none())
+        .collect();
+    if roots.is_empty() {
+        return Err("prefab has no root entity (every entity names a parent)".to_string());
+    }
+    if roots.len() > 1 {
+        let names: Vec<&str> = roots.iter().map(|e| e.name.as_str()).collect();
+        return Err(format!(
+            "prefab has {} root entities, expected exactly 1: {}",
+            roots.len(),
+            names.join(", ")
+        ));
+    }
+    Ok(roots[0])
+}
+
 /// Instantiates a prefab's entity subtree into `world`.
 ///
 /// `source_path`: project-relative path to the prefab file being
@@ -61,44 +99,8 @@ pub fn instantiate_prefab(
     root_transform: Option<TransformDescriptor>,
     parent: Option<Entity>,
 ) -> Result<Entity, String> {
-    let roots: Vec<&EntityDescriptor> = prefab
-        .entities
-        .iter()
-        .filter(|e| e.parent.is_none())
-        .collect();
-
-    // Every entity name in the prefab must be unique, checked before any
-    // rewriting happens. Without this, the rewrite step below determines
-    // "is this the root?" by string equality against `original_root_name`
-    // (needed anyway, so a parent: reference that names the root rewrites
-    // to the same final name the root itself gets) -- so a *non-root*
-    // entity that happens to share the root's exact name (e.g. a
-    // copy-pasted entity block where `name:` was never changed) would
-    // silently be treated as the root too: both get renamed to
-    // `final_root_name`, both would receive `root_transform` if given, and
-    // whichever of the two `spawn_scene_entities` or our own post-spawn
-    // lookup happens to land on second is anyone's guess. Rejecting
-    // duplicate names outright removes the ambiguity at the source instead
-    // of trying to disambiguate it after the fact.
-    let mut seen_names = std::collections::HashSet::new();
-    for e in &prefab.entities {
-        if !seen_names.insert(e.name.as_str()) {
-            return Err(format!("prefab has a duplicate entity name: '{}'", e.name));
-        }
-    }
-
-    if roots.is_empty() {
-        return Err("prefab has no root entity (every entity names a parent)".to_string());
-    }
-    if roots.len() > 1 {
-        let names: Vec<&str> = roots.iter().map(|e| e.name.as_str()).collect();
-        return Err(format!(
-            "prefab has {} root entities, expected exactly 1: {}",
-            roots.len(),
-            names.join(", ")
-        ));
-    }
-    let original_root_name = roots[0].name.clone();
+    let root_descriptor = validate_prefab_descriptor(prefab)?;
+    let original_root_name = root_descriptor.name.clone();
 
     let suffix = next_instance_suffix();
     let final_root_name = root_name

@@ -93,16 +93,35 @@ pub(crate) fn resync_prefab_instances(world: &mut World, changed_source_path: &s
             return;
         }
     };
-    if let Err(e) = ron::from_str::<bsengine_scene::types::PrefabDescriptor>(&content) {
+    let prefab = match ron::from_str::<bsengine_scene::types::PrefabDescriptor>(&content) {
+        Ok(p) => p,
+        Err(e) => {
+            tracing::warn!(
+                "prefab live-sync: '{resolved_path}' failed to parse ({e}); leaving {} \
+                 existing instance(s) of '{changed_source_path}' untouched",
+                roots.len()
+            );
+            return;
+        }
+    };
+    if let Err(e) = bsengine_scene::validate_prefab_descriptor(&prefab) {
         tracing::warn!(
-            "prefab live-sync: '{resolved_path}' failed to parse ({e}); leaving {} \
-             existing instance(s) of '{changed_source_path}' untouched",
+            "prefab live-sync: '{resolved_path}' is not a valid instantiable prefab ({e}); \
+             leaving {} existing instance(s) of '{changed_source_path}' untouched",
             roots.len()
         );
         return;
     }
 
     for root in roots {
+        if world.get_entity(root).is_none() {
+            tracing::warn!(
+                "prefab live-sync: an instance root for '{changed_source_path}' was already \
+                 despawned (likely a descendant of another matching instance that was resynced \
+                 first); skipping it"
+            );
+            continue;
+        }
         let Some(name) = world.get::<Name>(root).map(|n| n.0.clone()) else {
             continue;
         };
@@ -327,6 +346,51 @@ mod tests {
         assert!(
             app.world().get_entity(root).is_some(),
             "an unparseable source file must leave the existing instance untouched"
+        );
+        assert_eq!(
+            app.world().get::<Name>(root).unwrap().0,
+            "MyTurret",
+            "the untouched instance must be entirely unchanged"
+        );
+    }
+
+    #[test]
+    fn resync_leaves_instances_untouched_when_the_source_file_is_structurally_invalid() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = ProjectDir(dir.path().to_string_lossy().to_string());
+        let source_path = write_prefab(dir.path(), "turret", TURRET_V1);
+
+        let mut app = new_app();
+        app.insert_resource(project_dir.clone());
+        register(&mut app);
+
+        let resolved = bsengine_core::resolve_project_path(Some(&project_dir), &source_path);
+        let root = bsengine_scene::instantiate_prefab_from_path(
+            app.world_mut(),
+            &resolved,
+            Some("MyTurret"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Valid RON, but structurally uninstantiable: two root entities
+        // (neither names a `parent:`), same shape as bsengine-scene's own
+        // `instantiate_prefab_rejects_multiple_roots` test fixture.
+        write_prefab(
+            dir.path(),
+            "turret",
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "RootA", primitive: Some(Cube)),
+                EntityDescriptor(name: "RootB", primitive: Some(Cube)),
+            ])"#,
+        );
+        resync_prefab_instances(app.world_mut(), &source_path);
+
+        assert!(
+            app.world().get_entity(root).is_some(),
+            "a structurally-invalid-but-parseable source file (e.g. two root entities) must \
+             leave the existing instance untouched, not despawn it only to fail re-instantiation"
         );
         assert_eq!(
             app.world().get::<Name>(root).unwrap().0,

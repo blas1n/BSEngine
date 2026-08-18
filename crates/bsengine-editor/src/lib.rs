@@ -15,6 +15,9 @@
 /// Registers the editor's ECS systems, resources, and the `EditorCommand`/
 /// `ReflectCommand` processing loop into a Bevy `App`.
 pub mod plugin;
+/// Despawn-and-reinstantiate resync for prefab instances whose source file
+/// changed on disk, and the file watcher that detects those changes.
+pub mod prefab_watcher;
 /// The MCP-facing data model: `EditorSnapshot`, `EntityInfo`, `EditorCommand`,
 /// `ReflectCommand`, and the shared resources the editor bridge reads/writes.
 pub mod snapshot;

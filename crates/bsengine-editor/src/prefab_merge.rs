@@ -407,21 +407,38 @@ fn apply_merged_components(
 }
 
 /// Collects every live entity transitively parented under `root` that
-/// belongs to *this* instance -- i.e. stops at (and excludes) any
-/// descendant carrying its own `PrefabInstance` whose source path isn't in
-/// `own_source_paths`. Read-only twin of `prefab_watcher::despawn_subtree`'s
-/// traversal (never mutates `world`); see that function's doc comment for
-/// the full rationale on `own_source_paths` (nested-reference vs.
-/// foreign-reparented-instance). Takes `&mut World`, not `&World`, purely
-/// because `World::query` itself requires it in this bevy_ecs version (0.14)
-/// -- exactly like `despawn_subtree` right next to it, which is `&mut World`
-/// for the same structural reason despite also never writing through it
-/// until its own final despawn pass.
-fn collect_own_descendants(
-    world: &mut World,
-    root: Entity,
-    own_source_paths: &std::collections::HashSet<String>,
-) -> Vec<Entity> {
+/// belongs to *this* instance's own raw-name diffing -- i.e. every
+/// descendant is still recorded (including a nested `prefab:` reference's
+/// own root entity itself, which -- like any other entity -- has a raw name
+/// the structural-diff loop needs to be able to look up), but the walk never
+/// descends *past* a descendant carrying its own `PrefabInstance`,
+/// unconditionally, regardless of whether that descendant's source path
+/// happens to be a member of `own_source_paths`. This is deliberately
+/// *stricter* than `prefab_watcher::despawn_subtree`'s traversal, which this
+/// function used to reuse verbatim: `despawn_subtree` needs to keep
+/// descending into a legitimate nested `prefab:` reference this same outer
+/// file authors (so a resync of the outer file can cascade into it when the
+/// reference itself changed), but this function's job is only to discover
+/// *this* instance's own raw-name-matchable entities for the structural-diff
+/// loop -- which, per the design spec's nested-boundary exclusion, never
+/// needs to reach *inside* any nested instance's own subtree, own-authored
+/// or not (though it does still need the boundary entity itself, to diff its
+/// own `prefab:` field against baseline/new -- see `nested_reference_changed`).
+/// Reusing `despawn_subtree`'s gate here didn't cause a live bug (traversal
+/// order + suffix-matching happened to avoid collisions), but it was relying
+/// on an implicit, non-obvious invariant instead of a boundary the
+/// function's own purpose actually requires -- see the final whole-branch
+/// review's "Minor" finding on this function. Note `root` itself always
+/// carries a `PrefabInstance` too (it's this whole instance's own tracking
+/// component) but must never be treated as a stop-boundary for its own
+/// children -- the `cur != root` guard on the stop-check exists precisely so
+/// this function still walks root's immediate structure instead of returning
+/// empty. Takes `&mut World`, not `&World`, purely because `World::query`
+/// itself requires it in this bevy_ecs version (0.14) -- exactly like
+/// `despawn_subtree` right next to it, which is `&mut World` for the same
+/// structural reason despite also never writing through it until its own
+/// final despawn pass.
+fn collect_own_descendants(world: &mut World, root: Entity) -> Vec<Entity> {
     let mut children_q = world.query::<(Entity, &bsengine_core::Parent)>();
     let mut visited = std::collections::HashSet::new();
     let mut result = Vec::new();
@@ -433,14 +450,12 @@ fn collect_own_descendants(
         if cur != root {
             result.push(cur);
         }
+        if cur != root && world.get::<bsengine_core::PrefabInstance>(cur).is_some() {
+            continue; // record the boundary entity, but never descend past it
+        }
         for (child, parent) in children_q.iter(world) {
             if parent.0 != cur {
                 continue;
-            }
-            if let Some(instance) = world.get::<bsengine_core::PrefabInstance>(child) {
-                if !own_source_paths.contains(&instance.source_path) {
-                    continue;
-                }
             }
             frontier.push(child);
         }
@@ -570,7 +585,7 @@ pub(crate) fn resync_instance(
     root_merged.transform = root_live.transform.clone();
     apply_merged_descriptor(world, root, &registry, &root_live, &root_merged);
 
-    let own_descendants = collect_own_descendants(world, root, own_source_paths);
+    let own_descendants = collect_own_descendants(world, root);
     let mut suffix = instance_suffix(world, &own_descendants);
 
     let mut resolved_by_raw_name: std::collections::HashMap<String, Entity> =
@@ -614,7 +629,27 @@ pub(crate) fn resync_instance(
     for raw_name in all_names {
         let in_baseline = baseline_by_name.get(raw_name).copied();
         let in_new = new_by_name.get(raw_name).copied();
-        let live_entity = resolved_by_raw_name.get(raw_name).copied();
+        // `.filter(...)` re-validates liveness rather than trusting the map's
+        // stored value: `resolved_by_raw_name` is only ever pruned for the
+        // *specific* raw_name a `despawn_subtree` call was triggered for
+        // (see the two `resolved_by_raw_name.remove(raw_name)` calls below),
+        // but `despawn_subtree` itself cascades and despawns every live
+        // descendant of that entity too -- including ones that are
+        // *themselves* separately-declared names in this same prefab (a
+        // 3+-level hierarchy, e.g. a removed "Barrel" whose live child
+        // "Scope" is still a distinct key in `all_names`). Without this
+        // check, such a descendant's map entry is stale by the time this
+        // loop reaches its own raw_name, and the `(Some(_), Some(_),
+        // Some(live_e))` arm below would call `apply_merged_descriptor` on a
+        // dead `Entity`, which panics inside `World::entity_mut`. Filtering
+        // here instead routes it into the existing `(Some(_), Some(_),
+        // None) => already gone, respected` arm -- exactly the outcome the
+        // design spec's structural-removal rule already intends, since this
+        // entity's removal cascaded precisely like an explicit deletion.
+        let live_entity = resolved_by_raw_name
+            .get(raw_name)
+            .copied()
+            .filter(|&e| world.get_entity(e).is_some());
 
         match (in_baseline, in_new, live_entity) {
             (Some(_), None, Some(live_e)) => {
@@ -1412,6 +1447,98 @@ mod tests {
                 .map(|p| p.0),
             Some(root),
             "the new entity must be parented correctly"
+        );
+    }
+
+    #[test]
+    fn resync_instance_does_not_panic_when_a_removed_entitys_cascade_hits_a_still_declared_descendant(
+    ) {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        // Three-level hierarchy: Body -> Barrel -> Scope. `new` removes
+        // Barrel entirely and re-declares Scope directly under Body instead
+        // -- an ordinary "delete the middle entity, reparent its children up
+        // one level" edit, requiring no overrides. This reproduces the
+        // final-review panic: `despawn_subtree(world, barrel, ..)` cascades
+        // and despawns *both* Barrel and its live child Scope, but only
+        // `"Barrel"`'s own key was ever pruned from `resolved_by_raw_name`.
+        // When the structural-diff loop later reached `"Scope"`'s own
+        // raw_name (alphabetically after `"Barrel"`), it read a stale,
+        // already-despawned `Entity` for it and `apply_merged_descriptor`
+        // panicked inside `World::entity_mut`.
+        let baseline = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(name: "Barrel", parent: Some("Body"), primitive: Some(Cube)),
+                EntityDescriptor(name: "Scope", parent: Some("Barrel"), primitive: Some(Cube)),
+            ])"#,
+        );
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/turret.ron",
+            Some("MyTurret"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let barrel = {
+            let mut q = app.world_mut().query::<(Entity, &bsengine_scene::Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0.starts_with("Barrel#"))
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        let scope = {
+            let mut q = app.world_mut().query::<(Entity, &bsengine_scene::Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0.starts_with("Scope#"))
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+
+        let new = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(name: "Scope", parent: Some("Body"), primitive: Some(Cube)),
+            ])"#,
+        );
+        let own_source_paths =
+            std::collections::HashSet::from(["assets/prefabs/turret.ron".to_string()]);
+
+        // Must not panic -- reaching the assertions below is itself the
+        // primary regression proof.
+        resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
+
+        assert!(
+            app.world().get_entity(barrel).is_none(),
+            "Barrel must be despawned -- the source removed it"
+        );
+        assert!(
+            app.world().get_entity(scope).is_none(),
+            "the original live Scope entity must be gone too: it was a live descendant of \
+             Barrel at the moment Barrel's structural removal cascaded, and the design spec's \
+             removal rule is unconditional (\"that entity's entire live subtree is despawned... \
+             regardless of... manually-added children under it\") -- Scope being independently \
+             re-declared under Body in `new` does not exempt it from a cascade it was already \
+             caught in. Consistent with rule 6 (\"a user-deleted, still-prefab-authored entity \
+             is not resurrected\"): once the liveness check finds Scope's raw_name has no live \
+             entity left, it is respected as already-gone rather than freshly respawned"
+        );
+
+        let scope_count = {
+            let mut q = app.world_mut().query::<&bsengine_scene::Name>();
+            q.iter(app.world())
+                .filter(|n| n.0.starts_with("Scope#"))
+                .count()
+        };
+        assert_eq!(
+            scope_count, 0,
+            "no fresh replacement Scope entity should have been spawned under Body either -- \
+             the cascade-despawn is respected as a deletion, not treated as \"new entity the \
+             source added\" just because Scope's raw_name still resolves in `new`"
         );
     }
 }

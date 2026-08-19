@@ -1489,6 +1489,226 @@ mod tests {
         );
     }
 
+    // See the comment on `resync_instance_resolves_a_brand_new_nested_prefab_reference` just
+    // above for why this lives here rather than in `prefab_merge`'s own test module.
+    #[test]
+    fn resync_instance_re_resolves_a_nested_reference_whose_path_changed() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = ProjectDir(dir.path().to_string_lossy().to_string());
+        app.insert_resource(project_dir.clone());
+        let nested_a_path = write_prefab(
+            dir.path(),
+            "nested_a",
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "NestedARoot", primitive: Some(Cube)),
+            ])"#,
+        );
+        let nested_b_path = write_prefab(
+            dir.path(),
+            "nested_b",
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "NestedBRoot", primitive: Some(Sphere)),
+            ])"#,
+        );
+
+        let baseline: bsengine_scene::types::PrefabDescriptor = ron::from_str(&format!(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(name: "NestedRef", parent: Some("Body"), prefab: Some("{nested_a_path}")),
+            ])"#
+        ))
+        .unwrap();
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/turret.ron",
+            Some("MyTurret"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let old_nested_root = {
+            let mut q = app.world_mut().query::<(Entity, &bsengine_core::PrefabInstance)>();
+            q.iter(app.world())
+                .find(|(_, i)| i.source_path == nested_a_path)
+                .map(|(e, _)| e)
+                .expect("baseline's nested reference must have resolved to a live PrefabInstance")
+        };
+
+        // Same raw name ("NestedRef"), but the `prefab:` path it points at
+        // changed -- the "despawn old subtree, resolve new one" branch of
+        // `nested_reference_changed`, distinct from the "unrelated fields
+        // changed, path same" case the existing "unchanged" tests exercise.
+        let new: bsengine_scene::types::PrefabDescriptor = ron::from_str(&format!(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(name: "NestedRef", parent: Some("Body"), prefab: Some("{nested_b_path}")),
+            ])"#
+        ))
+        .unwrap();
+        let own_source_paths = std::collections::HashSet::from([
+            "assets/prefabs/turret.ron".to_string(),
+            nested_b_path.clone(),
+        ]);
+        crate::prefab_merge::resync_instance(
+            app.world_mut(),
+            root,
+            &baseline,
+            &new,
+            &own_source_paths,
+        )
+        .unwrap();
+
+        assert!(
+            app.world().get_entity(old_nested_root).is_none(),
+            "the old nested instance (pointing at nested_a.ron) must be despawned once its \
+             reference is repointed at a different file"
+        );
+        let old_instance_still_present = {
+            let mut q = app.world_mut().query::<&bsengine_core::PrefabInstance>();
+            q.iter(app.world()).any(|i| i.source_path == nested_a_path)
+        };
+        assert!(
+            !old_instance_still_present,
+            "no live PrefabInstance should still point at nested_a.ron after the reference \
+             moved to nested_b.ron"
+        );
+
+        let new_nested_root = {
+            let mut q = app
+                .world_mut()
+                .query::<(Entity, &bsengine_core::PrefabInstance)>();
+            q.iter(app.world())
+                .find(|(_, i)| i.source_path == nested_b_path)
+                .map(|(e, _)| e)
+        };
+        assert!(
+            new_nested_root.is_some(),
+            "a new nested instance pointing at nested_b.ron must be resolved in the old one's \
+             place"
+        );
+        // The resolved root is renamed to `spawned_name` ("NestedRef#<suffix>") per
+        // `spawn_or_resolve_entity`'s contract, so nested_b.ron's own entity name
+        // ("NestedBRoot") never appears verbatim -- confirm nested_b.ron's own content came
+        // through by checking the field it declared (Sphere, vs. nested_a.ron's Cube).
+        assert_eq!(
+            app.world()
+                .get::<bsengine_scene::PrimitiveMesh>(new_nested_root.unwrap())
+                .map(|p| p.0.clone()),
+            Some(bsengine_scene::Primitive::Sphere),
+            "the freshly-resolved nested instance must reflect nested_b.ron's own content"
+        );
+    }
+
+    // See the comment on `resync_instance_resolves_a_brand_new_nested_prefab_reference` just
+    // above for why this lives here rather than in `prefab_merge`'s own test module.
+    #[test]
+    fn resync_instance_converts_a_plain_entity_into_a_nested_prefab_reference() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = ProjectDir(dir.path().to_string_lossy().to_string());
+        app.insert_resource(project_dir.clone());
+        let nested_path = write_prefab(
+            dir.path(),
+            "nested",
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "NestedRoot", primitive: Some(Cube)),
+            ])"#,
+        );
+
+        let baseline: bsengine_scene::types::PrefabDescriptor = ron::from_str(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(name: "Widget", parent: Some("Body"), primitive: Some(Cube)),
+            ])"#,
+        )
+        .unwrap();
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/turret.ron",
+            Some("MyTurret"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let old_widget = {
+            let mut q = app.world_mut().query::<(Entity, &Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0.starts_with("Widget#"))
+                .map(|(e, _)| e)
+                .expect("baseline's plain Widget entity must have spawned")
+        };
+        assert!(
+            app.world()
+                .get::<bsengine_scene::PrimitiveMesh>(old_widget)
+                .is_some(),
+            "sanity check: Widget starts out as a plain entity with a PrimitiveMesh"
+        );
+
+        // Same raw name ("Widget"), but `new` turns it into a nested prefab
+        // reference instead of a plain entity -- the
+        // `b.prefab.is_some() || n.prefab.is_some()` match guard's other
+        // direction from the path-change test above.
+        let new: bsengine_scene::types::PrefabDescriptor = ron::from_str(&format!(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(name: "Widget", parent: Some("Body"), prefab: Some("{nested_path}")),
+            ])"#
+        ))
+        .unwrap();
+        let own_source_paths = std::collections::HashSet::from([
+            "assets/prefabs/turret.ron".to_string(),
+            nested_path.clone(),
+        ]);
+        crate::prefab_merge::resync_instance(
+            app.world_mut(),
+            root,
+            &baseline,
+            &new,
+            &own_source_paths,
+        )
+        .unwrap();
+
+        assert!(
+            app.world().get_entity(old_widget).is_none(),
+            "the old plain Widget entity must be despawned when it's converted to a nested \
+             reference, not left behind or field-merged in place"
+        );
+
+        let new_widget = {
+            let mut q = app.world_mut().query::<(Entity, &Name, &bsengine_core::PrefabInstance)>();
+            q.iter(app.world())
+                .find(|(_, n, _)| n.0.starts_with("Widget#"))
+                .map(|(e, _, i)| (e, i.source_path.clone()))
+        };
+        assert_eq!(
+            new_widget.as_ref().map(|(_, path)| path.clone()),
+            Some(nested_path.clone()),
+            "a fresh entity named Widget#<suffix> must exist, resolved as a real nested \
+             PrefabInstance pointing at nested.ron -- not confused with, or left in, its old \
+             plain-entity representation"
+        );
+        // The resolved nested root is renamed to `spawned_name` ("Widget#<suffix>") per
+        // `spawn_or_resolve_entity`'s contract, so nested.ron's own entity name
+        // ("NestedRoot") never appears verbatim -- instead, confirm the nested file's own
+        // content actually came through by checking the field it declared (Cube), which
+        // the old plain Widget entity in `baseline` never had set this way.
+        assert_eq!(
+            app.world()
+                .get::<bsengine_scene::PrimitiveMesh>(new_widget.unwrap().0)
+                .map(|p| p.0.clone()),
+            Some(bsengine_scene::Primitive::Cube),
+            "the newly-resolved nested subtree's own content (nested.ron's root primitive) \
+             must be present"
+        );
+    }
+
     #[test]
     fn resync_prefab_instances_preserves_an_override_end_to_end_through_the_real_baseline() {
         let dir = tempfile::tempdir().unwrap();

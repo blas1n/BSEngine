@@ -1386,7 +1386,7 @@ fn populate_reflected_component_snapshot(world: &mut World) {
 /// referenced entity may not have spawned yet). `GlobalTransform` is
 /// recomputed every frame by `propagate_global_transforms`, not authored
 /// state.
-fn excluded_from_extra_components() -> std::collections::HashSet<std::any::TypeId> {
+pub(crate) fn excluded_from_extra_components() -> std::collections::HashSet<std::any::TypeId> {
     [
         std::any::TypeId::of::<Transform>(),
         std::any::TypeId::of::<GlobalTransform>(),

@@ -118,6 +118,100 @@ fn snapshot_extra_components(
     components
 }
 
+/// The core rule: a live value that still equals the baseline hasn't been
+/// touched since the last sync, so it's safe to adopt the new file's value.
+/// A live value that differs from the baseline is an override and wins,
+/// regardless of what the new file says.
+fn resolve_field<T: Clone + PartialEq>(live: &T, baseline: &T, new: &T) -> T {
+    if live == baseline {
+        new.clone()
+    } else {
+        live.clone()
+    }
+}
+
+/// Merges this PR's representative field set for one matched entity (present
+/// in `live`, `baseline`, and `new` alike). `name` always comes from `live`
+/// unchanged -- matching is by name already, so there's nothing to resolve
+/// there. Every field this PR doesn't yet cover (see the plan's "Scope for
+/// this plan" note) is left at `EntityDescriptor::default()`'s value on the
+/// returned descriptor; callers must never treat that as "adopt an
+/// explicit clear" for those fields -- `apply_merged_descriptor` (a later
+/// task) only ever touches the fields this function actually resolves.
+pub(crate) fn merge_entity_descriptor(
+    live: &bsengine_scene::EntityDescriptor,
+    baseline: &bsengine_scene::EntityDescriptor,
+    new: &bsengine_scene::EntityDescriptor,
+) -> bsengine_scene::EntityDescriptor {
+    bsengine_scene::EntityDescriptor {
+        name: live.name.clone(),
+        transform: resolve_field(&live.transform, &baseline.transform, &new.transform),
+        primitive: resolve_field(&live.primitive, &baseline.primitive, &new.primitive),
+        emissive: resolve_field(&live.emissive, &baseline.emissive, &new.emissive),
+        color: resolve_field(&live.color, &baseline.color, &new.color),
+        opacity: resolve_field(&live.opacity, &baseline.opacity, &new.opacity),
+        components: merge_components(&live.components, &baseline.components, &new.components),
+        ..Default::default()
+    }
+}
+
+/// Same rule as `resolve_field`, applied per reflected-component type path
+/// rather than to one value: a key whose live value still matches its
+/// baseline value adopts the new file's value for that key (which may be
+/// absent -- the source removed that component -- in which case the merged
+/// result omits the key too, so `apply_merged_descriptor` removes it). A key
+/// with no baseline entry at all (the user attached a component the prefab
+/// never had, or it predates override tracking) is always kept as-is,
+/// whatever `new` says. A key present in baseline but missing from `live`
+/// (the user detached a prefab-provided component) stays removed -- the
+/// removal itself is the override, and is not undone just because `new`
+/// still has that key.
+fn merge_components(
+    live: &[(String, String)],
+    baseline: &[(String, String)],
+    new: &[(String, String)],
+) -> Vec<(String, String)> {
+    // A plain `fn` item (rather than a closure) so the elided lifetime ties
+    // the returned map's borrows to the single input slice, per fn lifetime
+    // elision rules -- a closure with this same signature fails to compile
+    // because closures don't get that elision and each occurrence of `&str`
+    // is inferred as its own independent lifetime.
+    fn to_map(pairs: &[(String, String)]) -> std::collections::HashMap<&str, &str> {
+        pairs.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect()
+    }
+    let live_map = to_map(live);
+    let baseline_map = to_map(baseline);
+    let new_map = to_map(new);
+
+    let mut all_keys: Vec<&str> = live_map
+        .keys()
+        .chain(baseline_map.keys())
+        .chain(new_map.keys())
+        .copied()
+        .collect();
+    all_keys.sort_unstable();
+    all_keys.dedup();
+
+    let mut result = Vec::new();
+    for key in all_keys {
+        let resolved = match baseline_map.get(key) {
+            Some(&b) => match live_map.get(key) {
+                Some(&l) if l == b => new_map.get(key).copied(),
+                Some(&l) => Some(l),
+                None => None,
+            },
+            None => match live_map.get(key) {
+                Some(&l) => Some(l),
+                None => new_map.get(key).copied(),
+            },
+        };
+        if let Some(v) = resolved {
+            result.push((key.to_string(), v.to_string()));
+        }
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -210,6 +304,114 @@ mod tests {
                 .any(|(type_path, _)| type_path.ends_with("Shield")),
             "components: {:?}",
             desc.components
+        );
+    }
+
+    #[test]
+    fn resolve_field_adopts_new_when_live_still_matches_baseline() {
+        assert_eq!(resolve_field(&"live", &"live", &"new"), "new");
+    }
+
+    #[test]
+    fn resolve_field_keeps_live_when_it_differs_from_baseline() {
+        assert_eq!(resolve_field(&"overridden", &"baseline", &"new"), "overridden");
+    }
+
+    #[test]
+    fn merge_entity_descriptor_adopts_unoverridden_fields_and_keeps_overridden_ones() {
+        let baseline = bsengine_scene::EntityDescriptor {
+            name: "Barrel".to_string(),
+            primitive: Some(bsengine_scene::Primitive::Cube),
+            color: Some([1.0, 0.0, 0.0]),
+            ..Default::default()
+        };
+        let new = bsengine_scene::EntityDescriptor {
+            name: "Barrel".to_string(),
+            primitive: Some(bsengine_scene::Primitive::Sphere), // author changed the shape
+            color: Some([1.0, 0.0, 0.0]),                       // unchanged
+            ..Default::default()
+        };
+        let live = bsengine_scene::EntityDescriptor {
+            name: "Barrel".to_string(),
+            primitive: Some(bsengine_scene::Primitive::Cube), // matches baseline -> adopt new
+            color: Some([0.0, 1.0, 0.0]),                     // user recolored it -> keep live
+            ..Default::default()
+        };
+
+        let merged = merge_entity_descriptor(&live, &baseline, &new);
+
+        assert_eq!(
+            merged.primitive,
+            Some(bsengine_scene::Primitive::Sphere),
+            "unoverridden field must pick up the new file's value"
+        );
+        assert_eq!(
+            merged.color,
+            Some([0.0, 1.0, 0.0]),
+            "overridden field must keep the user's live value, ignoring the new file"
+        );
+    }
+
+    #[test]
+    fn merge_components_adopts_a_new_value_for_an_unoverridden_component() {
+        let baseline = vec![("pkg::Shield".to_string(), "(hp: 10)".to_string())];
+        let new = vec![("pkg::Shield".to_string(), "(hp: 20)".to_string())];
+        let live = baseline.clone(); // untouched since sync
+
+        let merged = merge_components(&live, &baseline, &new);
+        assert_eq!(merged, vec![("pkg::Shield".to_string(), "(hp: 20)".to_string())]);
+    }
+
+    #[test]
+    fn merge_components_keeps_a_user_modified_component_value() {
+        let baseline = vec![("pkg::Shield".to_string(), "(hp: 10)".to_string())];
+        let new = vec![("pkg::Shield".to_string(), "(hp: 20)".to_string())];
+        let live = vec![("pkg::Shield".to_string(), "(hp: 999)".to_string())]; // user edited it
+
+        let merged = merge_components(&live, &baseline, &new);
+        assert_eq!(merged, vec![("pkg::Shield".to_string(), "(hp: 999)".to_string())]);
+    }
+
+    #[test]
+    fn merge_components_always_keeps_a_user_attached_component_with_no_baseline_entry() {
+        let baseline: Vec<(String, String)> = vec![];
+        let new: Vec<(String, String)> = vec![];
+        let live = vec![("pkg::Shield".to_string(), "(hp: 5)".to_string())];
+
+        let merged = merge_components(&live, &baseline, &new);
+        assert_eq!(merged, vec![("pkg::Shield".to_string(), "(hp: 5)".to_string())]);
+    }
+
+    #[test]
+    fn merge_components_adopts_a_brand_new_component_the_prefab_author_added() {
+        let baseline: Vec<(String, String)> = vec![];
+        let new = vec![("pkg::Shield".to_string(), "(hp: 5)".to_string())];
+        let live: Vec<(String, String)> = vec![];
+
+        let merged = merge_components(&live, &baseline, &new);
+        assert_eq!(merged, vec![("pkg::Shield".to_string(), "(hp: 5)".to_string())]);
+    }
+
+    #[test]
+    fn merge_components_adopts_a_removal_when_unoverridden() {
+        let baseline = vec![("pkg::Shield".to_string(), "(hp: 10)".to_string())];
+        let new: Vec<(String, String)> = vec![]; // author removed the component
+        let live = baseline.clone(); // untouched since sync
+
+        let merged = merge_components(&live, &baseline, &new);
+        assert!(merged.is_empty());
+    }
+
+    #[test]
+    fn merge_components_does_not_resurrect_a_component_the_user_detached() {
+        let baseline = vec![("pkg::Shield".to_string(), "(hp: 10)".to_string())];
+        let new = baseline.clone(); // source unchanged
+        let live: Vec<(String, String)> = vec![]; // user detached it
+
+        let merged = merge_components(&live, &baseline, &new);
+        assert!(
+            merged.is_empty(),
+            "a component the user removed must not come back just because the source still has it"
         );
     }
 }

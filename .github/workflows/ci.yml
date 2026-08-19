@@ -76,10 +76,20 @@ jobs:
         shell: pwsh
         run: echo "RUSTY_V8_ARCHIVE=$env:USERPROFILE\.rusty_v8\rusty_v8.lib.gz" >> $env:GITHUB_ENV
 
+      # `timeout-minutes` plus short per-request apt timeouts/retries are both
+      # needed: GitHub's ubuntu-latest runners pre-configure
+      # azure.archive.ubuntu.com as a mirror, and when that mirror is
+      # degraded, apt's default timeout/retry behavior can leave this step
+      # hanging for a very long time with no output (observed: 40+ minutes,
+      # 3 runs in a row) instead of falling back to a working mirror quickly.
+      # A short per-request timeout makes each failed attempt against a bad
+      # mirror fail fast so apt moves on; the step-level timeout is a
+      # last-resort backstop in case that still isn't enough.
       - name: Install system dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
+        timeout-minutes: 5
         run: |
-          sudo apt-get update
+          sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10 update
           sudo apt-get install -y mesa-vulkan-drivers libasound2-dev libudev-dev
 
       - name: Format check

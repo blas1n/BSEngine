@@ -212,6 +212,156 @@ fn merge_components(
     result
 }
 
+/// Makes `entity`'s live components match `merged` for this PR's
+/// representative field set, using `live` only to know what's currently
+/// attached (so removal is a real `remove::<T>()` call rather than a no-op
+/// insert of "nothing"). Idempotent: re-applying the same `merged` twice is
+/// harmless, since every field write is "make it equal this value," not "add
+/// this diff" -- this is what lets a later task's resync orchestrator call
+/// this unconditionally for every matched entity rather than first checking
+/// whether anything actually changed.
+pub(crate) fn apply_merged_descriptor(
+    world: &mut World,
+    entity: Entity,
+    registry: &TypeRegistry,
+    live: &bsengine_scene::EntityDescriptor,
+    merged: &bsengine_scene::EntityDescriptor,
+) {
+    match &merged.transform {
+        Some(t) => {
+            world.entity_mut(entity).insert((
+                bsengine_core::Transform {
+                    position: glam::Vec3::from(t.position).into(),
+                    rotation: glam::Quat::from_xyzw(
+                        t.rotation[0],
+                        t.rotation[1],
+                        t.rotation[2],
+                        t.rotation[3],
+                    )
+                    .into(),
+                    scale: glam::Vec3::from(t.scale).into(),
+                },
+                bsengine_core::GlobalTransform::default(),
+            ));
+        }
+        None => {
+            world.entity_mut(entity).remove::<bsengine_core::Transform>();
+        }
+    }
+
+    match &merged.primitive {
+        Some(p) => {
+            world
+                .entity_mut(entity)
+                .insert(bsengine_scene::PrimitiveMesh(p.clone()));
+        }
+        None => {
+            world.entity_mut(entity).remove::<bsengine_scene::PrimitiveMesh>();
+        }
+    }
+
+    if merged.emissive.is_some() || merged.color.is_some() || merged.opacity.is_some() {
+        // `Material` also carries `texture_id`/`metallic`/`roughness`, none of
+        // which this PR's field set tracks (texture is a follow-up PR's
+        // field group). Blindly inserting a fresh `Material { ..Default::default() }`
+        // would silently wipe those out-of-scope fields to their defaults --
+        // e.g. destroying a `texture:`-driven `texture_id` -- every time this
+        // entity's Material is touched by a resync for an unrelated reason
+        // (opacity is always "tracked," so this branch fires whenever a
+        // Material exists at all). Read the entity's current Material first
+        // and only overwrite the three fields this merge actually resolved.
+        let mut material = world
+            .get::<bsengine_core::Material>(entity)
+            .cloned()
+            .unwrap_or_default();
+        if let Some(e) = merged.emissive {
+            material.emissive = glam::Vec3::from(e).into();
+        }
+        if let Some(c) = merged.color {
+            material.base_color = glam::Vec3::from(c).into();
+        }
+        if let Some(o) = merged.opacity {
+            material.opacity = o;
+        }
+        world.entity_mut(entity).insert(material);
+    } else {
+        world.entity_mut(entity).remove::<bsengine_core::Material>();
+    }
+
+    apply_merged_components(world, entity, registry, &live.components, &merged.components);
+}
+
+/// Reflection-based attach/detach for the `components:` catalog: removes
+/// every live key `merged` no longer has, then inserts/overwrites every key
+/// `merged` does have. Mirrors the two existing hand-rolled reflection
+/// call-sites this codebase already has for the same primitives --
+/// `spawn_scene_entities`'s `components:` loop (`apply_or_insert`) and
+/// `process_reflect_commands`'s `RemoveComponentByType`/`AttachComponentByType`
+/// handlers (`bsengine-editor/src/plugin.rs`) -- rather than inventing a
+/// third calling convention.
+fn apply_merged_components(
+    world: &mut World,
+    entity: Entity,
+    registry: &TypeRegistry,
+    live_components: &[(String, String)],
+    merged_components: &[(String, String)],
+) {
+    let merged_keys: std::collections::HashSet<&str> =
+        merged_components.iter().map(|(k, _)| k.as_str()).collect();
+
+    for (type_path, _) in live_components {
+        if merged_keys.contains(type_path.as_str()) {
+            continue;
+        }
+        let Some(registration) = registry.get_with_type_path(type_path) else {
+            continue;
+        };
+        let Some(reflect_component) = registration.data::<bevy_ecs::reflect::ReflectComponent>()
+        else {
+            continue;
+        };
+        let mut entity_mut = world.entity_mut(entity);
+        reflect_component.remove(&mut entity_mut);
+    }
+
+    for (type_path, value_ron) in merged_components {
+        let Some(registration) = registry.get_with_type_path(type_path) else {
+            tracing::warn!(
+                "prefab live-sync: entity {entity:?} merged component references unknown \
+                 reflected type path '{type_path}'"
+            );
+            continue;
+        };
+        let Some(reflect_component) = registration.data::<bevy_ecs::reflect::ReflectComponent>()
+        else {
+            tracing::warn!(
+                "prefab live-sync: entity {entity:?} type path '{type_path}' is not a \
+                 registered Component"
+            );
+            continue;
+        };
+        let de = bevy_reflect::serde::TypedReflectDeserializer::new(registration, registry);
+        match ron::de::Deserializer::from_str(value_ron) {
+            Ok(mut deserializer) => {
+                match serde::de::DeserializeSeed::deserialize(de, &mut deserializer) {
+                    Ok(value) => {
+                        let mut entity_mut = world.entity_mut(entity);
+                        reflect_component.apply_or_insert(&mut entity_mut, value.as_ref(), registry);
+                    }
+                    Err(e) => tracing::warn!(
+                        "prefab live-sync: entity {entity:?} merged component '{type_path}' \
+                         RON value doesn't match its shape: {e}"
+                    ),
+                }
+            }
+            Err(e) => tracing::warn!(
+                "prefab live-sync: entity {entity:?} merged component '{type_path}' RON parse \
+                 error: {e}"
+            ),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -413,5 +563,143 @@ mod tests {
             merged.is_empty(),
             "a component the user removed must not come back just because the source still has it"
         );
+    }
+
+    #[test]
+    fn apply_merged_descriptor_updates_an_adopted_field_and_leaves_an_overridden_one() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn((
+                bsengine_scene::Name("Barrel".to_string()),
+                bsengine_scene::PrimitiveMesh(bsengine_scene::Primitive::Cube),
+                bsengine_core::Material {
+                    base_color: glam::Vec3::new(0.0, 1.0, 0.0).into(),
+                    ..Default::default()
+                },
+            ))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let live = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+        let merged = bsengine_scene::EntityDescriptor {
+            primitive: Some(bsengine_scene::Primitive::Sphere), // adopted change
+            color: live.color,                                  // kept as-is (override)
+            ..live.clone()
+        };
+
+        apply_merged_descriptor(app.world_mut(), entity, &reg, &live, &merged);
+
+        assert_eq!(
+            app.world().get::<bsengine_scene::PrimitiveMesh>(entity).unwrap().0,
+            bsengine_scene::Primitive::Sphere
+        );
+        assert_eq!(
+            app.world().get::<bsengine_core::Material>(entity).unwrap().base_color.0.to_array(),
+            [0.0, 1.0, 0.0]
+        );
+    }
+
+    #[test]
+    fn apply_merged_descriptor_removes_a_component_the_merge_dropped() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn((
+                bsengine_scene::Name("Barrel".to_string()),
+                bsengine_scene::PrimitiveMesh(bsengine_scene::Primitive::Cube),
+            ))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let live = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+        let merged = bsengine_scene::EntityDescriptor {
+            primitive: None, // the prefab author removed the primitive field, unoverridden
+            ..live.clone()
+        };
+
+        apply_merged_descriptor(app.world_mut(), entity, &reg, &live, &merged);
+
+        assert!(
+            app.world().get::<bsengine_scene::PrimitiveMesh>(entity).is_none(),
+            "PrimitiveMesh must be removed when the merged descriptor no longer has a primitive"
+        );
+    }
+
+    #[test]
+    fn apply_merged_descriptor_preserves_material_fields_outside_this_prs_scope() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn((
+                bsengine_scene::Name("Barrel".to_string()),
+                bsengine_core::Material {
+                    texture_id: Some(42),
+                    metallic: 0.7,
+                    roughness: 0.3,
+                    base_color: glam::Vec3::new(1.0, 0.0, 0.0).into(),
+                    ..Default::default()
+                },
+            ))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let live = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+        let merged = bsengine_scene::EntityDescriptor {
+            color: Some([0.0, 0.0, 1.0]), // only color is adopted from `new`
+            ..live.clone()
+        };
+
+        apply_merged_descriptor(app.world_mut(), entity, &reg, &live, &merged);
+
+        let material = app.world().get::<bsengine_core::Material>(entity).unwrap();
+        assert_eq!(material.base_color.0.to_array(), [0.0, 0.0, 1.0], "color must update");
+        assert_eq!(
+            material.texture_id,
+            Some(42),
+            "texture_id is outside this PR's field set and must survive untouched"
+        );
+        assert_eq!(material.metallic, 0.7, "metallic must survive untouched");
+        assert_eq!(material.roughness, 0.3, "roughness must survive untouched");
+    }
+
+    #[test]
+    fn apply_merged_descriptor_attaches_and_detaches_reflected_components_per_the_merged_catalog() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        app.register_type::<bsengine_core::Shield>();
+        let entity = app
+            .world_mut()
+            .spawn(bsengine_scene::Name("Hero".to_string()))
+            .id();
+        // A scratch entity that already has `Shield` attached, so its snapshot
+        // gives us the component's *real* reflected type path -- rather than
+        // hardcoding a guess at "bsengine_core::shield::Shield" -- to build
+        // `merged.components` from.
+        let shield_entity = app.world_mut().spawn(bsengine_core::Shield::default()).id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let live = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+        let shield_snapshot = snapshot_entity_as_descriptor(app.world(), &reg, shield_entity);
+        let shield_component = shield_snapshot
+            .components
+            .into_iter()
+            .find(|(type_path, _)| type_path.ends_with("Shield"))
+            .expect("scratch entity's snapshot must contain its Shield component");
+        let merged = bsengine_scene::EntityDescriptor {
+            components: vec![shield_component],
+            ..live.clone()
+        };
+
+        apply_merged_descriptor(app.world_mut(), entity, &reg, &live, &merged);
+
+        assert!(app.world().get::<bsengine_core::Shield>(entity).is_some());
     }
 }

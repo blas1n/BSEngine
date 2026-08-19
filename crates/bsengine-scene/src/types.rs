@@ -236,7 +236,7 @@ pub struct ScriptPath(pub String);
 ///
 /// All component fields are optional and default to absent; only `name` is
 /// required.  The legacy `components` field is kept for compatibility.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EntityDescriptor {
     /// Name assigned to the spawned entity's `Name` component.
     pub name: String,
@@ -333,7 +333,7 @@ pub struct EntityDescriptor {
 }
 
 /// Position, rotation, and scale for a scene entity, as written in a scene file.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TransformDescriptor {
     /// World-space position as [x, y, z]. Defaults to the origin.
     #[serde(default)]
@@ -793,5 +793,31 @@ mod tests {
         assert_eq!(t.position, [0.0, 0.0, 0.0]);
         assert_eq!(t.rotation, [0.0, 0.0, 0.0, 1.0]);
         assert_eq!(t.scale, [1.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn transform_descriptor_supports_equality_comparison() {
+        let a = TransformDescriptor {
+            position: [1.0, 2.0, 3.0],
+            ..Default::default()
+        };
+        let b = a.clone();
+        let c = TransformDescriptor {
+            position: [9.0, 9.0, 9.0],
+            ..Default::default()
+        };
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn entity_descriptor_has_a_default_with_only_name_and_components_populated() {
+        let d = EntityDescriptor {
+            name: "X".to_string(),
+            ..Default::default()
+        };
+        assert_eq!(d.name, "X");
+        assert_eq!(d.transform, None);
+        assert!(d.components.is_empty());
     }
 }

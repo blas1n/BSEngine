@@ -197,14 +197,20 @@ pub fn instantiate_prefab_from_path(
     // false positive rather than a one-off glitch.
     let _guard = ResolvingGuard(prefab_path.to_string());
     let source_path = project_relative_prefab_path(world, prefab_path);
-    crate::prefab::instantiate_prefab(
+    let root = crate::prefab::instantiate_prefab(
         world,
         &prefab,
         &source_path,
         root_name,
         root_transform,
         parent,
-    )
+    )?;
+    world
+        .entity_mut(root)
+        .insert(bsengine_core::PrefabInstanceBaseline {
+            synced_ron: content.clone(),
+        });
+    Ok(root)
 }
 
 /// Resolves one `entity.prefab` reference: instantiates the file in the
@@ -746,6 +752,7 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     app.register_type::<bsengine_core::Lifetime>();
     app.register_type::<bsengine_core::NetworkId>();
     app.register_type::<bsengine_core::PrefabInstance>();
+    app.register_type::<bsengine_core::PrefabInstanceBaseline>();
     app.register_type::<bsengine_core::SaveData>();
     app.register_type::<bsengine_core::Shield>();
     app.register_type::<bsengine_core::Skybox>();
@@ -831,6 +838,35 @@ mod tests {
         let path = std::env::temp_dir().join(filename);
         std::fs::write(&path, content).unwrap();
         path.to_str().unwrap().to_string()
+    }
+
+    #[test]
+    fn instantiate_prefab_from_path_attaches_a_baseline_with_the_exact_file_content() {
+        let mut app = bsengine_app::new_app();
+        let dir = tempfile::tempdir().unwrap();
+        let content = r#"PrefabDescriptor(entities: [
+            EntityDescriptor(name: "Body", primitive: Some(Cube)),
+        ])"#;
+        let path = dir.path().join("turret.ron");
+        std::fs::write(&path, content).unwrap();
+
+        let root = super::instantiate_prefab_from_path(
+            app.world_mut(),
+            path.to_str().unwrap(),
+            Some("MyTurret"),
+            None,
+            None,
+        )
+        .expect("a well-formed prefab should instantiate");
+
+        let baseline = app
+            .world()
+            .get::<bsengine_core::PrefabInstanceBaseline>(root)
+            .expect("the instantiated root must carry a PrefabInstanceBaseline");
+        assert_eq!(
+            baseline.synced_ron, content,
+            "the baseline must be the exact file text read at instantiation time"
+        );
     }
 
     #[test]

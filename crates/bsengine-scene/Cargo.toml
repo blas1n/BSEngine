@@ -29,3 +29,4 @@ bsengine-app.workspace = true
 # probe directory, and assert on the warnings that come out — both of which
 # `bsengine-asset` already has helpers for.
 bsengine-asset = { workspace = true, features = ["test-support"] }
+tempfile = "3"

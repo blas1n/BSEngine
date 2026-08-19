@@ -121,7 +121,7 @@ pub use network_id::{NetworkAuthority, NetworkId};
 pub use parent::Parent;
 pub use particles::{Particle, ParticleEmitter, Rng};
 pub use pause_state::PauseState;
-pub use prefab_instance::PrefabInstance;
+pub use prefab_instance::{PrefabInstance, PrefabInstanceBaseline};
 pub use project_dir::{resolve_project_path, ProjectDir};
 pub use reflect_color::ReflectColor;
 pub use reflect_degrees::ReflectDegrees;

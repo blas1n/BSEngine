@@ -142,7 +142,7 @@ fn collect_nested_prefab_source_paths(
 /// already-tolerated state elsewhere in this codebase (plain
 /// `EditorCommand::Despawn` doesn't cascade to children either) -- and a
 /// warning is logged so this is never silent.
-fn despawn_subtree(
+pub(crate) fn despawn_subtree(
     world: &mut World,
     root: Entity,
     own_source_paths: &std::collections::HashSet<String>,
@@ -1353,6 +1353,64 @@ mod tests {
         assert!(
             app.world().get::<PrefabInstance>(resynced.0).is_some(),
             "the resynced root must still carry PrefabInstance"
+        );
+    }
+
+    // Lives here rather than in `prefab_merge`'s own test module because it
+    // needs `write_prefab`/`ProjectDir`/`tempfile`, which are already set up
+    // in this module -- see Task 8's plan for why duplicating them into
+    // `prefab_merge.rs` instead was the less-preferred option.
+    #[test]
+    fn resync_instance_resolves_a_brand_new_nested_prefab_reference() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = ProjectDir(dir.path().to_string_lossy().to_string());
+        app.insert_resource(project_dir.clone());
+        let nested_path = write_prefab(
+            dir.path(),
+            "nested",
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "NestedRoot", primitive: Some(Cube)),
+            ])"#,
+        );
+
+        let baseline: bsengine_scene::types::PrefabDescriptor = ron::from_str(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+            ])"#,
+        )
+        .unwrap();
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/turret.ron",
+            Some("MyTurret"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let new: bsengine_scene::types::PrefabDescriptor = ron::from_str(&format!(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(name: "NestedRef", parent: Some("Body"), prefab: Some("{nested_path}")),
+            ])"#
+        ))
+        .unwrap();
+        let own_source_paths =
+            std::collections::HashSet::from(["assets/prefabs/turret.ron".to_string()]);
+        crate::prefab_merge::resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths)
+            .unwrap();
+
+        let nested_instance_found = {
+            let mut q = app.world_mut().query::<&bsengine_core::PrefabInstance>();
+            q.iter(app.world()).any(|i| i.source_path == nested_path)
+        };
+        assert!(
+            nested_instance_found,
+            "a brand-new nested prefab reference must be resolved via instantiate_prefab_from_path, \
+             not silently spawned as an empty plain entity"
         );
     }
 }

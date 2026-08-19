@@ -389,6 +389,278 @@ fn apply_merged_components(
     }
 }
 
+/// Collects every live entity transitively parented under `root` that
+/// belongs to *this* instance -- i.e. stops at (and excludes) any
+/// descendant carrying its own `PrefabInstance` whose source path isn't in
+/// `own_source_paths`. Read-only twin of `prefab_watcher::despawn_subtree`'s
+/// traversal (never mutates `world`); see that function's doc comment for
+/// the full rationale on `own_source_paths` (nested-reference vs.
+/// foreign-reparented-instance). Takes `&mut World`, not `&World`, purely
+/// because `World::query` itself requires it in this bevy_ecs version (0.14)
+/// -- exactly like `despawn_subtree` right next to it, which is `&mut World`
+/// for the same structural reason despite also never writing through it
+/// until its own final despawn pass.
+fn collect_own_descendants(
+    world: &mut World,
+    root: Entity,
+    own_source_paths: &std::collections::HashSet<String>,
+) -> Vec<Entity> {
+    let mut children_q = world.query::<(Entity, &bsengine_core::Parent)>();
+    let mut visited = std::collections::HashSet::new();
+    let mut result = Vec::new();
+    let mut frontier = vec![root];
+    while let Some(cur) = frontier.pop() {
+        if !visited.insert(cur) {
+            continue;
+        }
+        if cur != root {
+            result.push(cur);
+        }
+        for (child, parent) in children_q.iter(world) {
+            if parent.0 != cur {
+                continue;
+            }
+            if let Some(instance) = world.get::<bsengine_core::PrefabInstance>(child) {
+                if !own_source_paths.contains(&instance.source_path) {
+                    continue;
+                }
+            }
+            frontier.push(child);
+        }
+    }
+    result
+}
+
+/// Whether a matched entity is a nested prefab reference whose reference
+/// itself changed between `baseline` and `new` -- if so, it must be
+/// despawned and freshly re-resolved rather than field-merged (its own
+/// fields, like `primitive`, mean nothing; what matters is `prefab:` and the
+/// instantiation-time `transform:` override `resolve_prefab_reference`
+/// consumes). An unchanged reference is left alone entirely: the nested
+/// subtree is independently owned by its own `PrefabInstance`/baseline and
+/// resyncs only when *its* file changes, exactly as today.
+fn nested_reference_changed(
+    baseline: &bsengine_scene::EntityDescriptor,
+    new: &bsengine_scene::EntityDescriptor,
+) -> bool {
+    let baseline_path = baseline.prefab.as_ref().map(|p| p.path());
+    let new_path = new.prefab.as_ref().map(|p| p.path());
+    baseline_path != new_path || baseline.transform != new.transform
+}
+
+/// Returns the shared instance suffix to stamp onto a freshly-spawned
+/// entity's display name, drawing a fresh one via
+/// `bsengine_scene::next_instance_suffix()` the first time this instance
+/// needs one -- i.e. `*suffix` is still `None` because `collect_own_descendants`
+/// found no existing non-root live entity to recover one from (a
+/// single-root instance gaining its very first child during this very
+/// resync). Every entity spawned within one `resync_instance` call must
+/// share one suffix, exactly like a normal `instantiate_prefab` call gives
+/// its whole subtree one shared suffix -- otherwise a later resync's
+/// `instance_suffix` recovery (which trusts "any one" live child to speak
+/// for the whole instance) would find an inconsistent value depending on
+/// which child it happened to look at, and every differently-suffixed
+/// sibling would silently fail `strip_instance_suffix`'s tail match and be
+/// treated as if the user had deleted it.
+fn suffixed_name(raw_name: &str, suffix: &mut Option<String>) -> String {
+    let s = suffix.get_or_insert_with(|| bsengine_scene::next_instance_suffix().to_string());
+    format!("{raw_name}#{s}")
+}
+
+/// Materializes an entity from `descriptor` that has no live counterpart yet
+/// -- either because `new` just introduced it, or because a matched entity's
+/// nested-reference status changed and its old subtree was already despawned
+/// by the caller. Resolves it as a nested prefab reference when
+/// `descriptor.prefab` is set (the same way `spawn_scene_entities` branches),
+/// otherwise spawns it plainly via `spawn_single_entity`. Centralized here so
+/// both call sites below get prefab-reference handling for free instead of
+/// one of them silently treating a `prefab:` field as a plain field (which
+/// `spawn_single_entity` explicitly does not understand -- see its own doc
+/// comment).
+///
+/// `spawned_name` is the already-suffixed display name to give the spawned
+/// entity (see `suffixed_name`) -- never `descriptor.name` (the file's raw,
+/// unsuffixed spelling) directly, mirroring how every other non-root entity
+/// in an instance is named. For a nested reference this becomes the nested
+/// prefab's own root name verbatim (`instantiate_prefab`'s `root_name`
+/// contract), exactly like `spawn_scene_entities`'s own `entity.prefab`
+/// branch passes its (already-suffixed, since it's a non-root entity of the
+/// outer file) `entity.name` straight through.
+fn spawn_or_resolve_entity(
+    world: &mut World,
+    spawned_name: &str,
+    descriptor: &bsengine_scene::EntityDescriptor,
+) -> Option<Entity> {
+    match &descriptor.prefab {
+        Some(prefab_ref) => match bsengine_scene::instantiate_prefab_reference(
+            world,
+            spawned_name,
+            prefab_ref,
+            descriptor.transform.clone(),
+        ) {
+            Ok(fresh) => Some(fresh),
+            Err(e) => {
+                tracing::warn!(
+                    "prefab live-sync: entity '{spawned_name}' references a prefab that failed \
+                     to instantiate during resync: {e}"
+                );
+                None
+            }
+        },
+        None => {
+            let mut renamed = descriptor.clone();
+            renamed.name = spawned_name.to_string();
+            Some(bsengine_scene::spawn_single_entity(world, &renamed))
+        }
+    }
+}
+
+/// Patches one prefab instance rooted at `root` in place: merges the root's
+/// own representative fields, then walks every non-root entity named in
+/// `baseline`/`new`, applying the structural + field-level rules described
+/// in this module's doc comment and the design spec. Returns an error only
+/// if `baseline` or `new` isn't a validly-structured prefab (exactly one
+/// root) -- the caller (`resync_prefab_instances`) already validates `new`
+/// before calling this, so in practice only a corrupt baseline can trigger
+/// this.
+pub(crate) fn resync_instance(
+    world: &mut World,
+    root: Entity,
+    baseline: &bsengine_scene::types::PrefabDescriptor,
+    new: &bsengine_scene::types::PrefabDescriptor,
+    own_source_paths: &std::collections::HashSet<String>,
+) -> Result<(), String> {
+    let registry = world
+        .resource::<bevy_ecs::reflect::AppTypeRegistry>()
+        .clone();
+    let registry = registry.read();
+
+    let baseline_root = bsengine_scene::validate_prefab_descriptor(baseline)?;
+    let new_root = bsengine_scene::validate_prefab_descriptor(new)?;
+
+    let root_live = snapshot_entity_as_descriptor(world, &registry, root);
+    let mut root_merged = merge_entity_descriptor(&root_live, baseline_root, new_root);
+    // The root's placement was never meant to come from the prefab asset in
+    // the first place -- this predates override tracking (see the existing
+    // `transform_override` capture/reapply in `resync_prefab_instances`
+    // before this feature) and the design spec calls it out explicitly:
+    // Name/Transform/Parent are never diffed for the root, unconditionally,
+    // regardless of override status. `merge_entity_descriptor` has no way to
+    // know it's being called for a root vs. a regular entity, so it applies
+    // the general per-field rule to `transform` like any other field; this
+    // overwrites that back to the live value every time, after the fact,
+    // rather than teaching the general-purpose merge function about roots.
+    root_merged.transform = root_live.transform.clone();
+    apply_merged_descriptor(world, root, &registry, &root_live, &root_merged);
+
+    let own_descendants = collect_own_descendants(world, root, own_source_paths);
+    let mut suffix = instance_suffix(world, &own_descendants);
+
+    let mut resolved_by_raw_name: std::collections::HashMap<String, Entity> =
+        std::collections::HashMap::new();
+    if let Some(suffix) = &suffix {
+        for &e in &own_descendants {
+            if let Some(name) = world.get::<bsengine_scene::Name>(e) {
+                if let Some((raw, tail)) = strip_instance_suffix(&name.0) {
+                    if tail == suffix {
+                        resolved_by_raw_name.insert(raw.to_string(), e);
+                    }
+                }
+            }
+        }
+    }
+
+    let baseline_by_name: std::collections::HashMap<&str, &bsengine_scene::EntityDescriptor> =
+        baseline
+            .entities
+            .iter()
+            .filter(|e| e.name != baseline_root.name)
+            .map(|e| (e.name.as_str(), e))
+            .collect();
+    let new_by_name: std::collections::HashMap<&str, &bsengine_scene::EntityDescriptor> = new
+        .entities
+        .iter()
+        .filter(|e| e.name != new_root.name)
+        .map(|e| (e.name.as_str(), e))
+        .collect();
+
+    let mut all_names: Vec<&str> = baseline_by_name
+        .keys()
+        .chain(new_by_name.keys())
+        .copied()
+        .collect();
+    all_names.sort_unstable();
+    all_names.dedup();
+
+    let mut spawned_needing_parent: Vec<(Entity, Option<String>)> = Vec::new();
+
+    for raw_name in all_names {
+        let in_baseline = baseline_by_name.get(raw_name).copied();
+        let in_new = new_by_name.get(raw_name).copied();
+        let live_entity = resolved_by_raw_name.get(raw_name).copied();
+
+        match (in_baseline, in_new, live_entity) {
+            (Some(_), None, Some(live_e)) => {
+                crate::prefab_watcher::despawn_subtree(world, live_e, own_source_paths);
+                resolved_by_raw_name.remove(raw_name);
+            }
+            (Some(_), None, None) | (Some(_), Some(_), None) => {
+                // Already gone (cascaded from a removed ancestor, or the
+                // user deleted it directly) -- respected either way.
+            }
+            (Some(b), Some(n), Some(live_e)) if b.prefab.is_some() || n.prefab.is_some() => {
+                if nested_reference_changed(b, n) {
+                    crate::prefab_watcher::despawn_subtree(world, live_e, own_source_paths);
+                    resolved_by_raw_name.remove(raw_name);
+                    // `n.prefab` may itself be `None` here -- the entity was a
+                    // nested reference in `baseline` but the author converted
+                    // it to a plain entity in `new`. `spawn_or_resolve_entity`
+                    // handles both cases; this call site must not assume
+                    // `n.prefab.is_some()` just because the *match guard*
+                    // above required *either* side to have it.
+                    let spawned_name = suffixed_name(raw_name, &mut suffix);
+                    if let Some(fresh) = spawn_or_resolve_entity(world, &spawned_name, n) {
+                        resolved_by_raw_name.insert(raw_name.to_string(), fresh);
+                        spawned_needing_parent.push((fresh, n.parent.clone()));
+                    }
+                }
+                // else: unchanged reference, left entirely alone.
+            }
+            (Some(b), Some(n), Some(live_e)) => {
+                let live_desc = snapshot_entity_as_descriptor(world, &registry, live_e);
+                let merged = merge_entity_descriptor(&live_desc, b, n);
+                apply_merged_descriptor(world, live_e, &registry, &live_desc, &merged);
+            }
+            (None, Some(n), _) => {
+                let spawned_name = suffixed_name(raw_name, &mut suffix);
+                if let Some(fresh) = spawn_or_resolve_entity(world, &spawned_name, n) {
+                    resolved_by_raw_name.insert(raw_name.to_string(), fresh);
+                    spawned_needing_parent.push((fresh, n.parent.clone()));
+                }
+            }
+            (None, None, _) => unreachable!("raw_name is drawn from baseline's or new's own keys"),
+        }
+    }
+
+    for (entity, parent_raw_name) in spawned_needing_parent {
+        let Some(parent_raw_name) = parent_raw_name else {
+            continue; // no parent: field -> a genuine root within this instance (shouldn't happen since only the file's own root has no parent, and non-root entities always name one) -- leave unparented rather than guess
+        };
+        if let Some(&parent_entity) = resolved_by_raw_name.get(parent_raw_name.as_str()) {
+            world.entity_mut(entity).insert(bsengine_core::Parent(parent_entity));
+        } else if parent_raw_name == new_root.name {
+            world.entity_mut(entity).insert(bsengine_core::Parent(root));
+        } else {
+            tracing::warn!(
+                "prefab live-sync: freshly-spawned entity names parent '{parent_raw_name}', \
+                 which does not exist in the resynced prefab; leaving it unparented"
+            );
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -756,5 +1028,303 @@ mod tests {
     fn instance_suffix_is_none_with_no_children() {
         let app = new_app();
         assert_eq!(instance_suffix(app.world(), &[]), None);
+    }
+
+    fn parse(ron_str: &str) -> bsengine_scene::types::PrefabDescriptor {
+        ron::from_str(ron_str).unwrap()
+    }
+
+    #[test]
+    fn resync_instance_preserves_an_overridden_transform_while_updating_a_sibling_field() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let baseline = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(name: "Barrel", parent: Some("Body"), primitive: Some(Cube)),
+            ])"#,
+        );
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/turret.ron",
+            Some("MyTurret"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        // User manually moves Barrel and never touches its primitive.
+        let barrel = {
+            let mut q = app.world_mut().query::<(Entity, &bsengine_scene::Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0.starts_with("Barrel#"))
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        app.world_mut().entity_mut(barrel).insert(bsengine_core::Transform {
+            position: glam::Vec3::new(5.0, 0.0, 0.0).into(),
+            ..Default::default()
+        });
+
+        let new = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(name: "Barrel", parent: Some("Body"), primitive: Some(Sphere)),
+            ])"#,
+        );
+
+        let own_source_paths =
+            std::collections::HashSet::from(["assets/prefabs/turret.ron".to_string()]);
+        resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
+
+        let barrel_after = {
+            let mut q = app.world_mut().query::<(Entity, &bsengine_scene::Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0.starts_with("Barrel#"))
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        assert_eq!(
+            barrel_after, barrel,
+            "an entity with no structural change must keep its live Entity id, not respawn"
+        );
+        assert_eq!(
+            app.world().get::<bsengine_core::Transform>(barrel_after).unwrap().position.0.to_array(),
+            [5.0, 0.0, 0.0],
+            "the user's manual transform override must survive the resync"
+        );
+        assert_eq!(
+            app.world().get::<bsengine_scene::PrimitiveMesh>(barrel_after).unwrap().0,
+            bsengine_scene::Primitive::Sphere,
+            "the unoverridden primitive field must still update to the new file's value"
+        );
+    }
+
+    #[test]
+    fn resync_instance_preserves_a_manually_added_child_entity() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let baseline = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+            ])"#,
+        );
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/turret.ron",
+            Some("MyTurret"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let flag = app
+            .world_mut()
+            .spawn((
+                bsengine_scene::Name("Flag".to_string()),
+                bsengine_core::Parent(root),
+            ))
+            .id();
+
+        let new = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Sphere)),
+            ])"#,
+        );
+        let own_source_paths =
+            std::collections::HashSet::from(["assets/prefabs/turret.ron".to_string()]);
+        resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
+
+        assert!(
+            app.world().get_entity(flag).is_some(),
+            "a manually-added child entity must survive an unrelated field update on its siblings"
+        );
+    }
+
+    #[test]
+    fn resync_instance_cascade_deletes_a_removed_entity_even_with_overrides_under_it() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let baseline = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(name: "Barrel", parent: Some("Body"), primitive: Some(Cube)),
+            ])"#,
+        );
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/turret.ron",
+            Some("MyTurret"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let barrel = {
+            let mut q = app.world_mut().query::<(Entity, &bsengine_scene::Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0.starts_with("Barrel#"))
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        // Override Barrel's own field, and add a manual child under it -- both
+        // must be swept away when the source removes Barrel entirely.
+        app.world_mut()
+            .entity_mut(barrel)
+            .insert(bsengine_scene::PrimitiveMesh(bsengine_scene::Primitive::Sphere));
+        let flag = app
+            .world_mut()
+            .spawn((bsengine_scene::Name("Flag".to_string()), bsengine_core::Parent(barrel)))
+            .id();
+
+        let new = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+            ])"#,
+        );
+        let own_source_paths =
+            std::collections::HashSet::from(["assets/prefabs/turret.ron".to_string()]);
+        resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
+
+        assert!(app.world().get_entity(barrel).is_none(), "Barrel must be despawned");
+        assert!(
+            app.world().get_entity(flag).is_none(),
+            "Flag must cascade-despawn with its parent, despite being a manual addition"
+        );
+    }
+
+    #[test]
+    fn resync_instance_does_not_resurrect_a_user_deleted_prefab_authored_entity() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let baseline = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(name: "Barrel", parent: Some("Body"), primitive: Some(Cube)),
+            ])"#,
+        );
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/turret.ron",
+            Some("MyTurret"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let barrel = {
+            let mut q = app.world_mut().query::<(Entity, &bsengine_scene::Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0.starts_with("Barrel#"))
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        app.world_mut().despawn(barrel); // user deletes it directly
+
+        let new = baseline.clone(); // source unchanged, still has Barrel
+        let own_source_paths =
+            std::collections::HashSet::from(["assets/prefabs/turret.ron".to_string()]);
+        resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
+
+        let barrel_count = {
+            let mut q = app.world_mut().query::<&bsengine_scene::Name>();
+            q.iter(app.world()).filter(|n| n.0.starts_with("Barrel#")).count()
+        };
+        assert_eq!(barrel_count, 0, "a user-deleted prefab-authored entity must not come back");
+    }
+
+    #[test]
+    fn resync_instance_never_adopts_the_new_files_root_transform_even_when_unoverridden() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let baseline = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube), transform: Some((position: (0.0, 0.0, 0.0)))),
+            ])"#,
+        );
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/turret.ron",
+            Some("MyTurret"),
+            Some(bsengine_scene::TransformDescriptor {
+                position: [10.0, 0.0, 0.0], // the instance's own placement in the scene
+                ..Default::default()
+            }),
+            None,
+        )
+        .unwrap();
+
+        // The author moves the prefab's own authored root transform -- this must
+        // never affect a placed instance's position, overridden or not; a
+        // prefab instance's placement is never prefab-owned.
+        let new = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube), transform: Some((position: (99.0, 99.0, 99.0)))),
+            ])"#,
+        );
+        let own_source_paths =
+            std::collections::HashSet::from(["assets/prefabs/turret.ron".to_string()]);
+        resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
+
+        assert_eq!(
+            app.world().get::<bsengine_core::Transform>(root).unwrap().position.0.to_array(),
+            [10.0, 0.0, 0.0],
+            "the root's transform must stay exactly what the instance had, ignoring the new file \
+             entirely -- root transform is never diffed, unlike every other representative field"
+        );
+    }
+
+    #[test]
+    fn resync_instance_spawns_a_brand_new_entity_the_source_added() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let baseline = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+            ])"#,
+        );
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/turret.ron",
+            Some("MyTurret"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let new = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(name: "Scope", parent: Some("Body"), primitive: Some(Sphere)),
+            ])"#,
+        );
+        let own_source_paths =
+            std::collections::HashSet::from(["assets/prefabs/turret.ron".to_string()]);
+        resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
+
+        let scope = {
+            let mut q = app.world_mut().query::<(Entity, &bsengine_scene::Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0.starts_with("Scope#"))
+                .map(|(e, _)| e)
+        };
+        assert!(scope.is_some(), "the newly-added Scope entity must be spawned");
+        assert_eq!(
+            app.world().get::<bsengine_core::Parent>(scope.unwrap()).map(|p| p.0),
+            Some(root),
+            "the new entity must be parented correctly"
+        );
     }
 }

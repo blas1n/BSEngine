@@ -1531,7 +1531,9 @@ mod tests {
         .unwrap();
 
         let old_nested_root = {
-            let mut q = app.world_mut().query::<(Entity, &bsengine_core::PrefabInstance)>();
+            let mut q = app
+                .world_mut()
+                .query::<(Entity, &bsengine_core::PrefabInstance)>();
             q.iter(app.world())
                 .find(|(_, i)| i.source_path == nested_a_path)
                 .map(|(e, _)| e)
@@ -1682,7 +1684,9 @@ mod tests {
         );
 
         let new_widget = {
-            let mut q = app.world_mut().query::<(Entity, &Name, &bsengine_core::PrefabInstance)>();
+            let mut q = app
+                .world_mut()
+                .query::<(Entity, &Name, &bsengine_core::PrefabInstance)>();
             q.iter(app.world())
                 .find(|(_, n, _)| n.0.starts_with("Widget#"))
                 .map(|(e, _, i)| (e, i.source_path.clone()))

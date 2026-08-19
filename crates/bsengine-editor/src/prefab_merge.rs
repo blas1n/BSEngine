@@ -59,13 +59,13 @@ pub(crate) fn snapshot_entity_as_descriptor(
         .map(|n| n.0.clone())
         .unwrap_or_default();
 
-    let transform = world
-        .get::<bsengine_core::Transform>(entity)
-        .map(|t| bsengine_scene::TransformDescriptor {
+    let transform = world.get::<bsengine_core::Transform>(entity).map(|t| {
+        bsengine_scene::TransformDescriptor {
             position: t.position.0.to_array(),
             rotation: t.rotation.0.to_array(),
             scale: t.scale.0.to_array(),
-        });
+        }
+    });
 
     let primitive = world
         .get::<bsengine_scene::PrimitiveMesh>(entity)
@@ -204,7 +204,10 @@ fn merge_components(
     // because closures don't get that elision and each occurrence of `&str`
     // is inferred as its own independent lifetime.
     fn to_map(pairs: &[(String, String)]) -> std::collections::HashMap<&str, &str> {
-        pairs.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect()
     }
     let live_map = to_map(live);
     let baseline_map = to_map(baseline);
@@ -272,7 +275,9 @@ pub(crate) fn apply_merged_descriptor(
             ));
         }
         None => {
-            world.entity_mut(entity).remove::<bsengine_core::Transform>();
+            world
+                .entity_mut(entity)
+                .remove::<bsengine_core::Transform>();
         }
     }
 
@@ -283,7 +288,9 @@ pub(crate) fn apply_merged_descriptor(
                 .insert(bsengine_scene::PrimitiveMesh(p.clone()));
         }
         None => {
-            world.entity_mut(entity).remove::<bsengine_scene::PrimitiveMesh>();
+            world
+                .entity_mut(entity)
+                .remove::<bsengine_scene::PrimitiveMesh>();
         }
     }
 
@@ -315,7 +322,13 @@ pub(crate) fn apply_merged_descriptor(
         world.entity_mut(entity).remove::<bsengine_core::Material>();
     }
 
-    apply_merged_components(world, entity, registry, &live.components, &merged.components);
+    apply_merged_components(
+        world,
+        entity,
+        registry,
+        &live.components,
+        &merged.components,
+    );
 }
 
 /// Reflection-based attach/detach for the `components:` catalog: removes
@@ -373,7 +386,11 @@ fn apply_merged_components(
                 match serde::de::DeserializeSeed::deserialize(de, &mut deserializer) {
                     Ok(value) => {
                         let mut entity_mut = world.entity_mut(entity);
-                        reflect_component.apply_or_insert(&mut entity_mut, value.as_ref(), registry);
+                        reflect_component.apply_or_insert(
+                            &mut entity_mut,
+                            value.as_ref(),
+                            registry,
+                        );
                     }
                     Err(e) => tracing::warn!(
                         "prefab live-sync: entity {entity:?} merged component '{type_path}' \
@@ -647,7 +664,9 @@ pub(crate) fn resync_instance(
             continue; // no parent: field -> a genuine root within this instance (shouldn't happen since only the file's own root has no parent, and non-root entities always name one) -- leave unparented rather than guess
         };
         if let Some(&parent_entity) = resolved_by_raw_name.get(parent_raw_name.as_str()) {
-            world.entity_mut(entity).insert(bsengine_core::Parent(parent_entity));
+            world
+                .entity_mut(entity)
+                .insert(bsengine_core::Parent(parent_entity));
         } else if parent_raw_name == new_root.name {
             world.entity_mut(entity).insert(bsengine_core::Parent(root));
         } else {
@@ -702,10 +721,7 @@ mod tests {
         let desc = snapshot_entity_as_descriptor(app.world(), &reg, entity);
 
         assert_eq!(desc.name, "Body");
-        assert_eq!(
-            desc.transform.as_ref().unwrap().position,
-            [1.0, 2.0, 3.0]
-        );
+        assert_eq!(desc.transform.as_ref().unwrap().position, [1.0, 2.0, 3.0]);
         assert_eq!(desc.primitive, Some(bsengine_scene::Primitive::Sphere));
         assert_eq!(desc.opacity, Some(0.5));
     }
@@ -763,7 +779,10 @@ mod tests {
 
     #[test]
     fn resolve_field_keeps_live_when_it_differs_from_baseline() {
-        assert_eq!(resolve_field(&"overridden", &"baseline", &"new"), "overridden");
+        assert_eq!(
+            resolve_field(&"overridden", &"baseline", &"new"),
+            "overridden"
+        );
     }
 
     #[test]
@@ -808,7 +827,10 @@ mod tests {
         let live = baseline.clone(); // untouched since sync
 
         let merged = merge_components(&live, &baseline, &new);
-        assert_eq!(merged, vec![("pkg::Shield".to_string(), "(hp: 20)".to_string())]);
+        assert_eq!(
+            merged,
+            vec![("pkg::Shield".to_string(), "(hp: 20)".to_string())]
+        );
     }
 
     #[test]
@@ -818,7 +840,10 @@ mod tests {
         let live = vec![("pkg::Shield".to_string(), "(hp: 999)".to_string())]; // user edited it
 
         let merged = merge_components(&live, &baseline, &new);
-        assert_eq!(merged, vec![("pkg::Shield".to_string(), "(hp: 999)".to_string())]);
+        assert_eq!(
+            merged,
+            vec![("pkg::Shield".to_string(), "(hp: 999)".to_string())]
+        );
     }
 
     #[test]
@@ -828,7 +853,10 @@ mod tests {
         let live = vec![("pkg::Shield".to_string(), "(hp: 5)".to_string())];
 
         let merged = merge_components(&live, &baseline, &new);
-        assert_eq!(merged, vec![("pkg::Shield".to_string(), "(hp: 5)".to_string())]);
+        assert_eq!(
+            merged,
+            vec![("pkg::Shield".to_string(), "(hp: 5)".to_string())]
+        );
     }
 
     #[test]
@@ -838,7 +866,10 @@ mod tests {
         let live: Vec<(String, String)> = vec![];
 
         let merged = merge_components(&live, &baseline, &new);
-        assert_eq!(merged, vec![("pkg::Shield".to_string(), "(hp: 5)".to_string())]);
+        assert_eq!(
+            merged,
+            vec![("pkg::Shield".to_string(), "(hp: 5)".to_string())]
+        );
     }
 
     #[test]
@@ -892,11 +923,19 @@ mod tests {
         apply_merged_descriptor(app.world_mut(), entity, &reg, &live, &merged);
 
         assert_eq!(
-            app.world().get::<bsengine_scene::PrimitiveMesh>(entity).unwrap().0,
+            app.world()
+                .get::<bsengine_scene::PrimitiveMesh>(entity)
+                .unwrap()
+                .0,
             bsengine_scene::Primitive::Sphere
         );
         assert_eq!(
-            app.world().get::<bsengine_core::Material>(entity).unwrap().base_color.0.to_array(),
+            app.world()
+                .get::<bsengine_core::Material>(entity)
+                .unwrap()
+                .base_color
+                .0
+                .to_array(),
             [0.0, 1.0, 0.0]
         );
     }
@@ -924,7 +963,9 @@ mod tests {
         apply_merged_descriptor(app.world_mut(), entity, &reg, &live, &merged);
 
         assert!(
-            app.world().get::<bsengine_scene::PrimitiveMesh>(entity).is_none(),
+            app.world()
+                .get::<bsengine_scene::PrimitiveMesh>(entity)
+                .is_none(),
             "PrimitiveMesh must be removed when the merged descriptor no longer has a primitive"
         );
     }
@@ -958,7 +999,11 @@ mod tests {
         apply_merged_descriptor(app.world_mut(), entity, &reg, &live, &merged);
 
         let material = app.world().get::<bsengine_core::Material>(entity).unwrap();
-        assert_eq!(material.base_color.0.to_array(), [0.0, 0.0, 1.0], "color must update");
+        assert_eq!(
+            material.base_color.0.to_array(),
+            [0.0, 0.0, 1.0],
+            "color must update"
+        );
         assert_eq!(
             material.texture_id,
             Some(42),
@@ -1005,7 +1050,10 @@ mod tests {
     #[test]
     fn strip_instance_suffix_splits_at_the_last_hash_when_the_tail_is_numeric() {
         assert_eq!(strip_instance_suffix("Barrel#42"), Some(("Barrel", "42")));
-        assert_eq!(strip_instance_suffix("My#Weird#Name#7"), Some(("My#Weird#Name", "7")));
+        assert_eq!(
+            strip_instance_suffix("My#Weird#Name#7"),
+            Some(("My#Weird#Name", "7"))
+        );
     }
 
     #[test]
@@ -1018,8 +1066,14 @@ mod tests {
     #[test]
     fn instance_suffix_is_recovered_from_any_one_matching_child() {
         let mut app = new_app();
-        let a = app.world_mut().spawn(bsengine_scene::Name("Barrel#7".to_string())).id();
-        let b = app.world_mut().spawn(bsengine_scene::Name("Scope#7".to_string())).id();
+        let a = app
+            .world_mut()
+            .spawn(bsengine_scene::Name("Barrel#7".to_string()))
+            .id();
+        let b = app
+            .world_mut()
+            .spawn(bsengine_scene::Name("Scope#7".to_string()))
+            .id();
 
         assert_eq!(instance_suffix(app.world(), &[a, b]), Some("7".to_string()));
     }
@@ -1063,10 +1117,12 @@ mod tests {
                 .map(|(e, _)| e)
                 .unwrap()
         };
-        app.world_mut().entity_mut(barrel).insert(bsengine_core::Transform {
-            position: glam::Vec3::new(5.0, 0.0, 0.0).into(),
-            ..Default::default()
-        });
+        app.world_mut()
+            .entity_mut(barrel)
+            .insert(bsengine_core::Transform {
+                position: glam::Vec3::new(5.0, 0.0, 0.0).into(),
+                ..Default::default()
+            });
 
         let new = parse(
             r#"PrefabDescriptor(entities: [
@@ -1091,12 +1147,20 @@ mod tests {
             "an entity with no structural change must keep its live Entity id, not respawn"
         );
         assert_eq!(
-            app.world().get::<bsengine_core::Transform>(barrel_after).unwrap().position.0.to_array(),
+            app.world()
+                .get::<bsengine_core::Transform>(barrel_after)
+                .unwrap()
+                .position
+                .0
+                .to_array(),
             [5.0, 0.0, 0.0],
             "the user's manual transform override must survive the resync"
         );
         assert_eq!(
-            app.world().get::<bsengine_scene::PrimitiveMesh>(barrel_after).unwrap().0,
+            app.world()
+                .get::<bsengine_scene::PrimitiveMesh>(barrel_after)
+                .unwrap()
+                .0,
             bsengine_scene::Primitive::Sphere,
             "the unoverridden primitive field must still update to the new file's value"
         );
@@ -1177,10 +1241,15 @@ mod tests {
         // must be swept away when the source removes Barrel entirely.
         app.world_mut()
             .entity_mut(barrel)
-            .insert(bsengine_scene::PrimitiveMesh(bsengine_scene::Primitive::Sphere));
+            .insert(bsengine_scene::PrimitiveMesh(
+                bsengine_scene::Primitive::Sphere,
+            ));
         let flag = app
             .world_mut()
-            .spawn((bsengine_scene::Name("Flag".to_string()), bsengine_core::Parent(barrel)))
+            .spawn((
+                bsengine_scene::Name("Flag".to_string()),
+                bsengine_core::Parent(barrel),
+            ))
             .id();
 
         let new = parse(
@@ -1192,7 +1261,10 @@ mod tests {
             std::collections::HashSet::from(["assets/prefabs/turret.ron".to_string()]);
         resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
 
-        assert!(app.world().get_entity(barrel).is_none(), "Barrel must be despawned");
+        assert!(
+            app.world().get_entity(barrel).is_none(),
+            "Barrel must be despawned"
+        );
         assert!(
             app.world().get_entity(flag).is_none(),
             "Flag must cascade-despawn with its parent, despite being a manual addition"
@@ -1236,9 +1308,14 @@ mod tests {
 
         let barrel_count = {
             let mut q = app.world_mut().query::<&bsengine_scene::Name>();
-            q.iter(app.world()).filter(|n| n.0.starts_with("Barrel#")).count()
+            q.iter(app.world())
+                .filter(|n| n.0.starts_with("Barrel#"))
+                .count()
         };
-        assert_eq!(barrel_count, 0, "a user-deleted prefab-authored entity must not come back");
+        assert_eq!(
+            barrel_count, 0,
+            "a user-deleted prefab-authored entity must not come back"
+        );
     }
 
     #[test]
@@ -1277,7 +1354,12 @@ mod tests {
         resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
 
         assert_eq!(
-            app.world().get::<bsengine_core::Transform>(root).unwrap().position.0.to_array(),
+            app.world()
+                .get::<bsengine_core::Transform>(root)
+                .unwrap()
+                .position
+                .0
+                .to_array(),
             [10.0, 0.0, 0.0],
             "the root's transform must stay exactly what the instance had, ignoring the new file \
              entirely -- root transform is never diffed, unlike every other representative field"
@@ -1320,9 +1402,14 @@ mod tests {
                 .find(|(_, n)| n.0.starts_with("Scope#"))
                 .map(|(e, _)| e)
         };
-        assert!(scope.is_some(), "the newly-added Scope entity must be spawned");
+        assert!(
+            scope.is_some(),
+            "the newly-added Scope entity must be spawned"
+        );
         assert_eq!(
-            app.world().get::<bsengine_core::Parent>(scope.unwrap()).map(|p| p.0),
+            app.world()
+                .get::<bsengine_core::Parent>(scope.unwrap())
+                .map(|p| p.0),
             Some(root),
             "the new entity must be parented correctly"
         );

@@ -69,7 +69,10 @@ mod tests {
             })
             .id();
         assert_eq!(
-            world.get::<PrefabInstanceBaseline>(entity).unwrap().synced_ron,
+            world
+                .get::<PrefabInstanceBaseline>(entity)
+                .unwrap()
+                .synced_ron,
             "PrefabDescriptor(entities: [])"
         );
     }

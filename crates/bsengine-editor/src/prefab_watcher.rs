@@ -19,9 +19,9 @@
 
 use bevy_app::{App, Plugin, Startup, Update};
 use bevy_ecs::prelude::{Commands, Entity, IntoSystemConfigs, Res, Resource, World};
-use bsengine_core::{Parent, PrefabInstance};
 #[cfg(test)]
 use bsengine_core::Transform;
+use bsengine_core::{Parent, PrefabInstance};
 #[cfg(test)]
 use bsengine_scene::{Name, TransformDescriptor};
 use notify_debouncer_full::{
@@ -1307,7 +1307,8 @@ mod tests {
 
         let resolved_a = bsengine_core::resolve_project_path(Some(&project_dir), &a_path);
         let content = std::fs::read_to_string(&resolved_a).unwrap();
-        let a_descriptor: bsengine_scene::types::PrefabDescriptor = ron::from_str(&content).unwrap();
+        let a_descriptor: bsengine_scene::types::PrefabDescriptor =
+            ron::from_str(&content).unwrap();
 
         let paths = nested_prefab_source_paths(&a_path, &a_descriptor, Some(&project_dir));
 
@@ -1468,8 +1469,14 @@ mod tests {
         .unwrap();
         let own_source_paths =
             std::collections::HashSet::from(["assets/prefabs/turret.ron".to_string()]);
-        crate::prefab_merge::resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths)
-            .unwrap();
+        crate::prefab_merge::resync_instance(
+            app.world_mut(),
+            root,
+            &baseline,
+            &new,
+            &own_source_paths,
+        )
+        .unwrap();
 
         let nested_instance_found = {
             let mut q = app.world_mut().query::<&bsengine_core::PrefabInstance>();

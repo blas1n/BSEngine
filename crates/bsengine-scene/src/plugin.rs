@@ -775,8 +775,13 @@ pub fn spawn_single_entity(world: &mut World, descriptor: &EntityDescriptor) -> 
         builder.insert((
             Transform {
                 position: Vec3::from(t.position).into(),
-                rotation: Quat::from_xyzw(t.rotation[0], t.rotation[1], t.rotation[2], t.rotation[3])
-                    .into(),
+                rotation: Quat::from_xyzw(
+                    t.rotation[0],
+                    t.rotation[1],
+                    t.rotation[2],
+                    t.rotation[3],
+                )
+                .into(),
                 scale: Vec3::from(t.scale).into(),
             },
             GlobalTransform::default(),
@@ -787,7 +792,11 @@ pub fn spawn_single_entity(world: &mut World, descriptor: &EntityDescriptor) -> 
     }
     if descriptor.emissive.is_some() || descriptor.color.is_some() {
         builder.insert(Material {
-            emissive: descriptor.emissive.map(Vec3::from).unwrap_or(Vec3::ZERO).into(),
+            emissive: descriptor
+                .emissive
+                .map(Vec3::from)
+                .unwrap_or(Vec3::ZERO)
+                .into(),
             base_color: descriptor.color.map(Vec3::from).unwrap_or(Vec3::ONE).into(),
             opacity: descriptor.opacity.unwrap_or(1.0),
             ..Default::default()
@@ -934,7 +943,12 @@ mod tests {
 
         assert_eq!(app.world().get::<Name>(entity).unwrap().0, "Standalone");
         assert_eq!(
-            app.world().get::<Transform>(entity).unwrap().position.0.to_array(),
+            app.world()
+                .get::<Transform>(entity)
+                .unwrap()
+                .position
+                .0
+                .to_array(),
             [1.0, 2.0, 3.0]
         );
     }
@@ -960,7 +974,10 @@ mod tests {
             super::instantiate_prefab_reference(app.world_mut(), "NestedRef", &prefab_ref, None)
                 .expect("a project-relative bare-path reference must resolve against ProjectDir");
 
-        assert!(app.world().get::<bsengine_core::PrefabInstance>(root).is_some());
+        assert!(app
+            .world()
+            .get::<bsengine_core::PrefabInstance>(root)
+            .is_some());
     }
 
     #[test]

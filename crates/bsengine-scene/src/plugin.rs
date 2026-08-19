@@ -719,6 +719,83 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
     }
 }
 
+/// Resolves `prefab_ref` (an asset-identity-aware or bare-path prefab
+/// reference, exactly as `EntityDescriptor::prefab` stores it) against the
+/// current `AssetIndex`/`ProjectDir`, then instantiates it. This is the same
+/// two-step resolution `spawn_scene_entities`'s own `entity.prefab` branch
+/// performs (`resolve_asset_ref` then `resolve_project_path`) before calling
+/// `instantiate_prefab_from_path` -- both steps are required, not optional:
+/// skipping `resolve_asset_ref` breaks a GUID-identified reference surviving
+/// a rename, and skipping `resolve_project_path` means a project-relative
+/// path (the common case for every real `games/*` prefab) is opened relative
+/// to the process's CWD instead and fails to read at all (see
+/// `spawn_scene_entities`'s own comment on this exact failure mode). Exposed
+/// as a public function because `bsengine-editor`'s prefab-merge resync
+/// needs to resolve a single nested reference on demand, outside of spawning
+/// a whole entity list via `spawn_scene_entities`.
+pub fn instantiate_prefab_reference(
+    world: &mut World,
+    entity_name: &str,
+    prefab_ref: &AssetRef,
+    root_transform: Option<TransformDescriptor>,
+) -> Result<Entity, String> {
+    let project_dir = world.get_resource::<bsengine_core::ProjectDir>().cloned();
+    let prefab_path = resolve_asset_ref(
+        world.get_resource::<AssetIndex>(),
+        project_dir.as_ref(),
+        entity_name,
+        "prefab",
+        prefab_ref,
+    );
+    let prefab_path = bsengine_core::resolve_project_path(project_dir.as_ref(), &prefab_path);
+    instantiate_prefab_from_path(world, &prefab_path, Some(entity_name), root_transform, None)
+}
+
+/// Spawns exactly one entity from `descriptor`, with none of
+/// `spawn_scene_entities`'s batch machinery (multi-entity asset-ref
+/// pre-resolution, `parent:` name wiring across the batch) -- callers that
+/// already know the resolved parent `Entity` and only need one entity at a
+/// time (currently: `bsengine-editor`'s prefab-merge resync, spawning a
+/// single newly-added prefab entity mid-diff) call this directly instead.
+/// Does not handle `descriptor.prefab` (a nested prefab reference) --
+/// callers with a `prefab:`-bearing descriptor must call
+/// `instantiate_prefab_reference` instead, same as `spawn_scene_entities`
+/// itself branches before ever reaching this code path.
+///
+/// Covers the same representative field set `bsengine-editor`'s prefab
+/// merge algorithm covers: `transform`, `primitive`, `emissive`/`color`/
+/// `opacity`. Any other field on `descriptor` is silently ignored -- adding
+/// the remaining field groups (`gltf`, `camera`, lights, physics, `script`,
+/// `texture`) is a follow-up PR's job, exactly like the merge algorithm's
+/// own scope limit.
+pub fn spawn_single_entity(world: &mut World, descriptor: &EntityDescriptor) -> Entity {
+    let mut builder = world.spawn(Name(descriptor.name.clone()));
+
+    if let Some(t) = &descriptor.transform {
+        builder.insert((
+            Transform {
+                position: Vec3::from(t.position).into(),
+                rotation: Quat::from_xyzw(t.rotation[0], t.rotation[1], t.rotation[2], t.rotation[3])
+                    .into(),
+                scale: Vec3::from(t.scale).into(),
+            },
+            GlobalTransform::default(),
+        ));
+    }
+    if let Some(prim) = &descriptor.primitive {
+        builder.insert(PrimitiveMesh(prim.clone()));
+    }
+    if descriptor.emissive.is_some() || descriptor.color.is_some() {
+        builder.insert(Material {
+            emissive: descriptor.emissive.map(Vec3::from).unwrap_or(Vec3::ZERO).into(),
+            base_color: descriptor.color.map(Vec3::from).unwrap_or(Vec3::ONE).into(),
+            opacity: descriptor.opacity.unwrap_or(1.0),
+            ..Default::default()
+        });
+    }
+    builder.id()
+}
+
 /// Registers every `bsengine_core` component type an `EntityDescriptor`'s
 /// `components:` field (arbitrary reflected components, e.g. `Shield`,
 /// `SaveData`, `AnimationStateMachine`, `NavMeshAgent`, `Bloom`, `ToneMap`)
@@ -838,6 +915,52 @@ mod tests {
         let path = std::env::temp_dir().join(filename);
         std::fs::write(&path, content).unwrap();
         path.to_str().unwrap().to_string()
+    }
+
+    #[test]
+    fn spawn_single_entity_creates_one_entity_with_transform_and_primitive() {
+        let mut app = bsengine_app::new_app();
+        let descriptor = crate::types::EntityDescriptor {
+            name: "Standalone".to_string(),
+            transform: Some(crate::types::TransformDescriptor {
+                position: [1.0, 2.0, 3.0],
+                ..Default::default()
+            }),
+            primitive: Some(crate::types::Primitive::Cube),
+            ..Default::default()
+        };
+
+        let entity = super::spawn_single_entity(app.world_mut(), &descriptor);
+
+        assert_eq!(app.world().get::<Name>(entity).unwrap().0, "Standalone");
+        assert_eq!(
+            app.world().get::<Transform>(entity).unwrap().position.0.to_array(),
+            [1.0, 2.0, 3.0]
+        );
+    }
+
+    #[test]
+    fn instantiate_prefab_reference_resolves_a_project_relative_path_against_project_dir() {
+        let mut app = bsengine_app::new_app();
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = bsengine_core::ProjectDir(dir.path().to_string_lossy().to_string());
+        app.insert_resource(project_dir.clone());
+        let prefabs_dir = dir.path().join("assets").join("prefabs");
+        std::fs::create_dir_all(&prefabs_dir).unwrap();
+        std::fs::write(
+            prefabs_dir.join("nested.ron"),
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "NestedRoot", primitive: Some(Cube)),
+            ])"#,
+        )
+        .unwrap();
+
+        let prefab_ref = crate::types::AssetRef::Path("assets/prefabs/nested.ron".to_string());
+        let root =
+            super::instantiate_prefab_reference(app.world_mut(), "NestedRef", &prefab_ref, None)
+                .expect("a project-relative bare-path reference must resolve against ProjectDir");
+
+        assert!(app.world().get::<bsengine_core::PrefabInstance>(root).is_some());
     }
 
     #[test]

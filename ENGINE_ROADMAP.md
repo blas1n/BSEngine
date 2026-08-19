@@ -1945,8 +1945,13 @@ C는 합치지 않고 방향을 명시, 그리고 **축별 op 45개 축소는 it
   필요해지면 재검토.
 - **프레임 프로파일러/GPU 디버거** — 성능 병목이 실제로 보고된 적 없음.
 - **빌드/패키징/배포 파이프라인(콘솔/모바일 export)** — 현재 배포 대상이 없음.
-- **프리팹 시스템** — MCP 기반 배치 스폰(`spawn` 배치, 태그/쿼리)이 부분적으로 대체
-  역할을 하고 있어 우선순위 낮음.
+- ~~**프리팹 시스템**~~ — 2026-08-14~19 사이 별도 브레인스토밍/설계 트랙으로 진행되어
+  이 로드맵 밖에서 완료됨: 씬파일/스크립트/에디터 인스턴스화(#1787), 생성 경로(MCP
+  `prefab_write` + 에디터 Create Prefab, #1788), live-sync(`PrefabInstance` provenance +
+  파일 워처 기반 push-sync, 2026-08-19 master 직접 병합)까지. **남은 것:** override
+  tracking(인스턴스별 수동 수정이 push-sync에 덮어써지지 않게 보존)과 pull sync("Apply to
+  Prefab") — override tracking 없이는 pull sync가 의미가 없어 이 순서로만 가능. 설계 문서에서
+  의도적으로 범위 밖으로 남긴 것.
 - **타임라인/시퀀서** — 컷신 요구가 있는 콘텐츠가 아직 없음.
 - **LOD / 오클루전 컬링** — 프러스텀 컬링만으로 현재 씬 규모(수십~수백 엔티티)는 충분.
 
@@ -2012,3 +2017,6 @@ C는 합치지 않고 방향을 명시, 그리고 **축별 op 45개 축소는 it
 | 21. Real pause: `bsengine_core::PauseState` actually gates `PhysicsPlugin`/`NavMeshPlugin`; `Bsengine.pause`/`resume`/`isPaused` scripting API; mini-arena's pause menu now actually stops the Enemy and Player instead of just showing a panel | 2026-07-30 | [#1742](https://github.com/blas1n/BSEngine/pull/1742) |
 | 22. Point light shadows via linear-distance cube arrays (up to `MAX_POINT_LIGHTS`=8, 6 faces each, `R32Float` texture array), sampled in `MESH_WGSL` via manual cube-face selection; mini-arena's `ArenaLight` now casts a shadow automatically | 2026-07-31 | branch `feat/point-light-shadows` (PR #TBD) |
 | 23. `bevy_asset` adoption: `LoadedGltf`/`ShaderSource`/`AudioSourceAsset`/`TextureAsset` migrated to `Handle<T>`-based `AssetLoader`s (glTF, custom WGSL shaders, audio, textures incl. skybox), replacing 9 separate direct `std::fs::read` call sites; scene RON/scripting API/MCP tool surfaces stay path-string based, `AssetServer` converts at the boundary; sync-blocking initial load preserved (no behavior change); `games/tilt-run`'s 7 E2E replays all pass, `games/mini-arena`'s replay reliably fails on this environment (confirmed via 10 master + 14 HEAD runs) but proven — via reproduction on unmodified master — to be a pre-existing, wall-clock-timing-dependent flakiness unrelated to this migration; also surfaced local-only test stack overflows, later root-caused (libtest runs tests on spawned threads that never saw the `/STACK:` main-thread setting) and fixed on branch `fix/test-thread-stack-size` — see item 23's own notes above | 2026-07-31 | PR #TBD |
+| 프리팹 시스템 — 씬파일(`prefab:` 필드)/스크립트(`Bsengine.instantiatePrefab`)/에디터(드래그앤드롭) 인스턴스화, 중첩 prefab 참조, 사이클 감지 | 2026-08-14 | [#1787](https://github.com/blas1n/BSEngine/pull/1787) |
+| 프리팹 생성 경로 — 라이브 엔티티 서브트리를 `assets/prefabs/*.ron`으로 저장 (MCP `prefab_write` + 에디터 Create Prefab 버튼); path-traversal/cycle-guard 버그 수정 포함 | 2026-08-18 | [#1788](https://github.com/blas1n/BSEngine/pull/1788) |
+| 프리팹 live-sync (push-sync 방향만) — `PrefabInstance` provenance 컴포넌트 + `PrefabWatcherPlugin`(파일 워처, `bsengine-asset::AssetWatcherPlugin` 패턴 재사용)이 `assets/prefabs/*.ron` 변경 시 배치된 인스턴스를 despawn+재인스턴스화; 리뷰 라운드에서 발견된 실제 버그 3개 수정(구조 검증 없이 despawn하는 문제, 무관한 인스턴스가 재부모화 시 콜래터럴 despawn되는 문제, 다단계 중첩에서 좀비 인스턴스가 새는 문제); PR 없이 로컬 병합 후 직접 push (개인 프로젝트, 사용자 승인) | 2026-08-19 | 직접 병합 (PR 없음), 커밋 `f29a2798`..`1cd08bf6` |

@@ -15,6 +15,33 @@
 use bevy_ecs::prelude::{Entity, World};
 use bevy_reflect::TypeRegistry;
 
+/// Splits `live_name` at its last `'#'` into `(base, suffix)`, requiring the
+/// suffix to be non-empty and all-ASCII-digit -- the exact shape
+/// `instantiate_prefab`'s `rewrite_name` closure produces
+/// (`format!("{name}#{suffix}")` with `suffix: u64`). Returns `None` for
+/// anything else, e.g. a hand-authored name that happens to contain `'#'`
+/// followed by non-digits, or no `'#'` at all.
+fn strip_instance_suffix(live_name: &str) -> Option<(&str, &str)> {
+    let (base, tail) = live_name.rsplit_once('#')?;
+    if !tail.is_empty() && tail.bytes().all(|b| b.is_ascii_digit()) {
+        Some((base, tail))
+    } else {
+        None
+    }
+}
+
+/// Recovers this instance's shared naming suffix from any one of its
+/// children -- every child of one `instantiate_prefab` call shares the exact
+/// same suffix by construction, so the first one found is as good as any.
+/// `None` if `children` is empty (a single-entity prefab, nothing to match)
+/// or if, unexpectedly, none of them have a suffixed `Name`.
+fn instance_suffix(world: &World, children: &[Entity]) -> Option<String> {
+    children.iter().find_map(|&child| {
+        let name = world.get::<bsengine_scene::Name>(child)?;
+        strip_instance_suffix(&name.0).map(|(_, suffix)| suffix.to_string())
+    })
+}
+
 /// Snapshots a live entity's current state into an [`EntityDescriptor`],
 /// covering this PR's representative field set (`transform`, `primitive`,
 /// `emissive`/`color`/`opacity`, and the reflected `components` catalog) plus
@@ -701,5 +728,33 @@ mod tests {
         apply_merged_descriptor(app.world_mut(), entity, &reg, &live, &merged);
 
         assert!(app.world().get::<bsengine_core::Shield>(entity).is_some());
+    }
+
+    #[test]
+    fn strip_instance_suffix_splits_at_the_last_hash_when_the_tail_is_numeric() {
+        assert_eq!(strip_instance_suffix("Barrel#42"), Some(("Barrel", "42")));
+        assert_eq!(strip_instance_suffix("My#Weird#Name#7"), Some(("My#Weird#Name", "7")));
+    }
+
+    #[test]
+    fn strip_instance_suffix_rejects_a_non_numeric_or_missing_tail() {
+        assert_eq!(strip_instance_suffix("NoHashAtAll"), None);
+        assert_eq!(strip_instance_suffix("Trailing#"), None);
+        assert_eq!(strip_instance_suffix("NotDigits#abc"), None);
+    }
+
+    #[test]
+    fn instance_suffix_is_recovered_from_any_one_matching_child() {
+        let mut app = new_app();
+        let a = app.world_mut().spawn(bsengine_scene::Name("Barrel#7".to_string())).id();
+        let b = app.world_mut().spawn(bsengine_scene::Name("Scope#7".to_string())).id();
+
+        assert_eq!(instance_suffix(app.world(), &[a, b]), Some("7".to_string()));
+    }
+
+    #[test]
+    fn instance_suffix_is_none_with_no_children() {
+        let app = new_app();
+        assert_eq!(instance_suffix(app.world(), &[]), None);
     }
 }

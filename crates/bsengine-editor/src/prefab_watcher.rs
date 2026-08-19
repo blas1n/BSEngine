@@ -1,23 +1,28 @@
-//! Despawn-and-reinstantiate resync for prefab instances whose source file
-//! changed on disk, plus the file watcher that detects those changes.
+//! Patch-in-place resync for prefab instances whose source file changed on
+//! disk, plus the file watcher that detects those changes.
 //!
 //! [`resync_prefab_instances`] is the resync itself: given a project-relative
 //! prefab path, it finds every live [`PrefabInstance`] root pointing at that
-//! path, despawns each one's full subtree, and re-instantiates fresh from the
-//! file's current content -- preserving the instance's original name,
-//! transform, and parent. It takes a plain path and `&mut World`, so it can be
-//! (and is, in this crate's tests) driven directly without any debouncer or
-//! timing involved.
-//!
-//! This is a **destructive** sync: without override tracking (explicitly out
-//! of scope -- see the design doc), any manual edit made directly to an
-//! instance (added children, tweaked child transforms, attached components)
-//! is lost the next time that instance's source prefab changes and gets
-//! synced.
+//! path and, for each one with a recorded [`bsengine_core::PrefabInstanceBaseline`],
+//! delegates to [`crate::prefab_merge::resync_instance`] -- which merges the
+//! instance in place field-by-field, preserving the instance's original name,
+//! transform, and parent, and preserving any manually-overridden field or
+//! manually-added child rather than clobbering it (see
+//! `docs/superpowers/specs/2026-08-19-prefab-override-tracking-design.md`).
+//! Structural removals in the source file still cascade away unconditionally,
+//! regardless of overrides underneath. A root with no recorded baseline (a
+//! scene saved before override tracking existed) is left untouched once while
+//! a fresh baseline is recorded, so tracking begins from the next change.
+//! This function takes a plain path and `&mut World`, so it can be (and is,
+//! in this crate's tests) driven directly without any debouncer or timing
+//! involved.
 
 use bevy_app::{App, Plugin, Startup, Update};
 use bevy_ecs::prelude::{Commands, Entity, IntoSystemConfigs, Res, Resource, World};
-use bsengine_core::{Parent, PrefabInstance, Transform};
+use bsengine_core::{Parent, PrefabInstance};
+#[cfg(test)]
+use bsengine_core::Transform;
+#[cfg(test)]
 use bsengine_scene::{Name, TransformDescriptor};
 use notify_debouncer_full::{
     new_debouncer,
@@ -182,15 +187,22 @@ pub(crate) fn despawn_subtree(
 
 /// Resyncs every live [`PrefabInstance`] root whose `source_path` matches
 /// `changed_source_path` (a project-relative path, e.g.
-/// `"assets/prefabs/turret.ron"`): despawns each instance's full subtree and
-/// re-instantiates it fresh from the file's current content, preserving each
-/// instance's original name, transform, and parent.
+/// `"assets/prefabs/turret.ron"`): patches each instance in place field by
+/// field via [`crate::prefab_merge::resync_instance`], preserving each
+/// instance's original name, transform, and parent, and preserving any
+/// manually-overridden field or manually-added child rather than clobbering
+/// it. Structural removals in the source file still cascade away
+/// unconditionally, regardless of overrides underneath.
 ///
 /// A missing, unparseable, or structurally invalid (wrong root count, a
 /// duplicate entity name) file leaves every matching instance untouched
 /// rather than despawning anything -- the existence/parse/structural-validity
 /// check happens before any entity is touched, precisely so a bad edit can't
-/// destroy a working instance on the way to failing.
+/// destroy a working instance on the way to failing. An instance with no
+/// recorded [`bsengine_core::PrefabInstanceBaseline`] (a scene saved before
+/// override tracking existed) is likewise left untouched this one time,
+/// while a fresh baseline is recorded so tracking begins from the next
+/// change.
 pub(crate) fn resync_prefab_instances(world: &mut World, changed_source_path: &str) {
     let roots: Vec<Entity> = {
         let mut q = world.query::<(Entity, &PrefabInstance)>();

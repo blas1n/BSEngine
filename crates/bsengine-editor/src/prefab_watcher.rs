@@ -540,7 +540,7 @@ mod tests {
     ])"#;
 
     #[test]
-    fn resync_preserves_the_instances_name_transform_and_parent() {
+    fn resync_preserves_the_instances_name_transform_and_parent_and_patches_in_place() {
         let dir = tempfile::tempdir().unwrap();
         let project_dir = ProjectDir(dir.path().to_string_lossy().to_string());
         let source_path = write_prefab(dir.path(), "turret", TURRET_V1);
@@ -572,9 +572,10 @@ mod tests {
             .find(|(_, n)| n.0 == "MyTurret")
             .map(|(e, _)| e)
             .expect("the resynced instance must keep its exact original name");
-        assert_ne!(
+        assert_eq!(
             new_root, old_root,
-            "resync must spawn a fresh entity, not reuse the old id"
+            "an instance whose fields aren't overridden must patch in place, keeping the \
+             same Entity id across a resync rather than respawning"
         );
 
         let transform = app.world().get::<Transform>(new_root).unwrap();
@@ -839,9 +840,10 @@ mod tests {
                 .map(|(e, _)| e)
                 .expect("a resynced nested instance must still exist")
         };
-        assert_ne!(
+        assert_eq!(
             nested_root_after, nested_root_before,
-            "the nested subtree must have been despawned and re-instantiated"
+            "the nested subtree's root has no overridden fields, so it must patch in place \
+             rather than respawn"
         );
         assert_eq!(
             app.world().get::<Parent>(nested_root_after).map(|p| p.0),
@@ -889,9 +891,10 @@ mod tests {
                 .map(|(e, _)| e)
                 .expect("a resynced outer instance must still exist under the same name")
         };
-        assert_ne!(
+        assert_eq!(
             outer_root_after, outer_root_before,
-            "the whole outer subtree must have been despawned and re-instantiated"
+            "the outer root has no overridden fields, so it must patch in place rather than \
+             respawn"
         );
 
         let names: Vec<String> = app
@@ -913,7 +916,9 @@ mod tests {
         };
         assert_eq!(
             nested_instance_count, 1,
-            "resyncing the outer file must re-resolve its nested prefab reference exactly once"
+            "the nested prefab reference is unchanged between OUTER_V1 and OUTER_V2, so it \
+             must be left alone entirely rather than re-resolved -- the original nested \
+             instance survives untouched, not despawned-and-recreated"
         );
     }
 
@@ -934,9 +939,18 @@ mod tests {
         // -- so live-sync's own protection against collateral despawn has to
         // recognize the *whole* chain as part of outer's own composition,
         // not just its direct child, or a grand-nested instance (inner.ron
-        // here) gets wrongly protected from outer's despawn, orphaned under
-        // a despawned entity, while outer's re-instantiation creates a
-        // second, fresh one -- leaking a zombie.
+        // here) would be wrongly protected from a despawn that does need to
+        // reach it, leaving it orphaned under a despawned entity while a
+        // second, fresh one gets created alongside it -- a leaked zombie.
+        // In this specific test that despawn never actually happens: the
+        // MiddleRef entry is byte-for-byte unchanged between outer.ron's two
+        // versions, so nested_reference_changed leaves the whole
+        // middle.ron/inner.ron chain alone rather than despawning and
+        // recreating it. The single surviving inner.ron instance below is
+        // therefore the original one, left untouched -- not a fresh
+        // replacement -- but the deep own_source_paths tracking this test
+        // guards is still what a despawn reaching into a nested chain would
+        // rely on.
         write_prefab(
             dir.path(),
             "inner",
@@ -1002,7 +1016,8 @@ mod tests {
         assert_eq!(
             inner_instance_count, 1,
             "resyncing the outer file must not leave a zombie grand-nested inner.ron \
-             instance behind alongside the freshly re-resolved one: {names:?}"
+             instance behind alongside the original one, which was left alone rather than \
+             recreated since MiddleRef didn't change: {names:?}"
         );
     }
 
@@ -1081,7 +1096,8 @@ mod tests {
     }
 
     #[test]
-    fn resync_warns_rather_than_panics_when_a_matching_root_is_a_live_descendant_of_another() {
+    fn resync_independently_patches_two_instances_of_the_same_source_even_when_one_is_a_live_child_of_the_other(
+    ) {
         let dir = tempfile::tempdir().unwrap();
         let project_dir = ProjectDir(dir.path().to_string_lossy().to_string());
         let source_path = write_prefab(dir.path(), "turret", TURRET_V1);
@@ -1109,11 +1125,23 @@ mod tests {
         .unwrap();
 
         // Two instances of the *same* source path, with B a live descendant
-        // of A -- exercises the `world.get_entity(root).is_none()` branch at
-        // the top of the `for root in roots` loop (B is swept up as a normal
-        // part of A's real despawn_subtree, since both share
-        // `protected_source_path`, so by the time the loop reaches B's own
-        // entry in `roots` it is already gone).
+        // of A. Under the old despawn-everything design, B got destroyed as
+        // collateral damage of A's despawn_subtree walk (B's own
+        // PrefabInstance shares A's own source path, so despawn_subtree's
+        // "foreign source path" protection doesn't apply to it -- only a
+        // *foreign* source path is protected). Under the new patch-in-place
+        // design, A's own resync never despawns anything for a plain
+        // field-level merge -- collect_own_descendants walking from A still
+        // finds B_root (same not-foreign reasoning), but B_root's Name
+        // ("InstanceB") doesn't match any raw name in the turret prefab's own
+        // entity list, so the structural-diff loop (which only ever iterates
+        // over names drawn from baseline/new) never touches B at all -- B
+        // simply survives, untouched, exactly where it was. And since B
+        // itself also carries a PrefabInstanceBaseline (every real
+        // instantiation gets one), resync_prefab_instances's own top-level
+        // loop -- which finds *every* root with a matching
+        // PrefabInstance.source_path, and both A and B qualify -- resyncs B
+        // independently too, picking up the same file change A did.
         app.world_mut()
             .entity_mut(instance_b_root)
             .insert(Parent(instance_a_root));
@@ -1130,12 +1158,13 @@ mod tests {
             .collect();
         assert!(
             names.contains(&"InstanceA".to_string()),
-            "InstanceA must have been resynced successfully: {names:?}"
+            "InstanceA must still exist: {names:?}"
         );
         assert!(
-            !names.contains(&"InstanceB".to_string()),
-            "InstanceB was a live descendant of InstanceA and got swept up in A's real \
-             despawn (same source path, so not protected); it must not reappear: {names:?}"
+            names.contains(&"InstanceB".to_string()),
+            "InstanceB has no overridden fields, so unlike the old despawn-everything resync, \
+             it must survive being a live child of InstanceA and patch in place independently, \
+             rather than being swept up as collateral: {names:?}"
         );
 
         let instance_count = {
@@ -1145,8 +1174,14 @@ mod tests {
                 .count()
         };
         assert_eq!(
-            instance_count, 1,
-            "exactly one live instance of the shared source path should remain: {names:?}"
+            instance_count, 2,
+            "both independent instances of the shared source path must remain: {names:?}"
+        );
+
+        let scope_count = names.iter().filter(|n| n.starts_with("Scope#")).count();
+        assert_eq!(
+            scope_count, 2,
+            "both instances must independently pick up the new Scope child: {names:?}"
         );
     }
 
@@ -1189,9 +1224,9 @@ mod tests {
              sibling entity untouched"
         );
         assert!(
-            app.world().get_entity(standalone_root).is_none(),
-            "the standalone top-level nested instance must have been despawned and \
-             re-instantiated fresh, not left as the old entity"
+            app.world().get_entity(standalone_root).is_some(),
+            "the standalone top-level nested instance has no overridden fields, so it must \
+             patch in place (same Entity id) rather than respawn"
         );
 
         let names: Vec<String> = app
@@ -1432,6 +1467,134 @@ mod tests {
             nested_instance_found,
             "a brand-new nested prefab reference must be resolved via instantiate_prefab_from_path, \
              not silently spawned as an empty plain entity"
+        );
+    }
+
+    #[test]
+    fn resync_prefab_instances_preserves_an_override_end_to_end_through_the_real_baseline() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = ProjectDir(dir.path().to_string_lossy().to_string());
+        let source_path = write_prefab(dir.path(), "turret", TURRET_V1);
+
+        let mut app = new_app();
+        app.insert_resource(project_dir.clone());
+        register(&mut app);
+
+        let resolved = bsengine_core::resolve_project_path(Some(&project_dir), &source_path);
+        bsengine_scene::instantiate_prefab_from_path(
+            app.world_mut(),
+            &resolved,
+            Some("MyTurret"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let barrel = {
+            let mut q = app.world_mut().query::<(Entity, &Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0.starts_with("Barrel#"))
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        app.world_mut()
+            .entity_mut(barrel)
+            .insert(bsengine_scene::PrimitiveMesh(
+                bsengine_scene::Primitive::Sphere,
+            ));
+
+        write_prefab(dir.path(), "turret", TURRET_V2); // adds Scope, doesn't touch Barrel's primitive
+        resync_prefab_instances(app.world_mut(), &source_path);
+
+        assert_eq!(
+            app.world()
+                .get::<bsengine_scene::PrimitiveMesh>(barrel)
+                .unwrap()
+                .0,
+            bsengine_scene::Primitive::Sphere,
+            "the manually-overridden primitive must survive a real end-to-end resync"
+        );
+        let names: Vec<String> = app
+            .world_mut()
+            .query::<&Name>()
+            .iter(app.world())
+            .map(|n| n.0.clone())
+            .collect();
+        assert!(
+            names.iter().any(|n| n.starts_with("Scope#")),
+            "the new Scope child must still appear: {names:?}"
+        );
+    }
+
+    #[test]
+    fn resync_prefab_instances_falls_back_gracefully_with_no_recorded_baseline() {
+        let dir = tempfile::tempdir().unwrap();
+        let project_dir = ProjectDir(dir.path().to_string_lossy().to_string());
+        let source_path = write_prefab(dir.path(), "turret", TURRET_V1);
+
+        let mut app = new_app();
+        app.insert_resource(project_dir.clone());
+        register(&mut app);
+
+        let resolved = bsengine_core::resolve_project_path(Some(&project_dir), &source_path);
+        let root = bsengine_scene::instantiate_prefab_from_path(
+            app.world_mut(),
+            &resolved,
+            Some("MyTurret"),
+            None,
+            None,
+        )
+        .unwrap();
+        // Simulate a scene saved before this feature existed: strip the baseline
+        // that instantiate_prefab_from_path would normally have attached.
+        app.world_mut()
+            .entity_mut(root)
+            .remove::<bsengine_core::PrefabInstanceBaseline>();
+
+        write_prefab(dir.path(), "turret", TURRET_V2);
+        resync_prefab_instances(app.world_mut(), &source_path);
+
+        assert!(
+            app.world().get_entity(root).is_some(),
+            "an instance with no baseline must not be despawned outright"
+        );
+        assert!(
+            app.world()
+                .get::<bsengine_core::PrefabInstanceBaseline>(root)
+                .is_some(),
+            "a baseline must be recorded after this fallback resync, so tracking begins next time"
+        );
+
+        // Second change: now that a baseline exists, override tracking works normally.
+        let barrel = {
+            let mut q = app.world_mut().query::<(Entity, &Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0.starts_with("Barrel#"))
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        app.world_mut()
+            .entity_mut(barrel)
+            .insert(bsengine_scene::PrimitiveMesh(
+                bsengine_scene::Primitive::Sphere,
+            ));
+        write_prefab(
+            dir.path(),
+            "turret",
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(name: "Barrel", parent: Some("Body"), primitive: Some(Cube)),
+                EntityDescriptor(name: "Scope", parent: Some("Body"), primitive: Some(Cube)),
+            ])"#,
+        );
+        resync_prefab_instances(app.world_mut(), &source_path);
+        assert_eq!(
+            app.world()
+                .get::<bsengine_scene::PrimitiveMesh>(barrel)
+                .unwrap()
+                .0,
+            bsengine_scene::Primitive::Sphere,
+            "override tracking must be active starting from the self-healed baseline"
         );
     }
 }

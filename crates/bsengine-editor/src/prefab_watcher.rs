@@ -258,29 +258,50 @@ pub(crate) fn resync_prefab_instances(world: &mut World, changed_source_path: &s
             );
             continue;
         }
-        let Some(name) = world.get::<Name>(root).map(|n| n.0.clone()) else {
-            continue;
-        };
-        let transform_override = world.get::<Transform>(root).map(|t| TransformDescriptor {
-            position: t.position.0.to_array(),
-            rotation: t.rotation.0.to_array(),
-            scale: t.scale.0.to_array(),
-        });
-        let parent = world.get::<Parent>(root).map(|p| p.0);
 
-        despawn_subtree(world, root, &own_source_paths);
+        let baseline_ron = world
+            .get::<bsengine_core::PrefabInstanceBaseline>(root)
+            .map(|b| b.synced_ron.clone());
+        let baseline: Option<bsengine_scene::types::PrefabDescriptor> =
+            baseline_ron.as_deref().and_then(|s| ron::from_str(s).ok());
 
-        if let Err(e) = bsengine_scene::instantiate_prefab_from_path(
-            world,
-            &resolved_path,
-            Some(&name),
-            transform_override,
-            parent,
-        ) {
-            tracing::warn!(
-                "prefab live-sync: failed to resync instance '{name}' of \
-                 '{changed_source_path}': {e}"
-            );
+        match baseline {
+            Some(baseline) => {
+                match crate::prefab_merge::resync_instance(
+                    world,
+                    root,
+                    &baseline,
+                    &prefab,
+                    &own_source_paths,
+                ) {
+                    Ok(()) => {
+                        world
+                            .entity_mut(root)
+                            .insert(bsengine_core::PrefabInstanceBaseline {
+                                synced_ron: content.clone(),
+                            });
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "prefab live-sync: failed to merge-resync an instance of \
+                             '{changed_source_path}': {e}"
+                        );
+                    }
+                }
+            }
+            None => {
+                tracing::warn!(
+                    "prefab live-sync: an instance of '{changed_source_path}' has no recorded \
+                     baseline (likely a scene saved before override tracking existed); leaving \
+                     its fields untouched this time and recording a fresh baseline so tracking \
+                     begins from the next change"
+                );
+                world
+                    .entity_mut(root)
+                    .insert(bsengine_core::PrefabInstanceBaseline {
+                        synced_ron: content.clone(),
+                    });
+            }
         }
     }
 }

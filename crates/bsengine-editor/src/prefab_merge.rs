@@ -526,7 +526,9 @@ pub(crate) fn apply_merged_descriptor(
             });
         }
         None => {
-            world.entity_mut(entity).remove::<bsengine_core::PointLight>();
+            world
+                .entity_mut(entity)
+                .remove::<bsengine_core::PointLight>();
         }
     }
 
@@ -541,7 +543,9 @@ pub(crate) fn apply_merged_descriptor(
             });
         }
         None => {
-            world.entity_mut(entity).remove::<bsengine_core::SpotLight>();
+            world
+                .entity_mut(entity)
+                .remove::<bsengine_core::SpotLight>();
         }
     }
 
@@ -1752,7 +1756,10 @@ mod tests {
             ..live.clone()
         };
         apply_merged_descriptor(app.world_mut(), entity, &reg, &live, &merged);
-        let pl = app.world().get::<bsengine_core::PointLight>(entity).unwrap();
+        let pl = app
+            .world()
+            .get::<bsengine_core::PointLight>(entity)
+            .unwrap();
         assert_eq!(pl.color.0.to_array(), [1.0, 0.0, 0.0]);
         assert_eq!(pl.intensity, 2.0);
         assert_eq!(pl.range, 12.0);
@@ -1764,7 +1771,10 @@ mod tests {
             ..live2.clone()
         };
         apply_merged_descriptor(app.world_mut(), entity, &reg, &live2, &merged2);
-        assert!(app.world().get::<bsengine_core::PointLight>(entity).is_none());
+        assert!(app
+            .world()
+            .get::<bsengine_core::PointLight>(entity)
+            .is_none());
     }
 
     #[test]

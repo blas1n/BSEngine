@@ -840,9 +840,16 @@ mod tests {
 
     #[test]
     fn point_light_descriptor_supports_equality_comparison() {
-        let a = PointLightDescriptor { color: [1.0, 1.0, 1.0], intensity: 1.0, range: 10.0 };
+        let a = PointLightDescriptor {
+            color: [1.0, 1.0, 1.0],
+            intensity: 1.0,
+            range: 10.0,
+        };
         let b = a.clone();
-        let c = PointLightDescriptor { range: 20.0, ..a.clone() };
+        let c = PointLightDescriptor {
+            range: 20.0,
+            ..a.clone()
+        };
         assert_eq!(a, b);
         assert_ne!(a, c);
     }
@@ -857,7 +864,10 @@ mod tests {
             outer_angle_degrees: 30.0,
         };
         let b = a.clone();
-        let c = SpotLightDescriptor { outer_angle_degrees: 45.0, ..a.clone() };
+        let c = SpotLightDescriptor {
+            outer_angle_degrees: 45.0,
+            ..a.clone()
+        };
         assert_eq!(a, b);
         assert_ne!(a, c);
     }

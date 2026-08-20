@@ -15,6 +15,12 @@
 /// Registers the editor's ECS systems, resources, and the `EditorCommand`/
 /// `ReflectCommand` processing loop into a Bevy `App`.
 pub mod plugin;
+/// Field-level merge logic for prefab push-sync: snapshots a live instance's
+/// current state and decides, per field, which values a resync should
+/// preserve (user overrides) vs. adopt from the prefab's new content.
+/// Internal wiring for `prefab_watcher.rs`'s resync, not a public API of
+/// this crate.
+pub(crate) mod prefab_merge;
 /// Despawn-and-reinstantiate resync for prefab instances whose source file
 /// changed on disk, and the file watcher (`PrefabWatcherPlugin`) that
 /// detects those changes.

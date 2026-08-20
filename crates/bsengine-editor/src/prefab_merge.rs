@@ -44,8 +44,9 @@ fn instance_suffix(world: &World, children: &[Entity]) -> Option<String> {
 
 /// Snapshots a live entity's current state into an [`EntityDescriptor`],
 /// covering this PR's representative field set (`transform`, `primitive`,
-/// `emissive`/`color`/`opacity`, and the reflected `components` catalog) plus
-/// `name`. Every other `EntityDescriptor` field is left at its `Default`
+/// `emissive`/`color`/`opacity`, `rigidbody`/`collider`/`linear_damping`/
+/// `angular_damping`, and the reflected `components` catalog) plus `name`.
+/// Every other `EntityDescriptor` field is left at its `Default`
 /// (`None`/`false`/empty) -- deliberately: those fields belong to a follow-up
 /// PR's field groups and must never be treated as "live has explicitly
 /// cleared this" by the merge logic that reads this snapshot's output.
@@ -76,6 +77,12 @@ pub(crate) fn snapshot_entity_as_descriptor(
     let color = material.map(|m| m.base_color.0.to_array());
     let opacity = material.map(|m| m.opacity);
 
+    let physics_body = world.get::<bsengine_scene::PhysicsBodyDesc>(entity);
+    let rigidbody = physics_body.map(|p| p.rigidbody.clone());
+    let collider = physics_body.map(|p| p.collider.clone());
+    let linear_damping = physics_body.and_then(|p| p.linear_damping);
+    let angular_damping = physics_body.and_then(|p| p.angular_damping);
+
     let components = snapshot_extra_components(world, registry, entity);
 
     bsengine_scene::EntityDescriptor {
@@ -85,6 +92,10 @@ pub(crate) fn snapshot_entity_as_descriptor(
         emissive,
         color,
         opacity,
+        rigidbody,
+        collider,
+        linear_damping,
+        angular_damping,
         components,
         ..Default::default()
     }
@@ -779,6 +790,73 @@ mod tests {
         assert_eq!(desc.emissive, None);
         assert_eq!(desc.color, None);
         assert_eq!(desc.opacity, None);
+    }
+
+    #[test]
+    fn snapshot_captures_a_live_physics_body() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn((
+                bsengine_scene::Name("Crate".to_string()),
+                bsengine_scene::PhysicsBodyDesc {
+                    rigidbody: bsengine_scene::RigidBodyDesc::Dynamic,
+                    collider: bsengine_scene::ColliderDesc {
+                        shape: bsengine_scene::ColliderShapeDesc::Box {
+                            hx: 0.5,
+                            hy: 0.5,
+                            hz: 0.5,
+                        },
+                        restitution: 0.1,
+                        friction: 0.5,
+                        sensor: false,
+                    },
+                    linear_damping: Some(0.2),
+                    angular_damping: None,
+                },
+            ))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let desc = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+
+        assert_eq!(desc.rigidbody, Some(bsengine_scene::RigidBodyDesc::Dynamic));
+        assert_eq!(
+            desc.collider,
+            Some(bsengine_scene::ColliderDesc {
+                shape: bsengine_scene::ColliderShapeDesc::Box {
+                    hx: 0.5,
+                    hy: 0.5,
+                    hz: 0.5
+                },
+                restitution: 0.1,
+                friction: 0.5,
+                sensor: false,
+            })
+        );
+        assert_eq!(desc.linear_damping, Some(0.2));
+        assert_eq!(desc.angular_damping, None);
+    }
+
+    #[test]
+    fn snapshot_omits_physics_fields_when_no_physics_body_present() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn(bsengine_scene::Name("Ghost".to_string()))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let desc = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+
+        assert_eq!(desc.rigidbody, None);
+        assert_eq!(desc.collider, None);
+        assert_eq!(desc.linear_damping, None);
+        assert_eq!(desc.angular_damping, None);
     }
 
     #[test]

@@ -441,7 +441,7 @@ pub enum ColliderShapeDesc {
 }
 
 /// Full collider descriptor for scene files.
-#[derive(Debug, Clone, Serialize, Deserialize, Reflect)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Reflect)]
 pub struct ColliderDesc {
     /// Collision geometry.
     pub shape: ColliderShapeDesc,
@@ -805,6 +805,23 @@ mod tests {
         let c = TransformDescriptor {
             position: [9.0, 9.0, 9.0],
             ..Default::default()
+        };
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn collider_desc_supports_equality_comparison() {
+        let a = ColliderDesc {
+            shape: ColliderShapeDesc::Sphere { radius: 1.0 },
+            restitution: 0.2,
+            friction: 0.5,
+            sensor: false,
+        };
+        let b = a.clone();
+        let c = ColliderDesc {
+            sensor: true,
+            ..a.clone()
         };
         assert_eq!(a, b);
         assert_ne!(a, c);

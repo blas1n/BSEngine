@@ -44,8 +44,9 @@ fn instance_suffix(world: &World, children: &[Entity]) -> Option<String> {
 
 /// Snapshots a live entity's current state into an [`EntityDescriptor`],
 /// covering this PR's representative field set (`transform`, `primitive`,
-/// `emissive`/`color`/`opacity`, and the reflected `components` catalog) plus
-/// `name`. Every other `EntityDescriptor` field is left at its `Default`
+/// `emissive`/`color`/`opacity`, `rigidbody`/`collider`/`linear_damping`/
+/// `angular_damping`, and the reflected `components` catalog) plus `name`.
+/// Every other `EntityDescriptor` field is left at its `Default`
 /// (`None`/`false`/empty) -- deliberately: those fields belong to a follow-up
 /// PR's field groups and must never be treated as "live has explicitly
 /// cleared this" by the merge logic that reads this snapshot's output.
@@ -76,6 +77,12 @@ pub(crate) fn snapshot_entity_as_descriptor(
     let color = material.map(|m| m.base_color.0.to_array());
     let opacity = material.map(|m| m.opacity);
 
+    let physics_body = world.get::<bsengine_scene::PhysicsBodyDesc>(entity);
+    let rigidbody = physics_body.map(|p| p.rigidbody.clone());
+    let collider = physics_body.map(|p| p.collider.clone());
+    let linear_damping = physics_body.and_then(|p| p.linear_damping);
+    let angular_damping = physics_body.and_then(|p| p.angular_damping);
+
     let components = snapshot_extra_components(world, registry, entity);
 
     bsengine_scene::EntityDescriptor {
@@ -85,6 +92,10 @@ pub(crate) fn snapshot_entity_as_descriptor(
         emissive,
         color,
         opacity,
+        rigidbody,
+        collider,
+        linear_damping,
+        angular_damping,
         components,
         ..Default::default()
     }
@@ -96,11 +107,23 @@ pub(crate) fn snapshot_entity_as_descriptor(
 /// field, or holds a raw `Entity` reference), plus the two prefab-tracking
 /// components themselves -- neither is meaningful as an attach/detach-able
 /// gameplay component, and both are managed entirely by `resync_instance`'s
-/// own top-level logic, not by the generic field merge.
+/// own top-level logic, not by the generic field merge -- plus
+/// `PhysicsBodyDesc`, for the same "already has a dedicated field" reason as
+/// `Material`/`Transform`/`PrimitiveMesh` in `excluded_from_extra_components`
+/// itself: it's `#[reflect(Component)]` (unlike its `RigidBodyDesc`/
+/// `ColliderDesc` field types, which aren't components and so never surface
+/// here regardless), so without this exclusion it would be captured twice --
+/// once via `rigidbody`/`collider`/`linear_damping`/`angular_damping`, and
+/// again as a raw `components:` entry -- and `apply_merged_descriptor`'s
+/// generic `apply_merged_components` pass would silently resurrect whatever
+/// stale value that second copy carried immediately after the dedicated
+/// physics-body block above it removed or rewrote the component, since both
+/// blocks touch the same entity in the same call.
 fn merge_excluded_component_types() -> std::collections::HashSet<std::any::TypeId> {
     let mut excluded = crate::plugin::excluded_from_extra_components();
     excluded.insert(std::any::TypeId::of::<bsengine_core::PrefabInstance>());
     excluded.insert(std::any::TypeId::of::<bsengine_core::PrefabInstanceBaseline>());
+    excluded.insert(std::any::TypeId::of::<bsengine_scene::PhysicsBodyDesc>());
     excluded
 }
 
@@ -160,11 +183,14 @@ fn resolve_field<T: Clone + PartialEq>(live: &T, baseline: &T, new: &T) -> T {
 /// Merges this PR's representative field set for one matched entity (present
 /// in `live`, `baseline`, and `new` alike). `name` always comes from `live`
 /// unchanged -- matching is by name already, so there's nothing to resolve
-/// there. Every field this PR doesn't yet cover (see the plan's "Scope for
-/// this plan" note) is left at `EntityDescriptor::default()`'s value on the
-/// returned descriptor; callers must never treat that as "adopt an
-/// explicit clear" for those fields -- `apply_merged_descriptor` (a later
-/// task) only ever touches the fields this function actually resolves.
+/// there. Covers `transform`/`primitive`/`emissive`/`color`/`opacity` and the
+/// physics field group (`rigidbody`/`collider`/`linear_damping`/
+/// `angular_damping`), each resolved independently via `resolve_field`. Every
+/// field this PR doesn't yet cover (see the plan's "Scope for this plan"
+/// note) is left at `EntityDescriptor::default()`'s value on the returned
+/// descriptor; callers must never treat that as "adopt an explicit clear"
+/// for those fields -- `apply_merged_descriptor` (a later task) only ever
+/// touches the fields this function actually resolves.
 pub(crate) fn merge_entity_descriptor(
     live: &bsengine_scene::EntityDescriptor,
     baseline: &bsengine_scene::EntityDescriptor,
@@ -177,6 +203,18 @@ pub(crate) fn merge_entity_descriptor(
         emissive: resolve_field(&live.emissive, &baseline.emissive, &new.emissive),
         color: resolve_field(&live.color, &baseline.color, &new.color),
         opacity: resolve_field(&live.opacity, &baseline.opacity, &new.opacity),
+        rigidbody: resolve_field(&live.rigidbody, &baseline.rigidbody, &new.rigidbody),
+        collider: resolve_field(&live.collider, &baseline.collider, &new.collider),
+        linear_damping: resolve_field(
+            &live.linear_damping,
+            &baseline.linear_damping,
+            &new.linear_damping,
+        ),
+        angular_damping: resolve_field(
+            &live.angular_damping,
+            &baseline.angular_damping,
+            &new.angular_damping,
+        ),
         components: merge_components(&live.components, &baseline.components, &new.components),
         ..Default::default()
     }
@@ -320,6 +358,30 @@ pub(crate) fn apply_merged_descriptor(
         world.entity_mut(entity).insert(material);
     } else {
         world.entity_mut(entity).remove::<bsengine_core::Material>();
+    }
+
+    // Mirrors `spawn_scene_entities`'s own gate for constructing this
+    // component in the first place: both `rigidbody` and `collider` must be
+    // present, or there's no complete physics body to describe. Unlike
+    // Material, every field `PhysicsBodyDesc` has is one of the four fields
+    // this merge tracks, so a full reconstruction is safe -- there's no
+    // fifth, out-of-scope field to accidentally wipe.
+    match (&merged.rigidbody, &merged.collider) {
+        (Some(rigidbody), Some(collider)) => {
+            world
+                .entity_mut(entity)
+                .insert(bsengine_scene::PhysicsBodyDesc {
+                    rigidbody: rigidbody.clone(),
+                    collider: collider.clone(),
+                    linear_damping: merged.linear_damping,
+                    angular_damping: merged.angular_damping,
+                });
+        }
+        _ => {
+            world
+                .entity_mut(entity)
+                .remove::<bsengine_scene::PhysicsBodyDesc>();
+        }
     }
 
     apply_merged_components(
@@ -782,6 +844,73 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_captures_a_live_physics_body() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn((
+                bsengine_scene::Name("Crate".to_string()),
+                bsengine_scene::PhysicsBodyDesc {
+                    rigidbody: bsengine_scene::RigidBodyDesc::Dynamic,
+                    collider: bsengine_scene::ColliderDesc {
+                        shape: bsengine_scene::ColliderShapeDesc::Box {
+                            hx: 0.5,
+                            hy: 0.5,
+                            hz: 0.5,
+                        },
+                        restitution: 0.1,
+                        friction: 0.5,
+                        sensor: false,
+                    },
+                    linear_damping: Some(0.2),
+                    angular_damping: None,
+                },
+            ))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let desc = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+
+        assert_eq!(desc.rigidbody, Some(bsengine_scene::RigidBodyDesc::Dynamic));
+        assert_eq!(
+            desc.collider,
+            Some(bsengine_scene::ColliderDesc {
+                shape: bsengine_scene::ColliderShapeDesc::Box {
+                    hx: 0.5,
+                    hy: 0.5,
+                    hz: 0.5
+                },
+                restitution: 0.1,
+                friction: 0.5,
+                sensor: false,
+            })
+        );
+        assert_eq!(desc.linear_damping, Some(0.2));
+        assert_eq!(desc.angular_damping, None);
+    }
+
+    #[test]
+    fn snapshot_omits_physics_fields_when_no_physics_body_present() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn(bsengine_scene::Name("Ghost".to_string()))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let desc = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+
+        assert_eq!(desc.rigidbody, None);
+        assert_eq!(desc.collider, None);
+        assert_eq!(desc.linear_damping, None);
+        assert_eq!(desc.angular_damping, None);
+    }
+
+    #[test]
     fn snapshot_captures_an_arbitrary_reflected_component_in_the_components_catalog() {
         let mut app = new_app();
         bsengine_scene::register_gameplay_reflect_types(&mut app);
@@ -852,6 +981,65 @@ mod tests {
             merged.color,
             Some([0.0, 1.0, 0.0]),
             "overridden field must keep the user's live value, ignoring the new file"
+        );
+    }
+
+    #[test]
+    fn merge_entity_descriptor_preserves_an_overridden_physics_field_while_adopting_others() {
+        let baseline = bsengine_scene::EntityDescriptor {
+            name: "Crate".to_string(),
+            rigidbody: Some(bsengine_scene::RigidBodyDesc::Dynamic),
+            collider: Some(bsengine_scene::ColliderDesc {
+                shape: bsengine_scene::ColliderShapeDesc::Box {
+                    hx: 0.5,
+                    hy: 0.5,
+                    hz: 0.5,
+                },
+                restitution: 0.1,
+                friction: 0.5,
+                sensor: false,
+            }),
+            linear_damping: Some(0.2),
+            angular_damping: Some(0.1),
+            ..Default::default()
+        };
+        let new = bsengine_scene::EntityDescriptor {
+            name: "Crate".to_string(),
+            rigidbody: Some(bsengine_scene::RigidBodyDesc::Dynamic),
+            collider: Some(bsengine_scene::ColliderDesc {
+                // Author widened the box -- unoverridden, must be adopted.
+                shape: bsengine_scene::ColliderShapeDesc::Box {
+                    hx: 1.0,
+                    hy: 1.0,
+                    hz: 1.0,
+                },
+                restitution: 0.1,
+                friction: 0.5,
+                sensor: false,
+            }),
+            linear_damping: Some(0.2),  // unchanged
+            angular_damping: Some(0.9), // author changed this too, but it's overridden below
+            ..Default::default()
+        };
+        let live = bsengine_scene::EntityDescriptor {
+            name: "Crate".to_string(),
+            rigidbody: Some(bsengine_scene::RigidBodyDesc::Dynamic), // matches baseline -> adopt new
+            collider: baseline.collider.clone(), // matches baseline -> adopt new
+            linear_damping: Some(0.2),           // matches baseline -> adopt new (no-op change)
+            angular_damping: Some(0.75),         // user tuned this -> override, keep live
+            ..Default::default()
+        };
+
+        let merged = merge_entity_descriptor(&live, &baseline, &new);
+
+        assert_eq!(
+            merged.collider, new.collider,
+            "unoverridden collider shape must adopt the new file's value"
+        );
+        assert_eq!(
+            merged.angular_damping,
+            Some(0.75),
+            "the user's angular_damping override must survive, ignoring the new file's value"
         );
     }
 
@@ -1083,6 +1271,90 @@ mod tests {
     }
 
     #[test]
+    fn apply_merged_descriptor_inserts_a_physics_body_when_merged_has_both_halves() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn(bsengine_scene::Name("Crate".to_string()))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let live = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+        let merged = bsengine_scene::EntityDescriptor {
+            rigidbody: Some(bsengine_scene::RigidBodyDesc::Dynamic),
+            collider: Some(bsengine_scene::ColliderDesc {
+                shape: bsengine_scene::ColliderShapeDesc::Sphere { radius: 1.0 },
+                restitution: 0.1,
+                friction: 0.5,
+                sensor: false,
+            }),
+            linear_damping: Some(0.3),
+            angular_damping: None,
+            ..live.clone()
+        };
+
+        apply_merged_descriptor(app.world_mut(), entity, &reg, &live, &merged);
+
+        let body = app
+            .world()
+            .get::<bsengine_scene::PhysicsBodyDesc>(entity)
+            .expect("PhysicsBodyDesc must be inserted when merged has both rigidbody and collider");
+        assert_eq!(body.rigidbody, bsengine_scene::RigidBodyDesc::Dynamic);
+        assert_eq!(
+            body.collider.shape,
+            bsengine_scene::ColliderShapeDesc::Sphere { radius: 1.0 }
+        );
+        assert_eq!(body.linear_damping, Some(0.3));
+        assert_eq!(body.angular_damping, None);
+    }
+
+    #[test]
+    fn apply_merged_descriptor_removes_a_physics_body_when_merged_is_missing_either_half() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn((
+                bsengine_scene::Name("Crate".to_string()),
+                bsengine_scene::PhysicsBodyDesc {
+                    rigidbody: bsengine_scene::RigidBodyDesc::Dynamic,
+                    collider: bsengine_scene::ColliderDesc {
+                        shape: bsengine_scene::ColliderShapeDesc::Sphere { radius: 1.0 },
+                        restitution: 0.1,
+                        friction: 0.5,
+                        sensor: false,
+                    },
+                    linear_damping: None,
+                    angular_damping: None,
+                },
+            ))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let live = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+        // Source removed `collider:` (e.g. the author deleted the collider block),
+        // unoverridden -- merged ends up with rigidbody but no collider.
+        let merged = bsengine_scene::EntityDescriptor {
+            rigidbody: live.rigidbody.clone(),
+            collider: None,
+            ..live.clone()
+        };
+
+        apply_merged_descriptor(app.world_mut(), entity, &reg, &live, &merged);
+
+        assert!(
+            app.world()
+                .get::<bsengine_scene::PhysicsBodyDesc>(entity)
+                .is_none(),
+            "a merged result with only one half of the rigidbody/collider pair must remove the \
+             component entirely, matching spawn_scene_entities's own \"both required\" rule"
+        );
+    }
+
+    #[test]
     fn strip_instance_suffix_splits_at_the_last_hash_when_the_tail_is_numeric() {
         assert_eq!(strip_instance_suffix("Barrel#42"), Some(("Barrel", "42")));
         assert_eq!(
@@ -1198,6 +1470,86 @@ mod tests {
                 .0,
             bsengine_scene::Primitive::Sphere,
             "the unoverridden primitive field must still update to the new file's value"
+        );
+    }
+
+    #[test]
+    fn resync_instance_preserves_an_overridden_physics_field_while_updating_a_sibling_field() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let baseline = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(
+                    name: "Crate",
+                    parent: Some("Body"),
+                    primitive: Some(Cube),
+                    rigidbody: Some(Dynamic),
+                    collider: Some((shape: Sphere(radius: 1.0), restitution: 0.1, friction: 0.5, sensor: false)),
+                    linear_damping: Some(0.2),
+                    angular_damping: Some(0.1),
+                ),
+            ])"#,
+        );
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/turret.ron",
+            Some("MyTurret"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        // User manually tunes angular_damping and never touches the collider shape.
+        let crate_entity = {
+            let mut q = app.world_mut().query::<(Entity, &bsengine_scene::Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0.starts_with("Crate#"))
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        {
+            let mut body = app
+                .world_mut()
+                .get_mut::<bsengine_scene::PhysicsBodyDesc>(crate_entity)
+                .unwrap();
+            body.angular_damping = Some(0.9);
+        }
+
+        let new = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(
+                    name: "Crate",
+                    parent: Some("Body"),
+                    primitive: Some(Cube),
+                    rigidbody: Some(Dynamic),
+                    collider: Some((shape: Sphere(radius: 2.0), restitution: 0.1, friction: 0.5, sensor: false)),
+                    linear_damping: Some(0.2),
+                    angular_damping: Some(0.1),
+                ),
+            ])"#,
+        );
+
+        let own_source_paths =
+            std::collections::HashSet::from(["assets/prefabs/turret.ron".to_string()]);
+        resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
+
+        let body = app
+            .world()
+            .get::<bsengine_scene::PhysicsBodyDesc>(crate_entity)
+            .unwrap();
+        assert_eq!(
+            body.angular_damping,
+            Some(0.9),
+            "the user's angular_damping override must survive the resync"
+        );
+        assert_eq!(
+            body.collider.shape,
+            bsengine_scene::ColliderShapeDesc::Sphere { radius: 2.0 },
+            "the unoverridden collider shape must still update to the new file's value"
         );
     }
 

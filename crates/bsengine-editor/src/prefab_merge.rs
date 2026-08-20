@@ -216,17 +216,107 @@ fn resolve_field<T: Clone + PartialEq>(live: &T, baseline: &T, new: &T) -> T {
     }
 }
 
+/// Merges one light-like descriptor's individual attributes independently,
+/// the same granularity the physics field group already gets by being split
+/// into four separate top-level `EntityDescriptor` fields (`rigidbody`/
+/// `collider`/`linear_damping`/`angular_damping`) instead of one atomic
+/// struct: a user who only retuned `intensity` must not lose an unrelated
+/// `range` change the prefab author made in the same file, and vice versa.
+/// Whether the light exists at all (`Some`/`None`) is still resolved
+/// atomically via `resolve_field`, exactly like every other `Option<T>`
+/// field in this module -- there is no meaningful way to "partially" have a
+/// light, so that dimension only decomposes once all three sides agree the
+/// light exists.
+fn merge_point_light(
+    live: &Option<bsengine_scene::PointLightDescriptor>,
+    baseline: &Option<bsengine_scene::PointLightDescriptor>,
+    new: &Option<bsengine_scene::PointLightDescriptor>,
+) -> Option<bsengine_scene::PointLightDescriptor> {
+    match (live, baseline, new) {
+        (Some(l), Some(b), Some(n)) => Some(bsengine_scene::PointLightDescriptor {
+            color: resolve_field(&l.color, &b.color, &n.color),
+            intensity: resolve_field(&l.intensity, &b.intensity, &n.intensity),
+            range: resolve_field(&l.range, &b.range, &n.range),
+        }),
+        _ => resolve_field(live, baseline, new),
+    }
+}
+
+/// Same rationale and shape as `merge_point_light`, for `SpotLightDescriptor`'s
+/// five independently-tunable attributes.
+fn merge_spot_light(
+    live: &Option<bsengine_scene::SpotLightDescriptor>,
+    baseline: &Option<bsengine_scene::SpotLightDescriptor>,
+    new: &Option<bsengine_scene::SpotLightDescriptor>,
+) -> Option<bsengine_scene::SpotLightDescriptor> {
+    match (live, baseline, new) {
+        (Some(l), Some(b), Some(n)) => Some(bsengine_scene::SpotLightDescriptor {
+            color: resolve_field(&l.color, &b.color, &n.color),
+            intensity: resolve_field(&l.intensity, &b.intensity, &n.intensity),
+            range: resolve_field(&l.range, &b.range, &n.range),
+            inner_angle_degrees: resolve_field(
+                &l.inner_angle_degrees,
+                &b.inner_angle_degrees,
+                &n.inner_angle_degrees,
+            ),
+            outer_angle_degrees: resolve_field(
+                &l.outer_angle_degrees,
+                &b.outer_angle_degrees,
+                &n.outer_angle_degrees,
+            ),
+        }),
+        _ => resolve_field(live, baseline, new),
+    }
+}
+
+/// Same per-attribute spirit as `merge_point_light`/`merge_spot_light`,
+/// comparing and resolving only `color`/`ambient` independently -- never
+/// `direction`. `direction` has no live counterpart (see
+/// `snapshot_entity_as_descriptor`'s doc comment) and is never read back off
+/// this function's result by `apply_merged_descriptor`, so comparing it
+/// would only ever inject noise: every live snapshot's `direction` is the
+/// same fixed placeholder, permanently "different" from whatever real value
+/// a prefab file authors, which would make every directional light look
+/// permanently overridden. The merged result's own `direction` is taken from
+/// `new` when both sides have a light -- an arbitrary but harmless choice,
+/// since nothing ever reads it back. Whether the light exists at all is
+/// still resolved atomically, for the same reason `merge_point_light`
+/// resolves presence atomically.
+fn resolve_directional_light(
+    live: &Option<bsengine_scene::DirectionalLightDescriptor>,
+    baseline: &Option<bsengine_scene::DirectionalLightDescriptor>,
+    new: &Option<bsengine_scene::DirectionalLightDescriptor>,
+) -> Option<bsengine_scene::DirectionalLightDescriptor> {
+    match (live, baseline, new) {
+        (Some(l), Some(b), Some(n)) => Some(bsengine_scene::DirectionalLightDescriptor {
+            direction: n.direction,
+            color: resolve_field(&l.color, &b.color, &n.color),
+            ambient: resolve_field(&l.ambient, &b.ambient, &n.ambient),
+        }),
+        (None, None, _) => new.clone(),
+        _ => live.clone(),
+    }
+}
+
 /// Merges this PR's representative field set for one matched entity (present
 /// in `live`, `baseline`, and `new` alike). `name` always comes from `live`
 /// unchanged -- matching is by name already, so there's nothing to resolve
-/// there. Covers `transform`/`primitive`/`emissive`/`color`/`opacity` and the
+/// there. Covers `transform`/`primitive`/`emissive`/`color`/`opacity`, the
 /// physics field group (`rigidbody`/`collider`/`linear_damping`/
-/// `angular_damping`), each resolved independently via `resolve_field`. Every
-/// field this PR doesn't yet cover (see the plan's "Scope for this plan"
-/// note) is left at `EntityDescriptor::default()`'s value on the returned
-/// descriptor; callers must never treat that as "adopt an explicit clear"
-/// for those fields -- `apply_merged_descriptor` (a later task) only ever
-/// touches the fields this function actually resolves.
+/// `angular_damping`), and the light field group: `point_light`/`spot_light`,
+/// each resolved attribute-by-attribute via `merge_point_light`/
+/// `merge_spot_light` (not the bare `resolve_field`, which would treat the
+/// whole descriptor as one atomic value and lose an unrelated attribute's
+/// override the moment any single attribute inside it changed), and
+/// `directional_light`, resolved via the dedicated `resolve_directional_light`
+/// for the same per-attribute reason, plus needing to skip `direction`
+/// (`DirectionalLightDescriptor` deliberately doesn't derive `PartialEq` --
+/// see that function's doc comment). Every field this PR doesn't yet cover
+/// (see the plan's "Scope for this plan" note) is left at
+/// `EntityDescriptor::default()`'s value on the returned descriptor; callers
+/// must never treat that as "adopt an explicit clear" for those fields --
+/// `apply_merged_descriptor` (a later task) only ever touches the fields
+/// this function actually resolves.
 pub(crate) fn merge_entity_descriptor(
     live: &bsengine_scene::EntityDescriptor,
     baseline: &bsengine_scene::EntityDescriptor,
@@ -250,6 +340,13 @@ pub(crate) fn merge_entity_descriptor(
             &live.angular_damping,
             &baseline.angular_damping,
             &new.angular_damping,
+        ),
+        point_light: merge_point_light(&live.point_light, &baseline.point_light, &new.point_light),
+        spot_light: merge_spot_light(&live.spot_light, &baseline.spot_light, &new.spot_light),
+        directional_light: resolve_directional_light(
+            &live.directional_light,
+            &baseline.directional_light,
+            &new.directional_light,
         ),
         components: merge_components(&live.components, &baseline.components, &new.components),
         ..Default::default()
@@ -1345,6 +1442,82 @@ mod tests {
                 .get::<bsengine_scene::PrimitiveMesh>(entity)
                 .is_none(),
             "PrimitiveMesh must be removed when the merged descriptor no longer has a primitive"
+        );
+    }
+
+    #[test]
+    fn merge_entity_descriptor_preserves_an_overridden_point_light_field() {
+        let baseline = bsengine_scene::EntityDescriptor {
+            name: "Lamp".to_string(),
+            point_light: Some(bsengine_scene::PointLightDescriptor {
+                color: [1.0, 1.0, 1.0],
+                intensity: 1.0,
+                range: 10.0,
+            }),
+            ..Default::default()
+        };
+        let new = bsengine_scene::EntityDescriptor {
+            name: "Lamp".to_string(),
+            point_light: Some(bsengine_scene::PointLightDescriptor {
+                color: [1.0, 1.0, 1.0],
+                intensity: 1.0,
+                range: 25.0, // author widened the range, unoverridden
+            }),
+            ..Default::default()
+        };
+        let live = bsengine_scene::EntityDescriptor {
+            name: "Lamp".to_string(),
+            point_light: Some(bsengine_scene::PointLightDescriptor {
+                color: [1.0, 1.0, 1.0],
+                intensity: 3.0, // user tuned intensity -> override
+                range: 10.0,    // matches baseline -> adopt new
+            }),
+            ..Default::default()
+        };
+
+        let merged = merge_entity_descriptor(&live, &baseline, &new);
+
+        let pl = merged.point_light.unwrap();
+        assert_eq!(
+            pl.intensity, 3.0,
+            "the user's intensity override must survive"
+        );
+        assert_eq!(
+            pl.range, 25.0,
+            "the unoverridden range must adopt the new file's value"
+        );
+    }
+
+    #[test]
+    fn resolve_directional_light_compares_only_color_and_ambient() {
+        let baseline = Some(bsengine_scene::DirectionalLightDescriptor {
+            direction: [0.0, 0.0, -1.0],
+            color: [1.0, 1.0, 1.0],
+            ambient: [0.1, 0.1, 0.1],
+        });
+        let new = Some(bsengine_scene::DirectionalLightDescriptor {
+            direction: [1.0, 0.0, 0.0], // changed, but must have zero effect on the decision
+            color: [1.0, 1.0, 1.0],     // unchanged -> adopt
+            ambient: [0.2, 0.2, 0.2],   // unchanged... wait see below
+        });
+        // live's color diverges from baseline -> override; ambient matches baseline -> adopt.
+        let live = Some(bsengine_scene::DirectionalLightDescriptor {
+            direction: [0.0, 0.0, -1.0],
+            color: [0.5, 0.0, 0.0],   // user recolored the sun -> override
+            ambient: [0.1, 0.1, 0.1], // matches baseline -> adopt new's ambient
+        });
+
+        let resolved = resolve_directional_light(&live, &baseline, &new).unwrap();
+
+        assert_eq!(
+            resolved.color,
+            [0.5, 0.0, 0.0],
+            "overridden color must survive"
+        );
+        assert_eq!(
+            resolved.ambient,
+            [0.2, 0.2, 0.2],
+            "unoverridden ambient must adopt the new value"
         );
     }
 

@@ -107,11 +107,23 @@ pub(crate) fn snapshot_entity_as_descriptor(
 /// field, or holds a raw `Entity` reference), plus the two prefab-tracking
 /// components themselves -- neither is meaningful as an attach/detach-able
 /// gameplay component, and both are managed entirely by `resync_instance`'s
-/// own top-level logic, not by the generic field merge.
+/// own top-level logic, not by the generic field merge -- plus
+/// `PhysicsBodyDesc`, for the same "already has a dedicated field" reason as
+/// `Material`/`Transform`/`PrimitiveMesh` in `excluded_from_extra_components`
+/// itself: it's `#[reflect(Component)]` (unlike its `RigidBodyDesc`/
+/// `ColliderDesc` field types, which aren't components and so never surface
+/// here regardless), so without this exclusion it would be captured twice --
+/// once via `rigidbody`/`collider`/`linear_damping`/`angular_damping`, and
+/// again as a raw `components:` entry -- and `apply_merged_descriptor`'s
+/// generic `apply_merged_components` pass would silently resurrect whatever
+/// stale value that second copy carried immediately after the dedicated
+/// physics-body block above it removed or rewrote the component, since both
+/// blocks touch the same entity in the same call.
 fn merge_excluded_component_types() -> std::collections::HashSet<std::any::TypeId> {
     let mut excluded = crate::plugin::excluded_from_extra_components();
     excluded.insert(std::any::TypeId::of::<bsengine_core::PrefabInstance>());
     excluded.insert(std::any::TypeId::of::<bsengine_core::PrefabInstanceBaseline>());
+    excluded.insert(std::any::TypeId::of::<bsengine_scene::PhysicsBodyDesc>());
     excluded
 }
 
@@ -346,6 +358,30 @@ pub(crate) fn apply_merged_descriptor(
         world.entity_mut(entity).insert(material);
     } else {
         world.entity_mut(entity).remove::<bsengine_core::Material>();
+    }
+
+    // Mirrors `spawn_scene_entities`'s own gate for constructing this
+    // component in the first place: both `rigidbody` and `collider` must be
+    // present, or there's no complete physics body to describe. Unlike
+    // Material, every field `PhysicsBodyDesc` has is one of the four fields
+    // this merge tracks, so a full reconstruction is safe -- there's no
+    // fifth, out-of-scope field to accidentally wipe.
+    match (&merged.rigidbody, &merged.collider) {
+        (Some(rigidbody), Some(collider)) => {
+            world
+                .entity_mut(entity)
+                .insert(bsengine_scene::PhysicsBodyDesc {
+                    rigidbody: rigidbody.clone(),
+                    collider: collider.clone(),
+                    linear_damping: merged.linear_damping,
+                    angular_damping: merged.angular_damping,
+                });
+        }
+        _ => {
+            world
+                .entity_mut(entity)
+                .remove::<bsengine_scene::PhysicsBodyDesc>();
+        }
     }
 
     apply_merged_components(
@@ -1232,6 +1268,90 @@ mod tests {
         apply_merged_descriptor(app.world_mut(), entity, &reg, &live, &merged);
 
         assert!(app.world().get::<bsengine_core::Shield>(entity).is_some());
+    }
+
+    #[test]
+    fn apply_merged_descriptor_inserts_a_physics_body_when_merged_has_both_halves() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn(bsengine_scene::Name("Crate".to_string()))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let live = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+        let merged = bsengine_scene::EntityDescriptor {
+            rigidbody: Some(bsengine_scene::RigidBodyDesc::Dynamic),
+            collider: Some(bsengine_scene::ColliderDesc {
+                shape: bsengine_scene::ColliderShapeDesc::Sphere { radius: 1.0 },
+                restitution: 0.1,
+                friction: 0.5,
+                sensor: false,
+            }),
+            linear_damping: Some(0.3),
+            angular_damping: None,
+            ..live.clone()
+        };
+
+        apply_merged_descriptor(app.world_mut(), entity, &reg, &live, &merged);
+
+        let body = app
+            .world()
+            .get::<bsengine_scene::PhysicsBodyDesc>(entity)
+            .expect("PhysicsBodyDesc must be inserted when merged has both rigidbody and collider");
+        assert_eq!(body.rigidbody, bsengine_scene::RigidBodyDesc::Dynamic);
+        assert_eq!(
+            body.collider.shape,
+            bsengine_scene::ColliderShapeDesc::Sphere { radius: 1.0 }
+        );
+        assert_eq!(body.linear_damping, Some(0.3));
+        assert_eq!(body.angular_damping, None);
+    }
+
+    #[test]
+    fn apply_merged_descriptor_removes_a_physics_body_when_merged_is_missing_either_half() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn((
+                bsengine_scene::Name("Crate".to_string()),
+                bsengine_scene::PhysicsBodyDesc {
+                    rigidbody: bsengine_scene::RigidBodyDesc::Dynamic,
+                    collider: bsengine_scene::ColliderDesc {
+                        shape: bsengine_scene::ColliderShapeDesc::Sphere { radius: 1.0 },
+                        restitution: 0.1,
+                        friction: 0.5,
+                        sensor: false,
+                    },
+                    linear_damping: None,
+                    angular_damping: None,
+                },
+            ))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let live = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+        // Source removed `collider:` (e.g. the author deleted the collider block),
+        // unoverridden -- merged ends up with rigidbody but no collider.
+        let merged = bsengine_scene::EntityDescriptor {
+            rigidbody: live.rigidbody.clone(),
+            collider: None,
+            ..live.clone()
+        };
+
+        apply_merged_descriptor(app.world_mut(), entity, &reg, &live, &merged);
+
+        assert!(
+            app.world()
+                .get::<bsengine_scene::PhysicsBodyDesc>(entity)
+                .is_none(),
+            "a merged result with only one half of the rigidbody/collider pair must remove the \
+             component entirely, matching spawn_scene_entities's own \"both required\" rule"
+        );
     }
 
     #[test]

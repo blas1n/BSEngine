@@ -1474,6 +1474,86 @@ mod tests {
     }
 
     #[test]
+    fn resync_instance_preserves_an_overridden_physics_field_while_updating_a_sibling_field() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let baseline = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(
+                    name: "Crate",
+                    parent: Some("Body"),
+                    primitive: Some(Cube),
+                    rigidbody: Some(Dynamic),
+                    collider: Some((shape: Sphere(radius: 1.0), restitution: 0.1, friction: 0.5, sensor: false)),
+                    linear_damping: Some(0.2),
+                    angular_damping: Some(0.1),
+                ),
+            ])"#,
+        );
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/turret.ron",
+            Some("MyTurret"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        // User manually tunes angular_damping and never touches the collider shape.
+        let crate_entity = {
+            let mut q = app.world_mut().query::<(Entity, &bsengine_scene::Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0.starts_with("Crate#"))
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        {
+            let mut body = app
+                .world_mut()
+                .get_mut::<bsengine_scene::PhysicsBodyDesc>(crate_entity)
+                .unwrap();
+            body.angular_damping = Some(0.9);
+        }
+
+        let new = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(
+                    name: "Crate",
+                    parent: Some("Body"),
+                    primitive: Some(Cube),
+                    rigidbody: Some(Dynamic),
+                    collider: Some((shape: Sphere(radius: 2.0), restitution: 0.1, friction: 0.5, sensor: false)),
+                    linear_damping: Some(0.2),
+                    angular_damping: Some(0.1),
+                ),
+            ])"#,
+        );
+
+        let own_source_paths =
+            std::collections::HashSet::from(["assets/prefabs/turret.ron".to_string()]);
+        resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
+
+        let body = app
+            .world()
+            .get::<bsengine_scene::PhysicsBodyDesc>(crate_entity)
+            .unwrap();
+        assert_eq!(
+            body.angular_damping,
+            Some(0.9),
+            "the user's angular_damping override must survive the resync"
+        );
+        assert_eq!(
+            body.collider.shape,
+            bsengine_scene::ColliderShapeDesc::Sphere { radius: 2.0 },
+            "the unoverridden collider shape must still update to the new file's value"
+        );
+    }
+
+    #[test]
     fn resync_instance_preserves_a_manually_added_child_entity() {
         let mut app = new_app();
         bsengine_scene::register_gameplay_reflect_types(&mut app);

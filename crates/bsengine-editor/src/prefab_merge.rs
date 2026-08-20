@@ -171,11 +171,14 @@ fn resolve_field<T: Clone + PartialEq>(live: &T, baseline: &T, new: &T) -> T {
 /// Merges this PR's representative field set for one matched entity (present
 /// in `live`, `baseline`, and `new` alike). `name` always comes from `live`
 /// unchanged -- matching is by name already, so there's nothing to resolve
-/// there. Every field this PR doesn't yet cover (see the plan's "Scope for
-/// this plan" note) is left at `EntityDescriptor::default()`'s value on the
-/// returned descriptor; callers must never treat that as "adopt an
-/// explicit clear" for those fields -- `apply_merged_descriptor` (a later
-/// task) only ever touches the fields this function actually resolves.
+/// there. Covers `transform`/`primitive`/`emissive`/`color`/`opacity` and the
+/// physics field group (`rigidbody`/`collider`/`linear_damping`/
+/// `angular_damping`), each resolved independently via `resolve_field`. Every
+/// field this PR doesn't yet cover (see the plan's "Scope for this plan"
+/// note) is left at `EntityDescriptor::default()`'s value on the returned
+/// descriptor; callers must never treat that as "adopt an explicit clear"
+/// for those fields -- `apply_merged_descriptor` (a later task) only ever
+/// touches the fields this function actually resolves.
 pub(crate) fn merge_entity_descriptor(
     live: &bsengine_scene::EntityDescriptor,
     baseline: &bsengine_scene::EntityDescriptor,
@@ -188,6 +191,18 @@ pub(crate) fn merge_entity_descriptor(
         emissive: resolve_field(&live.emissive, &baseline.emissive, &new.emissive),
         color: resolve_field(&live.color, &baseline.color, &new.color),
         opacity: resolve_field(&live.opacity, &baseline.opacity, &new.opacity),
+        rigidbody: resolve_field(&live.rigidbody, &baseline.rigidbody, &new.rigidbody),
+        collider: resolve_field(&live.collider, &baseline.collider, &new.collider),
+        linear_damping: resolve_field(
+            &live.linear_damping,
+            &baseline.linear_damping,
+            &new.linear_damping,
+        ),
+        angular_damping: resolve_field(
+            &live.angular_damping,
+            &baseline.angular_damping,
+            &new.angular_damping,
+        ),
         components: merge_components(&live.components, &baseline.components, &new.components),
         ..Default::default()
     }
@@ -930,6 +945,65 @@ mod tests {
             merged.color,
             Some([0.0, 1.0, 0.0]),
             "overridden field must keep the user's live value, ignoring the new file"
+        );
+    }
+
+    #[test]
+    fn merge_entity_descriptor_preserves_an_overridden_physics_field_while_adopting_others() {
+        let baseline = bsengine_scene::EntityDescriptor {
+            name: "Crate".to_string(),
+            rigidbody: Some(bsengine_scene::RigidBodyDesc::Dynamic),
+            collider: Some(bsengine_scene::ColliderDesc {
+                shape: bsengine_scene::ColliderShapeDesc::Box {
+                    hx: 0.5,
+                    hy: 0.5,
+                    hz: 0.5,
+                },
+                restitution: 0.1,
+                friction: 0.5,
+                sensor: false,
+            }),
+            linear_damping: Some(0.2),
+            angular_damping: Some(0.1),
+            ..Default::default()
+        };
+        let new = bsengine_scene::EntityDescriptor {
+            name: "Crate".to_string(),
+            rigidbody: Some(bsengine_scene::RigidBodyDesc::Dynamic),
+            collider: Some(bsengine_scene::ColliderDesc {
+                // Author widened the box -- unoverridden, must be adopted.
+                shape: bsengine_scene::ColliderShapeDesc::Box {
+                    hx: 1.0,
+                    hy: 1.0,
+                    hz: 1.0,
+                },
+                restitution: 0.1,
+                friction: 0.5,
+                sensor: false,
+            }),
+            linear_damping: Some(0.2),  // unchanged
+            angular_damping: Some(0.9), // author changed this too, but it's overridden below
+            ..Default::default()
+        };
+        let live = bsengine_scene::EntityDescriptor {
+            name: "Crate".to_string(),
+            rigidbody: Some(bsengine_scene::RigidBodyDesc::Dynamic), // matches baseline -> adopt new
+            collider: baseline.collider.clone(), // matches baseline -> adopt new
+            linear_damping: Some(0.2),           // matches baseline -> adopt new (no-op change)
+            angular_damping: Some(0.75),         // user tuned this -> override, keep live
+            ..Default::default()
+        };
+
+        let merged = merge_entity_descriptor(&live, &baseline, &new);
+
+        assert_eq!(
+            merged.collider, new.collider,
+            "unoverridden collider shape must adopt the new file's value"
+        );
+        assert_eq!(
+            merged.angular_damping,
+            Some(0.75),
+            "the user's angular_damping override must survive, ignoring the new file's value"
         );
     }
 

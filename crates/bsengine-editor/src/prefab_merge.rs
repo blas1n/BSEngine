@@ -517,6 +517,55 @@ pub(crate) fn apply_merged_descriptor(
         }
     }
 
+    match &merged.point_light {
+        Some(pl) => {
+            world.entity_mut(entity).insert(bsengine_core::PointLight {
+                color: glam::Vec3::from(pl.color).into(),
+                intensity: pl.intensity,
+                range: pl.range,
+            });
+        }
+        None => {
+            world.entity_mut(entity).remove::<bsengine_core::PointLight>();
+        }
+    }
+
+    match &merged.spot_light {
+        Some(sl) => {
+            world.entity_mut(entity).insert(bsengine_core::SpotLight {
+                color: glam::Vec3::from(sl.color).into(),
+                intensity: sl.intensity,
+                range: sl.range,
+                inner_angle_degrees: sl.inner_angle_degrees.into(),
+                outer_angle_degrees: sl.outer_angle_degrees.into(),
+            });
+        }
+        None => {
+            world.entity_mut(entity).remove::<bsengine_core::SpotLight>();
+        }
+    }
+
+    // Deliberately never touches `Transform` -- see `resolve_directional_light`'s
+    // and `snapshot_entity_as_descriptor`'s doc comments for why `direction`
+    // is excluded entirely; the already-shipped `transform` field group
+    // above is the sole owner of rotation, for light entities same as any
+    // other.
+    match &merged.directional_light {
+        Some(dl) => {
+            world
+                .entity_mut(entity)
+                .insert(bsengine_core::DirectionalLight {
+                    color: glam::Vec3::from(dl.color).into(),
+                    ambient: glam::Vec3::from(dl.ambient).into(),
+                });
+        }
+        None => {
+            world
+                .entity_mut(entity)
+                .remove::<bsengine_core::DirectionalLight>();
+        }
+    }
+
     apply_merged_components(
         world,
         entity,
@@ -1679,6 +1728,120 @@ mod tests {
                 .is_none(),
             "a merged result with only one half of the rigidbody/collider pair must remove the \
              component entirely, matching spawn_scene_entities's own \"both required\" rule"
+        );
+    }
+
+    #[test]
+    fn apply_merged_descriptor_inserts_and_removes_a_point_light() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn(bsengine_scene::Name("Lamp".to_string()))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let live = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+        let merged = bsengine_scene::EntityDescriptor {
+            point_light: Some(bsengine_scene::PointLightDescriptor {
+                color: [1.0, 0.0, 0.0],
+                intensity: 2.0,
+                range: 12.0,
+            }),
+            ..live.clone()
+        };
+        apply_merged_descriptor(app.world_mut(), entity, &reg, &live, &merged);
+        let pl = app.world().get::<bsengine_core::PointLight>(entity).unwrap();
+        assert_eq!(pl.color.0.to_array(), [1.0, 0.0, 0.0]);
+        assert_eq!(pl.intensity, 2.0);
+        assert_eq!(pl.range, 12.0);
+
+        // Now resolve away and confirm removal.
+        let live2 = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+        let merged2 = bsengine_scene::EntityDescriptor {
+            point_light: None,
+            ..live2.clone()
+        };
+        apply_merged_descriptor(app.world_mut(), entity, &reg, &live2, &merged2);
+        assert!(app.world().get::<bsengine_core::PointLight>(entity).is_none());
+    }
+
+    #[test]
+    fn apply_merged_descriptor_inserts_and_removes_a_spot_light() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn(bsengine_scene::Name("Spot".to_string()))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let live = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+        let merged = bsengine_scene::EntityDescriptor {
+            spot_light: Some(bsengine_scene::SpotLightDescriptor {
+                color: [1.0, 1.0, 1.0],
+                intensity: 1.0,
+                range: 10.0,
+                inner_angle_degrees: 15.0,
+                outer_angle_degrees: 25.0,
+            }),
+            ..live.clone()
+        };
+        apply_merged_descriptor(app.world_mut(), entity, &reg, &live, &merged);
+        let sl = app.world().get::<bsengine_core::SpotLight>(entity).unwrap();
+        assert_eq!(sl.inner_angle_degrees.0, 15.0);
+        assert_eq!(sl.outer_angle_degrees.0, 25.0);
+    }
+
+    #[test]
+    fn apply_merged_descriptor_writes_directional_light_color_and_ambient_only() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn((
+                bsengine_scene::Name("Sun".to_string()),
+                bsengine_core::Transform {
+                    rotation: glam::Quat::from_rotation_x(0.3).into(),
+                    ..Default::default()
+                },
+            ))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let live = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+        let merged = bsengine_scene::EntityDescriptor {
+            directional_light: Some(bsengine_scene::DirectionalLightDescriptor {
+                direction: [1.0, 0.0, 0.0], // must have no effect on Transform
+                color: [1.0, 0.8, 0.6],
+                ambient: [0.2, 0.2, 0.2],
+            }),
+            transform: live.transform.clone(), // keep whatever transform snapshot already had
+            ..live.clone()
+        };
+
+        apply_merged_descriptor(app.world_mut(), entity, &reg, &live, &merged);
+
+        let dl = app
+            .world()
+            .get::<bsengine_core::DirectionalLight>(entity)
+            .unwrap();
+        assert_eq!(dl.color.0.to_array(), [1.0, 0.8, 0.6]);
+        assert_eq!(dl.ambient.0.to_array(), [0.2, 0.2, 0.2]);
+        let rotation_after = app
+            .world()
+            .get::<bsengine_core::Transform>(entity)
+            .unwrap()
+            .rotation
+            .0;
+        let rotation_before = glam::Quat::from_rotation_x(0.3);
+        assert!(
+            rotation_after.abs_diff_eq(rotation_before, 1e-5),
+            "directional_light must never write Transform.rotation -- got {rotation_after:?}, \
+             expected it unchanged at {rotation_before:?}"
         );
     }
 

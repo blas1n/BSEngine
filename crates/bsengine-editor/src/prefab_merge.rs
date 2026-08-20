@@ -2384,4 +2384,207 @@ mod tests {
              source added\" just because Scope's raw_name still resolves in `new`"
         );
     }
+
+    #[test]
+    fn resync_instance_preserves_an_overridden_point_light_field_while_updating_a_sibling_field() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let baseline = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(
+                    name: "Lamp",
+                    parent: Some("Body"),
+                    point_light: Some((color: (1.0, 1.0, 1.0), intensity: 1.0, range: 10.0)),
+                ),
+            ])"#,
+        );
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/turret.ron",
+            Some("MyTurret"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let lamp = {
+            let mut q = app.world_mut().query::<(Entity, &bsengine_scene::Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0.starts_with("Lamp#"))
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        {
+            let mut pl = app
+                .world_mut()
+                .get_mut::<bsengine_core::PointLight>(lamp)
+                .unwrap();
+            pl.intensity = 5.0; // user override
+        }
+
+        let new = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(
+                    name: "Lamp",
+                    parent: Some("Body"),
+                    point_light: Some((color: (1.0, 1.0, 1.0), intensity: 1.0, range: 30.0)),
+                ),
+            ])"#,
+        );
+        let own_source_paths =
+            std::collections::HashSet::from(["assets/prefabs/turret.ron".to_string()]);
+        resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
+
+        let pl = app.world().get::<bsengine_core::PointLight>(lamp).unwrap();
+        assert_eq!(pl.intensity, 5.0, "overridden intensity must survive");
+        assert_eq!(
+            pl.range, 30.0,
+            "unoverridden range must adopt the new file's value"
+        );
+    }
+
+    #[test]
+    fn resync_instance_preserves_an_overridden_spot_light_field_while_updating_a_sibling_field() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let baseline = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(
+                    name: "Spot",
+                    parent: Some("Body"),
+                    spot_light: Some((
+                        color: (1.0, 1.0, 1.0),
+                        intensity: 1.0,
+                        range: 10.0,
+                        inner_angle_degrees: 20.0,
+                        outer_angle_degrees: 35.0,
+                    )),
+                ),
+            ])"#,
+        );
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/searchlight.ron",
+            Some("MySearchlight"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let spot = {
+            let mut q = app.world_mut().query::<(Entity, &bsengine_scene::Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0.starts_with("Spot#"))
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        {
+            let mut sl = app
+                .world_mut()
+                .get_mut::<bsengine_core::SpotLight>(spot)
+                .unwrap();
+            sl.outer_angle_degrees = 60.0.into(); // user override
+        }
+
+        let new = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(
+                    name: "Spot",
+                    parent: Some("Body"),
+                    spot_light: Some((
+                        color: (1.0, 1.0, 1.0),
+                        intensity: 1.0,
+                        range: 40.0,
+                        inner_angle_degrees: 20.0,
+                        outer_angle_degrees: 35.0,
+                    )),
+                ),
+            ])"#,
+        );
+        let own_source_paths =
+            std::collections::HashSet::from(["assets/prefabs/searchlight.ron".to_string()]);
+        resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
+
+        let sl = app.world().get::<bsengine_core::SpotLight>(spot).unwrap();
+        assert_eq!(
+            sl.outer_angle_degrees.0, 60.0,
+            "overridden outer_angle_degrees must survive"
+        );
+        assert_eq!(
+            sl.range, 40.0,
+            "unoverridden range must adopt the new file's value"
+        );
+    }
+
+    #[test]
+    fn resync_instance_never_lets_a_directional_lights_direction_change_touch_transform() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let baseline = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(
+                    name: "Sun",
+                    directional_light: Some((direction: (0.0, -1.0, 0.0), color: (1.0, 1.0, 1.0), ambient: (0.1, 0.1, 0.1))),
+                ),
+            ])"#,
+        );
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/sun.ron",
+            Some("MySun"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        // User manually rotates the root -- an overridden transform (root transform
+        // is always preserved regardless of override status, per PR #1789, but
+        // this test is specifically about proving directional_light's `direction`
+        // never gets a chance to fight that guarantee).
+        let manual_rotation = glam::Quat::from_rotation_y(1.2);
+        app.world_mut()
+            .entity_mut(root)
+            .insert(bsengine_core::Transform {
+                rotation: manual_rotation.into(),
+                ..Default::default()
+            });
+
+        // Source changes `direction:` -- if the old spawn-time side effect were
+        // reproduced here, this would silently re-point the light and undo the
+        // user's manual rotation.
+        let new = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(
+                    name: "Sun",
+                    directional_light: Some((direction: (1.0, 0.0, 0.0), color: (1.0, 1.0, 1.0), ambient: (0.1, 0.1, 0.1))),
+                ),
+            ])"#,
+        );
+        let own_source_paths =
+            std::collections::HashSet::from(["assets/prefabs/sun.ron".to_string()]);
+        resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
+
+        let rotation_after = app
+            .world()
+            .get::<bsengine_core::Transform>(root)
+            .unwrap()
+            .rotation
+            .0;
+        assert!(
+            rotation_after.abs_diff_eq(manual_rotation, 1e-5),
+            "the user's manual rotation must survive a resync that changes direction:, proving \
+             the exact regression this design exists to avoid does not happen -- got \
+             {rotation_after:?}, expected {manual_rotation:?}"
+        );
+    }
 }

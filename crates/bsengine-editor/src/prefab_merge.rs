@@ -45,7 +45,8 @@ fn instance_suffix(world: &World, children: &[Entity]) -> Option<String> {
 /// Snapshots a live entity's current state into an [`EntityDescriptor`],
 /// covering this PR's representative field set (`transform`, `primitive`,
 /// `emissive`/`color`/`opacity`, `rigidbody`/`collider`/`linear_damping`/
-/// `angular_damping`, and the reflected `components` catalog) plus `name`.
+/// `angular_damping`, `point_light`/`spot_light`/`directional_light`, and the
+/// reflected `components` catalog) plus `name`.
 /// Every other `EntityDescriptor` field is left at its `Default`
 /// (`None`/`false`/empty) -- deliberately: those fields belong to a follow-up
 /// PR's field groups and must never be treated as "live has explicitly
@@ -83,6 +84,38 @@ pub(crate) fn snapshot_entity_as_descriptor(
     let linear_damping = physics_body.and_then(|p| p.linear_damping);
     let angular_damping = physics_body.and_then(|p| p.angular_damping);
 
+    let point_light = world.get::<bsengine_core::PointLight>(entity).map(|pl| {
+        bsengine_scene::PointLightDescriptor {
+            color: pl.color.0.to_array(),
+            intensity: pl.intensity,
+            range: pl.range,
+        }
+    });
+
+    let spot_light = world.get::<bsengine_core::SpotLight>(entity).map(|sl| {
+        bsengine_scene::SpotLightDescriptor {
+            color: sl.color.0.to_array(),
+            intensity: sl.intensity,
+            range: sl.range,
+            inner_angle_degrees: sl.inner_angle_degrees.0,
+            outer_angle_degrees: sl.outer_angle_degrees.0,
+        }
+    });
+
+    // `direction` has no live counterpart -- it drives a one-time
+    // Transform.rotation write at instantiation and is never stored on the
+    // live entity afterward (see the design spec). This placeholder is never
+    // read by anything: `resolve_directional_light` (a later task) compares
+    // only `color`/`ambient`, and `apply_merged_descriptor` never reads
+    // `direction` back off the merged result.
+    let directional_light = world
+        .get::<bsengine_core::DirectionalLight>(entity)
+        .map(|dl| bsengine_scene::DirectionalLightDescriptor {
+            direction: [0.0, 0.0, -1.0],
+            color: dl.color.0.to_array(),
+            ambient: dl.ambient.0.to_array(),
+        });
+
     let components = snapshot_extra_components(world, registry, entity);
 
     bsengine_scene::EntityDescriptor {
@@ -96,6 +129,9 @@ pub(crate) fn snapshot_entity_as_descriptor(
         collider,
         linear_damping,
         angular_damping,
+        point_light,
+        spot_light,
+        directional_light,
         components,
         ..Default::default()
     }
@@ -908,6 +944,125 @@ mod tests {
         assert_eq!(desc.collider, None);
         assert_eq!(desc.linear_damping, None);
         assert_eq!(desc.angular_damping, None);
+    }
+
+    #[test]
+    fn snapshot_captures_a_live_point_light() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn((
+                bsengine_scene::Name("Lamp".to_string()),
+                bsengine_core::PointLight {
+                    color: glam::Vec3::new(1.0, 0.5, 0.25).into(),
+                    intensity: 2.0,
+                    range: 15.0,
+                },
+            ))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let desc = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+
+        assert_eq!(
+            desc.point_light,
+            Some(bsengine_scene::PointLightDescriptor {
+                color: [1.0, 0.5, 0.25],
+                intensity: 2.0,
+                range: 15.0,
+            })
+        );
+        assert_eq!(desc.spot_light, None);
+        // `DirectionalLightDescriptor` doesn't derive `PartialEq` (only
+        // `PointLightDescriptor`/`SpotLightDescriptor` gained it, see commit
+        // 04aa90e3), so `Option<DirectionalLightDescriptor>` can't be
+        // compared with `assert_eq!` -- use `.is_none()` instead.
+        assert!(desc.directional_light.is_none());
+    }
+
+    #[test]
+    fn snapshot_captures_a_live_spot_light() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn((
+                bsengine_scene::Name("Spot".to_string()),
+                bsengine_core::SpotLight {
+                    color: glam::Vec3::ONE.into(),
+                    intensity: 1.5,
+                    range: 8.0,
+                    inner_angle_degrees: 20.0.into(),
+                    outer_angle_degrees: 35.0.into(),
+                },
+            ))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let desc = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+
+        assert_eq!(
+            desc.spot_light,
+            Some(bsengine_scene::SpotLightDescriptor {
+                color: [1.0, 1.0, 1.0],
+                intensity: 1.5,
+                range: 8.0,
+                inner_angle_degrees: 20.0,
+                outer_angle_degrees: 35.0,
+            })
+        );
+    }
+
+    #[test]
+    fn snapshot_captures_a_live_directional_lights_color_and_ambient_but_not_direction() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn((
+                bsengine_scene::Name("Sun".to_string()),
+                bsengine_core::DirectionalLight {
+                    color: glam::Vec3::new(1.0, 0.9, 0.8).into(),
+                    ambient: glam::Vec3::splat(0.1).into(),
+                },
+            ))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let desc = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+
+        let dl = desc
+            .directional_light
+            .expect("directional_light must be captured");
+        assert_eq!(dl.color, [1.0, 0.9, 0.8]);
+        assert_eq!(dl.ambient, [0.1, 0.1, 0.1]);
+        // Deliberately no assertion on `dl.direction` -- it's a fixed, unused
+        // placeholder (see the design spec's "direction is not tracked"
+        // decision), not a value with a meaningful "correct" answer here.
+    }
+
+    #[test]
+    fn snapshot_omits_light_fields_when_no_lights_present() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn(bsengine_scene::Name("Dark".to_string()))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let desc = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+
+        assert_eq!(desc.point_light, None);
+        assert_eq!(desc.spot_light, None);
+        // See the comment in `snapshot_captures_a_live_point_light`:
+        // `DirectionalLightDescriptor` has no `PartialEq`.
+        assert!(desc.directional_light.is_none());
     }
 
     #[test]

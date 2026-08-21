@@ -986,6 +986,7 @@ pub(crate) fn resync_instance(
     // overwrites that back to the live value every time, after the fact,
     // rather than teaching the general-purpose merge function about roots.
     root_merged.transform = root_live.transform.clone();
+    patch_asset_ref_overrides(world, &root_live, baseline_root, new_root, &mut root_merged);
     apply_merged_descriptor(world, root, &registry, &root_live, &root_merged);
 
     let own_descendants = collect_own_descendants(world, root);
@@ -1083,7 +1084,8 @@ pub(crate) fn resync_instance(
             }
             (Some(b), Some(n), Some(live_e)) => {
                 let live_desc = snapshot_entity_as_descriptor(world, &registry, live_e);
-                let merged = merge_entity_descriptor(&live_desc, b, n);
+                let mut merged = merge_entity_descriptor(&live_desc, b, n);
+                patch_asset_ref_overrides(world, &live_desc, b, n, &mut merged);
                 apply_merged_descriptor(world, live_e, &registry, &live_desc, &merged);
             }
             (None, Some(n), _) => {

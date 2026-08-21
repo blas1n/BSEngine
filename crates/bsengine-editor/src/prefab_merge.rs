@@ -3222,4 +3222,128 @@ mod tests {
             "an unoverridden gltf must adopt the new file's value"
         );
     }
+
+    #[test]
+    fn resync_instance_preserves_an_overridden_texture_reference_while_updating_a_sibling_field() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let baseline = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(
+                    name: "Floor",
+                    parent: Some("Body"),
+                    texture: Some("assets/textures/checker.png"),
+                    emissive: Some((0.0, 0.0, 0.0)),
+                ),
+            ])"#,
+        );
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/floor_prop.ron",
+            Some("MyFloorProp"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let floor = {
+            let mut q = app.world_mut().query::<(Entity, &bsengine_scene::Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0.starts_with("Floor#"))
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        {
+            let mut tp = app
+                .world_mut()
+                .get_mut::<bsengine_core::TexturePath>(floor)
+                .unwrap();
+            tp.0 = "assets/textures/custom.png".to_string(); // user override
+        }
+
+        let new = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(
+                    name: "Floor",
+                    parent: Some("Body"),
+                    texture: Some("assets/textures/checker.png"),
+                    emissive: Some((0.2, 0.2, 0.2)),
+                ),
+            ])"#,
+        );
+        let own_source_paths =
+            std::collections::HashSet::from(["assets/prefabs/floor_prop.ron".to_string()]);
+        resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
+
+        let tp = app.world().get::<bsengine_core::TexturePath>(floor).unwrap();
+        assert_eq!(
+            tp.0, "assets/textures/custom.png",
+            "overridden texture reference must survive"
+        );
+        let material = app.world().get::<bsengine_core::Material>(floor).unwrap();
+        assert_eq!(
+            material.emissive.0.to_array(),
+            [0.2, 0.2, 0.2],
+            "unoverridden sibling field must still adopt the new file's value"
+        );
+    }
+
+    #[test]
+    fn resync_instance_lets_an_unoverridden_gltf_reference_adopt_a_source_change_under_a_real_project_dir(
+    ) {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        app.world_mut()
+            .insert_resource(bsengine_core::ProjectDir("games/demo".to_string()));
+
+        let baseline = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Prop", gltf: Some("assets/models/a.glb")),
+            ])"#,
+        );
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/prop.ron",
+            Some("MyProp"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Confirm the live path really is ProjectDir-prefixed after
+        // instantiation -- if this assertion fails, the rest of the test
+        // proves nothing about the bug this design exists to prevent.
+        assert_eq!(
+            app.world().get::<bsengine_gltf::GltfAsset>(root).unwrap().path,
+            "games/demo/assets/models/a.glb"
+        );
+
+        // Source changes the gltf reference, unoverridden. If the naive
+        // raw-equality bug this design exists to prevent were still present,
+        // `live` ("games/demo/assets/models/a.glb") would never match
+        // `baseline`'s raw, unresolved value ("assets/models/a.glb"), so this
+        // reference would look permanently overridden and never adopt the
+        // change below.
+        let new = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Prop", gltf: Some("assets/models/b.glb")),
+            ])"#,
+        );
+        let own_source_paths =
+            std::collections::HashSet::from(["assets/prefabs/prop.ron".to_string()]);
+        resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
+
+        assert_eq!(
+            app.world().get::<bsengine_gltf::GltfAsset>(root).unwrap().path,
+            "games/demo/assets/models/b.glb",
+            "an unoverridden gltf reference must adopt the source file's new value, correctly \
+             re-resolved with the ProjectDir prefix -- proving the resolve-then-compare fix actually \
+             works, not just that overrides survive"
+        );
+    }
 }

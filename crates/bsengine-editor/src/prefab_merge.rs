@@ -725,6 +725,45 @@ pub(crate) fn apply_merged_descriptor(
         world.entity_mut(entity).remove::<bsengine_core::Camera>();
     }
 
+    // `merged.gltf`/`script`/`texture` are already fully-resolved plain
+    // paths by construction (see `resolve_asset_ref_override`'s doc
+    // comment) -- write them directly, never through the resolve pipeline
+    // again here.
+    match &merged.gltf {
+        Some(r) => {
+            world
+                .entity_mut(entity)
+                .insert(bsengine_gltf::GltfAsset::new(r.path().to_string()));
+        }
+        None => {
+            world.entity_mut(entity).remove::<bsengine_gltf::GltfAsset>();
+        }
+    }
+    match &merged.script {
+        Some(r) => {
+            world
+                .entity_mut(entity)
+                .insert(bsengine_scene::ScriptPath(r.path().to_string()));
+        }
+        None => {
+            world
+                .entity_mut(entity)
+                .remove::<bsengine_scene::ScriptPath>();
+        }
+    }
+    match &merged.texture {
+        Some(r) => {
+            world
+                .entity_mut(entity)
+                .insert(bsengine_core::TexturePath(r.path().to_string()));
+        }
+        None => {
+            world
+                .entity_mut(entity)
+                .remove::<bsengine_core::TexturePath>();
+        }
+    }
+
     apply_merged_components(
         world,
         entity,
@@ -2207,6 +2246,74 @@ mod tests {
         };
         apply_merged_descriptor(app.world_mut(), entity, &reg, &live2, &merged2);
         assert!(app.world().get::<bsengine_core::Camera>(entity).is_none());
+    }
+
+    #[test]
+    fn apply_merged_descriptor_inserts_and_removes_a_gltf_script_and_texture_reference() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn(bsengine_scene::Name("Prop".to_string()))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let live = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+        let merged = bsengine_scene::EntityDescriptor {
+            gltf: Some(bsengine_scene::AssetRef::Path(
+                "assets/models/prop.glb".to_string(),
+            )),
+            script: Some(bsengine_scene::AssetRef::Path(
+                "assets/scripts/prop.js".to_string(),
+            )),
+            texture: Some(bsengine_scene::AssetRef::Path(
+                "assets/textures/prop.png".to_string(),
+            )),
+            ..live.clone()
+        };
+        apply_merged_descriptor(app.world_mut(), entity, &reg, &live, &merged);
+
+        assert_eq!(
+            app.world()
+                .get::<bsengine_gltf::GltfAsset>(entity)
+                .unwrap()
+                .path,
+            "assets/models/prop.glb"
+        );
+        assert_eq!(
+            app.world()
+                .get::<bsengine_scene::ScriptPath>(entity)
+                .unwrap()
+                .0,
+            "assets/scripts/prop.js"
+        );
+        assert_eq!(
+            app.world()
+                .get::<bsengine_core::TexturePath>(entity)
+                .unwrap()
+                .0,
+            "assets/textures/prop.png"
+        );
+
+        // Now resolve away and confirm removal.
+        let live2 = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+        let merged2 = bsengine_scene::EntityDescriptor {
+            gltf: None,
+            script: None,
+            texture: None,
+            ..live2.clone()
+        };
+        apply_merged_descriptor(app.world_mut(), entity, &reg, &live2, &merged2);
+        assert!(app.world().get::<bsengine_gltf::GltfAsset>(entity).is_none());
+        assert!(app
+            .world()
+            .get::<bsengine_scene::ScriptPath>(entity)
+            .is_none());
+        assert!(app
+            .world()
+            .get::<bsengine_core::TexturePath>(entity)
+            .is_none());
     }
 
     #[test]

@@ -736,7 +736,9 @@ pub(crate) fn apply_merged_descriptor(
                 .insert(bsengine_gltf::GltfAsset::new(r.path().to_string()));
         }
         None => {
-            world.entity_mut(entity).remove::<bsengine_gltf::GltfAsset>();
+            world
+                .entity_mut(entity)
+                .remove::<bsengine_gltf::GltfAsset>();
         }
     }
     match &merged.script {
@@ -2305,7 +2307,10 @@ mod tests {
             ..live2.clone()
         };
         apply_merged_descriptor(app.world_mut(), entity, &reg, &live2, &merged2);
-        assert!(app.world().get::<bsengine_gltf::GltfAsset>(entity).is_none());
+        assert!(app
+            .world()
+            .get::<bsengine_gltf::GltfAsset>(entity)
+            .is_none());
         assert!(app
             .world()
             .get::<bsengine_scene::ScriptPath>(entity)
@@ -3279,7 +3284,10 @@ mod tests {
             std::collections::HashSet::from(["assets/prefabs/floor_prop.ron".to_string()]);
         resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
 
-        let tp = app.world().get::<bsengine_core::TexturePath>(floor).unwrap();
+        let tp = app
+            .world()
+            .get::<bsengine_core::TexturePath>(floor)
+            .unwrap();
         assert_eq!(
             tp.0, "assets/textures/custom.png",
             "overridden texture reference must survive"
@@ -3319,7 +3327,10 @@ mod tests {
         // instantiation -- if this assertion fails, the rest of the test
         // proves nothing about the bug this design exists to prevent.
         assert_eq!(
-            app.world().get::<bsengine_gltf::GltfAsset>(root).unwrap().path,
+            app.world()
+                .get::<bsengine_gltf::GltfAsset>(root)
+                .unwrap()
+                .path,
             "games/demo/assets/models/a.glb"
         );
 

@@ -324,12 +324,22 @@ fn resolve_directional_light(
 /// `directional_light`, resolved via the dedicated `resolve_directional_light`
 /// for the same per-attribute reason, plus needing to skip `direction`
 /// (`DirectionalLightDescriptor` deliberately doesn't derive `PartialEq` --
-/// see that function's doc comment). Every field this PR doesn't yet cover
-/// (see the plan's "Scope for this plan" note) is left at
-/// `EntityDescriptor::default()`'s value on the returned descriptor; callers
-/// must never treat that as "adopt an explicit clear" for those fields --
-/// `apply_merged_descriptor` (a later task) only ever touches the fields
-/// this function actually resolves.
+/// see that function's doc comment). Also covers the camera field group:
+/// `camera`/`camera_fov` are already flat, independent top-level fields
+/// (`bool` and `Option<f32>`, both already `Clone + PartialEq`), so the plain
+/// `resolve_field` handles each directly -- no dedicated merge function is
+/// needed for them, unlike the light cluster. `look_at` is deliberately never
+/// resolved at all -- not even via `resolve_field` -- for the same reason
+/// `direction` has no live counterpart (see `snapshot_entity_as_descriptor`'s
+/// doc comment): it drives a one-time Transform.rotation write at
+/// instantiation and is never stored on the live entity afterward, so it
+/// stays at `EntityDescriptor::default()`'s `None` via the `..Default::default()`
+/// below, same as every other field this function doesn't cover. Every field
+/// this PR doesn't yet cover (see the plan's "Scope for this plan" note) is
+/// left at `EntityDescriptor::default()`'s value on the returned descriptor;
+/// callers must never treat that as "adopt an explicit clear" for those
+/// fields -- `apply_merged_descriptor` (a later task) only ever touches the
+/// fields this function actually resolves.
 pub(crate) fn merge_entity_descriptor(
     live: &bsengine_scene::EntityDescriptor,
     baseline: &bsengine_scene::EntityDescriptor,
@@ -361,6 +371,8 @@ pub(crate) fn merge_entity_descriptor(
             &baseline.directional_light,
             &new.directional_light,
         ),
+        camera: resolve_field(&live.camera, &baseline.camera, &new.camera),
+        camera_fov: resolve_field(&live.camera_fov, &baseline.camera_fov, &new.camera_fov),
         components: merge_components(&live.components, &baseline.components, &new.components),
         ..Default::default()
     }
@@ -1395,6 +1407,40 @@ mod tests {
             merged.angular_damping,
             Some(0.75),
             "the user's angular_damping override must survive, ignoring the new file's value"
+        );
+    }
+
+    #[test]
+    fn merge_entity_descriptor_resolves_camera_and_camera_fov_independently() {
+        let baseline = bsengine_scene::EntityDescriptor {
+            name: "Cam".to_string(),
+            camera: true,
+            camera_fov: Some(60.0),
+            ..Default::default()
+        };
+        let new = bsengine_scene::EntityDescriptor {
+            name: "Cam".to_string(),
+            camera: false, // author removed the camera, unoverridden
+            camera_fov: Some(60.0),
+            ..Default::default()
+        };
+        let live = bsengine_scene::EntityDescriptor {
+            name: "Cam".to_string(),
+            camera: true,           // matches baseline -> adopt new (false)
+            camera_fov: Some(90.0), // user widened fov -> override
+            ..Default::default()
+        };
+
+        let merged = merge_entity_descriptor(&live, &baseline, &new);
+
+        assert!(
+            !merged.camera,
+            "unoverridden camera presence must adopt the new file's value"
+        );
+        assert_eq!(
+            merged.camera_fov,
+            Some(90.0),
+            "the user's fov override must survive independently of the presence change"
         );
     }
 

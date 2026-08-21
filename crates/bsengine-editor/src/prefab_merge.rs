@@ -45,8 +45,9 @@ fn instance_suffix(world: &World, children: &[Entity]) -> Option<String> {
 /// Snapshots a live entity's current state into an [`EntityDescriptor`],
 /// covering this PR's representative field set (`transform`, `primitive`,
 /// `emissive`/`color`/`opacity`, `rigidbody`/`collider`/`linear_damping`/
-/// `angular_damping`, `point_light`/`spot_light`/`directional_light`, and the
-/// reflected `components` catalog) plus `name`.
+/// `angular_damping`, `point_light`/`spot_light`/`directional_light`,
+/// `camera`/`camera_fov`, and the reflected `components` catalog) plus
+/// `name`.
 /// Every other `EntityDescriptor` field is left at its `Default`
 /// (`None`/`false`/empty) -- deliberately: those fields belong to a follow-up
 /// PR's field groups and must never be treated as "live has explicitly
@@ -116,6 +117,16 @@ pub(crate) fn snapshot_entity_as_descriptor(
             ambient: dl.ambient.0.to_array(),
         });
 
+    // `look_at` (like `direction` above) has no live counterpart -- it
+    // drives a one-time Transform.rotation write at instantiation and is
+    // never stored anywhere retrievable afterward. There is deliberately no
+    // `look_at` snapshot here at all (unlike `direction`, there isn't even a
+    // placeholder to write): `EntityDescriptor::default()`'s `None` is
+    // already correct, and neither `merge_entity_descriptor` nor
+    // `apply_merged_descriptor` (later tasks) ever touch this field.
+    let camera = world.get::<bsengine_core::Camera>(entity);
+    let camera_fov = camera.map(|c| c.fov_y_degrees.0);
+
     let components = snapshot_extra_components(world, registry, entity);
 
     bsengine_scene::EntityDescriptor {
@@ -132,6 +143,8 @@ pub(crate) fn snapshot_entity_as_descriptor(
         point_light,
         spot_light,
         directional_light,
+        camera: camera.is_some(),
+        camera_fov,
         components,
         ..Default::default()
     }
@@ -311,12 +324,22 @@ fn resolve_directional_light(
 /// `directional_light`, resolved via the dedicated `resolve_directional_light`
 /// for the same per-attribute reason, plus needing to skip `direction`
 /// (`DirectionalLightDescriptor` deliberately doesn't derive `PartialEq` --
-/// see that function's doc comment). Every field this PR doesn't yet cover
-/// (see the plan's "Scope for this plan" note) is left at
-/// `EntityDescriptor::default()`'s value on the returned descriptor; callers
-/// must never treat that as "adopt an explicit clear" for those fields --
-/// `apply_merged_descriptor` (a later task) only ever touches the fields
-/// this function actually resolves.
+/// see that function's doc comment). Also covers the camera field group:
+/// `camera`/`camera_fov` are already flat, independent top-level fields
+/// (`bool` and `Option<f32>`, both already `Clone + PartialEq`), so the plain
+/// `resolve_field` handles each directly -- no dedicated merge function is
+/// needed for them, unlike the light cluster. `look_at` is deliberately never
+/// resolved at all -- not even via `resolve_field` -- for the same reason
+/// `direction` has no live counterpart (see `snapshot_entity_as_descriptor`'s
+/// doc comment): it drives a one-time Transform.rotation write at
+/// instantiation and is never stored on the live entity afterward, so it
+/// stays at `EntityDescriptor::default()`'s `None` via the `..Default::default()`
+/// below, same as every other field this function doesn't cover. Every field
+/// this PR doesn't yet cover (see the plan's "Scope for this plan" note) is
+/// left at `EntityDescriptor::default()`'s value on the returned descriptor;
+/// callers must never treat that as "adopt an explicit clear" for those
+/// fields -- `apply_merged_descriptor` (a later task) only ever touches the
+/// fields this function actually resolves.
 pub(crate) fn merge_entity_descriptor(
     live: &bsengine_scene::EntityDescriptor,
     baseline: &bsengine_scene::EntityDescriptor,
@@ -348,6 +371,8 @@ pub(crate) fn merge_entity_descriptor(
             &baseline.directional_light,
             &new.directional_light,
         ),
+        camera: resolve_field(&live.camera, &baseline.camera, &new.camera),
+        camera_fov: resolve_field(&live.camera_fov, &baseline.camera_fov, &new.camera_fov),
         components: merge_components(&live.components, &baseline.components, &new.components),
         ..Default::default()
     }
@@ -568,6 +593,37 @@ pub(crate) fn apply_merged_descriptor(
                 .entity_mut(entity)
                 .remove::<bsengine_core::DirectionalLight>();
         }
+    }
+
+    // `Camera` also carries `aspect_ratio`/`near`/`far`, none of which the
+    // wire format tracks -- `aspect_ratio` in particular is rewritten every
+    // frame a viewport resize occurs (`bsengine-render/src/plugin.rs`), so a
+    // full reconstruction here (mirroring `spawn_scene_entities`) would
+    // silently reset it to a hardcoded 16:9 on every resync, visibly
+    // distorting the camera until the next resize event. Mutate the
+    // existing component's `fov_y_degrees` in place instead -- exactly what
+    // `EditorCommand::UpdateCamera` already does for the same field. Only
+    // when there's no existing `Camera` to preserve (a brand-new camera) do
+    // we construct one fresh, identical to `spawn_scene_entities`'s own
+    // construction. `look_at` is deliberately never read here, for the same
+    // reason `directional_light`'s `direction` is never read by the block
+    // above.
+    if merged.camera {
+        let fov = merged.camera_fov.unwrap_or(60.0);
+        match world.get::<bsengine_core::Camera>(entity) {
+            Some(existing) => {
+                let mut cam = existing.clone();
+                cam.fov_y_degrees = fov.into();
+                world.entity_mut(entity).insert(cam);
+            }
+            None => {
+                world
+                    .entity_mut(entity)
+                    .insert(bsengine_core::Camera::perspective(fov, 16.0 / 9.0));
+            }
+        }
+    } else {
+        world.entity_mut(entity).remove::<bsengine_core::Camera>();
     }
 
     apply_merged_components(
@@ -1216,6 +1272,43 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_captures_a_live_camera() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn((
+                bsengine_scene::Name("MainCam".to_string()),
+                bsengine_core::Camera::perspective(75.0, 16.0 / 9.0),
+            ))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let desc = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+
+        assert!(desc.camera);
+        assert_eq!(desc.camera_fov, Some(75.0));
+    }
+
+    #[test]
+    fn snapshot_omits_camera_fields_when_no_camera_present() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn(bsengine_scene::Name("NotACamera".to_string()))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let desc = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+
+        assert!(!desc.camera);
+        assert_eq!(desc.camera_fov, None);
+    }
+
+    #[test]
     fn snapshot_captures_an_arbitrary_reflected_component_in_the_components_catalog() {
         let mut app = new_app();
         bsengine_scene::register_gameplay_reflect_types(&mut app);
@@ -1345,6 +1438,40 @@ mod tests {
             merged.angular_damping,
             Some(0.75),
             "the user's angular_damping override must survive, ignoring the new file's value"
+        );
+    }
+
+    #[test]
+    fn merge_entity_descriptor_resolves_camera_and_camera_fov_independently() {
+        let baseline = bsengine_scene::EntityDescriptor {
+            name: "Cam".to_string(),
+            camera: true,
+            camera_fov: Some(60.0),
+            ..Default::default()
+        };
+        let new = bsengine_scene::EntityDescriptor {
+            name: "Cam".to_string(),
+            camera: false, // author removed the camera, unoverridden
+            camera_fov: Some(60.0),
+            ..Default::default()
+        };
+        let live = bsengine_scene::EntityDescriptor {
+            name: "Cam".to_string(),
+            camera: true,           // matches baseline -> adopt new (false)
+            camera_fov: Some(90.0), // user widened fov -> override
+            ..Default::default()
+        };
+
+        let merged = merge_entity_descriptor(&live, &baseline, &new);
+
+        assert!(
+            !merged.camera,
+            "unoverridden camera presence must adopt the new file's value"
+        );
+        assert_eq!(
+            merged.camera_fov,
+            Some(90.0),
+            "the user's fov override must survive independently of the presence change"
         );
     }
 
@@ -1853,6 +1980,76 @@ mod tests {
             "directional_light must never write Transform.rotation -- got {rotation_after:?}, \
              expected it unchanged at {rotation_before:?}"
         );
+    }
+
+    #[test]
+    fn apply_merged_descriptor_preserves_aspect_ratio_and_clip_planes_when_updating_fov() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn((
+                bsengine_scene::Name("Cam".to_string()),
+                bsengine_core::Camera {
+                    fov_y_degrees: 60.0.into(),
+                    aspect_ratio: 2.35, // an unusual value only a real resize event would produce
+                    near: 0.05,
+                    far: 500.0,
+                },
+            ))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let live = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+        let merged = bsengine_scene::EntityDescriptor {
+            camera: true,
+            camera_fov: Some(90.0),
+            ..live.clone()
+        };
+
+        apply_merged_descriptor(app.world_mut(), entity, &reg, &live, &merged);
+
+        let cam = app.world().get::<bsengine_core::Camera>(entity).unwrap();
+        assert_eq!(cam.fov_y_degrees.0, 90.0, "fov must update");
+        assert_eq!(
+            cam.aspect_ratio, 2.35,
+            "aspect_ratio must survive untouched -- it's driven by the live viewport-resize system, \
+             never by prefab override tracking"
+        );
+        assert_eq!(cam.near, 0.05, "near must survive untouched");
+        assert_eq!(cam.far, 500.0, "far must survive untouched");
+    }
+
+    #[test]
+    fn apply_merged_descriptor_inserts_and_removes_a_camera() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn(bsengine_scene::Name("NotYetACamera".to_string()))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let live = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+        let merged = bsengine_scene::EntityDescriptor {
+            camera: true,
+            camera_fov: None, // absent -> defaults to 60, matching spawn_scene_entities
+            ..live.clone()
+        };
+        apply_merged_descriptor(app.world_mut(), entity, &reg, &live, &merged);
+        let cam = app.world().get::<bsengine_core::Camera>(entity).unwrap();
+        assert_eq!(cam.fov_y_degrees.0, 60.0);
+
+        // Now resolve away and confirm removal.
+        let live2 = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+        let merged2 = bsengine_scene::EntityDescriptor {
+            camera: false,
+            ..live2.clone()
+        };
+        apply_merged_descriptor(app.world_mut(), entity, &reg, &live2, &merged2);
+        assert!(app.world().get::<bsengine_core::Camera>(entity).is_none());
     }
 
     #[test]
@@ -2595,6 +2792,124 @@ mod tests {
             "the user's manual rotation must survive a resync that changes direction:, proving \
              the exact regression this design exists to avoid does not happen -- got \
              {rotation_after:?}, expected {manual_rotation:?}"
+        );
+    }
+
+    #[test]
+    fn resync_instance_preserves_an_overridden_camera_fov_while_updating_a_sibling_field() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let baseline = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(
+                    name: "Cam",
+                    camera: true,
+                    camera_fov: Some(60.0),
+                ),
+            ])"#,
+        );
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/turret_cam.ron",
+            Some("MyTurretCam"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        {
+            let mut cam = app
+                .world_mut()
+                .get_mut::<bsengine_core::Camera>(root)
+                .unwrap();
+            cam.fov_y_degrees = 90.0.into(); // user override
+        }
+
+        let new = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(
+                    name: "Cam",
+                    camera: true,
+                    camera_fov: Some(60.0),
+                ),
+            ])"#,
+        );
+        let own_source_paths =
+            std::collections::HashSet::from(["assets/prefabs/turret_cam.ron".to_string()]);
+        resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
+
+        let cam = app.world().get::<bsengine_core::Camera>(root).unwrap();
+        assert_eq!(cam.fov_y_degrees.0, 90.0, "overridden fov must survive");
+    }
+
+    #[test]
+    fn resync_instance_never_lets_a_look_at_change_touch_transform() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let baseline = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(
+                    name: "Cam",
+                    camera: true,
+                    transform: Some((position: (0.0, 0.0, 5.0), rotation: (0.0, 0.0, 0.0, 1.0), scale: (1.0, 1.0, 1.0))),
+                    look_at: Some((0.0, 0.0, 0.0)),
+                ),
+            ])"#,
+        );
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/aimed_cam.ron",
+            Some("MyAimedCam"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        // User manually rotates the root -- an overridden transform (root
+        // transform is always preserved regardless of override status, per PR
+        // #1789, but this test is specifically about proving `look_at` never
+        // gets a chance to fight that guarantee).
+        let manual_rotation = glam::Quat::from_rotation_y(0.9);
+        app.world_mut()
+            .entity_mut(root)
+            .insert(bsengine_core::Transform {
+                position: glam::Vec3::new(0.0, 0.0, 5.0).into(),
+                rotation: manual_rotation.into(),
+                scale: glam::Vec3::ONE.into(),
+            });
+
+        // Source changes `look_at:` -- if the old spawn-time side effect were
+        // reproduced here, this would silently re-aim the camera and undo the
+        // user's manual rotation.
+        let new = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(
+                    name: "Cam",
+                    camera: true,
+                    transform: Some((position: (0.0, 0.0, 5.0), rotation: (0.0, 0.0, 0.0, 1.0), scale: (1.0, 1.0, 1.0))),
+                    look_at: Some((10.0, 0.0, 0.0)),
+                ),
+            ])"#,
+        );
+        let own_source_paths =
+            std::collections::HashSet::from(["assets/prefabs/aimed_cam.ron".to_string()]);
+        resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
+
+        let rotation_after = app
+            .world()
+            .get::<bsengine_core::Transform>(root)
+            .unwrap()
+            .rotation
+            .0;
+        assert!(
+            rotation_after.abs_diff_eq(manual_rotation, 1e-5),
+            "the user's manual rotation must survive a resync that changes look_at:, proving the exact \
+             regression this design exists to avoid does not happen -- got {rotation_after:?}, \
+             expected {manual_rotation:?}"
         );
     }
 }

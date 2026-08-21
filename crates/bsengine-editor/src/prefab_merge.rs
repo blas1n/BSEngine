@@ -46,8 +46,8 @@ fn instance_suffix(world: &World, children: &[Entity]) -> Option<String> {
 /// covering this PR's representative field set (`transform`, `primitive`,
 /// `emissive`/`color`/`opacity`, `rigidbody`/`collider`/`linear_damping`/
 /// `angular_damping`, `point_light`/`spot_light`/`directional_light`,
-/// `camera`/`camera_fov`, and the reflected `components` catalog) plus
-/// `name`.
+/// `camera`/`camera_fov`, `gltf`/`script`/`texture`, and the reflected
+/// `components` catalog) plus `name`.
 /// Every other `EntityDescriptor` field is left at its `Default`
 /// (`None`/`false`/empty) -- deliberately: those fields belong to a follow-up
 /// PR's field groups and must never be treated as "live has explicitly
@@ -127,6 +127,23 @@ pub(crate) fn snapshot_entity_as_descriptor(
     let camera = world.get::<bsengine_core::Camera>(entity);
     let camera_fov = camera.map(|c| c.fov_y_degrees.0);
 
+    // Each of these is already the fully-resolved live path (see
+    // `resolve_asset_ref_for_field`'s doc comment) -- wrapped as a bare
+    // `AssetRef::Path` since a live component never carries a guid to
+    // round-trip. `resync_instance`'s `patch_asset_ref_overrides` (a later
+    // task) is what actually decides override-vs-adopt for these three
+    // fields; this snapshot just reports what's live right now, same as
+    // every other field this function captures.
+    let gltf = world
+        .get::<bsengine_gltf::GltfAsset>(entity)
+        .map(|g| bsengine_scene::AssetRef::Path(g.path.clone()));
+    let script = world
+        .get::<bsengine_scene::ScriptPath>(entity)
+        .map(|s| bsengine_scene::AssetRef::Path(s.0.clone()));
+    let texture = world
+        .get::<bsengine_core::TexturePath>(entity)
+        .map(|t| bsengine_scene::AssetRef::Path(t.0.clone()));
+
     let components = snapshot_extra_components(world, registry, entity);
 
     bsengine_scene::EntityDescriptor {
@@ -145,6 +162,9 @@ pub(crate) fn snapshot_entity_as_descriptor(
         directional_light,
         camera: camera.is_some(),
         camera_fov,
+        gltf,
+        script,
+        texture,
         components,
         ..Default::default()
     }
@@ -1306,6 +1326,62 @@ mod tests {
 
         assert!(!desc.camera);
         assert_eq!(desc.camera_fov, None);
+    }
+
+    #[test]
+    fn snapshot_captures_a_live_gltf_script_and_texture_reference() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn((
+                bsengine_scene::Name("Prop".to_string()),
+                bsengine_gltf::GltfAsset::new("assets/models/prop.glb"),
+                bsengine_scene::ScriptPath("assets/scripts/prop.js".to_string()),
+                bsengine_core::TexturePath("assets/textures/prop.png".to_string()),
+            ))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let desc = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+
+        assert_eq!(
+            desc.gltf,
+            Some(bsengine_scene::AssetRef::Path(
+                "assets/models/prop.glb".to_string()
+            ))
+        );
+        assert_eq!(
+            desc.script,
+            Some(bsengine_scene::AssetRef::Path(
+                "assets/scripts/prop.js".to_string()
+            ))
+        );
+        assert_eq!(
+            desc.texture,
+            Some(bsengine_scene::AssetRef::Path(
+                "assets/textures/prop.png".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn snapshot_omits_asset_ref_fields_when_absent() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn(bsengine_scene::Name("Bare".to_string()))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let desc = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+
+        assert_eq!(desc.gltf, None);
+        assert_eq!(desc.script, None);
+        assert_eq!(desc.texture, None);
     }
 
     #[test]

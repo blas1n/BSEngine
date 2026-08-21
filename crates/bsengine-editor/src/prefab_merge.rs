@@ -45,7 +45,8 @@ fn instance_suffix(world: &World, children: &[Entity]) -> Option<String> {
 /// Snapshots a live entity's current state into an [`EntityDescriptor`],
 /// covering this PR's representative field set (`transform`, `primitive`,
 /// `emissive`/`color`/`opacity`, `rigidbody`/`collider`/`linear_damping`/
-/// `angular_damping`, and the reflected `components` catalog) plus `name`.
+/// `angular_damping`, `point_light`/`spot_light`/`directional_light`, and the
+/// reflected `components` catalog) plus `name`.
 /// Every other `EntityDescriptor` field is left at its `Default`
 /// (`None`/`false`/empty) -- deliberately: those fields belong to a follow-up
 /// PR's field groups and must never be treated as "live has explicitly
@@ -83,6 +84,38 @@ pub(crate) fn snapshot_entity_as_descriptor(
     let linear_damping = physics_body.and_then(|p| p.linear_damping);
     let angular_damping = physics_body.and_then(|p| p.angular_damping);
 
+    let point_light = world.get::<bsengine_core::PointLight>(entity).map(|pl| {
+        bsengine_scene::PointLightDescriptor {
+            color: pl.color.0.to_array(),
+            intensity: pl.intensity,
+            range: pl.range,
+        }
+    });
+
+    let spot_light = world.get::<bsengine_core::SpotLight>(entity).map(|sl| {
+        bsengine_scene::SpotLightDescriptor {
+            color: sl.color.0.to_array(),
+            intensity: sl.intensity,
+            range: sl.range,
+            inner_angle_degrees: sl.inner_angle_degrees.0,
+            outer_angle_degrees: sl.outer_angle_degrees.0,
+        }
+    });
+
+    // `direction` has no live counterpart -- it drives a one-time
+    // Transform.rotation write at instantiation and is never stored on the
+    // live entity afterward (see the design spec). This placeholder is never
+    // read by anything: `resolve_directional_light` (a later task) compares
+    // only `color`/`ambient`, and `apply_merged_descriptor` never reads
+    // `direction` back off the merged result.
+    let directional_light = world
+        .get::<bsengine_core::DirectionalLight>(entity)
+        .map(|dl| bsengine_scene::DirectionalLightDescriptor {
+            direction: [0.0, 0.0, -1.0],
+            color: dl.color.0.to_array(),
+            ambient: dl.ambient.0.to_array(),
+        });
+
     let components = snapshot_extra_components(world, registry, entity);
 
     bsengine_scene::EntityDescriptor {
@@ -96,6 +129,9 @@ pub(crate) fn snapshot_entity_as_descriptor(
         collider,
         linear_damping,
         angular_damping,
+        point_light,
+        spot_light,
+        directional_light,
         components,
         ..Default::default()
     }
@@ -180,17 +216,107 @@ fn resolve_field<T: Clone + PartialEq>(live: &T, baseline: &T, new: &T) -> T {
     }
 }
 
+/// Merges one light-like descriptor's individual attributes independently,
+/// the same granularity the physics field group already gets by being split
+/// into four separate top-level `EntityDescriptor` fields (`rigidbody`/
+/// `collider`/`linear_damping`/`angular_damping`) instead of one atomic
+/// struct: a user who only retuned `intensity` must not lose an unrelated
+/// `range` change the prefab author made in the same file, and vice versa.
+/// Whether the light exists at all (`Some`/`None`) is still resolved
+/// atomically via `resolve_field`, exactly like every other `Option<T>`
+/// field in this module -- there is no meaningful way to "partially" have a
+/// light, so that dimension only decomposes once all three sides agree the
+/// light exists.
+fn merge_point_light(
+    live: &Option<bsengine_scene::PointLightDescriptor>,
+    baseline: &Option<bsengine_scene::PointLightDescriptor>,
+    new: &Option<bsengine_scene::PointLightDescriptor>,
+) -> Option<bsengine_scene::PointLightDescriptor> {
+    match (live, baseline, new) {
+        (Some(l), Some(b), Some(n)) => Some(bsengine_scene::PointLightDescriptor {
+            color: resolve_field(&l.color, &b.color, &n.color),
+            intensity: resolve_field(&l.intensity, &b.intensity, &n.intensity),
+            range: resolve_field(&l.range, &b.range, &n.range),
+        }),
+        _ => resolve_field(live, baseline, new),
+    }
+}
+
+/// Same rationale and shape as `merge_point_light`, for `SpotLightDescriptor`'s
+/// five independently-tunable attributes.
+fn merge_spot_light(
+    live: &Option<bsengine_scene::SpotLightDescriptor>,
+    baseline: &Option<bsengine_scene::SpotLightDescriptor>,
+    new: &Option<bsengine_scene::SpotLightDescriptor>,
+) -> Option<bsengine_scene::SpotLightDescriptor> {
+    match (live, baseline, new) {
+        (Some(l), Some(b), Some(n)) => Some(bsengine_scene::SpotLightDescriptor {
+            color: resolve_field(&l.color, &b.color, &n.color),
+            intensity: resolve_field(&l.intensity, &b.intensity, &n.intensity),
+            range: resolve_field(&l.range, &b.range, &n.range),
+            inner_angle_degrees: resolve_field(
+                &l.inner_angle_degrees,
+                &b.inner_angle_degrees,
+                &n.inner_angle_degrees,
+            ),
+            outer_angle_degrees: resolve_field(
+                &l.outer_angle_degrees,
+                &b.outer_angle_degrees,
+                &n.outer_angle_degrees,
+            ),
+        }),
+        _ => resolve_field(live, baseline, new),
+    }
+}
+
+/// Same per-attribute spirit as `merge_point_light`/`merge_spot_light`,
+/// comparing and resolving only `color`/`ambient` independently -- never
+/// `direction`. `direction` has no live counterpart (see
+/// `snapshot_entity_as_descriptor`'s doc comment) and is never read back off
+/// this function's result by `apply_merged_descriptor`, so comparing it
+/// would only ever inject noise: every live snapshot's `direction` is the
+/// same fixed placeholder, permanently "different" from whatever real value
+/// a prefab file authors, which would make every directional light look
+/// permanently overridden. The merged result's own `direction` is taken from
+/// `new` when both sides have a light -- an arbitrary but harmless choice,
+/// since nothing ever reads it back. Whether the light exists at all is
+/// still resolved atomically, for the same reason `merge_point_light`
+/// resolves presence atomically.
+fn resolve_directional_light(
+    live: &Option<bsengine_scene::DirectionalLightDescriptor>,
+    baseline: &Option<bsengine_scene::DirectionalLightDescriptor>,
+    new: &Option<bsengine_scene::DirectionalLightDescriptor>,
+) -> Option<bsengine_scene::DirectionalLightDescriptor> {
+    match (live, baseline, new) {
+        (Some(l), Some(b), Some(n)) => Some(bsengine_scene::DirectionalLightDescriptor {
+            direction: n.direction,
+            color: resolve_field(&l.color, &b.color, &n.color),
+            ambient: resolve_field(&l.ambient, &b.ambient, &n.ambient),
+        }),
+        (None, None, _) => new.clone(),
+        _ => live.clone(),
+    }
+}
+
 /// Merges this PR's representative field set for one matched entity (present
 /// in `live`, `baseline`, and `new` alike). `name` always comes from `live`
 /// unchanged -- matching is by name already, so there's nothing to resolve
-/// there. Covers `transform`/`primitive`/`emissive`/`color`/`opacity` and the
+/// there. Covers `transform`/`primitive`/`emissive`/`color`/`opacity`, the
 /// physics field group (`rigidbody`/`collider`/`linear_damping`/
-/// `angular_damping`), each resolved independently via `resolve_field`. Every
-/// field this PR doesn't yet cover (see the plan's "Scope for this plan"
-/// note) is left at `EntityDescriptor::default()`'s value on the returned
-/// descriptor; callers must never treat that as "adopt an explicit clear"
-/// for those fields -- `apply_merged_descriptor` (a later task) only ever
-/// touches the fields this function actually resolves.
+/// `angular_damping`), and the light field group: `point_light`/`spot_light`,
+/// each resolved attribute-by-attribute via `merge_point_light`/
+/// `merge_spot_light` (not the bare `resolve_field`, which would treat the
+/// whole descriptor as one atomic value and lose an unrelated attribute's
+/// override the moment any single attribute inside it changed), and
+/// `directional_light`, resolved via the dedicated `resolve_directional_light`
+/// for the same per-attribute reason, plus needing to skip `direction`
+/// (`DirectionalLightDescriptor` deliberately doesn't derive `PartialEq` --
+/// see that function's doc comment). Every field this PR doesn't yet cover
+/// (see the plan's "Scope for this plan" note) is left at
+/// `EntityDescriptor::default()`'s value on the returned descriptor; callers
+/// must never treat that as "adopt an explicit clear" for those fields --
+/// `apply_merged_descriptor` (a later task) only ever touches the fields
+/// this function actually resolves.
 pub(crate) fn merge_entity_descriptor(
     live: &bsengine_scene::EntityDescriptor,
     baseline: &bsengine_scene::EntityDescriptor,
@@ -214,6 +340,13 @@ pub(crate) fn merge_entity_descriptor(
             &live.angular_damping,
             &baseline.angular_damping,
             &new.angular_damping,
+        ),
+        point_light: merge_point_light(&live.point_light, &baseline.point_light, &new.point_light),
+        spot_light: merge_spot_light(&live.spot_light, &baseline.spot_light, &new.spot_light),
+        directional_light: resolve_directional_light(
+            &live.directional_light,
+            &baseline.directional_light,
+            &new.directional_light,
         ),
         components: merge_components(&live.components, &baseline.components, &new.components),
         ..Default::default()
@@ -381,6 +514,59 @@ pub(crate) fn apply_merged_descriptor(
             world
                 .entity_mut(entity)
                 .remove::<bsengine_scene::PhysicsBodyDesc>();
+        }
+    }
+
+    match &merged.point_light {
+        Some(pl) => {
+            world.entity_mut(entity).insert(bsengine_core::PointLight {
+                color: glam::Vec3::from(pl.color).into(),
+                intensity: pl.intensity,
+                range: pl.range,
+            });
+        }
+        None => {
+            world
+                .entity_mut(entity)
+                .remove::<bsengine_core::PointLight>();
+        }
+    }
+
+    match &merged.spot_light {
+        Some(sl) => {
+            world.entity_mut(entity).insert(bsengine_core::SpotLight {
+                color: glam::Vec3::from(sl.color).into(),
+                intensity: sl.intensity,
+                range: sl.range,
+                inner_angle_degrees: sl.inner_angle_degrees.into(),
+                outer_angle_degrees: sl.outer_angle_degrees.into(),
+            });
+        }
+        None => {
+            world
+                .entity_mut(entity)
+                .remove::<bsengine_core::SpotLight>();
+        }
+    }
+
+    // Deliberately never touches `Transform` -- see `resolve_directional_light`'s
+    // and `snapshot_entity_as_descriptor`'s doc comments for why `direction`
+    // is excluded entirely; the already-shipped `transform` field group
+    // above is the sole owner of rotation, for light entities same as any
+    // other.
+    match &merged.directional_light {
+        Some(dl) => {
+            world
+                .entity_mut(entity)
+                .insert(bsengine_core::DirectionalLight {
+                    color: glam::Vec3::from(dl.color).into(),
+                    ambient: glam::Vec3::from(dl.ambient).into(),
+                });
+        }
+        None => {
+            world
+                .entity_mut(entity)
+                .remove::<bsengine_core::DirectionalLight>();
         }
     }
 
@@ -911,6 +1097,125 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_captures_a_live_point_light() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn((
+                bsengine_scene::Name("Lamp".to_string()),
+                bsengine_core::PointLight {
+                    color: glam::Vec3::new(1.0, 0.5, 0.25).into(),
+                    intensity: 2.0,
+                    range: 15.0,
+                },
+            ))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let desc = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+
+        assert_eq!(
+            desc.point_light,
+            Some(bsengine_scene::PointLightDescriptor {
+                color: [1.0, 0.5, 0.25],
+                intensity: 2.0,
+                range: 15.0,
+            })
+        );
+        assert_eq!(desc.spot_light, None);
+        // `DirectionalLightDescriptor` doesn't derive `PartialEq` (only
+        // `PointLightDescriptor`/`SpotLightDescriptor` gained it, see commit
+        // 04aa90e3), so `Option<DirectionalLightDescriptor>` can't be
+        // compared with `assert_eq!` -- use `.is_none()` instead.
+        assert!(desc.directional_light.is_none());
+    }
+
+    #[test]
+    fn snapshot_captures_a_live_spot_light() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn((
+                bsengine_scene::Name("Spot".to_string()),
+                bsengine_core::SpotLight {
+                    color: glam::Vec3::ONE.into(),
+                    intensity: 1.5,
+                    range: 8.0,
+                    inner_angle_degrees: 20.0.into(),
+                    outer_angle_degrees: 35.0.into(),
+                },
+            ))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let desc = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+
+        assert_eq!(
+            desc.spot_light,
+            Some(bsengine_scene::SpotLightDescriptor {
+                color: [1.0, 1.0, 1.0],
+                intensity: 1.5,
+                range: 8.0,
+                inner_angle_degrees: 20.0,
+                outer_angle_degrees: 35.0,
+            })
+        );
+    }
+
+    #[test]
+    fn snapshot_captures_a_live_directional_lights_color_and_ambient_but_not_direction() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn((
+                bsengine_scene::Name("Sun".to_string()),
+                bsengine_core::DirectionalLight {
+                    color: glam::Vec3::new(1.0, 0.9, 0.8).into(),
+                    ambient: glam::Vec3::splat(0.1).into(),
+                },
+            ))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let desc = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+
+        let dl = desc
+            .directional_light
+            .expect("directional_light must be captured");
+        assert_eq!(dl.color, [1.0, 0.9, 0.8]);
+        assert_eq!(dl.ambient, [0.1, 0.1, 0.1]);
+        // Deliberately no assertion on `dl.direction` -- it's a fixed, unused
+        // placeholder (see the design spec's "direction is not tracked"
+        // decision), not a value with a meaningful "correct" answer here.
+    }
+
+    #[test]
+    fn snapshot_omits_light_fields_when_no_lights_present() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn(bsengine_scene::Name("Dark".to_string()))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let desc = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+
+        assert_eq!(desc.point_light, None);
+        assert_eq!(desc.spot_light, None);
+        // See the comment in `snapshot_captures_a_live_point_light`:
+        // `DirectionalLightDescriptor` has no `PartialEq`.
+        assert!(desc.directional_light.is_none());
+    }
+
+    #[test]
     fn snapshot_captures_an_arbitrary_reflected_component_in_the_components_catalog() {
         let mut app = new_app();
         bsengine_scene::register_gameplay_reflect_types(&mut app);
@@ -1194,6 +1499,82 @@ mod tests {
     }
 
     #[test]
+    fn merge_entity_descriptor_preserves_an_overridden_point_light_field() {
+        let baseline = bsengine_scene::EntityDescriptor {
+            name: "Lamp".to_string(),
+            point_light: Some(bsengine_scene::PointLightDescriptor {
+                color: [1.0, 1.0, 1.0],
+                intensity: 1.0,
+                range: 10.0,
+            }),
+            ..Default::default()
+        };
+        let new = bsengine_scene::EntityDescriptor {
+            name: "Lamp".to_string(),
+            point_light: Some(bsengine_scene::PointLightDescriptor {
+                color: [1.0, 1.0, 1.0],
+                intensity: 1.0,
+                range: 25.0, // author widened the range, unoverridden
+            }),
+            ..Default::default()
+        };
+        let live = bsengine_scene::EntityDescriptor {
+            name: "Lamp".to_string(),
+            point_light: Some(bsengine_scene::PointLightDescriptor {
+                color: [1.0, 1.0, 1.0],
+                intensity: 3.0, // user tuned intensity -> override
+                range: 10.0,    // matches baseline -> adopt new
+            }),
+            ..Default::default()
+        };
+
+        let merged = merge_entity_descriptor(&live, &baseline, &new);
+
+        let pl = merged.point_light.unwrap();
+        assert_eq!(
+            pl.intensity, 3.0,
+            "the user's intensity override must survive"
+        );
+        assert_eq!(
+            pl.range, 25.0,
+            "the unoverridden range must adopt the new file's value"
+        );
+    }
+
+    #[test]
+    fn resolve_directional_light_compares_only_color_and_ambient() {
+        let baseline = Some(bsengine_scene::DirectionalLightDescriptor {
+            direction: [0.0, 0.0, -1.0],
+            color: [1.0, 1.0, 1.0],
+            ambient: [0.1, 0.1, 0.1],
+        });
+        let new = Some(bsengine_scene::DirectionalLightDescriptor {
+            direction: [1.0, 0.0, 0.0], // changed, but must have zero effect on the decision
+            color: [1.0, 1.0, 1.0],     // unchanged -> adopt
+            ambient: [0.2, 0.2, 0.2],   // unchanged... wait see below
+        });
+        // live's color diverges from baseline -> override; ambient matches baseline -> adopt.
+        let live = Some(bsengine_scene::DirectionalLightDescriptor {
+            direction: [0.0, 0.0, -1.0],
+            color: [0.5, 0.0, 0.0],   // user recolored the sun -> override
+            ambient: [0.1, 0.1, 0.1], // matches baseline -> adopt new's ambient
+        });
+
+        let resolved = resolve_directional_light(&live, &baseline, &new).unwrap();
+
+        assert_eq!(
+            resolved.color,
+            [0.5, 0.0, 0.0],
+            "overridden color must survive"
+        );
+        assert_eq!(
+            resolved.ambient,
+            [0.2, 0.2, 0.2],
+            "unoverridden ambient must adopt the new value"
+        );
+    }
+
+    #[test]
     fn apply_merged_descriptor_preserves_material_fields_outside_this_prs_scope() {
         let mut app = new_app();
         bsengine_scene::register_gameplay_reflect_types(&mut app);
@@ -1351,6 +1732,126 @@ mod tests {
                 .is_none(),
             "a merged result with only one half of the rigidbody/collider pair must remove the \
              component entirely, matching spawn_scene_entities's own \"both required\" rule"
+        );
+    }
+
+    #[test]
+    fn apply_merged_descriptor_inserts_and_removes_a_point_light() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn(bsengine_scene::Name("Lamp".to_string()))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let live = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+        let merged = bsengine_scene::EntityDescriptor {
+            point_light: Some(bsengine_scene::PointLightDescriptor {
+                color: [1.0, 0.0, 0.0],
+                intensity: 2.0,
+                range: 12.0,
+            }),
+            ..live.clone()
+        };
+        apply_merged_descriptor(app.world_mut(), entity, &reg, &live, &merged);
+        let pl = app
+            .world()
+            .get::<bsengine_core::PointLight>(entity)
+            .unwrap();
+        assert_eq!(pl.color.0.to_array(), [1.0, 0.0, 0.0]);
+        assert_eq!(pl.intensity, 2.0);
+        assert_eq!(pl.range, 12.0);
+
+        // Now resolve away and confirm removal.
+        let live2 = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+        let merged2 = bsengine_scene::EntityDescriptor {
+            point_light: None,
+            ..live2.clone()
+        };
+        apply_merged_descriptor(app.world_mut(), entity, &reg, &live2, &merged2);
+        assert!(app
+            .world()
+            .get::<bsengine_core::PointLight>(entity)
+            .is_none());
+    }
+
+    #[test]
+    fn apply_merged_descriptor_inserts_and_removes_a_spot_light() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn(bsengine_scene::Name("Spot".to_string()))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let live = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+        let merged = bsengine_scene::EntityDescriptor {
+            spot_light: Some(bsengine_scene::SpotLightDescriptor {
+                color: [1.0, 1.0, 1.0],
+                intensity: 1.0,
+                range: 10.0,
+                inner_angle_degrees: 15.0,
+                outer_angle_degrees: 25.0,
+            }),
+            ..live.clone()
+        };
+        apply_merged_descriptor(app.world_mut(), entity, &reg, &live, &merged);
+        let sl = app.world().get::<bsengine_core::SpotLight>(entity).unwrap();
+        assert_eq!(sl.inner_angle_degrees.0, 15.0);
+        assert_eq!(sl.outer_angle_degrees.0, 25.0);
+    }
+
+    #[test]
+    fn apply_merged_descriptor_writes_directional_light_color_and_ambient_only() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn((
+                bsengine_scene::Name("Sun".to_string()),
+                bsengine_core::Transform {
+                    rotation: glam::Quat::from_rotation_x(0.3).into(),
+                    ..Default::default()
+                },
+            ))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let live = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+        let merged = bsengine_scene::EntityDescriptor {
+            directional_light: Some(bsengine_scene::DirectionalLightDescriptor {
+                direction: [1.0, 0.0, 0.0], // must have no effect on Transform
+                color: [1.0, 0.8, 0.6],
+                ambient: [0.2, 0.2, 0.2],
+            }),
+            transform: live.transform.clone(), // keep whatever transform snapshot already had
+            ..live.clone()
+        };
+
+        apply_merged_descriptor(app.world_mut(), entity, &reg, &live, &merged);
+
+        let dl = app
+            .world()
+            .get::<bsengine_core::DirectionalLight>(entity)
+            .unwrap();
+        assert_eq!(dl.color.0.to_array(), [1.0, 0.8, 0.6]);
+        assert_eq!(dl.ambient.0.to_array(), [0.2, 0.2, 0.2]);
+        let rotation_after = app
+            .world()
+            .get::<bsengine_core::Transform>(entity)
+            .unwrap()
+            .rotation
+            .0;
+        let rotation_before = glam::Quat::from_rotation_x(0.3);
+        assert!(
+            rotation_after.abs_diff_eq(rotation_before, 1e-5),
+            "directional_light must never write Transform.rotation -- got {rotation_after:?}, \
+             expected it unchanged at {rotation_before:?}"
         );
     }
 
@@ -1891,6 +2392,209 @@ mod tests {
             "no fresh replacement Scope entity should have been spawned under Body either -- \
              the cascade-despawn is respected as a deletion, not treated as \"new entity the \
              source added\" just because Scope's raw_name still resolves in `new`"
+        );
+    }
+
+    #[test]
+    fn resync_instance_preserves_an_overridden_point_light_field_while_updating_a_sibling_field() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let baseline = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(
+                    name: "Lamp",
+                    parent: Some("Body"),
+                    point_light: Some((color: (1.0, 1.0, 1.0), intensity: 1.0, range: 10.0)),
+                ),
+            ])"#,
+        );
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/turret.ron",
+            Some("MyTurret"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let lamp = {
+            let mut q = app.world_mut().query::<(Entity, &bsengine_scene::Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0.starts_with("Lamp#"))
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        {
+            let mut pl = app
+                .world_mut()
+                .get_mut::<bsengine_core::PointLight>(lamp)
+                .unwrap();
+            pl.intensity = 5.0; // user override
+        }
+
+        let new = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(
+                    name: "Lamp",
+                    parent: Some("Body"),
+                    point_light: Some((color: (1.0, 1.0, 1.0), intensity: 1.0, range: 30.0)),
+                ),
+            ])"#,
+        );
+        let own_source_paths =
+            std::collections::HashSet::from(["assets/prefabs/turret.ron".to_string()]);
+        resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
+
+        let pl = app.world().get::<bsengine_core::PointLight>(lamp).unwrap();
+        assert_eq!(pl.intensity, 5.0, "overridden intensity must survive");
+        assert_eq!(
+            pl.range, 30.0,
+            "unoverridden range must adopt the new file's value"
+        );
+    }
+
+    #[test]
+    fn resync_instance_preserves_an_overridden_spot_light_field_while_updating_a_sibling_field() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let baseline = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(
+                    name: "Spot",
+                    parent: Some("Body"),
+                    spot_light: Some((
+                        color: (1.0, 1.0, 1.0),
+                        intensity: 1.0,
+                        range: 10.0,
+                        inner_angle_degrees: 20.0,
+                        outer_angle_degrees: 35.0,
+                    )),
+                ),
+            ])"#,
+        );
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/searchlight.ron",
+            Some("MySearchlight"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let spot = {
+            let mut q = app.world_mut().query::<(Entity, &bsengine_scene::Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0.starts_with("Spot#"))
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        {
+            let mut sl = app
+                .world_mut()
+                .get_mut::<bsengine_core::SpotLight>(spot)
+                .unwrap();
+            sl.outer_angle_degrees = 60.0.into(); // user override
+        }
+
+        let new = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(
+                    name: "Spot",
+                    parent: Some("Body"),
+                    spot_light: Some((
+                        color: (1.0, 1.0, 1.0),
+                        intensity: 1.0,
+                        range: 40.0,
+                        inner_angle_degrees: 20.0,
+                        outer_angle_degrees: 35.0,
+                    )),
+                ),
+            ])"#,
+        );
+        let own_source_paths =
+            std::collections::HashSet::from(["assets/prefabs/searchlight.ron".to_string()]);
+        resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
+
+        let sl = app.world().get::<bsengine_core::SpotLight>(spot).unwrap();
+        assert_eq!(
+            sl.outer_angle_degrees.0, 60.0,
+            "overridden outer_angle_degrees must survive"
+        );
+        assert_eq!(
+            sl.range, 40.0,
+            "unoverridden range must adopt the new file's value"
+        );
+    }
+
+    #[test]
+    fn resync_instance_never_lets_a_directional_lights_direction_change_touch_transform() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let baseline = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(
+                    name: "Sun",
+                    directional_light: Some((direction: (0.0, -1.0, 0.0), color: (1.0, 1.0, 1.0), ambient: (0.1, 0.1, 0.1))),
+                ),
+            ])"#,
+        );
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/sun.ron",
+            Some("MySun"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        // User manually rotates the root -- an overridden transform (root transform
+        // is always preserved regardless of override status, per PR #1789, but
+        // this test is specifically about proving directional_light's `direction`
+        // never gets a chance to fight that guarantee).
+        let manual_rotation = glam::Quat::from_rotation_y(1.2);
+        app.world_mut()
+            .entity_mut(root)
+            .insert(bsengine_core::Transform {
+                rotation: manual_rotation.into(),
+                ..Default::default()
+            });
+
+        // Source changes `direction:` -- if the old spawn-time side effect were
+        // reproduced here, this would silently re-point the light and undo the
+        // user's manual rotation.
+        let new = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(
+                    name: "Sun",
+                    directional_light: Some((direction: (1.0, 0.0, 0.0), color: (1.0, 1.0, 1.0), ambient: (0.1, 0.1, 0.1))),
+                ),
+            ])"#,
+        );
+        let own_source_paths =
+            std::collections::HashSet::from(["assets/prefabs/sun.ron".to_string()]);
+        resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
+
+        let rotation_after = app
+            .world()
+            .get::<bsengine_core::Transform>(root)
+            .unwrap()
+            .rotation
+            .0;
+        assert!(
+            rotation_after.abs_diff_eq(manual_rotation, 1e-5),
+            "the user's manual rotation must survive a resync that changes direction:, proving \
+             the exact regression this design exists to avoid does not happen -- got \
+             {rotation_after:?}, expected {manual_rotation:?}"
         );
     }
 }

@@ -370,7 +370,7 @@ pub struct DirectionalLightDescriptor {
 }
 
 /// Omnidirectional light that falls off with distance from the entity's position.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PointLightDescriptor {
     /// Light color as [r, g, b] in linear 0-1. Defaults to white.
     #[serde(default = "default_white")]
@@ -384,7 +384,7 @@ pub struct PointLightDescriptor {
 }
 
 /// Cone-shaped light that falls off with distance and angle from the entity's forward direction.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SpotLightDescriptor {
     /// Light color as [r, g, b] in linear 0-1. Defaults to white.
     #[serde(default = "default_white")]
@@ -836,5 +836,39 @@ mod tests {
         assert_eq!(d.name, "X");
         assert_eq!(d.transform, None);
         assert!(d.components.is_empty());
+    }
+
+    #[test]
+    fn point_light_descriptor_supports_equality_comparison() {
+        let a = PointLightDescriptor {
+            color: [1.0, 1.0, 1.0],
+            intensity: 1.0,
+            range: 10.0,
+        };
+        let b = a.clone();
+        let c = PointLightDescriptor {
+            range: 20.0,
+            ..a.clone()
+        };
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn spot_light_descriptor_supports_equality_comparison() {
+        let a = SpotLightDescriptor {
+            color: [1.0, 1.0, 1.0],
+            intensity: 1.0,
+            range: 10.0,
+            inner_angle_degrees: 22.5,
+            outer_angle_degrees: 30.0,
+        };
+        let b = a.clone();
+        let c = SpotLightDescriptor {
+            outer_angle_degrees: 45.0,
+            ..a.clone()
+        };
+        assert_eq!(a, b);
+        assert_ne!(a, c);
     }
 }

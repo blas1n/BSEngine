@@ -45,8 +45,9 @@ fn instance_suffix(world: &World, children: &[Entity]) -> Option<String> {
 /// Snapshots a live entity's current state into an [`EntityDescriptor`],
 /// covering this PR's representative field set (`transform`, `primitive`,
 /// `emissive`/`color`/`opacity`, `rigidbody`/`collider`/`linear_damping`/
-/// `angular_damping`, `point_light`/`spot_light`/`directional_light`, and the
-/// reflected `components` catalog) plus `name`.
+/// `angular_damping`, `point_light`/`spot_light`/`directional_light`,
+/// `camera`/`camera_fov`, and the reflected `components` catalog) plus
+/// `name`.
 /// Every other `EntityDescriptor` field is left at its `Default`
 /// (`None`/`false`/empty) -- deliberately: those fields belong to a follow-up
 /// PR's field groups and must never be treated as "live has explicitly
@@ -116,6 +117,16 @@ pub(crate) fn snapshot_entity_as_descriptor(
             ambient: dl.ambient.0.to_array(),
         });
 
+    // `look_at` (like `direction` above) has no live counterpart -- it
+    // drives a one-time Transform.rotation write at instantiation and is
+    // never stored anywhere retrievable afterward. There is deliberately no
+    // `look_at` snapshot here at all (unlike `direction`, there isn't even a
+    // placeholder to write): `EntityDescriptor::default()`'s `None` is
+    // already correct, and neither `merge_entity_descriptor` nor
+    // `apply_merged_descriptor` (later tasks) ever touch this field.
+    let camera = world.get::<bsengine_core::Camera>(entity);
+    let camera_fov = camera.map(|c| c.fov_y_degrees.0);
+
     let components = snapshot_extra_components(world, registry, entity);
 
     bsengine_scene::EntityDescriptor {
@@ -132,6 +143,8 @@ pub(crate) fn snapshot_entity_as_descriptor(
         point_light,
         spot_light,
         directional_light,
+        camera: camera.is_some(),
+        camera_fov,
         components,
         ..Default::default()
     }
@@ -1213,6 +1226,43 @@ mod tests {
         // See the comment in `snapshot_captures_a_live_point_light`:
         // `DirectionalLightDescriptor` has no `PartialEq`.
         assert!(desc.directional_light.is_none());
+    }
+
+    #[test]
+    fn snapshot_captures_a_live_camera() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn((
+                bsengine_scene::Name("MainCam".to_string()),
+                bsengine_core::Camera::perspective(75.0, 16.0 / 9.0),
+            ))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let desc = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+
+        assert!(desc.camera);
+        assert_eq!(desc.camera_fov, Some(75.0));
+    }
+
+    #[test]
+    fn snapshot_omits_camera_fields_when_no_camera_present() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn(bsengine_scene::Name("NotACamera".to_string()))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let desc = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+
+        assert!(!desc.camera);
+        assert_eq!(desc.camera_fov, None);
     }
 
     #[test]

@@ -449,6 +449,37 @@ fn recovered_from_a_former_path(
     Some(current_path.to_string())
 }
 
+/// Resolves `asset_ref` to the exact live path `spawn_scene_entities` would
+/// store on the entity right now, given the current `AssetIndex`/
+/// `ProjectDir` -- the same guid-based self-healing every asset reference
+/// gets, plus (for `field == "gltf"` only, matching `spawn_scene_entities`'
+/// own asymmetric behavior -- see its `resolved_refs` construction and the
+/// separate `resolve_project_path` call in its `gltf_path` branch) a
+/// `ProjectDir` prefix.
+///
+/// Exposed for prefab override tracking (`bsengine-editor`), which needs to
+/// compare a live entity's already-resolved path against what re-resolving
+/// the prefab file's raw reference would produce right now, without
+/// depending on `bsengine-asset` directly -- `bsengine-editor` already
+/// depends on `bsengine-scene`, so routing the resolution through here
+/// avoids a new cross-crate dependency just to read `AssetIndex` off the
+/// world.
+pub fn resolve_asset_ref_for_field(
+    world: &World,
+    entity_name: &str,
+    field: &str,
+    asset_ref: &AssetRef,
+) -> String {
+    let index = world.get_resource::<AssetIndex>();
+    let project_dir = world.get_resource::<ProjectDir>();
+    let resolved = resolve_asset_ref(index, project_dir, entity_name, field, asset_ref);
+    if field == "gltf" {
+        bsengine_core::resolve_project_path(project_dir, &resolved)
+    } else {
+        resolved
+    }
+}
+
 /// Spawn entities from a list of descriptors into the given world.
 /// Called at startup by ScenePlugin and at runtime for scene transitions.
 pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
@@ -924,6 +955,43 @@ mod tests {
         let path = std::env::temp_dir().join(filename);
         std::fs::write(&path, content).unwrap();
         path.to_str().unwrap().to_string()
+    }
+
+    #[test]
+    fn resolve_asset_ref_for_field_prefixes_project_dir_for_gltf_only() {
+        let mut app = new_app();
+        app.insert_resource(bsengine_core::ProjectDir("games/demo".to_string()));
+
+        let gltf_ref = crate::types::AssetRef::Path("assets/models/a.glb".to_string());
+        let script_ref = crate::types::AssetRef::Path("assets/scripts/a.js".to_string());
+        let texture_ref = crate::types::AssetRef::Path("assets/textures/a.png".to_string());
+
+        assert_eq!(
+            super::resolve_asset_ref_for_field(app.world(), "Thing", "gltf", &gltf_ref),
+            "games/demo/assets/models/a.glb",
+            "gltf must get the ProjectDir prefix, matching spawn_scene_entities"
+        );
+        assert_eq!(
+            super::resolve_asset_ref_for_field(app.world(), "Thing", "script", &script_ref),
+            "assets/scripts/a.js",
+            "script must NOT get the ProjectDir prefix, matching spawn_scene_entities"
+        );
+        assert_eq!(
+            super::resolve_asset_ref_for_field(app.world(), "Thing", "texture", &texture_ref),
+            "assets/textures/a.png",
+            "texture must NOT get the ProjectDir prefix, matching spawn_scene_entities"
+        );
+    }
+
+    #[test]
+    fn resolve_asset_ref_for_field_passes_through_unchanged_with_no_resources_registered() {
+        let app = new_app();
+        let gltf_ref = crate::types::AssetRef::Path("assets/models/a.glb".to_string());
+        assert_eq!(
+            super::resolve_asset_ref_for_field(app.world(), "Thing", "gltf", &gltf_ref),
+            "assets/models/a.glb",
+            "with no ProjectDir resource, the path must pass through unchanged"
+        );
     }
 
     #[test]

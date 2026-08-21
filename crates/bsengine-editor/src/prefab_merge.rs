@@ -595,6 +595,37 @@ pub(crate) fn apply_merged_descriptor(
         }
     }
 
+    // `Camera` also carries `aspect_ratio`/`near`/`far`, none of which the
+    // wire format tracks -- `aspect_ratio` in particular is rewritten every
+    // frame a viewport resize occurs (`bsengine-render/src/plugin.rs`), so a
+    // full reconstruction here (mirroring `spawn_scene_entities`) would
+    // silently reset it to a hardcoded 16:9 on every resync, visibly
+    // distorting the camera until the next resize event. Mutate the
+    // existing component's `fov_y_degrees` in place instead -- exactly what
+    // `EditorCommand::UpdateCamera` already does for the same field. Only
+    // when there's no existing `Camera` to preserve (a brand-new camera) do
+    // we construct one fresh, identical to `spawn_scene_entities`'s own
+    // construction. `look_at` is deliberately never read here, for the same
+    // reason `directional_light`'s `direction` is never read by the block
+    // above.
+    if merged.camera {
+        let fov = merged.camera_fov.unwrap_or(60.0);
+        match world.get::<bsengine_core::Camera>(entity) {
+            Some(existing) => {
+                let mut cam = existing.clone();
+                cam.fov_y_degrees = fov.into();
+                world.entity_mut(entity).insert(cam);
+            }
+            None => {
+                world
+                    .entity_mut(entity)
+                    .insert(bsengine_core::Camera::perspective(fov, 16.0 / 9.0));
+            }
+        }
+    } else {
+        world.entity_mut(entity).remove::<bsengine_core::Camera>();
+    }
+
     apply_merged_components(
         world,
         entity,
@@ -1949,6 +1980,76 @@ mod tests {
             "directional_light must never write Transform.rotation -- got {rotation_after:?}, \
              expected it unchanged at {rotation_before:?}"
         );
+    }
+
+    #[test]
+    fn apply_merged_descriptor_preserves_aspect_ratio_and_clip_planes_when_updating_fov() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn((
+                bsengine_scene::Name("Cam".to_string()),
+                bsengine_core::Camera {
+                    fov_y_degrees: 60.0.into(),
+                    aspect_ratio: 2.35, // an unusual value only a real resize event would produce
+                    near: 0.05,
+                    far: 500.0,
+                },
+            ))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let live = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+        let merged = bsengine_scene::EntityDescriptor {
+            camera: true,
+            camera_fov: Some(90.0),
+            ..live.clone()
+        };
+
+        apply_merged_descriptor(app.world_mut(), entity, &reg, &live, &merged);
+
+        let cam = app.world().get::<bsengine_core::Camera>(entity).unwrap();
+        assert_eq!(cam.fov_y_degrees.0, 90.0, "fov must update");
+        assert_eq!(
+            cam.aspect_ratio, 2.35,
+            "aspect_ratio must survive untouched -- it's driven by the live viewport-resize system, \
+             never by prefab override tracking"
+        );
+        assert_eq!(cam.near, 0.05, "near must survive untouched");
+        assert_eq!(cam.far, 500.0, "far must survive untouched");
+    }
+
+    #[test]
+    fn apply_merged_descriptor_inserts_and_removes_a_camera() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn(bsengine_scene::Name("NotYetACamera".to_string()))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let live = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+        let merged = bsengine_scene::EntityDescriptor {
+            camera: true,
+            camera_fov: None, // absent -> defaults to 60, matching spawn_scene_entities
+            ..live.clone()
+        };
+        apply_merged_descriptor(app.world_mut(), entity, &reg, &live, &merged);
+        let cam = app.world().get::<bsengine_core::Camera>(entity).unwrap();
+        assert_eq!(cam.fov_y_degrees.0, 60.0);
+
+        // Now resolve away and confirm removal.
+        let live2 = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+        let merged2 = bsengine_scene::EntityDescriptor {
+            camera: false,
+            ..live2.clone()
+        };
+        apply_merged_descriptor(app.world_mut(), entity, &reg, &live2, &merged2);
+        assert!(app.world().get::<bsengine_core::Camera>(entity).is_none());
     }
 
     #[test]

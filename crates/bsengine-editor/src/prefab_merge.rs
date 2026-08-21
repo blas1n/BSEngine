@@ -331,6 +331,85 @@ fn resolve_directional_light(
     }
 }
 
+/// Resolves one `gltf`/`script`/`texture`-style `AssetRef` field. Unlike
+/// `resolve_directional_light` (which skips a field with no live
+/// counterpart), this is comparing `live`'s already-resolved path against
+/// what re-resolving `baseline`'s raw reference would produce *right now*
+/// -- raw equality between `live` and `baseline`'s `AssetRef`s would almost
+/// always be false even when nothing changed, because
+/// `resolve_asset_ref_for_field` can rewrite the stored path via guid-based
+/// self-healing and, for `gltf` only, a `ProjectDir` prefix (see the design
+/// spec's "why this cluster breaks every prior field group's core
+/// assumption"). Both outcomes below carry an already-fully-resolved plain
+/// path wrapped as `AssetRef::Path` -- never a re-derivable
+/// `Identified { guid, .. }` -- so `apply_merged_descriptor` can write it
+/// directly without resolving again; resolving twice would risk
+/// double-prefixing `ProjectDir` on `gltf`.
+fn resolve_asset_ref_override(
+    world: &World,
+    entity_name: &str,
+    field: &str,
+    live_path: Option<&str>,
+    baseline: &Option<bsengine_scene::AssetRef>,
+    new: &Option<bsengine_scene::AssetRef>,
+) -> Option<bsengine_scene::AssetRef> {
+    let resolved_baseline = baseline
+        .as_ref()
+        .map(|r| bsengine_scene::resolve_asset_ref_for_field(world, entity_name, field, r));
+    let unchanged = live_path.map(|s| s.to_string()) == resolved_baseline;
+    if unchanged {
+        new.as_ref().map(|r| {
+            bsengine_scene::AssetRef::Path(bsengine_scene::resolve_asset_ref_for_field(
+                world,
+                entity_name,
+                field,
+                r,
+            ))
+        })
+    } else {
+        live_path.map(|s| bsengine_scene::AssetRef::Path(s.to_string()))
+    }
+}
+
+/// Applies `resolve_asset_ref_override` to `gltf`/`script`/`texture` at
+/// once, mutating `merged` in place after the generic `merge_entity_descriptor`
+/// call -- the same "patch one special field after the fact" shape
+/// `resync_instance` already uses for the root transform override, just for
+/// three fields instead of one, and (a later task) for every entity rather
+/// than only the root.
+fn patch_asset_ref_overrides(
+    world: &World,
+    live: &bsengine_scene::EntityDescriptor,
+    baseline: &bsengine_scene::EntityDescriptor,
+    new: &bsengine_scene::EntityDescriptor,
+    merged: &mut bsengine_scene::EntityDescriptor,
+) {
+    merged.gltf = resolve_asset_ref_override(
+        world,
+        &live.name,
+        "gltf",
+        live.gltf.as_ref().map(|r| r.path()),
+        &baseline.gltf,
+        &new.gltf,
+    );
+    merged.script = resolve_asset_ref_override(
+        world,
+        &live.name,
+        "script",
+        live.script.as_ref().map(|r| r.path()),
+        &baseline.script,
+        &new.script,
+    );
+    merged.texture = resolve_asset_ref_override(
+        world,
+        &live.name,
+        "texture",
+        live.texture.as_ref().map(|r| r.path()),
+        &baseline.texture,
+        &new.texture,
+    );
+}
+
 /// Merges this PR's representative field set for one matched entity (present
 /// in `live`, `baseline`, and `new` alike). `name` always comes from `live`
 /// unchanged -- matching is by name already, so there's nothing to resolve
@@ -2986,6 +3065,52 @@ mod tests {
             "the user's manual rotation must survive a resync that changes look_at:, proving the exact \
              regression this design exists to avoid does not happen -- got {rotation_after:?}, \
              expected {manual_rotation:?}"
+        );
+    }
+
+    #[test]
+    fn resolve_asset_ref_override_preserves_an_override_and_adopts_an_unrelated_change() {
+        let app = new_app();
+        let world = app.world();
+        let baseline = Some(bsengine_scene::AssetRef::Path(
+            "assets/models/a.glb".to_string(),
+        ));
+        let new = Some(bsengine_scene::AssetRef::Path(
+            "assets/models/b.glb".to_string(),
+        ));
+
+        // live diverges from (resolved) baseline -> override, keep live's path.
+        let overridden = resolve_asset_ref_override(
+            world,
+            "Thing",
+            "gltf",
+            Some("assets/models/custom.glb"),
+            &baseline,
+            &new,
+        );
+        assert_eq!(
+            overridden,
+            Some(bsengine_scene::AssetRef::Path(
+                "assets/models/custom.glb".to_string()
+            )),
+            "an overridden gltf path must survive"
+        );
+
+        // live matches (resolved) baseline -> adopt new.
+        let adopted = resolve_asset_ref_override(
+            world,
+            "Thing",
+            "gltf",
+            Some("assets/models/a.glb"),
+            &baseline,
+            &new,
+        );
+        assert_eq!(
+            adopted,
+            Some(bsengine_scene::AssetRef::Path(
+                "assets/models/b.glb".to_string()
+            )),
+            "an unoverridden gltf must adopt the new file's value"
         );
     }
 }

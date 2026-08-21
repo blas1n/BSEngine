@@ -2794,4 +2794,122 @@ mod tests {
              {rotation_after:?}, expected {manual_rotation:?}"
         );
     }
+
+    #[test]
+    fn resync_instance_preserves_an_overridden_camera_fov_while_updating_a_sibling_field() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let baseline = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(
+                    name: "Cam",
+                    camera: true,
+                    camera_fov: Some(60.0),
+                ),
+            ])"#,
+        );
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/turret_cam.ron",
+            Some("MyTurretCam"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        {
+            let mut cam = app
+                .world_mut()
+                .get_mut::<bsengine_core::Camera>(root)
+                .unwrap();
+            cam.fov_y_degrees = 90.0.into(); // user override
+        }
+
+        let new = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(
+                    name: "Cam",
+                    camera: true,
+                    camera_fov: Some(60.0),
+                ),
+            ])"#,
+        );
+        let own_source_paths =
+            std::collections::HashSet::from(["assets/prefabs/turret_cam.ron".to_string()]);
+        resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
+
+        let cam = app.world().get::<bsengine_core::Camera>(root).unwrap();
+        assert_eq!(cam.fov_y_degrees.0, 90.0, "overridden fov must survive");
+    }
+
+    #[test]
+    fn resync_instance_never_lets_a_look_at_change_touch_transform() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let baseline = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(
+                    name: "Cam",
+                    camera: true,
+                    transform: Some((position: (0.0, 0.0, 5.0), rotation: (0.0, 0.0, 0.0, 1.0), scale: (1.0, 1.0, 1.0))),
+                    look_at: Some((0.0, 0.0, 0.0)),
+                ),
+            ])"#,
+        );
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/aimed_cam.ron",
+            Some("MyAimedCam"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        // User manually rotates the root -- an overridden transform (root
+        // transform is always preserved regardless of override status, per PR
+        // #1789, but this test is specifically about proving `look_at` never
+        // gets a chance to fight that guarantee).
+        let manual_rotation = glam::Quat::from_rotation_y(0.9);
+        app.world_mut()
+            .entity_mut(root)
+            .insert(bsengine_core::Transform {
+                position: glam::Vec3::new(0.0, 0.0, 5.0).into(),
+                rotation: manual_rotation.into(),
+                scale: glam::Vec3::ONE.into(),
+            });
+
+        // Source changes `look_at:` -- if the old spawn-time side effect were
+        // reproduced here, this would silently re-aim the camera and undo the
+        // user's manual rotation.
+        let new = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(
+                    name: "Cam",
+                    camera: true,
+                    transform: Some((position: (0.0, 0.0, 5.0), rotation: (0.0, 0.0, 0.0, 1.0), scale: (1.0, 1.0, 1.0))),
+                    look_at: Some((10.0, 0.0, 0.0)),
+                ),
+            ])"#,
+        );
+        let own_source_paths =
+            std::collections::HashSet::from(["assets/prefabs/aimed_cam.ron".to_string()]);
+        resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
+
+        let rotation_after = app
+            .world()
+            .get::<bsengine_core::Transform>(root)
+            .unwrap()
+            .rotation
+            .0;
+        assert!(
+            rotation_after.abs_diff_eq(manual_rotation, 1e-5),
+            "the user's manual rotation must survive a resync that changes look_at:, proving the exact \
+             regression this design exists to avoid does not happen -- got {rotation_after:?}, \
+             expected {manual_rotation:?}"
+        );
+    }
 }

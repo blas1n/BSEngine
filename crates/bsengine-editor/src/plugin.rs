@@ -1402,6 +1402,8 @@ pub(crate) fn excluded_from_extra_components() -> std::collections::HashSet<std:
         std::any::TypeId::of::<Tags>(),
         std::any::TypeId::of::<PrimitiveMesh>(),
         std::any::TypeId::of::<bsengine_scene::ScriptPath>(),
+        std::any::TypeId::of::<bsengine_gltf::GltfAsset>(),
+        std::any::TypeId::of::<bsengine_core::TexturePath>(),
     ]
     .into_iter()
     .collect()

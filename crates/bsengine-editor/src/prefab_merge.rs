@@ -46,8 +46,8 @@ fn instance_suffix(world: &World, children: &[Entity]) -> Option<String> {
 /// covering this PR's representative field set (`transform`, `primitive`,
 /// `emissive`/`color`/`opacity`, `rigidbody`/`collider`/`linear_damping`/
 /// `angular_damping`, `point_light`/`spot_light`/`directional_light`,
-/// `camera`/`camera_fov`, and the reflected `components` catalog) plus
-/// `name`.
+/// `camera`/`camera_fov`, `gltf`/`script`/`texture`, and the reflected
+/// `components` catalog) plus `name`.
 /// Every other `EntityDescriptor` field is left at its `Default`
 /// (`None`/`false`/empty) -- deliberately: those fields belong to a follow-up
 /// PR's field groups and must never be treated as "live has explicitly
@@ -127,6 +127,23 @@ pub(crate) fn snapshot_entity_as_descriptor(
     let camera = world.get::<bsengine_core::Camera>(entity);
     let camera_fov = camera.map(|c| c.fov_y_degrees.0);
 
+    // Each of these is already the fully-resolved live path (see
+    // `resolve_asset_ref_for_field`'s doc comment) -- wrapped as a bare
+    // `AssetRef::Path` since a live component never carries a guid to
+    // round-trip. `resync_instance`'s `patch_asset_ref_overrides` (a later
+    // task) is what actually decides override-vs-adopt for these three
+    // fields; this snapshot just reports what's live right now, same as
+    // every other field this function captures.
+    let gltf = world
+        .get::<bsengine_gltf::GltfAsset>(entity)
+        .map(|g| bsengine_scene::AssetRef::Path(g.path.clone()));
+    let script = world
+        .get::<bsengine_scene::ScriptPath>(entity)
+        .map(|s| bsengine_scene::AssetRef::Path(s.0.clone()));
+    let texture = world
+        .get::<bsengine_core::TexturePath>(entity)
+        .map(|t| bsengine_scene::AssetRef::Path(t.0.clone()));
+
     let components = snapshot_extra_components(world, registry, entity);
 
     bsengine_scene::EntityDescriptor {
@@ -145,6 +162,9 @@ pub(crate) fn snapshot_entity_as_descriptor(
         directional_light,
         camera: camera.is_some(),
         camera_fov,
+        gltf,
+        script,
+        texture,
         components,
         ..Default::default()
     }
@@ -309,6 +329,85 @@ fn resolve_directional_light(
         (None, None, _) => new.clone(),
         _ => live.clone(),
     }
+}
+
+/// Resolves one `gltf`/`script`/`texture`-style `AssetRef` field. Unlike
+/// `resolve_directional_light` (which skips a field with no live
+/// counterpart), this is comparing `live`'s already-resolved path against
+/// what re-resolving `baseline`'s raw reference would produce *right now*
+/// -- raw equality between `live` and `baseline`'s `AssetRef`s would almost
+/// always be false even when nothing changed, because
+/// `resolve_asset_ref_for_field` can rewrite the stored path via guid-based
+/// self-healing and, for `gltf` only, a `ProjectDir` prefix (see the design
+/// spec's "why this cluster breaks every prior field group's core
+/// assumption"). Both outcomes below carry an already-fully-resolved plain
+/// path wrapped as `AssetRef::Path` -- never a re-derivable
+/// `Identified { guid, .. }` -- so `apply_merged_descriptor` can write it
+/// directly without resolving again; resolving twice would risk
+/// double-prefixing `ProjectDir` on `gltf`.
+fn resolve_asset_ref_override(
+    world: &World,
+    entity_name: &str,
+    field: &str,
+    live_path: Option<&str>,
+    baseline: &Option<bsengine_scene::AssetRef>,
+    new: &Option<bsengine_scene::AssetRef>,
+) -> Option<bsengine_scene::AssetRef> {
+    let resolved_baseline = baseline
+        .as_ref()
+        .map(|r| bsengine_scene::resolve_asset_ref_for_field(world, entity_name, field, r));
+    let unchanged = live_path.map(|s| s.to_string()) == resolved_baseline;
+    if unchanged {
+        new.as_ref().map(|r| {
+            bsengine_scene::AssetRef::Path(bsengine_scene::resolve_asset_ref_for_field(
+                world,
+                entity_name,
+                field,
+                r,
+            ))
+        })
+    } else {
+        live_path.map(|s| bsengine_scene::AssetRef::Path(s.to_string()))
+    }
+}
+
+/// Applies `resolve_asset_ref_override` to `gltf`/`script`/`texture` at
+/// once, mutating `merged` in place after the generic `merge_entity_descriptor`
+/// call -- the same "patch one special field after the fact" shape
+/// `resync_instance` already uses for the root transform override, just for
+/// three fields instead of one, and (a later task) for every entity rather
+/// than only the root.
+fn patch_asset_ref_overrides(
+    world: &World,
+    live: &bsengine_scene::EntityDescriptor,
+    baseline: &bsengine_scene::EntityDescriptor,
+    new: &bsengine_scene::EntityDescriptor,
+    merged: &mut bsengine_scene::EntityDescriptor,
+) {
+    merged.gltf = resolve_asset_ref_override(
+        world,
+        &live.name,
+        "gltf",
+        live.gltf.as_ref().map(|r| r.path()),
+        &baseline.gltf,
+        &new.gltf,
+    );
+    merged.script = resolve_asset_ref_override(
+        world,
+        &live.name,
+        "script",
+        live.script.as_ref().map(|r| r.path()),
+        &baseline.script,
+        &new.script,
+    );
+    merged.texture = resolve_asset_ref_override(
+        world,
+        &live.name,
+        "texture",
+        live.texture.as_ref().map(|r| r.path()),
+        &baseline.texture,
+        &new.texture,
+    );
 }
 
 /// Merges this PR's representative field set for one matched entity (present
@@ -626,6 +725,47 @@ pub(crate) fn apply_merged_descriptor(
         world.entity_mut(entity).remove::<bsengine_core::Camera>();
     }
 
+    // `merged.gltf`/`script`/`texture` are already fully-resolved plain
+    // paths by construction (see `resolve_asset_ref_override`'s doc
+    // comment) -- write them directly, never through the resolve pipeline
+    // again here.
+    match &merged.gltf {
+        Some(r) => {
+            world
+                .entity_mut(entity)
+                .insert(bsengine_gltf::GltfAsset::new(r.path().to_string()));
+        }
+        None => {
+            world
+                .entity_mut(entity)
+                .remove::<bsengine_gltf::GltfAsset>();
+        }
+    }
+    match &merged.script {
+        Some(r) => {
+            world
+                .entity_mut(entity)
+                .insert(bsengine_scene::ScriptPath(r.path().to_string()));
+        }
+        None => {
+            world
+                .entity_mut(entity)
+                .remove::<bsengine_scene::ScriptPath>();
+        }
+    }
+    match &merged.texture {
+        Some(r) => {
+            world
+                .entity_mut(entity)
+                .insert(bsengine_core::TexturePath(r.path().to_string()));
+        }
+        None => {
+            world
+                .entity_mut(entity)
+                .remove::<bsengine_core::TexturePath>();
+        }
+    }
+
     apply_merged_components(
         world,
         entity,
@@ -887,6 +1027,7 @@ pub(crate) fn resync_instance(
     // overwrites that back to the live value every time, after the fact,
     // rather than teaching the general-purpose merge function about roots.
     root_merged.transform = root_live.transform.clone();
+    patch_asset_ref_overrides(world, &root_live, baseline_root, new_root, &mut root_merged);
     apply_merged_descriptor(world, root, &registry, &root_live, &root_merged);
 
     let own_descendants = collect_own_descendants(world, root);
@@ -984,7 +1125,8 @@ pub(crate) fn resync_instance(
             }
             (Some(b), Some(n), Some(live_e)) => {
                 let live_desc = snapshot_entity_as_descriptor(world, &registry, live_e);
-                let merged = merge_entity_descriptor(&live_desc, b, n);
+                let mut merged = merge_entity_descriptor(&live_desc, b, n);
+                patch_asset_ref_overrides(world, &live_desc, b, n, &mut merged);
                 apply_merged_descriptor(world, live_e, &registry, &live_desc, &merged);
             }
             (None, Some(n), _) => {
@@ -1306,6 +1448,62 @@ mod tests {
 
         assert!(!desc.camera);
         assert_eq!(desc.camera_fov, None);
+    }
+
+    #[test]
+    fn snapshot_captures_a_live_gltf_script_and_texture_reference() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn((
+                bsengine_scene::Name("Prop".to_string()),
+                bsengine_gltf::GltfAsset::new("assets/models/prop.glb"),
+                bsengine_scene::ScriptPath("assets/scripts/prop.js".to_string()),
+                bsengine_core::TexturePath("assets/textures/prop.png".to_string()),
+            ))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let desc = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+
+        assert_eq!(
+            desc.gltf,
+            Some(bsengine_scene::AssetRef::Path(
+                "assets/models/prop.glb".to_string()
+            ))
+        );
+        assert_eq!(
+            desc.script,
+            Some(bsengine_scene::AssetRef::Path(
+                "assets/scripts/prop.js".to_string()
+            ))
+        );
+        assert_eq!(
+            desc.texture,
+            Some(bsengine_scene::AssetRef::Path(
+                "assets/textures/prop.png".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn snapshot_omits_asset_ref_fields_when_absent() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn(bsengine_scene::Name("Bare".to_string()))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let desc = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+
+        assert_eq!(desc.gltf, None);
+        assert_eq!(desc.script, None);
+        assert_eq!(desc.texture, None);
     }
 
     #[test]
@@ -2050,6 +2248,77 @@ mod tests {
         };
         apply_merged_descriptor(app.world_mut(), entity, &reg, &live2, &merged2);
         assert!(app.world().get::<bsengine_core::Camera>(entity).is_none());
+    }
+
+    #[test]
+    fn apply_merged_descriptor_inserts_and_removes_a_gltf_script_and_texture_reference() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let entity = app
+            .world_mut()
+            .spawn(bsengine_scene::Name("Prop".to_string()))
+            .id();
+
+        let reg = registry(app.world());
+        let reg = reg.read();
+        let live = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+        let merged = bsengine_scene::EntityDescriptor {
+            gltf: Some(bsengine_scene::AssetRef::Path(
+                "assets/models/prop.glb".to_string(),
+            )),
+            script: Some(bsengine_scene::AssetRef::Path(
+                "assets/scripts/prop.js".to_string(),
+            )),
+            texture: Some(bsengine_scene::AssetRef::Path(
+                "assets/textures/prop.png".to_string(),
+            )),
+            ..live.clone()
+        };
+        apply_merged_descriptor(app.world_mut(), entity, &reg, &live, &merged);
+
+        assert_eq!(
+            app.world()
+                .get::<bsengine_gltf::GltfAsset>(entity)
+                .unwrap()
+                .path,
+            "assets/models/prop.glb"
+        );
+        assert_eq!(
+            app.world()
+                .get::<bsengine_scene::ScriptPath>(entity)
+                .unwrap()
+                .0,
+            "assets/scripts/prop.js"
+        );
+        assert_eq!(
+            app.world()
+                .get::<bsengine_core::TexturePath>(entity)
+                .unwrap()
+                .0,
+            "assets/textures/prop.png"
+        );
+
+        // Now resolve away and confirm removal.
+        let live2 = snapshot_entity_as_descriptor(app.world(), &reg, entity);
+        let merged2 = bsengine_scene::EntityDescriptor {
+            gltf: None,
+            script: None,
+            texture: None,
+            ..live2.clone()
+        };
+        apply_merged_descriptor(app.world_mut(), entity, &reg, &live2, &merged2);
+        assert!(app
+            .world()
+            .get::<bsengine_gltf::GltfAsset>(entity)
+            .is_none());
+        assert!(app
+            .world()
+            .get::<bsengine_scene::ScriptPath>(entity)
+            .is_none());
+        assert!(app
+            .world()
+            .get::<bsengine_core::TexturePath>(entity)
+            .is_none());
     }
 
     #[test]
@@ -2910,6 +3179,182 @@ mod tests {
             "the user's manual rotation must survive a resync that changes look_at:, proving the exact \
              regression this design exists to avoid does not happen -- got {rotation_after:?}, \
              expected {manual_rotation:?}"
+        );
+    }
+
+    #[test]
+    fn resolve_asset_ref_override_preserves_an_override_and_adopts_an_unrelated_change() {
+        let app = new_app();
+        let world = app.world();
+        let baseline = Some(bsengine_scene::AssetRef::Path(
+            "assets/models/a.glb".to_string(),
+        ));
+        let new = Some(bsengine_scene::AssetRef::Path(
+            "assets/models/b.glb".to_string(),
+        ));
+
+        // live diverges from (resolved) baseline -> override, keep live's path.
+        let overridden = resolve_asset_ref_override(
+            world,
+            "Thing",
+            "gltf",
+            Some("assets/models/custom.glb"),
+            &baseline,
+            &new,
+        );
+        assert_eq!(
+            overridden,
+            Some(bsengine_scene::AssetRef::Path(
+                "assets/models/custom.glb".to_string()
+            )),
+            "an overridden gltf path must survive"
+        );
+
+        // live matches (resolved) baseline -> adopt new.
+        let adopted = resolve_asset_ref_override(
+            world,
+            "Thing",
+            "gltf",
+            Some("assets/models/a.glb"),
+            &baseline,
+            &new,
+        );
+        assert_eq!(
+            adopted,
+            Some(bsengine_scene::AssetRef::Path(
+                "assets/models/b.glb".to_string()
+            )),
+            "an unoverridden gltf must adopt the new file's value"
+        );
+    }
+
+    #[test]
+    fn resync_instance_preserves_an_overridden_texture_reference_while_updating_a_sibling_field() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let baseline = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(
+                    name: "Floor",
+                    parent: Some("Body"),
+                    texture: Some("assets/textures/checker.png"),
+                    emissive: Some((0.0, 0.0, 0.0)),
+                ),
+            ])"#,
+        );
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/floor_prop.ron",
+            Some("MyFloorProp"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let floor = {
+            let mut q = app.world_mut().query::<(Entity, &bsengine_scene::Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0.starts_with("Floor#"))
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        {
+            let mut tp = app
+                .world_mut()
+                .get_mut::<bsengine_core::TexturePath>(floor)
+                .unwrap();
+            tp.0 = "assets/textures/custom.png".to_string(); // user override
+        }
+
+        let new = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Body", primitive: Some(Cube)),
+                EntityDescriptor(
+                    name: "Floor",
+                    parent: Some("Body"),
+                    texture: Some("assets/textures/checker.png"),
+                    emissive: Some((0.2, 0.2, 0.2)),
+                ),
+            ])"#,
+        );
+        let own_source_paths =
+            std::collections::HashSet::from(["assets/prefabs/floor_prop.ron".to_string()]);
+        resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
+
+        let tp = app
+            .world()
+            .get::<bsengine_core::TexturePath>(floor)
+            .unwrap();
+        assert_eq!(
+            tp.0, "assets/textures/custom.png",
+            "overridden texture reference must survive"
+        );
+        let material = app.world().get::<bsengine_core::Material>(floor).unwrap();
+        assert_eq!(
+            material.emissive.0.to_array(),
+            [0.2, 0.2, 0.2],
+            "unoverridden sibling field must still adopt the new file's value"
+        );
+    }
+
+    #[test]
+    fn resync_instance_lets_an_unoverridden_gltf_reference_adopt_a_source_change_under_a_real_project_dir(
+    ) {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        app.world_mut()
+            .insert_resource(bsengine_core::ProjectDir("games/demo".to_string()));
+
+        let baseline = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Prop", gltf: Some("assets/models/a.glb")),
+            ])"#,
+        );
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/prop.ron",
+            Some("MyProp"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Confirm the live path really is ProjectDir-prefixed after
+        // instantiation -- if this assertion fails, the rest of the test
+        // proves nothing about the bug this design exists to prevent.
+        assert_eq!(
+            app.world()
+                .get::<bsengine_gltf::GltfAsset>(root)
+                .unwrap()
+                .path,
+            "games/demo/assets/models/a.glb"
+        );
+
+        // Source changes the gltf reference, unoverridden. If the naive
+        // raw-equality bug this design exists to prevent were still present,
+        // `live` ("games/demo/assets/models/a.glb") would never match
+        // `baseline`'s raw, unresolved value ("assets/models/a.glb"), so this
+        // reference would look permanently overridden and never adopt the
+        // change below.
+        let new = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Prop", gltf: Some("assets/models/b.glb")),
+            ])"#,
+        );
+        let own_source_paths =
+            std::collections::HashSet::from(["assets/prefabs/prop.ron".to_string()]);
+        resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
+
+        assert_eq!(
+            app.world().get::<bsengine_gltf::GltfAsset>(root).unwrap().path,
+            "games/demo/assets/models/b.glb",
+            "an unoverridden gltf reference must adopt the source file's new value, correctly \
+             re-resolved with the ProjectDir prefix -- proving the resolve-then-compare fix actually \
+             works, not just that overrides survive"
         );
     }
 }

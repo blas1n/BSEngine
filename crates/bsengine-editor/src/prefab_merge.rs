@@ -4250,6 +4250,14 @@ mod tests {
         )
         .unwrap();
 
+        // Position/target chosen so the look_at-computed rotation is
+        // provably NOT the literal `rotation:` given below (identity) --
+        // camera at (5,0,0) looking at (0,0,0) faces -X, not -Z, so
+        // reproducing spawn_scene_entities's look_at computation must
+        // rotate away from identity. A position/target pair whose computed
+        // rotation happens to equal the literal fixture value would let
+        // this test pass even if the look_at block were silently deleted
+        // (this exact mistake was caught during this task's own review).
         let new = parse(
             r#"PrefabDescriptor(entities: [
                 EntityDescriptor(name: "Root", primitive: Some(Cube)),
@@ -4257,7 +4265,7 @@ mod tests {
                     name: "Cam",
                     parent: Some("Root"),
                     camera: true,
-                    transform: Some((position: (0.0, 0.0, 5.0), rotation: (0.0, 0.0, 0.0, 1.0), scale: (1.0, 1.0, 1.0))),
+                    transform: Some((position: (5.0, 0.0, 0.0), rotation: (0.0, 0.0, 0.0, 1.0), scale: (1.0, 1.0, 1.0))),
                     look_at: Some((0.0, 0.0, 0.0)),
                 ),
             ])"#,
@@ -4279,12 +4287,22 @@ mod tests {
             .unwrap()
             .rotation
             .0;
-        // Camera at (0,0,5) looking at (0,0,0): direction is -Z, so this should be
-        // (very close to) the identity rotation -- Quat::from_rotation_arc(NEG_Z, NEG_Z) = IDENTITY.
+
+        let expected = glam::Quat::from_rotation_arc(
+            glam::Vec3::NEG_Z,
+            (glam::Vec3::ZERO - glam::Vec3::new(5.0, 0.0, 0.0)).normalize(),
+        );
         assert!(
-            rotation.abs_diff_eq(glam::Quat::IDENTITY, 1e-5),
+            rotation.abs_diff_eq(expected, 1e-5),
             "a brand-new camera entity's look_at must compute a rotation, matching what \
-             spawn_scene_entities would produce for the same descriptor -- got {rotation:?}"
+             spawn_scene_entities would produce for the same descriptor -- got {rotation:?}, \
+             expected {expected:?}"
+        );
+        assert!(
+            !rotation.abs_diff_eq(glam::Quat::IDENTITY, 1e-5),
+            "sanity check: the literal fixture rotation is identity, so a passing test above \
+             that also failed this assertion would mean look_at was never actually applied -- \
+             got {rotation:?}"
         );
     }
 }

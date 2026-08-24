@@ -1001,12 +1001,7 @@ fn spawn_or_resolve_entity(
             }
             if let Some(r) = &resolved.script {
                 resolved.script = Some(bsengine_scene::AssetRef::Path(
-                    bsengine_scene::resolve_asset_ref_for_field(
-                        world,
-                        &resolved.name,
-                        "script",
-                        r,
-                    ),
+                    bsengine_scene::resolve_asset_ref_for_field(world, &resolved.name, "script", r),
                 ));
             }
             if let Some(r) = &resolved.texture {
@@ -1020,7 +1015,9 @@ fn spawn_or_resolve_entity(
                 ));
             }
 
-            let entity = world.spawn(bsengine_scene::Name(resolved.name.clone())).id();
+            let entity = world
+                .spawn(bsengine_scene::Name(resolved.name.clone()))
+                .id();
             // An empty "live" default is exactly correct for a brand-new
             // entity: there's no existing Material to preserve out-of-scope
             // fields from, no existing Camera to preserve aspect_ratio from,
@@ -1047,9 +1044,7 @@ fn spawn_or_resolve_entity(
             // arrived via a fresh full instantiation or a mid-resync addition.
             if resolved.camera {
                 if let Some(target) = resolved.look_at {
-                    if let Some(mut transform) =
-                        world.get_mut::<bsengine_core::Transform>(entity)
-                    {
+                    if let Some(mut transform) = world.get_mut::<bsengine_core::Transform>(entity) {
                         let pos = transform.position.0;
                         let dir = glam::Vec3::from(target) - pos;
                         if dir.length_squared() > 1e-10 {
@@ -1191,8 +1186,7 @@ pub(crate) fn resync_instance(
                     // `n.prefab.is_some()` just because the *match guard*
                     // above required *either* side to have it.
                     let spawned_name = suffixed_name(raw_name, &mut suffix);
-                    if let Some(fresh) =
-                        spawn_or_resolve_entity(world, &registry, &spawned_name, n)
+                    if let Some(fresh) = spawn_or_resolve_entity(world, &registry, &spawned_name, n)
                     {
                         resolved_by_raw_name.insert(raw_name.to_string(), fresh);
                         spawned_needing_parent.push((fresh, n.parent.clone()));
@@ -4105,8 +4099,8 @@ mod tests {
     }
 
     #[test]
-    fn resync_instance_gives_a_brand_new_entity_full_field_coverage_not_just_transform_primitive_color()
-    {
+    fn resync_instance_gives_a_brand_new_entity_full_field_coverage_not_just_transform_primitive_color(
+    ) {
         let mut app = new_app();
         bsengine_scene::register_gameplay_reflect_types(&mut app);
 
@@ -4162,8 +4156,8 @@ mod tests {
     }
 
     #[test]
-    fn resync_instance_resolves_gltf_script_texture_for_a_brand_new_entity_under_a_real_project_dir()
-    {
+    fn resync_instance_resolves_gltf_script_texture_for_a_brand_new_entity_under_a_real_project_dir(
+    ) {
         let mut app = new_app();
         bsengine_scene::register_gameplay_reflect_types(&mut app);
         app.world_mut()

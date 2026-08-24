@@ -1945,13 +1945,6 @@ C는 합치지 않고 방향을 명시, 그리고 **축별 op 45개 축소는 it
   필요해지면 재검토.
 - **프레임 프로파일러/GPU 디버거** — 성능 병목이 실제로 보고된 적 없음.
 - **빌드/패키징/배포 파이프라인(콘솔/모바일 export)** — 현재 배포 대상이 없음.
-- ~~**프리팹 시스템**~~ — 2026-08-14~19 사이 별도 브레인스토밍/설계 트랙으로 진행되어
-  이 로드맵 밖에서 완료됨: 씬파일/스크립트/에디터 인스턴스화(#1787), 생성 경로(MCP
-  `prefab_write` + 에디터 Create Prefab, #1788), live-sync(`PrefabInstance` provenance +
-  파일 워처 기반 push-sync, 2026-08-19 master 직접 병합)까지. **남은 것:** override
-  tracking(인스턴스별 수동 수정이 push-sync에 덮어써지지 않게 보존)과 pull sync("Apply to
-  Prefab") — override tracking 없이는 pull sync가 의미가 없어 이 순서로만 가능. 설계 문서에서
-  의도적으로 범위 밖으로 남긴 것.
 - **타임라인/시퀀서** — 컷신 요구가 있는 콘텐츠가 아직 없음.
 - **LOD / 오클루전 컬링** — 프러스텀 컬링만으로 현재 씬 규모(수십~수백 엔티티)는 충분.
 
@@ -2020,3 +2013,5 @@ C는 합치지 않고 방향을 명시, 그리고 **축별 op 45개 축소는 it
 | 프리팹 시스템 — 씬파일(`prefab:` 필드)/스크립트(`Bsengine.instantiatePrefab`)/에디터(드래그앤드롭) 인스턴스화, 중첩 prefab 참조, 사이클 감지 | 2026-08-14 | [#1787](https://github.com/blas1n/BSEngine/pull/1787) |
 | 프리팹 생성 경로 — 라이브 엔티티 서브트리를 `assets/prefabs/*.ron`으로 저장 (MCP `prefab_write` + 에디터 Create Prefab 버튼); path-traversal/cycle-guard 버그 수정 포함 | 2026-08-18 | [#1788](https://github.com/blas1n/BSEngine/pull/1788) |
 | 프리팹 live-sync (push-sync 방향만) — `PrefabInstance` provenance 컴포넌트 + `PrefabWatcherPlugin`(파일 워처, `bsengine-asset::AssetWatcherPlugin` 패턴 재사용)이 `assets/prefabs/*.ron` 변경 시 배치된 인스턴스를 despawn+재인스턴스화; 리뷰 라운드에서 발견된 실제 버그 3개 수정(구조 검증 없이 despawn하는 문제, 무관한 인스턴스가 재부모화 시 콜래터럴 despawn되는 문제, 다단계 중첩에서 좀비 인스턴스가 새는 문제); PR 없이 로컬 병합 후 직접 push (개인 프로젝트, 사용자 승인) | 2026-08-19 | 직접 병합 (PR 없음), 커밋 `f29a2798`..`1cd08bf6` |
+| 프리팹 override tracking — 필드 단위(Unity 스타일) diff 기반 push-sync 보존: `PrefabInstanceBaseline` + `merge_entity_descriptor` 계열 병합 알고리즘. 4개 필드 그룹 클러스터로 순차 진행: 핵심 메커니즘+transform/Material/컴포넌트 카탈로그(#1789), physics(#1790), light(#1791), camera(#1792), AssetRef 필드(#1793, guid 기반 self-healing + ProjectDir 접두사 문제로 가장 난이도 높음) | 2026-08-22 | [#1789](https://github.com/blas1n/BSEngine/pull/1789)–[#1793](https://github.com/blas1n/BSEngine/pull/1793) |
+| 프리팹 pull sync ("Apply to Prefab") — MCP `apply_to_prefab` 툴이 인스턴스의 필드 단위 override를 소스 `.ron` 파일에 반영; `merge_entity_descriptor`를 파일-쓰기 방향으로 재사용(핵심 아이디어), 전파는 기존 `PrefabWatcherPlugin` 파일 워처가 그대로 처리(신규 전파 코드 없음); v1 범위: 필드값만(구조 변경 제외), MCP 툴만(에디터 UI 버튼은 후속) | 2026-08-24 | [#1794](https://github.com/blas1n/BSEngine/pull/1794) |

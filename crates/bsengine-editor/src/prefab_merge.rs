@@ -3934,7 +3934,10 @@ mod tests {
                 .world_mut()
                 .get_mut::<bsengine_core::PointLight>(lamp)
                 .unwrap();
-            assert_eq!(pl.intensity, 5.0, "live intensity must still read as 5.0 post-resync");
+            assert_eq!(
+                pl.intensity, 5.0,
+                "live intensity must still read as 5.0 post-resync"
+            );
             pl.range = 99.0; // a fresh, different override this time
         }
         let further_new = parse(

@@ -16,7 +16,7 @@ pub mod types;
 
 pub use plugin::{
     instantiate_prefab_from_path, instantiate_prefab_reference, register_gameplay_reflect_types,
-    resolve_asset_ref_for_field, spawn_scene_entities, spawn_single_entity, Name, ScenePlugin,
+    resolve_asset_ref_for_field, spawn_scene_entities, Name, ScenePlugin,
 };
 pub use prefab::{instantiate_prefab, next_instance_suffix, validate_prefab_descriptor};
 pub use types::{

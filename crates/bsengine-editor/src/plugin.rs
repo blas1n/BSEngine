@@ -2344,6 +2344,34 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
+            // apply_to_prefab
+            let queue_atp = prefab_apply_cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "apply_to_prefab".to_string(),
+                description: "Push this prefab instance's field-level overrides back into its source .ron \
+                    file. Structural changes (added/removed entities) are not promoted. Queued for \
+                    processing; check the instance's state on a subsequent call to confirm the result."
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "entity_id": { "type": "integer", "description": "The prefab instance's root entity id" },
+                    },
+                    "required": ["entity_id"]
+                })),
+                handler: Box::new(move |input| {
+                    let entity_id = match input["entity_id"].as_u64() {
+                        Some(id) => id,
+                        None => return McpToolOutput::error("missing 'entity_id' field"),
+                    };
+                    queue_atp
+                        .lock()
+                        .unwrap()
+                        .push(crate::snapshot::PrefabApplyCommand { entity_id });
+                    McpToolOutput::success(json!({ "status": "queued" }))
+                }),
+            });
+
             // load_scene
             let queue4 = cmd_queue.clone();
             mcp.0.lock().unwrap().register(McpTool {
@@ -93179,6 +93207,44 @@ mod tests {
             .unwrap()
             .execute("prefab_write", json!({"entity_id": 999999, "name": "x"}))
             .expect("prefab_write not registered");
+        assert!(!out.is_ok());
+    }
+
+    #[test]
+    fn apply_to_prefab_tool_queues_a_command() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        let out = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mcp = mcp.0.lock().unwrap();
+            mcp.execute("apply_to_prefab", json!({"entity_id": 42}))
+        }
+        .expect("apply_to_prefab not registered");
+        assert!(out.is_ok(), "apply_to_prefab failed: {:?}", out.error);
+        assert_eq!(out.content["status"], "queued");
+
+        let queue = app
+            .world()
+            .resource::<crate::snapshot::PrefabApplyCommandQueueResource>();
+        let queued = queue.0.lock().unwrap();
+        assert_eq!(queued.len(), 1);
+        assert_eq!(queued[0].entity_id, 42);
+    }
+
+    #[test]
+    fn apply_to_prefab_tool_errors_without_entity_id() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+
+        let out = {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let mcp = mcp.0.lock().unwrap();
+            mcp.execute("apply_to_prefab", json!({}))
+        }
+        .expect("apply_to_prefab not registered");
         assert!(!out.is_ok());
     }
 }

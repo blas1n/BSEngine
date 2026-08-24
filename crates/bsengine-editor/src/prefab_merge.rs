@@ -1263,6 +1263,83 @@ pub(crate) fn build_applied_prefab_entities(
         .collect()
 }
 
+/// The `&mut World` entry point for "Apply to Prefab": reads `root`'s
+/// `PrefabInstance`/`PrefabInstanceBaseline`, re-parses the current source
+/// file, builds the entity list via `build_applied_prefab_entities`, and
+/// overwrites the file. Reuses the exact same missing/unreadable/unparseable/
+/// structurally-invalid file guards `resync_prefab_instances`
+/// (`prefab_watcher.rs`) already has -- see that function for why each one
+/// exists.
+///
+/// One deliberate asymmetry from `resync_prefab_instances`: a missing or
+/// corrupt baseline there falls back to "change nothing," since it's an
+/// automatic background process where silently doing nothing is safe. This
+/// is a deliberate, user-initiated write to a file every other instance
+/// depends on -- with no baseline to compute overrides against, guessing
+/// risks writing something wrong into shared state, so this refuses with an
+/// error instead.
+///
+/// Deliberately does not update `root`'s own `PrefabInstanceBaseline`, does
+/// not touch any live entity, and does not trigger a resync directly --
+/// `PrefabWatcherPlugin`'s existing file-watch mechanism picks up the write
+/// and handles all of that, for every instance of this file, automatically.
+pub(crate) fn apply_instance_to_prefab(world: &mut World, root: Entity) -> Result<(), String> {
+    let Some(instance) = world.get::<bsengine_core::PrefabInstance>(root) else {
+        return Err(format!("entity {root:?} is not a prefab instance root"));
+    };
+    let source_path = instance.source_path.clone();
+
+    let Some(baseline_ron) = world
+        .get::<bsengine_core::PrefabInstanceBaseline>(root)
+        .map(|b| b.synced_ron.clone())
+    else {
+        return Err(format!(
+            "'{source_path}' has no recorded baseline for this instance; cannot determine \
+             overrides -- resync it against the current file at least once before applying"
+        ));
+    };
+    let baseline: bsengine_scene::types::PrefabDescriptor = ron::from_str(&baseline_ron)
+        .map_err(|e| format!("'{source_path}' instance baseline failed to parse: {e}"))?;
+
+    let project_dir = world.get_resource::<bsengine_core::ProjectDir>().cloned();
+    let resolved_path = bsengine_core::resolve_project_path(project_dir.as_ref(), &source_path);
+    if !std::path::Path::new(&resolved_path).is_file() {
+        return Err(format!("'{resolved_path}' no longer exists on disk"));
+    }
+    let content = std::fs::read_to_string(&resolved_path)
+        .map_err(|e| format!("'{resolved_path}' could not be read: {e}"))?;
+    let new: bsengine_scene::types::PrefabDescriptor =
+        ron::from_str(&content).map_err(|e| format!("'{resolved_path}' failed to parse: {e}"))?;
+    let new_root = bsengine_scene::validate_prefab_descriptor(&new)
+        .map_err(|e| format!("'{resolved_path}' is not a valid instantiable prefab: {e}"))?
+        .clone();
+    let baseline_root = bsengine_scene::validate_prefab_descriptor(&baseline)
+        .map_err(|e| format!("instance baseline is not a valid instantiable prefab: {e}"))?
+        .clone();
+
+    let registry = world
+        .resource::<bevy_ecs::reflect::AppTypeRegistry>()
+        .clone();
+    let registry = registry.read();
+    let applied_entities = build_applied_prefab_entities(
+        world,
+        &registry,
+        root,
+        &baseline_root,
+        &new_root,
+        &baseline,
+        &new,
+    );
+    drop(registry);
+
+    let applied = bsengine_scene::types::PrefabDescriptor {
+        entities: applied_entities,
+    };
+    let ron_str = ron::to_string(&applied).map_err(|e| format!("serialize failed: {e}"))?;
+    std::fs::write(&resolved_path, ron_str).map_err(|e| format!("write failed: {e}"))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3709,6 +3786,122 @@ mod tests {
         assert_eq!(
             doomed_out.emissive, expected.emissive,
             "an entity the user deleted locally must be written back byte-for-byte unchanged"
+        );
+    }
+
+    #[test]
+    fn apply_instance_to_prefab_writes_a_promoted_override_to_the_real_file() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("assets/prefabs/lamp.ron");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let source = r#"PrefabDescriptor(entities: [
+            EntityDescriptor(name: "Root", primitive: Some(Cube)),
+            EntityDescriptor(
+                name: "Lamp",
+                parent: Some("Root"),
+                point_light: Some((color: (1.0, 1.0, 1.0), intensity: 1.0, range: 10.0)),
+            ),
+        ])"#;
+        std::fs::write(&path, source).unwrap();
+
+        let baseline = parse(source);
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            path.to_str().unwrap(),
+            Some("MyLamp"),
+            None,
+            None,
+        )
+        .unwrap();
+        app.world_mut()
+            .entity_mut(root)
+            .insert(bsengine_core::PrefabInstanceBaseline {
+                synced_ron: source.to_string(),
+            });
+
+        let lamp = {
+            let mut q = app.world_mut().query::<(Entity, &bsengine_scene::Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0.starts_with("Lamp#"))
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        {
+            let mut pl = app
+                .world_mut()
+                .get_mut::<bsengine_core::PointLight>(lamp)
+                .unwrap();
+            pl.intensity = 5.0; // user override
+        }
+
+        apply_instance_to_prefab(app.world_mut(), root).unwrap();
+
+        let written = std::fs::read_to_string(&path).unwrap();
+        let parsed: bsengine_scene::types::PrefabDescriptor = ron::from_str(&written).unwrap();
+        let lamp_out = parsed.entities.iter().find(|e| e.name == "Lamp").unwrap();
+        assert_eq!(
+            lamp_out.point_light.as_ref().unwrap().intensity,
+            5.0,
+            "the override must be written into the real file on disk"
+        );
+    }
+
+    #[test]
+    fn apply_instance_to_prefab_refuses_when_the_instance_has_no_baseline() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("assets/prefabs/nobaseline.ron");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let source = r#"PrefabDescriptor(entities: [EntityDescriptor(name: "Root", primitive: Some(Cube))])"#;
+        std::fs::write(&path, source).unwrap();
+
+        let baseline = parse(source);
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            path.to_str().unwrap(),
+            Some("MyNoBaseline"),
+            None,
+            None,
+        )
+        .unwrap();
+        // Simulate a scene saved before override tracking existed: strip the baseline this
+        // instance would normally have.
+        app.world_mut()
+            .entity_mut(root)
+            .remove::<bsengine_core::PrefabInstanceBaseline>();
+
+        let result = apply_instance_to_prefab(app.world_mut(), root);
+        assert!(
+            result.is_err(),
+            "with no baseline to diff against, apply must refuse rather than guess"
+        );
+        let unchanged = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            unchanged, source,
+            "the file must not be touched when the operation is refused"
+        );
+    }
+
+    #[test]
+    fn apply_instance_to_prefab_refuses_for_an_entity_with_no_prefab_instance() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let plain = app
+            .world_mut()
+            .spawn(bsengine_scene::Name("NotAPrefabInstance".to_string()))
+            .id();
+
+        let result = apply_instance_to_prefab(app.world_mut(), plain);
+        assert!(
+            result.is_err(),
+            "an entity with no PrefabInstance must be refused"
         );
     }
 }

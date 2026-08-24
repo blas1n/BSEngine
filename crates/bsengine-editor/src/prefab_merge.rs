@@ -1161,6 +1161,185 @@ pub(crate) fn resync_instance(
     Ok(())
 }
 
+/// Builds the full entity list that should be written back to the source
+/// file for `root`'s "Apply to Prefab" -- the write-direction mirror of
+/// `resync_instance`'s read-direction resync. Iterates `new.entities` (the
+/// file's own current list, in the file's own order) rather than `live`'s
+/// entities, since pull sync only ever updates *values* on entities that
+/// already exist in the file (see the design spec's "field values only for
+/// v1" scope decision) -- it never adds or removes entities.
+///
+/// For each entity:
+/// - The root (matched by name against `new_root`) is written back exactly
+///   as the file already has it. Root `Name`/`Transform`/`Parent` are
+///   instance-placement data, never prefab-authored data, in either sync
+///   direction -- the same exception `resync_instance` already carves out
+///   for push-sync, applied here to the write direction.
+/// - A nested prefab reference (`entity.prefab.is_some()`) is written back
+///   unchanged. `resync_instance`'s own matching loop never calls
+///   `merge_entity_descriptor` on these either (see its
+///   `b.prefab.is_some() || n.prefab.is_some()` match guard) -- there is no
+///   per-field baseline/live comparison for a nested reference's own fields
+///   to reuse here, so there is nothing to promote.
+/// - An entity with no live counterpart (the user deleted it locally) is
+///   written back unchanged -- there's nothing live to diff against or
+///   promote.
+/// - Otherwise: snapshot the live entity, merge it against baseline/new via
+///   the exact same `merge_entity_descriptor`/`patch_asset_ref_overrides`
+///   push-sync itself uses, then patch back every field that function
+///   doesn't understand (`name`, `parent`, `prefab`, `look_at`) from the
+///   file's own current value for this entity. Left unpatched, all four
+///   would come out at `EntityDescriptor::default()`'s empty/`None` value
+///   -- correct for push-sync (which never reads them off the merged
+///   result) but silent, real data loss here, since this result is written
+///   verbatim into the file.
+///
+/// Takes `world: &mut World`, *not* `&World` as originally sketched:
+/// `collect_own_descendants` (reused verbatim below, exactly like
+/// `resync_instance` already does) itself requires `&mut World`, purely
+/// because `World::query` does in this bevy_ecs version (0.14) -- see that
+/// function's own doc comment. This function still never writes through
+/// `world`; the `&mut` is a borrow-checker artifact of reusing that helper
+/// unchanged, not a semantic requirement of anything this function does.
+pub(crate) fn build_applied_prefab_entities(
+    world: &mut World,
+    registry: &TypeRegistry,
+    root: Entity,
+    baseline_root: &bsengine_scene::EntityDescriptor,
+    new_root: &bsengine_scene::EntityDescriptor,
+    baseline: &bsengine_scene::types::PrefabDescriptor,
+    new: &bsengine_scene::types::PrefabDescriptor,
+) -> Vec<bsengine_scene::EntityDescriptor> {
+    let own_descendants = collect_own_descendants(world, root);
+    let suffix = instance_suffix(world, &own_descendants);
+
+    let mut resolved_by_raw_name: std::collections::HashMap<String, Entity> =
+        std::collections::HashMap::new();
+    if let Some(suffix) = &suffix {
+        for &e in &own_descendants {
+            if let Some(name) = world.get::<bsengine_scene::Name>(e) {
+                if let Some((raw, tail)) = strip_instance_suffix(&name.0) {
+                    if tail == suffix {
+                        resolved_by_raw_name.insert(raw.to_string(), e);
+                    }
+                }
+            }
+        }
+    }
+
+    let baseline_by_name: std::collections::HashMap<&str, &bsengine_scene::EntityDescriptor> =
+        baseline
+            .entities
+            .iter()
+            .filter(|e| e.name != baseline_root.name)
+            .map(|e| (e.name.as_str(), e))
+            .collect();
+
+    new.entities
+        .iter()
+        .map(|new_entity| {
+            if new_entity.name == new_root.name {
+                return new_entity.clone();
+            }
+            if new_entity.prefab.is_some() {
+                return new_entity.clone();
+            }
+            let Some(&live_entity) = resolved_by_raw_name.get(new_entity.name.as_str()) else {
+                return new_entity.clone();
+            };
+            let Some(&baseline_entity) = baseline_by_name.get(new_entity.name.as_str()) else {
+                return new_entity.clone();
+            };
+
+            let live_desc = snapshot_entity_as_descriptor(world, registry, live_entity);
+            let mut merged = merge_entity_descriptor(&live_desc, baseline_entity, new_entity);
+            patch_asset_ref_overrides(world, &live_desc, baseline_entity, new_entity, &mut merged);
+            merged.name = new_entity.name.clone();
+            merged.parent = new_entity.parent.clone();
+            merged.prefab = new_entity.prefab.clone();
+            merged.look_at = new_entity.look_at;
+            merged
+        })
+        .collect()
+}
+
+/// The `&mut World` entry point for "Apply to Prefab": reads `root`'s
+/// `PrefabInstance`/`PrefabInstanceBaseline`, re-parses the current source
+/// file, builds the entity list via `build_applied_prefab_entities`, and
+/// overwrites the file. Reuses the exact same missing/unreadable/unparseable/
+/// structurally-invalid file guards `resync_prefab_instances`
+/// (`prefab_watcher.rs`) already has -- see that function for why each one
+/// exists.
+///
+/// One deliberate asymmetry from `resync_prefab_instances`: a missing or
+/// corrupt baseline there falls back to "change nothing," since it's an
+/// automatic background process where silently doing nothing is safe. This
+/// is a deliberate, user-initiated write to a file every other instance
+/// depends on -- with no baseline to compute overrides against, guessing
+/// risks writing something wrong into shared state, so this refuses with an
+/// error instead.
+///
+/// Deliberately does not update `root`'s own `PrefabInstanceBaseline`, does
+/// not touch any live entity, and does not trigger a resync directly --
+/// `PrefabWatcherPlugin`'s existing file-watch mechanism picks up the write
+/// and handles all of that, for every instance of this file, automatically.
+pub(crate) fn apply_instance_to_prefab(world: &mut World, root: Entity) -> Result<(), String> {
+    let Some(instance) = world.get::<bsengine_core::PrefabInstance>(root) else {
+        return Err(format!("entity {root:?} is not a prefab instance root"));
+    };
+    let source_path = instance.source_path.clone();
+
+    let Some(baseline_ron) = world
+        .get::<bsengine_core::PrefabInstanceBaseline>(root)
+        .map(|b| b.synced_ron.clone())
+    else {
+        return Err(format!(
+            "'{source_path}' has no recorded baseline for this instance; cannot determine \
+             overrides -- resync it against the current file at least once before applying"
+        ));
+    };
+    let baseline: bsengine_scene::types::PrefabDescriptor = ron::from_str(&baseline_ron)
+        .map_err(|e| format!("'{source_path}' instance baseline failed to parse: {e}"))?;
+
+    let project_dir = world.get_resource::<bsengine_core::ProjectDir>().cloned();
+    let resolved_path = bsengine_core::resolve_project_path(project_dir.as_ref(), &source_path);
+    if !std::path::Path::new(&resolved_path).is_file() {
+        return Err(format!("'{resolved_path}' no longer exists on disk"));
+    }
+    let content = std::fs::read_to_string(&resolved_path)
+        .map_err(|e| format!("'{resolved_path}' could not be read: {e}"))?;
+    let new: bsengine_scene::types::PrefabDescriptor =
+        ron::from_str(&content).map_err(|e| format!("'{resolved_path}' failed to parse: {e}"))?;
+    let new_root = bsengine_scene::validate_prefab_descriptor(&new)
+        .map_err(|e| format!("'{resolved_path}' is not a valid instantiable prefab: {e}"))?
+        .clone();
+    let baseline_root = bsengine_scene::validate_prefab_descriptor(&baseline)
+        .map_err(|e| format!("instance baseline is not a valid instantiable prefab: {e}"))?
+        .clone();
+
+    let registry = world
+        .resource::<bevy_ecs::reflect::AppTypeRegistry>()
+        .clone();
+    let registry = registry.read();
+    let applied_entities = build_applied_prefab_entities(
+        world,
+        &registry,
+        root,
+        &baseline_root,
+        &new_root,
+        &baseline,
+        &new,
+    );
+    drop(registry);
+
+    let applied = bsengine_scene::types::PrefabDescriptor {
+        entities: applied_entities,
+    };
+    let ron_str = ron::to_string(&applied).map_err(|e| format!("serialize failed: {e}"))?;
+    std::fs::write(&resolved_path, ron_str).map_err(|e| format!("write failed: {e}"))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3355,6 +3534,496 @@ mod tests {
             "an unoverridden gltf reference must adopt the source file's new value, correctly \
              re-resolved with the ProjectDir prefix -- proving the resolve-then-compare fix actually \
              works, not just that overrides survive"
+        );
+    }
+
+    #[test]
+    fn build_applied_prefab_entities_promotes_an_override_and_leaves_an_unoverridden_field_unchanged(
+    ) {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let baseline = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Root", primitive: Some(Cube)),
+                EntityDescriptor(
+                    name: "Lamp",
+                    parent: Some("Root"),
+                    point_light: Some((color: (1.0, 1.0, 1.0), intensity: 1.0, range: 10.0)),
+                ),
+            ])"#,
+        );
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/lamp_holder.ron",
+            Some("MyLampHolder"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let lamp = {
+            let mut q = app.world_mut().query::<(Entity, &bsengine_scene::Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0.starts_with("Lamp#"))
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        {
+            let mut pl = app
+                .world_mut()
+                .get_mut::<bsengine_core::PointLight>(lamp)
+                .unwrap();
+            pl.intensity = 5.0; // user override
+        }
+
+        // The file itself has since moved on for an unrelated field, unsynced by this instance yet.
+        let new = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Root", primitive: Some(Cube)),
+                EntityDescriptor(
+                    name: "Lamp",
+                    parent: Some("Root"),
+                    point_light: Some((color: (1.0, 1.0, 1.0), intensity: 1.0, range: 30.0)),
+                ),
+            ])"#,
+        );
+
+        let registry = registry(app.world());
+        let registry = registry.read();
+        let baseline_root = bsengine_scene::validate_prefab_descriptor(&baseline).unwrap();
+        let new_root = bsengine_scene::validate_prefab_descriptor(&new).unwrap();
+        let applied = build_applied_prefab_entities(
+            app.world_mut(),
+            &registry,
+            root,
+            baseline_root,
+            new_root,
+            &baseline,
+            &new,
+        );
+
+        let lamp_out = applied.iter().find(|e| e.name == "Lamp").unwrap();
+        let pl = lamp_out.point_light.as_ref().unwrap();
+        assert_eq!(
+            pl.intensity, 5.0,
+            "the user's override must be promoted into the written entity"
+        );
+        assert_eq!(
+            pl.range, 30.0,
+            "the unoverridden range must keep the file's current value, not be overwritten by \
+             anything from the (out of date) baseline"
+        );
+    }
+
+    #[test]
+    fn build_applied_prefab_entities_never_wipes_parent_or_name_even_when_unrelated_fields_change()
+    {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let baseline = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Root", primitive: Some(Cube)),
+                EntityDescriptor(name: "Child", parent: Some("Root"), emissive: Some((0.0, 0.0, 0.0))),
+            ])"#,
+        );
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/parented.ron",
+            Some("MyParented"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let new = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Root", primitive: Some(Cube)),
+                EntityDescriptor(name: "Child", parent: Some("Root"), emissive: Some((0.5, 0.5, 0.5))),
+            ])"#,
+        );
+
+        let registry = registry(app.world());
+        let registry = registry.read();
+        let baseline_root = bsengine_scene::validate_prefab_descriptor(&baseline).unwrap();
+        let new_root = bsengine_scene::validate_prefab_descriptor(&new).unwrap();
+        let applied = build_applied_prefab_entities(
+            app.world_mut(),
+            &registry,
+            root,
+            baseline_root,
+            new_root,
+            &baseline,
+            &new,
+        );
+
+        let child_out = applied.iter().find(|e| e.name == "Child").unwrap();
+        assert_eq!(
+            child_out.name, "Child",
+            "the file's raw unsuffixed name must survive, not the live instance's '#N'-suffixed name"
+        );
+        assert_eq!(
+            child_out.parent.as_deref(),
+            Some("Root"),
+            "parent must survive -- merge_entity_descriptor doesn't understand this field at all"
+        );
+    }
+
+    #[test]
+    fn build_applied_prefab_entities_never_writes_a_change_to_the_root_or_a_nested_reference() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let baseline = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Root", primitive: Some(Cube)),
+            ])"#,
+        );
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/simple.ron",
+            Some("MySimple"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        // User manually rotates the root live -- must never leak into the file.
+        app.world_mut()
+            .entity_mut(root)
+            .insert(bsengine_core::Transform {
+                rotation: glam::Quat::from_rotation_y(1.0).into(),
+                ..Default::default()
+            });
+
+        let new = baseline.clone();
+
+        let registry = registry(app.world());
+        let registry = registry.read();
+        let baseline_root = bsengine_scene::validate_prefab_descriptor(&baseline).unwrap();
+        let new_root = bsengine_scene::validate_prefab_descriptor(&new).unwrap();
+        let applied = build_applied_prefab_entities(
+            app.world_mut(),
+            &registry,
+            root,
+            baseline_root,
+            new_root,
+            &baseline,
+            &new,
+        );
+
+        let root_out = applied.iter().find(|e| e.name == "Root").unwrap();
+        assert_eq!(
+            root_out.transform, new_root.transform,
+            "the root's transform must never be written, regardless of live override status"
+        );
+    }
+
+    #[test]
+    fn build_applied_prefab_entities_leaves_a_locally_deleted_entity_untouched_in_the_file() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let baseline = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Root", primitive: Some(Cube)),
+                EntityDescriptor(name: "Doomed", parent: Some("Root"), emissive: Some((0.0, 0.0, 0.0))),
+            ])"#,
+        );
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/deletable.ron",
+            Some("MyDeletable"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let doomed = {
+            let mut q = app.world_mut().query::<(Entity, &bsengine_scene::Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0.starts_with("Doomed#"))
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        app.world_mut().despawn(doomed);
+
+        let new = baseline.clone();
+
+        let registry = registry(app.world());
+        let registry = registry.read();
+        let baseline_root = bsengine_scene::validate_prefab_descriptor(&baseline).unwrap();
+        let new_root = bsengine_scene::validate_prefab_descriptor(&new).unwrap();
+        let applied = build_applied_prefab_entities(
+            app.world_mut(),
+            &registry,
+            root,
+            baseline_root,
+            new_root,
+            &baseline,
+            &new,
+        );
+
+        let doomed_out = applied.iter().find(|e| e.name == "Doomed").unwrap();
+        let expected = new.entities.iter().find(|e| e.name == "Doomed").unwrap();
+        // `EntityDescriptor` doesn't derive `PartialEq` (its `directional_light:
+        // Option<DirectionalLightDescriptor>` field can't -- see
+        // `snapshot_captures_a_live_point_light`'s comment above), so compare
+        // the fields this prefab actually sets instead of the whole struct.
+        assert_eq!(
+            doomed_out.name, expected.name,
+            "an entity the user deleted locally must be written back byte-for-byte unchanged"
+        );
+        assert_eq!(
+            doomed_out.parent, expected.parent,
+            "an entity the user deleted locally must be written back byte-for-byte unchanged"
+        );
+        assert_eq!(
+            doomed_out.emissive, expected.emissive,
+            "an entity the user deleted locally must be written back byte-for-byte unchanged"
+        );
+    }
+
+    #[test]
+    fn apply_instance_to_prefab_writes_a_promoted_override_to_the_real_file() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("assets/prefabs/lamp.ron");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let source = r#"PrefabDescriptor(entities: [
+            EntityDescriptor(name: "Root", primitive: Some(Cube)),
+            EntityDescriptor(
+                name: "Lamp",
+                parent: Some("Root"),
+                point_light: Some((color: (1.0, 1.0, 1.0), intensity: 1.0, range: 10.0)),
+            ),
+        ])"#;
+        std::fs::write(&path, source).unwrap();
+
+        let baseline = parse(source);
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            path.to_str().unwrap(),
+            Some("MyLamp"),
+            None,
+            None,
+        )
+        .unwrap();
+        app.world_mut()
+            .entity_mut(root)
+            .insert(bsengine_core::PrefabInstanceBaseline {
+                synced_ron: source.to_string(),
+            });
+
+        let lamp = {
+            let mut q = app.world_mut().query::<(Entity, &bsengine_scene::Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0.starts_with("Lamp#"))
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        {
+            let mut pl = app
+                .world_mut()
+                .get_mut::<bsengine_core::PointLight>(lamp)
+                .unwrap();
+            pl.intensity = 5.0; // user override
+        }
+
+        apply_instance_to_prefab(app.world_mut(), root).unwrap();
+
+        let written = std::fs::read_to_string(&path).unwrap();
+        let parsed: bsengine_scene::types::PrefabDescriptor = ron::from_str(&written).unwrap();
+        let lamp_out = parsed.entities.iter().find(|e| e.name == "Lamp").unwrap();
+        assert_eq!(
+            lamp_out.point_light.as_ref().unwrap().intensity,
+            5.0,
+            "the override must be written into the real file on disk"
+        );
+    }
+
+    #[test]
+    fn applying_and_then_resyncing_makes_the_promoted_field_stop_being_an_override() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("assets/prefabs/roundtrip.ron");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let source = r#"PrefabDescriptor(entities: [
+            EntityDescriptor(name: "Root", primitive: Some(Cube)),
+            EntityDescriptor(
+                name: "Lamp",
+                parent: Some("Root"),
+                point_light: Some((color: (1.0, 1.0, 1.0), intensity: 1.0, range: 10.0)),
+            ),
+        ])"#;
+        std::fs::write(&path, source).unwrap();
+
+        let baseline = parse(source);
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            path.to_str().unwrap(),
+            Some("MyRoundtrip"),
+            None,
+            None,
+        )
+        .unwrap();
+        app.world_mut()
+            .entity_mut(root)
+            .insert(bsengine_core::PrefabInstanceBaseline {
+                synced_ron: source.to_string(),
+            });
+
+        let lamp = {
+            let mut q = app.world_mut().query::<(Entity, &bsengine_scene::Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0.starts_with("Lamp#"))
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        {
+            let mut pl = app
+                .world_mut()
+                .get_mut::<bsengine_core::PointLight>(lamp)
+                .unwrap();
+            pl.intensity = 5.0; // user override
+        }
+
+        // Apply: writes the override into the file.
+        apply_instance_to_prefab(app.world_mut(), root).unwrap();
+        let applied_content = std::fs::read_to_string(&path).unwrap();
+        let applied_prefab: bsengine_scene::types::PrefabDescriptor =
+            ron::from_str(&applied_content).unwrap();
+
+        // Simulate what PrefabWatcherPlugin's file-watch would do next: resync
+        // this instance against its (pre-apply) baseline and the newly-applied
+        // file content, exactly as `resync_prefab_instances` does.
+        let own_source_paths =
+            std::collections::HashSet::from([path.to_str().unwrap().to_string()]);
+        resync_instance(
+            app.world_mut(),
+            root,
+            &baseline,
+            &applied_prefab,
+            &own_source_paths,
+        )
+        .unwrap();
+        app.world_mut()
+            .entity_mut(root)
+            .insert(bsengine_core::PrefabInstanceBaseline {
+                synced_ron: applied_content,
+            });
+
+        // Prove the baseline genuinely advanced: a fresh live edit to intensity,
+        // followed by a resync against a file that changed range again, should
+        // now diff the intensity override against 5.0 (the new baseline), not
+        // 1.0 (the original one) -- and an unrelated further file change should
+        // still be adopted for range.
+        {
+            let mut pl = app
+                .world_mut()
+                .get_mut::<bsengine_core::PointLight>(lamp)
+                .unwrap();
+            assert_eq!(
+                pl.intensity, 5.0,
+                "live intensity must still read as 5.0 post-resync"
+            );
+            pl.range = 99.0; // a fresh, different override this time
+        }
+        let further_new = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Root", primitive: Some(Cube)),
+                EntityDescriptor(
+                    name: "Lamp",
+                    parent: Some("Root"),
+                    point_light: Some((color: (1.0, 1.0, 1.0), intensity: 5.0, range: 10.0)),
+                ),
+            ])"#,
+        );
+        resync_instance(
+            app.world_mut(),
+            root,
+            &applied_prefab,
+            &further_new,
+            &own_source_paths,
+        )
+        .unwrap();
+        let pl = app.world().get::<bsengine_core::PointLight>(lamp).unwrap();
+        assert_eq!(
+            pl.intensity, 5.0,
+            "intensity must still read 5.0 -- it matches the new baseline, so it's not an override \
+             anymore and simply keeps its already-correct value"
+        );
+        assert_eq!(
+            pl.range, 99.0,
+            "the fresh override on range (set after the apply) must survive this second resync, \
+             proving the applied value truly became the new baseline rather than some stale state \
+             silently protecting the old override forever"
+        );
+    }
+
+    #[test]
+    fn apply_instance_to_prefab_refuses_when_the_instance_has_no_baseline() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("assets/prefabs/nobaseline.ron");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let source = r#"PrefabDescriptor(entities: [EntityDescriptor(name: "Root", primitive: Some(Cube))])"#;
+        std::fs::write(&path, source).unwrap();
+
+        let baseline = parse(source);
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            path.to_str().unwrap(),
+            Some("MyNoBaseline"),
+            None,
+            None,
+        )
+        .unwrap();
+        // Simulate a scene saved before override tracking existed: strip the baseline this
+        // instance would normally have.
+        app.world_mut()
+            .entity_mut(root)
+            .remove::<bsengine_core::PrefabInstanceBaseline>();
+
+        let result = apply_instance_to_prefab(app.world_mut(), root);
+        assert!(
+            result.is_err(),
+            "with no baseline to diff against, apply must refuse rather than guess"
+        );
+        let unchanged = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            unchanged, source,
+            "the file must not be touched when the operation is refused"
+        );
+    }
+
+    #[test]
+    fn apply_instance_to_prefab_refuses_for_an_entity_with_no_prefab_instance() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        let plain = app
+            .world_mut()
+            .spawn(bsengine_scene::Name("NotAPrefabInstance".to_string()))
+            .id();
+
+        let result = apply_instance_to_prefab(app.world_mut(), plain);
+        assert!(
+            result.is_err(),
+            "an entity with no PrefabInstance must be refused"
         );
     }
 }

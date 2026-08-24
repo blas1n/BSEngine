@@ -3851,6 +3851,125 @@ mod tests {
     }
 
     #[test]
+    fn applying_and_then_resyncing_makes_the_promoted_field_stop_being_an_override() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("assets/prefabs/roundtrip.ron");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let source = r#"PrefabDescriptor(entities: [
+            EntityDescriptor(name: "Root", primitive: Some(Cube)),
+            EntityDescriptor(
+                name: "Lamp",
+                parent: Some("Root"),
+                point_light: Some((color: (1.0, 1.0, 1.0), intensity: 1.0, range: 10.0)),
+            ),
+        ])"#;
+        std::fs::write(&path, source).unwrap();
+
+        let baseline = parse(source);
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            path.to_str().unwrap(),
+            Some("MyRoundtrip"),
+            None,
+            None,
+        )
+        .unwrap();
+        app.world_mut()
+            .entity_mut(root)
+            .insert(bsengine_core::PrefabInstanceBaseline {
+                synced_ron: source.to_string(),
+            });
+
+        let lamp = {
+            let mut q = app.world_mut().query::<(Entity, &bsengine_scene::Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0.starts_with("Lamp#"))
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        {
+            let mut pl = app
+                .world_mut()
+                .get_mut::<bsengine_core::PointLight>(lamp)
+                .unwrap();
+            pl.intensity = 5.0; // user override
+        }
+
+        // Apply: writes the override into the file.
+        apply_instance_to_prefab(app.world_mut(), root).unwrap();
+        let applied_content = std::fs::read_to_string(&path).unwrap();
+        let applied_prefab: bsengine_scene::types::PrefabDescriptor =
+            ron::from_str(&applied_content).unwrap();
+
+        // Simulate what PrefabWatcherPlugin's file-watch would do next: resync
+        // this instance against its (pre-apply) baseline and the newly-applied
+        // file content, exactly as `resync_prefab_instances` does.
+        let own_source_paths =
+            std::collections::HashSet::from([path.to_str().unwrap().to_string()]);
+        resync_instance(
+            app.world_mut(),
+            root,
+            &baseline,
+            &applied_prefab,
+            &own_source_paths,
+        )
+        .unwrap();
+        app.world_mut()
+            .entity_mut(root)
+            .insert(bsengine_core::PrefabInstanceBaseline {
+                synced_ron: applied_content,
+            });
+
+        // Prove the baseline genuinely advanced: a fresh live edit to intensity,
+        // followed by a resync against a file that changed range again, should
+        // now diff the intensity override against 5.0 (the new baseline), not
+        // 1.0 (the original one) -- and an unrelated further file change should
+        // still be adopted for range.
+        {
+            let mut pl = app
+                .world_mut()
+                .get_mut::<bsengine_core::PointLight>(lamp)
+                .unwrap();
+            assert_eq!(pl.intensity, 5.0, "live intensity must still read as 5.0 post-resync");
+            pl.range = 99.0; // a fresh, different override this time
+        }
+        let further_new = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Root", primitive: Some(Cube)),
+                EntityDescriptor(
+                    name: "Lamp",
+                    parent: Some("Root"),
+                    point_light: Some((color: (1.0, 1.0, 1.0), intensity: 5.0, range: 10.0)),
+                ),
+            ])"#,
+        );
+        resync_instance(
+            app.world_mut(),
+            root,
+            &applied_prefab,
+            &further_new,
+            &own_source_paths,
+        )
+        .unwrap();
+        let pl = app.world().get::<bsengine_core::PointLight>(lamp).unwrap();
+        assert_eq!(
+            pl.intensity, 5.0,
+            "intensity must still read 5.0 -- it matches the new baseline, so it's not an override \
+             anymore and simply keeps its already-correct value"
+        );
+        assert_eq!(
+            pl.range, 99.0,
+            "the fresh override on range (set after the apply) must survive this second resync, \
+             proving the applied value truly became the new baseline rather than some stale state \
+             silently protecting the old override forever"
+        );
+    }
+
+    #[test]
     fn apply_instance_to_prefab_refuses_when_the_instance_has_no_baseline() {
         let mut app = new_app();
         bsengine_scene::register_gameplay_reflect_types(&mut app);

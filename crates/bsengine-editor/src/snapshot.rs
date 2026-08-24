@@ -500,6 +500,24 @@ pub type SharedPrefabCommandQueue = Arc<Mutex<Vec<PrefabInstantiateCommand>>>;
 #[derive(Resource)]
 pub struct PrefabCommandQueueResource(pub SharedPrefabCommandQueue);
 
+/// One queued "Apply to Prefab" request: push `entity_id`'s current
+/// field-level overrides back into its source file. See
+/// `crate::prefab_merge::apply_instance_to_prefab` for the actual logic --
+/// this struct only carries the request through the queue.
+#[derive(Clone, Debug)]
+pub struct PrefabApplyCommand {
+    /// The prefab instance root entity id (must have a `PrefabInstance`).
+    pub entity_id: u64,
+}
+
+/// Shared handle to the pending `PrefabApplyCommand` queue, drained each
+/// frame by `process_prefab_apply_commands`.
+pub type SharedPrefabApplyCommandQueue = Arc<Mutex<Vec<PrefabApplyCommand>>>;
+
+/// Bevy resource exposing the shared prefab-apply queue to systems.
+#[derive(Resource)]
+pub struct PrefabApplyCommandQueueResource(pub SharedPrefabApplyCommandQueue);
+
 /// Bevy resource exposing the shared selection set to systems inside the
 /// `App`.
 #[derive(Resource)]

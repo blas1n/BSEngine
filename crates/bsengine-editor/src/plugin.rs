@@ -1709,6 +1709,38 @@ fn process_prefab_commands(world: &mut World) {
     }
 }
 
+/// Drains `PrefabApplyCommandQueueResource` each frame and pushes each
+/// queued entity's overrides back into its source prefab file via
+/// `crate::prefab_merge::apply_instance_to_prefab`, which needs `&mut World`
+/// directly -- same reason `process_prefab_commands` is exclusive. Unlike
+/// that system, this one does not push an undo checkpoint: it writes a file
+/// on disk, not a live-world mutation the undo/redo history tracks, and its
+/// downstream effects (every instance resyncing) happen on a later frame via
+/// `PrefabWatcherPlugin`'s own file-watch, not synchronously here.
+fn process_prefab_apply_commands(world: &mut World) {
+    let cmds: Vec<crate::snapshot::PrefabApplyCommand> = {
+        let Some(queue_res) = world.get_resource::<crate::snapshot::PrefabApplyCommandQueueResource>()
+        else {
+            return;
+        };
+        let mut queue = queue_res.0.lock().unwrap();
+        queue.drain(..).collect()
+    };
+    for cmd in cmds {
+        let Some(entity) = world
+            .iter_entities()
+            .find(|e| e.id().index() as u64 == cmd.entity_id)
+            .map(|e| e.id())
+        else {
+            tracing::warn!("apply-to-prefab: entity {} no longer exists", cmd.entity_id);
+            continue;
+        };
+        if let Err(e) = crate::prefab_merge::apply_instance_to_prefab(world, entity) {
+            tracing::warn!("apply-to-prefab: failed for entity {}: {e}", cmd.entity_id);
+        }
+    }
+}
+
 fn update_editor_camera(
     inspector: Option<ResMut<InspectorState>>,
     mouse: Option<bsengine_ecs::Res<bsengine_input::MouseState>>,
@@ -2013,6 +2045,8 @@ impl Plugin for EditorPlugin {
         let cmd_queue: SharedCommandQueue = Arc::new(Mutex::new(Vec::new()));
         let reflect_cmd_queue: SharedReflectCommandQueue = Arc::new(Mutex::new(Vec::new()));
         let prefab_cmd_queue: SharedPrefabCommandQueue = Arc::new(Mutex::new(Vec::new()));
+        let prefab_apply_cmd_queue: crate::snapshot::SharedPrefabApplyCommandQueue =
+            Arc::new(Mutex::new(Vec::new()));
         let selection: SharedSelection = Arc::new(Mutex::new(std::collections::HashSet::new()));
         let history: SharedHistory = Arc::new(Mutex::new(EditorHistory::default()));
 
@@ -2020,6 +2054,9 @@ impl Plugin for EditorPlugin {
         app.insert_resource(EditorCommandQueueResource(cmd_queue.clone()));
         app.insert_resource(ReflectCommandQueueResource(reflect_cmd_queue.clone()));
         app.insert_resource(PrefabCommandQueueResource(prefab_cmd_queue.clone()));
+        app.insert_resource(crate::snapshot::PrefabApplyCommandQueueResource(
+            prefab_apply_cmd_queue.clone(),
+        ));
         app.insert_resource(EditorSelectionResource(selection.clone()));
         app.insert_resource(EditorHistoryResource(history.clone()));
         app.insert_resource(InspectorState::editor());
@@ -2058,6 +2095,7 @@ impl Plugin for EditorPlugin {
         app.add_systems(Update, process_editor_commands);
         app.add_systems(Update, process_reflect_commands.after(process_editor_commands));
         app.add_systems(Update, process_prefab_commands.after(process_editor_commands));
+        app.add_systems(Update, process_prefab_apply_commands);
         app.add_systems(Update, apply_history_action.after(process_editor_commands));
         // Registration position matters here, and is not incidental: this has
         // to come after every `add_systems` call above, not next to the other
@@ -92587,6 +92625,82 @@ mod tests {
             history_len_after,
             history_len_before + 1,
             "process_prefab_commands should push an undo checkpoint, same as ReflectCommand/EditorCommand do"
+        );
+    }
+
+    #[test]
+    fn process_prefab_apply_commands_applies_a_queued_entity() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("assets/prefabs/queued.ron");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let source = r#"PrefabDescriptor(entities: [
+            EntityDescriptor(name: "Root", primitive: Some(Cube)),
+            EntityDescriptor(
+                name: "Lamp",
+                parent: Some("Root"),
+                point_light: Some((color: (1.0, 1.0, 1.0), intensity: 1.0, range: 10.0)),
+            ),
+        ])"#;
+        std::fs::write(&path, source).unwrap();
+
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        app.add_plugins(EditorPlugin);
+
+        let baseline: bsengine_scene::types::PrefabDescriptor = ron::from_str(source).unwrap();
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            path.to_str().unwrap(),
+            Some("MyQueued"),
+            None,
+            None,
+        )
+        .unwrap();
+        app.world_mut()
+            .entity_mut(root)
+            .insert(bsengine_core::PrefabInstanceBaseline {
+                synced_ron: source.to_string(),
+            });
+
+        let lamp = {
+            let mut q = app
+                .world_mut()
+                .query::<(bevy_ecs::prelude::Entity, &bsengine_scene::Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0.starts_with("Lamp#"))
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        {
+            let mut pl = app
+                .world_mut()
+                .get_mut::<bsengine_core::PointLight>(lamp)
+                .unwrap();
+            pl.intensity = 5.0;
+        }
+
+        let root_id = root.index() as u64;
+        {
+            let queue = app
+                .world()
+                .resource::<crate::snapshot::PrefabApplyCommandQueueResource>();
+            queue
+                .0
+                .lock()
+                .unwrap()
+                .push(crate::snapshot::PrefabApplyCommand { entity_id: root_id });
+        }
+
+        app.update();
+
+        let written = std::fs::read_to_string(&path).unwrap();
+        let parsed: bsengine_scene::types::PrefabDescriptor = ron::from_str(&written).unwrap();
+        let lamp_out = parsed.entities.iter().find(|e| e.name == "Lamp").unwrap();
+        assert_eq!(
+            lamp_out.point_light.as_ref().unwrap().intensity,
+            5.0,
+            "queuing a PrefabApplyCommand and running one app.update() must apply it"
         );
     }
 

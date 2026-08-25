@@ -62,6 +62,7 @@ impl EditorPanel for HierarchyPanel {
         let mut duplicate: Option<u64> = None;
         let mut rename_commit: Option<(u64, String)> = None;
         let mut despawn_ids: Vec<u64> = Vec::new();
+        let mut apply_to_prefab_ids: Vec<u64> = Vec::new();
         let mut attach_script: Option<(u64, String)> = None;
 
         ui.horizontal(|ui| {
@@ -122,6 +123,7 @@ impl EditorPanel for HierarchyPanel {
                         &mut remove_parent,
                         &mut duplicate,
                         &mut despawn_ids,
+                        &mut apply_to_prefab_ids,
                         &mut rename_state,
                         &mut rename_commit,
                         &mut attach_script,
@@ -245,6 +247,10 @@ impl EditorPanel for HierarchyPanel {
                 insp.sync_selection();
             }
         }
+        for &id in &apply_to_prefab_ids {
+            insp.cmd_queue
+                .push(InspectorCmd::ApplyToPrefab { entity_id: id });
+        }
         if let Some((id, name)) = rename_commit {
             if !name.is_empty() {
                 insp.cmd_queue.push(InspectorCmd::RenameEntity { id, name });
@@ -365,6 +371,7 @@ impl HierarchyPanel {
         remove_parent: &mut Option<u64>,
         duplicate: &mut Option<u64>,
         despawn_ids: &mut Vec<u64>,
+        apply_to_prefab_ids: &mut Vec<u64>,
         rename_state: &mut Option<RenameState>,
         rename_commit: &mut Option<(u64, String)>,
         attach_script: &mut Option<(u64, String)>,
@@ -435,6 +442,7 @@ impl HierarchyPanel {
                                 remove_parent,
                                 duplicate,
                                 despawn_ids,
+                                apply_to_prefab_ids,
                                 rename_state,
                                 rename_commit,
                                 attach_script,
@@ -566,6 +574,10 @@ impl HierarchyPanel {
                         entity_id: info.id,
                         buffer: info.name.clone().unwrap_or_default(),
                     });
+                    ui.close_menu();
+                }
+                if info.is_prefab_instance && ui.button("Apply to Prefab").clicked() {
+                    apply_to_prefab_ids.push(info.id);
                     ui.close_menu();
                 }
             });

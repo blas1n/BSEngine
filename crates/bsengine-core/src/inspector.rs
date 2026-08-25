@@ -71,6 +71,9 @@ pub struct InspectorEntityInfo {
     pub visible: bool,
     /// Whether the entity is currently selected in the editor.
     pub selected: bool,
+    /// Whether this entity is a prefab instance root (has `PrefabInstance`).
+    /// Drives the Hierarchy panel's "Apply to Prefab" context-menu entry.
+    pub is_prefab_instance: bool,
 }
 
 /// One queued edit request from the editor UI, drained and applied to the

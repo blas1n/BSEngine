@@ -41,6 +41,7 @@ fn update_editor_snapshot(
             Option<&bsengine_scene::ScriptPath>,
             Option<&bsengine_core::TexturePath>,
             Option<&bsengine_scene::PhysicsBodyDesc>,
+            Option<&bsengine_core::PrefabInstance>,
         ),
     )>,
 ) {
@@ -49,7 +50,7 @@ fn update_editor_snapshot(
     snapshot.entities = query
         .iter()
         .map(
-            |(e, name, transform, mesh, pt, dir, spot, cam, parent, tags, vis, mat, (prim, script, texture, physics_body))| {
+            |(e, name, transform, mesh, pt, dir, spot, cam, parent, tags, vis, mat, (prim, script, texture, physics_body, prefab_instance))| {
                 let light_type = if pt.is_some() {
                     Some("point".to_string())
                 } else if dir.is_some() {
@@ -99,6 +100,7 @@ fn update_editor_snapshot(
                     selected: selection.contains(&(e.index() as u64)),
                     extra_components: Vec::new(),
                     physics_body: physics_body.cloned(),
+                    is_prefab_instance: prefab_instance.is_some(),
                 }
             },
         )
@@ -1837,6 +1839,7 @@ fn populate_inspector(
             primitive: e.primitive.as_ref().map(primitive_to_str),
             visible: e.visible,
             selected: e.selected,
+            is_prefab_instance: e.is_prefab_instance,
         })
         .collect();
 }
@@ -90786,6 +90789,48 @@ mod tests {
             let pos = copy["position"].as_array().unwrap();
             assert!((pos[0].as_f64().unwrap() - 2.0).abs() < 1e-4);
         }
+    }
+
+    #[test]
+    fn update_editor_snapshot_and_populate_inspector_report_is_prefab_instance() {
+        let mut app = new_app();
+        app.add_plugins(EditorPlugin);
+
+        let with_instance = app
+            .world_mut()
+            .spawn((
+                Name("HasInstance".to_string()),
+                bsengine_core::PrefabInstance {
+                    source_path: "assets/prefabs/x.ron".to_string(),
+                },
+            ))
+            .id();
+        let without_instance = app
+            .world_mut()
+            .spawn(Name("NoInstance".to_string()))
+            .id();
+
+        app.update(); // update_editor_snapshot + populate_inspector capture both
+
+        let inspector = app.world().resource::<InspectorState>();
+        let with_info = inspector
+            .entities
+            .iter()
+            .find(|e| e.id == with_instance.index() as u64)
+            .unwrap();
+        let without_info = inspector
+            .entities
+            .iter()
+            .find(|e| e.id == without_instance.index() as u64)
+            .unwrap();
+        assert!(
+            with_info.is_prefab_instance,
+            "entity with PrefabInstance must report true"
+        );
+        assert!(
+            !without_info.is_prefab_instance,
+            "entity without PrefabInstance must report false"
+        );
     }
 
     #[test]

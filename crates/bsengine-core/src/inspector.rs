@@ -302,6 +302,16 @@ pub enum InspectorCmd {
         /// Prefab file name, no extension or directory.
         name: String,
     },
+    /// Push this prefab instance's field-level overrides back into its
+    /// source file. Routed through `PrefabApplyCommandQueueResource` /
+    /// `process_prefab_apply_commands` (`bsengine-editor`), the same queue
+    /// the `apply_to_prefab` MCP tool already uses -- see
+    /// `bsengine_editor::prefab_merge::apply_instance_to_prefab`'s doc
+    /// comment for the actual logic.
+    ApplyToPrefab {
+        /// The prefab instance root entity id (must have a `PrefabInstance`).
+        entity_id: u64,
+    },
 }
 
 /// Whether the editor is showing the static scene or running gameplay.

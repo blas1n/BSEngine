@@ -1877,6 +1877,7 @@ fn apply_inspector_cmds(
     queue_res: Res<EditorCommandQueueResource>,
     reflect_queue_res: Res<ReflectCommandQueueResource>,
     prefab_queue_res: Res<PrefabCommandQueueResource>,
+    prefab_apply_queue_res: Res<crate::snapshot::PrefabApplyCommandQueueResource>,
     selection_res: Res<EditorSelectionResource>,
     snapshot_res: Res<EditorSnapshotResource>,
     project_dir: Option<Res<bsengine_core::ProjectDir>>,
@@ -2033,6 +2034,13 @@ fn apply_inspector_cmds(
                     tracing::warn!("create_prefab: entity {entity_id} -> '{name}' failed: {e}");
                 }
             }
+            InspectorCmd::ApplyToPrefab { entity_id } => {
+                prefab_apply_queue_res
+                    .0
+                    .lock()
+                    .unwrap()
+                    .push(crate::snapshot::PrefabApplyCommand { entity_id });
+            }
         }
     }
 }
@@ -2098,7 +2106,22 @@ impl Plugin for EditorPlugin {
         app.add_systems(Update, process_editor_commands);
         app.add_systems(Update, process_reflect_commands.after(process_editor_commands));
         app.add_systems(Update, process_prefab_commands.after(process_editor_commands));
-        app.add_systems(Update, process_prefab_apply_commands);
+        // Explicit `.before(apply_inspector_cmds)`, not left unordered: both
+        // this system and `apply_inspector_cmds` only take `Res<...>` handles
+        // to their shared `Mutex`-wrapped queue, so Bevy sees no ECS access
+        // conflict between them and is free to run them in either order each
+        // frame. Without this constraint, a same-frame
+        // `InspectorCmd::ApplyToPrefab` (queued via `apply_inspector_cmds`
+        // during this exact `Update`) could be drained by this system before
+        // it was ever pushed, or after -- nondeterministically, varying
+        // update-to-update. Ordering this system first guarantees a command
+        // bridged from the Inspector this frame sits in the queue,
+        // unprocessed, until the *next* frame -- consistent with this
+        // function's own doc comment above (downstream effects already
+        // happen "on a later frame", not synchronously) and with the
+        // `apply_to_prefab` MCP tool's description ("Queued for processing;
+        // check ... on a subsequent call").
+        app.add_systems(Update, process_prefab_apply_commands.before(apply_inspector_cmds));
         app.add_systems(Update, apply_history_action.after(process_editor_commands));
         // Registration position matters here, and is not incidental: this has
         // to come after every `add_systems` call above, not next to the other
@@ -93291,5 +93314,25 @@ mod tests {
         }
         .expect("apply_to_prefab not registered");
         assert!(!out.is_ok());
+    }
+
+    #[test]
+    fn apply_inspector_cmds_bridges_apply_to_prefab_into_the_prefab_apply_queue() {
+        let mut app = new_app();
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mut inspector = app.world_mut().resource_mut::<InspectorState>();
+            inspector.cmd_queue.push(InspectorCmd::ApplyToPrefab { entity_id: 42 });
+        }
+
+        app.update();
+
+        let queue = app
+            .world()
+            .resource::<crate::snapshot::PrefabApplyCommandQueueResource>();
+        let queued = queue.0.lock().unwrap();
+        assert_eq!(queued.len(), 1);
+        assert_eq!(queued[0].entity_id, 42);
     }
 }

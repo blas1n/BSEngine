@@ -2,7 +2,7 @@
 //! painter routine. Kept separate from `surface.rs` so the math is
 //! unit-testable without a live wgpu/winit context.
 
-use egui::{Color32, Painter, Pos2, Rect, Stroke, Vec2};
+use egui::{Color32, Painter, Pos2, Rect, Rounding, Stroke, Vec2};
 use glam::{Mat4, Quat, Vec3};
 
 /// Gizmo axis id for the X axis.
@@ -14,6 +14,7 @@ pub const AXIS_Z: u8 = 2;
 
 const HANDLE_HIT_RADIUS: f32 = 8.0;
 const HANDLE_LENGTH_FRACTION: f32 = 0.15;
+const SCALE_HANDLE_HALF_SIZE: f32 = 4.0;
 
 // Camera entities don't carry their real aspect ratio in EntityInfo (only
 // fov_y is tracked), so the frustum gizmo uses a fixed 16:9 stand-in — this
@@ -114,6 +115,37 @@ pub fn hit_test(
         .map(|(axis, _)| axis)
 }
 
+/// Which scale-gizmo handle is under the cursor: a per-axis handle, or the
+/// center handle that scales all three axes proportionally.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScaleHandle {
+    /// A per-axis handle (0=X, 1=Y, 2=Z).
+    Axis(u8),
+    /// The center handle that scales all three axes proportionally.
+    Uniform,
+}
+
+/// Finds which scale handle (if any) is under `mouse_pos`. The uniform
+/// center handle is checked first: it sits at the same screen point the
+/// three axis handles' line segments all originate from, so checking axes
+/// first would make a click right at the origin ambiguously resolve to
+/// whichever axis segment the distance comparison happens to favor, rather
+/// than to the uniform handle a user clicking at dead-center almost
+/// certainly means.
+pub fn hit_test_scale(
+    pos: Vec3,
+    handle_len: f32,
+    view_proj: &[[f32; 4]; 4],
+    rect: Rect,
+    mouse_pos: Pos2,
+) -> Option<ScaleHandle> {
+    let origin = world_to_screen(pos, view_proj, rect)?;
+    if (mouse_pos - origin).length() <= HANDLE_HIT_RADIUS {
+        return Some(ScaleHandle::Uniform);
+    }
+    hit_test(pos, handle_len, view_proj, rect, mouse_pos).map(ScaleHandle::Axis)
+}
+
 /// Draws the three translate handles, highlighting `hovered`/`dragging`.
 pub fn draw(
     painter: &Painter,
@@ -141,6 +173,55 @@ pub fn draw(
         painter.line_segment([origin, tip], Stroke::new(width, color));
         painter.circle_filled(tip, 4.0, color);
     }
+}
+
+fn draw_scale_handle(painter: &Painter, center: Pos2, color: Color32) {
+    let side = SCALE_HANDLE_HALF_SIZE * 2.0;
+    let size = Vec2::new(side, side);
+    painter.rect_filled(
+        Rect::from_center_size(center, size),
+        Rounding::same(0.0),
+        color,
+    );
+}
+
+/// Draws the three per-axis scale handles plus the center uniform-scale
+/// handle, highlighting `hovered`/`dragging`.
+pub fn draw_scale_gizmo(
+    painter: &Painter,
+    pos: Vec3,
+    handle_len: f32,
+    view_proj: &[[f32; 4]; 4],
+    rect: Rect,
+    hovered: Option<ScaleHandle>,
+    dragging: Option<ScaleHandle>,
+) {
+    let Some(origin) = world_to_screen(pos, view_proj, rect) else {
+        return;
+    };
+    for axis in [AXIS_X, AXIS_Y, AXIS_Z] {
+        let Some(tip) = world_to_screen(pos + axis_dir(axis) * handle_len, view_proj, rect) else {
+            continue;
+        };
+        let handle = ScaleHandle::Axis(axis);
+        let active = dragging == Some(handle) || (dragging.is_none() && hovered == Some(handle));
+        let color = if active {
+            Color32::WHITE
+        } else {
+            axis_color(axis)
+        };
+        let width = if active { 4.0 } else { 2.5 };
+        painter.line_segment([origin, tip], Stroke::new(width, color));
+        draw_scale_handle(painter, tip, color);
+    }
+    let uniform_active = dragging == Some(ScaleHandle::Uniform)
+        || (dragging.is_none() && hovered == Some(ScaleHandle::Uniform));
+    let uniform_color = if uniform_active {
+        Color32::WHITE
+    } else {
+        Color32::from_rgb(200, 200, 200)
+    };
+    draw_scale_handle(painter, origin, uniform_color);
 }
 
 /// The 4 far-plane corners of a camera's frustum wireframe, in world space,
@@ -527,6 +608,43 @@ mod tests {
         let rect = test_rect();
         assert_eq!(
             hit_test_rotate(Vec3::ZERO, 1.0, &vp, rect, Pos2::new(-500.0, -500.0)),
+            None
+        );
+    }
+
+    #[test]
+    fn hit_test_scale_finds_correct_axis_handle() {
+        let vp = test_view_proj();
+        let rect = test_rect();
+        let handle_len = 2.0;
+        let x_tip = world_to_screen(Vec3::new(handle_len, 0.0, 0.0), &vp, rect).unwrap();
+        assert_eq!(
+            hit_test_scale(Vec3::ZERO, handle_len, &vp, rect, x_tip),
+            Some(ScaleHandle::Axis(AXIS_X))
+        );
+    }
+
+    #[test]
+    fn hit_test_scale_prioritizes_uniform_handle_at_origin() {
+        // A click exactly at the gizmo origin is also within dist_to_segment's
+        // hit radius of all three axis segments (each one starts at the
+        // origin) -- the uniform handle must win, not whichever axis segment
+        // the distance comparison happens to favor.
+        let vp = test_view_proj();
+        let rect = test_rect();
+        let origin = world_to_screen(Vec3::ZERO, &vp, rect).unwrap();
+        assert_eq!(
+            hit_test_scale(Vec3::ZERO, 2.0, &vp, rect, origin),
+            Some(ScaleHandle::Uniform)
+        );
+    }
+
+    #[test]
+    fn hit_test_scale_misses_far_away_point() {
+        let vp = test_view_proj();
+        let rect = test_rect();
+        assert_eq!(
+            hit_test_scale(Vec3::ZERO, 2.0, &vp, rect, Pos2::new(10.0, 10.0)),
             None
         );
     }

@@ -2404,7 +2404,7 @@ impl WgpuSurface {
                         let mut despawn_entity = false;
                         let mut duplicate_selected = false;
                         if ctx.memory(|m| m.focused()).is_none() {
-                            let (del, dup, undo, redo, save, move_mode, rotate_mode) =
+                            let (del, dup, undo, redo, save, move_mode, rotate_mode, scale_mode) =
                                 ctx.input(|i| {
                                     (
                                         i.key_pressed(egui::Key::Delete),
@@ -2419,6 +2419,7 @@ impl WgpuSurface {
                                         i.modifiers.ctrl && i.key_pressed(egui::Key::S),
                                         i.key_pressed(egui::Key::W),
                                         i.key_pressed(egui::Key::E),
+                                        i.key_pressed(egui::Key::R),
                                     )
                                 });
                             if del {
@@ -2441,6 +2442,9 @@ impl WgpuSurface {
                             }
                             if rotate_mode {
                                 insp.gizmo_mode = bsengine_core::GizmoMode::Rotate;
+                            }
+                            if scale_mode {
+                                insp.gizmo_mode = bsengine_core::GizmoMode::Scale;
                             }
                         }
                         if despawn_entity {
@@ -2562,6 +2566,19 @@ impl WgpuSurface {
                                             .clicked()
                                         {
                                             insp.gizmo_mode = bsengine_core::GizmoMode::Rotate;
+                                        }
+                                        if ui
+                                            .selectable_label(
+                                                insp.gizmo_mode == bsengine_core::GizmoMode::Scale,
+                                                format!(
+                                                    "{} Scale",
+                                                    egui_phosphor::regular::CORNERS_OUT
+                                                ),
+                                            )
+                                            .on_hover_text("Scale (R)")
+                                            .clicked()
+                                        {
+                                            insp.gizmo_mode = bsengine_core::GizmoMode::Scale;
                                         }
                                     });
                                     ui.separator();

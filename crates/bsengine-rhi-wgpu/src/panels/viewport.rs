@@ -247,6 +247,110 @@ impl EditorPanel for ViewportPanel {
                                 insp.gizmo_rotate_axis,
                             );
                         }
+                        bsengine_core::GizmoMode::Scale => {
+                            if response.drag_started() {
+                                if let Some(mp) = response.interact_pointer_pos() {
+                                    if let Some(handle) = crate::gizmo::hit_test_scale(
+                                        pos, handle_len, &view_proj, panel_rect, mp,
+                                    ) {
+                                        match handle {
+                                            crate::gizmo::ScaleHandle::Axis(axis) => {
+                                                insp.gizmo_scale_axis = Some(axis);
+                                                insp.gizmo_scale_uniform = false;
+                                            }
+                                            crate::gizmo::ScaleHandle::Uniform => {
+                                                insp.gizmo_scale_axis = None;
+                                                insp.gizmo_scale_uniform = true;
+                                            }
+                                        }
+                                        insp.gizmo_scale_start_world = insp.edit_scale;
+                                        insp.gizmo_scale_start_mouse = [mp.x, mp.y];
+                                    }
+                                }
+                            }
+
+                            let mut scale_changed = false;
+                            if let Some(axis) = insp.gizmo_scale_axis {
+                                if response.dragged() {
+                                    if let (Some((dir2d, px_per_unit)), Some(mp)) = (
+                                        crate::gizmo::axis_screen_dir_and_scale(
+                                            pos,
+                                            axis,
+                                            handle_len.max(0.01),
+                                            &view_proj,
+                                            panel_rect,
+                                        ),
+                                        response.interact_pointer_pos(),
+                                    ) {
+                                        let start = egui::Pos2::new(
+                                            insp.gizmo_scale_start_mouse[0],
+                                            insp.gizmo_scale_start_mouse[1],
+                                        );
+                                        let screen_delta = mp - start;
+                                        let world_delta = screen_delta.dot(dir2d) / px_per_unit;
+                                        let delta_frac = world_delta / handle_len.max(0.01);
+                                        let mut new_scale = insp.gizmo_scale_start_world;
+                                        new_scale[axis as usize] =
+                                            (new_scale[axis as usize] + delta_frac).max(0.01);
+                                        insp.edit_scale = new_scale;
+                                        scale_changed = true;
+                                    }
+                                } else if response.drag_stopped() {
+                                    insp.gizmo_scale_axis = None;
+                                }
+                            } else if insp.gizmo_scale_uniform {
+                                if response.dragged() {
+                                    if let (Some(origin), Some(mp)) = (
+                                        crate::gizmo::world_to_screen(pos, &view_proj, panel_rect),
+                                        response.interact_pointer_pos(),
+                                    ) {
+                                        let start_mouse = egui::Pos2::new(
+                                            insp.gizmo_scale_start_mouse[0],
+                                            insp.gizmo_scale_start_mouse[1],
+                                        );
+                                        let radial_start = (start_mouse - origin).length();
+                                        let radial_now = (mp - origin).length();
+                                        let delta_frac =
+                                            (radial_now - radial_start) / handle_len.max(0.01);
+                                        let scale_factor = (1.0 + delta_frac).max(0.01);
+                                        insp.edit_scale = insp
+                                            .gizmo_scale_start_world
+                                            .map(|s| (s * scale_factor).max(0.01));
+                                        scale_changed = true;
+                                    }
+                                } else if response.drag_stopped() {
+                                    insp.gizmo_scale_uniform = false;
+                                }
+                            }
+                            if scale_changed {
+                                insp.cmd_queue.push(InspectorCmd::SetScale {
+                                    id: sel_id,
+                                    sx: insp.edit_scale[0],
+                                    sy: insp.edit_scale[1],
+                                    sz: insp.edit_scale[2],
+                                });
+                            }
+
+                            let hovered = response.hover_pos().and_then(|mp| {
+                                crate::gizmo::hit_test_scale(
+                                    pos, handle_len, &view_proj, panel_rect, mp,
+                                )
+                            });
+                            let dragging = if insp.gizmo_scale_uniform {
+                                Some(crate::gizmo::ScaleHandle::Uniform)
+                            } else {
+                                insp.gizmo_scale_axis.map(crate::gizmo::ScaleHandle::Axis)
+                            };
+                            crate::gizmo::draw_scale_gizmo(
+                                ui.painter(),
+                                pos,
+                                handle_len,
+                                &view_proj,
+                                panel_rect,
+                                hovered,
+                                dragging,
+                            );
+                        }
                     }
                 }
             }
@@ -276,6 +380,16 @@ impl EditorPanel for ViewportPanel {
                             .clicked()
                         {
                             insp.gizmo_mode = bsengine_core::GizmoMode::Rotate;
+                        }
+                        if ui
+                            .selectable_label(
+                                insp.gizmo_mode == bsengine_core::GizmoMode::Scale,
+                                egui_phosphor::regular::CORNERS_OUT,
+                            )
+                            .on_hover_text("Scale (R)")
+                            .clicked()
+                        {
+                            insp.gizmo_mode = bsengine_core::GizmoMode::Scale;
                         }
                         if ui
                             .selectable_label(insp.show_grid, egui_phosphor::regular::GRID_FOUR)

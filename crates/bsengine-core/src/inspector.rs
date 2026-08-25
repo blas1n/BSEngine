@@ -332,6 +332,9 @@ pub enum GizmoMode {
     Translate,
     /// Drag rings rotate the entity about an axis.
     Rotate,
+    /// Drag handles scale the entity along an axis, or drag the center
+    /// handle to scale all three axes proportionally.
+    Scale,
 }
 
 /// Editor-side resource holding the current entity snapshot, selection,
@@ -361,6 +364,11 @@ pub struct InspectorState {
     /// selection change and read/written by the viewport's rotate-gizmo
     /// drag handling (see `gizmo_rotate_axis` below).
     pub edit_rot: [f32; 3],
+    /// Scale of the selected entity, synced from it on selection change and
+    /// read/written by the viewport's scale-gizmo drag handling (see
+    /// `gizmo_scale_axis` below). Defaults to `[1.0; 3]`, not `[0.0; 3]` --
+    /// zero scale is a degenerate transform.
+    pub edit_scale: [f32; 3],
     /// Live text in the Hierarchy panel's search box. Empty means "show the
     /// full tree"; non-empty switches Hierarchy to a flat, name-filtered
     /// list (see `HierarchyPanel::matches_search`).
@@ -431,6 +439,21 @@ pub struct InspectorState {
     /// Mouse angle, in radians, around the gizmo's screen-space center when the current rotate drag began.
     pub gizmo_rotate_start_angle: f32,
 
+    // Scale-gizmo drag state. Exactly one of `gizmo_scale_axis`/
+    // `gizmo_scale_uniform` is active at a time: a per-axis handle drag
+    // adds a delta to just that axis of `gizmo_scale_start_world`; the
+    // center uniform handle multiplies all three axes by the same factor
+    // (see `panels/viewport.rs` for why axis drags are additive but the
+    // uniform drag is multiplicative).
+    /// Axis (0=X, 1=Y, 2=Z) of the scale-gizmo handle currently being dragged, if any.
+    pub gizmo_scale_axis: Option<u8>,
+    /// Whether the center uniform-scale handle is currently being dragged.
+    pub gizmo_scale_uniform: bool,
+    /// Entity's scale when the current scale drag began.
+    pub gizmo_scale_start_world: [f32; 3],
+    /// Screen-space mouse position when the current scale drag began.
+    pub gizmo_scale_start_mouse: [f32; 2],
+
     // Set by the toolbar/keyboard to request an undo/redo; consumed and
     // cleared by EditorPlugin's history system the same frame.
     /// Set to request an undo of the last edit; cleared once processed.
@@ -453,6 +476,7 @@ impl Default for InspectorState {
             reflected_components: Vec::new(),
             edit_pos: [0.0; 3],
             edit_rot: [0.0; 3],
+            edit_scale: [1.0; 3],
             hierarchy_search: String::new(),
             show_grid: true,
             edit_visible: true,
@@ -476,6 +500,10 @@ impl Default for InspectorState {
             gizmo_rotate_axis: None,
             gizmo_rotate_start_deg: [0.0; 3],
             gizmo_rotate_start_angle: 0.0,
+            gizmo_scale_axis: None,
+            gizmo_scale_uniform: false,
+            gizmo_scale_start_world: [1.0; 3],
+            gizmo_scale_start_mouse: [0.0; 2],
             request_undo: false,
             request_redo: false,
             current_scene_path: None,
@@ -500,6 +528,7 @@ impl InspectorState {
                 if let Some(info) = self.entities.iter().find(|e| e.id == id) {
                     self.edit_pos = info.position.unwrap_or([0.0; 3]);
                     self.edit_rot = info.rotation.unwrap_or([0.0; 3]);
+                    self.edit_scale = info.scale.unwrap_or([1.0; 3]);
                     self.edit_visible = info.visible;
                 }
             }
@@ -536,6 +565,7 @@ mod tests {
         s.sync_selection();
         assert_eq!(s.edit_pos, [1.0, 2.0, 3.0]);
         assert_eq!(s.edit_rot, [10.0, 20.0, 30.0]);
+        assert_eq!(s.edit_scale, [2.0, 2.0, 2.0]);
     }
 
     #[test]
@@ -566,6 +596,7 @@ mod tests {
         s.sync_selection();
         assert_eq!(s.edit_pos, [0.0; 3]);
         assert_eq!(s.edit_rot, [0.0; 3]);
+        assert_eq!(s.edit_scale, [1.0; 3]);
     }
 
     #[test]

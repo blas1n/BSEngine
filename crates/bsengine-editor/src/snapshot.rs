@@ -84,6 +84,9 @@ pub struct EntityInfo {
     pub extra_components: Vec<(String, String)>,
     /// Physics body (rigidbody + collider), if the entity has one.
     pub physics_body: Option<bsengine_scene::PhysicsBodyDesc>,
+    /// Whether this entity is a prefab instance root (has `PrefabInstance`).
+    /// Used by the Hierarchy panel to conditionally show "Apply to Prefab".
+    pub is_prefab_instance: bool,
 }
 
 /// Full flattened capture of every tracked entity in the world, taken once

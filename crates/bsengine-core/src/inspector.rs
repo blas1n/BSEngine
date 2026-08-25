@@ -71,6 +71,9 @@ pub struct InspectorEntityInfo {
     pub visible: bool,
     /// Whether the entity is currently selected in the editor.
     pub selected: bool,
+    /// Whether this entity is a prefab instance root (has `PrefabInstance`).
+    /// Drives the Hierarchy panel's "Apply to Prefab" context-menu entry.
+    pub is_prefab_instance: bool,
 }
 
 /// One queued edit request from the editor UI, drained and applied to the
@@ -298,6 +301,16 @@ pub enum InspectorCmd {
         entity_id: u64,
         /// Prefab file name, no extension or directory.
         name: String,
+    },
+    /// Push this prefab instance's field-level overrides back into its
+    /// source file. Routed through `PrefabApplyCommandQueueResource` /
+    /// `process_prefab_apply_commands` (`bsengine-editor`), the same queue
+    /// the `apply_to_prefab` MCP tool already uses -- see
+    /// `bsengine_editor::prefab_merge::apply_instance_to_prefab`'s doc
+    /// comment for the actual logic.
+    ApplyToPrefab {
+        /// The prefab instance root entity id (must have a `PrefabInstance`).
+        entity_id: u64,
     },
 }
 

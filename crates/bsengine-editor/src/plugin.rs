@@ -41,6 +41,7 @@ fn update_editor_snapshot(
             Option<&bsengine_scene::ScriptPath>,
             Option<&bsengine_core::TexturePath>,
             Option<&bsengine_scene::PhysicsBodyDesc>,
+            Option<&bsengine_core::PrefabInstance>,
         ),
     )>,
 ) {
@@ -49,7 +50,7 @@ fn update_editor_snapshot(
     snapshot.entities = query
         .iter()
         .map(
-            |(e, name, transform, mesh, pt, dir, spot, cam, parent, tags, vis, mat, (prim, script, texture, physics_body))| {
+            |(e, name, transform, mesh, pt, dir, spot, cam, parent, tags, vis, mat, (prim, script, texture, physics_body, prefab_instance))| {
                 let light_type = if pt.is_some() {
                     Some("point".to_string())
                 } else if dir.is_some() {
@@ -99,6 +100,7 @@ fn update_editor_snapshot(
                     selected: selection.contains(&(e.index() as u64)),
                     extra_components: Vec::new(),
                     physics_body: physics_body.cloned(),
+                    is_prefab_instance: prefab_instance.is_some(),
                 }
             },
         )
@@ -1837,6 +1839,7 @@ fn populate_inspector(
             primitive: e.primitive.as_ref().map(primitive_to_str),
             visible: e.visible,
             selected: e.selected,
+            is_prefab_instance: e.is_prefab_instance,
         })
         .collect();
 }
@@ -1874,6 +1877,7 @@ fn apply_inspector_cmds(
     queue_res: Res<EditorCommandQueueResource>,
     reflect_queue_res: Res<ReflectCommandQueueResource>,
     prefab_queue_res: Res<PrefabCommandQueueResource>,
+    prefab_apply_queue_res: Res<crate::snapshot::PrefabApplyCommandQueueResource>,
     selection_res: Res<EditorSelectionResource>,
     snapshot_res: Res<EditorSnapshotResource>,
     project_dir: Option<Res<bsengine_core::ProjectDir>>,
@@ -2030,6 +2034,13 @@ fn apply_inspector_cmds(
                     tracing::warn!("create_prefab: entity {entity_id} -> '{name}' failed: {e}");
                 }
             }
+            InspectorCmd::ApplyToPrefab { entity_id } => {
+                prefab_apply_queue_res
+                    .0
+                    .lock()
+                    .unwrap()
+                    .push(crate::snapshot::PrefabApplyCommand { entity_id });
+            }
         }
     }
 }
@@ -2095,7 +2106,22 @@ impl Plugin for EditorPlugin {
         app.add_systems(Update, process_editor_commands);
         app.add_systems(Update, process_reflect_commands.after(process_editor_commands));
         app.add_systems(Update, process_prefab_commands.after(process_editor_commands));
-        app.add_systems(Update, process_prefab_apply_commands);
+        // Explicit `.before(apply_inspector_cmds)`, not left unordered: both
+        // this system and `apply_inspector_cmds` only take `Res<...>` handles
+        // to their shared `Mutex`-wrapped queue, so Bevy sees no ECS access
+        // conflict between them and is free to run them in either order each
+        // frame. Without this constraint, a same-frame
+        // `InspectorCmd::ApplyToPrefab` (queued via `apply_inspector_cmds`
+        // during this exact `Update`) could be drained by this system before
+        // it was ever pushed, or after -- nondeterministically, varying
+        // update-to-update. Ordering this system first guarantees a command
+        // bridged from the Inspector this frame sits in the queue,
+        // unprocessed, until the *next* frame -- consistent with this
+        // function's own doc comment above (downstream effects already
+        // happen "on a later frame", not synchronously) and with the
+        // `apply_to_prefab` MCP tool's description ("Queued for processing;
+        // check ... on a subsequent call").
+        app.add_systems(Update, process_prefab_apply_commands.before(apply_inspector_cmds));
         app.add_systems(Update, apply_history_action.after(process_editor_commands));
         // Registration position matters here, and is not incidental: this has
         // to come after every `add_systems` call above, not next to the other
@@ -90789,6 +90815,48 @@ mod tests {
     }
 
     #[test]
+    fn update_editor_snapshot_and_populate_inspector_report_is_prefab_instance() {
+        let mut app = new_app();
+        app.add_plugins(EditorPlugin);
+
+        let with_instance = app
+            .world_mut()
+            .spawn((
+                Name("HasInstance".to_string()),
+                bsengine_core::PrefabInstance {
+                    source_path: "assets/prefabs/x.ron".to_string(),
+                },
+            ))
+            .id();
+        let without_instance = app
+            .world_mut()
+            .spawn(Name("NoInstance".to_string()))
+            .id();
+
+        app.update(); // update_editor_snapshot + populate_inspector capture both
+
+        let inspector = app.world().resource::<InspectorState>();
+        let with_info = inspector
+            .entities
+            .iter()
+            .find(|e| e.id == with_instance.index() as u64)
+            .unwrap();
+        let without_info = inspector
+            .entities
+            .iter()
+            .find(|e| e.id == without_instance.index() as u64)
+            .unwrap();
+        assert!(
+            with_info.is_prefab_instance,
+            "entity with PrefabInstance must report true"
+        );
+        assert!(
+            !without_info.is_prefab_instance,
+            "entity without PrefabInstance must report false"
+        );
+    }
+
+    #[test]
     fn mcp_spawn_camera_creates_camera_entity() {
         let mut app = new_app();
         app.add_plugins(McpPlugin);
@@ -93246,5 +93314,25 @@ mod tests {
         }
         .expect("apply_to_prefab not registered");
         assert!(!out.is_ok());
+    }
+
+    #[test]
+    fn apply_inspector_cmds_bridges_apply_to_prefab_into_the_prefab_apply_queue() {
+        let mut app = new_app();
+        app.add_plugins(EditorPlugin);
+
+        {
+            let mut inspector = app.world_mut().resource_mut::<InspectorState>();
+            inspector.cmd_queue.push(InspectorCmd::ApplyToPrefab { entity_id: 42 });
+        }
+
+        app.update();
+
+        let queue = app
+            .world()
+            .resource::<crate::snapshot::PrefabApplyCommandQueueResource>();
+        let queued = queue.0.lock().unwrap();
+        assert_eq!(queued.len(), 1);
+        assert_eq!(queued[0].entity_id, 42);
     }
 }

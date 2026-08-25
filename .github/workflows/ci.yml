@@ -150,29 +150,73 @@ jobs:
       # that made mini-arena's recording fail here while passing on an idle
       # desktop. Discovered by glob rather than listed, so a newly recorded
       # log is covered the moment it lands.
+      #
+      # Run via xargs -P rather than sequentially: each replay's pass/fail is
+      # driven entirely by simulated frame count (bsengine-runtime --test
+      # pins physics/script timing to a fixed 1/60s per frame, decoupled from
+      # wall-clock speed since PR #1748; wait_until's own timeout is a frame
+      # count, not a real-time duration), so slower per-process wall-clock
+      # throughput from shared-runner contention cannot flip a replay's
+      # outcome the way the original mini-arena bug did. Each worker writes
+      # its own output to a private temp file instead of shared stdout --
+      # ::group::/::endgroup:: markers don't nest correctly across concurrent
+      # writers -- and the main script prints them back in original order
+      # afterward, so the final log looks identical to the sequential
+      # version except for the step's total duration. Invokes the
+      # already-built binary directly (not `cargo run`) so 8 concurrent
+      # invocations don't separately contend for Cargo's own build lock.
       - name: E2E replays
         shell: bash
         env:
           RUST_MIN_STACK: 8388608
         run: |
-          status=0
-          found=0
+          bin="$CARGO_TARGET_DIR/debug/bsengine-runtime"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            bin="${bin}.exe"
+          fi
+
+          logs=()
           for log in games/*/assets/tests/*.testlog.json; do
             [ -e "$log" ] || continue
-            found=$((found + 1))
-            project="$(dirname "$(dirname "$(dirname "$log")")")"
-            echo "::group::$log"
-            if cargo run -q -p bsengine-runtime -- --test "$project" --replay "$log"; then
-              echo "PASS $log"
-            else
-              echo "FAIL $log"
-              status=1
-            fi
-            echo "::endgroup::"
+            logs+=("$log")
           done
-          if [ "$found" -eq 0 ]; then
+          if [ "${#logs[@]}" -eq 0 ]; then
             echo "no recordings matched games/*/assets/tests/*.testlog.json -- the glob is wrong"
             exit 1
           fi
-          echo "replayed $found recording(s)"
+
+          workdir=$(mktemp -d)
+          run_one() {
+            local log="$1"
+            local project
+            project="$(dirname "$(dirname "$(dirname "$log")")")"
+            local safe_name
+            safe_name="$(echo "$log" | tr '/\\' '__')"
+            if "$bin" --test "$project" --replay "$log" > "$workdir/$safe_name.log" 2>&1; then
+              echo "PASS" > "$workdir/$safe_name.status"
+            else
+              echo "FAIL" > "$workdir/$safe_name.status"
+            fi
+          }
+          export -f run_one
+          export bin workdir
+
+          printf '%s\n' "${logs[@]}" | xargs -P "$(nproc)" -I{} bash -c 'run_one "$@"' _ {}
+
+          status=0
+          for log in "${logs[@]}"; do
+            safe_name="$(echo "$log" | tr '/\\' '__')"
+            result="$(cat "$workdir/$safe_name.status")"
+            echo "::group::$log ($result)"
+            cat "$workdir/$safe_name.log"
+            echo "::endgroup::"
+            if [ "$result" = "FAIL" ]; then
+              echo "FAIL $log"
+              status=1
+            else
+              echo "PASS $log"
+            fi
+          done
+          rm -rf "$workdir"
+          echo "replayed ${#logs[@]} recording(s)"
           exit $status

@@ -201,7 +201,17 @@ jobs:
           export -f run_one
           export bin workdir
 
-          printf '%s\n' "${logs[@]}" | xargs -P "$(nproc)" -I{} bash -c 'run_one "$@"' _ {}
+          # A first attempt used -P "$(nproc)" (full core count) and showed
+          # zero wall-clock improvement over the sequential baseline on CI
+          # (2h50m20s vs. 2h50m5s) despite a clean ~12.6s local run against
+          # real hardware. bsengine-runtime itself is internally
+          # multi-threaded (Bevy's task pool, deno_core/V8, wgpu's software
+          # rasterizer), so a single replay likely already saturates the
+          # runner's CPU on its own -- running 8 at "$(nproc)"-wide
+          # parallelism just oversubscribes the same already-saturated pool
+          # rather than actually overlapping idle capacity. -P 2 trades some
+          # of that oversubscription for a chance at partial overlap instead.
+          printf '%s\n' "${logs[@]}" | xargs -P 2 -I{} bash -c 'run_one "$@"' _ {}
 
           status=0
           for log in "${logs[@]}"; do

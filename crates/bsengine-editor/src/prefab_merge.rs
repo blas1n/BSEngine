@@ -964,6 +964,7 @@ fn suffixed_name(raw_name: &str, suffix: &mut Option<String>) -> String {
 /// outer file) `entity.name` straight through.
 fn spawn_or_resolve_entity(
     world: &mut World,
+    registry: &TypeRegistry,
     spawned_name: &str,
     descriptor: &bsengine_scene::EntityDescriptor,
 ) -> Option<Entity> {
@@ -984,9 +985,78 @@ fn spawn_or_resolve_entity(
             }
         },
         None => {
-            let mut renamed = descriptor.clone();
-            renamed.name = spawned_name.to_string();
-            Some(bsengine_scene::spawn_single_entity(world, &renamed))
+            let mut resolved = descriptor.clone();
+            resolved.name = spawned_name.to_string();
+
+            // `apply_merged_descriptor` expects gltf/script/texture to already
+            // carry a fully-resolved path (it never re-resolves, to avoid
+            // double-prefixing ProjectDir on gltf -- see PR #1793/#1794's
+            // design). A brand-new entity has no live/baseline to diff
+            // against, so resolution here is unconditional: always adopt the
+            // file's value, resolved.
+            if let Some(r) = &resolved.gltf {
+                resolved.gltf = Some(bsengine_scene::AssetRef::Path(
+                    bsengine_scene::resolve_asset_ref_for_field(world, &resolved.name, "gltf", r),
+                ));
+            }
+            if let Some(r) = &resolved.script {
+                resolved.script = Some(bsengine_scene::AssetRef::Path(
+                    bsengine_scene::resolve_asset_ref_for_field(world, &resolved.name, "script", r),
+                ));
+            }
+            if let Some(r) = &resolved.texture {
+                resolved.texture = Some(bsengine_scene::AssetRef::Path(
+                    bsengine_scene::resolve_asset_ref_for_field(
+                        world,
+                        &resolved.name,
+                        "texture",
+                        r,
+                    ),
+                ));
+            }
+
+            let entity = world
+                .spawn(bsengine_scene::Name(resolved.name.clone()))
+                .id();
+            // An empty "live" default is exactly correct for a brand-new
+            // entity: there's no existing Material to preserve out-of-scope
+            // fields from, no existing Camera to preserve aspect_ratio from,
+            // nothing to diff against at all. This reuses the exact same
+            // insert logic push-sync/pull-sync already use for every field
+            // group, instead of a second, narrower, independently-maintained
+            // set of inserts (`spawn_single_entity`, now unused) that had
+            // drifted behind it.
+            apply_merged_descriptor(
+                world,
+                entity,
+                registry,
+                &bsengine_scene::EntityDescriptor::default(),
+                &resolved,
+            );
+
+            // `apply_merged_descriptor` never touches `look_at` (deliberately,
+            // for the *matched*-entity case -- re-deriving Transform.rotation
+            // from it at resync would risk clobbering a user's manual
+            // rotation override). That rationale doesn't apply to a brand-new
+            // entity: there's no live rotation state to protect. Reproduce
+            // `spawn_scene_entities`'s own one-time look_at computation here,
+            // so a brand-new camera entity behaves identically whether it
+            // arrived via a fresh full instantiation or a mid-resync addition.
+            if resolved.camera {
+                if let Some(target) = resolved.look_at {
+                    if let Some(mut transform) = world.get_mut::<bsengine_core::Transform>(entity) {
+                        let pos = transform.position.0;
+                        let dir = glam::Vec3::from(target) - pos;
+                        if dir.length_squared() > 1e-10 {
+                            transform.rotation =
+                                glam::Quat::from_rotation_arc(glam::Vec3::NEG_Z, dir.normalize())
+                                    .into();
+                        }
+                    }
+                }
+            }
+
+            Some(entity)
         }
     }
 }
@@ -1116,7 +1186,8 @@ pub(crate) fn resync_instance(
                     // `n.prefab.is_some()` just because the *match guard*
                     // above required *either* side to have it.
                     let spawned_name = suffixed_name(raw_name, &mut suffix);
-                    if let Some(fresh) = spawn_or_resolve_entity(world, &spawned_name, n) {
+                    if let Some(fresh) = spawn_or_resolve_entity(world, &registry, &spawned_name, n)
+                    {
                         resolved_by_raw_name.insert(raw_name.to_string(), fresh);
                         spawned_needing_parent.push((fresh, n.parent.clone()));
                     }
@@ -1131,7 +1202,7 @@ pub(crate) fn resync_instance(
             }
             (None, Some(n), _) => {
                 let spawned_name = suffixed_name(raw_name, &mut suffix);
-                if let Some(fresh) = spawn_or_resolve_entity(world, &spawned_name, n) {
+                if let Some(fresh) = spawn_or_resolve_entity(world, &registry, &spawned_name, n) {
                     resolved_by_raw_name.insert(raw_name.to_string(), fresh);
                     spawned_needing_parent.push((fresh, n.parent.clone()));
                 }
@@ -4024,6 +4095,208 @@ mod tests {
         assert!(
             result.is_err(),
             "an entity with no PrefabInstance must be refused"
+        );
+    }
+
+    #[test]
+    fn resync_instance_gives_a_brand_new_entity_full_field_coverage_not_just_transform_primitive_color(
+    ) {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let baseline = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Root", primitive: Some(Cube)),
+            ])"#,
+        );
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/gains_a_child.ron",
+            Some("MyGainsAChild"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let new = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Root", primitive: Some(Cube)),
+                EntityDescriptor(
+                    name: "Lamp",
+                    parent: Some("Root"),
+                    point_light: Some((color: (1.0, 1.0, 1.0), intensity: 2.0, range: 15.0)),
+                    rigidbody: Some(Dynamic),
+                    collider: Some((shape: Sphere(radius: 0.5), restitution: 0.0, friction: 0.5, sensor: false)),
+                ),
+            ])"#,
+        );
+        let own_source_paths =
+            std::collections::HashSet::from(["assets/prefabs/gains_a_child.ron".to_string()]);
+        resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
+
+        let lamp = {
+            let mut q = app.world_mut().query::<(Entity, &bsengine_scene::Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0.starts_with("Lamp#"))
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        let pl = app.world().get::<bsengine_core::PointLight>(lamp).unwrap();
+        assert_eq!(
+            pl.intensity, 2.0,
+            "a brand-new entity must get its light, not just transform/primitive/color"
+        );
+        let body = app
+            .world()
+            .get::<bsengine_scene::PhysicsBodyDesc>(lamp)
+            .unwrap();
+        assert_eq!(body.linear_damping, None);
+        let _ = body; // presence alone proves the physics group was attached
+    }
+
+    #[test]
+    fn resync_instance_resolves_gltf_script_texture_for_a_brand_new_entity_under_a_real_project_dir(
+    ) {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        app.world_mut()
+            .insert_resource(bsengine_core::ProjectDir("games/demo".to_string()));
+
+        let baseline = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Root", primitive: Some(Cube)),
+            ])"#,
+        );
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/gains_asset_refs.ron",
+            Some("MyGainsAssetRefs"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        let new = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Root", primitive: Some(Cube)),
+                EntityDescriptor(
+                    name: "Prop",
+                    parent: Some("Root"),
+                    gltf: Some("assets/models/prop.glb"),
+                    script: Some("assets/scripts/prop.js"),
+                    texture: Some("assets/textures/prop.png"),
+                ),
+            ])"#,
+        );
+        let own_source_paths =
+            std::collections::HashSet::from(["assets/prefabs/gains_asset_refs.ron".to_string()]);
+        resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
+
+        let prop = {
+            let mut q = app.world_mut().query::<(Entity, &bsengine_scene::Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0.starts_with("Prop#"))
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        assert_eq!(
+            app.world().get::<bsengine_gltf::GltfAsset>(prop).unwrap().path,
+            "games/demo/assets/models/prop.glb",
+            "gltf must get the ProjectDir prefix for a brand-new entity, same as spawn_scene_entities"
+        );
+        assert_eq!(
+            app.world()
+                .get::<bsengine_scene::ScriptPath>(prop)
+                .unwrap()
+                .0,
+            "assets/scripts/prop.js",
+            "script must NOT get the ProjectDir prefix"
+        );
+        assert_eq!(
+            app.world()
+                .get::<bsengine_core::TexturePath>(prop)
+                .unwrap()
+                .0,
+            "assets/textures/prop.png",
+            "texture must NOT get the ProjectDir prefix"
+        );
+    }
+
+    #[test]
+    fn resync_instance_computes_look_at_rotation_for_a_brand_new_camera_entity() {
+        let mut app = new_app();
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+
+        let baseline = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Root", primitive: Some(Cube)),
+            ])"#,
+        );
+        let root = bsengine_scene::instantiate_prefab(
+            app.world_mut(),
+            &baseline,
+            "assets/prefabs/gains_a_camera.ron",
+            Some("MyGainsACamera"),
+            None,
+            None,
+        )
+        .unwrap();
+
+        // Position/target chosen so the look_at-computed rotation is
+        // provably NOT the literal `rotation:` given below (identity) --
+        // camera at (5,0,0) looking at (0,0,0) faces -X, not -Z, so
+        // reproducing spawn_scene_entities's look_at computation must
+        // rotate away from identity. A position/target pair whose computed
+        // rotation happens to equal the literal fixture value would let
+        // this test pass even if the look_at block were silently deleted
+        // (this exact mistake was caught during this task's own review).
+        let new = parse(
+            r#"PrefabDescriptor(entities: [
+                EntityDescriptor(name: "Root", primitive: Some(Cube)),
+                EntityDescriptor(
+                    name: "Cam",
+                    parent: Some("Root"),
+                    camera: true,
+                    transform: Some((position: (5.0, 0.0, 0.0), rotation: (0.0, 0.0, 0.0, 1.0), scale: (1.0, 1.0, 1.0))),
+                    look_at: Some((0.0, 0.0, 0.0)),
+                ),
+            ])"#,
+        );
+        let own_source_paths =
+            std::collections::HashSet::from(["assets/prefabs/gains_a_camera.ron".to_string()]);
+        resync_instance(app.world_mut(), root, &baseline, &new, &own_source_paths).unwrap();
+
+        let cam = {
+            let mut q = app.world_mut().query::<(Entity, &bsengine_scene::Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0.starts_with("Cam#"))
+                .map(|(e, _)| e)
+                .unwrap()
+        };
+        let rotation = app
+            .world()
+            .get::<bsengine_core::Transform>(cam)
+            .unwrap()
+            .rotation
+            .0;
+
+        let expected = glam::Quat::from_rotation_arc(
+            glam::Vec3::NEG_Z,
+            (glam::Vec3::ZERO - glam::Vec3::new(5.0, 0.0, 0.0)).normalize(),
+        );
+        assert!(
+            rotation.abs_diff_eq(expected, 1e-5),
+            "a brand-new camera entity's look_at must compute a rotation, matching what \
+             spawn_scene_entities would produce for the same descriptor -- got {rotation:?}, \
+             expected {expected:?}"
+        );
+        assert!(
+            !rotation.abs_diff_eq(glam::Quat::IDENTITY, 1e-5),
+            "sanity check: the literal fixture rotation is identity, so a passing test above \
+             that also failed this assertion would mean look_at was never actually applied -- \
+             got {rotation:?}"
         );
     }
 }

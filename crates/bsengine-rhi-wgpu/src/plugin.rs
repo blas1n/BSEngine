@@ -37,6 +37,8 @@ pub enum SurfaceMode {
         width: u32,
         /// Render target height, in pixels.
         height: u32,
+        /// See `WgpuSurface::is_fast_render`.
+        fast_render: bool,
     },
 }
 
@@ -54,8 +56,12 @@ impl WgpuRHIPlugin {
     /// A surface built immediately from an offscreen texture of `width` x
     /// `height` pixels, no window required. Panics at `Startup` if no
     /// adapter can rasterise -- see `SurfaceMode::Offscreen`.
-    pub fn offscreen(width: u32, height: u32) -> Self {
-        Self(SurfaceMode::Offscreen { width, height })
+    pub fn offscreen(width: u32, height: u32, fast_render: bool) -> Self {
+        Self(SurfaceMode::Offscreen {
+            width,
+            height,
+            fast_render,
+        })
     }
 }
 
@@ -88,19 +94,21 @@ fn create_surface_system(world: &mut World, mode: SurfaceMode) {
                 None => None,
             }
         }
-        SurfaceMode::Offscreen { width, height } => {
-            match pollster::block_on(WgpuSurface::new_offscreen(width, height)) {
-                Ok(surface) => Some(surface),
-                Err(e) => panic!(
-                    "could not create an offscreen wgpu renderer: {e}\n\
+        SurfaceMode::Offscreen {
+            width,
+            height,
+            fast_render,
+        } => match pollster::block_on(WgpuSurface::new_offscreen(width, height, fast_render)) {
+            Ok(surface) => Some(surface),
+            Err(e) => panic!(
+                "could not create an offscreen wgpu renderer: {e}\n\
                      The headless test runtime needs an adapter that can actually \
                      rasterise. On Linux CI that is mesa-vulkan-drivers (lavapipe); on \
                      Windows it is normally the D3D12 WARP adapter. If this environment \
                      has neither, that is the finding worth reporting -- do not silence \
                      it by skipping."
-                ),
-            }
-        }
+            ),
+        },
     };
 
     let Some(surface) = surface else {
@@ -163,7 +171,7 @@ mod tests {
     #[test]
     fn offscreen_mode_creates_a_surface_with_no_window_handle() {
         let mut app = new_app();
-        app.add_plugins(WgpuRHIPlugin::offscreen(64, 64));
+        app.add_plugins(WgpuRHIPlugin::offscreen(64, 64, false));
         app.update();
         assert!(
             app.world().get_resource::<WgpuSurfaceResource>().is_some(),

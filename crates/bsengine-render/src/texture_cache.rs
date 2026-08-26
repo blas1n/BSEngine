@@ -130,7 +130,7 @@ mod tests {
     /// early return and every test here would pass by doing nothing.
     fn with_gpu(app: &mut bevy_app::App) {
         let surface = pollster::block_on(bsengine_rhi_wgpu::surface::WgpuSurface::new_offscreen(
-            16, 16,
+            16, 16, false,
         ))
         .expect("these tests need an adapter; a skip here would look like a pass");
         app.insert_resource(GpuTextureRegistry::new(

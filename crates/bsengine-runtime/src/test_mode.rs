@@ -111,9 +111,13 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>) -> App {
         // `main.rs`'s windowed chain -- a headless GPU stack built in a
         // different order than the real runtime is a regression that would
         // pass every test here while behaving differently windowed.
+        // `fast_render: false` here, not `true` -- wiring this to actually
+        // skip shadow/bloom/SSAO shading for CI replays is a later task;
+        // this crate does not observe `fast_render` yet.
         .add_plugins(WgpuRHIPlugin::offscreen(
             manifest.window.width,
             manifest.window.height,
+            false,
         ))
         .add_plugins(InputPlugin)
         .add_plugins(AudioPlugin)

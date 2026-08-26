@@ -701,6 +701,13 @@ pub struct WgpuSurface {
     start_time: std::time::Instant,
     dock_state: Option<egui_dock::DockState<String>>,
     last_saved_layout_json: Option<String>,
+    /// When true, `render_frame` and `PostProcessState::apply` still clear
+    /// the shadow map / bloom / SSAO render targets to their neutral values
+    /// every frame, but skip the expensive shading work that writes anything
+    /// else into them — CI's headless E2E replays are the one caller that
+    /// needs this; see the design doc for why it must be clear-only, not a
+    /// bare skip.
+    fast_render: bool,
 }
 
 impl WgpuSurface {
@@ -747,6 +754,7 @@ impl WgpuSurface {
                 config,
                 _window: window,
             },
+            false,
         )
     }
 
@@ -756,7 +764,7 @@ impl WgpuSurface {
     /// [`Self::read_pixels`]. Pipelines come from the same [`Self::build`] the
     /// windowed path uses, so pixels observed here are the output of the
     /// pipelines that draw to a window.
-    pub async fn new_offscreen(width: u32, height: u32) -> Result<Self, String> {
+    pub async fn new_offscreen(width: u32, height: u32, fast_render: bool) -> Result<Self, String> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
             ..Default::default()
@@ -771,6 +779,7 @@ impl WgpuSurface {
                 width,
                 height,
             },
+            fast_render,
         )
     }
 
@@ -810,6 +819,13 @@ impl WgpuSurface {
     /// The height of the render target, in pixels.
     pub fn height(&self) -> u32 {
         self.output.height()
+    }
+
+    /// Whether this renderer skips the shadow/bloom/SSAO shading work in
+    /// favour of clearing those targets to their neutral values. Only ever
+    /// true for `bsengine-runtime`'s CI replay path.
+    pub fn is_fast_render(&self) -> bool {
+        self.fast_render
     }
 
     /// This renderer's GPU device, for callers that must put resources on the
@@ -865,6 +881,7 @@ impl WgpuSurface {
         device: Arc<wgpu::Device>,
         queue: Arc<wgpu::Queue>,
         output: crate::output::Output,
+        fast_render: bool,
     ) -> Result<Self, String> {
         let format = output.format();
         let width = output.width();
@@ -1396,6 +1413,7 @@ impl WgpuSurface {
             start_time: std::time::Instant::now(),
             dock_state: None,
             last_saved_layout_json: None,
+            fast_render,
         })
     }
 
@@ -1886,6 +1904,11 @@ impl WgpuSurface {
         }
 
         // --- shadow pass ---
+        // In fast_render mode this still clears the shadow map to depth=1.0
+        // (max distance -- "nothing occludes anything"), which reads as
+        // fully lit, but skips redrawing every object into it. See the
+        // design doc for why clearing (not skipping the pass outright) is
+        // required for correctness.
         {
             let mut shadow_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("shadow pass"),
@@ -1901,21 +1924,23 @@ impl WgpuSurface {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            shadow_pass.set_pipeline(&self.shadow_pipeline);
-            shadow_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-            for (i, (mesh_id, _, _, _, _)) in draw_calls.iter().enumerate() {
-                if i >= MAX_OBJECTS {
-                    break;
+            if !self.fast_render {
+                shadow_pass.set_pipeline(&self.shadow_pipeline);
+                shadow_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+                for (i, (mesh_id, _, _, _, _)) in draw_calls.iter().enumerate() {
+                    if i >= MAX_OBJECTS {
+                        break;
+                    }
+                    let Some(mesh) = registry.get(*mesh_id) else {
+                        continue;
+                    };
+                    let offset = (i as u64 * MODEL_STRIDE) as u32;
+                    shadow_pass.set_bind_group(1, &self.model_bind_group, &[offset]);
+                    shadow_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                    shadow_pass
+                        .set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                    shadow_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
                 }
-                let Some(mesh) = registry.get(*mesh_id) else {
-                    continue;
-                };
-                let offset = (i as u64 * MODEL_STRIDE) as u32;
-                shadow_pass.set_bind_group(1, &self.model_bind_group, &[offset]);
-                shadow_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                shadow_pass
-                    .set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                shadow_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
             }
         }
 

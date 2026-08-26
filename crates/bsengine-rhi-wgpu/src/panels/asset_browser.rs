@@ -493,9 +493,10 @@ mod tests {
     /// to the process's real working directory -- unsafe to rely on on across tests that
     /// may run concurrently on separate threads).
     fn panel_with_cache_root(cache_root: PathBuf) -> AssetBrowserPanel {
-        let mut panel = AssetBrowserPanel::default();
-        panel.cache_root = cache_root;
-        panel
+        AssetBrowserPanel {
+            cache_root,
+            ..Default::default()
+        }
     }
 
     #[test]

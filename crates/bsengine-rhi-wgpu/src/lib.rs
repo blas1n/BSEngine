@@ -1,11 +1,11 @@
-//! `wgpu`-based implementation of the `bsengine-rhi` abstract GPU
-//! interface.
+//! `wgpu`-based GPU surface, pipelines, and buffers for BSEngine.
 //!
-//! `WgpuRHIPlugin`/`WgpuRHI` implement the RHI traits; `GpuMeshRegistry`/
-//! `GpuTextureRegistry` and `WgpuSurfaceResource` manage GPU-side mesh,
-//! texture, and swapchain state. Also hosts the editor's viewport gizmo
-//! and Inspector panel rendering (`gizmo`, `panels` modules), since both
-//! need direct GPU surface access.
+//! `WgpuRHIPlugin` creates the render target (swapchain or offscreen
+//! texture); `GpuMeshRegistry`/`GpuTextureRegistry` and
+//! `WgpuSurfaceResource` manage GPU-side mesh, texture, and swapchain
+//! state. Also hosts the editor's viewport gizmo and Inspector panel
+//! rendering (`gizmo`, `panels` modules), since both need direct GPU
+//! surface access.
 // Bevy ECS system params (Query<(A, B, C, ...)>, ParamSet<(...)>) routinely
 // exceed clippy's type-complexity threshold; that's the idiom, not a real
 // complexity problem. Bevy itself disables this lint crate-wide for the
@@ -24,12 +24,10 @@ mod output;
 pub mod panels;
 /// Billboarded particle quads, drawn instanced.
 pub mod particles;
-/// The Bevy plugin that wires the wgpu RHI into the app.
+/// The Bevy plugin that creates the render target and wires up resize handling.
 pub mod plugin;
 /// Post-processing render passes (bloom, tonemapping, etc).
 pub mod post_process;
-/// The `WgpuRHI` implementation of the abstract RHI traits.
-pub mod rhi;
 /// Swapchain/frame lifecycle and the main scene render pass.
 pub mod surface;
 /// GPU texture loading and the texture registry.
@@ -39,8 +37,7 @@ pub use mesh::{
     capsule_vertices, cube_vertices, plane_vertices, sphere_vertices, triangle_vertices,
     GpuMeshRegistry, Vertex,
 };
-pub use plugin::{GpuQueueResource, RhiResource, WgpuRHIPlugin};
-pub use rhi::WgpuRHI;
+pub use plugin::{GpuQueueResource, WgpuRHIPlugin};
 pub use surface::{
     LightData, MaterialParams, PointLightEntry, SpotLightEntry, WgpuSurfaceResource,
 };

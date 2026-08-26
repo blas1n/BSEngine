@@ -419,9 +419,10 @@ mod tests {
 
     #[test]
     fn with_rhi_plugin_but_no_window_gltf_asset_stays() {
-        // WgpuRHIPlugin creates headless RHI but GpuMeshRegistry requires a
-        // WindowHandle (created by winit). Without a window, load_gltf_assets
-        // returns early and the GltfAsset marker stays on the entity.
+        // WgpuRHIPlugin::windowed() only builds a GpuMeshRegistry once a
+        // WindowHandle (created by winit) exists. Without a window,
+        // load_gltf_assets returns early and the GltfAsset marker stays on
+        // the entity.
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(WgpuRHIPlugin::windowed());
@@ -742,7 +743,8 @@ mod tests {
     /// backed by an actual adapter, doing real buffer and texture uploads. The
     /// plugin only builds them next to a swapchain surface, which needs a winit
     /// window (see `with_rhi_plugin_but_no_window_gltf_asset_stays`), and
-    /// `WgpuRHI`'s device is `pub(crate)` — so a headless test has to construct
+    /// `bsengine-rhi-wgpu` has no public constructor for a bare headless
+    /// device usable outside that crate — so a headless test has to construct
     /// them here or the entire GPU-side load path, and therefore every claim
     /// hot reload rests on, is untestable.
     ///

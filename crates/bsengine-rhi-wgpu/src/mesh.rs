@@ -484,16 +484,15 @@ mod tests {
 
     #[test]
     fn update_vertices_overwrites_existing_buffer_contents() {
-        use crate::rhi::WgpuRHI;
-        let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless device");
-        let device = std::sync::Arc::new(rhi.device);
+        use crate::surface::WgpuSurface;
+        let (device, queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
         let mut registry = GpuMeshRegistry::new(device);
         let (verts, indices) = triangle_vertices();
         let id = registry.register(&verts, &indices);
 
         let mut moved = verts.clone();
         moved[0].position[1] += 5.0;
-        registry.update_vertices(&rhi.queue, id, &moved);
+        registry.update_vertices(&queue, id, &moved);
 
         // No direct GPU read-back API exists; this test's job is to prove
         // update_vertices doesn't panic against a real buffer/queue and that
@@ -511,15 +510,14 @@ mod tests {
     /// but "supposed to" is not an acceptable distance from a dead process.
     #[test]
     fn update_vertices_refuses_a_size_mismatch_instead_of_overrunning_the_buffer() {
-        use crate::rhi::WgpuRHI;
-        let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless device");
-        let device = std::sync::Arc::new(rhi.device);
+        use crate::surface::WgpuSurface;
+        let (device, queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
         let mut reg = GpuMeshRegistry::new(device);
         let (verts, indices) = triangle_vertices();
         let id = reg.register(&verts, &indices);
 
         assert!(
-            reg.update_vertices(&rhi.queue, id, &verts),
+            reg.update_vertices(&queue, id, &verts),
             "an exactly-sized upload must still go through, or skinning stops \
              uploading anything at all"
         );
@@ -527,22 +525,22 @@ mod tests {
         let mut too_many = verts.clone();
         too_many.extend_from_slice(&verts);
         assert!(
-            !reg.update_vertices(&rhi.queue, id, &too_many),
+            !reg.update_vertices(&queue, id, &too_many),
             "an oversized upload must be refused here rather than handed to \
              wgpu, which panics the process on BufferOverrun"
         );
 
         assert!(
-            !reg.update_vertices(&rhi.queue, id, &verts[..1]),
+            !reg.update_vertices(&queue, id, &verts[..1]),
             "an undersized upload must be refused too -- it would write past \
              nothing but leave the tail holding stale vertices"
         );
         assert!(
-            !reg.update_vertices(&rhi.queue, id, &[]),
+            !reg.update_vertices(&queue, id, &[]),
             "an empty upload has nothing to write"
         );
         assert!(
-            !reg.update_vertices(&rhi.queue, 9999, &verts),
+            !reg.update_vertices(&queue, 9999, &verts),
             "an unknown id must report failure, not silently succeed"
         );
 
@@ -551,11 +549,11 @@ mod tests {
         let (cube_v, cube_i) = cube_vertices();
         assert!(reg.replace(id, &cube_v, &cube_i));
         assert!(
-            !reg.update_vertices(&rhi.queue, id, &verts),
+            !reg.update_vertices(&queue, id, &verts),
             "the pre-replace count must no longer fit"
         );
         assert!(
-            reg.update_vertices(&rhi.queue, id, &cube_v),
+            reg.update_vertices(&queue, id, &cube_v),
             "the post-replace count must fit; a guard keyed to the register-time \
              count would reject every upload for the rest of the mesh's life"
         );
@@ -567,9 +565,8 @@ mod tests {
 
     #[test]
     fn replace_swaps_geometry_under_the_same_id() {
-        use crate::rhi::WgpuRHI;
-        let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless device");
-        let device = std::sync::Arc::new(rhi.device);
+        use crate::surface::WgpuSurface;
+        let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
         let mut reg = GpuMeshRegistry::new(device);
 
         let (tri_v, tri_i) = triangle_vertices();
@@ -596,9 +593,8 @@ mod tests {
 
     #[test]
     fn replace_reports_failure_for_an_unknown_id() {
-        use crate::rhi::WgpuRHI;
-        let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless device");
-        let device = std::sync::Arc::new(rhi.device);
+        use crate::surface::WgpuSurface;
+        let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
         let mut reg = GpuMeshRegistry::new(device);
         let (v, i) = triangle_vertices();
         assert!(

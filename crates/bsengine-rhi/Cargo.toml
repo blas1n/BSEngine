@@ -1,8 +1,0 @@
-[package]
-name = "bsengine-rhi"
-description = "Render hardware interface — backend-agnostic GPU trait definitions"
-version.workspace = true
-edition.workspace = true
-
-[dependencies]
-bsengine-ecs.workspace = true

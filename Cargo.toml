@@ -6,7 +6,6 @@ members = [
     "crates/bsengine-app",
     "crates/bsengine-window",
     "crates/bsengine-input",
-    "crates/bsengine-rhi",
     "crates/bsengine-rhi-wgpu",
     "crates/bsengine-render",
     "crates/bsengine-scene",
@@ -39,7 +38,6 @@ bsengine-ecs      = { path = "crates/bsengine-ecs" }
 bsengine-app      = { path = "crates/bsengine-app" }
 bsengine-window   = { path = "crates/bsengine-window" }
 bsengine-input    = { path = "crates/bsengine-input" }
-bsengine-rhi      = { path = "crates/bsengine-rhi" }
 bsengine-rhi-wgpu = { path = "crates/bsengine-rhi-wgpu" }
 bsengine-render   = { path = "crates/bsengine-render" }
 bsengine-scene    = { path = "crates/bsengine-scene" }

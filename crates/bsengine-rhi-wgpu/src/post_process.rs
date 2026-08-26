@@ -792,7 +792,7 @@ impl PostProcessState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rhi::WgpuRHI;
+    use crate::surface::WgpuSurface;
 
     #[test]
     fn config_gpu_size() {
@@ -811,34 +811,28 @@ mod tests {
 
     #[test]
     fn bloom_shader_compiles() {
-        let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless rhi");
-        let _m = rhi
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: None,
-                source: wgpu::ShaderSource::Wgsl(BLOOM_WGSL.into()),
-            });
+        let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
+        let _m = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: None,
+            source: wgpu::ShaderSource::Wgsl(BLOOM_WGSL.into()),
+        });
     }
 
     #[test]
     fn ssao_shader_compiles() {
-        let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless rhi");
-        let _m = rhi
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: None,
-                source: wgpu::ShaderSource::Wgsl(SSAO_WGSL.into()),
-            });
+        let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
+        let _m = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: None,
+            source: wgpu::ShaderSource::Wgsl(SSAO_WGSL.into()),
+        });
     }
 
     #[test]
     fn composite_shader_compiles() {
-        let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless rhi");
-        let _m = rhi
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: None,
-                source: wgpu::ShaderSource::Wgsl(COMPOSITE_WGSL.into()),
-            });
+        let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
+        let _m = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: None,
+            source: wgpu::ShaderSource::Wgsl(COMPOSITE_WGSL.into()),
+        });
     }
 }

@@ -3,7 +3,7 @@ use bsengine_app::new_app;
 use bsengine_asset::AssetPlugin;
 use bsengine_ecs::{ResMut, Resource};
 use bsengine_render::RenderPlugin;
-use bsengine_rhi_wgpu::{RhiResource, WgpuRHIPlugin};
+use bsengine_rhi_wgpu::WgpuRHIPlugin;
 
 #[derive(Resource, Default)]
 struct FrameCount(u32);
@@ -26,19 +26,4 @@ fn render_pipeline_runs_multiple_frames() {
     app.update();
 
     assert_eq!(app.world().resource::<FrameCount>().0, 3);
-}
-
-#[test]
-fn rhi_resource_accessible_after_plugin() {
-    let mut app = new_app();
-    app.add_plugins(AssetPlugin)
-        .add_plugins(WgpuRHIPlugin::windowed())
-        .add_plugins(RenderPlugin);
-
-    app.update();
-
-    let rhi = app.world().resource::<RhiResource>();
-    let _mesh = rhi.0.create_mesh();
-    let _shader = rhi.0.create_shader("// stub");
-    let _texture = rhi.0.create_texture();
 }

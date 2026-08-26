@@ -173,12 +173,11 @@ impl GpuTextureRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rhi::WgpuRHI;
-    use std::sync::Arc;
+    use crate::surface::WgpuSurface;
 
     fn make_registry() -> GpuTextureRegistry {
-        let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless rhi");
-        GpuTextureRegistry::new(Arc::new(rhi.device), Arc::new(rhi.queue))
+        let (device, queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
+        GpuTextureRegistry::new(device, queue)
     }
 
     #[test]

@@ -871,6 +871,23 @@ impl WgpuSurface {
         Ok((adapter, Arc::new(device), Arc::new(queue)))
     }
 
+    /// A bare device/queue pair with no surface, texture, or pipeline setup
+    /// at all -- for unit tests elsewhere in this crate (`mesh.rs`,
+    /// `texture.rs`, and this file's own tests) that need a real device to
+    /// construct a registry against, without paying for `new_offscreen`'s
+    /// full pipeline build.
+    #[cfg(test)]
+    pub(crate) async fn headless_device_for_testing() -> (Arc<wgpu::Device>, Arc<wgpu::Queue>) {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..Default::default()
+        });
+        let (_adapter, device, queue) = Self::request_device(&instance, None)
+            .await
+            .expect("headless device for test");
+        (device, queue)
+    }
+
     /// Everything after the output target is settled: pipelines, buffers, bind
     /// groups, shadow maps, post-processing.
     ///
@@ -3011,7 +3028,6 @@ pub struct WgpuSurfaceResource(pub WgpuSurface);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rhi::WgpuRHI;
 
     #[test]
     fn point_light_face_view_projs_all_invertible() {
@@ -3111,8 +3127,8 @@ mod tests {
 
     #[test]
     fn mesh_shader_compiles() {
-        let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless rhi");
-        let _module = WgpuSurface::compile_shader(&rhi.device, MESH_WGSL);
+        let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
+        let _module = WgpuSurface::compile_shader(&device, MESH_WGSL);
     }
 
     #[test]
@@ -3178,13 +3194,13 @@ mod tests {
 
     #[test]
     fn skybox_shader_compiles() {
-        let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless rhi");
-        let _module = WgpuSurface::compile_shader(&rhi.device, SKYBOX_WGSL);
+        let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
+        let _module = WgpuSurface::compile_shader(&device, SKYBOX_WGSL);
     }
 
     #[test]
     fn custom_shader_wgsl_compiles() {
-        let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless rhi");
+        let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
         let wgsl = r#"
 @vertex fn vs_main(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
     return vec4<f32>(0.0, 0.0, 0.0, 1.0);
@@ -3193,7 +3209,7 @@ mod tests {
     return vec4<f32>(1.0, 0.0, 0.0, 1.0);
 }
 "#;
-        let _module = WgpuSurface::compile_shader(&rhi.device, wgsl);
+        let _module = WgpuSurface::compile_shader(&device, wgsl);
     }
 
     /// The shape `compile_and_store_shader` builds a pipeline from: a vertex
@@ -3296,24 +3312,24 @@ mod tests {
     // scope this test aborts the process rather than failing.
     #[test]
     fn a_validation_error_scope_captures_a_device_rejection_instead_of_panicking() {
-        let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless rhi");
+        let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
 
-        rhi.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        device.push_error_scope(wgpu::ErrorFilter::Validation);
         let _module = WgpuSurface::compile_shader(
-            &rhi.device,
+            &device,
             "@fragment fn fs_main() -> @location(0) vec4<f32> { return vec4<f32>(0.0 1.0); }",
         );
-        let err = pollster::block_on(rhi.device.pop_error_scope());
+        let err = pollster::block_on(device.pop_error_scope());
         assert!(
             err.is_some(),
             "a broken shader must surface as a captured error; None means the \
              rejection went to the uncaptured handler, which panics"
         );
 
-        rhi.device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let _module = WgpuSurface::compile_shader(&rhi.device, VALID_CUSTOM_WGSL);
+        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let _module = WgpuSurface::compile_shader(&device, VALID_CUSTOM_WGSL);
         assert!(
-            pollster::block_on(rhi.device.pop_error_scope()).is_none(),
+            pollster::block_on(device.pop_error_scope()).is_none(),
             "a valid shader must leave the scope empty; otherwise every reload \
              would be treated as a failure and no pipeline would ever update"
         );
@@ -3321,13 +3337,13 @@ mod tests {
 
     #[test]
     fn shadow_shader_compiles() {
-        let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless rhi");
-        let _module = WgpuSurface::compile_shader(&rhi.device, SHADOW_WGSL);
+        let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
+        let _module = WgpuSurface::compile_shader(&device, SHADOW_WGSL);
     }
 
     #[test]
     fn point_shadow_shader_compiles() {
-        let rhi = pollster::block_on(WgpuRHI::new_headless()).expect("headless rhi");
-        let _module = WgpuSurface::compile_shader(&rhi.device, POINT_SHADOW_WGSL);
+        let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
+        let _module = WgpuSurface::compile_shader(&device, POINT_SHADOW_WGSL);
     }
 }

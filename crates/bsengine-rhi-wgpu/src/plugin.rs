@@ -1,17 +1,11 @@
 use crate::mesh::GpuMeshRegistry;
-use crate::rhi::WgpuRHI;
 use crate::surface::{WgpuSurface, WgpuSurfaceResource};
 use crate::texture::GpuTextureRegistry;
 use bevy_app::{App, Plugin, Startup, Update};
 use bevy_ecs::prelude::{EventReader, ResMut, World};
 use bsengine_ecs::Resource;
-use bsengine_rhi::RHI;
 use bsengine_window::{WindowHandle, WindowResized};
 use std::sync::Arc;
-
-/// ECS resource wrapping the app's shared `RHI` implementation.
-#[derive(Resource)]
-pub struct RhiResource(pub Arc<dyn RHI>);
 
 /// ECS resource exposing the wgpu command queue, so systems outside this
 /// crate (e.g. CPU-side skeletal skinning in `bsengine-gltf`) can call
@@ -42,8 +36,8 @@ pub enum SurfaceMode {
     },
 }
 
-/// Bevy plugin that initializes the wgpu RHI, creates the render target
-/// (swapchain or offscreen texture), and wires up window-resize handling.
+/// Bevy plugin that creates the render target (swapchain or offscreen
+/// texture) and wires up window-resize handling.
 pub struct WgpuRHIPlugin(pub SurfaceMode);
 
 impl WgpuRHIPlugin {
@@ -67,9 +61,6 @@ impl WgpuRHIPlugin {
 
 impl Plugin for WgpuRHIPlugin {
     fn build(&self, app: &mut App) {
-        let rhi =
-            pollster::block_on(WgpuRHI::new_headless()).expect("Failed to initialize WgpuRHI");
-        app.insert_resource(RhiResource(Arc::new(rhi)));
         app.add_event::<WindowResized>();
         let mode = self.0;
         app.add_systems(Startup, move |world: &mut World| {
@@ -138,24 +129,9 @@ fn handle_window_resize(
 
 #[cfg(test)]
 mod tests {
-    use super::{RhiResource, WgpuRHIPlugin};
+    use super::WgpuRHIPlugin;
     use crate::surface::WgpuSurfaceResource;
     use bsengine_app::new_app;
-
-    #[test]
-    fn wgpu_rhi_plugin_registers_rhi_resource() {
-        let mut app = new_app();
-        app.add_plugins(WgpuRHIPlugin::windowed());
-        assert!(app.world().get_resource::<RhiResource>().is_some());
-    }
-
-    #[test]
-    fn rhi_resource_can_create_mesh() {
-        let mut app = new_app();
-        app.add_plugins(WgpuRHIPlugin::windowed());
-        let rhi = app.world().resource::<RhiResource>();
-        let _mesh = rhi.0.create_mesh();
-    }
 
     #[test]
     fn windowed_mode_creates_no_surface_without_a_window_handle() {

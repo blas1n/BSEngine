@@ -822,7 +822,6 @@ dependencies = [
  "bsengine-physics",
  "bsengine-plugin",
  "bsengine-render",
- "bsengine-rhi",
  "bsengine-rhi-wgpu",
  "bsengine-scene",
  "bsengine-scripting",
@@ -1066,19 +1065,11 @@ dependencies = [
  "bsengine-core",
  "bsengine-ecs",
  "bsengine-input",
- "bsengine-rhi",
  "bsengine-rhi-wgpu",
  "bsengine-window",
  "glam 0.29.3",
  "pollster",
  "tracing",
-]
-
-[[package]]
-name = "bsengine-rhi"
-version = "0.1.0"
-dependencies = [
- "bsengine-ecs",
 ]
 
 [[package]]
@@ -1093,7 +1084,6 @@ dependencies = [
  "bsengine-ecs",
  "bsengine-editor",
  "bsengine-input",
- "bsengine-rhi",
  "bsengine-scene",
  "bsengine-window",
  "bytemuck",

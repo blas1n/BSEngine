@@ -369,7 +369,7 @@ mod tests {
     #[test]
     fn a_script_loaded_scene_gets_its_own_scripts_running() {
         let dir = chained_scene_project();
-        let mut app = crate::test_mode::build_test_app(dir.path().to_str().unwrap(), None);
+        let mut app = crate::test_mode::build_test_app(dir.path().to_str().unwrap(), None, false);
 
         let mut swapped_at = None;
         let mut b_ran_at = None;

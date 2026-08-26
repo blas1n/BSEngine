@@ -49,3 +49,46 @@ fn fast_render_mode_skips_the_shadow_pass() {
         shadowed.centre_luma()
     );
 }
+
+#[test]
+fn fast_render_mode_still_draws_a_lit_object_not_a_black_frame() {
+    // Bloom and SSAO both explicitly enabled, so this test would catch the
+    // black-frame bug a naive "skip the pass entirely" fix would cause: an
+    // un-cleared AO texture reads as 0.0 (fully occluded) instead of the
+    // correct neutral 1.0 (fully visible), and `combined = hdr * ao + bloom`
+    // would then evaluate to black everywhere.
+    let scene = |draws: Vec<Draw>| Scene {
+        draws,
+        bloom: Some(bsengine_core::Bloom {
+            enabled: true,
+            ..Default::default()
+        }),
+        ssao: Some(bsengine_core::AmbientOcclusion {
+            enabled: true,
+            ..Default::default()
+        }),
+        ..Scene::default()
+    };
+
+    let mut h = Harness::new_fast();
+    let cube = h.cube();
+    let empty = h.render(&scene(vec![]));
+    let lit = h.render(&scene(vec![
+        Draw::new(cube, Vec3::ZERO).colour(Vec3::new(1.0, 0.2, 0.2))
+    ]));
+
+    assert!(
+        lit.centre() != empty.centre(),
+        "fast_render mode must still draw the cube through the geometry+composite pass; \
+         centre pixel with the cube present ({:?}) should differ from the empty-scene \
+         background ({:?})",
+        lit.centre(),
+        empty.centre()
+    );
+    assert!(
+        lit.centre_luma() > 1.0,
+        "fast_render mode's centre pixel should not be pure black (a black frame means the \
+         composite pass read an un-cleared/zero AO texture as \"fully occluded\"); got {:?}",
+        lit.centre()
+    );
+}

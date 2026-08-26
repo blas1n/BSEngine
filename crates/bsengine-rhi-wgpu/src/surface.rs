@@ -2220,7 +2220,8 @@ impl WgpuSurface {
             .filter(|i| i.editor_mode)
             .map(|i| (i.viewport_pos[0] + 8.0, i.viewport_pos[1] + 8.0))
             .unwrap_or((8.0, 8.0));
-        self.post_process.apply(&mut encoder, &view);
+        self.post_process
+            .apply(&mut encoder, &view, self.fast_render);
 
         // UI + HUD overlay via egui (always on in editor mode)
         let has_ui = is_editor

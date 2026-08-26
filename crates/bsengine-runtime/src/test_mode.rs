@@ -31,7 +31,7 @@ use crate::test_query::{eval_op, eval_path, run_query};
 /// replay log pin its own starting scene instead of always depending on
 /// whatever the project's entry scene currently is (which changes as a
 /// multi-level game's "real" entry point evolves during development).
-pub fn build_test_app(project_dir: &str, scene_override: Option<&str>) -> App {
+pub fn build_test_app(project_dir: &str, scene_override: Option<&str>, fast_render: bool) -> App {
     let manifest_path = format!("{project_dir}/project.toml");
     let manifest_str = std::fs::read_to_string(&manifest_path)
         .unwrap_or_else(|e| panic!("Cannot read {manifest_path}: {e}"));
@@ -114,6 +114,7 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>) -> App {
         .add_plugins(WgpuRHIPlugin::offscreen(
             manifest.window.width,
             manifest.window.height,
+            fast_render,
         ))
         .add_plugins(InputPlugin)
         .add_plugins(AudioPlugin)
@@ -203,7 +204,7 @@ fn mouse_button_from_u8(button: u8) -> Option<MouseButton> {
 }
 
 pub fn run_test_mode(project_dir: &str) {
-    let mut app = build_test_app(project_dir, None);
+    let mut app = build_test_app(project_dir, None, false);
     let mut frame: u64 = 0;
 
     let stdin = io::stdin();
@@ -468,7 +469,7 @@ pub fn run_replay_mode(project_dir: &str, log_path: &str) -> bool {
     let log: RecordedLog = serde_json::from_str(&log_str)
         .unwrap_or_else(|e| panic!("cannot parse replay log {log_path}: {e}"));
 
-    let mut app = build_test_app(project_dir, log.scene.as_deref());
+    let mut app = build_test_app(project_dir, log.scene.as_deref(), true);
     let mut frame: u64 = 0;
 
     for command in log.actions {
@@ -558,7 +559,7 @@ mod tests {
     #[test]
     fn build_test_app_with_no_override_loads_entry_scene() {
         let dir = write_two_scene_project();
-        let mut app = build_test_app(dir.path().to_str().unwrap(), None);
+        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
         app.update();
 
         let names = crate::test_query::get_entity_names(app.world_mut());
@@ -575,7 +576,7 @@ mod tests {
         // that -- there was no list entry to check. Asserting the behaviour
         // would have.
         let dir = write_two_scene_project();
-        let mut app = build_test_app(dir.path().to_str().unwrap(), None);
+        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
         let doomed = app
             .world_mut()
             .spawn(bsengine_core::Lifetime::from_seconds(0.05))
@@ -598,7 +599,7 @@ mod tests {
         // absent in the other is a feature that works when you look at it and
         // not when you test it.
         let dir = write_two_scene_project();
-        let mut app = build_test_app(dir.path().to_str().unwrap(), None);
+        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
         let e = app
             .world_mut()
             .spawn((
@@ -632,13 +633,37 @@ mod tests {
     #[test]
     fn build_test_app_with_override_loads_that_scene_instead() {
         let dir = write_two_scene_project();
-        let mut app = build_test_app(dir.path().to_str().unwrap(), Some("assets/scenes/b.ron"));
+        let mut app = build_test_app(
+            dir.path().to_str().unwrap(),
+            Some("assets/scenes/b.ron"),
+            false,
+        );
         app.update();
 
         let names = crate::test_query::get_entity_names(app.world_mut());
         let names: Vec<String> = serde_json::from_value(names).unwrap();
         assert!(names.contains(&"SceneB".to_string()), "names: {names:?}");
         assert!(!names.contains(&"SceneA".to_string()), "names: {names:?}");
+    }
+
+    #[test]
+    fn build_test_app_with_fast_render_true_produces_a_fast_render_surface() {
+        let dir = write_two_scene_project();
+        let mut app = build_test_app(dir.path().to_str().unwrap(), None, true);
+        // `WgpuSurfaceResource` is inserted by a `Startup` system, which only
+        // runs on the first `app.update()` -- not during `build_test_app`
+        // itself. See `get_pixel_reads_the_last_rendered_frame` and
+        // `screenshot_returns_a_decodable_png` below for the same pattern.
+        app.update();
+        let surface = app
+            .world()
+            .resource::<bsengine_rhi_wgpu::surface::WgpuSurfaceResource>();
+        assert!(
+            surface.0.is_fast_render(),
+            "build_test_app(.., fast_render: true) must produce a WgpuSurface with \
+             is_fast_render() true -- this is what run_replay_mode relies on for CI E2E \
+             replay speed"
+        );
     }
 
     // Roadmap item 30. This app builds its own plugin list, so the windowed
@@ -682,7 +707,7 @@ mod tests {
         .unwrap();
 
         let project_dir = root.to_str().unwrap().to_string();
-        let mut app = build_test_app(&project_dir, None);
+        let mut app = build_test_app(&project_dir, None, false);
         app.update();
 
         let mut q = app.world_mut().query::<&bsengine_gltf::GltfAsset>();
@@ -710,7 +735,7 @@ mod tests {
     #[test]
     fn editor_plugin_reload_scene_does_not_corrupt_scripting() {
         let project_dir = format!("{}/../../games/cube-evader", env!("CARGO_MANIFEST_DIR"));
-        let mut app = build_test_app(&project_dir, None);
+        let mut app = build_test_app(&project_dir, None, false);
         let scene_path = app
             .world()
             .resource::<InspectorState>()
@@ -757,7 +782,7 @@ mod tests {
     #[test]
     fn wait_until_returns_immediately_when_already_satisfied() {
         let project_dir = format!("{}/../../games/cube-evader", env!("CARGO_MANIFEST_DIR"));
-        let mut app = build_test_app(&project_dir, None);
+        let mut app = build_test_app(&project_dir, None, false);
         let mut frame: u64 = 0;
         app.update();
         frame += 1;
@@ -795,7 +820,7 @@ mod tests {
     #[test]
     fn wait_until_times_out_with_last_actual_value() {
         let project_dir = format!("{}/../../games/cube-evader", env!("CARGO_MANIFEST_DIR"));
-        let mut app = build_test_app(&project_dir, None);
+        let mut app = build_test_app(&project_dir, None, false);
         let mut frame: u64 = 0;
 
         let (response, _) = execute_command(
@@ -836,7 +861,7 @@ mod tests {
     #[test]
     fn wait_until_waits_through_a_not_yet_evaluable_predicate() {
         let project_dir = format!("{}/../../games/cube-evader", env!("CARGO_MANIFEST_DIR"));
-        let mut app = build_test_app(&project_dir, None);
+        let mut app = build_test_app(&project_dir, None, false);
         let mut frame: u64 = 0;
 
         let (response, _) = execute_command(
@@ -879,7 +904,7 @@ mod tests {
     #[test]
     fn wait_until_errors_when_predicate_is_still_not_evaluable_at_timeout() {
         let project_dir = format!("{}/../../games/cube-evader", env!("CARGO_MANIFEST_DIR"));
-        let mut app = build_test_app(&project_dir, None);
+        let mut app = build_test_app(&project_dir, None, false);
         let mut frame: u64 = 0;
 
         let (response, _) = execute_command(
@@ -928,7 +953,7 @@ mod tests {
     #[test]
     fn mini_arenas_fox_mesh_loads_now_that_rendering_is_on() {
         let project_dir = format!("{}/../../games/mini-arena", env!("CARGO_MANIFEST_DIR"));
-        let mut app = build_test_app(&project_dir, None);
+        let mut app = build_test_app(&project_dir, None, false);
         let mut status = Value::Null;
         for _ in 0..200 {
             app.update();
@@ -947,7 +972,7 @@ mod tests {
     #[test]
     fn get_pixel_reads_the_last_rendered_frame() {
         let project_dir = format!("{}/../../games/cube-evader", env!("CARGO_MANIFEST_DIR"));
-        let mut app = build_test_app(&project_dir, None);
+        let mut app = build_test_app(&project_dir, None, false);
         app.update();
 
         let result =
@@ -962,7 +987,7 @@ mod tests {
     #[test]
     fn screenshot_returns_a_decodable_png() {
         let project_dir = format!("{}/../../games/cube-evader", env!("CARGO_MANIFEST_DIR"));
-        let mut app = build_test_app(&project_dir, None);
+        let mut app = build_test_app(&project_dir, None, false);
         app.update();
 
         let result = crate::test_query::run_query(app.world_mut(), "screenshot", &json!({}))
@@ -1044,7 +1069,7 @@ mod tests {
         .unwrap();
 
         let project_dir = root.to_str().unwrap().to_string();
-        let mut app = build_test_app(&project_dir, None);
+        let mut app = build_test_app(&project_dir, None, false);
         app.update();
 
         // Window defaults to 1280x720 (no [window] table -- see
@@ -1145,7 +1170,7 @@ mod tests {
         .unwrap();
 
         let project_dir = root.to_str().unwrap().to_string();
-        let mut app = build_test_app(&project_dir, None);
+        let mut app = build_test_app(&project_dir, None, false);
         app.update();
 
         // Window defaults to 1280x720 (no [window] table), so the exact
@@ -1198,7 +1223,7 @@ mod tests {
     #[test]
     fn press_key_is_observable_as_pressed_and_just_pressed_after_one_step() {
         let dir = write_two_scene_project();
-        let mut app = build_test_app(dir.path().to_str().unwrap(), None);
+        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
         let mut frame: u64 = 0;
 
         let (resp, _) = execute_command(

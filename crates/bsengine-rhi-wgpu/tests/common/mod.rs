@@ -251,8 +251,18 @@ impl Harness {
     /// test reads exactly like a passing one, and a suite that goes quiet on
     /// the machines that matter is not a suite.
     pub fn new() -> Self {
-        let surface =
-            pollster::block_on(WgpuSurface::new_offscreen(WIDTH, HEIGHT)).unwrap_or_else(|e| {
+        Self::build(false)
+    }
+
+    /// Same as [`Self::new`], but with `fast_render` set — see
+    /// `WgpuSurface::is_fast_render`.
+    pub fn new_fast() -> Self {
+        Self::build(true)
+    }
+
+    fn build(fast_render: bool) -> Self {
+        let surface = pollster::block_on(WgpuSurface::new_offscreen(WIDTH, HEIGHT, fast_render))
+            .unwrap_or_else(|e| {
                 panic!(
                     "could not create an offscreen renderer: {e}\n\
                      These tests need an adapter that can actually rasterise. On Linux CI \

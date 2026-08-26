@@ -707,7 +707,19 @@ impl PostProcessState {
 
     /// Runs the bloom, SSAO, and composite passes in sequence, writing the
     /// final tonemapped result into `surface_view`.
-    pub fn apply(&self, encoder: &mut wgpu::CommandEncoder, surface_view: &wgpu::TextureView) {
+    ///
+    /// `fast_render` skips the bloom/SSAO shading work but still clears both
+    /// targets to their neutral values (black = "no bloom contribution",
+    /// white = "fully visible") -- see `WgpuSurface::is_fast_render`. Never
+    /// skip the clear itself: the composite pass below always samples both
+    /// textures, and an un-cleared AO texture reads as 0.0 ("fully
+    /// occluded") instead of 1.0, which would render every pixel black.
+    pub fn apply(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        surface_view: &wgpu::TextureView,
+        fast_render: bool,
+    ) {
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("bloom pass"),
@@ -722,10 +734,12 @@ impl PostProcessState {
                 depth_stencil_attachment: None,
                 ..Default::default()
             });
-            pass.set_pipeline(&self.bloom_pipeline);
-            pass.set_bind_group(0, &self.hdr_bg, &[]);
-            pass.set_bind_group(1, &self.config_bg, &[]);
-            pass.draw(0..3, 0..1);
+            if !fast_render {
+                pass.set_pipeline(&self.bloom_pipeline);
+                pass.set_bind_group(0, &self.hdr_bg, &[]);
+                pass.set_bind_group(1, &self.config_bg, &[]);
+                pass.draw(0..3, 0..1);
+            }
         }
 
         {
@@ -742,11 +756,13 @@ impl PostProcessState {
                 depth_stencil_attachment: None,
                 ..Default::default()
             });
-            pass.set_pipeline(&self.ssao_pipeline);
-            pass.set_bind_group(0, &self.depth_bg, &[]);
-            pass.set_bind_group(1, &self.config_bg, &[]);
-            pass.set_bind_group(2, &self.ssao_cam_bg, &[]);
-            pass.draw(0..3, 0..1);
+            if !fast_render {
+                pass.set_pipeline(&self.ssao_pipeline);
+                pass.set_bind_group(0, &self.depth_bg, &[]);
+                pass.set_bind_group(1, &self.config_bg, &[]);
+                pass.set_bind_group(2, &self.ssao_cam_bg, &[]);
+                pass.draw(0..3, 0..1);
+            }
         }
 
         {

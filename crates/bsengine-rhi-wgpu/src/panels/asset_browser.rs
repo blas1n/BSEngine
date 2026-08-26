@@ -146,12 +146,21 @@ pub struct AssetBrowserPanel {
     pending_load_scene: Option<String>,
     /// In-memory cache of decoded+downsampled Texture-tile thumbnails,
     /// keyed by asset path. Cleared implicitly whenever this panel is
-    /// dropped — there is no disk cache in this task.
+    /// dropped -- backed by an on-disk cache under `cache_root`, so a new
+    /// panel instance (e.g. after an editor restart) can skip re-decoding
+    /// the *source* image, just not the GPU texture upload.
     thumbnail_cache: std::collections::HashMap<PathBuf, egui::TextureHandle>,
     /// Cached subdirectory paths under `root`, keyed by parent directory.
     /// Rebuilt on Refresh and on navigation — NOT rescanned every frame,
     /// unlike a naive implementation of `draw_folder_tree` would do.
     tree_cache: std::collections::HashMap<PathBuf, Vec<PathBuf>>,
+    /// Root directory for the on-disk thumbnail cache (see `disk_cache_path`).
+    /// A field, not a hardcoded literal, so tests can point it at an
+    /// isolated temp directory instead of the real one -- which is a bare
+    /// relative path (resolved against the process's working directory,
+    /// same convention as `assets_root()`), unsafe to rely on across tests
+    /// that may run concurrently on separate threads.
+    cache_root: PathBuf,
 }
 
 impl Default for AssetBrowserPanel {
@@ -165,6 +174,7 @@ impl Default for AssetBrowserPanel {
             pending_load_scene: None,
             thumbnail_cache: std::collections::HashMap::new(),
             tree_cache: std::collections::HashMap::new(),
+            cache_root: PathBuf::from(".bsengine_cache/thumbnails"),
         }
     }
 }
@@ -313,18 +323,48 @@ impl AssetBrowserPanel {
             });
     }
 
+    /// Where an on-disk cached thumbnail for `path` would live under
+    /// `self.cache_root`: `<cache_root>/<blake3-hex(path)>-<mtime>.png`.
+    /// Returns `None` if `path`'s metadata/mtime can't be read (e.g. the
+    /// file was deleted between scan and paint) -- callers should just skip
+    /// disk caching for this thumbnail in that case, not error out.
+    fn disk_cache_path(&self, path: &Path) -> Option<PathBuf> {
+        let mtime = std::fs::metadata(path)
+            .ok()?
+            .modified()
+            .ok()?
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?
+            .as_secs();
+        let hash = blake3::hash(path.to_string_lossy().as_bytes()).to_hex();
+        Some(self.cache_root.join(format!("{hash}-{mtime}.png")))
+    }
+
     /// Loads and downsamples `path` to a 64×64 `egui::TextureHandle`,
     /// caching the result in-memory for the lifetime of this panel (cleared
-    /// implicitly whenever the whole `AssetBrowserPanel` is dropped — there
-    /// is no disk cache in this task). Returns `None` if the file can't be
-    /// decoded (corrupt/unsupported image); the tile falls back to the
-    /// fixed Texture icon in that case.
+    /// implicitly whenever the whole `AssetBrowserPanel` is dropped) and on
+    /// disk under `cache_root` (persists across editor restarts -- see
+    /// `disk_cache_path`). Returns `None` if the file can't be decoded
+    /// (corrupt/unsupported image); the tile falls back to the fixed
+    /// Texture icon in that case.
     fn thumbnail_for(&mut self, ctx: &egui::Context, path: &Path) -> Option<egui::TextureHandle> {
         if let Some(handle) = self.thumbnail_cache.get(path) {
             return Some(handle.clone());
         }
-        let img = image::open(path).ok()?;
-        let thumb = img.thumbnail(64, 64).to_rgba8();
+
+        let cache_path = self.disk_cache_path(path);
+        let thumb = cache_path
+            .as_deref()
+            .and_then(read_disk_cache)
+            .or_else(|| {
+                let img = image::open(path).ok()?;
+                let thumb = img.thumbnail(64, 64).to_rgba8();
+                if let Some(cache_path) = &cache_path {
+                    write_disk_cache(cache_path, &thumb);
+                }
+                Some(thumb)
+            })?;
+
         let size = [thumb.width() as usize, thumb.height() as usize];
         let color_image = egui::ColorImage::from_rgba_unmultiplied(size, thumb.as_raw());
         let handle = ctx.load_texture(
@@ -414,9 +454,49 @@ impl AssetBrowserPanel {
     }
 }
 
+/// Reads and decodes a cached thumbnail PNG. `None` on any failure (missing
+/// file, corrupt data) -- callers fall back to a full re-decode of the
+/// source, never propagate this as an error.
+fn read_disk_cache(cache_path: &Path) -> Option<image::RgbaImage> {
+    let img = image::open(cache_path).ok()?;
+    Some(img.to_rgba8())
+}
+
+/// Best-effort write of a thumbnail to the disk cache. Every failure (can't
+/// create the cache directory, can't encode, can't write) is silently
+/// swallowed -- a failed write must never block returning the
+/// freshly-decoded thumbnail to the caller.
+fn write_disk_cache(cache_path: &Path, thumb: &image::RgbaImage) {
+    let Some(parent) = cache_path.parent() else {
+        return;
+    };
+    if std::fs::create_dir_all(parent).is_err() {
+        return;
+    }
+    let _ = thumb.save(cache_path);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Writes a tiny, valid 4x4 solid-color PNG to `path` for tests that need a real
+    /// decodable image file. `rgba` lets tests write a second, *distinguishable* image
+    /// to prove which one actually got served.
+    fn write_solid_test_png(path: &Path, rgba: [u8; 4]) {
+        let img: image::RgbaImage = image::ImageBuffer::from_fn(4, 4, |_, _| image::Rgba(rgba));
+        img.save(path).unwrap();
+    }
+
+    /// An `AssetBrowserPanel` with its disk-cache root pointed at an isolated temp
+    /// directory instead of the default `.bsengine_cache/thumbnails` (which is relative
+    /// to the process's real working directory -- unsafe to rely on on across tests that
+    /// may run concurrently on separate threads).
+    fn panel_with_cache_root(cache_root: PathBuf) -> AssetBrowserPanel {
+        let mut panel = AssetBrowserPanel::default();
+        panel.cache_root = cache_root;
+        panel
+    }
 
     #[test]
     fn categorize_by_extension_maps_known_extensions() {
@@ -566,5 +646,160 @@ mod tests {
             clicked,
             "asset tile click must register even with a same-rect drag-sense interact unioned in"
         );
+    }
+
+    #[test]
+    fn thumbnail_for_writes_a_disk_cache_file_on_first_decode() {
+        let tmp = std::env::temp_dir().join("bse_thumb_cache_test_write");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let png_path = tmp.join("swatch.png");
+        write_solid_test_png(&png_path, [10, 10, 10, 255]);
+        let cache_root = tmp.join("cache");
+
+        let mut panel = panel_with_cache_root(cache_root.clone());
+        let ctx = egui::Context::default();
+        let handle = panel.thumbnail_for(&ctx, &png_path);
+
+        assert!(
+            handle.is_some(),
+            "a valid PNG should produce a texture handle"
+        );
+        let entries: Vec<_> = std::fs::read_dir(&cache_root)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .collect();
+        assert_eq!(
+            entries.len(),
+            1,
+            "expected exactly one cached thumbnail file, got {entries:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn a_disk_cache_hit_is_not_overwritten_by_a_fresh_decode() {
+        let tmp = std::env::temp_dir().join("bse_thumb_cache_test_hit");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let png_path = tmp.join("swatch.png");
+        write_solid_test_png(&png_path, [10, 10, 10, 255]);
+        let cache_root = tmp.join("cache");
+
+        let mut first = panel_with_cache_root(cache_root.clone());
+        let ctx = egui::Context::default();
+        assert!(
+            first.thumbnail_for(&ctx, &png_path).is_some(),
+            "first call should decode successfully and populate the disk cache"
+        );
+
+        let cached_files: Vec<_> = std::fs::read_dir(&cache_root)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .collect();
+        assert_eq!(
+            cached_files.len(),
+            1,
+            "expected exactly one cached file after the first call"
+        );
+        let cache_file_path = cached_files[0].path();
+
+        // Overwrite the disk cache directly with a distinguishable marker image,
+        // without touching the source file -- same mtime means the second call looks
+        // up this exact cache filename again.
+        write_solid_test_png(&cache_file_path, [250, 250, 250, 255]);
+        let marker_bytes = std::fs::read(&cache_file_path).unwrap();
+
+        let mut second = panel_with_cache_root(cache_root.clone());
+        assert!(
+            second.thumbnail_for(&ctx, &png_path).is_some(),
+            "second call (simulating an editor restart) should still succeed"
+        );
+
+        let bytes_after_second_call = std::fs::read(&cache_file_path).unwrap();
+        assert_eq!(
+            bytes_after_second_call, marker_bytes,
+            "a disk-cache hit must not re-decode the source and overwrite the cache \
+             file -- if it had, these bytes would be the near-black source's \
+             re-derived thumbnail instead of the untouched marker image"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn changing_the_source_mtime_produces_a_different_cache_filename() {
+        let tmp = std::env::temp_dir().join("bse_thumb_cache_test_mtime");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let png_path = tmp.join("swatch.png");
+        write_solid_test_png(&png_path, [10, 10, 10, 255]);
+        let cache_root = tmp.join("cache");
+
+        let mut first = panel_with_cache_root(cache_root.clone());
+        let ctx = egui::Context::default();
+        assert!(first.thumbnail_for(&ctx, &png_path).is_some());
+
+        let first_files: std::collections::HashSet<_> = std::fs::read_dir(&cache_root)
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.file_name()))
+            .collect();
+        assert_eq!(first_files.len(), 1);
+
+        // Rewrite the source with a full second of separation so its mtime (truncated
+        // to whole seconds by disk_cache_path) is guaranteed to advance -- some
+        // filesystems only offer 1s mtime resolution.
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        write_solid_test_png(&png_path, [20, 20, 20, 255]);
+
+        let mut second = panel_with_cache_root(cache_root.clone());
+        assert!(second.thumbnail_for(&ctx, &png_path).is_some());
+
+        let second_files: std::collections::HashSet<_> = std::fs::read_dir(&cache_root)
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.file_name()))
+            .collect();
+        assert_eq!(
+            second_files.len(),
+            2,
+            "expected the old cache file to remain (orphaned, by design) and a new \
+             one to appear after the source's mtime changed, got {second_files:?}"
+        );
+        assert!(
+            first_files.is_subset(&second_files),
+            "the original cache file must still be present (orphans are not cleaned up)"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn a_corrupted_disk_cache_file_falls_back_to_a_fresh_decode() {
+        let tmp = std::env::temp_dir().join("bse_thumb_cache_test_corrupt");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let png_path = tmp.join("swatch.png");
+        write_solid_test_png(&png_path, [10, 10, 10, 255]);
+        let cache_root = tmp.join("cache");
+
+        let mut panel = panel_with_cache_root(cache_root.clone());
+        let ctx = egui::Context::default();
+
+        let cache_path = panel
+            .disk_cache_path(&png_path)
+            .expect("mtime should be readable for a file that was just written");
+        std::fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+        std::fs::write(&cache_path, b"not a real png").unwrap();
+
+        let handle = panel.thumbnail_for(&ctx, &png_path);
+
+        assert!(
+            handle.is_some(),
+            "a corrupted disk-cache file must not prevent falling back to a fresh \
+             decode of the still-valid source image"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

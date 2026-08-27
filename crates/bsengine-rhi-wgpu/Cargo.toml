@@ -22,6 +22,7 @@ bevy_reflect.workspace = true
 bytemuck.workspace = true
 glam.workspace = true
 image.workspace = true
+notify-debouncer-full.workspace = true
 blake3.workspace = true
 pollster.workspace = true
 tracing.workspace = true

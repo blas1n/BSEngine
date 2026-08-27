@@ -5,7 +5,15 @@
 //! B/C for the approved design.
 
 use bsengine_core::{EditorPanel, EditorPanelContext};
+use notify_debouncer_full::{
+    new_debouncer,
+    notify::{RecommendedWatcher, RecursiveMode, Watcher},
+    DebounceEventResult, Debouncer, FileIdMap,
+};
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::sync::Mutex;
+use std::time::Duration;
 
 /// Coarse category used for the tile icon and drag/drop behavior. No
 /// `Material` variant — `bsengine-asset` has no material-asset type yet
@@ -132,6 +140,25 @@ fn assets_root() -> PathBuf {
     PathBuf::from("assets")
 }
 
+/// Same debounce window as `bsengine-asset`'s `AssetWatcherPlugin` and
+/// `bsengine-editor`'s `PrefabWatcherPlugin`, for the same reason: a save is
+/// rarely one write, and 200ms is long enough to collapse a burst of them
+/// into one change without making an edit feel slow to take effect.
+const DEBOUNCE: Duration = Duration::from_millis(200);
+
+/// Live watch state for [`AssetBrowserPanel`]. Absent until
+/// [`AssetBrowserPanel::ensure_watcher_started`] succeeds -- see that
+/// method's doc comment for why this is lazy rather than eager.
+struct AssetBrowserWatcher {
+    /// Held purely for its `Drop`, which stops the watch. The `Mutex` is a
+    /// `Send + Sync` shim, not synchronisation -- nothing ever locks it for
+    /// mutual exclusion. Matches `bsengine_editor::prefab_watcher::PrefabWatcher`'s
+    /// identical field and reasoning.
+    _debouncer: Mutex<Debouncer<RecommendedWatcher, FileIdMap>>,
+    /// Receiving end of the watcher thread's channel. Only ever `try_recv`'d.
+    events: Mutex<Receiver<DebounceEventResult>>,
+}
+
 /// Unity Project panel / Unreal Content Browser equivalent: scans
 /// `assets_root()`, shows a folder tree + tile grid of the current
 /// directory, and lets the user spawn meshes / attach scripts / load
@@ -161,6 +188,16 @@ pub struct AssetBrowserPanel {
     /// same convention as `assets_root()`), unsafe to rely on across tests
     /// that may run concurrently on separate threads.
     cache_root: PathBuf,
+    /// Live filesystem watch on `root`, started lazily by
+    /// `ensure_watcher_started`. `None` before the first `ui()` call, and
+    /// permanently `None` if starting one ever failed (a missing `root`, or
+    /// a real watcher error) -- there is no retry, matching how
+    /// `AssetWatcherPlugin`/`PrefabWatcherPlugin` each try exactly once too.
+    watcher: Option<AssetBrowserWatcher>,
+    /// Whether `ensure_watcher_started` has already run once (regardless of
+    /// whether it actually started a watcher). Distinct from
+    /// `watcher.is_some()` so a failed attempt is not retried every frame.
+    watcher_start_attempted: bool,
 }
 
 impl Default for AssetBrowserPanel {
@@ -175,6 +212,8 @@ impl Default for AssetBrowserPanel {
             thumbnail_cache: std::collections::HashMap::new(),
             tree_cache: std::collections::HashMap::new(),
             cache_root: PathBuf::from(".bsengine_cache/thumbnails"),
+            watcher: None,
+            watcher_start_attempted: false,
         }
     }
 }
@@ -189,6 +228,9 @@ impl EditorPanel for AssetBrowserPanel {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, ctx: &mut EditorPanelContext) {
+        self.ensure_watcher_started();
+        self.drain_watcher_changes();
+
         if !self.scanned {
             self.entries = scan_dir(&self.current_dir);
             self.scanned = true;
@@ -242,6 +284,102 @@ impl EditorPanel for AssetBrowserPanel {
 }
 
 impl AssetBrowserPanel {
+    /// Starts watching `self.root` recursively for filesystem changes, if it
+    /// hasn't already been tried. Deliberately lazy (called from `ui()`, not
+    /// from `Default::default()`): this file's own tests construct
+    /// `AssetBrowserPanel::default()` directly and repeatedly (e.g.
+    /// `panel_with_cache_root`), and starting a real OS watcher thread on
+    /// every such construction would be wasteful. Tries exactly once, ever
+    /// -- a failed attempt (missing `root`, or a real watcher error) is
+    /// never retried, matching `AssetWatcherPlugin`/`PrefabWatcherPlugin`'s
+    /// own "try once at Startup" behaviour.
+    fn ensure_watcher_started(&mut self) {
+        if self.watcher_start_attempted {
+            return;
+        }
+        self.watcher_start_attempted = true;
+
+        if !self.root.is_dir() {
+            tracing::info!(
+                "asset browser: {} does not exist, not watching",
+                self.root.display()
+            );
+            return;
+        }
+
+        let (tx, rx) = mpsc::channel();
+        let mut debouncer = match new_debouncer(DEBOUNCE, None, tx) {
+            Ok(d) => d,
+            Err(e) => {
+                tracing::warn!("asset browser: cannot start the file watcher ({e}), not watching");
+                return;
+            }
+        };
+        if let Err(e) = debouncer
+            .watcher()
+            .watch(&self.root, RecursiveMode::Recursive)
+        {
+            tracing::warn!(
+                "asset browser: cannot watch {} ({e}), not watching",
+                self.root.display()
+            );
+            return;
+        }
+
+        tracing::info!("asset browser: watching {}", self.root.display());
+        self.watcher = Some(AssetBrowserWatcher {
+            _debouncer: Mutex::new(debouncer),
+            events: Mutex::new(rx),
+        });
+    }
+
+    /// Drains every change the watcher thread has posted since the last
+    /// call. On any non-empty batch, re-runs exactly what the "Refresh"
+    /// button's click handler already runs -- no attempt to inspect which
+    /// specific path(s) changed, matching this design's deliberately coarse
+    /// invalidation (a stale tile grid has no correctness consequence
+    /// beyond looking briefly out of date, unlike e.g. prefab live-sync).
+    fn drain_watcher_changes(&mut self) {
+        let Some(watcher) = &self.watcher else {
+            return;
+        };
+
+        let mut changed = false;
+        let mut watcher_died = false;
+        match watcher.events.lock() {
+            Ok(events) => loop {
+                match events.try_recv() {
+                    Ok(Ok(_batch)) => changed = true,
+                    Ok(Err(errors)) => tracing::warn!("asset browser: watcher error: {errors:?}"),
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Disconnected) => {
+                        tracing::warn!(
+                            "asset browser: the file watcher thread has stopped; auto-refresh \
+                             has stopped until the editor restarts"
+                        );
+                        watcher_died = true;
+                        break;
+                    }
+                }
+            },
+            Err(_) => {
+                tracing::warn!(
+                    "asset browser: the file watcher's change queue was poisoned by an earlier \
+                     panic; auto-refresh has stopped until the editor restarts"
+                );
+                watcher_died = true;
+            }
+        }
+
+        if watcher_died {
+            self.watcher = None;
+        }
+        if changed {
+            self.entries = scan_dir(&self.current_dir);
+            self.tree_cache.clear();
+        }
+    }
+
     /// Renders `Assets / Sub / Folder` as clickable segments; clicking a
     /// segment sets `current_dir` to that ancestor and rescans.
     fn draw_breadcrumb(&mut self, ui: &mut egui::Ui) {
@@ -799,6 +937,94 @@ mod tests {
             handle.is_some(),
             "a corrupted disk-cache file must not prevent falling back to a fresh \
              decode of the still-valid source image"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn ensure_watcher_started_does_nothing_when_root_does_not_exist() {
+        let mut panel = AssetBrowserPanel {
+            root: PathBuf::from("bse_test_root_that_does_not_exist_anywhere"),
+            ..Default::default()
+        };
+        panel.ensure_watcher_started();
+        assert!(
+            panel.watcher.is_none(),
+            "a missing root directory must not start a real watcher"
+        );
+    }
+
+    #[test]
+    fn a_new_file_under_root_triggers_an_automatic_rescan() {
+        let tmp = std::env::temp_dir().join("bse_watcher_test_new_file");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let mut panel = AssetBrowserPanel {
+            root: tmp.clone(),
+            current_dir: tmp.clone(),
+            ..Default::default()
+        };
+        panel.ensure_watcher_started();
+        assert!(
+            panel.watcher.is_some(),
+            "watcher should start against a real, existing directory"
+        );
+        panel.entries = scan_dir(&tmp);
+        assert!(panel.entries.is_empty(), "baseline should start empty");
+
+        std::fs::write(tmp.join("new_texture.png"), b"not a real png, just bytes").unwrap();
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while std::time::Instant::now() < deadline {
+            panel.drain_watcher_changes();
+            if panel.entries.iter().any(|e| e.name == "new_texture.png") {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+
+        assert!(
+            panel.entries.iter().any(|e| e.name == "new_texture.png"),
+            "a new file under the watched root should appear in entries without a manual \
+             Refresh, got {:?}",
+            panel.entries
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn a_watched_change_clears_the_stale_tree_cache() {
+        let tmp = std::env::temp_dir().join("bse_watcher_test_tree_cache");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let mut panel = AssetBrowserPanel {
+            root: tmp.clone(),
+            current_dir: tmp.clone(),
+            ..Default::default()
+        };
+        panel.ensure_watcher_started();
+        panel
+            .tree_cache
+            .insert(tmp.clone(), vec![PathBuf::from("stale")]);
+
+        std::fs::write(tmp.join("trigger.png"), b"bytes").unwrap();
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while std::time::Instant::now() < deadline {
+            panel.drain_watcher_changes();
+            if panel.tree_cache.is_empty() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+
+        assert!(
+            panel.tree_cache.is_empty(),
+            "a watched change must clear tree_cache the same way the Refresh button does"
         );
 
         let _ = std::fs::remove_dir_all(&tmp);

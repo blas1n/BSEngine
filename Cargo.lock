@@ -1094,6 +1094,7 @@ dependencies = [
  "egui_dock",
  "glam 0.29.3",
  "image",
+ "notify-debouncer-full",
  "pollster",
  "serde_json",
  "tracing",

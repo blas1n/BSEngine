@@ -375,20 +375,23 @@ pub fn render_thumbnail(
     let color_texture =
         crate::output::create_offscreen_texture(device, THUMBNAIL_SIZE, THUMBNAIL_SIZE);
     let color_view = color_texture.create_view(&wgpu::TextureViewDescriptor::default());
-    let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("thumbnail depth"),
-        size: wgpu::Extent3d {
-            width: THUMBNAIL_SIZE,
-            height: THUMBNAIL_SIZE,
-            depth_or_array_layers: 1,
+    let depth_texture = crate::profiler::create_tracked_texture(
+        device,
+        &wgpu::TextureDescriptor {
+            label: Some("thumbnail depth"),
+            size: wgpu::Extent3d {
+                width: THUMBNAIL_SIZE,
+                height: THUMBNAIL_SIZE,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
         },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Depth32Float,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        view_formats: &[],
-    });
+    );
     let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -396,7 +399,8 @@ pub fn render_thumbnail(
         min_filter: wgpu::FilterMode::Linear,
         ..Default::default()
     });
-    let white_texture = device.create_texture_with_data(
+    let white_texture = crate::profiler::create_tracked_texture_with_data(
+        device,
         queue,
         &wgpu::TextureDescriptor {
             label: Some("thumbnail white fallback"),
@@ -462,7 +466,8 @@ pub fn render_thumbnail(
 
             let (texture_view, has_texture) = match &primitive.base_color_texture {
                 Some(img) => {
-                    let texture = device.create_texture_with_data(
+                    let texture = crate::profiler::create_tracked_texture_with_data(
+                        device,
                         queue,
                         &wgpu::TextureDescriptor {
                             label: Some("thumbnail base color"),

@@ -8,6 +8,11 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 static TEXTURE_MEMORY_BYTES: AtomicU64 = AtomicU64::new(0);
 static TEXTURE_COUNT: AtomicU32 = AtomicU32::new(0);
 
+/// How many frames of [`FrameStats`] `WgpuSurface` keeps in its rolling
+/// history -- roughly 2 seconds at 60fps. Older frames are dropped as new
+/// ones arrive.
+pub const FRAME_STATS_HISTORY_CAPACITY: usize = 120;
+
 /// Current total GPU texture memory tracked via [`create_tracked_texture`]/
 /// [`create_tracked_texture_with_data`], across every texture this crate has
 /// created and not yet dropped -- shadow maps, post-process targets, asset

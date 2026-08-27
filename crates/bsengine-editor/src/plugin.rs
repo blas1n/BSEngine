@@ -1938,6 +1938,19 @@ fn apply_inspector_cmds(
             InspectorCmd::SpawnEntity { name } => {
                 queue.push(EditorCommand::SpawnNamed(name));
             }
+            InspectorCmd::SpawnTerrain {
+                heightmap_path,
+                chunk_count,
+                chunk_size,
+                height_scale,
+            } => {
+                queue.push(EditorCommand::SpawnTerrain {
+                    heightmap_path,
+                    chunk_count,
+                    chunk_size,
+                    height_scale,
+                });
+            }
             InspectorCmd::Despawn { id } => {
                 queue.push(EditorCommand::Despawn { entity_id: id });
             }

@@ -312,6 +312,23 @@ pub enum InspectorCmd {
         /// The prefab instance root entity id (must have a `PrefabInstance`).
         entity_id: u64,
     },
+    /// Spawn a new terrain entity from a heightmap asset. UI-originated
+    /// counterpart to the `terrain_write` MCP tool, which pushes
+    /// `EditorCommand::SpawnTerrain` directly since it has no `InspectorCmd`
+    /// indirection to go through. `apply_inspector_cmds` (`bsengine-editor`)
+    /// forwards this straight onto the plain `EditorCommand` queue, same as
+    /// `SpawnEntity` -- see `EditorCommand::SpawnTerrain`'s doc comment for
+    /// what happens once it lands there.
+    SpawnTerrain {
+        /// Path to the heightmap asset to load.
+        heightmap_path: String,
+        /// Number of chunks along (x, z).
+        chunk_count: (u32, u32),
+        /// World-space size of one chunk along each axis.
+        chunk_size: f32,
+        /// Multiplier applied to the normalized heightmap sample.
+        height_scale: f32,
+    },
 }
 
 /// Whether the editor is showing the static scene or running gameplay.

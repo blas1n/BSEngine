@@ -22,6 +22,27 @@ struct CreatePrefabState {
     buffer: String,
 }
 
+/// Default terrain params the "Create Terrain" toolbar button queues
+/// alongside the user-entered heightmap path. Unlike `CreatePrefabState`'s
+/// name prompt, the popup below only collects the one field a fresh terrain
+/// can't have a sane default for; chunk grid/size/height scale get fixed
+/// defaults instead of more text fields, matching this crate's own
+/// `terrain_write` MCP tool test fixtures (`bsengine-editor/src/plugin.rs`)
+/// rather than being invented here.
+const DEFAULT_TERRAIN_CHUNK_COUNT: (u32, u32) = (4, 4);
+const DEFAULT_TERRAIN_CHUNK_SIZE: f32 = 32.0;
+const DEFAULT_TERRAIN_HEIGHT_SCALE: f32 = 20.0;
+
+/// Key under which the "Create Terrain" popup's heightmap-path buffer is
+/// stored in egui's own per-frame data store (`ui.data`/`ui.data_mut`,
+/// unscoped by widget hierarchy -- same mechanism `rename_id`/
+/// `create_prefab_id` below already rely on). A named constant, not an
+/// inline literal at the one production use site, so the test module can
+/// seed the buffer directly -- driving a real text edit via simulated
+/// keystrokes is unnecessary ceremony here -- without the two copies of
+/// the string ever being able to drift apart.
+const CREATE_TERRAIN_BUFFER_ID_STR: &str = "hierarchy_create_terrain_buffer";
+
 /// Read-only, whole-tree context threaded through the `draw_row` recursion
 /// unchanged at every depth — bundled into one struct rather than three
 /// separate positional parameters to keep `draw_row`'s already-long
@@ -64,7 +85,23 @@ impl EditorPanel for HierarchyPanel {
         let mut despawn_ids: Vec<u64> = Vec::new();
         let mut apply_to_prefab_ids: Vec<u64> = Vec::new();
         let mut attach_script: Option<(u64, String)> = None;
+        let mut create_terrain_commit: Option<String> = None;
 
+        // "Create Terrain" popup state: unlike `RenameState`/
+        // `CreatePrefabState`, this isn't keyed to a row -- Create Terrain
+        // spawns a brand-new root entity, the same shape as the "Spawn
+        // Entity" button next to it, not a per-row context-menu action --
+        // so egui's own popup-open memory (`toggle_popup`/`is_popup_open`,
+        // the same mechanism `draw_add_component` in inspector.rs uses)
+        // drives visibility, and only the text buffer needs our own
+        // temp-storage slot.
+        let create_terrain_popup_id = ui.make_persistent_id("hierarchy_create_terrain_popup");
+        let create_terrain_buffer_id = egui::Id::new(CREATE_TERRAIN_BUFFER_ID_STR);
+        let mut create_terrain_buffer: String = ui
+            .data(|d| d.get_temp(create_terrain_buffer_id))
+            .unwrap_or_default();
+
+        let mut create_terrain_button: Option<egui::Response> = None;
         ui.horizontal(|ui| {
             if ui
                 .button(egui_phosphor::regular::PLUS)
@@ -83,7 +120,54 @@ impl EditorPanel for HierarchyPanel {
             {
                 despawn_entity = true;
             }
+            // Explicit size, not a shrink-wrapped `ui.button` -- mirrors
+            // `draw_add_component`'s own button in inspector.rs, and for
+            // the same reason: `popup_below_widget` derives the popup's
+            // width from this response's rect and `debug_assert!`s it
+            // non-negative, which a near-zero shrink-wrapped width can
+            // violate under the headless empty-font `Context` these panels
+            // are tested with.
+            let button_width = ui.available_width().clamp(48.0, 160.0);
+            let response = ui.add_sized(
+                [button_width, ui.spacing().interact_size.y],
+                egui::Button::new(format!(
+                    "{} Create Terrain",
+                    egui_phosphor::regular::MOUNTAINS
+                )),
+            );
+            if response.clicked() {
+                let was_open = ui.memory(|m| m.is_popup_open(create_terrain_popup_id));
+                ui.memory_mut(|m| m.toggle_popup(create_terrain_popup_id));
+                if !was_open {
+                    create_terrain_buffer.clear();
+                }
+            }
+            create_terrain_button = Some(response);
         });
+
+        if let Some(button_response) = &create_terrain_button {
+            egui::popup::popup_below_widget(
+                ui,
+                create_terrain_popup_id,
+                button_response,
+                egui::popup::PopupCloseBehavior::CloseOnClickOutside,
+                |ui| {
+                    ui.set_min_width(220.0);
+                    ui.label("Heightmap path:");
+                    let edit_response = ui.text_edit_singleline(&mut create_terrain_buffer);
+                    let commit_by_enter = edit_response.lost_focus()
+                        && ui.ctx().input(|i| i.key_pressed(egui::Key::Enter));
+                    let commit_by_button = ui.button("Create").clicked();
+                    if (commit_by_enter || commit_by_button) && !create_terrain_buffer.is_empty()
+                    {
+                        create_terrain_commit = Some(create_terrain_buffer.clone());
+                        ui.memory_mut(|m| m.close_popup());
+                    }
+                },
+            );
+        }
+
+        ui.data_mut(|d| d.insert_temp(create_terrain_buffer_id, create_terrain_buffer));
         ui.horizontal(|ui| {
             ui.label(egui_phosphor::regular::MAGNIFYING_GLASS);
             ui.text_edit_singleline(&mut insp.hierarchy_search);
@@ -266,6 +350,14 @@ impl EditorPanel for HierarchyPanel {
                     name,
                 });
             }
+        }
+        if let Some(heightmap_path) = create_terrain_commit {
+            insp.cmd_queue.push(InspectorCmd::SpawnTerrain {
+                heightmap_path,
+                chunk_count: DEFAULT_TERRAIN_CHUNK_COUNT,
+                chunk_size: DEFAULT_TERRAIN_CHUNK_SIZE,
+                height_scale: DEFAULT_TERRAIN_HEIGHT_SCALE,
+            });
         }
     }
 }
@@ -770,6 +862,260 @@ mod tests {
         assert!(
             clicked,
             "row click must register even with a same-rect drag-sense interact unioned in"
+        );
+    }
+
+    // -- "Create Terrain" toolbar button -----------------------------------
+    //
+    // Unlike the tests above (which exercise `HierarchyPanel`'s free
+    // helper fns, or a standalone egui scenario with no `HierarchyPanel`
+    // involved at all), these drive `HierarchyPanel::ui` itself end to
+    // end, mirroring `inspector.rs`'s `PickerHarness`: an empty-font
+    // `Context` run across as many frames as a test needs, reading click
+    // positions back out of what actually rendered rather than hardcoding
+    // pixel coordinates (see `collect_rendered_texts_with_pos`'s doc
+    // comment below for exactly why that matters with zero-size galleys).
+
+    use bsengine_core::InspectorState;
+
+    /// Every literal string egui rendered as text in one frame, paired
+    /// with the position it was drawn at. Ported from `inspector.rs`'s
+    /// identical helper -- see that copy's doc comment for the full
+    /// rationale (in short: click the returned `pos` as-is, with no "reach
+    /// the centre" offset, since `FontDefinitions::empty()` gives every
+    /// galley zero size and a top-down `Ui` centers a zero-sized widget's
+    /// content on the padded rect's own centre).
+    fn collect_rendered_texts_with_pos(
+        shapes: &[egui::epaint::ClippedShape],
+    ) -> Vec<(String, egui::Pos2)> {
+        fn walk(shape: &egui::Shape, out: &mut Vec<(String, egui::Pos2)>) {
+            match shape {
+                egui::Shape::Text(text_shape) => {
+                    out.push((text_shape.galley.text().to_string(), text_shape.pos))
+                }
+                egui::Shape::Vec(nested) => {
+                    for s in nested {
+                        walk(s, out);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        for clipped in shapes {
+            walk(&clipped.shape, &mut out);
+        }
+        out
+    }
+
+    /// String-only view of [`collect_rendered_texts_with_pos`], for
+    /// assertions that only care whether something rendered, not where.
+    fn collect_rendered_texts(shapes: &[egui::epaint::ClippedShape]) -> Vec<String> {
+        collect_rendered_texts_with_pos(shapes)
+            .into_iter()
+            .map(|(text, _)| text)
+            .collect()
+    }
+
+    /// Headless multi-frame harness for `HierarchyPanel::ui`. `entities_snapshot`
+    /// is always empty -- these tests exercise the toolbar's "Create Terrain"
+    /// button, which (unlike "Create Prefab") doesn't target a row, so no
+    /// entity needs to exist.
+    struct HierarchyHarness {
+        egui_ctx: egui::Context,
+        screen_rect: egui::Rect,
+        insp: InspectorState,
+        entities_snapshot: Vec<InspectorEntityInfo>,
+        panel: HierarchyPanel,
+    }
+
+    impl HierarchyHarness {
+        fn new() -> Self {
+            let egui_ctx = egui::Context::default();
+            egui_ctx.set_fonts(egui::FontDefinitions::empty());
+            Self {
+                egui_ctx,
+                screen_rect: egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(400.0, 400.0),
+                ),
+                insp: InspectorState::default(),
+                entities_snapshot: Vec::new(),
+                panel: HierarchyPanel,
+            }
+        }
+
+        /// Runs one frame with `events` delivered to it. Note egui hit-tests
+        /// against the *previous* frame's widget rects (documented above on
+        /// `row_click_registers_despite_unioned_drag_sense_interact`), so a
+        /// position read from this call's own return value is only valid
+        /// input to the *next* `frame`/`click` call, never to this one.
+        fn frame(&mut self, events: Vec<egui::Event>) -> egui::FullOutput {
+            self.egui_ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(self.screen_rect),
+                    events,
+                    ..Default::default()
+                },
+                |egui_ctx| {
+                    egui::CentralPanel::default().show(egui_ctx, |ui| {
+                        let mut ctx = EditorPanelContext {
+                            insp: &mut self.insp,
+                            entities_snapshot: &self.entities_snapshot,
+                            cursor_pos: (0.0, 0.0),
+                            type_registry: None,
+                        };
+                        self.panel.ui(ui, &mut ctx);
+                    });
+                },
+            )
+        }
+
+        /// A frame that delivers a single press+release click at `pos`.
+        fn click(&mut self, pos: egui::Pos2) -> egui::FullOutput {
+            self.frame(vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::default(),
+                },
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::default(),
+                },
+            ])
+        }
+    }
+
+    #[test]
+    fn create_terrain_button_renders_in_the_toolbar() {
+        let mut harness = HierarchyHarness::new();
+        let output = harness.frame(vec![]);
+        let texts = collect_rendered_texts(&output.shapes);
+        assert!(
+            texts.iter().any(|t| t.contains("Create Terrain")),
+            "toolbar must render a Create Terrain button, got: {texts:?}"
+        );
+    }
+
+    #[test]
+    fn clicking_create_terrain_opens_the_heightmap_path_popup() {
+        let mut harness = HierarchyHarness::new();
+
+        let layout = harness.frame(vec![]);
+        let (_, terrain_button_pos) = collect_rendered_texts_with_pos(&layout.shapes)
+            .into_iter()
+            .find(|(t, _)| t.contains("Create Terrain"))
+            .expect("Create Terrain button must render");
+
+        harness.click(terrain_button_pos);
+        // The click frame itself only toggles the popup open and sizes its
+        // `Area` from a placeholder; it paints none of the popup's own
+        // content yet. A settle frame afterwards is what actually paints
+        // "Heightmap path:" and the Create button -- the same,
+        // independently confirmed quirk `PickerHarness::open_picker`
+        // documents for Add Component's identical popup mechanism in
+        // inspector.rs ("the frame after [the click] is the first with
+        // real rows").
+        let settled = harness.frame(vec![]);
+        let texts = collect_rendered_texts(&settled.shapes);
+        assert!(
+            texts.iter().any(|t| t == "Heightmap path:"),
+            "clicking Create Terrain must open the heightmap-path popup, got: {texts:?}"
+        );
+        assert!(
+            harness.insp.cmd_queue.is_empty(),
+            "opening the popup must not itself queue a command"
+        );
+    }
+
+    #[test]
+    fn committing_the_heightmap_path_queues_spawn_terrain_with_default_params() {
+        let mut harness = HierarchyHarness::new();
+
+        let layout = harness.frame(vec![]);
+        let (_, terrain_button_pos) = collect_rendered_texts_with_pos(&layout.shapes)
+            .into_iter()
+            .find(|(t, _)| t.contains("Create Terrain"))
+            .expect("Create Terrain button must render");
+
+        harness.click(terrain_button_pos);
+        // See `clicking_create_terrain_opens_the_heightmap_path_popup`'s
+        // comment: the click frame only toggles the popup open, a settle
+        // frame afterwards is what actually paints its content, including
+        // the Create button this test needs a position for.
+        let settled = harness.frame(vec![]);
+        let (_, create_pos) = collect_rendered_texts_with_pos(&settled.shapes)
+            .into_iter()
+            .find(|(t, _)| t == "Create")
+            .expect("popup must render a Create button once open");
+
+        // Seed the buffer directly through egui's own data store rather
+        // than simulating individual keystrokes: `ui()` reads this exact
+        // Id/store every frame (see `CREATE_TERRAIN_BUFFER_ID_STR`'s doc
+        // comment), so this exercises the real read path -- driving actual
+        // key-by-key text input would only additionally exercise egui's
+        // own `TextEdit`, which isn't this crate's code to verify.
+        let buffer_id = egui::Id::new(CREATE_TERRAIN_BUFFER_ID_STR);
+        harness
+            .egui_ctx
+            .data_mut(|d| d.insert_temp(buffer_id, "heightmaps/mountain.png".to_string()));
+
+        harness.click(create_pos);
+
+        assert_eq!(
+            harness.insp.cmd_queue.len(),
+            1,
+            "exactly one command should be queued"
+        );
+        let cmd = harness.insp.cmd_queue.remove(0);
+        let InspectorCmd::SpawnTerrain {
+            heightmap_path,
+            chunk_count,
+            chunk_size,
+            height_scale,
+        } = cmd
+        else {
+            panic!("expected InspectorCmd::SpawnTerrain to have been queued");
+        };
+        assert_eq!(heightmap_path, "heightmaps/mountain.png");
+        assert_eq!(chunk_count, DEFAULT_TERRAIN_CHUNK_COUNT);
+        assert!((chunk_size - DEFAULT_TERRAIN_CHUNK_SIZE).abs() < f32::EPSILON);
+        assert!((height_scale - DEFAULT_TERRAIN_HEIGHT_SCALE).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn clicking_create_with_an_empty_heightmap_path_queues_nothing() {
+        let mut harness = HierarchyHarness::new();
+
+        let layout = harness.frame(vec![]);
+        let (_, terrain_button_pos) = collect_rendered_texts_with_pos(&layout.shapes)
+            .into_iter()
+            .find(|(t, _)| t.contains("Create Terrain"))
+            .expect("Create Terrain button must render");
+
+        harness.click(terrain_button_pos);
+        // See `clicking_create_terrain_opens_the_heightmap_path_popup`'s
+        // comment: the click frame only toggles the popup open, a settle
+        // frame afterwards is what actually paints its content, including
+        // the Create button this test needs a position for.
+        let settled = harness.frame(vec![]);
+        let (_, create_pos) = collect_rendered_texts_with_pos(&settled.shapes)
+            .into_iter()
+            .find(|(t, _)| t == "Create")
+            .expect("popup must render a Create button once open");
+
+        // No buffer seeding here, unlike the commit test above -- the
+        // buffer starts (and stays) empty, which must guard the commit.
+        harness.click(create_pos);
+
+        assert!(
+            harness.insp.cmd_queue.is_empty(),
+            "an empty heightmap path must not queue InspectorCmd::SpawnTerrain"
         );
     }
 }

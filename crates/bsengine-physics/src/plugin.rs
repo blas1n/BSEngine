@@ -274,6 +274,10 @@ fn update_grounded(
                 half_height,
                 radius,
             } => half_height + radius,
+            // Terrain-only shape; a `CharacterBody` is never expected to carry
+            // one. No sensible vertical half-extent exists for a height grid,
+            // so this contributes no offset rather than guessing at one.
+            ColliderShape::Heightfield { .. } => 0.0,
         };
         let reach = half_extent + character.ground_check_distance;
 
@@ -308,6 +312,25 @@ fn make_shape(shape: &ColliderShape) -> SharedShape {
             half_height,
             radius,
         } => SharedShape::capsule_y(*half_height, *radius),
+        ColliderShape::Heightfield {
+            heights,
+            rows,
+            cols,
+            scale,
+        } => {
+            // `rapier3d`'s heightfield takes a `parry3d::utils::Array2`, not a
+            // `nalgebra::DMatrix` -- verified against this workspace's pinned
+            // rapier3d 0.33.0 / parry3d 0.28.0 by reading the vendored source
+            // (no `DMatrix` overload exists for the "dim3" build this crate
+            // uses). `Array2` stores column-major (`flat_index(i, j) = i + j *
+            // nrows`), so building it via `from_fn` -- rather than handing our
+            // row-major `Vec<f32>` to `Array2::new` directly -- is what keeps
+            // row/column indices from ending up transposed.
+            let grid = rapier3d::parry::utils::Array2::from_fn(*rows, *cols, |i, j| {
+                heights[i * (*cols) + j]
+            });
+            SharedShape::heightfield(grid, Vector::new(scale.x, scale.y, scale.z))
+        }
     }
 }
 
@@ -708,6 +731,72 @@ mod tests {
             "one call to apply_force should push for one step, but velocity went \
              from {after_one} to {after_eleven} over ten further steps with no \
              force applied"
+        );
+    }
+
+    // ---- Heightfield collider (roadmap item 44, terrain core) ------------
+
+    /// Spawns a static heightfield body: flat at height 2.0 everywhere, over
+    /// a 10x10 world-space horizontal extent centred on the origin. Two rows
+    /// and two columns is the smallest grid rapier's heightfield accepts (one
+    /// quad), which is all a flat surface needs.
+    fn spawn_flat_heightfield(app: &mut App) {
+        app.world_mut().spawn((
+            Transform::from_position(Vec3::ZERO),
+            RigidBody::fixed(),
+            Collider {
+                shape: ColliderShape::Heightfield {
+                    heights: vec![2.0, 2.0, 2.0, 2.0],
+                    rows: 2,
+                    cols: 2,
+                    scale: Vec3::new(10.0, 1.0, 10.0).into(),
+                },
+                restitution: 0.0,
+                friction: 0.5,
+                density: 1.0,
+                sensor: false,
+            },
+            PhysicsInput {
+                position: Vec3::ZERO.into(),
+                rotation: Quat::IDENTITY.into(),
+            },
+            PhysicsTransform::default(),
+        ));
+    }
+
+    #[test]
+    fn heightfield_collider_supports_a_dynamic_body_at_the_expected_height() {
+        let mut app = new_app();
+        app.add_plugins(PhysicsPlugin);
+        spawn_flat_heightfield(&mut app);
+
+        let radius = 0.5;
+        let start = Vec3::new(0.0, 6.0, 0.0);
+        let sphere = app
+            .world_mut()
+            .spawn((
+                Transform::from_position(start),
+                RigidBody::dynamic(),
+                Collider::ball(radius),
+                PhysicsInput {
+                    position: start.into(),
+                    rotation: Quat::IDENTITY.into(),
+                },
+            ))
+            .id();
+
+        for _ in 0..150 {
+            app.update();
+        }
+
+        let y = app.world().get::<Transform>(sphere).unwrap().position.0.y;
+        let expected = 2.0 + radius;
+        assert!(
+            (y - expected).abs() < 0.05,
+            "expected the dynamic sphere to come to rest on the flat heightfield \
+             (all heights = 2.0) at y ~= {expected}, but it settled at y={y} -- \
+             either it fell through the collider entirely or the shape is not \
+             where the height data says it should be"
         );
     }
 }

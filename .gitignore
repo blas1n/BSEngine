@@ -181,6 +181,7 @@ StyleCopReport.xml
 # because the Visual Studio block above ignores `*.meta` as a linker artifact
 # and this project has no Visual Studio build producing one.
 !games/*/assets/**/*.meta
+games/*/.bsengine_cache/
 
 # Chutzpah Test files
 _Chutzpah*

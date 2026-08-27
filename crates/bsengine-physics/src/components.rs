@@ -94,6 +94,21 @@ pub enum ColliderShape {
         /// The radius of the capsule's rounded caps and cylindrical body.
         radius: f32,
     },
+    /// A grid-sampled height surface, for terrain. `heights` is row-major,
+    /// `rows * cols` long. `scale` is the world-space size the height grid
+    /// spans: `scale.x`/`scale.z` are the horizontal extent, `scale.y` is the
+    /// multiplier applied to raw height values (already-scaled world-space
+    /// heights go into `heights` directly, so this is usually `1.0`).
+    Heightfield {
+        /// Row-major height values.
+        heights: Vec<f32>,
+        /// Number of rows in the height grid.
+        rows: usize,
+        /// Number of columns in the height grid.
+        cols: usize,
+        /// World-space extent (x, height-multiplier, z). See field doc above.
+        scale: ReflectVec3,
+    },
 }
 
 /// ECS component describing the physical shape and surface material of a `RigidBody`.

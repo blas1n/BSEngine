@@ -394,6 +394,22 @@ pub enum EditorCommand {
         /// Entity to detach the primitive from.
         entity_id: u64,
     },
+    /// Spawn a new terrain entity. `bsengine_app::terrain::TerrainPlugin`'s
+    /// existing `generate_terrain_chunks` system (already registered in the
+    /// editor app) picks it up and asynchronously loads the heightmap and
+    /// spawns the chunk children. Always spawns as a root entity at the
+    /// origin, mirroring `SpawnMeshAsset`'s "spawn a marker component, let
+    /// an existing async system do the rest" shape.
+    SpawnTerrain {
+        /// Path to the heightmap asset to load.
+        heightmap_path: String,
+        /// Number of chunks along (x, z).
+        chunk_count: (u32, u32),
+        /// World-space size of one chunk along each axis.
+        chunk_size: f32,
+        /// Multiplier applied to the normalized heightmap sample.
+        height_scale: f32,
+    },
 }
 
 /// Undo/redo checkpoint stacks. Each entry is a full `EditorSnapshot` taken

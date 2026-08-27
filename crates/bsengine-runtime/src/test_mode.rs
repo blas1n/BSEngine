@@ -7,7 +7,7 @@ use std::io::{self, BufRead, Write};
 
 use bevy_app::App;
 use bevy_ecs::event::Events;
-use bsengine_app::{LifetimePlugin, NavMeshPlugin, ParticlePlugin, TimePlugin};
+use bsengine_app::{LifetimePlugin, NavMeshPlugin, ParticlePlugin, TerrainPlugin, TimePlugin};
 use bsengine_asset::{AssetIdentityPlugin, AssetPlugin, AssetStatusPlugin};
 use bsengine_audio::AudioPlugin;
 use bsengine_core::{EditorPlayState, InspectorState};
@@ -130,6 +130,12 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>, fast_rend
         // a replay stays exactly as reproducible with them as without.
         .add_plugins(LifetimePlugin)
         .add_plugins(ParticlePlugin)
+        // Mirrors the windowed runtime (main.rs's run_windowed): see the
+        // comment there for why this was missing entirely until roadmap item
+        // 44's demo project needed it. Without it here, a `Terrain` entity in
+        // a headless E2E replay or `--test` session would never grow chunks
+        // either -- the same silent-inert failure, just in the other host.
+        .add_plugins(TerrainPlugin)
         .add_plugins(ScenePlugin::from_file(&scene_path))
         .add_plugins(ScriptingPlugin {
             project_dir: project_dir.to_string(),
@@ -1276,6 +1282,137 @@ mod tests {
         assert!(
             input.just_released(&KeyCode::W),
             "W should be just_released on the exact frame after ReleaseKey"
+        );
+    }
+
+    /// End-to-end walkability proof for roadmap item 44's terrain core
+    /// (`games/terrain-demo`): a scene-authored `Terrain` entity, loaded and
+    /// chunked through the *production* app stack (`build_test_app`, the same
+    /// plugin list `--test`/E2E replays and `main.rs`'s windowed runtime use)
+    /// rather than a hand-built app that only adds `TerrainPlugin` in
+    /// isolation, supports a dropped dynamic body at the terrain's actual
+    /// sampled height -- specifically at a point straddling the boundary
+    /// between two chunks, which is the scenario the whole chunk-boundary
+    /// duplicate-data design exists to make safe.
+    ///
+    /// `bsengine-app`'s own suite (`terrain.rs`'s
+    /// `a_dropped_body_lands_on_the_chunk_it_visually_sits_above`) already
+    /// proved a single flat chunk supports a dropped body with `TerrainPlugin`
+    /// added directly to a minimal app; this proves the same physical
+    /// property survives (a) a real, committed 16-bit heightmap PNG instead
+    /// of a synthetic flat fixture, (b) a multi-chunk terrain at the seam
+    /// between chunks instead of one chunk's interior, and (c) the actual
+    /// runtime plugin list, which is not automatically the same list as (a) —
+    /// `TerrainPlugin` was never registered in `build_test_app` or `main.rs`'s
+    /// `run_windowed` until this test's own development surfaced that gap
+    /// (see this file's and `main.rs`'s `TerrainPlugin` registration
+    /// comments).
+    #[test]
+    fn a_dynamic_body_dropped_above_terrain_demo_comes_to_rest_supported_by_the_heightfield() {
+        let project_dir = format!("{}/../../games/terrain-demo", env!("CARGO_MANIFEST_DIR"));
+        let mut app = build_test_app(&project_dir, None, false);
+
+        // Step until the scene's own "Ground" entity (the authored `Terrain`)
+        // has finished generating its chunks -- the heightmap loads
+        // asynchronously (`PendingTerrain`), so the exact landing frame isn't
+        // fixed. A generous budget: this app also carries the full render/
+        // gltf/physics stack, unlike `bsengine-app`'s narrower terrain tests.
+        let mut terrain_ready = false;
+        for _ in 0..200 {
+            app.update();
+            let mut q = app.world_mut().query::<(
+                &bsengine_scene::Name,
+                Option<&bsengine_app::terrain::TerrainChunksGenerated>,
+            )>();
+            if q.iter(app.world())
+                .any(|(name, generated)| name.0 == "Ground" && generated.is_some())
+            {
+                terrain_ready = true;
+                break;
+            }
+        }
+        assert!(
+            terrain_ready,
+            "terrain-demo's Ground entity never finished generating chunks within 200 \
+             frames -- either its Terrain component never spawned (heightmap_path \
+             resolution regression?) or TerrainPlugin is missing from build_test_app again"
+        );
+
+        // The source of truth this assertion checks against is the committed
+        // PNG itself, decoded independently here -- not a second copy of
+        // whatever formula generated it -- so this test keeps meaning the
+        // same thing even if the heightmap's own pixel content ever changes.
+        let heightmap_path = format!("{project_dir}/assets/terrain/heightmap.png");
+        let heightmap = image::open(&heightmap_path)
+            .unwrap_or_else(|e| panic!("failed to open {heightmap_path}: {e}"))
+            .to_luma16();
+
+        // The scene's Terrain: 16x16 heightmap, chunk_count (2, 2), chunk_size
+        // 20.0 -> 8 texels per chunk -> 2.5 world units per texel, and texel
+        // column 8 is the shared boundary between chunk (0,*) and chunk
+        // (1,*) (16 texels split into 2 chunks of 8 -- the last chunk's own
+        // left edge and the first chunk's right edge both read texel column
+        // 8, per `generate_chunks`' "+1 boundary column, absorbed from the
+        // same underlying texel data" design). World x = 8 * 2.5 = 20.0 sits
+        // exactly on that seam. z uses texel row 4 (world z = 10.0), safely
+        // inside a single chunk on that axis -- so this drop point exercises
+        // exactly one chunk-to-chunk boundary, not the (four-collider)
+        // corner where all four chunks meet.
+        //
+        // (8, 4) specifically (not just any point on the x=8 seam): the
+        // heightmap's generator placed a local flat extremum there in *both*
+        // axes (see its own comment for why: a `cos`-based wave has its
+        // gradient at zero exactly at the quarter-points its chunk boundary
+        // sits on). A real dynamic sphere dropped anywhere else on a rolling
+        // hill rolls downhill before settling -- which is real physics, not a
+        // bug, but it also means the ball's final resting XZ would not be its
+        // drop XZ, breaking this assertion's premise that resting height
+        // tracks the heightmap's value *at the drop position*. Landing on a
+        // local flat spot keeps that premise true while still proving the
+        // property this test exists for: the collider is exactly where the
+        // heightmap says the surface is, right at a chunk seam.
+        let raw = heightmap.get_pixel(8, 4).0[0];
+        let height_scale = 6.0f32;
+        let expected_height = (raw as f32 / u16::MAX as f32) * height_scale;
+        assert!(
+            expected_height > 0.1 && expected_height < height_scale - 0.1,
+            "sanity: the chosen drop point should read a non-trivial, non-extreme height \
+             from the heightmap, got {expected_height} (raw {raw})"
+        );
+
+        let radius = 0.5f32;
+        let start = glam::Vec3::new(20.0, expected_height + 10.0, 10.0);
+        let ball = app
+            .world_mut()
+            .spawn((
+                bsengine_core::Transform::from_position(start),
+                bsengine_physics::RigidBody::dynamic(),
+                bsengine_physics::Collider::ball(radius),
+                bsengine_physics::PhysicsInput {
+                    position: start.into(),
+                    rotation: glam::Quat::IDENTITY.into(),
+                },
+            ))
+            .id();
+
+        for _ in 0..200 {
+            app.update();
+        }
+
+        let y = app
+            .world()
+            .get::<bsengine_core::Transform>(ball)
+            .unwrap()
+            .position
+            .0
+            .y;
+        let expected = expected_height + radius;
+        assert!(
+            (y - expected).abs() < 0.2,
+            "expected the dropped ball to rest at y ~= {expected} (heightmap-decoded \
+             terrain height {expected_height} at the chunk boundary + radius {radius}), \
+             but it settled at y={y} -- either it fell through a gap at the chunk \
+             boundary, or the collider isn't where the heightmap says the surface is"
         );
     }
 }

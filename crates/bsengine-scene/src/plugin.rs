@@ -687,7 +687,52 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
                     match ron::de::Deserializer::from_str(value_ron) {
                         Ok(mut deserializer) => {
                             match serde::de::DeserializeSeed::deserialize(de, &mut deserializer) {
-                                Ok(value) => {
+                                Ok(mut value) => {
+                                    // `Terrain.heightmap_path` is a plain `String`, not an
+                                    // `AssetRef` field like `gltf`/`script`/`texture`/`prefab`
+                                    // above -- so it never passes through
+                                    // `resolve_asset_ref`/`resolve_project_path`, and a scene
+                                    // authoring `Terrain` here with a project-relative path
+                                    // (the same convention every other asset-bearing field
+                                    // uses, e.g. `texture: Some("assets/textures/checker.png")`)
+                                    // would hand `generate_terrain_chunks` a path that only
+                                    // resolves correctly if the process's CWD happens to equal
+                                    // this project's own directory. `AssetServer::load` resolves
+                                    // against the process CWD (see `bsengine-asset`'s
+                                    // `AssetRoot` docs), not against `ProjectDir` -- every
+                                    // other loader gets there via a resolved field, and this is
+                                    // Terrain's. `terrain_write` (`bsengine-editor`) already
+                                    // does the same join before constructing a `Terrain`
+                                    // directly; this is the missing counterpart for one
+                                    // authored through a scene file's generic `components:`
+                                    // list, which no earlier task's tests exercised because
+                                    // they always built `Terrain` in code with an
+                                    // already-absolute test-fixture path.
+                                    // `value` is not necessarily a real `Terrain` at the
+                                    // concrete Rust type level -- `TypedReflectDeserializer`
+                                    // builds a `DynamicStruct` proxy for struct-shaped types
+                                    // (only true "value" kinds like `String`/`u32`/`Entity`
+                                    // deserialize into their own concrete type directly), so
+                                    // `value.downcast_mut::<Terrain>()` always misses. Reach the
+                                    // field through the `Struct` reflect API instead, the same
+                                    // way `bsengine-editor`'s `fixup_entity_fields` and
+                                    // `reflect_ui.rs` walk a `dyn Reflect` value generically.
+                                    if type_path.as_str()
+                                        == <crate::types::Terrain as bevy_reflect::TypePath>::type_path()
+                                    {
+                                        if let bevy_reflect::ReflectMut::Struct(s) =
+                                            value.reflect_mut()
+                                        {
+                                            if let Some(field) = s.field_mut("heightmap_path") {
+                                                if let Some(path) = field.downcast_mut::<String>() {
+                                                    *path = bsengine_core::resolve_project_path(
+                                                        project_dir.as_ref(),
+                                                        path,
+                                                    );
+                                                }
+                                            }
+                                        }
+                                    }
                                     reflect_component.apply_or_insert(
                                         &mut builder,
                                         value.as_ref(),
@@ -1791,6 +1836,67 @@ mod tests {
         let results: Vec<_> = q.iter(app.world()).collect();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].1.path, "models/hero.glb");
+    }
+
+    /// `Terrain.heightmap_path` is authored through the generic `components:`
+    /// list (it isn't one of `EntityDescriptor`'s own typed fields, unlike
+    /// `gltf`/`script`/`texture`), so it never passes through
+    /// `resolve_asset_ref` -- this is the counterpart of
+    /// `scene_plugin_gltf_path_resolves_against_project_dir` above, proving
+    /// the same join happens for `Terrain` via the `Struct` reflect API
+    /// instead. Regression coverage for the bug roadmap item 44's own demo
+    /// project (`games/terrain-demo`) surfaced: a scene-authored `Terrain`
+    /// with a project-relative `heightmap_path` (the same convention every
+    /// other asset-bearing field uses) loaded `AssetServer::load` against the
+    /// raw, unresolved string, which only happens to work if the process's
+    /// CWD is the project's own directory -- true under
+    /// `cargo run -p bsengine-runtime -- games/<name>` from the repo root,
+    /// false under `cargo test`.
+    #[test]
+    fn scene_plugin_terrain_heightmap_path_resolves_against_project_dir() {
+        let ron = r#"SceneDescriptor(entities: [
+            EntityDescriptor(name: "Ground", components: [
+                ("bsengine_scene::types::Terrain", "(heightmap_path: \"terrain/hills.png\", chunk_count: (1, 1), chunk_size: 10.0, height_scale: 1.0)"),
+            ]),
+        ])"#;
+        let path = write_temp_scene("test_terrain_project_dir.ron", ron);
+
+        let mut app = new_app();
+        app.register_type::<crate::types::Terrain>();
+        app.insert_resource(bsengine_core::ProjectDir("games/demo".to_string()));
+        app.add_plugins(ScenePlugin::from_file(&path));
+        app.update();
+
+        let mut q = app.world_mut().query::<(&Name, &crate::types::Terrain)>();
+        let results: Vec<_> = q.iter(app.world()).collect();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0 .0, "Ground");
+        assert_eq!(results[0].1.heightmap_path, "games/demo/terrain/hills.png");
+        // Every other field must survive untouched -- this join must not
+        // reach past the one field that actually names a filesystem path.
+        assert_eq!(results[0].1.chunk_count, (1, 1));
+        assert_eq!(results[0].1.chunk_size, 10.0);
+        assert_eq!(results[0].1.height_scale, 1.0);
+    }
+
+    #[test]
+    fn scene_plugin_terrain_heightmap_path_unchanged_without_project_dir() {
+        let ron = r#"SceneDescriptor(entities: [
+            EntityDescriptor(name: "Ground", components: [
+                ("bsengine_scene::types::Terrain", "(heightmap_path: \"terrain/hills.png\", chunk_count: (1, 1), chunk_size: 10.0, height_scale: 1.0)"),
+            ]),
+        ])"#;
+        let path = write_temp_scene("test_terrain_no_project_dir.ron", ron);
+
+        let mut app = new_app();
+        app.register_type::<crate::types::Terrain>();
+        app.add_plugins(ScenePlugin::from_file(&path));
+        app.update();
+
+        let mut q = app.world_mut().query::<(&Name, &crate::types::Terrain)>();
+        let results: Vec<_> = q.iter(app.world()).collect();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].1.heightmap_path, "terrain/hills.png");
     }
 
     // ---- resolution by identity (roadmap item 30, sub-item C) -------------

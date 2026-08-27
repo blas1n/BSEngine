@@ -813,6 +813,7 @@ dependencies = [
  "bevy_app",
  "bevy_asset",
  "bevy_ecs",
+ "bevy_reflect",
  "bsengine-asset",
  "bsengine-core",
  "bsengine-ecs",
@@ -827,8 +828,11 @@ dependencies = [
  "bsengine-scripting",
  "bsengine-window",
  "glam 0.29.3",
+ "image",
+ "pollster",
  "serde_json",
  "tracing",
+ "wgpu",
 ]
 
 [[package]]

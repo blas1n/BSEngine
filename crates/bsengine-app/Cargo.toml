@@ -21,6 +21,7 @@ bsengine-mcp.workspace = true
 bsengine-editor.workspace = true
 bsengine-scene.workspace = true
 bsengine-physics.workspace = true
+bsengine-asset.workspace = true
 glam.workspace = true
 # The particle emitter logs when it hits its per-emitter cap; a silently
 # truncated effect looks exactly like a broken one.
@@ -34,7 +35,6 @@ bsengine-window.workspace = true
 bsengine-rhi-wgpu.workspace = true
 bsengine-render.workspace = true
 bsengine-scene.workspace = true
-bsengine-asset.workspace = true
 bevy_asset.workspace = true
 bsengine-scripting.workspace = true
 bsengine-plugin.workspace = true

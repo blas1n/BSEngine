@@ -23,6 +23,9 @@ pub mod nav_mesh;
 pub mod particles;
 /// `ShieldPlugin`: recharges `Shield` components over time.
 pub mod shield;
+/// Pure heightmap-to-chunk-geometry algorithm for the terrain system (no
+/// ECS/GPU/physics types); a future task's ECS layer calls into this.
+pub mod terrain_chunking;
 /// `TimePlugin`: ticks the `Time` resource once per frame.
 pub mod time;
 /// `TimerPlugin`: ticks `Timer` components once per frame.

@@ -153,6 +153,30 @@ fn process_editor_commands(
                 let resolved = bsengine_core::resolve_project_path(project_dir.as_deref(), &path);
                 commands.spawn((Name(name), bsengine_gltf::GltfAsset::new(resolved)));
             }
+            EditorCommand::SpawnTerrain {
+                heightmap_path,
+                chunk_count,
+                chunk_size,
+                height_scale,
+            } => {
+                let resolved =
+                    bsengine_core::resolve_project_path(project_dir.as_deref(), &heightmap_path);
+                // `bsengine_scene::Terrain`, not `bsengine_app::terrain::Terrain`
+                // (though `bsengine-app`'s module re-exports the same type under
+                // that path): `bsengine-app` depends on `bsengine-editor`, so
+                // this crate cannot depend on `bsengine-app` without a cycle.
+                // See `bsengine_scene::Terrain`'s doc comment.
+                commands.spawn((
+                    bsengine_scene::Terrain {
+                        heightmap_path: resolved,
+                        chunk_count,
+                        chunk_size,
+                        height_scale,
+                    },
+                    Transform::default(),
+                    GlobalTransform::default(),
+                ));
+            }
             EditorCommand::Despawn { entity_id } => {
                 let target = params.p0().iter().find(|e| e.index() as u64 == entity_id);
                 if let Some(entity) = target {
@@ -2395,6 +2419,62 @@ impl Plugin for EditorPlugin {
                         .unwrap()
                         .push(crate::snapshot::PrefabApplyCommand { entity_id });
                     McpToolOutput::success(json!({ "status": "queued" }))
+                }),
+            });
+
+            // terrain_write
+            let queue_terrain = cmd_queue.clone();
+            mcp.0.lock().unwrap().register(McpTool {
+                name: "terrain_write".to_string(),
+                description: "Spawn a new terrain entity from a heightmap (applied next frame). \
+                    The existing terrain system loads the heightmap and spawns chunk children \
+                    (render mesh + heightfield collider) automatically."
+                    .to_string(),
+                input_schema: Some(json!({
+                    "type": "object",
+                    "properties": {
+                        "heightmap_path": { "type": "string", "description": "Path to the heightmap asset (16-bit grayscale PNG)" },
+                        "chunk_count": { "type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2, "description": "[chunks_x, chunks_z]" },
+                        "chunk_size": { "type": "number", "description": "World-space size of one chunk along each axis" },
+                        "height_scale": { "type": "number", "description": "Multiplier applied to the normalized heightmap sample" }
+                    },
+                    "required": ["heightmap_path", "chunk_count", "chunk_size", "height_scale"]
+                })),
+                handler: Box::new(move |input| {
+                    let heightmap_path = match input["heightmap_path"].as_str() {
+                        Some(p) => p.to_string(),
+                        None => return McpToolOutput::error("missing 'heightmap_path' field"),
+                    };
+                    let chunk_count = match input["chunk_count"].as_array() {
+                        Some(arr) if arr.len() == 2 => {
+                            match (arr[0].as_u64(), arr[1].as_u64()) {
+                                (Some(x), Some(z)) => (x as u32, z as u32),
+                                _ => return McpToolOutput::error(
+                                    "'chunk_count' must be an array of 2 integers",
+                                ),
+                            }
+                        }
+                        _ => return McpToolOutput::error(
+                            "'chunk_count' must be an array of 2 integers",
+                        ),
+                    };
+                    let chunk_size = match input["chunk_size"].as_f64() {
+                        Some(v) => v as f32,
+                        None => return McpToolOutput::error("missing numeric 'chunk_size' field"),
+                    };
+                    let height_scale = match input["height_scale"].as_f64() {
+                        Some(v) => v as f32,
+                        None => {
+                            return McpToolOutput::error("missing numeric 'height_scale' field")
+                        }
+                    };
+                    queue_terrain.lock().unwrap().push(EditorCommand::SpawnTerrain {
+                        heightmap_path,
+                        chunk_count,
+                        chunk_size,
+                        height_scale,
+                    });
+                    McpToolOutput::success(json!({"status": "queued"}))
                 }),
             });
 
@@ -31112,6 +31192,51 @@ mod tests {
             }
             other => panic!("expected Sphere shape, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn mcp_terrain_write_spawns_a_terrain_entity_with_the_given_params() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "terrain_write",
+                    json!({
+                        "heightmap_path": "assets/terrain/test_heightmap.png",
+                        "chunk_count": [2, 2],
+                        "chunk_size": 32.0,
+                        "height_scale": 20.0,
+                    }),
+                )
+                .expect("terrain_write not registered");
+            assert!(out.is_ok(), "terrain_write failed: {:?}", out.error);
+        }
+        app.update();
+
+        // terrain_write spawns a brand-new entity (unlike attach_physics_body,
+        // which attaches to a caller-supplied id), and the command-queue
+        // pattern every other MCP spawn tool uses (spawn_point_light,
+        // attach_physics_body, ...) is fire-and-forget with no synchronous id
+        // returned in the response -- so the spawned entity is found by
+        // querying for its Terrain component, mirroring
+        // `spawn_mesh_asset_command_spawns_entity_with_name_and_gltf_asset`.
+        let mut query = app.world_mut().query::<&bsengine_app::terrain::Terrain>();
+        let terrain = query
+            .iter(app.world())
+            .next()
+            .expect("expected one entity with a Terrain component");
+        assert_eq!(terrain.heightmap_path, "assets/terrain/test_heightmap.png");
+        assert_eq!(terrain.chunk_count, (2, 2));
+        assert!((terrain.chunk_size - 32.0).abs() < 1e-5);
+        assert!((terrain.height_scale - 20.0).abs() < 1e-5);
     }
 
     #[test]

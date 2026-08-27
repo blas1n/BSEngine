@@ -9,8 +9,6 @@
 //! problem for glTF meshes.
 
 use bevy_app::{App, Plugin, Update};
-use bevy_ecs::prelude::ReflectComponent;
-use bevy_reflect::Reflect;
 use bsengine_asset::{AssetServer, Assets, HeightmapAsset, Polled};
 use bsengine_core::{GlobalTransform, Transform};
 use bsengine_ecs::{Commands, Component, Entity, Query, Res, ResMut, Without};
@@ -20,24 +18,19 @@ use bsengine_rhi_wgpu::GpuMeshRegistry;
 use glam::{Quat, Vec3};
 use tracing::warn;
 
-/// A chunked terrain surface: a heightmap divided into `chunk_count.0 *
-/// chunk_count.1` chunks, each rendered and collided independently (both are
-/// chunked, not just rendering, because a single engine-wide Rapier
-/// heightfield the size of a whole terrain would make every part of it pay
-/// for a broad-phase query against the whole grid).
-#[derive(Component, Reflect, Clone, Debug)]
-#[reflect(Component)]
-pub struct Terrain {
-    /// Path to the [`HeightmapAsset`] (a 16-bit grayscale PNG) this terrain
-    /// samples.
-    pub heightmap_path: String,
-    /// Number of chunks along (x, z).
-    pub chunk_count: (u32, u32),
-    /// World-space size of one chunk along each axis (chunks are square).
-    pub chunk_size: f32,
-    /// Multiplier applied to the normalized heightmap sample.
-    pub height_scale: f32,
-}
+/// Re-exported from `bsengine-scene` rather than defined here: `Terrain`'s
+/// fields are plain, RON-serializable data with no runtime-only handles (the
+/// same shape as `PhysicsBodyDesc`/`PrimitiveMesh`, which live in
+/// `bsengine-scene` for the identical reason), and `bsengine-editor`'s
+/// `terrain_write` MCP tool needs to construct one directly. `bsengine-app`
+/// depends on `bsengine-editor`, so defining `Terrain` here would put it out
+/// of `bsengine-editor`'s reach without a dependency cycle. See
+/// `bsengine_scene::Terrain`'s doc comment for the full rationale. This
+/// module keeps `TerrainPlugin`/`generate_terrain_chunks` -- the systems that
+/// actually act on the component -- since those depend on
+/// `bsengine-asset`/`bsengine-physics`/`bsengine-rhi-wgpu`, which
+/// `bsengine-scene` does not.
+pub use bsengine_scene::Terrain;
 
 /// Tracks a `Terrain`'s in-flight heightmap load, the same way `PendingGltf`
 /// tracks a `GltfAsset`'s load in `bsengine-gltf`. A separate,

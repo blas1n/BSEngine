@@ -478,6 +478,35 @@ pub struct PendingSceneLoad {
     pub path: String,
 }
 
+/// A chunked terrain surface: a heightmap divided into `chunk_count.0 *
+/// chunk_count.1` chunks, each rendered and collided independently (both are
+/// chunked, not just rendering, because a single engine-wide Rapier
+/// heightfield the size of a whole terrain would make every part of it pay
+/// for a broad-phase query against the whole grid).
+///
+/// Defined here rather than in `bsengine-app` (where
+/// `TerrainPlugin`/`generate_terrain_chunks` -- the systems that actually act
+/// on this component -- live) for the same reason `PhysicsBodyDesc` and
+/// `PrimitiveMesh` are: `bsengine-app` depends on `bsengine-editor`, so
+/// `bsengine-editor`'s `terrain_write` MCP tool (which needs to construct one
+/// of these directly, not just reference it by reflected type path) cannot
+/// depend on `bsengine-app` without a cycle. `bsengine-app::terrain`
+/// re-exports this type, so `bsengine_app::terrain::Terrain` still resolves
+/// to the same type this is.
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component)]
+pub struct Terrain {
+    /// Path to the heightmap asset (a 16-bit grayscale PNG) this terrain
+    /// samples.
+    pub heightmap_path: String,
+    /// Number of chunks along (x, z).
+    pub chunk_count: (u32, u32),
+    /// World-space size of one chunk along each axis (chunks are square).
+    pub chunk_size: f32,
+    /// Multiplier applied to the normalized heightmap sample.
+    pub height_scale: f32,
+}
+
 fn default_rotation() -> [f32; 4] {
     [0.0, 0.0, 0.0, 1.0]
 }

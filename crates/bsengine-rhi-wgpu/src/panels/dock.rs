@@ -273,7 +273,12 @@ mod tests {
             surface.queue_arc(),
             history.clone(),
         );
-        ensure_builtin_panels(&registry, surface.device_arc(), surface.queue_arc(), history);
+        ensure_builtin_panels(
+            &registry,
+            surface.device_arc(),
+            surface.queue_arc(),
+            history,
+        );
         let map = registry.0.lock().unwrap();
         assert_eq!(map.len(), 5);
         assert!(map.contains_key("profiler"));

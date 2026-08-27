@@ -914,7 +914,12 @@ impl WgpuSurface {
             .await
             .map_err(|e| format!("Device request failed: {e}"))?;
 
-        Ok((adapter, Arc::new(device), Arc::new(queue), timestamp_supported))
+        Ok((
+            adapter,
+            Arc::new(device),
+            Arc::new(queue),
+            timestamp_supported,
+        ))
     }
 
     /// A bare device/queue pair with no surface, texture, or pipeline setup
@@ -1962,8 +1967,7 @@ impl WgpuSurface {
                 .map(|(i, name)| {
                     let begin = ticks[i * 2];
                     let end = ticks[i * 2 + 1];
-                    let duration_ms =
-                        end.saturating_sub(begin) as f32 * period / 1_000_000.0;
+                    let duration_ms = end.saturating_sub(begin) as f32 * period / 1_000_000.0;
                     crate::profiler::PassTiming {
                         name: (*name).to_string(),
                         duration_ms,

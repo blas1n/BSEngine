@@ -443,8 +443,9 @@ struct VertOut {{
     /// Shared handle to the rolling frame-stats history.
     pub fn frame_stats_history(
         &self,
-    ) -> std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<bsengine_rhi_wgpu::profiler::FrameStats>>>
-    {
+    ) -> std::sync::Arc<
+        std::sync::Mutex<std::collections::VecDeque<bsengine_rhi_wgpu::profiler::FrameStats>>,
+    > {
         self.surface.frame_stats_history()
     }
 }

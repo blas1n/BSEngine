@@ -67,7 +67,10 @@ impl EditorPanel for ProfilerPanel {
         }
 
         ui.separator();
-        ui.label(format!("CPU frame time: {:.2} ms", latest.cpu_frame_time_ms));
+        ui.label(format!(
+            "CPU frame time: {:.2} ms",
+            latest.cpu_frame_time_ms
+        ));
         ui.label(format!(
             "Draw calls: {}   Triangles: {}",
             latest.draw_calls, latest.triangles

@@ -546,6 +546,9 @@ mod tests {
     fn run_query_get_frame_stats_errors_when_no_renderer_is_attached() {
         let mut world = World::new();
         let err = run_query(&mut world, "get_frame_stats", &json!({})).unwrap_err();
-        assert!(err.contains("no renderer attached"), "unhelpful error: {err}");
+        assert!(
+            err.contains("no renderer attached"),
+            "unhelpful error: {err}"
+        );
     }
 }

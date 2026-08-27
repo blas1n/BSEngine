@@ -13,6 +13,7 @@ bsengine-core.workspace = true
 bsengine-ecs.workspace = true
 bevy_app.workspace = true
 bevy_ecs.workspace = true
+bevy_reflect.workspace = true
 bsengine-window.workspace = true
 bsengine-input.workspace = true
 bsengine-rhi-wgpu.workspace = true
@@ -40,3 +41,11 @@ bsengine-scripting.workspace = true
 bsengine-plugin.workspace = true
 bsengine-mcp.workspace = true
 serde_json.workspace = true
+# Encodes the 16-bit grayscale PNG heightmap fixture terrain.rs's tests build
+# at test time, mirroring bsengine-asset's own test-time PNG fixtures.
+image.workspace = true
+# terrain.rs's tests build a real headless GpuMeshRegistry (mirroring
+# bsengine-gltf's insert_headless_gpu_registries), since WgpuRHIPlugin only
+# builds one once a window exists.
+wgpu.workspace = true
+pollster.workspace = true

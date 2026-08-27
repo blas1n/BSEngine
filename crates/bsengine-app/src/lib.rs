@@ -23,8 +23,11 @@ pub mod nav_mesh;
 pub mod particles;
 /// `ShieldPlugin`: recharges `Shield` components over time.
 pub mod shield;
+/// `TerrainPlugin`: loads a `Terrain`'s heightmap and spawns its chunk
+/// entities (render mesh + Rapier heightfield collider).
+pub mod terrain;
 /// Pure heightmap-to-chunk-geometry algorithm for the terrain system (no
-/// ECS/GPU/physics types); a future task's ECS layer calls into this.
+/// ECS/GPU/physics types); `terrain`'s ECS layer calls into this.
 pub mod terrain_chunking;
 /// `TimePlugin`: ticks the `Time` resource once per frame.
 pub mod time;
@@ -41,6 +44,7 @@ pub use lifetime::LifetimePlugin;
 pub use nav_mesh::NavMeshPlugin;
 pub use particles::ParticlePlugin;
 pub use shield::ShieldPlugin;
+pub use terrain::TerrainPlugin;
 pub use time::TimePlugin;
 pub use timer::TimerPlugin;
 pub use tween::TweenPlugin;

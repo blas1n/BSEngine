@@ -192,6 +192,34 @@ pub fn screenshot(world: &mut World) -> Result<Value, String> {
     }))
 }
 
+/// Returns the most recently completed frame's profiling data (CPU/GPU
+/// timing, draw calls, triangles, texture memory) as reported by
+/// `WgpuSurface`'s rolling frame-stats history. Errors when no renderer is
+/// attached, or when no frame has rendered yet (an empty history -- shouldn't
+/// happen once the test app has rendered at least one frame, but turns a
+/// would-be `unwrap` panic into a clean error).
+pub fn get_frame_stats(world: &mut World) -> Result<Value, String> {
+    let surface = world.get_resource::<WgpuSurfaceResource>().ok_or_else(|| {
+        "no renderer attached: get_frame_stats needs a WgpuSurfaceResource".to_string()
+    })?;
+    let stats = surface
+        .0
+        .latest_frame_stats()
+        .ok_or_else(|| "no frame has rendered yet".to_string())?;
+    Ok(json!({
+        "cpu_frame_time_ms": stats.cpu_frame_time_ms,
+        "gpu_timestamps_supported": stats.gpu_timestamps_supported,
+        "gpu_pass_times_ms": stats.gpu_pass_times_ms.iter().map(|p| json!({
+            "name": p.name,
+            "duration_ms": p.duration_ms,
+        })).collect::<Vec<_>>(),
+        "draw_calls": stats.draw_calls,
+        "triangles": stats.triangles,
+        "texture_memory_bytes": stats.texture_memory_bytes,
+        "texture_count": stats.texture_count,
+    }))
+}
+
 pub fn run_query(world: &mut World, tool: &str, args: &Value) -> Result<Value, String> {
     match tool {
         "get_transform" => {
@@ -238,6 +266,7 @@ pub fn run_query(world: &mut World, tool: &str, args: &Value) -> Result<Value, S
             get_pixel(world, x, y)
         }
         "screenshot" => screenshot(world),
+        "get_frame_stats" => get_frame_stats(world),
         other => Err(format!("unknown query tool: {other}")),
     }
 }
@@ -491,5 +520,32 @@ mod tests {
         let mut world = World::new();
         let err = run_query(&mut world, "screenshot", &json!({})).unwrap_err();
         assert!(err.contains("renderer"), "unhelpful error: {err}");
+    }
+
+    // Unlike `get_transform`/`get_hud_text`/etc., a `WgpuSurfaceResource` with
+    // an actually-rendered frame can't be hand-built from a bare `World` --
+    // it needs the real `WgpuRHIPlugin`/`RenderPlugin` stack. Mirrors
+    // `test_mode`'s own `get_pixel_reads_the_last_rendered_frame`/
+    // `screenshot_returns_a_decodable_png` tests: build the real headless app
+    // via `build_test_app` and step it once so `WgpuSurface::render_frame`
+    // has actually run before `latest_frame_stats()` is asked for anything.
+    #[test]
+    fn run_query_dispatches_get_frame_stats() {
+        let project_dir = format!("{}/../../games/cube-evader", env!("CARGO_MANIFEST_DIR"));
+        let mut app = crate::test_mode::build_test_app(&project_dir, None, false);
+        app.update();
+
+        let result = run_query(app.world_mut(), "get_frame_stats", &json!({}))
+            .expect("get_frame_stats should succeed once RenderPlugin has drawn a frame");
+        assert!(result.get("cpu_frame_time_ms").is_some());
+        assert!(result.get("draw_calls").is_some());
+        assert!(result.get("texture_memory_bytes").is_some());
+    }
+
+    #[test]
+    fn run_query_get_frame_stats_errors_when_no_renderer_is_attached() {
+        let mut world = World::new();
+        let err = run_query(&mut world, "get_frame_stats", &json!({})).unwrap_err();
+        assert!(err.contains("no renderer attached"), "unhelpful error: {err}");
     }
 }

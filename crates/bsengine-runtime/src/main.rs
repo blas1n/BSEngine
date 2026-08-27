@@ -2,7 +2,7 @@ use std::env;
 
 use bsengine_app::{
     new_app, AnimationPlugin, AnimationStateMachinePlugin, LifetimePlugin, NavMeshPlugin,
-    ParticlePlugin, TimePlugin,
+    ParticlePlugin, TerrainPlugin, TimePlugin,
 };
 use bsengine_asset::{AssetIdentityPlugin, AssetPlugin, AssetStatusPlugin, AssetWatcherPlugin};
 use bsengine_audio::AudioPlugin;
@@ -198,6 +198,16 @@ fn run_windowed(project_dir: &str) {
         // never despawned anything in a running game.
         .add_plugins(LifetimePlugin)
         .add_plugins(ParticlePlugin)
+        // Loads each scene-authored `Terrain`'s heightmap and spawns its chunk
+        // entities (render mesh + Rapier heightfield collider). Was missing
+        // from this list entirely until roadmap item 44's demo project needed
+        // it -- `Terrain`/`TerrainPlugin` existed and were unit-tested
+        // (`bsengine-app`'s own test suite, and `bsengine-editor`'s
+        // `terrain_write`/"Create Terrain" spawn paths), but nothing had ever
+        // added `TerrainPlugin` to the actual windowed runtime's plugin list,
+        // so a `Terrain` entity in a real game would sit in the scene file
+        // and never grow chunks -- the whole system was inert in production.
+        .add_plugins(TerrainPlugin)
         .add_plugins(ScenePlugin::from_file(&scene_path))
         .add_plugins(ScriptingPlugin {
             project_dir: project_dir.to_string(),

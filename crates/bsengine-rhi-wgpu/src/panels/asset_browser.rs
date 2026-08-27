@@ -198,6 +198,16 @@ pub struct AssetBrowserPanel {
     /// whether it actually started a watcher). Distinct from
     /// `watcher.is_some()` so a failed attempt is not retried every frame.
     watcher_start_attempted: bool,
+    /// The editor's live wgpu device/queue, for rendering mesh thumbnails.
+    /// `None` when this panel was built via `Default` (every test in this
+    /// file) -- a `Mesh` tile drawn on a `None`-device panel falls back to
+    /// the fixed cube icon, same as a corrupt texture already does today.
+    gpu: Option<(std::sync::Arc<wgpu::Device>, std::sync::Arc<wgpu::Queue>)>,
+    /// In-memory cache of rendered mesh-thumbnail `egui::TextureHandle`s,
+    /// keyed by asset path. Separate from `thumbnail_cache` (textures) --
+    /// the two are never keyed by the same path, but keeping them as
+    /// distinct maps avoids ever having to disambiguate a key's meaning.
+    mesh_thumbnail_cache: std::collections::HashMap<PathBuf, egui::TextureHandle>,
 }
 
 impl Default for AssetBrowserPanel {
@@ -214,6 +224,22 @@ impl Default for AssetBrowserPanel {
             cache_root: PathBuf::from(".bsengine_cache/thumbnails"),
             watcher: None,
             watcher_start_attempted: false,
+            gpu: None,
+            mesh_thumbnail_cache: std::collections::HashMap::new(),
+        }
+    }
+}
+
+impl AssetBrowserPanel {
+    /// Builds a panel with a live GPU device/queue, so `Mesh` tiles can be
+    /// rendered as real thumbnails. Used at the one production call site
+    /// (`dock.rs::ensure_builtin_panels`); every test in this file still
+    /// uses `Default::default()`, which leaves `gpu: None` and falls back
+    /// to the fixed cube icon for `Mesh` tiles.
+    pub fn new(device: std::sync::Arc<wgpu::Device>, queue: std::sync::Arc<wgpu::Queue>) -> Self {
+        Self {
+            gpu: Some((device, queue)),
+            ..Default::default()
         }
     }
 }
@@ -515,6 +541,51 @@ impl AssetBrowserPanel {
         Some(handle)
     }
 
+    /// Loads and renders `path` to a `THUMBNAIL_SIZE`x`THUMBNAIL_SIZE`
+    /// `egui::TextureHandle`, the mesh-thumbnail equivalent of
+    /// `thumbnail_for`. Caches in-memory (`mesh_thumbnail_cache`) and on
+    /// disk (`disk_cache_path`/`read_disk_cache`/`write_disk_cache` -- the
+    /// same three functions the texture thumbnail cache already uses;
+    /// `disk_cache_path` hashes the source path regardless of whether it's
+    /// an image or a mesh, so no changes are needed there). Returns `None`
+    /// if there's no live GPU device (every test), the file fails to parse,
+    /// or a disk-cache read/write fails -- the tile falls back to the fixed
+    /// cube icon in all of those cases.
+    fn mesh_thumbnail_for(
+        &mut self,
+        ctx: &egui::Context,
+        path: &Path,
+    ) -> Option<egui::TextureHandle> {
+        if let Some(handle) = self.mesh_thumbnail_cache.get(path) {
+            return Some(handle.clone());
+        }
+        let (device, queue) = self.gpu.as_ref()?;
+
+        let cache_path = self.disk_cache_path(path);
+        let thumb = cache_path
+            .as_deref()
+            .and_then(read_disk_cache)
+            .or_else(|| {
+                let mesh = crate::mesh_thumbnail::load_thumbnail_mesh(path)?;
+                let thumb = crate::mesh_thumbnail::render_thumbnail(device, queue, &mesh);
+                if let Some(cache_path) = &cache_path {
+                    write_disk_cache(cache_path, &thumb);
+                }
+                Some(thumb)
+            })?;
+
+        let size = [thumb.width() as usize, thumb.height() as usize];
+        let color_image = egui::ColorImage::from_rgba_unmultiplied(size, thumb.as_raw());
+        let handle = ctx.load_texture(
+            path.to_string_lossy().to_string(),
+            color_image,
+            egui::TextureOptions::default(),
+        );
+        self.mesh_thumbnail_cache
+            .insert(path.to_path_buf(), handle.clone());
+        Some(handle)
+    }
+
     /// Fixed per-kind icon shown on a tile. Texture tiles get a real
     /// decoded-image thumbnail via `thumbnail_for`; other kinds always show
     /// this fixed icon, and Texture falls back to it when decoding fails.
@@ -543,15 +614,20 @@ impl AssetBrowserPanel {
     ) {
         ui.vertical(|ui| {
             ui.set_width(64.0);
-            let response = if entry.kind == AssetKind::Texture {
-                match self.thumbnail_for(ui.ctx(), &entry.path) {
+            let response = match entry.kind {
+                AssetKind::Texture => match self.thumbnail_for(ui.ctx(), &entry.path) {
                     Some(handle) => ui.add(egui::ImageButton::new(
                         egui::Image::new(&handle).fit_to_exact_size(egui::vec2(48.0, 48.0)),
                     )),
                     None => ui.button(Self::icon_for_kind(entry.kind)),
-                }
-            } else {
-                ui.button(Self::icon_for_kind(entry.kind))
+                },
+                AssetKind::Mesh => match self.mesh_thumbnail_for(ui.ctx(), &entry.path) {
+                    Some(handle) => ui.add(egui::ImageButton::new(
+                        egui::Image::new(&handle).fit_to_exact_size(egui::vec2(48.0, 48.0)),
+                    )),
+                    None => ui.button(Self::icon_for_kind(entry.kind)),
+                },
+                _ => ui.button(Self::icon_for_kind(entry.kind)),
             };
             ui.label(&entry.name);
 
@@ -1025,6 +1101,72 @@ mod tests {
         assert!(
             panel.tree_cache.is_empty(),
             "a watched change must clear tree_cache the same way the Refresh button does"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn mesh_thumbnail_for_writes_a_disk_cache_file_and_a_hit_does_not_overwrite_it() {
+        let fox_path = std::path::PathBuf::from(format!(
+            "{}/../../games/mini-arena/assets/models/fox.glb",
+            env!("CARGO_MANIFEST_DIR")
+        ));
+        let tmp = std::env::temp_dir().join("bse_mesh_thumb_panel_test");
+        let _ = std::fs::remove_dir_all(&tmp);
+        let cache_root = tmp.join("cache");
+
+        let surface = pollster::block_on(crate::surface::WgpuSurface::new_offscreen(16, 16, false))
+            .expect("these tests need an adapter; a skip here would look like a pass");
+        let ctx = egui::Context::default();
+
+        let mut first = AssetBrowserPanel {
+            gpu: Some((surface.device_arc(), surface.queue_arc())),
+            cache_root: cache_root.clone(),
+            ..Default::default()
+        };
+        assert!(
+            first.mesh_thumbnail_for(&ctx, &fox_path).is_some(),
+            "a real mesh with a live device should render successfully"
+        );
+
+        let entries: Vec<_> = std::fs::read_dir(&cache_root)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .collect();
+        assert_eq!(
+            entries.len(),
+            1,
+            "expected exactly one cached mesh-thumbnail file, got {entries:?}"
+        );
+        let cache_file_path = entries[0].path();
+
+        // Overwrite the disk cache directly with a distinguishable marker
+        // *image* (must be a validly-decodable PNG -- read_disk_cache
+        // round-trips through `image::open`, so raw non-image bytes here
+        // would just look like a corrupted cache and legitimately trigger a
+        // fallback re-render, not prove anything about the hit path),
+        // without touching the source mesh -- same mtime means the second
+        // panel's lookup finds this exact cache filename again. Mirrors the
+        // texture thumbnail's own
+        // `a_disk_cache_hit_is_not_overwritten_by_a_fresh_decode` test.
+        write_solid_test_png(&cache_file_path, [250, 250, 250, 255]);
+        let marker_bytes = std::fs::read(&cache_file_path).unwrap();
+
+        let mut second = AssetBrowserPanel {
+            gpu: Some((surface.device_arc(), surface.queue_arc())),
+            cache_root: cache_root.clone(),
+            ..Default::default()
+        };
+        assert!(
+            second.mesh_thumbnail_for(&ctx, &fox_path).is_some(),
+            "a second panel (simulating an editor restart) should still succeed"
+        );
+        let bytes_after_second_lookup = std::fs::read(&cache_file_path).unwrap();
+        assert_eq!(
+            bytes_after_second_lookup, marker_bytes,
+            "a disk-cache hit must not re-render the mesh and overwrite the cache file -- if it \
+             had, these bytes would be a freshly-rendered PNG instead of the untouched marker"
         );
 
         let _ = std::fs::remove_dir_all(&tmp);

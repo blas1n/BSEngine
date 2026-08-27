@@ -2505,7 +2505,11 @@ impl WgpuSurface {
                         }
 
                         if let Some(registry) = editor_panels {
-                            crate::panels::ensure_builtin_panels(registry);
+                            crate::panels::ensure_builtin_panels(
+                                registry,
+                                self.device.clone(),
+                                self.queue.clone(),
+                            );
                             let mut dock_state = self.dock_state.take().unwrap_or_else(|| {
                                 crate::panels::load_dock_state(&crate::panels::layout_path())
                                     .unwrap_or_else(crate::panels::default_dock_state)

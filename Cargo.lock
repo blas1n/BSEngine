@@ -1076,6 +1076,7 @@ dependencies = [
 name = "bsengine-rhi-wgpu"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "bevy_app",
  "bevy_ecs",
  "bevy_reflect",
@@ -1093,6 +1094,7 @@ dependencies = [
  "egui-wgpu",
  "egui_dock",
  "glam 0.29.3",
+ "gltf",
  "image",
  "notify-debouncer-full",
  "pollster",

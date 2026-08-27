@@ -41,7 +41,11 @@ pub fn default_dock_state() -> DockState<String> {
 
 /// Idempotently registers the four built-in panels if they aren't already
 /// present (e.g. from a previous frame, or pre-registered by app code).
-pub fn ensure_builtin_panels(registry: &EditorPanelRegistry) {
+pub fn ensure_builtin_panels(
+    registry: &EditorPanelRegistry,
+    device: std::sync::Arc<wgpu::Device>,
+    queue: std::sync::Arc<wgpu::Queue>,
+) {
     let mut map = registry.0.lock().unwrap();
     map.entry("hierarchy".to_string())
         .or_insert_with(|| Box::new(crate::panels::HierarchyPanel) as Box<dyn EditorPanel>);
@@ -51,7 +55,7 @@ pub fn ensure_builtin_panels(registry: &EditorPanelRegistry) {
         Box::new(crate::panels::ViewportPanel::default()) as Box<dyn EditorPanel>
     });
     map.entry("assets".to_string()).or_insert_with(|| {
-        Box::new(crate::panels::AssetBrowserPanel::default()) as Box<dyn EditorPanel>
+        Box::new(crate::panels::AssetBrowserPanel::new(device, queue)) as Box<dyn EditorPanel>
     });
 }
 
@@ -245,8 +249,10 @@ mod tests {
     #[test]
     fn ensure_builtin_panels_registers_four_panels() {
         let registry = EditorPanelRegistry::default();
-        ensure_builtin_panels(&registry);
-        ensure_builtin_panels(&registry);
+        let surface = pollster::block_on(crate::surface::WgpuSurface::new_offscreen(16, 16, false))
+            .expect("these tests need an adapter; a skip here would look like a pass");
+        ensure_builtin_panels(&registry, surface.device_arc(), surface.queue_arc());
+        ensure_builtin_panels(&registry, surface.device_arc(), surface.queue_arc());
         assert_eq!(registry.0.lock().unwrap().len(), 4);
     }
 }

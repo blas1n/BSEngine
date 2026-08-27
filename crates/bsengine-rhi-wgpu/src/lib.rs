@@ -17,6 +17,9 @@
 pub mod gizmo;
 /// GPU mesh generation and the mesh registry.
 pub mod mesh;
+/// Minimal glTF parsing + a small dedicated render pipeline for the Asset
+/// Browser's mesh thumbnails.
+pub mod mesh_thumbnail;
 /// Where a rendered frame goes (window swapchain or offscreen texture) and how
 /// to read it back.
 mod output;

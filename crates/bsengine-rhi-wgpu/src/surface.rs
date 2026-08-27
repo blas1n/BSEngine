@@ -567,7 +567,7 @@ struct SkyboxState {
     uniform_buffer: wgpu::Buffer,
     uniform_bg: wgpu::BindGroup,
     texture_bg: wgpu::BindGroup,
-    _texture: wgpu::Texture,
+    _texture: crate::profiler::TrackedTexture,
     _sampler: wgpu::Sampler,
 }
 
@@ -669,7 +669,7 @@ pub struct WgpuSurface {
     pipeline: wgpu::RenderPipeline,
     transparent_pipeline: wgpu::RenderPipeline,
     particles: crate::particles::ParticleRenderer,
-    depth_texture: wgpu::Texture,
+    depth_texture: crate::profiler::TrackedTexture,
     depth_view: wgpu::TextureView,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
@@ -677,16 +677,16 @@ pub struct WgpuSurface {
     model_bind_group: wgpu::BindGroup,
     light_buffer: wgpu::Buffer,
     light_bind_group: wgpu::BindGroup,
-    _white_texture: wgpu::Texture,
+    _white_texture: crate::profiler::TrackedTexture,
     _sampler: wgpu::Sampler,
     default_texture_bind_group: wgpu::BindGroup,
     shadow_pipeline: wgpu::RenderPipeline,
-    _shadow_map_texture: wgpu::Texture,
+    _shadow_map_texture: crate::profiler::TrackedTexture,
     shadow_map_view: wgpu::TextureView,
     _shadow_comparison_sampler: wgpu::Sampler,
     point_shadow_pipeline: wgpu::RenderPipeline,
-    _point_shadow_color_texture: wgpu::Texture,
-    _point_shadow_depth_texture: wgpu::Texture,
+    _point_shadow_color_texture: crate::profiler::TrackedTexture,
+    _point_shadow_depth_texture: crate::profiler::TrackedTexture,
     point_shadow_depth_view: wgpu::TextureView,
     _point_shadow_sampler: wgpu::Sampler,
     point_shadow_uniform_buffer: wgpu::Buffer,
@@ -1026,20 +1026,24 @@ impl WgpuSurface {
             Self::create_default_texture(&device, &queue);
 
         // --- shadow map ---
-        let shadow_map_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("shadow map"),
-            size: wgpu::Extent3d {
-                width: SHADOW_MAP_SIZE,
-                height: SHADOW_MAP_SIZE,
-                depth_or_array_layers: 1,
+        let shadow_map_texture = crate::profiler::create_tracked_texture(
+            &device,
+            &wgpu::TextureDescriptor {
+                label: Some("shadow map"),
+                size: wgpu::Extent3d {
+                    width: SHADOW_MAP_SIZE,
+                    height: SHADOW_MAP_SIZE,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: DEPTH_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
             },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: DEPTH_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
+        );
         let shadow_map_view =
             shadow_map_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -1054,20 +1058,24 @@ impl WgpuSurface {
         });
 
         // --- point light shadow maps (linear-distance cube arrays) ---
-        let point_shadow_color_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("point shadow color array"),
-            size: wgpu::Extent3d {
-                width: POINT_SHADOW_MAP_SIZE,
-                height: POINT_SHADOW_MAP_SIZE,
-                depth_or_array_layers: (MAX_POINT_LIGHTS * 6) as u32,
+        let point_shadow_color_texture = crate::profiler::create_tracked_texture(
+            &device,
+            &wgpu::TextureDescriptor {
+                label: Some("point shadow color array"),
+                size: wgpu::Extent3d {
+                    width: POINT_SHADOW_MAP_SIZE,
+                    height: POINT_SHADOW_MAP_SIZE,
+                    depth_or_array_layers: (MAX_POINT_LIGHTS * 6) as u32,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::R32Float,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
             },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R32Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
+        );
         let point_shadow_color_full_view =
             point_shadow_color_texture.create_view(&wgpu::TextureViewDescriptor {
                 label: Some("point shadow color array view (full)"),
@@ -1075,20 +1083,23 @@ impl WgpuSurface {
                 ..Default::default()
             });
 
-        let point_shadow_depth_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("point shadow depth"),
-            size: wgpu::Extent3d {
-                width: POINT_SHADOW_MAP_SIZE,
-                height: POINT_SHADOW_MAP_SIZE,
-                depth_or_array_layers: 1,
+        let point_shadow_depth_texture = crate::profiler::create_tracked_texture(
+            &device,
+            &wgpu::TextureDescriptor {
+                label: Some("point shadow depth"),
+                size: wgpu::Extent3d {
+                    width: POINT_SHADOW_MAP_SIZE,
+                    height: POINT_SHADOW_MAP_SIZE,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: DEPTH_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
             },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: DEPTH_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
+        );
         let point_shadow_depth_view =
             point_shadow_depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -1438,21 +1449,25 @@ impl WgpuSurface {
         device: &wgpu::Device,
         width: u32,
         height: u32,
-    ) -> (wgpu::Texture, wgpu::TextureView) {
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("depth texture"),
-            size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
+    ) -> (crate::profiler::TrackedTexture, wgpu::TextureView) {
+        let texture = crate::profiler::create_tracked_texture(
+            device,
+            &wgpu::TextureDescriptor {
+                label: Some("depth texture"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: DEPTH_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
             },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: DEPTH_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
+        );
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         (texture, view)
     }
@@ -1461,25 +1476,28 @@ impl WgpuSurface {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> (
-        wgpu::Texture,
+        crate::profiler::TrackedTexture,
         wgpu::Sampler,
         wgpu::BindGroupLayout,
         wgpu::BindGroup,
     ) {
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("white texture"),
-            size: wgpu::Extent3d {
-                width: 1,
-                height: 1,
-                depth_or_array_layers: 1,
+        let texture = crate::profiler::create_tracked_texture(
+            device,
+            &wgpu::TextureDescriptor {
+                label: Some("white texture"),
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
             },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
+        );
         queue.write_texture(
             texture.as_image_copy(),
             &[255u8, 255, 255, 255],
@@ -1544,20 +1562,23 @@ impl WgpuSurface {
     /// Uploads already-decoded RGBA8 pixel data as the active skybox
     /// texture, rebuilding the sampler/bind groups/pipeline around it.
     pub fn set_skybox_from_rgba(&mut self, width: u32, height: u32, rgba: &[u8]) {
-        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("skybox texture"),
-            size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
+        let texture = crate::profiler::create_tracked_texture(
+            &self.device,
+            &wgpu::TextureDescriptor {
+                label: Some("skybox texture"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
             },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
+        );
         self.queue.write_texture(
             texture.as_image_copy(),
             rgba,

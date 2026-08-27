@@ -6,6 +6,9 @@ pub mod dock;
 pub mod hierarchy;
 /// The Inspector panel: displays and edits the selected entity's components.
 pub mod inspector;
+/// The Profiler panel: frame timing, per-pass GPU cost, and draw-call/
+/// triangle/texture-memory stats.
+pub mod profiler;
 /// Generic egui widgets for editing `bevy_reflect`-reflected component fields.
 pub mod reflect_ui;
 /// The Viewport panel: renders the 3D scene plus gizmo overlays.
@@ -18,5 +21,6 @@ pub use dock::{
 };
 pub use hierarchy::HierarchyPanel;
 pub use inspector::InspectorPanel;
+pub use profiler::ProfilerPanel;
 pub use reflect_ui::draw_reflect_ui;
 pub use viewport::ViewportPanel;

@@ -12,9 +12,11 @@ pub fn layout_path() -> PathBuf {
     PathBuf::from("editor_layout.json")
 }
 
-/// Hierarchy (20%) | Viewport (~60%) | Inspector (~20%) on top (70% of the
-/// window height), full-width Assets browser below (30%) — Unity Project
-/// panel / Unreal Content Browser convention.
+/// Hierarchy (20%) | Viewport (~60%) | Inspector (~20%) stacked above
+/// Profiler (~30% of that column) on top (70% of the window height),
+/// full-width Assets browser below (30%) — Unity Project panel / Unreal
+/// Content Browser convention, with the Profiler tucked under Inspector the
+/// way Unity's Profiler window docks below Inspector by default.
 pub fn default_dock_state() -> DockState<String> {
     let mut state = DockState::new(vec!["hierarchy".to_string()]);
     let surface = SurfaceIndex::main();
@@ -24,11 +26,17 @@ pub fn default_dock_state() -> DockState<String> {
         0.2,
         Node::leaf("viewport".to_string()),
     );
-    let [_viewport, _inspector] = state.split(
+    let [_viewport, inspector] = state.split(
         (surface, rest),
         Split::Right,
         0.75,
         Node::leaf("inspector".to_string()),
+    );
+    let [_inspector, _profiler] = state.split(
+        (surface, inspector),
+        Split::Below,
+        0.6,
+        Node::leaf("profiler".to_string()),
     );
     let [_top, _assets] = state.split(
         (surface, NodeIndex::root()),
@@ -39,12 +47,15 @@ pub fn default_dock_state() -> DockState<String> {
     state
 }
 
-/// Idempotently registers the four built-in panels if they aren't already
+/// Idempotently registers the five built-in panels if they aren't already
 /// present (e.g. from a previous frame, or pre-registered by app code).
 pub fn ensure_builtin_panels(
     registry: &EditorPanelRegistry,
     device: std::sync::Arc<wgpu::Device>,
     queue: std::sync::Arc<wgpu::Queue>,
+    frame_stats_history: std::sync::Arc<
+        std::sync::Mutex<std::collections::VecDeque<crate::profiler::FrameStats>>,
+    >,
 ) {
     let mut map = registry.0.lock().unwrap();
     map.entry("hierarchy".to_string())
@@ -56,6 +67,9 @@ pub fn ensure_builtin_panels(
     });
     map.entry("assets".to_string()).or_insert_with(|| {
         Box::new(crate::panels::AssetBrowserPanel::new(device, queue)) as Box<dyn EditorPanel>
+    });
+    map.entry("profiler".to_string()).or_insert_with(|| {
+        Box::new(crate::panels::ProfilerPanel::new(frame_stats_history)) as Box<dyn EditorPanel>
     });
 }
 
@@ -186,7 +200,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_dock_state_has_four_builtin_tabs_including_assets() {
+    fn default_dock_state_has_five_builtin_tabs_including_assets_and_profiler() {
         let state = default_dock_state();
         let mut ids: Vec<&String> = state.iter_all_tabs().map(|(_, tab)| tab).collect();
         ids.sort();
@@ -196,6 +210,7 @@ mod tests {
                 &"assets".to_string(),
                 &"hierarchy".to_string(),
                 &"inspector".to_string(),
+                &"profiler".to_string(),
                 &"viewport".to_string()
             ]
         );
@@ -247,12 +262,20 @@ mod tests {
     }
 
     #[test]
-    fn ensure_builtin_panels_registers_four_panels() {
+    fn ensure_builtin_panels_registers_five_panels() {
         let registry = EditorPanelRegistry::default();
         let surface = pollster::block_on(crate::surface::WgpuSurface::new_offscreen(16, 16, false))
             .expect("these tests need an adapter; a skip here would look like a pass");
-        ensure_builtin_panels(&registry, surface.device_arc(), surface.queue_arc());
-        ensure_builtin_panels(&registry, surface.device_arc(), surface.queue_arc());
-        assert_eq!(registry.0.lock().unwrap().len(), 4);
+        let history = std::sync::Arc::new(std::sync::Mutex::new(std::collections::VecDeque::new()));
+        ensure_builtin_panels(
+            &registry,
+            surface.device_arc(),
+            surface.queue_arc(),
+            history.clone(),
+        );
+        ensure_builtin_panels(&registry, surface.device_arc(), surface.queue_arc(), history);
+        let map = registry.0.lock().unwrap();
+        assert_eq!(map.len(), 5);
+        assert!(map.contains_key("profiler"));
     }
 }

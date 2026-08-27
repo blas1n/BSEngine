@@ -2828,6 +2828,7 @@ impl WgpuSurface {
                                 registry,
                                 self.device.clone(),
                                 self.queue.clone(),
+                                self.frame_stats_history.clone(),
                             );
                             let mut dock_state = self.dock_state.take().unwrap_or_else(|| {
                                 crate::panels::load_dock_state(&crate::panels::layout_path())

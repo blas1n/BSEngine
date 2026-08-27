@@ -164,6 +164,9 @@ impl ParticleRenderer {
     }
 
     /// Draws every batch into `target`, one instanced draw per emitter.
+    ///
+    /// Returns the `(draw_calls, triangles)` issued by this call, so the
+    /// caller can fold them into its own per-frame counters.
     #[allow(clippy::too_many_arguments)] // one pass's worth of frame state
     pub fn draw(
         &self,
@@ -175,7 +178,7 @@ impl ParticleRenderer {
         batches: &[ParticleBatch],
         tex_registry: Option<&GpuTextureRegistry>,
         default_texture: &wgpu::BindGroup,
-    ) {
+    ) -> (u32, u64) {
         // Pack every batch into the one buffer, remembering each one's slice.
         let mut packed: Vec<ParticleInstance> = Vec::new();
         let mut ranges: Vec<(Option<u64>, u32, u32)> = Vec::new();
@@ -196,7 +199,7 @@ impl ParticleRenderer {
             }
         }
         if packed.is_empty() {
-            return;
+            return (0, 0);
         }
         queue.write_buffer(&self.instances, 0, bytemuck::cast_slice(&packed));
 
@@ -226,13 +229,18 @@ impl ParticleRenderer {
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, camera_bind_group, &[]);
         pass.set_vertex_buffer(0, self.instances.slice(..));
+        let mut draw_calls = 0u32;
+        let mut triangles = 0u64;
         for (texture_id, start, count) in ranges {
             let bind_group = texture_id
                 .and_then(|id| tex_registry.and_then(|r| r.get_bind_group(id)))
                 .unwrap_or(default_texture);
             pass.set_bind_group(1, bind_group, &[]);
             pass.draw(0..6, start..(start + count));
+            draw_calls += 1;
+            triangles += (count as u64) * 2; // 2 triangles per instance (6-vertex billboard quad)
         }
+        (draw_calls, triangles)
     }
 }
 

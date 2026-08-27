@@ -6,6 +6,14 @@ use std::sync::Arc;
 const MAX_POINT_LIGHTS: usize = 8;
 const MAX_SPOT_LIGHTS: usize = 8;
 
+/// How many named render passes `render_frame` can time in a single frame.
+/// The frame today has at most 6 (directional shadow, the point-light shadow
+/// loop collapsed to one aggregate timing, main, sky, transparent, egui) --
+/// 16 leaves comfortable headroom without the query set growing unbounded.
+const MAX_TIMED_PASSES: u32 = 16;
+/// Two timestamp queries (begin + end) per timed pass.
+const TIMESTAMP_QUERY_COUNT: u32 = MAX_TIMED_PASSES * 2;
+
 const MESH_WGSL: &str = r#"
 const MAX_POINT_LIGHTS: u32 = 8u;
 const MAX_SPOT_LIGHTS: u32 = 8u;
@@ -567,7 +575,7 @@ struct SkyboxState {
     uniform_buffer: wgpu::Buffer,
     uniform_bg: wgpu::BindGroup,
     texture_bg: wgpu::BindGroup,
-    _texture: wgpu::Texture,
+    _texture: crate::profiler::TrackedTexture,
     _sampler: wgpu::Sampler,
 }
 
@@ -669,7 +677,7 @@ pub struct WgpuSurface {
     pipeline: wgpu::RenderPipeline,
     transparent_pipeline: wgpu::RenderPipeline,
     particles: crate::particles::ParticleRenderer,
-    depth_texture: wgpu::Texture,
+    depth_texture: crate::profiler::TrackedTexture,
     depth_view: wgpu::TextureView,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
@@ -677,16 +685,16 @@ pub struct WgpuSurface {
     model_bind_group: wgpu::BindGroup,
     light_buffer: wgpu::Buffer,
     light_bind_group: wgpu::BindGroup,
-    _white_texture: wgpu::Texture,
+    _white_texture: crate::profiler::TrackedTexture,
     _sampler: wgpu::Sampler,
     default_texture_bind_group: wgpu::BindGroup,
     shadow_pipeline: wgpu::RenderPipeline,
-    _shadow_map_texture: wgpu::Texture,
+    _shadow_map_texture: crate::profiler::TrackedTexture,
     shadow_map_view: wgpu::TextureView,
     _shadow_comparison_sampler: wgpu::Sampler,
     point_shadow_pipeline: wgpu::RenderPipeline,
-    _point_shadow_color_texture: wgpu::Texture,
-    _point_shadow_depth_texture: wgpu::Texture,
+    _point_shadow_color_texture: crate::profiler::TrackedTexture,
+    _point_shadow_depth_texture: crate::profiler::TrackedTexture,
     point_shadow_depth_view: wgpu::TextureView,
     _point_shadow_sampler: wgpu::Sampler,
     point_shadow_uniform_buffer: wgpu::Buffer,
@@ -708,6 +716,27 @@ pub struct WgpuSurface {
     /// needs this; see the design doc for why it must be clear-only, not a
     /// bare skip.
     fast_render: bool,
+    /// Whether the adapter this device came from supports
+    /// `wgpu::Features::TIMESTAMP_QUERY`. Set once at construction; every
+    /// other `timestamp_*` field is `Some` iff this is `true`.
+    timestamp_supported: bool,
+    /// GPU timestamp query set `render_frame` writes begin/end pass
+    /// boundaries into, when `timestamp_supported`.
+    timestamp_query_set: Option<wgpu::QuerySet>,
+    /// Resolve target for `timestamp_query_set` -- a query set's raw results
+    /// can only be resolved into a buffer with `QUERY_RESOLVE` usage, which
+    /// cannot be combined with `MAP_READ` on this adapter (no
+    /// `MAPPABLE_PRIMARY_BUFFERS`), so resolving and CPU-reading are two
+    /// buffers, not one.
+    timestamp_resolve_buffer: Option<wgpu::Buffer>,
+    /// `MAP_READ`-capable copy of `timestamp_resolve_buffer`, read back on
+    /// the CPU each frame to build `FrameStats::gpu_pass_times_ms`.
+    timestamp_readback_buffer: Option<wgpu::Buffer>,
+    /// Rolling history of completed frames' stats, shared with
+    /// `ProfilerPanel` and headless/MCP queries via
+    /// [`Self::frame_stats_history`].
+    frame_stats_history:
+        std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<crate::profiler::FrameStats>>>,
 }
 
 impl WgpuSurface {
@@ -723,7 +752,8 @@ impl WgpuSurface {
             .create_surface(window.clone())
             .map_err(|e| e.to_string())?;
 
-        let (adapter, device, queue) = Self::request_device(&instance, Some(&surface)).await?;
+        let (adapter, device, queue, timestamp_supported) =
+            Self::request_device(&instance, Some(&surface)).await?;
 
         let size = window.inner_size();
         let caps = surface.get_capabilities(&adapter);
@@ -755,6 +785,7 @@ impl WgpuSurface {
                 _window: window,
             },
             false,
+            timestamp_supported,
         )
     }
 
@@ -769,7 +800,8 @@ impl WgpuSurface {
             backends: wgpu::Backends::all(),
             ..Default::default()
         });
-        let (_adapter, device, queue) = Self::request_device(&instance, None).await?;
+        let (_adapter, device, queue, timestamp_supported) =
+            Self::request_device(&instance, None).await?;
         let texture = crate::output::create_offscreen_texture(&device, width, height);
         Self::build(
             device,
@@ -780,6 +812,7 @@ impl WgpuSurface {
                 height,
             },
             fast_render,
+            timestamp_supported,
         )
     }
 
@@ -842,10 +875,16 @@ impl WgpuSurface {
 
     /// Requests an adapter and a device. The windowed path wants an adapter the
     /// surface can present on; offscreen takes whatever is available.
+    ///
+    /// Also decides, once, whether this adapter supports GPU timestamp
+    /// queries (`wgpu::Features::TIMESTAMP_QUERY`) and requests the feature
+    /// only when it does -- some adapters (notably CI's software/WARP
+    /// adapters) do not support it, and requesting an unsupported feature
+    /// fails the whole device request rather than being ignored.
     async fn request_device(
         instance: &wgpu::Instance,
         compatible_surface: Option<&wgpu::Surface<'static>>,
-    ) -> Result<(wgpu::Adapter, Arc<wgpu::Device>, Arc<wgpu::Queue>), String> {
+    ) -> Result<(wgpu::Adapter, Arc<wgpu::Device>, Arc<wgpu::Queue>, bool), String> {
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::None,
@@ -855,11 +894,18 @@ impl WgpuSurface {
             .await
             .ok_or("No adapter found")?;
 
+        let timestamp_supported = adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY);
+        let required_features = if timestamp_supported {
+            wgpu::Features::TIMESTAMP_QUERY
+        } else {
+            wgpu::Features::empty()
+        };
+
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: Some("BSEngine surface device"),
-                    required_features: wgpu::Features::empty(),
+                    required_features,
                     required_limits: wgpu::Limits::downlevel_defaults(),
                     memory_hints: wgpu::MemoryHints::default(),
                 },
@@ -868,7 +914,12 @@ impl WgpuSurface {
             .await
             .map_err(|e| format!("Device request failed: {e}"))?;
 
-        Ok((adapter, Arc::new(device), Arc::new(queue)))
+        Ok((
+            adapter,
+            Arc::new(device),
+            Arc::new(queue),
+            timestamp_supported,
+        ))
     }
 
     /// A bare device/queue pair with no surface, texture, or pipeline setup
@@ -882,7 +933,7 @@ impl WgpuSurface {
             backends: wgpu::Backends::all(),
             ..Default::default()
         });
-        let (_adapter, device, queue) = Self::request_device(&instance, None)
+        let (_adapter, device, queue, _timestamp_supported) = Self::request_device(&instance, None)
             .await
             .expect("headless device for test");
         (device, queue)
@@ -899,10 +950,43 @@ impl WgpuSurface {
         queue: Arc<wgpu::Queue>,
         output: crate::output::Output,
         fast_render: bool,
+        timestamp_supported: bool,
     ) -> Result<Self, String> {
         let format = output.format();
         let width = output.width();
         let height = output.height();
+
+        // GPU timestamp queries: only allocated when the adapter actually
+        // supports them. `timestamp_resolve_buffer` is the resolve target
+        // (`QUERY_RESOLVE | COPY_SRC`); `timestamp_readback_buffer` is a
+        // second, `MAP_READ`-capable buffer the resolve result is copied
+        // into for CPU reads -- the two usages cannot live on one buffer
+        // without `Features::MAPPABLE_PRIMARY_BUFFERS`, which is not
+        // requested here.
+        let (timestamp_query_set, timestamp_resolve_buffer, timestamp_readback_buffer) =
+            if timestamp_supported {
+                let query_set = device.create_query_set(&wgpu::QuerySetDescriptor {
+                    label: Some("frame profiler timestamps"),
+                    ty: wgpu::QueryType::Timestamp,
+                    count: TIMESTAMP_QUERY_COUNT,
+                });
+                let buffer_size = TIMESTAMP_QUERY_COUNT as u64 * wgpu::QUERY_SIZE as u64;
+                let resolve_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("frame profiler timestamp resolve"),
+                    size: buffer_size,
+                    usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
+                    mapped_at_creation: false,
+                });
+                let readback_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("frame profiler timestamp readback"),
+                    size: buffer_size,
+                    usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                });
+                (Some(query_set), Some(resolve_buffer), Some(readback_buffer))
+            } else {
+                (None, None, None)
+            };
 
         let (depth_texture, depth_view) = Self::create_depth_texture(&device, width, height);
 
@@ -1026,20 +1110,24 @@ impl WgpuSurface {
             Self::create_default_texture(&device, &queue);
 
         // --- shadow map ---
-        let shadow_map_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("shadow map"),
-            size: wgpu::Extent3d {
-                width: SHADOW_MAP_SIZE,
-                height: SHADOW_MAP_SIZE,
-                depth_or_array_layers: 1,
+        let shadow_map_texture = crate::profiler::create_tracked_texture(
+            &device,
+            &wgpu::TextureDescriptor {
+                label: Some("shadow map"),
+                size: wgpu::Extent3d {
+                    width: SHADOW_MAP_SIZE,
+                    height: SHADOW_MAP_SIZE,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: DEPTH_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
             },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: DEPTH_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
+        );
         let shadow_map_view =
             shadow_map_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -1054,20 +1142,24 @@ impl WgpuSurface {
         });
 
         // --- point light shadow maps (linear-distance cube arrays) ---
-        let point_shadow_color_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("point shadow color array"),
-            size: wgpu::Extent3d {
-                width: POINT_SHADOW_MAP_SIZE,
-                height: POINT_SHADOW_MAP_SIZE,
-                depth_or_array_layers: (MAX_POINT_LIGHTS * 6) as u32,
+        let point_shadow_color_texture = crate::profiler::create_tracked_texture(
+            &device,
+            &wgpu::TextureDescriptor {
+                label: Some("point shadow color array"),
+                size: wgpu::Extent3d {
+                    width: POINT_SHADOW_MAP_SIZE,
+                    height: POINT_SHADOW_MAP_SIZE,
+                    depth_or_array_layers: (MAX_POINT_LIGHTS * 6) as u32,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::R32Float,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
             },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R32Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
+        );
         let point_shadow_color_full_view =
             point_shadow_color_texture.create_view(&wgpu::TextureViewDescriptor {
                 label: Some("point shadow color array view (full)"),
@@ -1075,20 +1167,23 @@ impl WgpuSurface {
                 ..Default::default()
             });
 
-        let point_shadow_depth_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("point shadow depth"),
-            size: wgpu::Extent3d {
-                width: POINT_SHADOW_MAP_SIZE,
-                height: POINT_SHADOW_MAP_SIZE,
-                depth_or_array_layers: 1,
+        let point_shadow_depth_texture = crate::profiler::create_tracked_texture(
+            &device,
+            &wgpu::TextureDescriptor {
+                label: Some("point shadow depth"),
+                size: wgpu::Extent3d {
+                    width: POINT_SHADOW_MAP_SIZE,
+                    height: POINT_SHADOW_MAP_SIZE,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: DEPTH_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
             },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: DEPTH_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
+        );
         let point_shadow_depth_view =
             point_shadow_depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -1431,6 +1526,15 @@ impl WgpuSurface {
             dock_state: None,
             last_saved_layout_json: None,
             fast_render,
+            timestamp_supported,
+            timestamp_query_set,
+            timestamp_resolve_buffer,
+            timestamp_readback_buffer,
+            frame_stats_history: std::sync::Arc::new(std::sync::Mutex::new(
+                std::collections::VecDeque::with_capacity(
+                    crate::profiler::FRAME_STATS_HISTORY_CAPACITY,
+                ),
+            )),
         })
     }
 
@@ -1438,21 +1542,25 @@ impl WgpuSurface {
         device: &wgpu::Device,
         width: u32,
         height: u32,
-    ) -> (wgpu::Texture, wgpu::TextureView) {
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("depth texture"),
-            size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
+    ) -> (crate::profiler::TrackedTexture, wgpu::TextureView) {
+        let texture = crate::profiler::create_tracked_texture(
+            device,
+            &wgpu::TextureDescriptor {
+                label: Some("depth texture"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: DEPTH_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
             },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: DEPTH_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        });
+        );
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         (texture, view)
     }
@@ -1461,25 +1569,28 @@ impl WgpuSurface {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> (
-        wgpu::Texture,
+        crate::profiler::TrackedTexture,
         wgpu::Sampler,
         wgpu::BindGroupLayout,
         wgpu::BindGroup,
     ) {
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("white texture"),
-            size: wgpu::Extent3d {
-                width: 1,
-                height: 1,
-                depth_or_array_layers: 1,
+        let texture = crate::profiler::create_tracked_texture(
+            device,
+            &wgpu::TextureDescriptor {
+                label: Some("white texture"),
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
             },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
+        );
         queue.write_texture(
             texture.as_image_copy(),
             &[255u8, 255, 255, 255],
@@ -1544,20 +1655,23 @@ impl WgpuSurface {
     /// Uploads already-decoded RGBA8 pixel data as the active skybox
     /// texture, rebuilding the sampler/bind groups/pipeline around it.
     pub fn set_skybox_from_rgba(&mut self, width: u32, height: u32, rgba: &[u8]) {
-        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("skybox texture"),
-            size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
+        let texture = crate::profiler::create_tracked_texture(
+            &self.device,
+            &wgpu::TextureDescriptor {
+                label: Some("skybox texture"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
             },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
+        );
         self.queue.write_texture(
             texture.as_image_copy(),
             rgba,
@@ -1738,6 +1852,133 @@ impl WgpuSurface {
         self.loaded_skybox_path = Some(path.to_string());
     }
 
+    /// Shared handle to the rolling frame-stats history, for `ProfilerPanel`
+    /// and headless/MCP queries.
+    pub fn frame_stats_history(
+        &self,
+    ) -> std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<crate::profiler::FrameStats>>>
+    {
+        self.frame_stats_history.clone()
+    }
+
+    /// The most recently completed frame's stats, if any frame has rendered yet.
+    pub fn latest_frame_stats(&self) -> Option<crate::profiler::FrameStats> {
+        self.frame_stats_history.lock().unwrap().back().cloned()
+    }
+
+    /// Whether this device requests GPU timestamp queries for pass timing --
+    /// i.e. whether the adapter reported `wgpu::Features::TIMESTAMP_QUERY`
+    /// support. Exposed mainly so tests can branch on the machine's actual
+    /// capability rather than assume one outcome.
+    pub fn gpu_timestamps_supported(&self) -> bool {
+        self.timestamp_supported
+    }
+
+    /// Builds the `timestamp_writes` for a single self-contained named pass
+    /// (one `begin_render_pass` call whose full duration is what's being
+    /// measured), and records its index/name for [`Self::read_gpu_pass_times`]
+    /// to consume after the frame is submitted. Returns `None` -- meaning
+    /// "don't time this pass" -- whenever GPU timestamps aren't supported, or
+    /// whenever a frame has already used every slot in the query set (an
+    /// extremely defensive bound; today's frame uses at most 6 of 16).
+    fn next_timed_pass(
+        &self,
+        name: &'static str,
+        pass_index: &mut u32,
+        pass_names: &mut Vec<&'static str>,
+    ) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
+        if !self.timestamp_supported || *pass_index >= MAX_TIMED_PASSES {
+            return None;
+        }
+        let idx = *pass_index;
+        *pass_index += 1;
+        pass_names.push(name);
+        Some(wgpu::RenderPassTimestampWrites {
+            query_set: self.timestamp_query_set.as_ref().unwrap(),
+            beginning_of_pass_write_index: Some(idx * 2),
+            end_of_pass_write_index: Some(idx * 2 + 1),
+        })
+    }
+
+    /// Same idea as [`Self::next_timed_pass`], but for the point-light shadow
+    /// loop, which issues a *variable* number of `begin_render_pass` calls
+    /// per frame (one per cube face per active point light -- up to 48 with
+    /// 8 lights). Rather than spend a query-set slot per face, this brackets
+    /// the whole loop as a single `"point_shadow"` pass: the caller reserves
+    /// one `pass_index` up front (see the call site in `render_frame`) and
+    /// passes it back in on the loop's first and last iteration so the
+    /// begin/end timestamps land on the actual first/last GPU work.
+    fn point_shadow_timestamp_writes(
+        &self,
+        pass_index: Option<u32>,
+        is_first: bool,
+        is_last: bool,
+    ) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
+        let idx = pass_index?;
+        if !is_first && !is_last {
+            return None;
+        }
+        Some(wgpu::RenderPassTimestampWrites {
+            query_set: self.timestamp_query_set.as_ref().unwrap(),
+            beginning_of_pass_write_index: is_first.then_some(idx * 2),
+            end_of_pass_write_index: is_last.then_some(idx * 2 + 1),
+        })
+    }
+
+    /// Resolves and reads back this frame's GPU timestamps, converting raw
+    /// tick pairs into `PassTiming`s. Must be called after the frame's
+    /// `resolve_query_set` + `copy_buffer_to_buffer` have been submitted to
+    /// the queue -- this blocks (via `map_async` + `device.poll(Wait)`,
+    /// the same pattern `output::read_pixels` uses) until that GPU work
+    /// completes, so it is only ever called when `pass_count > 0`.
+    ///
+    /// Degrades to an empty `Vec` rather than panicking if the mapping ever
+    /// fails -- this is a profiling-only path and must never be the reason a
+    /// frame errors out.
+    fn read_gpu_pass_times(
+        &self,
+        pass_count: u32,
+        pass_names: &[&'static str],
+    ) -> Vec<crate::profiler::PassTiming> {
+        let Some(readback_buffer) = &self.timestamp_readback_buffer else {
+            return Vec::new();
+        };
+        let ticks_len = pass_count as usize * 2;
+        let bytes_len = (ticks_len * wgpu::QUERY_SIZE as usize) as u64;
+
+        let slice = readback_buffer.slice(0..bytes_len);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |r| {
+            let _ = tx.send(r);
+        });
+        self.device.poll(wgpu::Maintain::Wait);
+        match rx.recv() {
+            Ok(Ok(())) => {}
+            _ => return Vec::new(),
+        }
+
+        let timings = {
+            let mapped = slice.get_mapped_range();
+            let ticks: &[u64] = bytemuck::cast_slice(&mapped);
+            let period = self.queue.get_timestamp_period();
+            pass_names
+                .iter()
+                .enumerate()
+                .map(|(i, name)| {
+                    let begin = ticks[i * 2];
+                    let end = ticks[i * 2 + 1];
+                    let duration_ms = end.saturating_sub(begin) as f32 * period / 1_000_000.0;
+                    crate::profiler::PassTiming {
+                        name: (*name).to_string(),
+                        duration_ms,
+                    }
+                })
+                .collect()
+        };
+        readback_buffer.unmap();
+        timings
+    }
+
     /// Renders one full frame: shadow map, main scene pass, post-processing,
     /// skybox, and the game/editor UI overlay, then presents the swapchain.
     /// Returns the ids of any `UiWidget::Button`s clicked this frame.
@@ -1772,6 +2013,9 @@ impl WgpuSurface {
         elapsed_seconds: f32,
         particles: &[crate::particles::ParticleBatch],
     ) -> Result<std::collections::HashSet<String>, String> {
+        // Wall-clock CPU time for this call, for `FrameStats::cpu_frame_time_ms`.
+        let frame_start = std::time::Instant::now();
+
         let camera_data = CameraUniformData {
             view_proj: view_proj.to_cols_array_2d(),
             light_view_proj: light_view_proj.to_cols_array_2d(),
@@ -1870,6 +2114,24 @@ impl WgpuSurface {
             );
         }
 
+        // Per-frame draw-call/triangle counters for the profiler. Local to
+        // this call (not a shared atomic like texture memory), since
+        // `mesh_thumbnail.rs`'s `render_thumbnail` can run mid-frame and
+        // must never inflate this frame's `FrameStats`.
+        let mut frame_draw_calls: u32 = 0;
+        let mut frame_triangles: u64 = 0;
+
+        // GPU pass-timing bookkeeping for the profiler (see `next_timed_pass`
+        // / `point_shadow_timestamp_writes`). `gpu_pass_index` is a running
+        // count of timed passes issued so far this frame -- also the number
+        // of query-set slot *pairs* used, since each pass writes a begin and
+        // an end timestamp. `gpu_pass_names` is parallel: `gpu_pass_names[i]`
+        // names the pass whose timestamps live at slots `2*i`/`2*i+1`. Both
+        // stay empty when `!self.timestamp_supported`, since `next_timed_pass`
+        // and `point_shadow_timestamp_writes` never advance them in that case.
+        let mut gpu_pass_index: u32 = 0;
+        let mut gpu_pass_names: Vec<&'static str> = Vec::new();
+
         // `presentable` is the swapchain frame to hand back at the end of the
         // function, and is `None` when rendering offscreen.
         let (view, presentable) = self.output.acquire()?;
@@ -1938,7 +2200,11 @@ impl WgpuSurface {
                     }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: None,
+                timestamp_writes: self.next_timed_pass(
+                    "directional_shadow",
+                    &mut gpu_pass_index,
+                    &mut gpu_pass_names,
+                ),
                 occlusion_query_set: None,
             });
             if !self.fast_render {
@@ -1957,6 +2223,8 @@ impl WgpuSurface {
                     shadow_pass
                         .set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                     shadow_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                    frame_draw_calls += 1;
+                    frame_triangles += (mesh.index_count / 3) as u64;
                 }
             }
         }
@@ -1980,8 +2248,33 @@ impl WgpuSurface {
                     );
                 }
             }
+            // A frame with N active point lights issues N*6 of these passes
+            // (one per cube face). That's up to 48 with MAX_POINT_LIGHTS --
+            // too many to give each its own query-set slot pair without the
+            // set growing unboundedly. Instead this reserves a single
+            // "point_shadow" slot up front and brackets the whole loop:
+            // the very first face's pass writes the begin timestamp, the
+            // very last face's pass writes the end timestamp, and everything
+            // in between is untimed. The result is one aggregate GPU
+            // duration covering every point-light shadow face this frame.
+            let point_shadow_pass_index = if active_lights.is_empty()
+                || !self.timestamp_supported
+                || gpu_pass_index >= MAX_TIMED_PASSES
+            {
+                None
+            } else {
+                let idx = gpu_pass_index;
+                gpu_pass_index += 1;
+                gpu_pass_names.push("point_shadow");
+                Some(idx)
+            };
+            let total_point_shadow_passes = active_lights.len() * 6;
+            let mut point_shadow_pass_counter = 0usize;
             for (light_idx, _pl) in active_lights.iter().enumerate() {
                 for face in 0..6usize {
+                    let is_first_point_shadow_pass = point_shadow_pass_counter == 0;
+                    let is_last_point_shadow_pass =
+                        point_shadow_pass_counter + 1 == total_point_shadow_passes;
                     let slot = light_idx * 6 + face;
                     let layer_view = self._point_shadow_color_texture.create_view(
                         &wgpu::TextureViewDescriptor {
@@ -2018,7 +2311,11 @@ impl WgpuSurface {
                                     stencil_ops: None,
                                 },
                             ),
-                            timestamp_writes: None,
+                            timestamp_writes: self.point_shadow_timestamp_writes(
+                                point_shadow_pass_index,
+                                is_first_point_shadow_pass,
+                                is_last_point_shadow_pass,
+                            ),
                             occlusion_query_set: None,
                         });
                     point_shadow_pass.set_pipeline(&self.point_shadow_pipeline);
@@ -2043,7 +2340,10 @@ impl WgpuSurface {
                             wgpu::IndexFormat::Uint32,
                         );
                         point_shadow_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                        frame_draw_calls += 1;
+                        frame_triangles += (mesh.index_count / 3) as u64;
                     }
+                    point_shadow_pass_counter += 1;
                 }
             }
         }
@@ -2095,7 +2395,11 @@ impl WgpuSurface {
                     }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: None,
+                timestamp_writes: self.next_timed_pass(
+                    "main",
+                    &mut gpu_pass_index,
+                    &mut gpu_pass_names,
+                ),
                 occlusion_query_set: None,
             });
 
@@ -2121,6 +2425,8 @@ impl WgpuSurface {
                 pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                frame_draw_calls += 1;
+                frame_triangles += (mesh.index_count / 3) as u64;
             }
         }
 
@@ -2149,13 +2455,19 @@ impl WgpuSurface {
                     }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: None,
+                timestamp_writes: self.next_timed_pass(
+                    "sky",
+                    &mut gpu_pass_index,
+                    &mut gpu_pass_names,
+                ),
                 occlusion_query_set: None,
             });
             sky_pass.set_pipeline(&sky.pipeline);
             sky_pass.set_bind_group(0, &sky.uniform_bg, &[]);
             sky_pass.set_bind_group(1, &sky.texture_bg, &[]);
             sky_pass.draw(0..3, 0..1);
+            frame_draw_calls += 1;
+            frame_triangles += 1;
         }
 
         // --- transparent pass (after the skybox, so glass shows sky through it) ---
@@ -2182,7 +2494,11 @@ impl WgpuSurface {
                     }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: None,
+                timestamp_writes: self.next_timed_pass(
+                    "transparent",
+                    &mut gpu_pass_index,
+                    &mut gpu_pass_names,
+                ),
                 occlusion_query_set: None,
             });
             pass.set_bind_group(0, &self.camera_bind_group, &[]);
@@ -2209,12 +2525,14 @@ impl WgpuSurface {
                 pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                frame_draw_calls += 1;
+                frame_triangles += (mesh.index_count / 3) as u64;
             }
         }
 
         // --- particle pass (after transparency, so sparks read over glass) ---
         if !particles.is_empty() {
-            self.particles.draw(
+            let (particle_draw_calls, particle_triangles) = self.particles.draw(
                 &mut encoder,
                 &self.queue,
                 &self.post_process.hdr_view,
@@ -2224,6 +2542,8 @@ impl WgpuSurface {
                 tex_registry,
                 &self.default_texture_bind_group,
             );
+            frame_draw_calls += particle_draw_calls;
+            frame_triangles += particle_triangles;
         }
 
         // --- post-process passes: bloom → SSAO → composite → swapchain ---
@@ -2237,8 +2557,11 @@ impl WgpuSurface {
             .filter(|i| i.editor_mode)
             .map(|i| (i.viewport_pos[0] + 8.0, i.viewport_pos[1] + 8.0))
             .unwrap_or((8.0, 8.0));
-        self.post_process
-            .apply(&mut encoder, &view, self.fast_render);
+        let (pp_draw_calls, pp_triangles) =
+            self.post_process
+                .apply(&mut encoder, &view, self.fast_render);
+        frame_draw_calls += pp_draw_calls;
+        frame_triangles += pp_triangles;
 
         // UI + HUD overlay via egui (always on in editor mode)
         let has_ui = is_editor
@@ -2509,6 +2832,7 @@ impl WgpuSurface {
                                 registry,
                                 self.device.clone(),
                                 self.queue.clone(),
+                                self.frame_stats_history.clone(),
                             );
                             let mut dock_state = self.dock_state.take().unwrap_or_else(|| {
                                 crate::panels::load_dock_state(&crate::panels::layout_path())
@@ -2793,6 +3117,11 @@ impl WgpuSurface {
                             },
                         })],
                         depth_stencil_attachment: None,
+                        timestamp_writes: self.next_timed_pass(
+                            "egui",
+                            &mut gpu_pass_index,
+                            &mut gpu_pass_names,
+                        ),
                         ..Default::default()
                     })
                     .forget_lifetime();
@@ -2805,7 +3134,36 @@ impl WgpuSurface {
             let _ = new_text_values;
         }
 
+        // Resolve this frame's GPU timestamps into a buffer the CPU can map.
+        // `gpu_pass_index` is the number of timed passes issued above (0
+        // when `!self.timestamp_supported`, since `next_timed_pass` and
+        // `point_shadow_timestamp_writes` never advance it in that case).
+        if gpu_pass_index > 0 {
+            if let (Some(query_set), Some(resolve_buffer), Some(readback_buffer)) = (
+                &self.timestamp_query_set,
+                &self.timestamp_resolve_buffer,
+                &self.timestamp_readback_buffer,
+            ) {
+                let ticks = gpu_pass_index * 2;
+                encoder.resolve_query_set(query_set, 0..ticks, resolve_buffer, 0);
+                encoder.copy_buffer_to_buffer(
+                    resolve_buffer,
+                    0,
+                    readback_buffer,
+                    0,
+                    ticks as u64 * wgpu::QUERY_SIZE as u64,
+                );
+            }
+        }
+
         self.queue.submit(std::iter::once(encoder.finish()));
+
+        let gpu_pass_times_ms = if gpu_pass_index > 0 {
+            self.read_gpu_pass_times(gpu_pass_index, &gpu_pass_names)
+        } else {
+            Vec::new()
+        };
+
         if let Some(frame) = presentable {
             frame.present();
         } else {
@@ -2832,6 +3190,24 @@ impl WgpuSurface {
             // either failing path.
             self.device.poll(wgpu::Maintain::Wait);
         }
+
+        let frame_stats = crate::profiler::FrameStats {
+            cpu_frame_time_ms: frame_start.elapsed().as_secs_f32() * 1000.0,
+            gpu_pass_times_ms,
+            gpu_timestamps_supported: self.timestamp_supported,
+            draw_calls: frame_draw_calls,
+            triangles: frame_triangles,
+            texture_memory_bytes: crate::profiler::texture_memory_bytes(),
+            texture_count: crate::profiler::texture_count(),
+        };
+        {
+            let mut history = self.frame_stats_history.lock().unwrap();
+            history.push_back(frame_stats);
+            while history.len() > crate::profiler::FRAME_STATS_HISTORY_CAPACITY {
+                history.pop_front();
+            }
+        }
+
         Ok(clicked)
     }
 

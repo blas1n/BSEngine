@@ -31,6 +31,9 @@ pub mod particles;
 pub mod plugin;
 /// Post-processing render passes (bloom, tonemapping, etc).
 pub mod post_process;
+/// Frame/GPU statistics: texture memory tracking, draw-call/triangle
+/// counting, and feature-gated GPU pass timing.
+pub mod profiler;
 /// Swapchain/frame lifecycle and the main scene render pass.
 pub mod surface;
 /// GPU texture loading and the texture registry.

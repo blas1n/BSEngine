@@ -274,13 +274,13 @@ pub struct SsaoCameraGpu {
 }
 
 struct PostProcessTargets {
-    hdr_texture: wgpu::Texture,
+    hdr_texture: crate::profiler::TrackedTexture,
     hdr_view: wgpu::TextureView,
     hdr_bg: wgpu::BindGroup,
-    bloom_texture: wgpu::Texture,
+    bloom_texture: crate::profiler::TrackedTexture,
     bloom_view: wgpu::TextureView,
     bloom_bg: wgpu::BindGroup,
-    ao_texture: wgpu::Texture,
+    ao_texture: crate::profiler::TrackedTexture,
     ao_view: wgpu::TextureView,
     ao_bg: wgpu::BindGroup,
     depth_bg: wgpu::BindGroup,
@@ -291,11 +291,11 @@ struct PostProcessTargets {
 pub struct PostProcessState {
     /// View of the HDR scene-color render target the main pass writes into.
     pub hdr_view: wgpu::TextureView,
-    _hdr_texture: wgpu::Texture,
+    _hdr_texture: crate::profiler::TrackedTexture,
     bloom_view: wgpu::TextureView,
-    _bloom_texture: wgpu::Texture,
+    _bloom_texture: crate::profiler::TrackedTexture,
     ao_view: wgpu::TextureView,
-    _ao_texture: wgpu::Texture,
+    _ao_texture: crate::profiler::TrackedTexture,
     hdr_bg: wgpu::BindGroup,
     bloom_bg: wgpu::BindGroup,
     ao_bg: wgpu::BindGroup,
@@ -472,21 +472,24 @@ impl PostProcessState {
         depth_bgl: &wgpu::BindGroupLayout,
     ) -> PostProcessTargets {
         let make_tex = |label: &str, fmt: wgpu::TextureFormat| {
-            device.create_texture(&wgpu::TextureDescriptor {
-                label: Some(label),
-                size: wgpu::Extent3d {
-                    width,
-                    height,
-                    depth_or_array_layers: 1,
+            crate::profiler::create_tracked_texture(
+                device,
+                &wgpu::TextureDescriptor {
+                    label: Some(label),
+                    size: wgpu::Extent3d {
+                        width,
+                        height,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: fmt,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
                 },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: fmt,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            })
+            )
         };
 
         let hdr_texture = make_tex("pp hdr", HDR_FORMAT);
@@ -714,12 +717,17 @@ impl PostProcessState {
     /// skip the clear itself: the composite pass below always samples both
     /// textures, and an un-cleared AO texture reads as 0.0 ("fully
     /// occluded") instead of 1.0, which would render every pixel black.
+    ///
+    /// Returns the `(draw_calls, triangles)` issued by this call, so the
+    /// caller can fold them into its own per-frame counters.
     pub fn apply(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         surface_view: &wgpu::TextureView,
         fast_render: bool,
-    ) {
+    ) -> (u32, u64) {
+        let mut draw_calls = 0u32;
+        let mut triangles = 0u64;
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("bloom pass"),
@@ -739,6 +747,8 @@ impl PostProcessState {
                 pass.set_bind_group(0, &self.hdr_bg, &[]);
                 pass.set_bind_group(1, &self.config_bg, &[]);
                 pass.draw(0..3, 0..1);
+                draw_calls += 1;
+                triangles += 1;
             }
         }
 
@@ -762,6 +772,8 @@ impl PostProcessState {
                 pass.set_bind_group(1, &self.config_bg, &[]);
                 pass.set_bind_group(2, &self.ssao_cam_bg, &[]);
                 pass.draw(0..3, 0..1);
+                draw_calls += 1;
+                triangles += 1;
             }
         }
 
@@ -785,7 +797,10 @@ impl PostProcessState {
             pass.set_bind_group(2, &self.ao_bg, &[]);
             pass.set_bind_group(3, &self.config_bg, &[]);
             pass.draw(0..3, 0..1);
+            draw_calls += 1;
+            triangles += 1;
         }
+        (draw_calls, triangles)
     }
 }
 

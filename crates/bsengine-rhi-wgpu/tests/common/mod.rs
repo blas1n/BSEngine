@@ -429,6 +429,25 @@ struct VertOut {{
             height: HEIGHT,
         }
     }
+
+    /// The most recently rendered frame's profiler stats. Panics if
+    /// `render()` hasn't been called yet -- every test using this calls
+    /// `render()` first, so a `None` here would be a real bug, not an
+    /// expected state to handle quietly.
+    pub fn frame_stats(&self) -> bsengine_rhi_wgpu::profiler::FrameStats {
+        self.surface
+            .latest_frame_stats()
+            .expect("render() should have populated frame stats")
+    }
+
+    /// Shared handle to the rolling frame-stats history.
+    pub fn frame_stats_history(
+        &self,
+    ) -> std::sync::Arc<
+        std::sync::Mutex<std::collections::VecDeque<bsengine_rhi_wgpu::profiler::FrameStats>>,
+    > {
+        self.surface.frame_stats_history()
+    }
 }
 
 /// The directional shadow map's view-projection.

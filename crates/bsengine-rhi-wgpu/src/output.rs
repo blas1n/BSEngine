@@ -30,7 +30,7 @@ pub(crate) enum Output {
     },
     /// A texture we own. Nothing is presented, and the pixels can be read back.
     Offscreen {
-        texture: wgpu::Texture,
+        texture: crate::profiler::TrackedTexture,
         width: u32,
         height: u32,
     },
@@ -192,19 +192,22 @@ pub(crate) fn create_offscreen_texture(
     device: &wgpu::Device,
     width: u32,
     height: u32,
-) -> wgpu::Texture {
-    device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("offscreen output"),
-        size: wgpu::Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
+) -> crate::profiler::TrackedTexture {
+    crate::profiler::create_tracked_texture(
+        device,
+        &wgpu::TextureDescriptor {
+            label: Some("offscreen output"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: OFFSCREEN_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
         },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: OFFSCREEN_FORMAT,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[],
-    })
+    )
 }

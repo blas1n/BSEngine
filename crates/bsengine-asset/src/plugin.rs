@@ -3,7 +3,7 @@ use bevy_asset::AssetApp;
 use bevy_ecs::prelude::Resource;
 use std::path::PathBuf;
 
-use crate::types::TextureAsset;
+use crate::types::{HeightmapAsset, TextureAsset};
 
 /// The directory `bevy_asset` was actually given as its root, published so
 /// nothing else in the engine has to guess at it.
@@ -148,7 +148,9 @@ impl Plugin for AssetPlugin {
         })
         .insert_resource(AssetRoot(PathBuf::from(root)))
         .init_asset::<TextureAsset>()
-        .register_asset_loader(crate::texture_loader::TextureAssetLoader);
+        .register_asset_loader(crate::texture_loader::TextureAssetLoader)
+        .init_asset::<HeightmapAsset>()
+        .register_asset_loader(crate::heightmap_loader::HeightmapAssetLoader);
     }
 }
 

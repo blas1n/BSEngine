@@ -35,6 +35,8 @@
 /// scan of them as an `AssetIndex`. Registered by all three hosts, and its
 /// docs explain why registering it is only half of making it work.
 pub mod identity;
+/// `AssetLoader` backing `LoadMode::Async` for `HeightmapAsset`.
+pub mod heightmap_loader;
 /// Chooses between synchronous (blocking, zero-latency) and asynchronous
 /// (`AssetServer`-driven) loading, plus the dispatch helper itself.
 pub mod load_mode;
@@ -50,7 +52,8 @@ pub mod slot;
 pub mod status;
 /// `AssetLoader` backing `LoadMode::Async` for `TextureAsset`.
 pub mod texture_loader;
-/// Concrete asset data types owned by this crate (currently: `TextureAsset`).
+/// Concrete asset data types owned by this crate (`TextureAsset`,
+/// `HeightmapAsset`).
 pub mod types;
 /// `AssetWatcherPlugin`: watches `<ProjectDir>/assets` and reloads assets
 /// edited on disk while the game runs.
@@ -63,11 +66,12 @@ pub mod watcher;
 pub mod test_support;
 
 pub use bevy_asset::{Asset, AssetServer, Assets, Handle};
+pub use heightmap_loader::HeightmapAssetLoader;
 pub use identity::{AssetGuid, AssetIdentityPlugin, AssetIndex};
 pub use load_mode::{load, load_async, LoadMode};
 pub use plugin::AssetPlugin;
 pub use slot::{AssetSlot, Polled};
 pub use status::{AssetStatus, AssetStatusPlugin, AssetStatuses};
 pub use texture_loader::TextureAssetLoader;
-pub use types::TextureAsset;
+pub use types::{HeightmapAsset, TextureAsset};
 pub use watcher::AssetWatcherPlugin;

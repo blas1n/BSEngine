@@ -12,6 +12,23 @@ pub struct TextureAsset {
     pub data: Vec<u8>,
 }
 
+/// A decoded heightmap: 16-bit grayscale values, row-major, `width * height`
+/// long. Full precision is kept (unlike [`TextureAsset`]'s RGBA8) because
+/// terrain chunk generation needs the source PNG's full height resolution.
+///
+/// `Debug` (beyond `TextureAsset`'s derive list) is needed so
+/// `decode_heightmap_png`'s `Result<HeightmapAsset, String>` satisfies
+/// `unwrap_err`'s `T: Debug` bound in `heightmap_loader`'s own tests.
+#[derive(Asset, TypePath, Debug)]
+pub struct HeightmapAsset {
+    /// Width in samples.
+    pub width: u32,
+    /// Height in samples.
+    pub height: u32,
+    /// Raw 16-bit height values, laid out row by row.
+    pub data: Vec<u16>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

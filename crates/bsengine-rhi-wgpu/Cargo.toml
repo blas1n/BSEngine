@@ -26,8 +26,10 @@ notify-debouncer-full.workspace = true
 blake3.workspace = true
 pollster.workspace = true
 tracing.workspace = true
+gltf.workspace = true
 
 [dev-dependencies]
 bsengine-app.workspace = true
 bsengine-editor.workspace = true
 bsengine-scene.workspace = true
+base64 = { workspace = true }

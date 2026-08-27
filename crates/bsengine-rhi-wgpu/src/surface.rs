@@ -1891,6 +1891,13 @@ impl WgpuSurface {
             );
         }
 
+        // Per-frame draw-call/triangle counters for the profiler. Local to
+        // this call (not a shared atomic like texture memory), since
+        // `mesh_thumbnail.rs`'s `render_thumbnail` can run mid-frame and
+        // must never inflate this frame's `FrameStats`.
+        let mut frame_draw_calls: u32 = 0;
+        let mut frame_triangles: u64 = 0;
+
         // `presentable` is the swapchain frame to hand back at the end of the
         // function, and is `None` when rendering offscreen.
         let (view, presentable) = self.output.acquire()?;
@@ -1978,6 +1985,8 @@ impl WgpuSurface {
                     shadow_pass
                         .set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                     shadow_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                    frame_draw_calls += 1;
+                    frame_triangles += (mesh.index_count / 3) as u64;
                 }
             }
         }
@@ -2064,6 +2073,8 @@ impl WgpuSurface {
                             wgpu::IndexFormat::Uint32,
                         );
                         point_shadow_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                        frame_draw_calls += 1;
+                        frame_triangles += (mesh.index_count / 3) as u64;
                     }
                 }
             }
@@ -2142,6 +2153,8 @@ impl WgpuSurface {
                 pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                frame_draw_calls += 1;
+                frame_triangles += (mesh.index_count / 3) as u64;
             }
         }
 
@@ -2177,6 +2190,8 @@ impl WgpuSurface {
             sky_pass.set_bind_group(0, &sky.uniform_bg, &[]);
             sky_pass.set_bind_group(1, &sky.texture_bg, &[]);
             sky_pass.draw(0..3, 0..1);
+            frame_draw_calls += 1;
+            frame_triangles += 1;
         }
 
         // --- transparent pass (after the skybox, so glass shows sky through it) ---
@@ -2230,12 +2245,14 @@ impl WgpuSurface {
                 pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                frame_draw_calls += 1;
+                frame_triangles += (mesh.index_count / 3) as u64;
             }
         }
 
         // --- particle pass (after transparency, so sparks read over glass) ---
         if !particles.is_empty() {
-            self.particles.draw(
+            let (particle_draw_calls, particle_triangles) = self.particles.draw(
                 &mut encoder,
                 &self.queue,
                 &self.post_process.hdr_view,
@@ -2245,6 +2262,8 @@ impl WgpuSurface {
                 tex_registry,
                 &self.default_texture_bind_group,
             );
+            frame_draw_calls += particle_draw_calls;
+            frame_triangles += particle_triangles;
         }
 
         // --- post-process passes: bloom → SSAO → composite → swapchain ---
@@ -2258,8 +2277,11 @@ impl WgpuSurface {
             .filter(|i| i.editor_mode)
             .map(|i| (i.viewport_pos[0] + 8.0, i.viewport_pos[1] + 8.0))
             .unwrap_or((8.0, 8.0));
-        self.post_process
-            .apply(&mut encoder, &view, self.fast_render);
+        let (pp_draw_calls, pp_triangles) =
+            self.post_process
+                .apply(&mut encoder, &view, self.fast_render);
+        frame_draw_calls += pp_draw_calls;
+        frame_triangles += pp_triangles;
 
         // UI + HUD overlay via egui (always on in editor mode)
         let has_ui = is_editor

@@ -717,12 +717,17 @@ impl PostProcessState {
     /// skip the clear itself: the composite pass below always samples both
     /// textures, and an un-cleared AO texture reads as 0.0 ("fully
     /// occluded") instead of 1.0, which would render every pixel black.
+    ///
+    /// Returns the `(draw_calls, triangles)` issued by this call, so the
+    /// caller can fold them into its own per-frame counters.
     pub fn apply(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         surface_view: &wgpu::TextureView,
         fast_render: bool,
-    ) {
+    ) -> (u32, u64) {
+        let mut draw_calls = 0u32;
+        let mut triangles = 0u64;
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("bloom pass"),
@@ -742,6 +747,8 @@ impl PostProcessState {
                 pass.set_bind_group(0, &self.hdr_bg, &[]);
                 pass.set_bind_group(1, &self.config_bg, &[]);
                 pass.draw(0..3, 0..1);
+                draw_calls += 1;
+                triangles += 1;
             }
         }
 
@@ -765,6 +772,8 @@ impl PostProcessState {
                 pass.set_bind_group(1, &self.config_bg, &[]);
                 pass.set_bind_group(2, &self.ssao_cam_bg, &[]);
                 pass.draw(0..3, 0..1);
+                draw_calls += 1;
+                triangles += 1;
             }
         }
 
@@ -788,7 +797,10 @@ impl PostProcessState {
             pass.set_bind_group(2, &self.ao_bg, &[]);
             pass.set_bind_group(3, &self.config_bg, &[]);
             pass.draw(0..3, 0..1);
+            draw_calls += 1;
+            triangles += 1;
         }
+        (draw_calls, triangles)
     }
 }
 

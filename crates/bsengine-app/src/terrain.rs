@@ -9,6 +9,8 @@
 //! problem for glTF meshes.
 
 use bevy_app::{App, Plugin, Update};
+use bevy_ecs::prelude::ReflectComponent;
+use bevy_reflect::Reflect;
 use bsengine_asset::{AssetServer, Assets, HeightmapAsset, Polled};
 use bsengine_core::{GlobalTransform, Transform};
 use bsengine_ecs::{Commands, Component, Entity, Query, Res, ResMut, Without};
@@ -38,13 +40,26 @@ pub use bsengine_scene::Terrain;
 /// reason `PendingGltf`/`PendingShader` are separate: an `AssetSlot` isn't
 /// meaningfully serializable scene state, so keeping it off the reflected
 /// component keeps `Terrain`'s RON representation clean.
+///
+/// Private, matching `PendingGltf`'s exact precedent -- an implementation
+/// detail of this module's own load-tracking, not part of any other crate's
+/// API (unlike `TerrainChunksGenerated` below, which `bsengine-runtime`'s
+/// tests genuinely need to observe). `AssetSlot` doesn't implement `Reflect`
+/// (by design -- see above), so this type can't be registered even if it
+/// were public; the component catalogue's R1 rule ("every *public*
+/// `#[derive(Component)]` type must be registered") only applies to public
+/// types for exactly this reason.
 #[derive(Component)]
-pub struct PendingTerrain(pub bsengine_asset::AssetSlot<HeightmapAsset>);
+struct PendingTerrain(bsengine_asset::AssetSlot<HeightmapAsset>);
 
 /// Marks a `Terrain` entity whose chunks have already been spawned, so
 /// `generate_terrain_chunks` (which still polls every frame while a load is
-/// in flight) never double-spawns.
-#[derive(Component)]
+/// in flight) never double-spawns. Public and reflected (registered in
+/// `TerrainPlugin::build` below) because `bsengine-runtime`'s terrain
+/// integration test queries for it directly to detect when generation has
+/// finished.
+#[derive(Component, Reflect)]
+#[reflect(Component)]
 pub struct TerrainChunksGenerated;
 
 /// Bevy plugin that loads each `Terrain`'s heightmap and spawns its chunk
@@ -54,6 +69,7 @@ pub struct TerrainPlugin;
 impl Plugin for TerrainPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<Terrain>()
+            .register_type::<TerrainChunksGenerated>()
             .add_systems(Update, generate_terrain_chunks);
     }
 }

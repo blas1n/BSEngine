@@ -158,8 +158,7 @@ impl EditorPanel for HierarchyPanel {
                     let commit_by_enter = edit_response.lost_focus()
                         && ui.ctx().input(|i| i.key_pressed(egui::Key::Enter));
                     let commit_by_button = ui.button("Create").clicked();
-                    if (commit_by_enter || commit_by_button) && !create_terrain_buffer.is_empty()
-                    {
+                    if (commit_by_enter || commit_by_button) && !create_terrain_buffer.is_empty() {
                         create_terrain_commit = Some(create_terrain_buffer.clone());
                         ui.memory_mut(|m| m.close_popup());
                     }
@@ -935,10 +934,7 @@ mod tests {
             egui_ctx.set_fonts(egui::FontDefinitions::empty());
             Self {
                 egui_ctx,
-                screen_rect: egui::Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    egui::vec2(400.0, 400.0),
-                ),
+                screen_rect: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0)),
                 insp: InspectorState::default(),
                 entities_snapshot: Vec::new(),
                 panel: HierarchyPanel,

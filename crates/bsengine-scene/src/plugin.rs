@@ -1871,10 +1871,7 @@ mod tests {
         let results: Vec<_> = q.iter(app.world()).collect();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].0 .0, "Ground");
-        assert_eq!(
-            results[0].1.heightmap_path,
-            "games/demo/terrain/hills.png"
-        );
+        assert_eq!(results[0].1.heightmap_path, "games/demo/terrain/hills.png");
         // Every other field must survive untouched -- this join must not
         // reach past the one field that actually names a filesystem path.
         assert_eq!(results[0].1.chunk_count, (1, 1));

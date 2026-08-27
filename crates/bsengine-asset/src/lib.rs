@@ -30,13 +30,13 @@
 //! point.
 #![warn(missing_docs)]
 
+/// `AssetLoader` backing `LoadMode::Async` for `HeightmapAsset`.
+pub mod heightmap_loader;
 /// `AssetGuid` and the `.meta` sidecar that gives an asset an identity
 /// independent of its path, plus the `AssetIdentityPlugin` that publishes a
 /// scan of them as an `AssetIndex`. Registered by all three hosts, and its
 /// docs explain why registering it is only half of making it work.
 pub mod identity;
-/// `AssetLoader` backing `LoadMode::Async` for `HeightmapAsset`.
-pub mod heightmap_loader;
 /// Chooses between synchronous (blocking, zero-latency) and asynchronous
 /// (`AssetServer`-driven) loading, plus the dispatch helper itself.
 pub mod load_mode;

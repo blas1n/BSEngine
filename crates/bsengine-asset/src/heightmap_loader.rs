@@ -61,7 +61,10 @@ mod tests {
                 .expect("test fixture dimensions must match values.len()");
         let mut bytes = Vec::new();
         image::DynamicImage::ImageLuma16(img)
-            .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .write_to(
+                &mut std::io::Cursor::new(&mut bytes),
+                image::ImageFormat::Png,
+            )
             .expect("encoding the test fixture PNG failed");
         bytes
     }

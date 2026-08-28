@@ -409,6 +409,14 @@ pub enum EditorCommand {
         chunk_size: f32,
         /// Multiplier applied to the normalized heightmap sample.
         height_scale: f32,
+        /// Diffuse texture for the low/flat splat layer (e.g. grass).
+        layer0_texture_path: String,
+        /// Diffuse texture for the steep-slope splat layer (e.g. rock).
+        layer1_texture_path: String,
+        /// Diffuse texture for the paint-only splat layer (e.g. dirt).
+        layer2_texture_path: String,
+        /// Diffuse texture for the high-altitude splat layer (e.g. snow).
+        layer3_texture_path: String,
     },
 }
 

@@ -723,12 +723,22 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
                                         if let bevy_reflect::ReflectMut::Struct(s) =
                                             value.reflect_mut()
                                         {
-                                            if let Some(field) = s.field_mut("heightmap_path") {
-                                                if let Some(path) = field.downcast_mut::<String>() {
-                                                    *path = bsengine_core::resolve_project_path(
-                                                        project_dir.as_ref(),
-                                                        path,
-                                                    );
+                                            for field_name in [
+                                                "heightmap_path",
+                                                "layer0_texture_path",
+                                                "layer1_texture_path",
+                                                "layer2_texture_path",
+                                                "layer3_texture_path",
+                                            ] {
+                                                if let Some(field) = s.field_mut(field_name) {
+                                                    if let Some(path) =
+                                                        field.downcast_mut::<String>()
+                                                    {
+                                                        *path = bsengine_core::resolve_project_path(
+                                                            project_dir.as_ref(),
+                                                            path,
+                                                        );
+                                                    }
                                                 }
                                             }
                                         }
@@ -1856,7 +1866,7 @@ mod tests {
     fn scene_plugin_terrain_heightmap_path_resolves_against_project_dir() {
         let ron = r#"SceneDescriptor(entities: [
             EntityDescriptor(name: "Ground", components: [
-                ("bsengine_scene::types::Terrain", "(heightmap_path: \"terrain/hills.png\", chunk_count: (1, 1), chunk_size: 10.0, height_scale: 1.0)"),
+                ("bsengine_scene::types::Terrain", "(heightmap_path: \"terrain/hills.png\", chunk_count: (1, 1), chunk_size: 10.0, height_scale: 1.0, layer0_texture_path: \"terrain/grass.png\", layer1_texture_path: \"terrain/rock.png\", layer2_texture_path: \"terrain/dirt.png\", layer3_texture_path: \"terrain/snow.png\")"),
             ]),
         ])"#;
         let path = write_temp_scene("test_terrain_project_dir.ron", ron);
@@ -1883,7 +1893,7 @@ mod tests {
     fn scene_plugin_terrain_heightmap_path_unchanged_without_project_dir() {
         let ron = r#"SceneDescriptor(entities: [
             EntityDescriptor(name: "Ground", components: [
-                ("bsengine_scene::types::Terrain", "(heightmap_path: \"terrain/hills.png\", chunk_count: (1, 1), chunk_size: 10.0, height_scale: 1.0)"),
+                ("bsengine_scene::types::Terrain", "(heightmap_path: \"terrain/hills.png\", chunk_count: (1, 1), chunk_size: 10.0, height_scale: 1.0, layer0_texture_path: \"terrain/grass.png\", layer1_texture_path: \"terrain/rock.png\", layer2_texture_path: \"terrain/dirt.png\", layer3_texture_path: \"terrain/snow.png\")"),
             ]),
         ])"#;
         let path = write_temp_scene("test_terrain_no_project_dir.ron", ron);
@@ -1897,6 +1907,30 @@ mod tests {
         let results: Vec<_> = q.iter(app.world()).collect();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].1.heightmap_path, "terrain/hills.png");
+    }
+
+    #[test]
+    fn scene_plugin_terrain_layer_texture_paths_resolve_against_project_dir() {
+        let ron = r#"SceneDescriptor(entities: [
+            EntityDescriptor(name: "Ground", components: [
+                ("bsengine_scene::types::Terrain", "(heightmap_path: \"terrain/hills.png\", chunk_count: (1, 1), chunk_size: 10.0, height_scale: 1.0, layer0_texture_path: \"terrain/grass.png\", layer1_texture_path: \"terrain/rock.png\", layer2_texture_path: \"terrain/dirt.png\", layer3_texture_path: \"terrain/snow.png\")"),
+            ]),
+        ])"#;
+        let path = write_temp_scene("test_terrain_layer_paths.ron", ron);
+
+        let mut app = new_app();
+        app.register_type::<crate::types::Terrain>();
+        app.insert_resource(bsengine_core::ProjectDir("games/demo".to_string()));
+        app.add_plugins(ScenePlugin::from_file(&path));
+        app.update();
+
+        let mut q = app.world_mut().query::<&crate::types::Terrain>();
+        let terrain = q.iter(app.world()).next().expect("Terrain should spawn");
+        assert_eq!(terrain.heightmap_path, "games/demo/terrain/hills.png");
+        assert_eq!(terrain.layer0_texture_path, "games/demo/terrain/grass.png");
+        assert_eq!(terrain.layer1_texture_path, "games/demo/terrain/rock.png");
+        assert_eq!(terrain.layer2_texture_path, "games/demo/terrain/dirt.png");
+        assert_eq!(terrain.layer3_texture_path, "games/demo/terrain/snow.png");
     }
 
     // ---- resolution by identity (roadmap item 30, sub-item C) -------------

@@ -15,6 +15,7 @@ use bsengine_window::WindowResized;
 use glam::{Mat4, Vec3, Vec4};
 
 use crate::components::{LodLevels, MeshRenderer, TerrainSplat};
+use crate::lod::select_lod_level;
 
 /// Returns false if the sphere is completely outside the view frustum.
 /// Uses Gribb-Hartmann plane extraction from the view-projection matrix
@@ -534,6 +535,7 @@ fn render_frame(
             Option<&Material>,
             Option<&Visible>,
             Option<&CustomShader>,
+            Option<&mut LodLevels>,
         )>,
         Query<(&DirectionalLight, Option<&GlobalTransform>, &Transform)>,
         Query<(&PointLight, Option<&GlobalTransform>, &Transform)>,
@@ -634,14 +636,16 @@ fn render_frame(
 
     let draw_calls: Vec<(u64, Mat4, Option<u64>, MaterialParams, Option<String>)> = render_queries
         .p1()
-        .iter()
-        .filter_map(|(mr, t, gt, mat, vis, cs)| {
+        .iter_mut()
+        .filter_map(|(mr, t, gt, mat, vis, cs, mut lod)| {
             if !vis.map(|v| v.is_visible).unwrap_or(true) {
                 return None;
             }
             let model = gt.map(|g| g.to_matrix()).unwrap_or_else(|| t.to_matrix());
+            let mut world_center: Option<Vec3> = None;
             if let Some((local_center, local_radius)) = registry.get_bounds(mr.mesh_id) {
-                let world_center = (model * local_center.extend(1.0)).truncate();
+                let center = (model * local_center.extend(1.0)).truncate();
+                world_center = Some(center);
                 let max_scale = model
                     .x_axis
                     .truncate()
@@ -649,10 +653,26 @@ fn render_frame(
                     .max(model.y_axis.truncate().length())
                     .max(model.z_axis.truncate().length());
                 let world_radius = local_radius * max_scale.max(1.0);
-                if !sphere_visible_in_frustum(view_proj, world_center, world_radius) {
+                if !sphere_visible_in_frustum(view_proj, center, world_radius) {
                     return None;
                 }
             }
+            let effective_mesh_id = if let Some(lod) = lod.as_deref_mut() {
+                let distance = world_center
+                    .map(|wc| (wc - cam_pos).length())
+                    .unwrap_or(f32::MAX);
+                lod.current_index = select_lod_level(
+                    lod.current_index,
+                    distance,
+                    &lod.switch_distances,
+                    lod.hysteresis_band,
+                );
+                lod.current_index
+                    .and_then(|i| lod.mesh_ids.get(i).copied())
+                    .unwrap_or(mr.mesh_id)
+            } else {
+                mr.mesh_id
+            };
             let tex_id = mat.and_then(|m| m.texture_id);
             let mat_params = mat
                 .map(|m| MaterialParams {
@@ -664,7 +684,7 @@ fn render_frame(
                 })
                 .unwrap_or_default();
             Some((
-                mr.mesh_id,
+                effective_mesh_id,
                 model,
                 tex_id,
                 mat_params,
@@ -860,10 +880,10 @@ impl Plugin for RenderPlugin {
 #[cfg(test)]
 mod tests {
     use super::{CompileStatus, PendingShader, PendingShaders, PendingSkybox, RenderPlugin};
-    use crate::components::MeshRenderer;
+    use crate::components::{LodLevels, MeshRenderer};
     use bsengine_app::new_app;
     use bsengine_core::{Camera, GlobalTransform, Material, Parent, PointLight, Transform};
-    use bsengine_rhi_wgpu::WgpuRHIPlugin;
+    use bsengine_rhi_wgpu::{GpuMeshRegistry, Vertex, WgpuRHIPlugin};
     use bsengine_window::WindowResized;
     use glam::Vec3;
 
@@ -1934,5 +1954,93 @@ mod tests {
             Vec3::new(0.0, 0.0, -150.0),
             0.5
         ));
+    }
+
+    // Proves `render_frame` actually drives LOD selection end to end: a real
+    // (offscreen, no window needed) GPU registry gives the entity's mesh a
+    // real bounding sphere, so `world_center` -- and therefore the distance
+    // fed to `select_lod_level` -- comes from the genuine camera-to-object
+    // distance, not the `f32::MAX` fallback an unregistered mesh id would
+    // produce. `WgpuRHIPlugin::offscreen` is the same helper
+    // `bsengine-runtime`'s headless test/replay runtime uses to get a real
+    // renderer without a window (see `test_mode.rs`); `render_plugin_uses_pbr_material`
+    // and friends above use `WgpuRHIPlugin::windowed()` instead, but windowed
+    // mode never gets a `WindowHandle` in a test, so its `WgpuSurfaceResource`
+    // -- and therefore `GpuMeshRegistry` -- never comes into existence, and
+    // `render_frame` takes its early return before ever reaching the LOD
+    // selection this test needs to exercise.
+    #[test]
+    fn lod_current_index_updates_based_on_camera_distance() {
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::offscreen(64, 64, true));
+        app.add_plugins(RenderPlugin);
+        // Startup (which builds the offscreen surface and GpuMeshRegistry)
+        // only runs on the first update.
+        app.update();
+
+        let mesh_id = {
+            let mut registry = app.world_mut().resource_mut::<GpuMeshRegistry>();
+            registry.register(
+                &[
+                    Vertex {
+                        position: [0.0, 0.0, 0.0],
+                        color: [1.0, 1.0, 1.0],
+                        normal: [0.0, 1.0, 0.0],
+                        uv: [0.0, 0.0],
+                    },
+                    Vertex {
+                        position: [1.0, 0.0, 0.0],
+                        color: [1.0, 1.0, 1.0],
+                        normal: [0.0, 1.0, 0.0],
+                        uv: [1.0, 0.0],
+                    },
+                    Vertex {
+                        position: [0.0, 1.0, 0.0],
+                        color: [1.0, 1.0, 1.0],
+                        normal: [0.0, 1.0, 0.0],
+                        uv: [0.0, 1.0],
+                    },
+                ],
+                &[0, 1, 2],
+            )
+        };
+
+        // Camera far from the origin -- comfortably past both switch
+        // thresholds (plus their hysteresis half-bands), so this must cross
+        // at least the first one.
+        app.world_mut().spawn((
+            Camera::default(),
+            Transform::from_position(Vec3::new(0.0, 0.0, 200.0)),
+        ));
+
+        let entity = app
+            .world_mut()
+            .spawn((
+                MeshRenderer { mesh_id },
+                Transform::from_position(Vec3::ZERO),
+                LodLevels {
+                    // These don't need to be registered meshes -- this test
+                    // only asserts on `current_index`, never draws them.
+                    mesh_ids: vec![mesh_id + 100, mesh_id + 200],
+                    switch_distances: vec![10.0, 50.0],
+                    hysteresis_band: 2.0,
+                    current_index: None,
+                },
+            ))
+            .id();
+
+        app.update();
+
+        let lod = app
+            .world()
+            .get::<LodLevels>(entity)
+            .expect("entity still carries its LodLevels component");
+        assert!(
+            lod.current_index.is_some(),
+            "an entity 200 units from the camera, with switch_distances \
+             [10.0, 50.0], must have selected a LOD level beyond LOD0 -- got \
+             current_index = None"
+        );
     }
 }

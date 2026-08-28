@@ -22,6 +22,8 @@ pub struct ProjectManifest {
     pub project: ProjectSection,
     #[serde(default)]
     pub window: WindowSection,
+    #[serde(default)]
+    pub render: RenderSection,
 }
 
 #[derive(Deserialize)]
@@ -57,6 +59,27 @@ impl Default for WindowSection {
             width: default_width(),
             height: default_height(),
             resizable: default_true(),
+        }
+    }
+}
+
+/// Rendering switches from `project.toml`'s `[render]` table.
+#[derive(Deserialize)]
+pub struct RenderSection {
+    /// Whether to cull entities hidden behind `Occluder`s. On by default,
+    /// matching frustum culling, which has always run unconditionally.
+    #[serde(default = "default_true")]
+    pub occlusion_culling: bool,
+}
+
+// Same rule as `WindowSection` above, and for the same reason: because
+// `ProjectManifest.render` is itself `#[serde(default)]`, this impl and
+// the field-level `#[serde(default = "...")]` must call the same function,
+// or an absent `[render]` table and an empty one would disagree.
+impl Default for RenderSection {
+    fn default() -> Self {
+        Self {
+            occlusion_culling: default_true(),
         }
     }
 }
@@ -415,5 +438,33 @@ mod tests {
              no collision or input dispatch — and it used to be zero",
             b_ran_at - swapped_at
         );
+    }
+
+    /// The `[render]` table being absent, present-but-empty, and explicit
+    /// must all agree -- the same three-way consistency `WindowSection`'s
+    /// Default impl comment above exists to protect.
+    #[test]
+    fn render_section_defaults_agree_whether_the_table_is_absent_or_empty() {
+        let absent: super::ProjectManifest =
+            toml::from_str("[project]\nname = \"t\"\nentry_scene = \"s.ron\"\n").unwrap();
+        let empty: super::ProjectManifest =
+            toml::from_str("[project]\nname = \"t\"\nentry_scene = \"s.ron\"\n[render]\n").unwrap();
+        assert_eq!(
+            absent.render.occlusion_culling, empty.render.occlusion_culling,
+            "an absent [render] table and an empty one must mean the same thing"
+        );
+        assert!(
+            absent.render.occlusion_culling,
+            "occlusion culling defaults to on"
+        );
+    }
+
+    #[test]
+    fn render_section_can_disable_occlusion_culling() {
+        let m: super::ProjectManifest = toml::from_str(
+            "[project]\nname = \"t\"\nentry_scene = \"s.ron\"\n[render]\nocclusion_culling = false\n",
+        )
+        .unwrap();
+        assert!(!m.render.occlusion_culling);
     }
 }

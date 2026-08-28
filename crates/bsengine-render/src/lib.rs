@@ -15,6 +15,8 @@
 pub mod components;
 /// Pure hysteresis LOD-level selection.
 pub mod lod;
+/// GPU-free software occlusion culling: conservative occluder rasterization.
+pub mod occlusion;
 /// The Bevy `Plugin` wiring transform propagation and frame rendering into the app schedule.
 pub mod plugin;
 /// Custom WGSL shader source asset and its loader.

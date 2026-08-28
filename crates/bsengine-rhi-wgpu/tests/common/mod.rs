@@ -399,6 +399,7 @@ struct VertOut {{
                 sky_vp_inv,
                 &draw_calls,
                 &[],
+                0,
                 &self.registry,
                 scene.light.to_engine(),
                 Some(&self.textures),

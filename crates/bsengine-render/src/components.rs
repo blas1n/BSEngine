@@ -1,5 +1,6 @@
 use bevy_ecs::prelude::{Component, ReflectComponent};
 use bevy_reflect::Reflect;
+use bsengine_core::ReflectVec3;
 
 /// Marks an entity as drawable and identifies which mesh asset to render it with.
 #[derive(Component, Debug, Clone, Reflect)]
@@ -56,6 +57,37 @@ pub struct LodLevels {
     pub current_index: Option<usize>,
 }
 
+/// Marks an entity as able to hide other entities behind it, by giving a
+/// box that occlusion culling may rasterize as an opaque blocker.
+///
+/// **The box must fit INSIDE the entity's real geometry.** It is a
+/// conservative under-estimate, never a bounding box. This is the one
+/// input that can make occlusion culling hide something genuinely
+/// visible: rasterizing a blocker larger than the real geometry claims
+/// coverage the geometry does not have. Everything else in
+/// `crate::occlusion` is built to under-cull; this component is where that
+/// guarantee is either kept or broken.
+///
+/// An entity without an `Occluder` hides nothing. It can still *be*
+/// hidden -- being an occluder and being a culling candidate are
+/// independent.
+///
+/// Public and reflected (R1: every public `#[derive(Component)]` type must
+/// be registered) because it is genuinely cross-crate: `bsengine-app`
+/// constructs it for terrain chunks, scenes author it by reflection, and
+/// `bsengine-render`'s `render_frame` queries it every frame.
+#[derive(Component, Debug, Clone, Copy, Reflect)]
+#[reflect(Component)]
+pub struct Occluder {
+    /// Center of the box in the entity's LOCAL space. Not always the local
+    /// origin: a terrain chunk's mesh spans local `(0,0)..(chunk_size,
+    /// chunk_size)`, so its box has to be offset to sit under the geometry
+    /// it stands in for.
+    pub center: ReflectVec3,
+    /// Half-extents of the box in the entity's LOCAL space.
+    pub half_extents: ReflectVec3,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -86,5 +118,15 @@ mod tests {
         };
         assert_eq!(lod.mesh_ids, vec![7, 8]);
         assert_eq!(lod.current_index, Some(1));
+    }
+
+    #[test]
+    fn occluder_stores_its_box() {
+        let o = Occluder {
+            center: glam::Vec3::new(1.0, 2.0, 3.0).into(),
+            half_extents: glam::Vec3::new(4.0, 5.0, 6.0).into(),
+        };
+        assert_eq!(*o.center, glam::Vec3::new(1.0, 2.0, 3.0));
+        assert_eq!(*o.half_extents, glam::Vec3::new(4.0, 5.0, 6.0));
     }
 }

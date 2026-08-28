@@ -15,7 +15,7 @@ use bsengine_asset::{AssetServer, Assets, HeightmapAsset, Polled, TextureAsset};
 use bsengine_core::{GlobalTransform, Transform};
 use bsengine_ecs::{Commands, Component, Entity, Query, Res, ResMut, Without};
 use bsengine_physics::{Collider, ColliderShape, PhysicsInput, RigidBody};
-use bsengine_render::components::{LodLevels, TerrainSplat};
+use bsengine_render::components::{LodLevels, Occluder, TerrainSplat};
 use bsengine_render::MeshRenderer;
 use bsengine_rhi_wgpu::{GpuMeshRegistry, GpuTextureRegistry};
 use glam::{Quat, Vec3};
@@ -300,6 +300,22 @@ fn generate_terrain_chunks(
             let world_min_corner =
                 transform.position.0 + Vec3::new(chunk.world_offset.0, 0.0, chunk.world_offset.1);
 
+            // Read before `chunk.heightfield_heights` is moved into the
+            // `Collider` below. The occluder box rises from local y=0 to the
+            // chunk's LOWEST height, so it stays under the real surface at
+            // every point -- the conservative rule `Occluder` documents. An
+            // all-zero chunk yields a zero-height box, which occludes
+            // nothing: correct, and safe. `.max(0.0)` keeps the box's
+            // half-extent non-negative even for a terrain authored with a
+            // negative `height_scale`.
+            let min_height = chunk
+                .heightfield_heights
+                .iter()
+                .copied()
+                .fold(f32::INFINITY, f32::min)
+                .max(0.0);
+            let half_chunk_extent = params.chunk_size / 2.0;
+
             commands.spawn((
                 Transform::from_position(world_min_corner),
                 GlobalTransform::default(),
@@ -316,6 +332,15 @@ fn generate_terrain_chunks(
                     ],
                     hysteresis_band: params.chunk_size * CHUNK_LOD_HYSTERESIS_BAND_RATIO,
                     current_index: None,
+                },
+                // Local space: the chunk's mesh spans `(0,0)..(chunk_size,
+                // chunk_size)` while its `Transform` sits at the min corner,
+                // so the box's center x/z are `chunk_size / 2`, not zero.
+                Occluder {
+                    center: Vec3::new(half_chunk_extent, min_height / 2.0, half_chunk_extent)
+                        .into(),
+                    half_extents: Vec3::new(half_chunk_extent, min_height / 2.0, half_chunk_extent)
+                        .into(),
                 },
                 TerrainChunkOf(entity),
                 RigidBody::fixed(),
@@ -1003,6 +1028,119 @@ mod tests {
             "expected the ball to rest at y ~= {expected} (terrain height {expected_height} \
              + radius {radius}) regardless of the forced LOD selection, but it settled at \
              y={y} -- LOD must never be reachable from collision"
+        );
+    }
+
+    /// Every terrain chunk must carry an `Occluder` whose box stays under the
+    /// real surface: its top (`center.y + half_extents.y`) may never exceed
+    /// the chunk's own minimum height. A box poking above the surface would
+    /// claim coverage the terrain does not have, which is exactly the
+    /// false-culling failure `Occluder`'s doc comment forbids. Horizontally
+    /// the box spans the full chunk footprint, which is safe: the chunk mesh
+    /// covers that whole footprint.
+    ///
+    /// The minimum is read back out of the chunk's own `Collider`
+    /// heightfield rather than recomputed from the source heightmap, so the
+    /// assertion proves the occluder and the collider agree about the same
+    /// chunk's geometry.
+    #[test]
+    fn terrain_chunks_carry_a_conservative_occluder_under_the_surface() {
+        let mut app = test_app();
+
+        // Varied heights, all comfortably above zero, so every chunk's
+        // minimum is a real non-degenerate value. A flat-at-zero heightmap
+        // would pass trivially even for a box built from the maximum; this
+        // one only passes if the minimum is genuinely used.
+        let mut values = vec![0u16; 9 * 9];
+        for (i, v) in values.iter_mut().enumerate() {
+            *v = 8000 + (i as u16 * 700) % 50000;
+        }
+        let path = write_test_heightmap("occluder", 9, 9, &values);
+
+        let chunk_size = 8.0f32;
+        let chunk_count = (2u32, 2u32);
+        let terrain_entity = app
+            .world_mut()
+            .spawn((
+                Terrain {
+                    heightmap_path: path,
+                    chunk_count,
+                    chunk_size,
+                    height_scale: 5.0,
+                    layer0_texture_path: write_test_texture("occluder-l0", [50, 200, 50, 255]),
+                    layer1_texture_path: write_test_texture("occluder-l1", [120, 120, 120, 255]),
+                    layer2_texture_path: write_test_texture("occluder-l2", [110, 80, 40, 255]),
+                    layer3_texture_path: write_test_texture("occluder-l3", [240, 240, 250, 255]),
+                    splatmap_path: None,
+                },
+                Transform::default(),
+            ))
+            .id();
+
+        run_until_generated(&mut app, terrain_entity);
+
+        let mut query = app.world_mut().query::<(&Occluder, &Collider)>();
+        let chunks: Vec<(Occluder, Vec<f32>)> = query
+            .iter(app.world())
+            .map(|(occluder, collider)| {
+                let ColliderShape::Heightfield { heights, .. } = &collider.shape else {
+                    panic!(
+                        "a terrain chunk's collider must be a Heightfield, got {:?}",
+                        collider.shape
+                    );
+                };
+                (*occluder, heights.clone())
+            })
+            .collect();
+        assert_eq!(
+            chunks.len(),
+            (chunk_count.0 * chunk_count.1) as usize,
+            "every chunk entity must carry an Occluder alongside its Collider"
+        );
+
+        let mut any_real_height = false;
+        for (occluder, heights) in &chunks {
+            assert!(
+                !heights.is_empty(),
+                "a chunk's heightfield must have samples to compare against"
+            );
+            let min_height = heights.iter().copied().fold(f32::INFINITY, f32::min);
+
+            assert_eq!(
+                occluder.half_extents.x,
+                chunk_size / 2.0,
+                "the occluder must span the chunk's full footprint in x"
+            );
+            assert_eq!(
+                occluder.half_extents.z,
+                chunk_size / 2.0,
+                "the occluder must span the chunk's full footprint in z"
+            );
+            assert!(
+                occluder.half_extents.x >= 0.0
+                    && occluder.half_extents.y >= 0.0
+                    && occluder.half_extents.z >= 0.0,
+                "half_extents must be non-negative on every axis, got {:?}",
+                occluder.half_extents
+            );
+
+            let box_top = occluder.center.y + occluder.half_extents.y;
+            assert!(
+                box_top <= min_height + 1e-4,
+                "the occluder box's top ({box_top}) must stay under the chunk's lowest \
+                 height ({min_height}) -- a box above the surface would occlude geometry \
+                 the terrain does not actually cover (center {:?}, half_extents {:?})",
+                occluder.center,
+                occluder.half_extents
+            );
+
+            any_real_height |= occluder.half_extents.y > 0.0;
+        }
+        assert!(
+            any_real_height,
+            "at least one chunk of this above-zero heightmap must get a box with real \
+             height -- an always-zero-height occluder would satisfy the conservative rule \
+             by occluding nothing at all"
         );
     }
 }

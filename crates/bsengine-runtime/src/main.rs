@@ -136,6 +136,9 @@ fn run_windowed(project_dir: &str) {
         .unwrap_or_else(|| manifest.project.name.clone());
 
     let mut app = new_app();
+    app.insert_resource(bsengine_core::OcclusionCullingEnabled(
+        manifest.render.occlusion_culling,
+    ));
     app.add_plugins(TimePlugin)
         .add_plugins(AssetPlugin)
         // Windowed only, deliberately. `--test` builds its own app

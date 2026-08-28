@@ -43,6 +43,9 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>, fast_rend
     let scene_path = format!("{project_dir}/{relative_scene}");
 
     let mut app = bsengine_app::new_app();
+    app.insert_resource(bsengine_core::OcclusionCullingEnabled(
+        manifest.render.occlusion_culling,
+    ));
     app.add_plugins(TimePlugin)
         .add_plugins(AssetPlugin)
         // Included here, unlike `AssetWatcherPlugin` (see main.rs's
@@ -2029,6 +2032,340 @@ mod tests {
              drawn in both the main and shadow passes) should produce -- a small but \
              nonzero gap would suggest the wrong mesh is being measured somewhere, not \
              a genuinely working LOD reduction"
+        );
+    }
+
+    /// World-space (x, y) of the 30 small cubes parked 40 units behind the
+    /// wall, all of them well inside its screen-space silhouette.
+    ///
+    /// Two blocks (upper-left and lower-right) rather than one grid
+    /// straddling the view axis, and that is load-bearing rather than
+    /// decorative. `rasterize_occluder_box` splits each box face into two
+    /// triangles and is inner-conservative, so it leaves the seam along
+    /// their shared diagonal unwritten -- for a wall centred on the camera
+    /// axis that diagonal runs corner-to-corner through the middle of the
+    /// silhouette, exactly where `ndc.x == ndc.y`. Anything sitting on it
+    /// finds an uncovered pixel and correctly reports itself un-occluded
+    /// (a hole under-culls, which is the safe direction, and
+    /// `an_entity_beside_an_occluder_is_not_culled_while_one_behind_it_is`
+    /// in `bsengine-render` documents the same thing). Keeping every
+    /// candidate in a quadrant where `x` and `y` have opposite signs puts
+    /// `ndc.x` and `ndc.y` on opposite sides of zero, so none of them can
+    /// land on that seam no matter what the exact projection works out to.
+    ///
+    /// The bounds themselves: at z = -60 with a 60-degree vertical FOV and
+    /// a 16:9 aspect the visible half-extents are 61.6 x 34.6 world units,
+    /// and the wall's occluder box covers |ndc.x| < 0.59, |ndc.y| < 0.70 --
+    /// i.e. |x| < 36 and |y| < 24 at this depth. Every entry below is
+    /// inside that with at least five buffer pixels to spare, which also
+    /// keeps them far from the 128x128 buffer's own edge (`box_occluded`
+    /// refuses to cull anything whose screen rect leaves the buffer).
+    const OCCLUSION_HIDDEN_XY: [(f32, f32); 30] = [
+        (-30.0, 5.0),
+        (-30.0, 12.0),
+        (-30.0, 19.0),
+        (-24.0, 5.0),
+        (-24.0, 12.0),
+        (-24.0, 19.0),
+        (-18.0, 5.0),
+        (-18.0, 12.0),
+        (-18.0, 19.0),
+        (-12.0, 5.0),
+        (-12.0, 12.0),
+        (-12.0, 19.0),
+        (-6.0, 5.0),
+        (-6.0, 12.0),
+        (-6.0, 19.0),
+        (6.0, -5.0),
+        (6.0, -12.0),
+        (6.0, -19.0),
+        (12.0, -5.0),
+        (12.0, -12.0),
+        (12.0, -19.0),
+        (18.0, -5.0),
+        (18.0, -12.0),
+        (18.0, -19.0),
+        (24.0, -5.0),
+        (24.0, -12.0),
+        (24.0, -19.0),
+        (30.0, -5.0),
+        (30.0, -12.0),
+        (30.0, -19.0),
+    ];
+
+    /// World-space (x, y) of the three cubes at the same depth as the
+    /// hidden ones but off to the right of the wall entirely: at x = 48 the
+    /// camera ray to them misses the occluder (its silhouette ends at
+    /// x = 36 at this depth) while staying inside both the view frustum and
+    /// the occlusion buffer, so they are genuinely *tested* against the
+    /// buffer and genuinely found visible -- not skipped for being off
+    /// screen, which would prove nothing.
+    const OCCLUSION_BESIDE_XY: [(f32, f32); 3] = [(48.0, 0.0), (48.0, 10.0), (48.0, -10.0)];
+
+    /// Writes the temp project this test drives, with `occlusion_culling`
+    /// set either way. Called twice against the same directory: the second
+    /// call rewrites only `project.toml`, so the scene the two runs render
+    /// is byte-identical and the toggle is the single variable.
+    fn write_occlusion_project(root: &std::path::Path, occlusion_culling: bool) {
+        use std::fmt::Write as _;
+
+        std::fs::create_dir_all(root.join("assets/scenes")).unwrap();
+        std::fs::write(
+            root.join("project.toml"),
+            format!(
+                "[project]\nname = \"Occlusion E2E\"\n\
+                 entry_scene = \"assets/scenes/main.ron\"\n\
+                 [render]\nocclusion_culling = {occlusion_culling}\n"
+            ),
+        )
+        .unwrap();
+
+        // The camera sits at the origin unrotated, which looks down -Z --
+        // the same convention `lod_reduces_triangle_count_when_far_from_
+        // camera` above and the prefab/hierarchy tests before it rely on.
+        //
+        // The wall is a unit `Cube` primitive scaled to 24 x 16 x 1, so its
+        // real geometry spans +-12 x +-8 x +-0.5 world units at z = -20.
+        // Its `Occluder` box is authored in LOCAL space (the model matrix
+        // supplies the scale) at half-extent 0.49 rather than the mesh's
+        // own 0.5: an occluder must fit *inside* the geometry it stands in
+        // for, because rasterizing a blocker larger than the real thing is
+        // the one way this feature can hide something that was visible.
+        //
+        // `Occluder` has no typed `EntityDescriptor` field (unlike
+        // `gltf:`/`lod:`), so it is authored through the generic reflected
+        // `components:` list as a (type path, RON value) pair -- the same
+        // mechanism `games/terrain-demo`'s `Terrain` and `games/mini-arena`'s
+        // `Bloom`/`ToneMap`/`AudioListener` entries use. Both `center` and
+        // `half_extents` are `ReflectVec3`, which serialises as a plain
+        // three-float sequence, hence the `(x, y, z)` tuple syntax.
+        let mut scene = String::from(
+            r#"SceneDescriptor(entities: [
+    EntityDescriptor(
+        name: "Camera",
+        camera: true,
+        transform: Some((position: (0.0, 0.0, 0.0))),
+    ),
+    EntityDescriptor(
+        name: "Wall",
+        primitive: Some(Cube),
+        transform: Some((position: (0.0, 0.0, -20.0), scale: (24.0, 16.0, 1.0))),
+        components: [
+            ("bsengine_render::components::Occluder", "(center: (0.0, 0.0, 0.0), half_extents: (0.49, 0.49, 0.49))"),
+        ],
+    ),
+"#,
+        );
+        for (i, (x, y)) in OCCLUSION_HIDDEN_XY.iter().enumerate() {
+            writeln!(
+                scene,
+                "    EntityDescriptor(name: \"Hidden{i}\", primitive: Some(Cube), \
+                 transform: Some((position: ({x:.1}, {y:.1}, -60.0)))),"
+            )
+            .unwrap();
+        }
+        for (i, (x, y)) in OCCLUSION_BESIDE_XY.iter().enumerate() {
+            writeln!(
+                scene,
+                "    EntityDescriptor(name: \"Beside{i}\", primitive: Some(Cube), \
+                 transform: Some((position: ({x:.1}, {y:.1}, -60.0)))),"
+            )
+            .unwrap();
+        }
+        scene.push_str("])\n");
+        std::fs::write(root.join("assets/scenes/main.ron"), scene).unwrap();
+    }
+
+    /// Steps `app` until every one of its `expected` primitive entities has
+    /// had its `PrimitiveMesh` resolved into a real `MeshRenderer` (that is
+    /// what makes an entity a culling candidate at all -- `render_frame`
+    /// only tests entities whose mesh id has registered bounds), then a few
+    /// frames more so the stats read back belong to a fully populated
+    /// scene rather than a half-loaded one.
+    fn step_until_meshes_ready(app: &mut App, expected: usize) {
+        let mut ready = false;
+        for _ in 0..300 {
+            app.update();
+            let mut q = app
+                .world_mut()
+                .query::<&bsengine_render::components::MeshRenderer>();
+            if q.iter(app.world()).count() >= expected {
+                ready = true;
+                break;
+            }
+        }
+        assert!(
+            ready,
+            "the occlusion temp project never resolved all {expected} primitive meshes \
+             within 300 frames -- without a MeshRenderer (and the registered bounds that \
+             come with it) an entity is never a culling candidate, so nothing below would \
+             be measuring occlusion"
+        );
+        for _ in 0..3 {
+            app.update();
+        }
+    }
+
+    /// Task 9, and the measured proof the whole occlusion feature exists to
+    /// produce: the profiler must show draw calls actually dropping, and it
+    /// must show the objects that were never hidden still being drawn.
+    ///
+    /// `bsengine-render`'s own unit tests already prove the pure functions
+    /// (`box_occluded` says yes behind a wall and no beside it) and its
+    /// `an_entity_beside_an_occluder_is_not_culled_while_one_behind_it_is`
+    /// already proves `render_frame` wires them up. Neither proves the
+    /// feature reaches the real runtime: the scene format has to be able to
+    /// author an `Occluder`, `project.toml`'s `[render] occlusion_culling`
+    /// has to reach the render path, and the saving has to be visible in
+    /// `FrameStats`. That is what this test drives, through the same
+    /// headless app (`build_test_app`) the E2E replays use, reading the
+    /// real frame profiler via `get_frame_stats`.
+    ///
+    /// **The assertion that matters is the third one.** `occluded_count > 0`
+    /// on its own would pass just as happily if every entity in the scene
+    /// were wrongly culled -- which is precisely the failure mode occlusion
+    /// culling must never have, because an over-cull is a visible rendering
+    /// bug while an under-cull only costs a draw call. So the beside-wall
+    /// entities are checked to still be drawn, by a floor on `draw_calls`.
+    ///
+    /// **Reading `draw_calls`.** It is a GPU-side count, not an entity
+    /// count: with `fast_render` off, each surviving mesh entity is drawn
+    /// once into the directional shadow map and once in the opaque pass, so
+    /// the figure is roughly `2 * survivors` plus a fixed post-processing
+    /// contribution that is identical between the two runs and cancels out
+    /// of any comparison between them. The assertions below are written in
+    /// those terms rather than against a hardcoded total.
+    ///
+    /// Measured when this test was written: culling on reports
+    /// `occluded_count = 30`, `draw_calls = 11` (the wall plus the three
+    /// beside entities drawn twice each, plus 3 post-processing draws);
+    /// culling off reports `occluded_count = 0`, `draw_calls = 71`
+    /// (34 x 2 + the same 3). Each of the three properties below was
+    /// mutation-verified rather than assumed: making `box_occluded` return
+    /// `true` unconditionally trips both the `<= hidden_count` bound and
+    /// the `visible_floor` over-cull assertion (draw_calls collapses to 3,
+    /// the post-processing floor), and ignoring `OcclusionCullingEnabled`
+    /// in `render_frame` trips the phase-2 `occluded_count == 0` check.
+    #[test]
+    fn occlusion_culling_reduces_draw_calls_without_hiding_visible_objects() {
+        let hidden_count = OCCLUSION_HIDDEN_XY.len();
+        let beside_count = OCCLUSION_BESIDE_XY.len();
+        // Wall + hidden + beside; the camera carries no mesh.
+        let mesh_entity_count = 1 + hidden_count + beside_count;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write_occlusion_project(root, true);
+        let project_dir = root.to_str().unwrap().to_string();
+
+        // --- Phase 1: occlusion_culling = true ---
+        let mut app = build_test_app(&project_dir, None, false);
+        step_until_meshes_ready(&mut app, mesh_entity_count);
+
+        // A reflected component whose RON does not match its type's shape
+        // is skipped with a `tracing::warn!`, not a load failure -- so a
+        // typo in the `components:` entry above would leave the wall with
+        // no `Occluder` at all and this test would then be measuring an
+        // occluder-free scene. Check it directly rather than inferring it
+        // from the numbers.
+        {
+            let mut q = app.world_mut().query::<(
+                &bsengine_scene::Name,
+                &bsengine_render::components::Occluder,
+            )>();
+            let wall_occluder = q
+                .iter(app.world())
+                .find(|(n, _)| n.0 == "Wall")
+                .map(|(_, o)| *o);
+            let occ = wall_occluder.expect(
+                "the Wall entity must carry the Occluder authored in its scene `components:` \
+                 list -- an unparseable reflected component is only warned about, so its \
+                 absence here means the scene's type path or RON value is wrong",
+            );
+            assert_eq!(*occ.half_extents, glam::Vec3::splat(0.49));
+        }
+
+        let on_stats = crate::test_query::run_query(app.world_mut(), "get_frame_stats", &json!({}))
+            .expect("get_frame_stats should succeed once RenderPlugin has drawn a frame");
+        let on_occluded = on_stats["occluded_count"]
+            .as_u64()
+            .expect("get_frame_stats should report occluded_count as a number");
+        let on_draws = on_stats["draw_calls"]
+            .as_u64()
+            .expect("get_frame_stats should report draw_calls as a number");
+        println!("occlusion ON : occluded_count={on_occluded} draw_calls={on_draws}");
+
+        assert!(
+            on_occluded > 0,
+            "with a 24x16 wall standing between the camera and {hidden_count} cubes, the \
+             frame profiler reported occluded_count=0 -- nothing was culled at all"
+        );
+        assert!(
+            on_occluded <= hidden_count as u64,
+            "occluded_count={on_occluded} exceeds the {hidden_count} entities that are \
+             actually hidden, so something visible was culled"
+        );
+        assert!(
+            on_draws < mesh_entity_count as u64,
+            "occlusion culling must measurably cut the frame's work: draw_calls={on_draws} \
+             is not even below the {mesh_entity_count} mesh entities in the scene, and each \
+             drawn entity costs two draw calls (shadow + opaque) before post-processing is \
+             counted at all"
+        );
+        // THE regression assertion. Each surviving entity contributes two
+        // draw calls, so the {beside} entities beside the wall plus the
+        // wall itself put a floor under `draw_calls` that an
+        // over-culling implementation would fall straight through.
+        let visible_floor = 2 * (beside_count as u64 + 1);
+        assert!(
+            on_draws >= visible_floor,
+            "over-cull: draw_calls={on_draws} is below the {visible_floor} that the wall \
+             and the {beside_count} entities standing clear of it must produce on their \
+             own (two draw calls each: shadow pass + opaque pass). Something that was \
+             plainly visible got culled, which is a rendering bug, not an optimization"
+        );
+
+        // Release phase 1's app and its GPU device before building the
+        // second one, the same way `terrain_brush_edit_survives_a_reload`
+        // above does.
+        drop(app);
+
+        // --- Phase 2: the same scene with occlusion_culling = false ---
+        write_occlusion_project(root, false);
+        let mut app = build_test_app(&project_dir, None, false);
+        step_until_meshes_ready(&mut app, mesh_entity_count);
+
+        let off_stats =
+            crate::test_query::run_query(app.world_mut(), "get_frame_stats", &json!({}))
+                .expect("get_frame_stats should succeed once RenderPlugin has drawn a frame");
+        let off_occluded = off_stats["occluded_count"]
+            .as_u64()
+            .expect("get_frame_stats should report occluded_count as a number");
+        let off_draws = off_stats["draw_calls"]
+            .as_u64()
+            .expect("get_frame_stats should report draw_calls as a number");
+        println!("occlusion OFF: occluded_count={off_occluded} draw_calls={off_draws}");
+
+        assert_eq!(
+            off_occluded, 0,
+            "`[render] occlusion_culling = false` in project.toml must reach the render \
+             path: with the identical scene it still reported occluded_count={off_occluded}"
+        );
+        assert!(
+            off_draws >= 2 * mesh_entity_count as u64,
+            "with culling off every one of the {mesh_entity_count} mesh entities must be \
+             drawn twice (shadow + opaque), i.e. at least {} draw calls, but the profiler \
+             reported {off_draws} -- if the full count is not restored then phase 1's drop \
+             was not attributable to occlusion",
+            2 * mesh_entity_count
+        );
+        assert_eq!(
+            off_draws - on_draws,
+            2 * on_occluded,
+            "the whole difference between the two runs should be exactly the culled \
+             entities' own draw calls: {on_occluded} culled x 2 passes each. Got \
+             off={off_draws}, on={on_draws}. Anything else means the toggle changed \
+             something beyond occlusion, or the two runs did not render the same scene"
         );
     }
 }

@@ -1,5 +1,5 @@
 use bevy_app::{App, Plugin, PostUpdate, Update};
-use bevy_ecs::prelude::{EventReader, IntoSystemConfigs, ParamSet, Query, ResMut};
+use bevy_ecs::prelude::{EventReader, IntoSystemConfigs, Local, ParamSet, Query, ResMut};
 use bsengine_core::{
     AmbientOcclusion, Bloom, Camera, CustomShader, DirectionalLight, EditorPanelRegistry,
     EditorPlayState, GlobalTransform, HudTexts, InspectorState, Material, PointLight, SkyboxPath,
@@ -14,7 +14,7 @@ use bsengine_rhi_wgpu::{
 use bsengine_window::WindowResized;
 use glam::{Mat4, Vec3, Vec4};
 
-use crate::components::{LodLevels, MeshRenderer, TerrainSplat};
+use crate::components::{LodLevels, MeshRenderer, Occluder, TerrainSplat};
 use crate::lod::select_lod_level;
 
 /// Returns false if the sphere is completely outside the view frustum.
@@ -519,7 +519,12 @@ fn render_frame(
     // go up to 16 top-level params, and adding editor_panels as a 17th
     // plain parameter broke `IntoSystem` resolution for this function
     // (surfaced as a `.chain()` trait-bound error in RenderPlugin::build).
-    // Folding these five Querys into one param keeps the total at 13.
+    // Folding these Querys into one param keeps the total within that limit.
+    //
+    // This ParamSet is now FULL: Bevy 0.14's `impl_param_set!` macro is
+    // generated with `max_params = 8`, so there is no `p8()`. A ninth
+    // sub-query needs the same treatment applied one level down (a tuple,
+    // or a `#[derive(SystemParam)]` struct), not another entry here.
     mut render_queries: ParamSet<(
         Query<(
             &Camera,
@@ -550,6 +555,7 @@ fn render_frame(
             Option<&GlobalTransform>,
             &TerrainSplat,
         )>,
+        Query<(&Occluder, &Transform, Option<&GlobalTransform>)>,
     )>,
     editor_panels: Option<Res<EditorPanelRegistry>>,
     type_registry: Option<Res<bevy_ecs::reflect::AppTypeRegistry>>,
@@ -557,6 +563,24 @@ fn render_frame(
     // path becomes the id the GPU knows. Absent until item 38's cache exists,
     // in which case particles draw against the default white texture.
     texture_cache: Option<Res<crate::texture_cache::TextureCache>>,
+    // ONE tuple parameter, deliberately, rather than two plain ones: this
+    // function already stood at 15 top-level params and Bevy 0.14 stops
+    // implementing `SystemParamFunction` at 16, while the `ParamSet` above
+    // is now at its own hard maximum of 8 sub-params. Two more plain
+    // parameters would overflow the first limit and a ninth ParamSet entry
+    // the second. A tuple of `SystemParam`s is itself a `SystemParam`, so
+    // this pays one slot for both. (Overflowing either limit does not say
+    // so: it surfaces as a `.chain()` trait-bound error in
+    // `RenderPlugin::build`, exactly as the ParamSet comment above records.)
+    //
+    // The buffer is a `Local`, not a `Resource`, because nothing outside
+    // this system reads it -- so it does not belong in the ECS world -- but
+    // its 64 KB backing allocation should persist across frames rather than
+    // be rebuilt every one.
+    (occlusion_enabled, mut occlusion_buf): (
+        Option<Res<bsengine_core::OcclusionCullingEnabled>>,
+        Local<crate::occlusion::OcclusionBuffer>,
+    ),
 ) {
     let (Some(mut surface), Some(registry)) = (surface, registry) else {
         return;
@@ -634,6 +658,34 @@ fn render_frame(
         None
     };
 
+    // Occlusion pre-pass. It has to finish before the draw-call loop below
+    // borrows `p1()`: a ParamSet lends exactly one sub-query at a time, so
+    // this block's `p7()` borrow must end first -- hence a self-contained
+    // block here rather than anything interleaved with the loop.
+    //
+    // An absent `OcclusionCullingEnabled` means enabled, matching frustum
+    // culling, which has always run unconditionally.
+    let occlusion_on = occlusion_enabled.as_deref().map(|o| o.0).unwrap_or(true);
+    occlusion_buf.clear();
+    if occlusion_on {
+        for (occ, t, gt) in render_queries.p7().iter() {
+            let model = gt.map(|g| g.to_matrix()).unwrap_or_else(|| t.to_matrix());
+            crate::occlusion::rasterize_occluder_box(
+                &mut occlusion_buf,
+                view_proj,
+                model,
+                *occ.center,
+                *occ.half_extents,
+            );
+        }
+    }
+    // Shared immutably by the closure below, which also captures
+    // `occluded_count` mutably; without this reborrow the closure would try
+    // to take `occlusion_buf` (a `Local`, i.e. a smart pointer held by
+    // value) by unique borrow.
+    let occlusion_buf = &*occlusion_buf;
+    let mut occluded_count: u32 = 0;
+
     let draw_calls: Vec<(u64, Mat4, Option<u64>, MaterialParams, Option<String>)> = render_queries
         .p1()
         .iter_mut()
@@ -654,6 +706,26 @@ fn render_frame(
                     .max(model.z_axis.truncate().length());
                 let world_radius = local_radius * max_scale.max(1.0);
                 if !sphere_visible_in_frustum(view_proj, center, world_radius) {
+                    return None;
+                }
+                // Only entities that survived the frustum test get here, so
+                // the two culling stages compose instead of duplicating
+                // work. The candidate is tested as a cube of side
+                // `2 * world_radius` around its bounding sphere -- an
+                // over-estimate of the object, deliberately: testing
+                // something larger than the object makes it harder to
+                // declare occluded, never easier, and a false cull is a
+                // visible rendering bug while a missed one only costs a
+                // draw call.
+                if occlusion_on
+                    && crate::occlusion::box_occluded(
+                        occlusion_buf,
+                        view_proj,
+                        center,
+                        Vec3::splat(world_radius),
+                    )
+                {
+                    occluded_count += 1;
                     return None;
                 }
             }
@@ -692,6 +764,14 @@ fn render_frame(
             ))
         })
         .collect();
+
+    // The count is the only externally visible evidence that occlusion
+    // culling did anything; it is handed to `render_frame` below, which
+    // records it in `FrameStats::occluded_count` for the profiler panel and
+    // the `get_frame_stats` query tool.
+    if occluded_count > 0 {
+        tracing::trace!(occluded_count, "occlusion culling skipped entities");
+    }
 
     let terrain_draw_calls: Vec<(u64, Mat4, [u64; 4], u64)> = render_queries
         .p6()
@@ -790,6 +870,7 @@ fn render_frame(
         sky_vp_inv,
         &draw_calls,
         &terrain_draw_calls,
+        occluded_count,
         &registry,
         light,
         tex_reg_ref,
@@ -847,6 +928,7 @@ impl Plugin for RenderPlugin {
         app.register_type::<MeshRenderer>();
         app.register_type::<TerrainSplat>();
         app.register_type::<LodLevels>();
+        app.register_type::<Occluder>();
         app.init_asset::<crate::shader_asset::ShaderSource>()
             .register_asset_loader(crate::shader_asset::ShaderSourceLoader)
             .init_resource::<UiState>()
@@ -880,7 +962,7 @@ impl Plugin for RenderPlugin {
 #[cfg(test)]
 mod tests {
     use super::{CompileStatus, PendingShader, PendingShaders, PendingSkybox, RenderPlugin};
-    use crate::components::{LodLevels, MeshRenderer};
+    use crate::components::{LodLevels, MeshRenderer, Occluder};
     use bsengine_app::new_app;
     use bsengine_core::{Camera, GlobalTransform, Material, Parent, PointLight, Transform};
     use bsengine_rhi_wgpu::{GpuMeshRegistry, Vertex, WgpuRHIPlugin};
@@ -2042,5 +2124,179 @@ mod tests {
              [10.0, 50.0], must have selected a LOD level beyond LOD0 -- got \
              current_index = None"
         );
+    }
+
+    /// The regression test that matters: an entity beside a large occluder
+    /// must survive into the draw-call list while one directly behind it
+    /// does not. A false cull is a visible rendering bug, so this asserts
+    /// the safe direction explicitly rather than only testing that culling
+    /// happens at all.
+    ///
+    /// **How it observes a cull.** `render_frame` builds `draw_calls` in a
+    /// local `Vec` and hands it straight to the GPU, so draw-call
+    /// membership is not readable from the world afterwards -- but LOD
+    /// selection *is*. `LodLevels::current_index` is written inside the
+    /// same `filter_map` closure, strictly *after* the frustum and
+    /// occlusion `return None`s, and nothing else in the engine writes it.
+    /// So a `LodLevels` whose `current_index` is still `None` after a frame
+    /// in which its distance demands a level change is proof the closure
+    /// bailed out before reaching the LOD block -- i.e. that this entity
+    /// contributed no draw call. This is the same mechanism
+    /// `lod_current_index_updates_based_on_camera_distance` above relies
+    /// on, read in the other direction.
+    ///
+    /// The first frame runs with `OcclusionCullingEnabled(false)` as a
+    /// control: it proves both entities are otherwise perfectly drawable
+    /// (registered bounds, inside the frustum, visible), so the `None` seen
+    /// in the second frame can only come from the occlusion test. Without
+    /// that control a frustum-culled or bounds-less entity would produce
+    /// the same `None` and the test would pass for the wrong reason.
+    #[test]
+    fn an_entity_beside_an_occluder_is_not_culled_while_one_behind_it_is() {
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        // Offscreen, not windowed: a windowed plugin never acquires a
+        // `WindowHandle` in a test, so `GpuMeshRegistry` never exists,
+        // `render_frame` takes its early return, and this test would prove
+        // nothing at all.
+        app.add_plugins(WgpuRHIPlugin::offscreen(64, 64, true));
+        app.add_plugins(RenderPlugin);
+        app.update();
+
+        // A real registered mesh, so `registry.get_bounds` returns a real
+        // bounding sphere -- the occlusion test lives inside the `if let`
+        // that unwraps it, so an unregistered mesh id would skip culling
+        // entirely.
+        let mesh_id = {
+            let mut registry = app.world_mut().resource_mut::<GpuMeshRegistry>();
+            registry.register(
+                &[
+                    Vertex {
+                        position: [0.0, 0.0, 0.0],
+                        color: [1.0, 1.0, 1.0],
+                        normal: [0.0, 1.0, 0.0],
+                        uv: [0.0, 0.0],
+                    },
+                    Vertex {
+                        position: [1.0, 0.0, 0.0],
+                        color: [1.0, 1.0, 1.0],
+                        normal: [0.0, 1.0, 0.0],
+                        uv: [1.0, 0.0],
+                    },
+                    Vertex {
+                        position: [0.0, 1.0, 0.0],
+                        color: [1.0, 1.0, 1.0],
+                        normal: [0.0, 1.0, 0.0],
+                        uv: [0.0, 1.0],
+                    },
+                ],
+                &[0, 1, 2],
+            )
+        };
+
+        // Camera at +Z looking down -Z (the identity-rotation convention of
+        // `Transform::view_matrix`), default 60 degree vertical FOV.
+        app.world_mut().spawn((
+            Camera::default(),
+            Transform::from_position(Vec3::new(0.0, 0.0, 20.0)),
+        ));
+
+        // A 16x16 wall standing at z = 0, half a unit thick: from the
+        // camera it covers roughly the middle 40% of the screen width and
+        // 71% of its height.
+        app.world_mut().spawn((
+            Transform::from_position(Vec3::ZERO),
+            Occluder {
+                center: Vec3::ZERO.into(),
+                half_extents: Vec3::new(8.0, 8.0, 0.5).into(),
+            },
+        ));
+
+        // Twenty units behind the wall, and offset off the wall's
+        // screen-space diagonal: the box rasterizer splits each face into
+        // two triangles and leaves the seam between them unwritten (it is
+        // inner-conservative), so an object sitting exactly on the
+        // projected diagonal would find an uncovered pixel and correctly
+        // report itself un-occluded.
+        let hidden = spawn_lod_candidate(&mut app, mesh_id, Vec3::new(-3.0, 3.0, -20.0));
+        // Same depth, far enough sideways that the camera ray to it misses
+        // the wall entirely -- still comfortably inside the frustum and
+        // inside the occlusion buffer, so it is genuinely tested against
+        // the buffer and genuinely found visible.
+        let beside = spawn_lod_candidate(&mut app, mesh_id, Vec3::new(25.0, 0.0, -20.0));
+
+        // --- Control frame: culling off, so both must be drawn. ---
+        app.world_mut()
+            .insert_resource(bsengine_core::OcclusionCullingEnabled(false));
+        app.update();
+        assert_eq!(
+            lod_index(&app, hidden),
+            Some(0),
+            "control frame with occlusion culling disabled: the hidden \
+             entity must still be drawn, so any later cull is attributable \
+             to occlusion alone"
+        );
+        assert_eq!(
+            lod_index(&app, beside),
+            Some(0),
+            "control frame with occlusion culling disabled: the beside \
+             entity must be drawn"
+        );
+
+        // --- Real frame: culling on. ---
+        for e in [hidden, beside] {
+            app.world_mut()
+                .get_mut::<LodLevels>(e)
+                .expect("candidate still carries its LodLevels")
+                .current_index = None;
+        }
+        app.world_mut()
+            .insert_resource(bsengine_core::OcclusionCullingEnabled(true));
+        app.update();
+
+        assert_eq!(
+            lod_index(&app, hidden),
+            None,
+            "an entity directly behind a 16x16 occluder wall must be culled \
+             -- its LOD level was updated, so it reached the draw-call body"
+        );
+        assert_eq!(
+            lod_index(&app, beside),
+            Some(0),
+            "an entity beside the occluder is visible and must NOT be \
+             culled -- a false cull is a visible rendering bug"
+        );
+    }
+
+    /// Spawns a culling candidate whose `LodLevels` doubles as a
+    /// draw-call-membership probe: at any distance past 11 units the LOD
+    /// selector must move it off LOD0, so `current_index == Some(0)` means
+    /// "this entity reached the draw-call body" and `None` means "it was
+    /// culled before that".
+    fn spawn_lod_candidate(
+        app: &mut bevy_app::App,
+        mesh_id: u64,
+        position: Vec3,
+    ) -> bevy_ecs::entity::Entity {
+        app.world_mut()
+            .spawn((
+                MeshRenderer { mesh_id },
+                Transform::from_position(position),
+                LodLevels {
+                    // Never drawn -- this test only reads `current_index`.
+                    mesh_ids: vec![mesh_id + 100],
+                    switch_distances: vec![10.0],
+                    hysteresis_band: 2.0,
+                    current_index: None,
+                },
+            ))
+            .id()
+    }
+
+    fn lod_index(app: &bevy_app::App, entity: bevy_ecs::entity::Entity) -> Option<usize> {
+        app.world()
+            .get::<LodLevels>(entity)
+            .expect("candidate still carries its LodLevels")
+            .current_index
     }
 }

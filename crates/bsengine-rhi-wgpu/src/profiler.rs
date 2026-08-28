@@ -149,6 +149,11 @@ pub struct FrameStats {
     pub draw_calls: u32,
     /// Number of triangles submitted this frame.
     pub triangles: u64,
+    /// Number of entities dropped this frame by occlusion culling --
+    /// entities that passed frustum culling but were found completely
+    /// hidden behind an `Occluder`. Zero when occlusion culling is off or
+    /// no occluders exist.
+    pub occluded_count: u32,
     /// Snapshot of [`texture_memory_bytes`] at the time this frame's stats were collected.
     pub texture_memory_bytes: u64,
     /// Snapshot of [`texture_count`] at the time this frame's stats were collected.

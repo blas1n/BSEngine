@@ -14,7 +14,7 @@ use bsengine_rhi_wgpu::{
 use bsengine_window::WindowResized;
 use glam::{Mat4, Vec3, Vec4};
 
-use crate::components::MeshRenderer;
+use crate::components::{MeshRenderer, TerrainSplat};
 
 /// Returns false if the sphere is completely outside the view frustum.
 /// Uses Gribb-Hartmann plane extraction from the view-projection matrix
@@ -542,6 +542,12 @@ fn render_frame(
             &bsengine_core::ParticleEmitter,
             Option<&bsengine_core::TexturePath>,
         )>,
+        Query<(
+            &MeshRenderer,
+            &Transform,
+            Option<&GlobalTransform>,
+            &TerrainSplat,
+        )>,
     )>,
     editor_panels: Option<Res<EditorPanelRegistry>>,
     type_registry: Option<Res<bevy_ecs::reflect::AppTypeRegistry>>,
@@ -667,6 +673,20 @@ fn render_frame(
         })
         .collect();
 
+    let terrain_draw_calls: Vec<(u64, Mat4, [u64; 4], u64)> = render_queries
+        .p6()
+        .iter()
+        .map(|(mr, t, gt, splat)| {
+            let model = gt.map(|g| g.to_matrix()).unwrap_or_else(|| t.to_matrix());
+            (
+                mr.mesh_id,
+                model,
+                splat.layer_texture_ids,
+                splat.weight_texture_id,
+            )
+        })
+        .collect();
+
     let collected_point_lights: Vec<PointLightEntry> = render_queries
         .p3()
         .iter()
@@ -749,6 +769,7 @@ fn render_frame(
         light_view_proj,
         sky_vp_inv,
         &draw_calls,
+        &terrain_draw_calls,
         &registry,
         light,
         tex_reg_ref,
@@ -804,6 +825,7 @@ impl Plugin for RenderPlugin {
         // registry that only exists once there is a device to upload to, so
         // there is nothing for a headless app to inspect or attach.
         app.register_type::<MeshRenderer>();
+        app.register_type::<TerrainSplat>();
         app.init_asset::<crate::shader_asset::ShaderSource>()
             .register_asset_loader(crate::shader_asset::ShaderSourceLoader)
             .init_resource::<UiState>()

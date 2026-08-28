@@ -275,6 +275,273 @@ fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
 }
 "#;
 
+const TERRAIN_WGSL: &str = r#"
+const MAX_POINT_LIGHTS: u32 = 8u;
+const MAX_SPOT_LIGHTS: u32 = 8u;
+const PI: f32 = 3.14159265358979323846;
+const TILE_SIZE: f32 = 2.0;
+struct CameraUniform {
+    view_proj: mat4x4<f32>,
+    light_view_proj: mat4x4<f32>,
+    cam_pos: vec3<f32>,
+    time: f32,
+};
+struct ModelUniform {
+    model: mat4x4<f32>,
+    metallic: f32,
+    roughness: f32,
+    _pad0: f32,
+    _pad1: f32,
+    emissive: vec3<f32>,
+    _pad2: f32,
+    base_color: vec3<f32>,
+    opacity: f32,
+};
+struct PointLightEntry {
+    position: vec3<f32>,
+    _pad0: f32,
+    color: vec3<f32>,
+    intensity: f32,
+    range: f32,
+    _pad1: f32,
+    _pad2: f32,
+    _pad3: f32,
+};
+struct SpotLightEntry {
+    position: vec3<f32>,
+    _pad0: f32,
+    direction: vec3<f32>,
+    inner_cos: f32,
+    color: vec3<f32>,
+    outer_cos: f32,
+    intensity: f32,
+    range: f32,
+    _pad1: f32,
+    _pad2: f32,
+};
+struct LightUniform {
+    direction: vec3<f32>,
+    _pad0: f32,
+    color: vec3<f32>,
+    _pad1: f32,
+    ambient: vec3<f32>,
+    num_point_lights: u32,
+    point_lights: array<PointLightEntry, 8>,
+    num_spot_lights: u32,
+    _pad2: f32,
+    _pad3: f32,
+    _pad4: f32,
+    spot_lights: array<SpotLightEntry, 8>,
+};
+@group(0) @binding(0) var<uniform> camera: CameraUniform;
+@group(1) @binding(0) var<uniform> model_data: ModelUniform;
+@group(2) @binding(0) var<uniform> light: LightUniform;
+@group(3) @binding(0) var t_layer0: texture_2d<f32>;
+@group(3) @binding(1) var t_layer1: texture_2d<f32>;
+@group(3) @binding(2) var t_layer2: texture_2d<f32>;
+@group(3) @binding(3) var t_layer3: texture_2d<f32>;
+@group(3) @binding(4) var t_weight: texture_2d<f32>;
+@group(3) @binding(5) var s_terrain: sampler;
+@group(2) @binding(1) var shadow_sampler: sampler_comparison;
+@group(2) @binding(2) var shadow_map: texture_depth_2d;
+@group(2) @binding(4) var point_shadow_map: texture_2d_array<f32>;
+
+struct VertIn {
+    @location(0) pos: vec3<f32>,
+    @location(1) col: vec3<f32>,
+    @location(2) normal: vec3<f32>,
+    @location(3) uv: vec2<f32>,
+}
+struct VertOut {
+    @builtin(position) clip_pos: vec4<f32>,
+    @location(0) col: vec3<f32>,
+    @location(1) world_normal: vec3<f32>,
+    @location(2) uv: vec2<f32>,
+    @location(3) world_pos: vec3<f32>,
+    @location(4) light_space_pos: vec4<f32>,
+}
+@vertex
+fn vs_main(in: VertIn) -> VertOut {
+    var out: VertOut;
+    let world_pos4 = model_data.model * vec4<f32>(in.pos, 1.0);
+    out.clip_pos = camera.view_proj * world_pos4;
+    out.world_pos = world_pos4.xyz;
+    out.col = in.col;
+    let normal_matrix = mat3x3<f32>(
+        model_data.model[0].xyz,
+        model_data.model[1].xyz,
+        model_data.model[2].xyz,
+    );
+    out.world_normal = normalize(normal_matrix * in.normal);
+    out.uv = in.uv;
+    out.light_space_pos = camera.light_view_proj * world_pos4;
+    return out;
+}
+fn shadow_factor(lsp: vec4<f32>) -> f32 {
+    let proj = lsp.xyz / lsp.w;
+    let uv = proj.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5, 0.5);
+    let depth = proj.z;
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || depth < 0.0 || depth > 1.0) {
+        return 1.0;
+    }
+    return textureSampleCompare(shadow_map, shadow_sampler, uv, depth - 0.003);
+}
+fn point_shadow_factor(light_index: u32, to_frag: vec3<f32>) -> f32 {
+    let ax = abs(to_frag.x);
+    let ay = abs(to_frag.y);
+    let az = abs(to_frag.z);
+    var face: u32;
+    var u: f32;
+    var v: f32;
+    var ma: f32;
+    if (ax >= ay && ax >= az) {
+        ma = ax;
+        if (to_frag.x > 0.0) {
+            face = 0u;
+            u = -to_frag.z;
+            v = -to_frag.y;
+        } else {
+            face = 1u;
+            u = to_frag.z;
+            v = -to_frag.y;
+        }
+    } else if (ay >= ax && ay >= az) {
+        ma = ay;
+        if (to_frag.y > 0.0) {
+            face = 2u;
+            u = to_frag.x;
+            v = to_frag.z;
+        } else {
+            face = 3u;
+            u = to_frag.x;
+            v = -to_frag.z;
+        }
+    } else {
+        ma = az;
+        if (to_frag.z > 0.0) {
+            face = 4u;
+            u = to_frag.x;
+            v = -to_frag.y;
+        } else {
+            face = 5u;
+            u = -to_frag.x;
+            v = -to_frag.y;
+        }
+    }
+    let ndc = vec2<f32>(u, v) / max(ma, 0.0001);
+    let uv = ndc * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5, 0.5);
+    let size = 512.0;
+    let px = vec2<i32>(clamp(uv, vec2<f32>(0.0), vec2<f32>(0.999999)) * size);
+    let layer = i32(light_index * 6u + face);
+    let stored = textureLoad(point_shadow_map, px, layer, 0).r;
+    let dist = length(to_frag);
+    if (dist - 0.1 > stored) {
+        return 0.0;
+    }
+    return 1.0;
+}
+fn distribution_ggx(n_dot_h: f32, roughness: f32) -> f32 {
+    let a = roughness * roughness;
+    let a2 = a * a;
+    let denom = n_dot_h * n_dot_h * (a2 - 1.0) + 1.0;
+    return a2 / (PI * denom * denom);
+}
+fn geometry_schlick_ggx(ndotx: f32, roughness: f32) -> f32 {
+    let r = roughness + 1.0;
+    let k = r * r / 8.0;
+    return ndotx / (ndotx * (1.0 - k) + k);
+}
+fn geometry_smith(n_dot_v: f32, n_dot_l: f32, roughness: f32) -> f32 {
+    return geometry_schlick_ggx(n_dot_v, roughness) * geometry_schlick_ggx(n_dot_l, roughness);
+}
+fn fresnel_schlick(cos_theta: f32, f0: vec3<f32>) -> vec3<f32> {
+    return f0 + (vec3<f32>(1.0, 1.0, 1.0) - f0) * pow(clamp(1.0 - cos_theta, 0.0, 1.0), 5.0);
+}
+@fragment
+fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
+    let n = normalize(in.world_normal);
+    let v = normalize(camera.cam_pos - in.world_pos);
+
+    var w = textureSample(t_weight, s_terrain, in.uv);
+    let w_sum = max(w.r + w.g + w.b + w.a, 0.0001);
+    w = w / w_sum;
+
+    let tiled_uv = in.world_pos.xz / TILE_SIZE;
+    let c0 = textureSample(t_layer0, s_terrain, tiled_uv).rgb;
+    let c1 = textureSample(t_layer1, s_terrain, tiled_uv).rgb;
+    let c2 = textureSample(t_layer2, s_terrain, tiled_uv).rgb;
+    let c3 = textureSample(t_layer3, s_terrain, tiled_uv).rgb;
+    let albedo = (c0 * w.r + c1 * w.g + c2 * w.b + c3 * w.a) * in.col * model_data.base_color;
+
+    let metallic = model_data.metallic;
+    let roughness = max(model_data.roughness, 0.04);
+    let f0 = mix(vec3<f32>(0.04, 0.04, 0.04), albedo, metallic);
+    let n_dot_v = max(dot(n, v), 0.0001);
+    let lit = shadow_factor(in.light_space_pos);
+
+    var lo = vec3<f32>(0.0, 0.0, 0.0);
+    {
+        let l = normalize(-light.direction);
+        let h = normalize(v + l);
+        let n_dot_l = max(dot(n, l), 0.0);
+        let n_dot_h = max(dot(n, h), 0.0);
+        let h_dot_v = max(dot(h, v), 0.0);
+        let ndf = distribution_ggx(n_dot_h, roughness);
+        let g = geometry_smith(n_dot_v, n_dot_l, roughness);
+        let f = fresnel_schlick(h_dot_v, f0);
+        let kd = (vec3<f32>(1.0, 1.0, 1.0) - f) * (1.0 - metallic);
+        let specular = (ndf * g * f) / (4.0 * n_dot_v * n_dot_l + 0.0001);
+        lo += (kd * albedo / PI + specular) * light.color * n_dot_l * lit;
+    }
+    for (var i: u32 = 0u; i < light.num_point_lights; i++) {
+        let pl = light.point_lights[i];
+        let to_light = pl.position - in.world_pos;
+        let dist = length(to_light);
+        if dist < pl.range {
+            let l = normalize(to_light);
+            let h = normalize(v + l);
+            let n_dot_l = max(dot(n, l), 0.0);
+            let n_dot_h = max(dot(n, h), 0.0);
+            let h_dot_v = max(dot(h, v), 0.0);
+            let t = 1.0 - dist / pl.range;
+            let ndf = distribution_ggx(n_dot_h, roughness);
+            let g = geometry_smith(n_dot_v, n_dot_l, roughness);
+            let f = fresnel_schlick(h_dot_v, f0);
+            let kd = (vec3<f32>(1.0, 1.0, 1.0) - f) * (1.0 - metallic);
+            let specular = (ndf * g * f) / (4.0 * n_dot_v * n_dot_l + 0.0001);
+            let pt_lit = point_shadow_factor(i, -to_light);
+            lo += (kd * albedo / PI + specular) * pl.color * (pl.intensity * t * t) * n_dot_l * pt_lit;
+        }
+    }
+    for (var j: u32 = 0u; j < light.num_spot_lights; j++) {
+        let sl = light.spot_lights[j];
+        let to_light = sl.position - in.world_pos;
+        let dist = length(to_light);
+        if dist < sl.range {
+            let light_dir = normalize(to_light);
+            let cos_angle = dot(-light_dir, sl.direction);
+            let spot_factor = smoothstep(sl.outer_cos, sl.inner_cos, cos_angle);
+            if spot_factor > 0.0 {
+                let l = light_dir;
+                let h = normalize(v + l);
+                let n_dot_l = max(dot(n, l), 0.0);
+                let n_dot_h = max(dot(n, h), 0.0);
+                let h_dot_v = max(dot(h, v), 0.0);
+                let t = 1.0 - dist / sl.range;
+                let ndf = distribution_ggx(n_dot_h, roughness);
+                let g = geometry_smith(n_dot_v, n_dot_l, roughness);
+                let f = fresnel_schlick(h_dot_v, f0);
+                let kd = (vec3<f32>(1.0, 1.0, 1.0) - f) * (1.0 - metallic);
+                let specular = (ndf * g * f) / (4.0 * n_dot_v * n_dot_l + 0.0001);
+                lo += (kd * albedo / PI + specular) * sl.color * (sl.intensity * t * t * spot_factor) * n_dot_l;
+            }
+        }
+    }
+    let color = light.ambient * albedo + lo + model_data.emissive;
+    return vec4<f32>(color, model_data.opacity);
+}
+"#;
+
 const SHADOW_WGSL: &str = r#"
 struct CameraUniform {
     view_proj: mat4x4<f32>,
@@ -704,6 +971,8 @@ pub struct WgpuSurface {
     skybox: Option<SkyboxState>,
     loaded_skybox_path: Option<String>,
     pipeline_layout: wgpu::PipelineLayout,
+    terrain_pipeline: wgpu::RenderPipeline,
+    terrain_bgl: wgpu::BindGroupLayout,
     custom_pipelines: std::collections::HashMap<String, wgpu::RenderPipeline>,
     post_process: crate::post_process::PostProcessState,
     start_time: std::time::Instant,
@@ -1399,7 +1668,7 @@ impl WgpuSurface {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: "vs_main",
-                buffers: &[vertex_buffer_layout.clone()],
+                buffers: std::slice::from_ref(&vertex_buffer_layout),
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -1446,7 +1715,7 @@ impl WgpuSurface {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: "vs_main",
-                buffers: &[vertex_buffer_layout],
+                buffers: std::slice::from_ref(&vertex_buffer_layout),
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -1468,6 +1737,115 @@ impl WgpuSurface {
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: DEPTH_FORMAT,
                 depth_write_enabled: false,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        let terrain_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("terrain texture bgl"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+
+        let terrain_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("terrain shader"),
+            source: wgpu::ShaderSource::Wgsl(TERRAIN_WGSL.into()),
+        });
+        let terrain_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("terrain pipeline layout"),
+                bind_group_layouts: &[&camera_bgl, &model_bgl, &light_bgl, &terrain_bgl],
+                push_constant_ranges: &[],
+            });
+        let terrain_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("terrain pipeline"),
+            layout: Some(&terrain_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &terrain_shader,
+                entry_point: "vs_main",
+                buffers: std::slice::from_ref(&vertex_buffer_layout),
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &terrain_shader,
+                entry_point: "fs_main",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: crate::post_process::HDR_FORMAT,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: Some(wgpu::Face::Back),
+                front_face: wgpu::FrontFace::Ccw,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: true,
                 depth_compare: wgpu::CompareFunction::Less,
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
@@ -1520,6 +1898,8 @@ impl WgpuSurface {
             skybox: None,
             loaded_skybox_path: None,
             pipeline_layout,
+            terrain_pipeline,
+            terrain_bgl,
             custom_pipelines: std::collections::HashMap::new(),
             post_process,
             start_time: std::time::Instant::now(),
@@ -1990,6 +2370,7 @@ impl WgpuSurface {
         light_view_proj: Mat4,
         sky_vp_inv: Option<Mat4>,
         draw_calls: &[(u64, Mat4, Option<u64>, MaterialParams, Option<String>)],
+        terrain_draw_calls: &[(u64, Mat4, [u64; 4], u64)],
         registry: &GpuMeshRegistry,
         light: LightData,
         tex_registry: Option<&crate::texture::GpuTextureRegistry>,
@@ -2427,6 +2808,94 @@ impl WgpuSurface {
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
                 frame_draw_calls += 1;
                 frame_triangles += (mesh.index_count / 3) as u64;
+            }
+
+            // Terrain chunks get their own model-buffer slots, starting right
+            // after the ones `draw_calls` used above (`opaque`/`transparent`
+            // only ever index `0..draw_calls.len().min(MAX_OBJECTS)`), so a
+            // dedicated running counter can't collide with them. `terrain_slot`
+            // is capped the same way `draw_calls` is: once it reaches
+            // `MAX_OBJECTS` further terrain chunks are skipped rather than
+            // overrunning `model_buffer`.
+            let mut terrain_slot = draw_calls.len().min(MAX_OBJECTS);
+            for (mesh_id, model, layer_ids, weight_id) in terrain_draw_calls {
+                if terrain_slot >= MAX_OBJECTS {
+                    break;
+                }
+                let Some(mesh) = registry.get(*mesh_id) else {
+                    continue;
+                };
+                let Some(tex_reg) = tex_registry else {
+                    continue;
+                };
+                let (Some(v0), Some(v1), Some(v2), Some(v3), Some(vw)) = (
+                    tex_reg.get_view(layer_ids[0]),
+                    tex_reg.get_view(layer_ids[1]),
+                    tex_reg.get_view(layer_ids[2]),
+                    tex_reg.get_view(layer_ids[3]),
+                    tex_reg.get_view(*weight_id),
+                ) else {
+                    continue;
+                };
+                let terrain_bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("terrain bg"),
+                    layout: &self.terrain_bgl,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(v0),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(v1),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::TextureView(v2),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::TextureView(v3),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 4,
+                            resource: wgpu::BindingResource::TextureView(vw),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 5,
+                            resource: wgpu::BindingResource::Sampler(&self._sampler),
+                        },
+                    ],
+                });
+                let model_data = ModelUniformData {
+                    model: model.to_cols_array_2d(),
+                    metallic: 0.0,
+                    roughness: 0.9,
+                    _pad0: 0.0,
+                    _pad1: 0.0,
+                    emissive: [0.0; 3],
+                    _pad2: 0.0,
+                    base_color: [1.0, 1.0, 1.0],
+                    opacity: 1.0,
+                };
+                self.queue.write_buffer(
+                    &self.model_buffer,
+                    terrain_slot as u64 * MODEL_STRIDE,
+                    bytemuck::cast_slice(&[model_data]),
+                );
+                pass.set_pipeline(&self.terrain_pipeline);
+                pass.set_bind_group(
+                    1,
+                    &self.model_bind_group,
+                    &[(terrain_slot as u64 * MODEL_STRIDE) as u32],
+                );
+                pass.set_bind_group(3, &terrain_bg, &[]);
+                pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                frame_draw_calls += 1;
+                frame_triangles += (mesh.index_count / 3) as u64;
+                terrain_slot += 1;
             }
         }
 
@@ -3610,6 +4079,15 @@ mod tests {
             Ok(()),
             "the shader shape custom pipelines are built from must pass \
              validation; if it does not, hot reload rejects every edit"
+        );
+    }
+
+    #[test]
+    fn terrain_wgsl_is_valid() {
+        assert_eq!(
+            WgpuSurface::validate_wgsl("terrain.wgsl", TERRAIN_WGSL),
+            Ok(()),
+            "TERRAIN_WGSL must pass the same validation MESH_WGSL does"
         );
     }
 

@@ -158,9 +158,29 @@ fn process_editor_commands(
                 chunk_count,
                 chunk_size,
                 height_scale,
+                layer0_texture_path,
+                layer1_texture_path,
+                layer2_texture_path,
+                layer3_texture_path,
             } => {
                 let resolved =
                     bsengine_core::resolve_project_path(project_dir.as_deref(), &heightmap_path);
+                let layer0_resolved = bsengine_core::resolve_project_path(
+                    project_dir.as_deref(),
+                    &layer0_texture_path,
+                );
+                let layer1_resolved = bsengine_core::resolve_project_path(
+                    project_dir.as_deref(),
+                    &layer1_texture_path,
+                );
+                let layer2_resolved = bsengine_core::resolve_project_path(
+                    project_dir.as_deref(),
+                    &layer2_texture_path,
+                );
+                let layer3_resolved = bsengine_core::resolve_project_path(
+                    project_dir.as_deref(),
+                    &layer3_texture_path,
+                );
                 // `bsengine_scene::Terrain`, not `bsengine_app::terrain::Terrain`
                 // (though `bsengine-app`'s module re-exports the same type under
                 // that path): `bsengine-app` depends on `bsengine-editor`, so
@@ -172,6 +192,10 @@ fn process_editor_commands(
                         chunk_count,
                         chunk_size,
                         height_scale,
+                        layer0_texture_path: layer0_resolved,
+                        layer1_texture_path: layer1_resolved,
+                        layer2_texture_path: layer2_resolved,
+                        layer3_texture_path: layer3_resolved,
                     },
                     Transform::default(),
                     GlobalTransform::default(),
@@ -1943,12 +1967,20 @@ fn apply_inspector_cmds(
                 chunk_count,
                 chunk_size,
                 height_scale,
+                layer0_texture_path,
+                layer1_texture_path,
+                layer2_texture_path,
+                layer3_texture_path,
             } => {
                 queue.push(EditorCommand::SpawnTerrain {
                     heightmap_path,
                     chunk_count,
                     chunk_size,
                     height_scale,
+                    layer0_texture_path,
+                    layer1_texture_path,
+                    layer2_texture_path,
+                    layer3_texture_path,
                 });
             }
             InspectorCmd::Despawn { id } => {
@@ -2449,9 +2481,13 @@ impl Plugin for EditorPlugin {
                         "heightmap_path": { "type": "string", "description": "Path to the heightmap asset (16-bit grayscale PNG)" },
                         "chunk_count": { "type": "array", "items": {"type": "integer"}, "minItems": 2, "maxItems": 2, "description": "[chunks_x, chunks_z]" },
                         "chunk_size": { "type": "number", "description": "World-space size of one chunk along each axis" },
-                        "height_scale": { "type": "number", "description": "Multiplier applied to the normalized heightmap sample" }
+                        "height_scale": { "type": "number", "description": "Multiplier applied to the normalized heightmap sample" },
+                        "layer0_texture_path": { "type": "string", "description": "Diffuse texture for the low/flat splat layer (e.g. grass)" },
+                        "layer1_texture_path": { "type": "string", "description": "Diffuse texture for the steep-slope splat layer (e.g. rock)" },
+                        "layer2_texture_path": { "type": "string", "description": "Diffuse texture for the paint-only splat layer (e.g. dirt)" },
+                        "layer3_texture_path": { "type": "string", "description": "Diffuse texture for the high-altitude splat layer (e.g. snow)" }
                     },
-                    "required": ["heightmap_path", "chunk_count", "chunk_size", "height_scale"]
+                    "required": ["heightmap_path", "chunk_count", "chunk_size", "height_scale", "layer0_texture_path", "layer1_texture_path", "layer2_texture_path", "layer3_texture_path"]
                 })),
                 handler: Box::new(move |input| {
                     let heightmap_path = match input["heightmap_path"].as_str() {
@@ -2481,11 +2517,39 @@ impl Plugin for EditorPlugin {
                             return McpToolOutput::error("missing numeric 'height_scale' field")
                         }
                     };
+                    let layer0_texture_path = match input["layer0_texture_path"].as_str() {
+                        Some(p) => p.to_string(),
+                        None => {
+                            return McpToolOutput::error("missing 'layer0_texture_path' field")
+                        }
+                    };
+                    let layer1_texture_path = match input["layer1_texture_path"].as_str() {
+                        Some(p) => p.to_string(),
+                        None => {
+                            return McpToolOutput::error("missing 'layer1_texture_path' field")
+                        }
+                    };
+                    let layer2_texture_path = match input["layer2_texture_path"].as_str() {
+                        Some(p) => p.to_string(),
+                        None => {
+                            return McpToolOutput::error("missing 'layer2_texture_path' field")
+                        }
+                    };
+                    let layer3_texture_path = match input["layer3_texture_path"].as_str() {
+                        Some(p) => p.to_string(),
+                        None => {
+                            return McpToolOutput::error("missing 'layer3_texture_path' field")
+                        }
+                    };
                     queue_terrain.lock().unwrap().push(EditorCommand::SpawnTerrain {
                         heightmap_path,
                         chunk_count,
                         chunk_size,
                         height_scale,
+                        layer0_texture_path,
+                        layer1_texture_path,
+                        layer2_texture_path,
+                        layer3_texture_path,
                     });
                     McpToolOutput::success(json!({"status": "queued"}))
                 }),
@@ -31227,6 +31291,10 @@ mod tests {
                         "chunk_count": [2, 2],
                         "chunk_size": 32.0,
                         "height_scale": 20.0,
+                        "layer0_texture_path": "assets/terrain/grass.png",
+                        "layer1_texture_path": "assets/terrain/rock.png",
+                        "layer2_texture_path": "assets/terrain/dirt.png",
+                        "layer3_texture_path": "assets/terrain/snow.png",
                     }),
                 )
                 .expect("terrain_write not registered");
@@ -31250,6 +31318,10 @@ mod tests {
         assert_eq!(terrain.chunk_count, (2, 2));
         assert!((terrain.chunk_size - 32.0).abs() < 1e-5);
         assert!((terrain.height_scale - 20.0).abs() < 1e-5);
+        assert_eq!(terrain.layer0_texture_path, "assets/terrain/grass.png");
+        assert_eq!(terrain.layer1_texture_path, "assets/terrain/rock.png");
+        assert_eq!(terrain.layer2_texture_path, "assets/terrain/dirt.png");
+        assert_eq!(terrain.layer3_texture_path, "assets/terrain/snow.png");
     }
 
     #[test]

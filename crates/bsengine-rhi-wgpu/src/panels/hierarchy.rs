@@ -356,6 +356,10 @@ impl EditorPanel for HierarchyPanel {
                 chunk_count: DEFAULT_TERRAIN_CHUNK_COUNT,
                 chunk_size: DEFAULT_TERRAIN_CHUNK_SIZE,
                 height_scale: DEFAULT_TERRAIN_HEIGHT_SCALE,
+                layer0_texture_path: String::new(),
+                layer1_texture_path: String::new(),
+                layer2_texture_path: String::new(),
+                layer3_texture_path: String::new(),
             });
         }
     }
@@ -1074,6 +1078,7 @@ mod tests {
             chunk_count,
             chunk_size,
             height_scale,
+            ..
         } = cmd
         else {
             panic!("expected InspectorCmd::SpawnTerrain to have been queued");

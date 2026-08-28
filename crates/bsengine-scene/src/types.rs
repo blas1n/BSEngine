@@ -505,6 +505,17 @@ pub struct Terrain {
     pub chunk_size: f32,
     /// Multiplier applied to the normalized heightmap sample.
     pub height_scale: f32,
+    /// Diffuse texture for the low/flat splat layer (e.g. grass).
+    pub layer0_texture_path: String,
+    /// Diffuse texture for the steep-slope splat layer (e.g. rock).
+    pub layer1_texture_path: String,
+    /// Diffuse texture for the paint-only splat layer (e.g. dirt) -- carries
+    /// zero procedural weight in this sub-step; a real, wired 4th channel
+    /// with no source of weight yet, so sub-step 3's brush tool has an empty
+    /// layer to paint into without a data-model change.
+    pub layer2_texture_path: String,
+    /// Diffuse texture for the high-altitude splat layer (e.g. snow).
+    pub layer3_texture_path: String,
 }
 
 fn default_rotation() -> [f32; 4] {

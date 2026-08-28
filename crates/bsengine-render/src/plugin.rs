@@ -542,6 +542,12 @@ fn render_frame(
             &bsengine_core::ParticleEmitter,
             Option<&bsengine_core::TexturePath>,
         )>,
+        Query<(
+            &MeshRenderer,
+            &Transform,
+            Option<&GlobalTransform>,
+            &TerrainSplat,
+        )>,
     )>,
     editor_panels: Option<Res<EditorPanelRegistry>>,
     type_registry: Option<Res<bevy_ecs::reflect::AppTypeRegistry>>,
@@ -667,6 +673,20 @@ fn render_frame(
         })
         .collect();
 
+    let terrain_draw_calls: Vec<(u64, Mat4, [u64; 4], u64)> = render_queries
+        .p6()
+        .iter()
+        .map(|(mr, t, gt, splat)| {
+            let model = gt.map(|g| g.to_matrix()).unwrap_or_else(|| t.to_matrix());
+            (
+                mr.mesh_id,
+                model,
+                splat.layer_texture_ids,
+                splat.weight_texture_id,
+            )
+        })
+        .collect();
+
     let collected_point_lights: Vec<PointLightEntry> = render_queries
         .p3()
         .iter()
@@ -749,6 +769,7 @@ fn render_frame(
         light_view_proj,
         sky_vp_inv,
         &draw_calls,
+        &terrain_draw_calls,
         &registry,
         light,
         tex_reg_ref,

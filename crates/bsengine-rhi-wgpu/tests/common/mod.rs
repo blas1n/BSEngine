@@ -398,6 +398,7 @@ struct VertOut {{
                 light_view_proj(scene.light.direction),
                 sky_vp_inv,
                 &draw_calls,
+                &[],
                 &self.registry,
                 scene.light.to_engine(),
                 Some(&self.textures),

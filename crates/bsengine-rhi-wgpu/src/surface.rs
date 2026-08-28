@@ -2370,6 +2370,7 @@ impl WgpuSurface {
         light_view_proj: Mat4,
         sky_vp_inv: Option<Mat4>,
         draw_calls: &[(u64, Mat4, Option<u64>, MaterialParams, Option<String>)],
+        terrain_draw_calls: &[(u64, Mat4, [u64; 4], u64)],
         registry: &GpuMeshRegistry,
         light: LightData,
         tex_registry: Option<&crate::texture::GpuTextureRegistry>,
@@ -2807,6 +2808,94 @@ impl WgpuSurface {
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
                 frame_draw_calls += 1;
                 frame_triangles += (mesh.index_count / 3) as u64;
+            }
+
+            // Terrain chunks get their own model-buffer slots, starting right
+            // after the ones `draw_calls` used above (`opaque`/`transparent`
+            // only ever index `0..draw_calls.len().min(MAX_OBJECTS)`), so a
+            // dedicated running counter can't collide with them. `terrain_slot`
+            // is capped the same way `draw_calls` is: once it reaches
+            // `MAX_OBJECTS` further terrain chunks are skipped rather than
+            // overrunning `model_buffer`.
+            let mut terrain_slot = draw_calls.len().min(MAX_OBJECTS);
+            for (mesh_id, model, layer_ids, weight_id) in terrain_draw_calls {
+                if terrain_slot >= MAX_OBJECTS {
+                    break;
+                }
+                let Some(mesh) = registry.get(*mesh_id) else {
+                    continue;
+                };
+                let Some(tex_reg) = tex_registry else {
+                    continue;
+                };
+                let (Some(v0), Some(v1), Some(v2), Some(v3), Some(vw)) = (
+                    tex_reg.get_view(layer_ids[0]),
+                    tex_reg.get_view(layer_ids[1]),
+                    tex_reg.get_view(layer_ids[2]),
+                    tex_reg.get_view(layer_ids[3]),
+                    tex_reg.get_view(*weight_id),
+                ) else {
+                    continue;
+                };
+                let terrain_bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("terrain bg"),
+                    layout: &self.terrain_bgl,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(v0),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(v1),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::TextureView(v2),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::TextureView(v3),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 4,
+                            resource: wgpu::BindingResource::TextureView(vw),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 5,
+                            resource: wgpu::BindingResource::Sampler(&self._sampler),
+                        },
+                    ],
+                });
+                let model_data = ModelUniformData {
+                    model: model.to_cols_array_2d(),
+                    metallic: 0.0,
+                    roughness: 0.9,
+                    _pad0: 0.0,
+                    _pad1: 0.0,
+                    emissive: [0.0; 3],
+                    _pad2: 0.0,
+                    base_color: [1.0, 1.0, 1.0],
+                    opacity: 1.0,
+                };
+                self.queue.write_buffer(
+                    &self.model_buffer,
+                    terrain_slot as u64 * MODEL_STRIDE,
+                    bytemuck::cast_slice(&[model_data]),
+                );
+                pass.set_pipeline(&self.terrain_pipeline);
+                pass.set_bind_group(
+                    1,
+                    &self.model_bind_group,
+                    &[(terrain_slot as u64 * MODEL_STRIDE) as u32],
+                );
+                pass.set_bind_group(3, &terrain_bg, &[]);
+                pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                frame_draw_calls += 1;
+                frame_triangles += (mesh.index_count / 3) as u64;
+                terrain_slot += 1;
             }
         }
 

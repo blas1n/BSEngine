@@ -1678,8 +1678,8 @@ mod tests {
 
         // Confirm the heightmap PNG on disk actually changed -- re-decoded
         // independently, not read back through any in-memory cache.
-        let edited_bytes = std::fs::read(&heightmap_path)
-            .expect("heightmap PNG should still exist after commit");
+        let edited_bytes =
+            std::fs::read(&heightmap_path).expect("heightmap PNG should still exist after commit");
         let edited = bsengine_asset::heightmap_loader::decode_heightmap_png(&edited_bytes)
             .expect("decode the committed heightmap");
         assert_eq!(edited.width, width);

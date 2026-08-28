@@ -412,15 +412,9 @@ mod tests {
                     chunk_size: 10.0,
                     height_scale: 1.0,
                     layer0_texture_path: write_test_texture("no-registry-l0", [50, 200, 50, 255]),
-                    layer1_texture_path: write_test_texture(
-                        "no-registry-l1",
-                        [120, 120, 120, 255],
-                    ),
+                    layer1_texture_path: write_test_texture("no-registry-l1", [120, 120, 120, 255]),
                     layer2_texture_path: write_test_texture("no-registry-l2", [110, 80, 40, 255]),
-                    layer3_texture_path: write_test_texture(
-                        "no-registry-l3",
-                        [240, 240, 250, 255],
-                    ),
+                    layer3_texture_path: write_test_texture("no-registry-l3", [240, 240, 250, 255]),
                 },
                 Transform::default(),
             ))
@@ -590,15 +584,9 @@ mod tests {
                     chunk_size,
                     height_scale,
                     layer0_texture_path: write_test_texture("flat-drop-l0", [50, 200, 50, 255]),
-                    layer1_texture_path: write_test_texture(
-                        "flat-drop-l1",
-                        [120, 120, 120, 255],
-                    ),
+                    layer1_texture_path: write_test_texture("flat-drop-l1", [120, 120, 120, 255]),
                     layer2_texture_path: write_test_texture("flat-drop-l2", [110, 80, 40, 255]),
-                    layer3_texture_path: write_test_texture(
-                        "flat-drop-l3",
-                        [240, 240, 250, 255],
-                    ),
+                    layer3_texture_path: write_test_texture("flat-drop-l3", [240, 240, 250, 255]),
                 },
                 Transform::from_position(Vec3::ZERO),
             ))

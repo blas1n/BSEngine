@@ -1444,7 +1444,10 @@ mod tests {
                 break;
             }
         }
-        assert!(terrain_ready, "terrain-demo's Ground entity never finished generating chunks");
+        assert!(
+            terrain_ready,
+            "terrain-demo's Ground entity never finished generating chunks"
+        );
 
         // One more frame so the freshly-generated chunks (and their just-
         // uploaded splat textures) actually get drawn before sampling.

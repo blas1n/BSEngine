@@ -11,12 +11,13 @@
 use bevy_app::{App, Plugin, Update};
 use bevy_ecs::prelude::ReflectComponent;
 use bevy_reflect::Reflect;
-use bsengine_asset::{AssetServer, Assets, HeightmapAsset, Polled};
+use bsengine_asset::{AssetServer, Assets, HeightmapAsset, Polled, TextureAsset};
 use bsengine_core::{GlobalTransform, Transform};
 use bsengine_ecs::{Commands, Component, Entity, Query, Res, ResMut, Without};
 use bsengine_physics::{Collider, ColliderShape, PhysicsInput, RigidBody};
+use bsengine_render::components::TerrainSplat;
 use bsengine_render::MeshRenderer;
-use bsengine_rhi_wgpu::GpuMeshRegistry;
+use bsengine_rhi_wgpu::{GpuMeshRegistry, GpuTextureRegistry};
 use glam::{Quat, Vec3};
 use tracing::warn;
 
@@ -49,8 +50,16 @@ pub use bsengine_scene::Terrain;
 /// were public; the component catalogue's R1 rule ("every *public*
 /// `#[derive(Component)]` type must be registered") only applies to public
 /// types for exactly this reason.
+///
+/// Also tracks the 4 layer texture loads (`layer0..3_texture_path`), so a
+/// `Terrain`'s chunks aren't spawned until its heightmap AND all 4 diffuse
+/// layers have arrived -- `generate_terrain_chunks` needs all 5 to build the
+/// `TerrainSplat` it attaches to each chunk.
 #[derive(Component)]
-struct PendingTerrain(bsengine_asset::AssetSlot<HeightmapAsset>);
+struct PendingTerrain {
+    heightmap: bsengine_asset::AssetSlot<HeightmapAsset>,
+    layers: [bsengine_asset::AssetSlot<TextureAsset>; 4],
+}
 
 /// Marks a `Terrain` entity whose chunks have already been spawned, so
 /// `generate_terrain_chunks` (which still polls every frame while a load is
@@ -84,45 +93,92 @@ fn generate_terrain_chunks(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     heightmaps: Res<Assets<HeightmapAsset>>,
+    textures: Res<Assets<TextureAsset>>,
     mut mesh_registry: Option<ResMut<GpuMeshRegistry>>,
+    mut tex_registry: Option<ResMut<GpuTextureRegistry>>,
     mut query: Query<
         (Entity, &Terrain, &Transform, Option<&mut PendingTerrain>),
         Without<TerrainChunksGenerated>,
     >,
 ) {
     for (entity, terrain, transform, pending) in query.iter_mut() {
-        // Request exactly once, then retain the handle. See `PendingTerrain`.
+        // Request exactly once, then retain the handles. See `PendingTerrain`.
         let Some(mut pending) = pending else {
-            let handle = asset_server.load::<HeightmapAsset>(terrain.heightmap_path.clone());
-            commands
-                .entity(entity)
-                .insert(PendingTerrain(bsengine_asset::AssetSlot::from_handle(
-                    handle,
-                )));
+            let heightmap_handle =
+                asset_server.load::<HeightmapAsset>(terrain.heightmap_path.clone());
+            let layer_paths = [
+                terrain.layer0_texture_path.clone(),
+                terrain.layer1_texture_path.clone(),
+                terrain.layer2_texture_path.clone(),
+                terrain.layer3_texture_path.clone(),
+            ];
+            let layers = layer_paths.map(|p| {
+                bsengine_asset::AssetSlot::from_handle(asset_server.load::<TextureAsset>(p))
+            });
+            commands.entity(entity).insert(PendingTerrain {
+                heightmap: bsengine_asset::AssetSlot::from_handle(heightmap_handle),
+                layers,
+            });
             continue;
         };
 
-        if let Polled::Failed(e) = pending.0.poll(&asset_server, &heightmaps) {
+        let heightmap_failed = matches!(
+            pending.heightmap.poll(&asset_server, &heightmaps),
+            Polled::Failed(_)
+        );
+        let mut any_layer_failed = false;
+        for slot in pending.layers.iter_mut() {
+            if matches!(slot.poll(&asset_server, &textures), Polled::Failed(_)) {
+                any_layer_failed = true;
+            }
+        }
+        if heightmap_failed || any_layer_failed {
             // A failed load never resolves, so the path is dropped entirely --
             // otherwise a missing file retries silently forever.
             warn!(
-                "[terrain] cannot load heightmap '{}': {e}",
+                "[terrain] cannot load heightmap or a layer texture for '{}'",
                 terrain.heightmap_path
             );
             commands.entity(entity).remove::<PendingTerrain>();
             continue;
         }
-        // Deliberately not `Arrived`-only: the heightmap can land before
-        // `GpuMeshRegistry` exists (headless test mode, or a frame before a
-        // window/surface is up), and this retries every frame until the
-        // registry appears too.
-        let handle = pending.0.handle().clone();
-        let Some(heightmap) = heightmaps.get(&handle) else {
+        // Deliberately not `Arrived`-only: the assets can land before
+        // `GpuMeshRegistry`/`GpuTextureRegistry` exist (headless test mode,
+        // or a frame before a window/surface is up), and this retries every
+        // frame until the registries appear too.
+        let heightmap_handle = pending.heightmap.handle().clone();
+        let Some(heightmap) = heightmaps.get(&heightmap_handle) else {
+            continue;
+        };
+        let Some(tex0) = textures.get(pending.layers[0].handle()) else {
+            continue;
+        };
+        let Some(tex1) = textures.get(pending.layers[1].handle()) else {
+            continue;
+        };
+        let Some(tex2) = textures.get(pending.layers[2].handle()) else {
+            continue;
+        };
+        let Some(tex3) = textures.get(pending.layers[3].handle()) else {
+            continue;
+        };
+        let Some(tex_reg) = tex_registry.as_mut() else {
             continue;
         };
         let Some(mesh_reg) = mesh_registry.as_mut() else {
             continue;
         };
+
+        // Shared by every chunk of this `Terrain` entity -- uploaded once per
+        // frame this branch is reached, which only happens once (chunks are
+        // spawned and `TerrainChunksGenerated`/`PendingTerrain` are updated
+        // before the next frame's query would see this entity again).
+        let layer_ids: [u64; 4] = [
+            tex_reg.load_from_rgba(tex0.width, tex0.height, &tex0.data),
+            tex_reg.load_from_rgba(tex1.width, tex1.height, &tex1.data),
+            tex_reg.load_from_rgba(tex2.width, tex2.height, &tex2.data),
+            tex_reg.load_from_rgba(tex3.width, tex3.height, &tex3.data),
+        ];
 
         let params = crate::terrain_chunking::ChunkParams {
             chunk_count: terrain.chunk_count,
@@ -145,6 +201,12 @@ fn generate_terrain_chunks(
 
         for chunk in chunks {
             let mesh_id = mesh_reg.register(&chunk.vertices, &chunk.indices);
+            let weight_bytes: Vec<u8> = chunk.splat_weights.iter().flatten().copied().collect();
+            let weight_id = tex_reg.load_from_rgba(
+                chunk.heightfield_cols as u32,
+                chunk.heightfield_rows as u32,
+                &weight_bytes,
+            );
             let world_min_corner =
                 transform.position.0 + Vec3::new(chunk.world_offset.0, 0.0, chunk.world_offset.1);
 
@@ -152,6 +214,10 @@ fn generate_terrain_chunks(
                 Transform::from_position(world_min_corner),
                 GlobalTransform::default(),
                 MeshRenderer { mesh_id },
+                TerrainSplat {
+                    weight_texture_id: weight_id,
+                    layer_texture_ids: layer_ids,
+                },
                 RigidBody::fixed(),
                 Collider {
                     shape: ColliderShape::Heightfield {
@@ -218,6 +284,21 @@ mod tests {
         path.to_str().unwrap().to_owned()
     }
 
+    /// Writes a tiny 2x2 solid-color PNG to a fresh path under the temp
+    /// directory (one per call, so parallel tests don't collide -- `name`
+    /// must be distinct per call site, the same convention
+    /// `write_test_heightmap` uses) and returns its path as a `String`, the
+    /// same shape `Terrain::layer0..3_texture_path` expect.
+    fn write_test_texture(name: &str, rgba: [u8; 4]) -> String {
+        let img = image::RgbaImage::from_pixel(2, 2, image::Rgba(rgba));
+        let path = std::env::temp_dir().join(format!(
+            "bsengine_terrain_test_tex_{name}_{}.png",
+            std::process::id()
+        ));
+        img.save(&path).expect("write test texture fixture");
+        path.to_str().unwrap().to_owned()
+    }
+
     /// Inserts a real `GpuMeshRegistry`, backed by a real headless `wgpu`
     /// device -- not a stand-in, the same type the renderer uses.
     ///
@@ -225,8 +306,8 @@ mod tests {
     /// (created by winit) exists, so a window-less headless test has to
     /// construct it directly. Mirrors `bsengine-gltf`'s
     /// `insert_headless_gpu_registries` test helper, trimmed to only the
-    /// registry `generate_terrain_chunks` actually reads -- terrain never
-    /// touches textures or the physics queue resource.
+    /// registry `generate_terrain_chunks` actually reads for meshes -- see
+    /// `insert_headless_texture_registry` below for its texture counterpart.
     fn insert_headless_mesh_registry(app: &mut bevy_app::App) {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
@@ -251,15 +332,46 @@ mod tests {
         app.insert_resource(GpuMeshRegistry::new(std::sync::Arc::new(device)));
     }
 
+    /// Inserts a real `GpuTextureRegistry`, backed by a real headless `wgpu`
+    /// device/queue -- not a stand-in, the same type the renderer uses.
+    /// Sibling to `insert_headless_mesh_registry` above, needed now that
+    /// `generate_terrain_chunks` uploads layer/weight textures too.
+    fn insert_headless_texture_registry(app: &mut bevy_app::App) {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..Default::default()
+        });
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::None,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+        }))
+        .expect("a headless adapter");
+        let (device, queue) = pollster::block_on(adapter.request_device(
+            &wgpu::DeviceDescriptor {
+                label: Some("bsengine-app terrain test texture device"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::downlevel_defaults(),
+                memory_hints: wgpu::MemoryHints::default(),
+            },
+            None,
+        ))
+        .expect("headless device request");
+        let device = std::sync::Arc::new(device);
+        let queue = std::sync::Arc::new(queue);
+        app.insert_resource(GpuTextureRegistry::new(device, queue));
+    }
+
     /// An app with everything `generate_terrain_chunks` needs: a real
-    /// `AssetServer` (`AssetPlugin`), a real headless `GpuMeshRegistry`, and
-    /// `TerrainPlugin` itself.
+    /// `AssetServer` (`AssetPlugin`), real headless `GpuMeshRegistry`/
+    /// `GpuTextureRegistry`s, and `TerrainPlugin` itself.
     fn test_app() -> bevy_app::App {
         let mut app = crate::new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(TerrainPlugin);
         insert_headless_mesh_registry(&mut app);
+        insert_headless_texture_registry(&mut app);
         app
     }
 
@@ -299,10 +411,16 @@ mod tests {
                     chunk_count: (1, 1),
                     chunk_size: 10.0,
                     height_scale: 1.0,
-                    layer0_texture_path: String::new(),
-                    layer1_texture_path: String::new(),
-                    layer2_texture_path: String::new(),
-                    layer3_texture_path: String::new(),
+                    layer0_texture_path: write_test_texture("no-registry-l0", [50, 200, 50, 255]),
+                    layer1_texture_path: write_test_texture(
+                        "no-registry-l1",
+                        [120, 120, 120, 255],
+                    ),
+                    layer2_texture_path: write_test_texture("no-registry-l2", [110, 80, 40, 255]),
+                    layer3_texture_path: write_test_texture(
+                        "no-registry-l3",
+                        [240, 240, 250, 255],
+                    ),
                 },
                 Transform::default(),
             ))
@@ -331,10 +449,22 @@ mod tests {
                     chunk_count: (1, 1),
                     chunk_size: 10.0,
                     height_scale: 1.0,
-                    layer0_texture_path: String::new(),
-                    layer1_texture_path: String::new(),
-                    layer2_texture_path: String::new(),
-                    layer3_texture_path: String::new(),
+                    layer0_texture_path: write_test_texture(
+                        "missing-heightmap-l0",
+                        [50, 200, 50, 255],
+                    ),
+                    layer1_texture_path: write_test_texture(
+                        "missing-heightmap-l1",
+                        [120, 120, 120, 255],
+                    ),
+                    layer2_texture_path: write_test_texture(
+                        "missing-heightmap-l2",
+                        [110, 80, 40, 255],
+                    ),
+                    layer3_texture_path: write_test_texture(
+                        "missing-heightmap-l3",
+                        [240, 240, 250, 255],
+                    ),
                 },
                 Transform::default(),
             ))
@@ -387,10 +517,10 @@ mod tests {
                     chunk_count,
                     chunk_size: 8.0,
                     height_scale: 5.0,
-                    layer0_texture_path: String::new(),
-                    layer1_texture_path: String::new(),
-                    layer2_texture_path: String::new(),
-                    layer3_texture_path: String::new(),
+                    layer0_texture_path: write_test_texture("chunks-l0", [50, 200, 50, 255]),
+                    layer1_texture_path: write_test_texture("chunks-l1", [120, 120, 120, 255]),
+                    layer2_texture_path: write_test_texture("chunks-l2", [110, 80, 40, 255]),
+                    layer3_texture_path: write_test_texture("chunks-l3", [240, 240, 250, 255]),
                 },
                 Transform::from_position(Vec3::new(100.0, 0.0, -50.0)),
             ))
@@ -459,10 +589,16 @@ mod tests {
                     chunk_count: (1, 1),
                     chunk_size,
                     height_scale,
-                    layer0_texture_path: String::new(),
-                    layer1_texture_path: String::new(),
-                    layer2_texture_path: String::new(),
-                    layer3_texture_path: String::new(),
+                    layer0_texture_path: write_test_texture("flat-drop-l0", [50, 200, 50, 255]),
+                    layer1_texture_path: write_test_texture(
+                        "flat-drop-l1",
+                        [120, 120, 120, 255],
+                    ),
+                    layer2_texture_path: write_test_texture("flat-drop-l2", [110, 80, 40, 255]),
+                    layer3_texture_path: write_test_texture(
+                        "flat-drop-l3",
+                        [240, 240, 250, 255],
+                    ),
                 },
                 Transform::from_position(Vec3::ZERO),
             ))
@@ -499,5 +635,67 @@ mod tests {
              + radius {radius}), but it settled at y={y} -- the heightfield collider is not \
              where the rendered chunk says it is"
         );
+    }
+
+    /// The property this task adds: once a `Terrain`'s heightmap and all 4
+    /// layer textures have loaded, every spawned chunk entity carries a
+    /// `TerrainSplat` whose weight texture and all 4 layer textures are real,
+    /// registered `GpuTextureRegistry` ids -- not the zero-valued default a
+    /// forgotten field would leave behind (`GpuTextureRegistry` ids start at
+    /// 1; 0 is never issued, see `GpuTextureRegistry::new`/`load_from_rgba`).
+    #[test]
+    fn terrain_chunks_carry_a_terrain_splat_with_real_texture_ids() {
+        let mut app = test_app();
+
+        let values = vec![10_000u16; 5 * 5];
+        let path = write_test_heightmap("splat", 5, 5, &values);
+
+        let chunk_count = (2u32, 1u32);
+        let terrain_entity = app
+            .world_mut()
+            .spawn((
+                Terrain {
+                    heightmap_path: path,
+                    chunk_count,
+                    chunk_size: 8.0,
+                    height_scale: 5.0,
+                    layer0_texture_path: write_test_texture("splat-l0", [50, 200, 50, 255]),
+                    layer1_texture_path: write_test_texture("splat-l1", [120, 120, 120, 255]),
+                    layer2_texture_path: write_test_texture("splat-l2", [110, 80, 40, 255]),
+                    layer3_texture_path: write_test_texture("splat-l3", [240, 240, 250, 255]),
+                },
+                Transform::default(),
+            ))
+            .id();
+
+        run_until_generated(&mut app, terrain_entity);
+
+        let mut query = app
+            .world_mut()
+            .query_filtered::<Entity, bevy_ecs::prelude::With<MeshRenderer>>();
+        let chunk_entities: Vec<Entity> = query.iter(app.world()).collect();
+        assert_eq!(
+            chunk_entities.len(),
+            (chunk_count.0 * chunk_count.1) as usize,
+            "expected one chunk entity per (chunk_count.0 * chunk_count.1)"
+        );
+
+        for chunk in &chunk_entities {
+            let splat = app
+                .world()
+                .get::<TerrainSplat>(*chunk)
+                .expect("every chunk must carry a TerrainSplat");
+            assert!(
+                splat.weight_texture_id > 0,
+                "weight_texture_id must be a real registered id, got {}",
+                splat.weight_texture_id
+            );
+            for (i, id) in splat.layer_texture_ids.iter().enumerate() {
+                assert!(
+                    *id > 0,
+                    "layer_texture_ids[{i}] must be a real registered id, got {id}"
+                );
+            }
+        }
     }
 }

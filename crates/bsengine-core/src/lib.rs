@@ -51,6 +51,8 @@ pub mod nav_mesh_agent;
 pub mod nav_poly;
 /// Networked entity identity and authority components.
 pub mod network_id;
+/// Runtime switch for occlusion culling, set from `project.toml`.
+pub mod occlusion_config;
 /// Parent-entity reference for building transform hierarchies.
 pub mod parent;
 /// Short-lived billboarded particles and the emitter that owns them.
@@ -119,6 +121,7 @@ pub use material::{Material, TexturePath};
 pub use nav_mesh::NavMesh;
 pub use nav_mesh_agent::{NavAgentState, NavMeshAgent};
 pub use network_id::{NetworkAuthority, NetworkId};
+pub use occlusion_config::OcclusionCullingEnabled;
 pub use parent::Parent;
 pub use particles::{Particle, ParticleEmitter, Rng};
 pub use pause_state::PauseState;

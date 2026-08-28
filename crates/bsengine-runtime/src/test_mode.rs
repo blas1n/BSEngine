@@ -43,6 +43,9 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>, fast_rend
     let scene_path = format!("{project_dir}/{relative_scene}");
 
     let mut app = bsengine_app::new_app();
+    app.insert_resource(bsengine_core::OcclusionCullingEnabled(
+        manifest.render.occlusion_culling,
+    ));
     app.add_plugins(TimePlugin)
         .add_plugins(AssetPlugin)
         // Included here, unlike `AssetWatcherPlugin` (see main.rs's

@@ -1779,4 +1779,256 @@ mod tests {
             original_height + radius
         );
     }
+
+    /// Builds a minimal, valid binary glTF (`.glb`) file containing exactly
+    /// one triangle: a 12-byte header, a `JSON` chunk (scene/node/mesh/
+    /// accessor structure, no external files -- the vertex/index data lives
+    /// in the `BIN` chunk right below it), and a `BIN` chunk (3 `f32x3`
+    /// positions + 3 `u16` indices). Every length/offset here follows the
+    /// glTF 2.0 binary container spec directly (4-byte-aligned chunks, JSON
+    /// padded with ASCII spaces, BIN padded with zero bytes).
+    ///
+    /// Exists only for
+    /// `lod_reduces_triangle_count_when_far_from_camera` below, which needs
+    /// two real, independently loadable glTF fixtures with a genuinely
+    /// different triangle count -- searched this repository first (outside
+    /// `target/`, the only committed `.glb`/`.gltf` fixture anywhere is
+    /// `games/mini-arena/assets/models/fox.glb`, reused below as the
+    /// high-poly LOD 0 mesh) and found no second fixture and no existing
+    /// glTF-*writing* helper to reuse, so this constructs the low-poly LOD
+    /// 1 fixture by hand instead. Verified during this test's development
+    /// (not merely assumed) to actually round-trip through
+    /// `GltfLoader::load_full` -- the exact function `GltfSourceLoader`
+    /// (and therefore `load_lod_assets`) calls -- reporting `indices.len()
+    /// == 3`, i.e. exactly one triangle.
+    fn build_single_triangle_glb() -> Vec<u8> {
+        let positions: [[f32; 3]; 3] = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]];
+        let mut bin: Vec<u8> = Vec::new();
+        for v in positions {
+            for c in v {
+                bin.extend_from_slice(&c.to_le_bytes());
+            }
+        }
+        let pos_bytes = bin.len() as u32; // 36: 3 vertices * 3 floats * 4 bytes
+        for idx in [0u16, 1, 2] {
+            bin.extend_from_slice(&idx.to_le_bytes());
+        }
+        let idx_bytes = bin.len() as u32 - pos_bytes; // 6: 3 indices * 2 bytes
+        let total_bin_len = bin.len() as u32; // 42, before BIN-chunk padding
+        while bin.len() % 4 != 0 {
+            bin.push(0); // BIN chunk padding must be zero bytes, per spec
+        }
+
+        let json = format!(
+            r#"{{"asset":{{"version":"2.0"}},"scene":0,"scenes":[{{"nodes":[0]}}],"nodes":[{{"mesh":0}}],"meshes":[{{"primitives":[{{"attributes":{{"POSITION":0}},"indices":1,"mode":4}}]}}],"buffers":[{{"byteLength":{total_bin_len}}}],"bufferViews":[{{"buffer":0,"byteOffset":0,"byteLength":{pos_bytes},"target":34962}},{{"buffer":0,"byteOffset":{pos_bytes},"byteLength":{idx_bytes},"target":34963}}],"accessors":[{{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0.0,0.0,0.0],"max":[1.0,1.0,0.0]}},{{"bufferView":1,"componentType":5123,"count":3,"type":"SCALAR"}}]}}"#
+        );
+        let mut json_bytes = json.into_bytes();
+        while json_bytes.len() % 4 != 0 {
+            json_bytes.push(0x20); // JSON chunk padding must be ASCII spaces, per spec
+        }
+
+        let mut glb = Vec::new();
+        glb.extend_from_slice(b"glTF");
+        glb.extend_from_slice(&2u32.to_le_bytes());
+        let total_len_pos = glb.len();
+        glb.extend_from_slice(&0u32.to_le_bytes()); // total length, patched below
+
+        glb.extend_from_slice(&(json_bytes.len() as u32).to_le_bytes());
+        glb.extend_from_slice(b"JSON");
+        glb.extend_from_slice(&json_bytes);
+
+        glb.extend_from_slice(&(bin.len() as u32).to_le_bytes());
+        glb.extend_from_slice(b"BIN\0");
+        glb.extend_from_slice(&bin);
+
+        let total_len = glb.len() as u32;
+        glb[total_len_pos..total_len_pos + 4].copy_from_slice(&total_len.to_le_bytes());
+        glb
+    }
+
+    /// Task 8, and the roadmap item 43 condition it exists to satisfy
+    /// directly ("프로파일러로 LOD 켬/끔 시 프레임 비용 차이를 실측해 효과
+    /// 입증" -- prove the effect via the profiler with a measured before/
+    /// after, not just "LOD doesn't crash"). `bsengine-render`'s own
+    /// `lod_current_index_updates_based_on_camera_distance` already proves
+    /// `current_index` responds to distance, and `bsengine-gltf`'s
+    /// `lod_request_becomes_lod_levels_once_every_file_loads` already
+    /// proves a `LodRequest` resolves into distinct registered mesh ids --
+    /// neither proves the thing actually rendered fewer triangles. This
+    /// test drives the real headless app (`build_test_app`, the same stack
+    /// `--test`/E2E replays and the windowed runtime use) end to end and
+    /// reads `get_frame_stats` (the real frame profiler, item 43/PR #1805 --
+    /// `crate::test_query::get_frame_stats`, dispatched by exactly the
+    /// string `"get_frame_stats"` with empty `{}` args, confirmed by
+    /// reading `test_query.rs` and its own
+    /// `run_query_dispatches_get_frame_stats` test before writing this one)
+    /// with the far LOD active, then again with LOD 0 active, and asserts
+    /// the near frame's triangle count is strictly greater.
+    ///
+    /// Fixtures: LOD 0 is `games/mini-arena`'s real `fox.glb` (576
+    /// triangles), copied into this test's own temp project so the scene's
+    /// `gltf:`/`lod:` fields can stay project-relative -- exactly the
+    /// pattern `terrain_brush_edit_survives_a_reload` above already
+    /// established for copying fixtures into a throwaway `tempfile::
+    /// tempdir()` project rather than mutating or pointing absolutely at a
+    /// shared `games/*` fixture. LOD 1 is `build_single_triangle_glb`'s
+    /// hand-built one-triangle `.glb` above -- see that function's own doc
+    /// comment for why a hand-built fixture was necessary here.
+    ///
+    /// The `Tree` entity sits on the camera's forward axis (camera at the
+    /// origin with the default identity rotation looks down -Z, the same
+    /// convention `moving_a_grandparent_moves_the_grandchild_on_screen` and
+    /// `prefab_referenced_from_a_scene_file_renders_at_the_instantiation_
+    /// points_position` above both rely on), so its exact camera distance
+    /// is just the absolute value of its own z position -- 300 units away
+    /// (well past `switch_distances: [50.0]` plus the 2.0 hysteresis band's
+    /// half-width) for the far phase, then moved to 5 units away (well
+    /// inside the same band's floor) for the near phase.
+    #[test]
+    fn lod_reduces_triangle_count_when_far_from_camera() {
+        use bsengine_render::components::LodLevels;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("assets/scenes")).unwrap();
+        std::fs::create_dir_all(root.join("assets/models")).unwrap();
+
+        let fox_bytes = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../games/mini-arena/assets/models/fox.glb"),
+        )
+        .expect("games/mini-arena's fox.glb fixture should exist");
+        std::fs::write(root.join("assets/models/fox.glb"), &fox_bytes)
+            .expect("write the temp project's copy of fox.glb");
+        std::fs::write(
+            root.join("assets/models/lowpoly.glb"),
+            build_single_triangle_glb(),
+        )
+        .expect("write the temp project's hand-built single-triangle LOD fixture");
+
+        std::fs::write(
+            root.join("project.toml"),
+            "[project]\nname = \"LOD E2E\"\nentry_scene = \"assets/scenes/main.ron\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("assets/scenes/main.ron"),
+            r#"SceneDescriptor(entities: [
+    EntityDescriptor(
+        name: "Camera",
+        camera: true,
+        transform: Some((position: (0.0, 0.0, 0.0))),
+    ),
+    EntityDescriptor(
+        name: "Tree",
+        gltf: Some("assets/models/fox.glb"),
+        lod: Some((
+            levels: ["assets/models/lowpoly.glb"],
+            distances: [50.0],
+            hysteresis_band: 2.0,
+        )),
+        transform: Some((position: (0.0, 0.0, -300.0))),
+    ),
+])"#,
+        )
+        .unwrap();
+
+        let project_dir = root.to_str().unwrap().to_string();
+        let mut app = build_test_app(&project_dir, None, false);
+
+        // --- Phase 1: far -- the low-poly LOD level should be selected ---
+        let mut far_selected = false;
+        for _ in 0..300 {
+            app.update();
+            let mut q = app
+                .world_mut()
+                .query::<(&bsengine_scene::Name, &LodLevels)>();
+            if let Some((_, lod)) = q.iter(app.world()).find(|(n, _)| n.0 == "Tree") {
+                if lod.current_index.is_some() {
+                    far_selected = true;
+                    break;
+                }
+            }
+        }
+        assert!(
+            far_selected,
+            "Tree's LodLevels never selected a level beyond LOD0 within 300 frames -- \
+             either the base mesh or the LOD level failed to load (check the fixtures \
+             above), or something is wrong with LOD selection itself: at 300 units \
+             away with switch_distances=[50.0], it must have selected the far level"
+        );
+
+        let far_stats =
+            crate::test_query::run_query(app.world_mut(), "get_frame_stats", &json!({}))
+                .expect("get_frame_stats should succeed once RenderPlugin has drawn a frame");
+        let far_triangles = far_stats["triangles"]
+            .as_u64()
+            .expect("get_frame_stats should report triangles as a number");
+
+        // --- Phase 2: near -- move Tree close, LOD0 should be reselected ---
+        let tree = {
+            let mut q = app.world_mut().query::<(Entity, &bsengine_scene::Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0 == "Tree")
+                .map(|(e, _)| e)
+                .expect("Tree should have spawned from the scene file")
+        };
+        app.world_mut()
+            .get_mut::<bsengine_core::Transform>(tree)
+            .unwrap()
+            .position = glam::Vec3::new(0.0, 0.0, -5.0).into();
+
+        let mut near_selected = false;
+        for _ in 0..20 {
+            app.update();
+            let lod = app
+                .world()
+                .get::<LodLevels>(tree)
+                .expect("LodLevels should still be attached once selected");
+            if lod.current_index.is_none() {
+                near_selected = true;
+                break;
+            }
+        }
+        assert!(
+            near_selected,
+            "Tree's LodLevels never dropped back to LOD0 (current_index=None) within 20 \
+             frames after moving to 5 units from the camera -- well inside the \
+             49.0-unit hysteresis floor (switch_distances=[50.0], hysteresis_band=2.0)"
+        );
+
+        let near_stats =
+            crate::test_query::run_query(app.world_mut(), "get_frame_stats", &json!({}))
+                .expect("get_frame_stats should succeed once RenderPlugin has drawn a frame");
+        let near_triangles = near_stats["triangles"]
+            .as_u64()
+            .expect("get_frame_stats should report triangles as a number");
+
+        // The real proof: not "both ran without error", but a measured
+        // triangle-count drop. `render_frame` builds one draw-call list from
+        // `current_index`'s selected mesh id and every consumer of it (main
+        // opaque pass, shadow pass -- both unconditional here since this
+        // test does not request `fast_render`) draws that same id, so the
+        // near frame (LOD0 = fox.glb, 576 triangles) should report on the
+        // order of 2*(576-1) = 1150 more triangles than the far frame
+        // (LOD1 = the 1-triangle fixture) -- any constant per-frame
+        // contribution from post-processing is identical between the two
+        // frames and cancels out of this comparison.
+        assert!(
+            near_triangles > far_triangles,
+            "LOD must measurably reduce triangle count: near (LOD0, fox.glb, 576 \
+             triangles) frame reported {near_triangles} triangles, far (LOD1, the \
+             1-triangle fixture) frame reported {far_triangles} triangles -- equal or \
+             reversed counts mean either the LOD fixtures don't actually differ or LOD \
+             selection isn't taking effect (current_index was already checked above)"
+        );
+        assert!(
+            near_triangles > far_triangles + 500,
+            "the near/far triangle-count gap ({near_triangles} vs {far_triangles}) is \
+             far smaller than the ~1150 this specific fixture pair (576 vs 1 triangles, \
+             drawn in both the main and shadow passes) should produce -- a small but \
+             nonzero gap would suggest the wrong mesh is being measured somewhere, not \
+             a genuinely working LOD reduction"
+        );
+    }
 }

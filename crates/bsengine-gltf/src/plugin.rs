@@ -312,9 +312,9 @@ fn load_lod_assets(
                         GltfLoader::load_full,
                     ) {
                         Ok(handle) => bsengine_asset::AssetSlot::from_handle(handle),
-                        Err(_) => unreachable!(
-                            "LoadMode::Async is infallible, see load_gltf_assets"
-                        ),
+                        Err(_) => {
+                            unreachable!("LoadMode::Async is infallible, see load_gltf_assets")
+                        }
                     }
                 })
                 .collect();

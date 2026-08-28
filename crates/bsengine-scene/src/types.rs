@@ -931,7 +931,10 @@ mod tests {
         assert_eq!(lod.levels.len(), 2);
         assert_eq!(lod.levels[0].path(), "models/tree_lod1.glb");
         assert_eq!(lod.distances, [20.0, 60.0]);
-        assert_eq!(lod.hysteresis_band, 2.0, "should default when not specified");
+        assert_eq!(
+            lod.hysteresis_band, 2.0,
+            "should default when not specified"
+        );
     }
 
     #[test]

@@ -1883,8 +1883,13 @@ mod tests {
         app.add_plugins(ScenePlugin::from_file(&path));
         app.update();
 
-        let mut q = app.world_mut().query::<(&Name, &bsengine_gltf::LodRequest)>();
-        let (name, request) = q.iter(app.world()).next().expect("Tree should have a LodRequest");
+        let mut q = app
+            .world_mut()
+            .query::<(&Name, &bsengine_gltf::LodRequest)>();
+        let (name, request) = q
+            .iter(app.world())
+            .next()
+            .expect("Tree should have a LodRequest");
         assert_eq!(name.0, "Tree");
         assert_eq!(
             request.paths,

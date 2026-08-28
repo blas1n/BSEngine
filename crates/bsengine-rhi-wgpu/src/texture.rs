@@ -167,6 +167,14 @@ impl GpuTextureRegistry {
         self.textures.get(&id).map(|t| &t.bind_group)
     }
 
+    /// Looks up a previously loaded texture's raw view by id. Used by
+    /// terrain rendering, which needs several textures' views in one
+    /// bind group rather than this registry's own 2-entry (texture,
+    /// sampler) layout.
+    pub fn get_view(&self, id: u64) -> Option<&wgpu::TextureView> {
+        self.textures.get(&id).map(|t| &t._view)
+    }
+
     /// Looks up a previously loaded texture's pixel dimensions by id.
     pub fn get_size(&self, id: u64) -> Option<(u32, u32)> {
         self.textures.get(&id).map(|t| (t.width, t.height))
@@ -224,5 +232,17 @@ mod tests {
         let mut reg = make_registry();
         assert!(!reg.replace(9999, 1, 1, &[0, 0, 0, 255]));
         assert!(reg.get_bind_group(9999).is_none());
+    }
+
+    #[test]
+    fn get_view_resolves_a_loaded_texture_and_none_for_unknown() {
+        let mut reg = make_registry();
+        assert!(reg.get_view(999).is_none(), "unknown id must return None");
+
+        let id = reg.load_from_rgba(2, 2, &[0u8; 16]);
+        assert!(
+            reg.get_view(id).is_some(),
+            "a loaded texture's view must resolve"
+        );
     }
 }

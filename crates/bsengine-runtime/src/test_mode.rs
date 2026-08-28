@@ -1489,4 +1489,294 @@ mod tests {
             colors
         );
     }
+
+    /// Task 10 (roadmap item 44's final sub-step): proves a terrain brush
+    /// edit committed through the real `pick_terrain_under_cursor` ->
+    /// `preview_terrain_brush_stroke` -> `commit_terrain_brush_stroke` chain
+    /// (`TerrainBrushPlugin`, registered in `build_test_app` above the same
+    /// way `TerrainPlugin` is) actually survives a full scene reload -- not
+    /// just that the heightmap PNG on disk changed
+    /// (`bsengine-app::terrain_brush`'s own
+    /// `committing_a_height_stroke_writes_the_edited_heightmap_to_disk`
+    /// already proved that against a synthetic in-memory `Terrain`), but
+    /// that a *second*, independently-built `build_test_app` -- standing in
+    /// for "close and reopen the project" -- reads the edited PNG back off
+    /// disk and a dropped body actually lands at the new height, not the
+    /// original.
+    ///
+    /// Deliberately builds a small throwaway project under
+    /// `tempfile::tempdir()` (the same pattern
+    /// `moving_a_grandparent_moves_the_grandchild_on_screen` above uses)
+    /// rather than driving this against the committed `games/terrain-demo`
+    /// fixture: `heightmap.png` there is a shared, committed fixture two
+    /// other tests in this file
+    /// (`a_dynamic_body_dropped_above_terrain_demo_comes_to_rest_
+    /// supported_by_the_heightfield`,
+    /// `terrain_demo_renders_more_than_one_blended_color`) read as ground
+    /// truth, and `commit_terrain_brush_stroke` writes `std::fs::
+    /// write(&terrain.heightmap_path, ..)` for real. Mutating that shared
+    /// file here would need a guaranteed-restore mechanism (an RAII guard,
+    /// since a failed assertion must not skip the restore) that nothing
+    /// else in this codebase has needed before -- no existing test mutates
+    /// a committed fixture in place. A fresh temp project sidesteps that
+    /// entirely: nothing under `games/terrain-demo` is ever opened for
+    /// writing, so there is nothing to restore and no risk to `git status`
+    /// or to those other tests' fixture data.
+    ///
+    /// The temp project's scene authors `Terrain.heightmap_path`/
+    /// `layer*_texture_path` project-relative (`"assets/terrain/
+    /// heightmap.png"`, the same convention `games/terrain-demo`'s own
+    /// `main.ron` uses), *not* pre-built as absolute strings: `bsengine-
+    /// scene`'s scene deserializer (`plugin.rs`, the `Terrain`-specific
+    /// branch of its generic `components:` handling) already resolves
+    /// exactly those five fields through `bsengine_core::resolve_project_
+    /// path(project_dir, path)` -- i.e. `format!("{project_dir}/{path}")`
+    /// -- before the `Terrain` component is ever inserted. Since this
+    /// test's `project_dir` (passed to `build_test_app` below) is itself
+    /// absolute (`tempdir()`'s own path), the `Terrain` component that
+    /// actually lands on the `Ground` entity ends up with a fully absolute
+    /// `heightmap_path` regardless of the test binary's CWD -- which is
+    /// exactly what `commit_terrain_brush_stroke`'s verbatim `std::fs::
+    /// write(&terrain.heightmap_path, ..)` needs. (An earlier version of
+    /// this test pre-resolved the paths itself and embedded *those* in the
+    /// RON; `resolve_project_path` then prefixed `project_dir` onto an
+    /// already-absolute path a second time, producing a malformed
+    /// `<project_dir>/C:/Users/...` string and an OS "invalid filename"
+    /// error from `bevy_asset` -- project-relative paths in the RON, left
+    /// for the scene loader to resolve exactly once, are the correct
+    /// shape.)
+    #[test]
+    fn terrain_brush_edit_survives_a_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("assets/scenes")).unwrap();
+        std::fs::create_dir_all(root.join("assets/terrain")).unwrap();
+
+        // 4x4 texels, one 10x10-world-unit chunk, flat at raw=20_000 -- the
+        // exact fixture shape `bsengine-app::terrain_brush`'s own
+        // `held_height_stroke_then_commit_raises_where_a_dropped_body_lands`
+        // uses, since that combination is already proven to make a dropped
+        // ball's resting height track the brushed texel precisely.
+        let width = 4u32;
+        let height = 4u32;
+        let flat_raw: u16 = 20_000;
+        let height_scale = 20.0f32;
+        let chunk_size = 10.0f32;
+        let original_height = (flat_raw as f32 / u16::MAX as f32) * height_scale;
+
+        // Written directly under `root` (not through any path-resolution
+        // helper) since these are the real files the scene's
+        // project-relative `Terrain` paths, once resolved against
+        // `project_dir` (== `root`), must actually find on disk.
+        let heightmap_path = root.join("assets/terrain/heightmap.png");
+        let img: image::ImageBuffer<image::Luma<u16>, Vec<u16>> =
+            image::ImageBuffer::from_raw(width, height, vec![flat_raw; (width * height) as usize])
+                .unwrap();
+        image::DynamicImage::ImageLuma16(img)
+            .save(&heightmap_path)
+            .expect("write the temp project's fixture heightmap");
+
+        image::RgbaImage::from_pixel(2, 2, image::Rgba([80u8, 160, 80, 255]))
+            .save(root.join("assets/terrain/grass.png"))
+            .expect("write the temp project's fixture layer texture");
+        image::RgbaImage::from_pixel(2, 2, image::Rgba([120u8, 120, 120, 255]))
+            .save(root.join("assets/terrain/rock.png"))
+            .expect("write the temp project's fixture layer texture");
+        image::RgbaImage::from_pixel(2, 2, image::Rgba([110u8, 80, 40, 255]))
+            .save(root.join("assets/terrain/dirt.png"))
+            .expect("write the temp project's fixture layer texture");
+        image::RgbaImage::from_pixel(2, 2, image::Rgba([240u8, 240, 250, 255]))
+            .save(root.join("assets/terrain/snow.png"))
+            .expect("write the temp project's fixture layer texture");
+
+        std::fs::write(
+            root.join("project.toml"),
+            "[project]\nname = \"Terrain Brush E2E\"\nentry_scene = \"assets/scenes/main.ron\"\n",
+        )
+        .unwrap();
+
+        std::fs::write(
+            root.join("assets/scenes/main.ron"),
+            format!(
+                r#"SceneDescriptor(entities: [
+    EntityDescriptor(
+        name: "Camera",
+        camera: true,
+        transform: Some((position: (5.0, 15.0, 25.0))),
+        look_at: Some((5.0, 0.0, 5.0)),
+    ),
+    EntityDescriptor(
+        name: "Ground",
+        transform: Some((position: (0.0, 0.0, 0.0))),
+        components: [
+            ("bsengine_scene::types::Terrain", "(heightmap_path: \"assets/terrain/heightmap.png\", chunk_count: (1, 1), chunk_size: {chunk_size:.1}, height_scale: {height_scale:.1}, layer0_texture_path: \"assets/terrain/grass.png\", layer1_texture_path: \"assets/terrain/rock.png\", layer2_texture_path: \"assets/terrain/dirt.png\", layer3_texture_path: \"assets/terrain/snow.png\", splatmap_path: None)"),
+        ],
+    ),
+])"#
+            ),
+        )
+        .unwrap();
+
+        let project_dir = root.to_str().unwrap().to_string();
+
+        // --- Phase 1: edit, through the real app stack ---
+        let mut app = build_test_app(&project_dir, None, false);
+
+        let mut terrain_ready = false;
+        for _ in 0..200 {
+            app.update();
+            let mut q = app.world_mut().query::<(
+                &bsengine_scene::Name,
+                Option<&bsengine_app::terrain::TerrainChunksGenerated>,
+            )>();
+            if q.iter(app.world())
+                .any(|(name, generated)| name.0 == "Ground" && generated.is_some())
+            {
+                terrain_ready = true;
+                break;
+            }
+        }
+        assert!(
+            terrain_ready,
+            "the temp project's Ground entity never finished generating chunks within \
+             200 frames"
+        );
+
+        let terrain_entity = {
+            let mut q = app.world_mut().query::<(Entity, &bsengine_scene::Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0 == "Ground")
+                .map(|(e, _)| e)
+                .expect("Ground should have spawned from the scene file")
+        };
+
+        // Hold a raising height stroke centered on the chunk for a few
+        // frames (mirrors `held_height_stroke_then_commit_raises_where_a_
+        // dropped_body_lands`'s exact pattern), then release it -- the
+        // Some -> None transition on the next `app.update()` is what
+        // `commit_terrain_brush_stroke` watches for.
+        let drop_xz = chunk_size / 2.0;
+        {
+            let mut insp = app.world_mut().resource_mut::<InspectorState>();
+            insp.terrain_brush_settings.kind =
+                bsengine_core::TerrainBrushKind::Height { raise: true };
+            insp.terrain_brush_settings.radius = 20.0;
+            insp.terrain_brush_settings.strength = 1.0;
+            insp.terrain_brush_stroke = Some(bsengine_core::TerrainBrushStroke {
+                terrain_entity_id: terrain_entity.index() as u64,
+                world_pos: [drop_xz, 0.0, drop_xz],
+            });
+        }
+        for _ in 0..5 {
+            app.update();
+        }
+        {
+            let mut insp = app.world_mut().resource_mut::<InspectorState>();
+            insp.terrain_brush_stroke = None;
+        }
+        app.update(); // the Some -> None transition frame: commits to disk
+
+        // Confirm the heightmap PNG on disk actually changed -- re-decoded
+        // independently, not read back through any in-memory cache.
+        let edited_bytes = std::fs::read(&heightmap_path)
+            .expect("heightmap PNG should still exist after commit");
+        let edited = bsengine_asset::heightmap_loader::decode_heightmap_png(&edited_bytes)
+            .expect("decode the committed heightmap");
+        assert_eq!(edited.width, width);
+        assert_eq!(edited.height, height);
+        assert_ne!(
+            edited.data,
+            vec![flat_raw; (width * height) as usize],
+            "committing a height stroke must actually change the on-disk heightmap"
+        );
+
+        // `terrain_chunking::world_to_texel` (the real conversion
+        // `preview_terrain_brush_stroke`/`commit_terrain_brush_stroke` use)
+        // is `pub(crate)` to `bsengine-app`, unreachable from this crate --
+        // but with a single 1x1 chunk its formula collapses to
+        // `world / (chunk_size / texel_count)`, reproduced here directly.
+        let step = chunk_size / width as f32;
+        let tx = (drop_xz / step).round().clamp(0.0, (width - 1) as f32) as u32;
+        let tz = (drop_xz / step).round().clamp(0.0, (height - 1) as f32) as u32;
+        let raw = edited.data[(tz * edited.width + tx) as usize];
+        let new_height = (raw as f32 / u16::MAX as f32) * height_scale;
+        assert!(
+            new_height > original_height + 0.5,
+            "the committed heightmap should read measurably higher at the brushed texel: \
+             new={new_height}, original={original_height}"
+        );
+
+        // Release phase 1's app (and its GPU device/window-less surface)
+        // before building a second one below. This is deliberately two
+        // separate `App`s, not one continuing app: the property this test
+        // exists to prove is specifically that the edit survives a
+        // *reload* (a second app reading the same project fresh), not just
+        // that it survives while the first app stays resident in memory.
+        drop(app);
+
+        // --- Phase 2: reload, through a brand-new app pointed at the same
+        // project directory ---
+        let mut app = build_test_app(&project_dir, None, false);
+
+        let mut terrain_ready = false;
+        for _ in 0..200 {
+            app.update();
+            let mut q = app.world_mut().query::<(
+                &bsengine_scene::Name,
+                Option<&bsengine_app::terrain::TerrainChunksGenerated>,
+            )>();
+            if q.iter(app.world())
+                .any(|(name, generated)| name.0 == "Ground" && generated.is_some())
+            {
+                terrain_ready = true;
+                break;
+            }
+        }
+        assert!(
+            terrain_ready,
+            "the reloaded temp project's Ground entity never finished generating chunks \
+             within 200 frames"
+        );
+
+        let radius = 0.5f32;
+        let start = glam::Vec3::new(drop_xz, new_height + 10.0, drop_xz);
+        let ball = app
+            .world_mut()
+            .spawn((
+                bsengine_core::Transform::from_position(start),
+                bsengine_physics::RigidBody::dynamic(),
+                bsengine_physics::Collider::ball(radius),
+                bsengine_physics::PhysicsInput {
+                    position: start.into(),
+                    rotation: glam::Quat::IDENTITY.into(),
+                },
+            ))
+            .id();
+
+        for _ in 0..200 {
+            app.update();
+        }
+
+        let y = app
+            .world()
+            .get::<bsengine_core::Transform>(ball)
+            .unwrap()
+            .position
+            .0
+            .y;
+        let expected = new_height + radius;
+        assert!(
+            (y - expected).abs() < 0.3,
+            "expected the ball to rest at the BRUSHED height y~={expected} (reloaded \
+             terrain height {new_height} at the drop point, original was \
+             {original_height}), but it settled at y={y} -- the reloaded terrain does not \
+             reflect the committed edit"
+        );
+        assert!(
+            (y - (original_height + radius)).abs() > 0.5,
+            "the ball must land at the NEW height after reload, not the original -- got \
+             y={y}, original resting height would have been {}",
+            original_height + radius
+        );
+    }
 }

@@ -1415,4 +1415,69 @@ mod tests {
              boundary, or the collider isn't where the heightmap says the surface is"
         );
     }
+
+    /// Proves terrain texture splatting actually renders more than one
+    /// blended color, not just "doesn't crash" -- the E2E-observable claim
+    /// this whole sub-step exists to satisfy (roadmap item 44's "데모
+    /// 씬에서 검증"). Deliberately does not assume exact camera-to-world
+    /// pixel math: it samples a coarse grid across the whole rendered frame
+    /// and checks for at least 2 distinct (coarsely-bucketed) colors, which
+    /// is what a single-material, un-blended terrain (this test's own
+    /// regression target) could never produce, while staying robust to the
+    /// demo scene's exact camera framing.
+    #[test]
+    fn terrain_demo_renders_more_than_one_blended_color() {
+        let project_dir = format!("{}/../../games/terrain-demo", env!("CARGO_MANIFEST_DIR"));
+        let mut app = build_test_app(&project_dir, None, false);
+
+        let mut terrain_ready = false;
+        for _ in 0..200 {
+            app.update();
+            let mut q = app.world_mut().query::<(
+                &bsengine_scene::Name,
+                Option<&bsengine_app::terrain::TerrainChunksGenerated>,
+            )>();
+            if q.iter(app.world())
+                .any(|(name, generated)| name.0 == "Ground" && generated.is_some())
+            {
+                terrain_ready = true;
+                break;
+            }
+        }
+        assert!(terrain_ready, "terrain-demo's Ground entity never finished generating chunks");
+
+        // One more frame so the freshly-generated chunks (and their just-
+        // uploaded splat textures) actually get drawn before sampling.
+        app.update();
+
+        let mut colors = std::collections::HashSet::new();
+        for gx in 0..8u32 {
+            for gy in 0..8u32 {
+                let x = 60 + gx * 150;
+                let y = 40 + gy * 80;
+                let result = crate::test_query::run_query(
+                    app.world_mut(),
+                    "get_pixel",
+                    &serde_json::json!({"x": x, "y": y}),
+                )
+                .expect("get_pixel should succeed once RenderPlugin has drawn a frame");
+                // Coarse 24-unit buckets so shading/AA noise across one
+                // material's surface doesn't inflate the distinct-color
+                // count -- only a genuinely different albedo crosses a
+                // bucket boundary.
+                let r = result["r"].as_u64().unwrap_or(0) / 24;
+                let g = result["g"].as_u64().unwrap_or(0) / 24;
+                let b = result["b"].as_u64().unwrap_or(0) / 24;
+                colors.insert((r, g, b));
+            }
+        }
+        assert!(
+            colors.len() >= 2,
+            "expected at least 2 visually distinct colors across the sampled terrain \
+             surface (proving splat layers actually blend, not just the default white \
+             fallback or one flat layer), got {} distinct color buckets: {:?}",
+            colors.len(),
+            colors
+        );
+    }
 }

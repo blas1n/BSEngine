@@ -1815,7 +1815,7 @@ mod tests {
         }
         let idx_bytes = bin.len() as u32 - pos_bytes; // 6: 3 indices * 2 bytes
         let total_bin_len = bin.len() as u32; // 42, before BIN-chunk padding
-        while bin.len() % 4 != 0 {
+        while !bin.len().is_multiple_of(4) {
             bin.push(0); // BIN chunk padding must be zero bytes, per spec
         }
 
@@ -1823,7 +1823,7 @@ mod tests {
             r#"{{"asset":{{"version":"2.0"}},"scene":0,"scenes":[{{"nodes":[0]}}],"nodes":[{{"mesh":0}}],"meshes":[{{"primitives":[{{"attributes":{{"POSITION":0}},"indices":1,"mode":4}}]}}],"buffers":[{{"byteLength":{total_bin_len}}}],"bufferViews":[{{"buffer":0,"byteOffset":0,"byteLength":{pos_bytes},"target":34962}},{{"buffer":0,"byteOffset":{pos_bytes},"byteLength":{idx_bytes},"target":34963}}],"accessors":[{{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0.0,0.0,0.0],"max":[1.0,1.0,0.0]}},{{"bufferView":1,"componentType":5123,"count":3,"type":"SCALAR"}}]}}"#
         );
         let mut json_bytes = json.into_bytes();
-        while json_bytes.len() % 4 != 0 {
+        while !json_bytes.len().is_multiple_of(4) {
             json_bytes.push(0x20); // JSON chunk padding must be ASCII spaces, per spec
         }
 

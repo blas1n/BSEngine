@@ -7,7 +7,9 @@ use std::io::{self, BufRead, Write};
 
 use bevy_app::App;
 use bevy_ecs::event::Events;
-use bsengine_app::{LifetimePlugin, NavMeshPlugin, ParticlePlugin, TerrainPlugin, TimePlugin};
+use bsengine_app::{
+    LifetimePlugin, NavMeshPlugin, ParticlePlugin, TerrainBrushPlugin, TerrainPlugin, TimePlugin,
+};
 use bsengine_asset::{AssetIdentityPlugin, AssetPlugin, AssetStatusPlugin};
 use bsengine_audio::AudioPlugin;
 use bsengine_core::{EditorPlayState, InspectorState};
@@ -136,6 +138,10 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>, fast_rend
         // a headless E2E replay or `--test` session would never grow chunks
         // either -- the same silent-inert failure, just in the other host.
         .add_plugins(TerrainPlugin)
+        // Mirrors the windowed runtime (main.rs's run_windowed): the terrain
+        // brush's picking system, kept in both hosts for the same reason
+        // TerrainPlugin itself is -- see the comment there.
+        .add_plugins(TerrainBrushPlugin)
         .add_plugins(ScenePlugin::from_file(&scene_path))
         .add_plugins(ScriptingPlugin {
             project_dir: project_dir.to_string(),

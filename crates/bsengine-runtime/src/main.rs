@@ -2,7 +2,7 @@ use std::env;
 
 use bsengine_app::{
     new_app, AnimationPlugin, AnimationStateMachinePlugin, LifetimePlugin, NavMeshPlugin,
-    ParticlePlugin, TerrainPlugin, TimePlugin,
+    ParticlePlugin, TerrainBrushPlugin, TerrainPlugin, TimePlugin,
 };
 use bsengine_asset::{AssetIdentityPlugin, AssetPlugin, AssetStatusPlugin, AssetWatcherPlugin};
 use bsengine_audio::AudioPlugin;
@@ -208,6 +208,13 @@ fn run_windowed(project_dir: &str) {
         // so a `Terrain` entity in a real game would sit in the scene file
         // and never grow chunks -- the whole system was inert in production.
         .add_plugins(TerrainPlugin)
+        // Picks the terrain surface point under the cursor while the
+        // editor's terrain brush tool is active. Registered here, not just
+        // in bsengine-app's own test suite -- see TerrainPlugin's comment
+        // above for the exact gap (a plugin present in one host and absent
+        // in the other is a feature that works when you look at it and not
+        // when you test it) this follows the same precedent to avoid.
+        .add_plugins(TerrainBrushPlugin)
         .add_plugins(ScenePlugin::from_file(&scene_path))
         .add_plugins(ScriptingPlugin {
             project_dir: project_dir.to_string(),

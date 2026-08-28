@@ -29,6 +29,9 @@ pub mod terrain;
 /// Pure heightmap-to-chunk-geometry algorithm for the terrain system (no
 /// ECS/GPU/physics types); `terrain`'s ECS layer calls into this.
 pub mod terrain_chunking;
+/// `TerrainBrushPlugin`: picks the terrain surface point under the cursor
+/// while the editor's terrain brush tool is active.
+pub mod terrain_brush;
 /// `TimePlugin`: ticks the `Time` resource once per frame.
 pub mod time;
 /// `TimerPlugin`: ticks `Timer` components once per frame.
@@ -45,6 +48,7 @@ pub use nav_mesh::NavMeshPlugin;
 pub use particles::ParticlePlugin;
 pub use shield::ShieldPlugin;
 pub use terrain::TerrainPlugin;
+pub use terrain_brush::TerrainBrushPlugin;
 pub use time::TimePlugin;
 pub use timer::TimerPlugin;
 pub use tween::TweenPlugin;

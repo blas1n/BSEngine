@@ -26,7 +26,7 @@ SceneDescriptor(entities: [
         name: "Ground",
         transform: Some((position: (0.0, 0.0, 0.0))),
         components: [
-            ("bsengine_scene::types::Terrain", "(heightmap_path: \"assets/terrain/heightmap.png\", chunk_count: (2, 2), chunk_size: 20.0, height_scale: 6.0)"),
+            ("bsengine_scene::types::Terrain", "(heightmap_path: \"assets/terrain/heightmap.png\", chunk_count: (2, 2), chunk_size: 20.0, height_scale: 6.0, layer0_texture_path: \"assets/terrain/grass.png\", layer1_texture_path: \"assets/terrain/rock.png\", layer2_texture_path: \"assets/terrain/dirt.png\", layer3_texture_path: \"assets/terrain/snow.png\")"),
         ],
     ),
     EntityDescriptor(

@@ -575,6 +575,21 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
             )));
         }
 
+        if let Some(lod_desc) = &entity.lod {
+            let paths: Vec<String> = lod_desc
+                .levels
+                .iter()
+                .map(|asset_ref| {
+                    bsengine_core::resolve_project_path(project_dir.as_ref(), asset_ref.path())
+                })
+                .collect();
+            builder.insert(bsengine_gltf::LodRequest {
+                paths,
+                switch_distances: lod_desc.distances.clone(),
+                hysteresis_band: lod_desc.hysteresis_band,
+            });
+        }
+
         if entity.camera {
             match entity.camera_fov {
                 Some(fov) => {
@@ -933,6 +948,7 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     app.register_type::<crate::types::ColliderDesc>();
     app.register_type::<crate::types::ColliderShapeDesc>();
     app.register_type::<bsengine_gltf::GltfAsset>();
+    app.register_type::<bsengine_gltf::LodRequest>();
     app.register_type::<bsengine_gltf::SkinnedMesh>();
     app.register_type::<bsengine_gltf::AnimationClipLibrary>();
 
@@ -1846,6 +1862,38 @@ mod tests {
         let results: Vec<_> = q.iter(app.world()).collect();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].1.path, "models/hero.glb");
+    }
+
+    #[test]
+    fn scene_plugin_lod_paths_resolve_against_project_dir() {
+        let ron = r#"SceneDescriptor(entities: [
+            EntityDescriptor(
+                name: "Tree",
+                gltf: Some("models/tree_lod0.glb"),
+                lod: Some((
+                    levels: ["models/tree_lod1.glb", "models/tree_lod2.glb"],
+                    distances: [20.0, 60.0],
+                )),
+            ),
+        ])"#;
+        let path = write_temp_scene("test_lod_project_dir.ron", ron);
+
+        let mut app = new_app();
+        app.insert_resource(bsengine_core::ProjectDir("games/demo".to_string()));
+        app.add_plugins(ScenePlugin::from_file(&path));
+        app.update();
+
+        let mut q = app.world_mut().query::<(&Name, &bsengine_gltf::LodRequest)>();
+        let (name, request) = q.iter(app.world()).next().expect("Tree should have a LodRequest");
+        assert_eq!(name.0, "Tree");
+        assert_eq!(
+            request.paths,
+            vec![
+                "games/demo/models/tree_lod1.glb".to_string(),
+                "games/demo/models/tree_lod2.glb".to_string(),
+            ]
+        );
+        assert_eq!(request.switch_distances, vec![20.0, 60.0]);
     }
 
     /// `Terrain.heightmap_path` is authored through the generic `components:`

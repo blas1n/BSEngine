@@ -31,6 +31,32 @@ impl GltfAsset {
     }
 }
 
+/// Marker component requesting extra, lower-detail glTF files be loaded
+/// for an entity that already has (or is about to have) a `MeshRenderer`
+/// from its own `GltfAsset`/base mesh. Consumed by `load_lod_assets`,
+/// which attaches `bsengine_render::components::LodLevels` once every
+/// requested file has loaded.
+///
+/// Registered for reflection (R1: every public `#[derive(Component)]` type
+/// must be registered), but not from here: `GltfPlugin::build` is the wrong
+/// place for the exact reason `GltfAsset`'s own doc comment gives -- the
+/// plugin is absent from the headless `bsengine-runtime --test` app (it
+/// needs the GPU registries), so a registration made in this crate would be
+/// missing from exactly the host the E2E replays run in.
+/// `bsengine_scene::register_gameplay_reflect_types` -- which both hosts
+/// call, and which already depends on this crate -- registers it instead,
+/// right alongside `GltfAsset`.
+#[derive(Component, Clone, Debug, bevy_reflect::Reflect)]
+#[reflect(Component)]
+pub struct LodRequest {
+    /// Filesystem paths to the extra glTF/GLB files, LOD 1 first.
+    pub paths: Vec<String>,
+    /// See `LodLevels::switch_distances`. Same length as `paths`.
+    pub switch_distances: Vec<f32>,
+    /// See `LodLevels::hysteresis_band`.
+    pub hysteresis_band: f32,
+}
+
 /// Bevy plugin that loads `GltfAsset` entities into renderable meshes each frame.
 pub struct GltfPlugin;
 

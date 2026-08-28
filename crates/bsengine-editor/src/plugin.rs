@@ -1194,6 +1194,10 @@ fn build_entity_descriptors(entities: &[EntityInfo]) -> Vec<EntityDescriptor> {
                     // feature that doesn't exist yet, not to any task in
                     // this plan.
                     prefab: None,
+                    // Always None: no live ECS component carries LOD data
+                    // yet (that wiring is a later task in this plan), so
+                    // there is nothing here to round-trip on save.
+                    lod: None,
                 }
             })
         })

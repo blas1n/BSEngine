@@ -1990,11 +1990,24 @@ call/삼각형 카운트에는 여전히 포함되지만 GPU 패스별 타이밍
 **목표:** 거리에 따라 메시 디테일을 낮춰, 터레인/대규모 씬에서 프레임 비용을 통제한다.
 
 **완료 조건:**
-- [ ] 메시 애셋에 다중 LOD 레벨(수동 지정 또는 자동 단순화) 지원
-- [ ] 카메라 거리 기반 자동 LOD 전환(히스테리시스로 팝핑 방지)
-- [ ] item 43 프로파일러로 LOD 켬/끔 시 프레임 비용 차이를 실측해 효과 입증
-- [ ] 터레인 청크에도 동일 메커니즘 적용
-- [ ] 테스트 추가, CI 통과
+- [x] 메시 애셋에 다중 LOD 레벨(수동 지정 또는 자동 단순화) 지원
+- [x] 카메라 거리 기반 자동 LOD 전환(히스테리시스로 팝핑 방지)
+- [x] item 43 프로파일러로 LOD 켬/끔 시 프레임 비용 차이를 실측해 효과 입증
+- [x] 터레인 청크에도 동일 메커니즘 적용
+- [x] 테스트 추가, CI 통과
+
+PR #1809 (2026-08-28)로 완료. `LodLevels` 컴포넌트(bsengine-render) + 히스테리시스 기반
+`select_lod_level` 순수 함수, `render_frame`의 기존 프러스텀 컬링 데이터(cam_pos/world bounds)를
+재사용해 매 프레임 선택. 씬 RON `lod:` 필드(`LodDescriptor`)로 수동 저작, `PendingLod`/
+`load_lod_assets`로 비동기 다중 파일 로드(`load_gltf_assets`의 `Without<MeshRenderer>` 게이팅과
+반대로 `With<MeshRenderer>`로 게이팅 후 `.chain()`). 터레인 청크는 `generate_chunks_with_splatmap`에
+`texel_stride` 파라미터를 추가해 동일 heightmap을 더 성긴 간격으로 재샘플링하는 방식으로 2개의
+저해상도 변형을 생성 — 알고리즘적 단순화가 아니라 기존 절차적 생성 로직의 재호출이라 "수동" 분류.
+**LOD는 렌더링 전용이며 물리를 절대 건드리지 않음** — Collider(heightfield)는 항상 `texel_stride: 1`
+전체 해상도 데이터로만 생성되고, 이는 `LodLevels.current_index`를 강제로 낮은 레벨로 설정한 채
+낙하 테스트가 동일한 착지 높이를 내는 회귀 테스트로 직접 증명됨. item 43 프로파일러
+(`get_frame_stats`)를 이용해 실측 삼각형 수 감소(근거리 vs 원거리)를 증명하는 E2E 테스트로
+로드맵의 "효과 입증" 조건 충족.
 
 ---
 

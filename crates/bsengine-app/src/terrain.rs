@@ -134,9 +134,7 @@ fn generate_terrain_chunks(
                 bsengine_asset::AssetSlot::from_handle(asset_server.load::<TextureAsset>(p))
             });
             let splatmap = terrain.splatmap_path.as_ref().map(|p| {
-                bsengine_asset::AssetSlot::from_handle(
-                    asset_server.load::<TextureAsset>(p.clone()),
-                )
+                bsengine_asset::AssetSlot::from_handle(asset_server.load::<TextureAsset>(p.clone()))
             });
             commands.entity(entity).insert(PendingTerrain {
                 heightmap: bsengine_asset::AssetSlot::from_handle(heightmap_handle),

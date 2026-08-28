@@ -26,12 +26,12 @@ pub mod shield;
 /// `TerrainPlugin`: loads a `Terrain`'s heightmap and spawns its chunk
 /// entities (render mesh + Rapier heightfield collider).
 pub mod terrain;
-/// Pure heightmap-to-chunk-geometry algorithm for the terrain system (no
-/// ECS/GPU/physics types); `terrain`'s ECS layer calls into this.
-pub mod terrain_chunking;
 /// `TerrainBrushPlugin`: picks the terrain surface point under the cursor
 /// while the editor's terrain brush tool is active.
 pub mod terrain_brush;
+/// Pure heightmap-to-chunk-geometry algorithm for the terrain system (no
+/// ECS/GPU/physics types); `terrain`'s ECS layer calls into this.
+pub mod terrain_chunking;
 /// `TimePlugin`: ticks the `Time` resource once per frame.
 pub mod time;
 /// `TimerPlugin`: ticks `Timer` components once per frame.

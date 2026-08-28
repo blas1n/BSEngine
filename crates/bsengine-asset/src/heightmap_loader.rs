@@ -13,7 +13,14 @@ use crate::types::HeightmapAsset;
 /// decoded format (8-bit grayscale, RGB, etc.) into 16-bit grayscale, so a
 /// lower-precision source just loses precision it never had rather than
 /// failing to load.
-pub(crate) fn decode_heightmap_png(bytes: &[u8]) -> Result<HeightmapAsset, String> {
+///
+/// `pub`, not `pub(crate)`, for the same reason [`encode_heightmap_png`]
+/// already is: the terrain brush tool (`bsengine-app`'s `terrain_brush`
+/// module) needs to decode a `Terrain::heightmap_path` PNG straight from
+/// disk when a brush stroke first touches it (see that module's
+/// `TerrainBrushEditState` doc comment), and it lives in a different crate
+/// with no `AssetLoader` plumbing of its own to go through instead.
+pub fn decode_heightmap_png(bytes: &[u8]) -> Result<HeightmapAsset, String> {
     let img = image::load_from_memory(bytes)
         .map_err(|e| format!("decode: {e}"))?
         .to_luma16();
@@ -42,7 +49,10 @@ pub fn encode_heightmap_png(width: u32, height: u32, data: &[u16]) -> Result<Vec
             .ok_or_else(|| "encode: failed to build image buffer".to_string())?;
     let mut bytes = Vec::new();
     image::DynamicImage::ImageLuma16(img)
-        .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+        .write_to(
+            &mut std::io::Cursor::new(&mut bytes),
+            image::ImageFormat::Png,
+        )
         .map_err(|e| format!("encode: {e}"))?;
     Ok(bytes)
 }
@@ -124,8 +134,8 @@ mod tests {
 
     #[test]
     fn encode_rejects_a_length_mismatch() {
-        let err = encode_heightmap_png(4, 4, &[0u16; 3])
-            .expect_err("width*height must match data.len()");
+        let err =
+            encode_heightmap_png(4, 4, &[0u16; 3]).expect_err("width*height must match data.len()");
         assert!(
             err.contains("16") && err.contains("3"),
             "error should name both the expected and actual length: {err}"

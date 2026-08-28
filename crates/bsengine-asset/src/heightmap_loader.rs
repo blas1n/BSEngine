@@ -25,6 +25,28 @@ pub(crate) fn decode_heightmap_png(bytes: &[u8]) -> Result<HeightmapAsset, Strin
     })
 }
 
+/// Encodes `data` (row-major, `width * height` long) as a 16-bit grayscale
+/// PNG -- the inverse of `decode_heightmap_png`. Used by the terrain brush
+/// tool to persist an edited heightmap back to the same file
+/// `Terrain::heightmap_path` already points to.
+pub fn encode_heightmap_png(width: u32, height: u32, data: &[u16]) -> Result<Vec<u8>, String> {
+    if data.len() as u32 != width * height {
+        return Err(format!(
+            "encode: expected {} samples ({width}x{height}), got {}",
+            width * height,
+            data.len()
+        ));
+    }
+    let img: image::ImageBuffer<image::Luma<u16>, Vec<u16>> =
+        image::ImageBuffer::from_raw(width, height, data.to_vec())
+            .ok_or_else(|| "encode: failed to build image buffer".to_string())?;
+    let mut bytes = Vec::new();
+    image::DynamicImage::ImageLuma16(img)
+        .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+        .map_err(|e| format!("encode: {e}"))?;
+    Ok(bytes)
+}
+
 /// Backs `LoadMode::Async` for heightmaps via `AssetServer::load` --
 /// see `load_mode.rs` for how `TextureAssetLoader` is wired the same way.
 #[derive(Default)]
@@ -83,5 +105,30 @@ mod tests {
     fn decode_fails_cleanly_on_non_image_bytes() {
         let err = decode_heightmap_png(b"not a png").unwrap_err();
         assert!(!err.is_empty());
+    }
+
+    #[test]
+    fn encode_then_decode_round_trips_exactly() {
+        let width = 4;
+        let height = 3;
+        let values: Vec<u16> = (0..width * height).map(|i| (i as u16) * 1000).collect();
+
+        let png_bytes =
+            encode_heightmap_png(width, height, &values).expect("encode should succeed");
+        let decoded = decode_heightmap_png(&png_bytes).expect("decode should succeed");
+
+        assert_eq!(decoded.width, width);
+        assert_eq!(decoded.height, height);
+        assert_eq!(decoded.data, values);
+    }
+
+    #[test]
+    fn encode_rejects_a_length_mismatch() {
+        let err = encode_heightmap_png(4, 4, &[0u16; 3])
+            .expect_err("width*height must match data.len()");
+        assert!(
+            err.contains("16") && err.contains("3"),
+            "error should name both the expected and actual length: {err}"
+        );
     }
 }

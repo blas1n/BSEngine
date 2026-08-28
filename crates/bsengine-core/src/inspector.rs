@@ -1,4 +1,5 @@
 use bevy_ecs::prelude::Resource;
+use bevy_reflect::Reflect;
 
 /// Canonical set of recognized primitive-mesh kind strings, lowercase. This
 /// is the string format used by `InspectorEntityInfo.primitive` and
@@ -365,6 +366,64 @@ pub enum GizmoMode {
     Scale,
 }
 
+/// Which terrain-editing behavior a drag applies, and its parameters.
+/// Orthogonal to `GizmoMode` -- the terrain brush is a distinct tool, not
+/// a 4th gizmo mode, since it only makes sense while a `Terrain` entity is
+/// selected and mutates terrain data rather than a transform.
+#[derive(Debug, Clone, Copy, PartialEq, Reflect)]
+pub enum TerrainBrushKind {
+    /// Raise (if `raise` is true) or lower the heightmap under the brush.
+    Height {
+        /// Whether the brush raises (`true`) or lowers (`false`) the terrain.
+        raise: bool,
+    },
+    /// Paint the given splat layer (0-3) under the brush.
+    Paint {
+        /// Splat layer index (0-3) to paint.
+        layer: u8,
+    },
+}
+
+/// Settings for the terrain brush tool, active whenever
+/// `InspectorState::terrain_brush_active` is true.
+#[derive(Debug, Clone, Copy, PartialEq, Reflect)]
+pub struct TerrainBrushSettings {
+    /// Which terrain-editing behavior is active.
+    pub kind: TerrainBrushKind,
+    /// World-space radius of the brush.
+    pub radius: f32,
+    /// 0-1 strength applied per frame the brush is held over a point.
+    pub strength: f32,
+}
+
+impl Default for TerrainBrushSettings {
+    fn default() -> Self {
+        Self {
+            kind: TerrainBrushKind::Height { raise: true },
+            radius: 2.0,
+            strength: 0.5,
+        }
+    }
+}
+
+/// One frame's worth of "the brush is being applied here" intent, written
+/// by the viewport panel every frame a brush drag is active and read by
+/// `bsengine-app`'s terrain-brush-apply system (the only place with the
+/// `PhysicsWorld`/`GpuMeshRegistry`/`GpuTextureRegistry` access needed to
+/// actually mutate anything) -- the same "UI writes a blackboard field, a
+/// system elsewhere reads it" pattern `editor_view_proj` already uses.
+#[derive(Debug, Clone, Copy, PartialEq, Reflect)]
+pub struct TerrainBrushStroke {
+    /// The `Terrain` entity being edited, by id (matches
+    /// `InspectorEntityInfo::id`/`InspectorCmd`'s existing `u64` entity-id
+    /// convention, not a raw `bevy_ecs::Entity`, since `InspectorState`
+    /// crosses the same crate boundary those already cross).
+    pub terrain_entity_id: u64,
+    /// World-space point the brush is centered on this frame (the picked
+    /// point on the terrain surface).
+    pub world_pos: [f32; 3],
+}
+
 /// Editor-side resource holding the current entity snapshot, selection,
 /// pending edit commands, and all viewport/gizmo/camera UI state.
 #[derive(Resource)]
@@ -448,6 +507,26 @@ pub struct InspectorState {
     /// Which viewport gizmo (translate/rotate) is currently active.
     pub gizmo_mode: GizmoMode,
 
+    // Terrain brush tool state. See `TerrainBrushKind`/`TerrainBrushSettings`/
+    // `TerrainBrushStroke` above for the full picture.
+    /// Whether the terrain brush tool is the active viewport tool. When
+    /// true, a drag over a selected `Terrain`'s surface paints instead of
+    /// manipulating the gizmo.
+    pub terrain_brush_active: bool,
+    /// Current brush parameters, editable via the brush settings popup.
+    pub terrain_brush_settings: TerrainBrushSettings,
+    /// This frame's picked point on a `Terrain`'s surface under the mouse,
+    /// written by `bsengine-app`'s picking system every frame, read by the
+    /// viewport panel to draw a brush cursor and to know where a drag
+    /// should paint. `None` when the mouse isn't over any terrain.
+    pub terrain_pick: Option<(u64, [f32; 3])>,
+    /// Set by the viewport panel every frame a brush drag is in progress;
+    /// cleared (`None`) the frame after a drag stops. `bsengine-app`'s
+    /// terrain-brush-apply system treats a stroke being present as "keep
+    /// live-previewing," and its *absence* immediately after having been
+    /// present as "commit: rebuild the collider and persist to disk."
+    pub terrain_brush_stroke: Option<TerrainBrushStroke>,
+
     // Translate-gizmo drag state (viewport panel). `gizmo_drag_axis` is
     // 0=X, 1=Y, 2=Z while a handle is being dragged.
     /// Axis (0=X, 1=Y, 2=Z) of the translate-gizmo handle currently being dragged, if any.
@@ -522,6 +601,10 @@ impl Default for InspectorState {
             editor_proj: [[0.0; 4]; 4],
             editor_cam_pos: [0.0; 3],
             gizmo_mode: GizmoMode::Translate,
+            terrain_brush_active: false,
+            terrain_brush_settings: TerrainBrushSettings::default(),
+            terrain_pick: None,
+            terrain_brush_stroke: None,
             gizmo_drag_axis: None,
             gizmo_drag_start_world: [0.0; 3],
             gizmo_drag_start_mouse: [0.0; 2],
@@ -631,5 +714,20 @@ mod tests {
     fn editor_cam_default_distance() {
         let s = InspectorState::default();
         assert!((s.cam_distance - 10.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn inspector_state_default_has_terrain_brush_inactive() {
+        let insp = InspectorState::default();
+        assert!(!insp.terrain_brush_active);
+        assert_eq!(insp.terrain_pick, None);
+        assert_eq!(insp.terrain_brush_stroke, None);
+    }
+
+    #[test]
+    fn terrain_brush_settings_default_is_a_raising_height_brush() {
+        let s = TerrainBrushSettings::default();
+        assert_eq!(s.kind, TerrainBrushKind::Height { raise: true });
+        assert!(s.radius > 0.0);
     }
 }

@@ -299,6 +299,10 @@ mod tests {
                     chunk_count: (1, 1),
                     chunk_size: 10.0,
                     height_scale: 1.0,
+                    layer0_texture_path: String::new(),
+                    layer1_texture_path: String::new(),
+                    layer2_texture_path: String::new(),
+                    layer3_texture_path: String::new(),
                 },
                 Transform::default(),
             ))
@@ -327,6 +331,10 @@ mod tests {
                     chunk_count: (1, 1),
                     chunk_size: 10.0,
                     height_scale: 1.0,
+                    layer0_texture_path: String::new(),
+                    layer1_texture_path: String::new(),
+                    layer2_texture_path: String::new(),
+                    layer3_texture_path: String::new(),
                 },
                 Transform::default(),
             ))
@@ -379,6 +387,10 @@ mod tests {
                     chunk_count,
                     chunk_size: 8.0,
                     height_scale: 5.0,
+                    layer0_texture_path: String::new(),
+                    layer1_texture_path: String::new(),
+                    layer2_texture_path: String::new(),
+                    layer3_texture_path: String::new(),
                 },
                 Transform::from_position(Vec3::new(100.0, 0.0, -50.0)),
             ))
@@ -447,6 +459,10 @@ mod tests {
                     chunk_count: (1, 1),
                     chunk_size,
                     height_scale,
+                    layer0_texture_path: String::new(),
+                    layer1_texture_path: String::new(),
+                    layer2_texture_path: String::new(),
+                    layer3_texture_path: String::new(),
                 },
                 Transform::from_position(Vec3::ZERO),
             ))

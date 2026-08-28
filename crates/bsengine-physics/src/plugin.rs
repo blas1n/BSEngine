@@ -302,7 +302,7 @@ fn sync_physics_input_from_transform_for_kinematic(
     }
 }
 
-fn make_shape(shape: &ColliderShape) -> SharedShape {
+pub(crate) fn make_shape(shape: &ColliderShape) -> SharedShape {
     match shape {
         ColliderShape::Box { half_extents } => {
             SharedShape::cuboid(half_extents.x, half_extents.y, half_extents.z)

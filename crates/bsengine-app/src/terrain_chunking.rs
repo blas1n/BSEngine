@@ -59,6 +59,28 @@ fn splat_weight_for(height_ratio: f32, normal_y: f32) -> [u8; 4] {
     [to_u8(grass_w), to_u8(rock_w), 0u8, to_u8(snow_w)]
 }
 
+/// A whole-terrain splatmap already decoded to RGBA8 pixels, provided by
+/// the caller instead of letting `generate_chunks` compute weights
+/// procedurally. `width`/`height` must match the heightmap's own
+/// dimensions -- both describe the same terrain, sampled at the same grid.
+pub struct SplatmapOverride {
+    /// Splatmap width in pixels; expected to match the heightmap's width.
+    pub width: u32,
+    /// Splatmap height in pixels; expected to match the heightmap's height.
+    pub height: u32,
+    /// Decoded RGBA8 pixel data, row-major, `width * height * 4` bytes long.
+    pub data: Vec<u8>,
+}
+
+impl SplatmapOverride {
+    fn sample(&self, x: u32, z: u32) -> [u8; 4] {
+        let x = x.min(self.width - 1);
+        let z = z.min(self.height - 1);
+        let i = ((z * self.width + x) * 4) as usize;
+        [self.data[i], self.data[i + 1], self.data[i + 2], self.data[i + 3]]
+    }
+}
+
 /// Chunking configuration for one `Terrain` entity.
 pub struct ChunkParams {
     /// Number of chunks along (x, z).
@@ -99,6 +121,19 @@ pub struct ChunkData {
 /// `heightmap`'s resolution doesn't evenly divide `chunk_count`, the
 /// remainder is absorbed into the last chunk along that axis.
 pub fn generate_chunks(heightmap: &HeightmapAsset, params: &ChunkParams) -> Vec<ChunkData> {
+    generate_chunks_with_splatmap(heightmap, params, None)
+}
+
+/// Same as `generate_chunks`, but when `splatmap` is `Some`, every vertex's
+/// splat weight is sampled from it instead of computed procedurally via
+/// `splat_weight_for`. `splatmap`'s dimensions are assumed to match
+/// `heightmap`'s (the terrain brush tool is responsible for keeping the two
+/// files the same size when it creates a splatmap).
+pub fn generate_chunks_with_splatmap(
+    heightmap: &HeightmapAsset,
+    params: &ChunkParams,
+    splatmap: Option<&SplatmapOverride>,
+) -> Vec<ChunkData> {
     let (chunks_x, chunks_z) = params.chunk_count;
     let base_texels_x = heightmap.width / chunks_x;
     let base_texels_z = heightmap.height / chunks_z;
@@ -151,7 +186,10 @@ pub fn generate_chunks(heightmap: &HeightmapAsset, params: &ChunkParams) -> Vec<
                     let normal = glam::Vec3::new(hl - hr, 2.0 * world_step, hd - hu).normalize();
 
                     let height_ratio = y / params.height_scale.max(0.0001);
-                    splat_weights.push(splat_weight_for(height_ratio, normal.y));
+                    splat_weights.push(match splatmap {
+                        Some(sm) => sm.sample(hx, hz),
+                        None => splat_weight_for(height_ratio, normal.y),
+                    });
 
                     vertices.push(Vertex {
                         position: [lx as f32 * world_step, y, lz as f32 * world_step],
@@ -338,6 +376,53 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn a_provided_splatmap_overrides_procedural_weights() {
+        let hm = test_heightmap(); // existing 5x5 helper already in this file
+        let params = ChunkParams {
+            chunk_count: (1, 1),
+            chunk_size: 10.0,
+            height_scale: 1.0,
+        };
+        // A splatmap that's 100% layer1 (rock) everywhere -- the opposite of
+        // what the flat, low, un-sloped test_heightmap() would generate
+        // procedurally (which would be grass-dominant).
+        let splatmap_rgba: Vec<u8> = std::iter::repeat([0u8, 255, 0, 0])
+            .take(5 * 5)
+            .flatten()
+            .collect();
+        let splatmap = SplatmapOverride {
+            width: 5,
+            height: 5,
+            data: splatmap_rgba,
+        };
+
+        let chunks = generate_chunks_with_splatmap(&hm, &params, Some(&splatmap));
+        let chunk = &chunks[0];
+        for w in &chunk.splat_weights {
+            assert_eq!(
+                *w,
+                [0, 255, 0, 0],
+                "every weight should come from the provided splatmap, not procedural generation"
+            );
+        }
+    }
+
+    #[test]
+    fn generate_chunks_without_a_splatmap_is_unchanged() {
+        // Regression: the existing procedural path (no splatmap) must still
+        // produce exactly what generate_chunks always produced.
+        let hm = test_heightmap();
+        let params = ChunkParams {
+            chunk_count: (1, 1),
+            chunk_size: 10.0,
+            height_scale: 1.0,
+        };
+        let via_old_fn = generate_chunks(&hm, &params);
+        let via_new_fn = generate_chunks_with_splatmap(&hm, &params, None);
+        assert_eq!(via_old_fn[0].splat_weights, via_new_fn[0].splat_weights);
     }
 
     #[test]

@@ -1866,7 +1866,7 @@ mod tests {
     fn scene_plugin_terrain_heightmap_path_resolves_against_project_dir() {
         let ron = r#"SceneDescriptor(entities: [
             EntityDescriptor(name: "Ground", components: [
-                ("bsengine_scene::types::Terrain", "(heightmap_path: \"terrain/hills.png\", chunk_count: (1, 1), chunk_size: 10.0, height_scale: 1.0, layer0_texture_path: \"terrain/grass.png\", layer1_texture_path: \"terrain/rock.png\", layer2_texture_path: \"terrain/dirt.png\", layer3_texture_path: \"terrain/snow.png\")"),
+                ("bsengine_scene::types::Terrain", "(heightmap_path: \"terrain/hills.png\", chunk_count: (1, 1), chunk_size: 10.0, height_scale: 1.0, layer0_texture_path: \"terrain/grass.png\", layer1_texture_path: \"terrain/rock.png\", layer2_texture_path: \"terrain/dirt.png\", layer3_texture_path: \"terrain/snow.png\", splatmap_path: None)"),
             ]),
         ])"#;
         let path = write_temp_scene("test_terrain_project_dir.ron", ron);
@@ -1893,7 +1893,7 @@ mod tests {
     fn scene_plugin_terrain_heightmap_path_unchanged_without_project_dir() {
         let ron = r#"SceneDescriptor(entities: [
             EntityDescriptor(name: "Ground", components: [
-                ("bsengine_scene::types::Terrain", "(heightmap_path: \"terrain/hills.png\", chunk_count: (1, 1), chunk_size: 10.0, height_scale: 1.0, layer0_texture_path: \"terrain/grass.png\", layer1_texture_path: \"terrain/rock.png\", layer2_texture_path: \"terrain/dirt.png\", layer3_texture_path: \"terrain/snow.png\")"),
+                ("bsengine_scene::types::Terrain", "(heightmap_path: \"terrain/hills.png\", chunk_count: (1, 1), chunk_size: 10.0, height_scale: 1.0, layer0_texture_path: \"terrain/grass.png\", layer1_texture_path: \"terrain/rock.png\", layer2_texture_path: \"terrain/dirt.png\", layer3_texture_path: \"terrain/snow.png\", splatmap_path: None)"),
             ]),
         ])"#;
         let path = write_temp_scene("test_terrain_no_project_dir.ron", ron);
@@ -1913,7 +1913,7 @@ mod tests {
     fn scene_plugin_terrain_layer_texture_paths_resolve_against_project_dir() {
         let ron = r#"SceneDescriptor(entities: [
             EntityDescriptor(name: "Ground", components: [
-                ("bsengine_scene::types::Terrain", "(heightmap_path: \"terrain/hills.png\", chunk_count: (1, 1), chunk_size: 10.0, height_scale: 1.0, layer0_texture_path: \"terrain/grass.png\", layer1_texture_path: \"terrain/rock.png\", layer2_texture_path: \"terrain/dirt.png\", layer3_texture_path: \"terrain/snow.png\")"),
+                ("bsengine_scene::types::Terrain", "(heightmap_path: \"terrain/hills.png\", chunk_count: (1, 1), chunk_size: 10.0, height_scale: 1.0, layer0_texture_path: \"terrain/grass.png\", layer1_texture_path: \"terrain/rock.png\", layer2_texture_path: \"terrain/dirt.png\", layer3_texture_path: \"terrain/snow.png\", splatmap_path: None)"),
             ]),
         ])"#;
         let path = write_temp_scene("test_terrain_layer_paths.ron", ron);

@@ -162,6 +162,7 @@ fn process_editor_commands(
                 layer1_texture_path,
                 layer2_texture_path,
                 layer3_texture_path,
+                splatmap_path,
             } => {
                 let resolved =
                     bsengine_core::resolve_project_path(project_dir.as_deref(), &heightmap_path);
@@ -181,6 +182,8 @@ fn process_editor_commands(
                     project_dir.as_deref(),
                     &layer3_texture_path,
                 );
+                let splatmap_resolved = splatmap_path
+                    .map(|p| bsengine_core::resolve_project_path(project_dir.as_deref(), &p));
                 // `bsengine_scene::Terrain`, not `bsengine_app::terrain::Terrain`
                 // (though `bsengine-app`'s module re-exports the same type under
                 // that path): `bsengine-app` depends on `bsengine-editor`, so
@@ -196,6 +199,7 @@ fn process_editor_commands(
                         layer1_texture_path: layer1_resolved,
                         layer2_texture_path: layer2_resolved,
                         layer3_texture_path: layer3_resolved,
+                        splatmap_path: splatmap_resolved,
                     },
                     Transform::default(),
                     GlobalTransform::default(),
@@ -1971,6 +1975,7 @@ fn apply_inspector_cmds(
                 layer1_texture_path,
                 layer2_texture_path,
                 layer3_texture_path,
+                splatmap_path,
             } => {
                 queue.push(EditorCommand::SpawnTerrain {
                     heightmap_path,
@@ -1981,6 +1986,7 @@ fn apply_inspector_cmds(
                     layer1_texture_path,
                     layer2_texture_path,
                     layer3_texture_path,
+                    splatmap_path,
                 });
             }
             InspectorCmd::Despawn { id } => {
@@ -2485,7 +2491,8 @@ impl Plugin for EditorPlugin {
                         "layer0_texture_path": { "type": "string", "description": "Diffuse texture for the low/flat splat layer (e.g. grass)" },
                         "layer1_texture_path": { "type": "string", "description": "Diffuse texture for the steep-slope splat layer (e.g. rock)" },
                         "layer2_texture_path": { "type": "string", "description": "Diffuse texture for the paint-only splat layer (e.g. dirt)" },
-                        "layer3_texture_path": { "type": "string", "description": "Diffuse texture for the high-altitude splat layer (e.g. snow)" }
+                        "layer3_texture_path": { "type": "string", "description": "Diffuse texture for the high-altitude splat layer (e.g. snow)" },
+                        "splatmap_path": { "type": "string", "description": "Optional path to a whole-terrain RGBA8 splatmap image; omit to keep procedural splat generation" }
                     },
                     "required": ["heightmap_path", "chunk_count", "chunk_size", "height_scale", "layer0_texture_path", "layer1_texture_path", "layer2_texture_path", "layer3_texture_path"]
                 })),
@@ -2541,6 +2548,7 @@ impl Plugin for EditorPlugin {
                             return McpToolOutput::error("missing 'layer3_texture_path' field")
                         }
                     };
+                    let splatmap_path = input["splatmap_path"].as_str().map(|s| s.to_string());
                     queue_terrain.lock().unwrap().push(EditorCommand::SpawnTerrain {
                         heightmap_path,
                         chunk_count,
@@ -2550,6 +2558,7 @@ impl Plugin for EditorPlugin {
                         layer1_texture_path,
                         layer2_texture_path,
                         layer3_texture_path,
+                        splatmap_path,
                     });
                     McpToolOutput::success(json!({"status": "queued"}))
                 }),
@@ -31322,6 +31331,53 @@ mod tests {
         assert_eq!(terrain.layer1_texture_path, "assets/terrain/rock.png");
         assert_eq!(terrain.layer2_texture_path, "assets/terrain/dirt.png");
         assert_eq!(terrain.layer3_texture_path, "assets/terrain/snow.png");
+    }
+
+    /// `splatmap_path` is the one optional `terrain_write` arg (the other 6
+    /// are `required`); the test above proves omitting it still works, and
+    /// this proves the field round-trips onto the spawned `Terrain` when the
+    /// caller does provide it.
+    #[test]
+    fn mcp_terrain_write_threads_an_optional_splatmap_path_through_when_given() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let out = mcp
+                .0
+                .lock()
+                .unwrap()
+                .execute(
+                    "terrain_write",
+                    json!({
+                        "heightmap_path": "assets/terrain/test_heightmap.png",
+                        "chunk_count": [2, 2],
+                        "chunk_size": 32.0,
+                        "height_scale": 20.0,
+                        "layer0_texture_path": "assets/terrain/grass.png",
+                        "layer1_texture_path": "assets/terrain/rock.png",
+                        "layer2_texture_path": "assets/terrain/dirt.png",
+                        "layer3_texture_path": "assets/terrain/snow.png",
+                        "splatmap_path": "assets/terrain/splatmap.png",
+                    }),
+                )
+                .expect("terrain_write not registered");
+            assert!(out.is_ok(), "terrain_write failed: {:?}", out.error);
+        }
+        app.update();
+
+        let mut query = app.world_mut().query::<&bsengine_app::terrain::Terrain>();
+        let terrain = query
+            .iter(app.world())
+            .next()
+            .expect("expected one entity with a Terrain component");
+        assert_eq!(
+            terrain.splatmap_path.as_deref(),
+            Some("assets/terrain/splatmap.png")
+        );
     }
 
     #[test]

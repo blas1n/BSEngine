@@ -415,6 +415,7 @@ mod tests {
                     layer1_texture_path: write_test_texture("no-registry-l1", [120, 120, 120, 255]),
                     layer2_texture_path: write_test_texture("no-registry-l2", [110, 80, 40, 255]),
                     layer3_texture_path: write_test_texture("no-registry-l3", [240, 240, 250, 255]),
+                    splatmap_path: None,
                 },
                 Transform::default(),
             ))
@@ -459,6 +460,7 @@ mod tests {
                         "missing-heightmap-l3",
                         [240, 240, 250, 255],
                     ),
+                    splatmap_path: None,
                 },
                 Transform::default(),
             ))
@@ -515,6 +517,7 @@ mod tests {
                     layer1_texture_path: write_test_texture("chunks-l1", [120, 120, 120, 255]),
                     layer2_texture_path: write_test_texture("chunks-l2", [110, 80, 40, 255]),
                     layer3_texture_path: write_test_texture("chunks-l3", [240, 240, 250, 255]),
+                    splatmap_path: None,
                 },
                 Transform::from_position(Vec3::new(100.0, 0.0, -50.0)),
             ))
@@ -587,6 +590,7 @@ mod tests {
                     layer1_texture_path: write_test_texture("flat-drop-l1", [120, 120, 120, 255]),
                     layer2_texture_path: write_test_texture("flat-drop-l2", [110, 80, 40, 255]),
                     layer3_texture_path: write_test_texture("flat-drop-l3", [240, 240, 250, 255]),
+                    splatmap_path: None,
                 },
                 Transform::from_position(Vec3::ZERO),
             ))
@@ -651,6 +655,7 @@ mod tests {
                     layer1_texture_path: write_test_texture("splat-l1", [120, 120, 120, 255]),
                     layer2_texture_path: write_test_texture("splat-l2", [110, 80, 40, 255]),
                     layer3_texture_path: write_test_texture("splat-l3", [240, 240, 250, 255]),
+                    splatmap_path: None,
                 },
                 Transform::default(),
             ))

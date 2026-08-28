@@ -336,6 +336,9 @@ pub enum InspectorCmd {
         layer2_texture_path: String,
         /// Diffuse texture for the high-altitude splat layer (e.g. snow).
         layer3_texture_path: String,
+        /// Path to a splatmap image, or `None` to keep procedural splat
+        /// generation. Mirrors `Terrain::splatmap_path`.
+        splatmap_path: Option<String>,
     },
 }
 

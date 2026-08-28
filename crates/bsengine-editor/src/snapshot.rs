@@ -417,6 +417,8 @@ pub enum EditorCommand {
         layer2_texture_path: String,
         /// Diffuse texture for the high-altitude splat layer (e.g. snow).
         layer3_texture_path: String,
+        /// Mirrors `Terrain::splatmap_path`.
+        splatmap_path: Option<String>,
     },
 }
 

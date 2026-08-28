@@ -215,6 +215,7 @@ pub fn get_frame_stats(world: &mut World) -> Result<Value, String> {
         })).collect::<Vec<_>>(),
         "draw_calls": stats.draw_calls,
         "triangles": stats.triangles,
+        "occluded_count": stats.occluded_count,
         "texture_memory_bytes": stats.texture_memory_bytes,
         "texture_count": stats.texture_count,
     }))

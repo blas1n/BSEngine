@@ -766,7 +766,9 @@ fn render_frame(
         .collect();
 
     // The count is the only externally visible evidence that occlusion
-    // culling did anything; the profiler picks it up in a later step.
+    // culling did anything; it is handed to `render_frame` below, which
+    // records it in `FrameStats::occluded_count` for the profiler panel and
+    // the `get_frame_stats` query tool.
     if occluded_count > 0 {
         tracing::trace!(occluded_count, "occlusion culling skipped entities");
     }
@@ -868,6 +870,7 @@ fn render_frame(
         sky_vp_inv,
         &draw_calls,
         &terrain_draw_calls,
+        occluded_count,
         &registry,
         light,
         tex_reg_ref,

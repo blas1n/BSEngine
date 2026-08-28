@@ -47,6 +47,7 @@ fn a_terrain_draw_call_does_not_panic_alongside_regular_draw_calls() {
         None,
         &[],
         &terrain_draw_calls,
+        0,
         &registry,
         LightData::default(),
         Some(&textures),

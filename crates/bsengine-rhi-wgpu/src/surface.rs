@@ -2371,6 +2371,7 @@ impl WgpuSurface {
         sky_vp_inv: Option<Mat4>,
         draw_calls: &[(u64, Mat4, Option<u64>, MaterialParams, Option<String>)],
         terrain_draw_calls: &[(u64, Mat4, [u64; 4], u64)],
+        occluded_count: u32,
         registry: &GpuMeshRegistry,
         light: LightData,
         tex_registry: Option<&crate::texture::GpuTextureRegistry>,
@@ -3666,6 +3667,7 @@ impl WgpuSurface {
             gpu_timestamps_supported: self.timestamp_supported,
             draw_calls: frame_draw_calls,
             triangles: frame_triangles,
+            occluded_count,
             texture_memory_bytes: crate::profiler::texture_memory_bytes(),
             texture_count: crate::profiler::texture_count(),
         };

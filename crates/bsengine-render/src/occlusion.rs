@@ -57,10 +57,8 @@ impl OcclusionBuffer {
         self.depths.iter().all(|d| d.is_infinite())
     }
 
-    // Only read by this module's own tests until `box_occluded` lands
-    // alongside it; the allow keeps the intermediate state warning-free
-    // without weakening the method's visibility.
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// The nearest occluder depth known to cover this pixel, or
+    /// `f32::INFINITY` when nothing covers it.
     fn depth_at(&self, x: usize, y: usize) -> f32 {
         self.depths[y * OCCLUSION_BUFFER_SIZE + x]
     }
@@ -209,6 +207,69 @@ pub fn rasterize_occluder_box(
     }
 }
 
+/// True only when the candidate is definitely hidden.
+///
+/// The candidate is described by a world-space center and half-extents --
+/// an *over*-estimate of the object (its bounding box), which is the safe
+/// direction: testing something larger than the object makes it harder to
+/// declare occluded, never easier.
+///
+/// Returns `false` (not occluded, the safe answer) when: the buffer is
+/// empty, any of the candidate's corners is unprojectable, its screen rect
+/// falls outside the buffer, any pixel of that rect is uncovered, or any
+/// covered pixel's stored occluder depth is not strictly nearer than the
+/// candidate's own nearest depth.
+pub fn box_occluded(
+    buf: &OcclusionBuffer,
+    view_proj: Mat4,
+    world_center: Vec3,
+    world_half_extents: Vec3,
+) -> bool {
+    if buf.is_empty() {
+        return false;
+    }
+
+    let corners = box_corners(Mat4::IDENTITY, world_center, world_half_extents);
+    let mut min_x = f32::MAX;
+    let mut max_x = f32::MIN;
+    let mut min_y = f32::MAX;
+    let mut max_y = f32::MIN;
+    // The candidate's NEAREST depth: if even its closest point is behind
+    // the occluder, all of it is.
+    let mut nearest_depth = f32::MAX;
+    for c in corners {
+        let Some(p) = project(view_proj, c) else {
+            return false;
+        };
+        min_x = min_x.min(p.x);
+        max_x = max_x.max(p.x);
+        min_y = min_y.min(p.y);
+        max_y = max_y.max(p.y);
+        nearest_depth = nearest_depth.min(p.depth);
+    }
+
+    let size = OCCLUSION_BUFFER_SIZE as f32;
+    // Any part of the candidate outside the buffer is unknown territory,
+    // and unknown must never mean occluded.
+    if min_x < 0.0 || min_y < 0.0 || max_x >= size || max_y >= size {
+        return false;
+    }
+
+    let x0 = min_x.floor() as usize;
+    let x1 = (max_x.ceil() as usize).min(OCCLUSION_BUFFER_SIZE - 1);
+    let y0 = min_y.floor() as usize;
+    let y1 = (max_y.ceil() as usize).min(OCCLUSION_BUFFER_SIZE - 1);
+
+    for py in y0..=y1 {
+        for px in x0..=x1 {
+            if buf.depth_at(px, py) >= nearest_depth {
+                return false;
+            }
+        }
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -274,5 +335,123 @@ mod tests {
         assert!(!buf.is_empty());
         buf.clear();
         assert!(buf.is_empty(), "clear must restore the empty state");
+    }
+
+    /// The candidate sits at x = 2 rather than dead centre, and that offset
+    /// is load-bearing. Each box face is drawn as two triangles, and
+    /// inner-conservative rasterization leaves a one-pixel unwritten seam
+    /// along their shared diagonal -- measured as exactly the 104 interior
+    /// pixels where `px + py == 127`, i.e. straight through the buffer
+    /// centre. A candidate centred on the view axis has its screen rect
+    /// straddling that seam, so it reads as partly uncovered and stays
+    /// visible. That is the module's bias behaving as designed (a hole
+    /// under-culls, which is safe), and it does not depend on the
+    /// occluder's size: widening the wall to half-extent 20 or 100 leaves
+    /// the seam in the same place. Offsetting the candidate clear of the
+    /// seam is what makes this test measure the depth comparison it is
+    /// actually about.
+    #[test]
+    fn a_small_box_directly_behind_a_big_occluder_is_occluded() {
+        let vp = test_view_proj();
+        let mut buf = OcclusionBuffer::default();
+        rasterize_occluder_box(
+            &mut buf,
+            vp,
+            Mat4::IDENTITY,
+            Vec3::ZERO,
+            Vec3::new(5.0, 5.0, 0.5),
+        );
+        assert!(
+            box_occluded(&buf, vp, Vec3::new(2.0, 0.0, -20.0), Vec3::splat(0.5)),
+            "a small box far behind a large wall must be reported occluded"
+        );
+    }
+
+    /// The regression test this whole module exists to keep passing: an
+    /// object *beside* the wall, not behind it, must never be culled. This
+    /// is the failure mode that produces a visible rendering bug rather
+    /// than a missed optimization.
+    #[test]
+    fn a_box_beside_the_occluder_is_never_occluded() {
+        let vp = test_view_proj();
+        let mut buf = OcclusionBuffer::default();
+        rasterize_occluder_box(
+            &mut buf,
+            vp,
+            Mat4::IDENTITY,
+            Vec3::ZERO,
+            Vec3::new(1.0, 1.0, 0.5),
+        );
+        assert!(
+            !box_occluded(&buf, vp, Vec3::new(6.0, 0.0, -20.0), Vec3::splat(0.5)),
+            "an object beside the occluder must stay visible"
+        );
+    }
+
+    #[test]
+    fn a_box_in_front_of_the_occluder_is_not_occluded() {
+        let vp = test_view_proj();
+        let mut buf = OcclusionBuffer::default();
+        rasterize_occluder_box(
+            &mut buf,
+            vp,
+            Mat4::IDENTITY,
+            Vec3::ZERO,
+            Vec3::new(5.0, 5.0, 0.5),
+        );
+        assert!(
+            !box_occluded(&buf, vp, Vec3::new(0.0, 0.0, 5.0), Vec3::splat(0.5)),
+            "an object between the camera and the wall must stay visible"
+        );
+    }
+
+    #[test]
+    fn an_empty_buffer_occludes_nothing() {
+        let vp = test_view_proj();
+        let buf = OcclusionBuffer::default();
+        assert!(
+            !box_occluded(&buf, vp, Vec3::new(0.0, 0.0, -20.0), Vec3::splat(0.5)),
+            "with no occluders rasterized, nothing may be culled"
+        );
+    }
+
+    #[test]
+    fn a_box_only_partly_behind_the_occluder_is_not_occluded() {
+        let vp = test_view_proj();
+        let mut buf = OcclusionBuffer::default();
+        rasterize_occluder_box(
+            &mut buf,
+            vp,
+            Mat4::IDENTITY,
+            Vec3::ZERO,
+            Vec3::new(2.0, 2.0, 0.5),
+        );
+        // Wide enough that its screen rect spills past the occluder's edge.
+        assert!(
+            !box_occluded(
+                &buf,
+                vp,
+                Vec3::new(0.0, 0.0, -20.0),
+                Vec3::new(8.0, 8.0, 0.5)
+            ),
+            "a candidate whose screen rect extends past the occluder must stay visible"
+        );
+    }
+
+    #[test]
+    fn a_candidate_crossing_the_near_plane_is_not_occluded() {
+        let vp = test_view_proj();
+        let mut buf = OcclusionBuffer::default();
+        rasterize_occluder_box(
+            &mut buf,
+            vp,
+            Mat4::IDENTITY,
+            Vec3::ZERO,
+            Vec3::new(5.0, 5.0, 0.5),
+        );
+        assert!(
+            !box_occluded(&buf, vp, Vec3::new(0.0, 0.0, 10.0), Vec3::splat(50.0)),
+            "an unprojectable candidate must get the safe answer, not a guess"
+        );
     }
 }

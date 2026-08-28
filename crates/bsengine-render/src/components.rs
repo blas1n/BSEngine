@@ -29,6 +29,33 @@ pub struct TerrainSplat {
     pub layer_texture_ids: [u64; 4],
 }
 
+/// Extra, lower-detail mesh alternatives for an entity, switched by camera
+/// distance. LOD 0 (highest detail) is never duplicated here -- it's
+/// whatever `MeshRenderer.mesh_id` already is; this component only adds
+/// the alternatives and the switching state. An entity with no
+/// `LodLevels` renders exactly as it always has.
+///
+/// Public and reflected (R1: every public `#[derive(Component)]` type
+/// must be registered) because it is genuinely cross-crate: `bsengine-gltf`
+/// and `bsengine-app` both construct it, `bsengine-render`'s `render_frame`
+/// queries and mutates it directly every frame.
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component)]
+pub struct LodLevels {
+    /// GPU mesh ids for LOD 1, LOD 2, ... in nearest-to-farthest order.
+    pub mesh_ids: Vec<u64>,
+    /// Camera distance at which each transition occurs:
+    /// `switch_distances[0]` is LOD0->LOD1, `switch_distances[1]` is
+    /// LOD1->LOD2, etc. Same length as `mesh_ids`.
+    pub switch_distances: Vec<f32>,
+    /// Width of the dead zone around each `switch_distances` entry -- see
+    /// `select_lod_level`'s doc comment for why this prevents popping.
+    pub hysteresis_band: f32,
+    /// Currently selected level: `None` = LOD 0 (`MeshRenderer.mesh_id`),
+    /// `Some(i)` = `mesh_ids[i]`. Updated once per frame by `render_frame`.
+    pub current_index: Option<usize>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -47,5 +74,17 @@ mod tests {
         };
         assert_eq!(ts.weight_texture_id, 7);
         assert_eq!(ts.layer_texture_ids, [1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn lod_levels_stores_its_fields() {
+        let lod = LodLevels {
+            mesh_ids: vec![7, 8],
+            switch_distances: vec![10.0, 30.0],
+            hysteresis_band: 2.0,
+            current_index: Some(1),
+        };
+        assert_eq!(lod.mesh_ids, vec![7, 8]);
+        assert_eq!(lod.current_index, Some(1));
     }
 }

@@ -14,7 +14,7 @@ use bsengine_rhi_wgpu::{
 use bsengine_window::WindowResized;
 use glam::{Mat4, Vec3, Vec4};
 
-use crate::components::{MeshRenderer, TerrainSplat};
+use crate::components::{LodLevels, MeshRenderer, TerrainSplat};
 
 /// Returns false if the sphere is completely outside the view frustum.
 /// Uses Gribb-Hartmann plane extraction from the view-projection matrix
@@ -826,6 +826,7 @@ impl Plugin for RenderPlugin {
         // there is nothing for a headless app to inspect or attach.
         app.register_type::<MeshRenderer>();
         app.register_type::<TerrainSplat>();
+        app.register_type::<LodLevels>();
         app.init_asset::<crate::shader_asset::ShaderSource>()
             .register_asset_loader(crate::shader_asset::ShaderSourceLoader)
             .init_resource::<UiState>()

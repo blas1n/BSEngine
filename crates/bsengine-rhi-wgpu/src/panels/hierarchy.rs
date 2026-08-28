@@ -360,6 +360,7 @@ impl EditorPanel for HierarchyPanel {
                 layer1_texture_path: String::new(),
                 layer2_texture_path: String::new(),
                 layer3_texture_path: String::new(),
+                splatmap_path: None,
             });
         }
     }

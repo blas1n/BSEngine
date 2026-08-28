@@ -356,10 +356,69 @@ impl EditorPanel for ViewportPanel {
             }
         }
 
+        // Terrain brush cursor + drag handling. Not nested inside
+        // `is_stopped` above -- `bsengine-app`'s picking system (the writer
+        // of `terrain_pick`) doesn't gate on play state either, so this
+        // stays consistent with the backend it drives rather than
+        // introducing a restriction Task 8 never imposed. All of the actual
+        // terrain mutation lives downstream (`bsengine-app`'s
+        // preview/commit systems reading `terrain_brush_stroke`); this
+        // block only turns a drag into that one shared field.
+        if insp.terrain_brush_active {
+            if let Some((terrain_id, world_pos)) = insp.terrain_pick {
+                if let Some(view_proj) = insp.editor_view_proj {
+                    // Ground-plane (Y=0 relative to the pick) ring of points
+                    // around the brush center, reusing the same
+                    // ring_points/world_to_screen helpers the rotate gizmo
+                    // already uses for its axis rings -- there's no
+                    // dedicated "draw a world-space circle" helper in
+                    // `gizmo` yet, so this reuses the two pieces of math it
+                    // does expose rather than duplicating the projection
+                    // logic here.
+                    let radius = insp.terrain_brush_settings.radius.max(0.01);
+                    let ring = crate::gizmo::ring_points(
+                        glam::Vec3::from(world_pos),
+                        crate::gizmo::AXIS_Y,
+                        radius,
+                    );
+                    let stroke = egui::Stroke::new(2.0, crate::theme::ACCENT);
+                    for i in 0..ring.len() {
+                        let j = (i + 1) % ring.len();
+                        if let (Some(a), Some(b)) = (
+                            crate::gizmo::world_to_screen(ring[i], &view_proj, panel_rect),
+                            crate::gizmo::world_to_screen(ring[j], &view_proj, panel_rect),
+                        ) {
+                            ui.painter().line_segment([a, b], stroke);
+                        }
+                    }
+                }
+
+                if response.dragged() {
+                    insp.terrain_brush_stroke = Some(bsengine_core::TerrainBrushStroke {
+                        terrain_entity_id: terrain_id,
+                        world_pos,
+                    });
+                } else if response.drag_stopped() {
+                    insp.terrain_brush_stroke = None;
+                }
+            } else {
+                insp.terrain_brush_stroke = None;
+            }
+        }
+
         egui::Area::new(egui::Id::new("viewport_mini_toolbar"))
             .fixed_pos(panel_rect.min + egui::vec2(8.0, 8.0))
             .show(ui.ctx(), |ui| {
                 egui::Frame::menu(ui.style()).show(ui, |ui| {
+                    // Toggling the tool and opening its settings popup share
+                    // the same click on purpose -- there's no separate gear
+                    // icon, so `toggle_popup` is called in lockstep with the
+                    // active flag: turning the brush on surfaces its
+                    // settings immediately, turning it off tucks them away
+                    // again rather than leaving a popup for an inactive tool.
+                    let terrain_brush_popup_id =
+                        ui.make_persistent_id("viewport_terrain_brush_settings_popup");
+                    let mut terrain_brush_button: Option<egui::Response> = None;
                     ui.horizontal(|ui| {
                         if ui
                             .selectable_label(
@@ -398,7 +457,101 @@ impl EditorPanel for ViewportPanel {
                         {
                             insp.show_grid = !insp.show_grid;
                         }
+
+                        // Explicit size, not a shrink-wrapped
+                        // `selectable_label` like its sibling buttons above --
+                        // this is the one button in the row paired with a
+                        // `popup_below_widget`, which derives the popup's
+                        // width from this response's rect and
+                        // `debug_assert!`s it non-negative, which a
+                        // near-zero shrink-wrapped width can violate under
+                        // the headless empty-font `Context` this panel is
+                        // tested with (same reasoning as `hierarchy.rs`'s
+                        // "Create Terrain" button).
+                        let brush_button_size = ui.spacing().interact_size;
+                        let response = ui
+                            .add_sized(
+                                brush_button_size,
+                                egui::SelectableLabel::new(
+                                    insp.terrain_brush_active,
+                                    egui_phosphor::regular::PAINT_BRUSH,
+                                ),
+                            )
+                            .on_hover_text("Terrain Brush");
+                        if response.clicked() {
+                            insp.terrain_brush_active = !insp.terrain_brush_active;
+                            ui.memory_mut(|m| m.toggle_popup(terrain_brush_popup_id));
+                        }
+                        terrain_brush_button = Some(response);
                     });
+
+                    if let Some(button_response) = &terrain_brush_button {
+                        egui::popup::popup_below_widget(
+                            ui,
+                            terrain_brush_popup_id,
+                            button_response,
+                            egui::popup::PopupCloseBehavior::CloseOnClickOutside,
+                            |ui| {
+                                ui.set_min_width(180.0);
+                                ui.label("Terrain Brush");
+                                ui.separator();
+
+                                let settings = &mut insp.terrain_brush_settings;
+                                let is_height = matches!(
+                                    settings.kind,
+                                    bsengine_core::TerrainBrushKind::Height { .. }
+                                );
+                                ui.horizontal(|ui| {
+                                    if ui.selectable_label(is_height, "Height").clicked()
+                                        && !is_height
+                                    {
+                                        settings.kind =
+                                            bsengine_core::TerrainBrushKind::Height { raise: true };
+                                    }
+                                    if ui.selectable_label(!is_height, "Paint").clicked()
+                                        && is_height
+                                    {
+                                        settings.kind =
+                                            bsengine_core::TerrainBrushKind::Paint { layer: 0 };
+                                    }
+                                });
+
+                                match &mut settings.kind {
+                                    bsengine_core::TerrainBrushKind::Height { raise } => {
+                                        ui.horizontal(|ui| {
+                                            if ui.selectable_label(*raise, "Raise").clicked() {
+                                                *raise = true;
+                                            }
+                                            if ui.selectable_label(!*raise, "Lower").clicked() {
+                                                *raise = false;
+                                            }
+                                        });
+                                    }
+                                    bsengine_core::TerrainBrushKind::Paint { layer } => {
+                                        ui.horizontal(|ui| {
+                                            for l in 0u8..4 {
+                                                if ui
+                                                    .selectable_label(*layer == l, l.to_string())
+                                                    .clicked()
+                                                {
+                                                    *layer = l;
+                                                }
+                                            }
+                                        });
+                                    }
+                                }
+
+                                ui.add(
+                                    egui::Slider::new(&mut settings.radius, 0.1..=50.0)
+                                        .text("Radius"),
+                                );
+                                ui.add(
+                                    egui::Slider::new(&mut settings.strength, 0.0..=1.0)
+                                        .text("Strength"),
+                                );
+                            },
+                        );
+                    }
                 });
             });
 
@@ -421,5 +574,271 @@ impl EditorPanel for ViewportPanel {
                     .extend(),
                 );
             });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bsengine_core::{InspectorEntityInfo, InspectorState};
+
+    /// Headless multi-frame harness for `ViewportPanel::ui`, following
+    /// `hierarchy.rs`'s `HierarchyHarness` exactly (same empty-font
+    /// `Context`, same `frame`/`click` shape) -- no equivalent harness
+    /// existed in this file before this task. `entities_snapshot` is always
+    /// empty: none of these tests exercise the camera-frustum overlay,
+    /// which is the only thing here that reads it.
+    struct ViewportHarness {
+        egui_ctx: egui::Context,
+        screen_rect: egui::Rect,
+        insp: InspectorState,
+        entities_snapshot: Vec<InspectorEntityInfo>,
+        panel: ViewportPanel,
+    }
+
+    impl ViewportHarness {
+        fn new() -> Self {
+            let egui_ctx = egui::Context::default();
+            egui_ctx.set_fonts(egui::FontDefinitions::empty());
+            Self {
+                egui_ctx,
+                screen_rect: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 400.0)),
+                insp: InspectorState::default(),
+                entities_snapshot: Vec::new(),
+                panel: ViewportPanel::default(),
+            }
+        }
+
+        /// Runs one frame with `events` delivered to it. Same "hit-tests
+        /// against the *previous* frame's widget rects" caveat as
+        /// `HierarchyHarness::frame` applies to any position read from this
+        /// call's own return value.
+        fn frame(&mut self, events: Vec<egui::Event>) -> egui::FullOutput {
+            self.egui_ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(self.screen_rect),
+                    events,
+                    ..Default::default()
+                },
+                |egui_ctx| {
+                    egui::CentralPanel::default().show(egui_ctx, |ui| {
+                        let mut ctx = EditorPanelContext {
+                            insp: &mut self.insp,
+                            entities_snapshot: &self.entities_snapshot,
+                            cursor_pos: (0.0, 0.0),
+                            type_registry: None,
+                        };
+                        self.panel.ui(ui, &mut ctx);
+                    });
+                },
+            )
+        }
+
+        /// A frame that delivers a single press+release click at `pos`.
+        fn click(&mut self, pos: egui::Pos2) -> egui::FullOutput {
+            self.frame(vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::default(),
+                },
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::default(),
+                },
+            ])
+        }
+
+        /// A frame that presses the primary button at `pos`, deliberately
+        /// *not* combined with any subsequent move in the same event list.
+        /// egui's own `InputState::is_decidedly_dragging` doc comment says
+        /// it "can return true on the same frame the drag is released, but
+        /// NOT on the first frame it was started", and its body explicitly
+        /// requires `!self.any_pressed()` -- so a press-and-move sent
+        /// together in one `RawInput` never reports `dragged() == true`,
+        /// confirmed empirically: the press must land on its own frame
+        /// first (its effect only visible to the *next* frame's snapshot,
+        /// which is itself computed from the *previous* frame's widget
+        /// rects per `interaction.rs`'s own `InteractionSnapshot` doc
+        /// comment -- "Calculated at the start of each frame based on:
+        /// Widget rects from previous frame").
+        fn press(&mut self, pos: egui::Pos2) -> egui::FullOutput {
+            self.frame(vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::default(),
+                },
+            ])
+        }
+
+        /// A frame that moves the pointer to `pos` while the primary button
+        /// is still held down from an earlier `press()` call -- no new
+        /// `PointerButton` event, since egui's own button-down state
+        /// persists across frames until a release event arrives. This is
+        /// the frame on which `dragged()` actually first turns true (see
+        /// `press`'s doc comment).
+        fn drag_to(&mut self, pos: egui::Pos2) -> egui::FullOutput {
+            self.frame(vec![egui::Event::PointerMoved(pos)])
+        }
+
+        /// A frame that releases the primary button at `pos`, with no
+        /// preceding move -- for continuing an already-started drag from a
+        /// prior `drag()` call into a release.
+        fn release(&mut self, pos: egui::Pos2) -> egui::FullOutput {
+            self.frame(vec![egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::default(),
+            }])
+        }
+    }
+
+    /// Every literal string egui rendered as text in one frame, paired with
+    /// the position it was drawn at. Ported from `hierarchy.rs`'s identical
+    /// helper (itself ported from `inspector.rs`) -- see that copy's doc
+    /// comment for the full rationale. Toolbar icon buttons render their
+    /// `egui_phosphor` glyph as ordinary text (icon fonts are just unicode
+    /// characters), so this same helper locates them too: click the
+    /// returned `pos` as-is, with no "reach the centre" offset, since
+    /// `FontDefinitions::empty()` gives every galley zero size and a
+    /// top-down `Ui` centers a zero-sized widget's content on the padded
+    /// rect's own centre.
+    fn collect_rendered_texts_with_pos(
+        shapes: &[egui::epaint::ClippedShape],
+    ) -> Vec<(String, egui::Pos2)> {
+        fn walk(shape: &egui::Shape, out: &mut Vec<(String, egui::Pos2)>) {
+            match shape {
+                egui::Shape::Text(text_shape) => {
+                    out.push((text_shape.galley.text().to_string(), text_shape.pos))
+                }
+                egui::Shape::Vec(nested) => {
+                    for s in nested {
+                        walk(s, out);
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        for clipped in shapes {
+            walk(&clipped.shape, &mut out);
+        }
+        out
+    }
+
+    #[test]
+    fn clicking_the_brush_button_toggles_terrain_brush_active() {
+        let mut harness = ViewportHarness::new();
+        assert!(!harness.insp.terrain_brush_active);
+
+        // The toolbar lives inside an `egui::Area`, which -- unlike
+        // `HierarchyPanel`'s toolbar buttons, drawn directly on the panel's
+        // own `Ui` -- renders invisibly on the very first frame it's shown.
+        // That's egui's own "sizing pass" (see `Prepared::content_ui` in
+        // egui's `area.rs`: `if self.sizing_pass { ui_builder =
+        // ui_builder.sizing_pass().invisible(); }`), used to compute the
+        // Area's size before positioning it for real; it paints nothing
+        // that frame. One extra settle frame -- discarded here -- clears
+        // that before this test reads back a real button position.
+        harness.frame(vec![]);
+        let layout = harness.frame(vec![]);
+        let (_, brush_pos) = collect_rendered_texts_with_pos(&layout.shapes)
+            .into_iter()
+            .find(|(t, _)| t == egui_phosphor::regular::PAINT_BRUSH)
+            .expect("toolbar must render the terrain brush button's icon glyph");
+
+        harness.click(brush_pos);
+
+        assert!(
+            harness.insp.terrain_brush_active,
+            "clicking the brush button must activate it"
+        );
+
+        // Clicking again toggles it back off.
+        let layout2 = harness.frame(vec![]);
+        let (_, brush_pos2) = collect_rendered_texts_with_pos(&layout2.shapes)
+            .into_iter()
+            .find(|(t, _)| t == egui_phosphor::regular::PAINT_BRUSH)
+            .expect("brush button must still render after activation");
+        harness.click(brush_pos2);
+        assert!(
+            !harness.insp.terrain_brush_active,
+            "clicking the brush button again must deactivate it"
+        );
+    }
+
+    #[test]
+    fn dragging_while_a_terrain_pick_is_present_sets_a_brush_stroke() {
+        let mut harness = ViewportHarness::new();
+        harness.insp.terrain_brush_active = true;
+        harness.insp.terrain_pick = Some((42, [1.0, 0.0, 2.0]));
+
+        // Two settle frames, not one, are needed before the press -- the
+        // toolbar/stats-overlay `egui::Area`s each render their first-ever
+        // frame as an invisible "sizing pass" (see the comment in
+        // `clicking_the_brush_button_toggles_terrain_brush_active`), and
+        // during THAT pass their placeholder interact rect is egui's
+        // built-in `default_area_size`, which is large enough to cover
+        // most of this 400x400 test screen -- including (150,150)/
+        // (250,250) below. Since hit-testing a press always uses the
+        // *previous* frame's widget rects (see `HierarchyHarness::frame`'s
+        // doc comment in `hierarchy.rs`), pressing on settle frame 1's
+        // heels would hit-test against that oversized placeholder and
+        // misattribute the press to the toolbar Area instead of the
+        // viewport's own `response`. A second settle frame lets the Areas
+        // shrink to their real (small, corner-hugging) size first.
+        harness.frame(vec![]);
+        harness.frame(vec![]);
+
+        let from = egui::Pos2::new(150.0, 150.0);
+        let to = egui::Pos2::new(250.0, 250.0);
+        // The press and the move-while-held are deliberately two separate
+        // frames -- see `ViewportHarness::press`'s doc comment for why a
+        // single frame combining both never reports `dragged() == true`.
+        harness.press(from);
+        harness.drag_to(to);
+
+        let stroke = harness
+            .insp
+            .terrain_brush_stroke
+            .expect("dragging while a terrain pick is present must set a brush stroke");
+        assert_eq!(stroke.terrain_entity_id, 42);
+        assert_eq!(stroke.world_pos, [1.0, 0.0, 2.0]);
+    }
+
+    #[test]
+    fn releasing_the_drag_clears_the_brush_stroke() {
+        let mut harness = ViewportHarness::new();
+        harness.insp.terrain_brush_active = true;
+        harness.insp.terrain_pick = Some((42, [1.0, 0.0, 2.0]));
+
+        // See the equivalent two-settle-frame comment in
+        // `dragging_while_a_terrain_pick_is_present_sets_a_brush_stroke`.
+        harness.frame(vec![]);
+        harness.frame(vec![]);
+
+        let from = egui::Pos2::new(150.0, 150.0);
+        let to = egui::Pos2::new(250.0, 250.0);
+        harness.press(from);
+        harness.drag_to(to);
+        assert!(
+            harness.insp.terrain_brush_stroke.is_some(),
+            "precondition: the drag must have set a stroke before release can clear it"
+        );
+
+        harness.release(to);
+
+        assert_eq!(
+            harness.insp.terrain_brush_stroke, None,
+            "releasing the drag must clear the brush stroke"
+        );
     }
 }

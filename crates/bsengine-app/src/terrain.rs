@@ -55,10 +55,16 @@ pub use bsengine_scene::Terrain;
 /// `Terrain`'s chunks aren't spawned until its heightmap AND all 4 diffuse
 /// layers have arrived -- `generate_terrain_chunks` needs all 5 to build the
 /// `TerrainSplat` it attaches to each chunk.
+///
+/// `splatmap` additionally tracks the optional 6th asset named by
+/// `Terrain::splatmap_path`: `None` when the `Terrain` has no splatmap (the
+/// procedural-weights path, unchanged), `Some` with its own in-flight
+/// `AssetSlot` when it does.
 #[derive(Component)]
 struct PendingTerrain {
     heightmap: bsengine_asset::AssetSlot<HeightmapAsset>,
     layers: [bsengine_asset::AssetSlot<TextureAsset>; 4],
+    splatmap: Option<bsengine_asset::AssetSlot<TextureAsset>>,
 }
 
 /// Marks a `Terrain` entity whose chunks have already been spawned, so
@@ -71,6 +77,17 @@ struct PendingTerrain {
 #[reflect(Component)]
 pub struct TerrainChunksGenerated;
 
+/// Back-reference from a chunk entity to the `Terrain` entity it belongs
+/// to. Public and reflected for the same reason `TerrainChunksGenerated`
+/// is: the terrain brush tool's picking/apply systems need to query it
+/// directly, and nothing about it is meaningfully serializable scene state
+/// (it's derived, re-created every time chunks are generated), so it's
+/// still excluded from RON the same way `PendingTerrain` is -- being
+/// `Reflect`-registered for R1 compliance doesn't mean scenes author it.
+#[derive(Component, Debug, Clone, Copy, Reflect)]
+#[reflect(Component)]
+pub struct TerrainChunkOf(pub Entity);
+
 /// Bevy plugin that loads each `Terrain`'s heightmap and spawns its chunk
 /// entities once both the heightmap and a `GpuMeshRegistry` are available.
 pub struct TerrainPlugin;
@@ -79,6 +96,7 @@ impl Plugin for TerrainPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<Terrain>()
             .register_type::<TerrainChunksGenerated>()
+            .register_type::<TerrainChunkOf>()
             .add_systems(Update, generate_terrain_chunks);
     }
 }
@@ -115,9 +133,13 @@ fn generate_terrain_chunks(
             let layers = layer_paths.map(|p| {
                 bsengine_asset::AssetSlot::from_handle(asset_server.load::<TextureAsset>(p))
             });
+            let splatmap = terrain.splatmap_path.as_ref().map(|p| {
+                bsengine_asset::AssetSlot::from_handle(asset_server.load::<TextureAsset>(p.clone()))
+            });
             commands.entity(entity).insert(PendingTerrain {
                 heightmap: bsengine_asset::AssetSlot::from_handle(heightmap_handle),
                 layers,
+                splatmap,
             });
             continue;
         };
@@ -132,7 +154,12 @@ fn generate_terrain_chunks(
                 any_layer_failed = true;
             }
         }
-        if heightmap_failed || any_layer_failed {
+        let splatmap_failed = pending
+            .splatmap
+            .as_mut()
+            .map(|s| matches!(s.poll(&asset_server, &textures), Polled::Failed(_)))
+            .unwrap_or(false);
+        if heightmap_failed || any_layer_failed || splatmap_failed {
             // A failed load never resolves, so the path is dropped entirely --
             // otherwise a missing file retries silently forever.
             warn!(
@@ -185,7 +212,26 @@ fn generate_terrain_chunks(
             chunk_size: terrain.chunk_size,
             height_scale: terrain.height_scale,
         };
-        let chunks = crate::terrain_chunking::generate_chunks(heightmap, &params);
+
+        let splatmap_override = match &pending.splatmap {
+            None => None,
+            Some(slot) => {
+                let Some(tex) = textures.get(slot.handle()) else {
+                    continue;
+                };
+                Some(crate::terrain_chunking::SplatmapOverride {
+                    width: tex.width,
+                    height: tex.height,
+                    data: tex.data.clone(),
+                })
+            }
+        };
+
+        let chunks = crate::terrain_chunking::generate_chunks_with_splatmap(
+            heightmap,
+            &params,
+            splatmap_override.as_ref(),
+        );
 
         // Rapier's heightfield shape is centered on its own local origin
         // (confirmed against `bsengine-physics`'s
@@ -218,6 +264,7 @@ fn generate_terrain_chunks(
                     weight_texture_id: weight_id,
                     layer_texture_ids: layer_ids,
                 },
+                TerrainChunkOf(entity),
                 RigidBody::fixed(),
                 Collider {
                     shape: ColliderShape::Heightfield {
@@ -415,6 +462,7 @@ mod tests {
                     layer1_texture_path: write_test_texture("no-registry-l1", [120, 120, 120, 255]),
                     layer2_texture_path: write_test_texture("no-registry-l2", [110, 80, 40, 255]),
                     layer3_texture_path: write_test_texture("no-registry-l3", [240, 240, 250, 255]),
+                    splatmap_path: None,
                 },
                 Transform::default(),
             ))
@@ -459,6 +507,7 @@ mod tests {
                         "missing-heightmap-l3",
                         [240, 240, 250, 255],
                     ),
+                    splatmap_path: None,
                 },
                 Transform::default(),
             ))
@@ -515,6 +564,7 @@ mod tests {
                     layer1_texture_path: write_test_texture("chunks-l1", [120, 120, 120, 255]),
                     layer2_texture_path: write_test_texture("chunks-l2", [110, 80, 40, 255]),
                     layer3_texture_path: write_test_texture("chunks-l3", [240, 240, 250, 255]),
+                    splatmap_path: None,
                 },
                 Transform::from_position(Vec3::new(100.0, 0.0, -50.0)),
             ))
@@ -587,6 +637,7 @@ mod tests {
                     layer1_texture_path: write_test_texture("flat-drop-l1", [120, 120, 120, 255]),
                     layer2_texture_path: write_test_texture("flat-drop-l2", [110, 80, 40, 255]),
                     layer3_texture_path: write_test_texture("flat-drop-l3", [240, 240, 250, 255]),
+                    splatmap_path: None,
                 },
                 Transform::from_position(Vec3::ZERO),
             ))
@@ -651,6 +702,7 @@ mod tests {
                     layer1_texture_path: write_test_texture("splat-l1", [120, 120, 120, 255]),
                     layer2_texture_path: write_test_texture("splat-l2", [110, 80, 40, 255]),
                     layer3_texture_path: write_test_texture("splat-l3", [240, 240, 250, 255]),
+                    splatmap_path: None,
                 },
                 Transform::default(),
             ))
@@ -685,5 +737,41 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn every_chunk_carries_a_terrain_chunk_of_pointing_back_to_its_terrain() {
+        let mut app = test_app();
+        let path = write_test_heightmap("chunk-of", 5, 5, &[10_000u16; 25]);
+        let terrain_entity = app
+            .world_mut()
+            .spawn((
+                Terrain {
+                    heightmap_path: path,
+                    chunk_count: (2, 1),
+                    chunk_size: 8.0,
+                    height_scale: 5.0,
+                    layer0_texture_path: write_test_texture("chunk-of-l0", [50, 200, 50, 255]),
+                    layer1_texture_path: write_test_texture("chunk-of-l1", [120, 120, 120, 255]),
+                    layer2_texture_path: write_test_texture("chunk-of-l2", [110, 80, 40, 255]),
+                    layer3_texture_path: write_test_texture("chunk-of-l3", [240, 240, 250, 255]),
+                    splatmap_path: None,
+                },
+                Transform::default(),
+            ))
+            .id();
+        run_until_generated(&mut app, terrain_entity);
+
+        let mut query = app.world_mut().query::<&TerrainChunkOf>();
+        let backrefs: Vec<Entity> = query.iter(app.world()).map(|c| c.0).collect();
+        assert_eq!(
+            backrefs.len(),
+            2,
+            "one chunk per (chunk_count.0 * chunk_count.1)"
+        );
+        assert!(
+            backrefs.iter().all(|&e| e == terrain_entity),
+            "every chunk's TerrainChunkOf must point at the Terrain entity it came from"
+        );
     }
 }

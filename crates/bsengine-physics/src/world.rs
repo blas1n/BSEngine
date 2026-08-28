@@ -472,6 +472,32 @@ impl PhysicsWorld {
         self.cast_ray_filtered(origin, dir, max_dist, QueryFilter::default())
     }
 
+    /// Rebuilds `entity`'s collider shape in place, keeping the same
+    /// `ColliderHandle` (so nothing referencing it, e.g. `PhysicsHandles`,
+    /// needs to change) -- the first place in this engine that mutates a
+    /// collider's shape after it was originally spawned. Returns whether
+    /// `entity` had a body with an attached collider to update.
+    pub fn set_collider_shape(
+        &mut self,
+        entity: Entity,
+        shape: &crate::components::ColliderShape,
+    ) -> bool {
+        let Some(&body_handle) = self.entity_body_map.get(&entity) else {
+            return false;
+        };
+        let Some(body) = self.rigid_body_set.get(body_handle) else {
+            return false;
+        };
+        let Some(&collider_handle) = body.colliders().first() else {
+            return false;
+        };
+        let Some(collider) = self.collider_set.get_mut(collider_handle) else {
+            return false;
+        };
+        collider.set_shape(crate::plugin::make_shape(shape));
+        true
+    }
+
     fn cast_ray_filtered(
         &self,
         origin: Vec3,
@@ -502,5 +528,74 @@ impl PhysicsWorld {
                     distance: t,
                 }
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn set_collider_shape_changes_where_a_raycast_hits() {
+        let mut world = PhysicsWorld::new(9.81);
+        // A flat box collider at the origin, top surface at y = 0.5.
+        let entity = bevy_ecs::prelude::Entity::from_raw(0);
+        let body = rapier3d::prelude::RigidBodyBuilder::fixed().build();
+        let body_handle = world.rigid_body_set.insert(body);
+        let shape = crate::plugin::make_shape(&crate::components::ColliderShape::Box {
+            half_extents: Vec3::new(1.0, 0.5, 1.0).into(),
+        });
+        let collider = rapier3d::prelude::ColliderBuilder::new(shape).build();
+        let collider_handle = world.add_collider(collider, body_handle);
+        world.collider_entity_map.insert(collider_handle, entity);
+        world.register_entity_body(entity, body_handle);
+
+        // The broad-phase BVH that `cast_ray` queries is only rebuilt inside
+        // `step()` (see `PhysicsPipeline::step`'s call to `broad_phase.update`
+        // in the vendored rapier3d source) -- inserting a collider directly
+        // via `add_collider` does not register it in the tree by itself. The
+        // body is fixed, so stepping does not move it; `&()` is rapier's
+        // built-in no-op `EventHandler`.
+        world.step(&());
+
+        let before = world.cast_ray(Vec3::new(0.0, 10.0, 0.0), Vec3::new(0.0, -1.0, 0.0), 100.0);
+        assert!(
+            (before.as_ref().unwrap().point.y - 0.5).abs() < 1e-4,
+            "sanity: ray should hit the original box's top face at y=0.5, got {:?}",
+            before
+        );
+
+        let changed = world.set_collider_shape(
+            entity,
+            &crate::components::ColliderShape::Box {
+                half_extents: Vec3::new(1.0, 2.0, 1.0).into(),
+            },
+        );
+        assert!(
+            changed,
+            "set_collider_shape must report success for a real entity"
+        );
+
+        // Same reason as above: the shape change needs a step to propagate
+        // into the broad-phase tree before a raycast will see it.
+        world.step(&());
+
+        let after = world.cast_ray(Vec3::new(0.0, 10.0, 0.0), Vec3::new(0.0, -1.0, 0.0), 100.0);
+        assert!(
+            (after.as_ref().unwrap().point.y - 2.0).abs() < 1e-4,
+            "after set_collider_shape, a raycast must hit the NEW shape's top face at y=2.0, \
+             got {:?} -- the collider was not actually rebuilt",
+            after
+        );
+    }
+
+    #[test]
+    fn set_collider_shape_reports_failure_for_an_unknown_entity() {
+        let mut world = PhysicsWorld::new(9.81);
+        let unknown = bevy_ecs::prelude::Entity::from_raw(999);
+        assert!(!world.set_collider_shape(
+            unknown,
+            &crate::components::ColliderShape::Sphere { radius: 1.0 }
+        ));
     }
 }

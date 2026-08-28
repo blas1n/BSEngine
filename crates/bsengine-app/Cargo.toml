@@ -24,6 +24,11 @@ bsengine-scene.workspace = true
 bsengine-physics.workspace = true
 bsengine-asset.workspace = true
 glam.workspace = true
+# The terrain brush tool (terrain_brush.rs) decodes/encodes splatmap PNGs
+# directly at commit/preview time (the splatmap has no dedicated
+# `AssetLoader`-based decode helper the way the heightmap does), so this
+# needs to be a real dependency, not just a test-time one.
+image.workspace = true
 # The particle emitter logs when it hits its per-emitter cap; a silently
 # truncated effect looks exactly like a broken one.
 tracing.workspace = true
@@ -41,9 +46,6 @@ bsengine-scripting.workspace = true
 bsengine-plugin.workspace = true
 bsengine-mcp.workspace = true
 serde_json.workspace = true
-# Encodes the 16-bit grayscale PNG heightmap fixture terrain.rs's tests build
-# at test time, mirroring bsengine-asset's own test-time PNG fixtures.
-image.workspace = true
 # terrain.rs's tests build a real headless GpuMeshRegistry (mirroring
 # bsengine-gltf's insert_headless_gpu_registries), since WgpuRHIPlugin only
 # builds one once a window exists.

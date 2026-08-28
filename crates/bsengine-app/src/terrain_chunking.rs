@@ -59,6 +59,33 @@ fn splat_weight_for(height_ratio: f32, normal_y: f32) -> [u8; 4] {
     [to_u8(grass_w), to_u8(rock_w), 0u8, to_u8(snow_w)]
 }
 
+/// A whole-terrain splatmap already decoded to RGBA8 pixels, provided by
+/// the caller instead of letting `generate_chunks` compute weights
+/// procedurally. `width`/`height` must match the heightmap's own
+/// dimensions -- both describe the same terrain, sampled at the same grid.
+pub struct SplatmapOverride {
+    /// Splatmap width in pixels; expected to match the heightmap's width.
+    pub width: u32,
+    /// Splatmap height in pixels; expected to match the heightmap's height.
+    pub height: u32,
+    /// Decoded RGBA8 pixel data, row-major, `width * height * 4` bytes long.
+    pub data: Vec<u8>,
+}
+
+impl SplatmapOverride {
+    fn sample(&self, x: u32, z: u32) -> [u8; 4] {
+        let x = x.min(self.width - 1);
+        let z = z.min(self.height - 1);
+        let i = ((z * self.width + x) * 4) as usize;
+        [
+            self.data[i],
+            self.data[i + 1],
+            self.data[i + 2],
+            self.data[i + 3],
+        ]
+    }
+}
+
 /// Chunking configuration for one `Terrain` entity.
 pub struct ChunkParams {
     /// Number of chunks along (x, z).
@@ -67,6 +94,118 @@ pub struct ChunkParams {
     pub chunk_size: f32,
     /// Multiplier applied to the normalized heightmap sample.
     pub height_scale: f32,
+}
+
+/// Samples `heightmap` at texel `(x, z)` (clamped to its bounds) and scales
+/// it into world-space height units. Factored out of
+/// `generate_chunks_with_splatmap`'s own per-vertex loop (a top-level `fn`
+/// rather than the closure it used to be) so `procedural_splat_grid` below
+/// can reuse the exact same sampling -- both need "the height at this texel"
+/// and must never disagree about it.
+fn height_at(heightmap: &HeightmapAsset, height_scale: f32, x: u32, z: u32) -> f32 {
+    let x = x.min(heightmap.width - 1);
+    let z = z.min(heightmap.height - 1);
+    let raw = heightmap.data[(z * heightmap.width + x) as usize];
+    (raw as f32 / u16::MAX as f32) * height_scale
+}
+
+/// Central-difference surface normal at texel `(x, z)`, from the four
+/// neighboring texels. `world_step` scales the normal's Y component to
+/// match the actual world-space texel spacing (see
+/// `generate_chunks_with_splatmap`'s own use of this same formula). Shared
+/// with `procedural_splat_grid` for the same reason `height_at` is.
+fn normal_at(
+    heightmap: &HeightmapAsset,
+    height_scale: f32,
+    world_step: f32,
+    x: u32,
+    z: u32,
+) -> glam::Vec3 {
+    let hl = height_at(heightmap, height_scale, x.saturating_sub(1), z);
+    let hr = height_at(heightmap, height_scale, x + 1, z);
+    let hd = height_at(heightmap, height_scale, x, z.saturating_sub(1));
+    let hu = height_at(heightmap, height_scale, x, z + 1);
+    glam::Vec3::new(hl - hr, 2.0 * world_step, hd - hu).normalize()
+}
+
+/// World-space size, in world units, of one heightmap texel along x and z
+/// respectively, given `params`. Assumes `heightmap_width`/`heightmap_height`
+/// divide evenly by `params.chunk_count` on each axis -- the common case,
+/// and the same case `generate_chunks_with_splatmap` itself favors (see its
+/// doc comment on remainder absorption). When they don't divide evenly, the
+/// real last chunk along that axis is very slightly denser than this
+/// returns (it absorbed the leftover texels), so callers that use this for
+/// world<->texel conversion (the terrain brush tool) are very slightly off
+/// only within that one edge chunk. Getting that edge case pixel-perfect is
+/// out of scope for the terrain brush's first working version -- see
+/// `world_to_texel`'s doc comment.
+pub(crate) fn texel_world_step(
+    heightmap_width: u32,
+    heightmap_height: u32,
+    params: &ChunkParams,
+) -> (f32, f32) {
+    let base_texels_x = (heightmap_width / params.chunk_count.0.max(1)).max(1);
+    let base_texels_z = (heightmap_height / params.chunk_count.1.max(1)).max(1);
+    (
+        params.chunk_size / base_texels_x as f32,
+        params.chunk_size / base_texels_z as f32,
+    )
+}
+
+/// Converts a world-space, `Terrain`-local (x, z) offset (i.e. already
+/// relative to the `Terrain` entity's own `Transform`) into the
+/// corresponding heightmap texel coordinate -- the inverse of the vertex
+/// placement math in `generate_chunks_with_splatmap`, which places a
+/// chunk-local vertex at `[lx as f32 * world_step, y, lz as f32 *
+/// world_step]` and then offsets the whole chunk by `chunk.world_offset`
+/// (itself `cx as f32 * chunk_size`). For a resolution that divides evenly
+/// by `chunk_count`, `world_step` is the same in every chunk, so that
+/// composition collapses to exactly `texel_index as f32 * world_step` --
+/// which is what this inverts. Used by the terrain brush tool to turn a
+/// raycast hit's world position into "which texel did the user click."
+pub(crate) fn world_to_texel(
+    local_x: f32,
+    local_z: f32,
+    heightmap_width: u32,
+    heightmap_height: u32,
+    params: &ChunkParams,
+) -> (u32, u32) {
+    let (step_x, step_z) = texel_world_step(heightmap_width, heightmap_height, params);
+    let hx = (local_x / step_x)
+        .round()
+        .clamp(0.0, (heightmap_width.max(1) - 1) as f32) as u32;
+    let hz = (local_z / step_z)
+        .round()
+        .clamp(0.0, (heightmap_height.max(1) - 1) as f32) as u32;
+    (hx, hz)
+}
+
+/// Computes the full-resolution procedural splat-weight grid for the whole
+/// `heightmap` (row-major RGBA8, `width * height * 4` bytes), using the
+/// exact same per-texel `splat_weight_for` formula
+/// `generate_chunks_with_splatmap` applies per vertex -- just evaluated once
+/// over the whole heightmap instead of once per chunk (with duplicated
+/// boundary texels).
+///
+/// Used by the terrain brush tool to seed a paint stroke's starting weights
+/// when a `Terrain` has no splatmap yet: without this, the first paint
+/// stroke would reset every already-rendered texel in a touched chunk to an
+/// arbitrary default the moment that chunk's weight texture is re-uploaded
+/// (the brush re-uploads a whole touched chunk's buffer at once, not a
+/// sub-region diff), which would look like the rest of that chunk
+/// spontaneously re-texturing itself.
+pub(crate) fn procedural_splat_grid(heightmap: &HeightmapAsset, params: &ChunkParams) -> Vec<u8> {
+    let (world_step, _) = texel_world_step(heightmap.width, heightmap.height, params);
+    let mut out = Vec::with_capacity((heightmap.width * heightmap.height * 4) as usize);
+    for z in 0..heightmap.height {
+        for x in 0..heightmap.width {
+            let y = height_at(heightmap, params.height_scale, x, z);
+            let normal = normal_at(heightmap, params.height_scale, world_step, x, z);
+            let height_ratio = y / params.height_scale.max(0.0001);
+            out.extend_from_slice(&splat_weight_for(height_ratio, normal.y));
+        }
+    }
+    out
 }
 
 /// One chunk's generated geometry -- both the render mesh and the physics
@@ -99,16 +238,22 @@ pub struct ChunkData {
 /// `heightmap`'s resolution doesn't evenly divide `chunk_count`, the
 /// remainder is absorbed into the last chunk along that axis.
 pub fn generate_chunks(heightmap: &HeightmapAsset, params: &ChunkParams) -> Vec<ChunkData> {
+    generate_chunks_with_splatmap(heightmap, params, None)
+}
+
+/// Same as `generate_chunks`, but when `splatmap` is `Some`, every vertex's
+/// splat weight is sampled from it instead of computed procedurally via
+/// `splat_weight_for`. `splatmap`'s dimensions are assumed to match
+/// `heightmap`'s (the terrain brush tool is responsible for keeping the two
+/// files the same size when it creates a splatmap).
+pub fn generate_chunks_with_splatmap(
+    heightmap: &HeightmapAsset,
+    params: &ChunkParams,
+    splatmap: Option<&SplatmapOverride>,
+) -> Vec<ChunkData> {
     let (chunks_x, chunks_z) = params.chunk_count;
     let base_texels_x = heightmap.width / chunks_x;
     let base_texels_z = heightmap.height / chunks_z;
-
-    let height_at = |x: u32, z: u32| -> f32 {
-        let x = x.min(heightmap.width - 1);
-        let z = z.min(heightmap.height - 1);
-        let raw = heightmap.data[(z * heightmap.width + x) as usize];
-        (raw as f32 / u16::MAX as f32) * params.height_scale
-    };
 
     let mut chunks = Vec::with_capacity((chunks_x * chunks_z) as usize);
     for cz in 0..chunks_z {
@@ -140,18 +285,17 @@ pub fn generate_chunks(heightmap: &HeightmapAsset, params: &ChunkParams) -> Vec<
                 for lx in 0..verts_x {
                     let hx = origin_x + lx;
                     let hz = origin_z + lz;
-                    let y = height_at(hx, hz);
+                    let y = height_at(heightmap, params.height_scale, hx, hz);
                     heightfield_heights.push(y);
 
                     // Central-difference normal from the four neighboring texels.
-                    let hl = height_at(hx.saturating_sub(1), hz);
-                    let hr = height_at(hx + 1, hz);
-                    let hd = height_at(hx, hz.saturating_sub(1));
-                    let hu = height_at(hx, hz + 1);
-                    let normal = glam::Vec3::new(hl - hr, 2.0 * world_step, hd - hu).normalize();
+                    let normal = normal_at(heightmap, params.height_scale, world_step, hx, hz);
 
                     let height_ratio = y / params.height_scale.max(0.0001);
-                    splat_weights.push(splat_weight_for(height_ratio, normal.y));
+                    splat_weights.push(match splatmap {
+                        Some(sm) => sm.sample(hx, hz),
+                        None => splat_weight_for(height_ratio, normal.y),
+                    });
 
                     vertices.push(Vertex {
                         position: [lx as f32 * world_step, y, lz as f32 * world_step],
@@ -338,6 +482,53 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn a_provided_splatmap_overrides_procedural_weights() {
+        let hm = test_heightmap(); // existing 5x5 helper already in this file
+        let params = ChunkParams {
+            chunk_count: (1, 1),
+            chunk_size: 10.0,
+            height_scale: 1.0,
+        };
+        // A splatmap that's 100% layer1 (rock) everywhere -- the opposite of
+        // what the flat, low, un-sloped test_heightmap() would generate
+        // procedurally (which would be grass-dominant).
+        let splatmap_rgba: Vec<u8> = std::iter::repeat([0u8, 255, 0, 0])
+            .take(5 * 5)
+            .flatten()
+            .collect();
+        let splatmap = SplatmapOverride {
+            width: 5,
+            height: 5,
+            data: splatmap_rgba,
+        };
+
+        let chunks = generate_chunks_with_splatmap(&hm, &params, Some(&splatmap));
+        let chunk = &chunks[0];
+        for w in &chunk.splat_weights {
+            assert_eq!(
+                *w,
+                [0, 255, 0, 0],
+                "every weight should come from the provided splatmap, not procedural generation"
+            );
+        }
+    }
+
+    #[test]
+    fn generate_chunks_without_a_splatmap_is_unchanged() {
+        // Regression: the existing procedural path (no splatmap) must still
+        // produce exactly what generate_chunks always produced.
+        let hm = test_heightmap();
+        let params = ChunkParams {
+            chunk_count: (1, 1),
+            chunk_size: 10.0,
+            height_scale: 1.0,
+        };
+        let via_old_fn = generate_chunks(&hm, &params);
+        let via_new_fn = generate_chunks_with_splatmap(&hm, &params, None);
+        assert_eq!(via_old_fn[0].splat_weights, via_new_fn[0].splat_weights);
     }
 
     #[test]

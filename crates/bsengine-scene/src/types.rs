@@ -516,6 +516,14 @@ pub struct Terrain {
     pub layer2_texture_path: String,
     /// Diffuse texture for the high-altitude splat layer (e.g. snow).
     pub layer3_texture_path: String,
+    /// Path to a whole-terrain RGBA8 splatmap image, one channel per layer
+    /// (same [grass, rock, dirt, snow] order `splat_weight_for` packs).
+    /// `None` means every chunk's splat weights are still generated
+    /// procedurally from height/slope, exactly as before this field existed
+    /// -- every scene authored before it keeps working unchanged. The
+    /// terrain brush tool creates this file and sets this field the first
+    /// time a user paints texture weights.
+    pub splatmap_path: Option<String>,
 }
 
 fn default_rotation() -> [f32; 4] {

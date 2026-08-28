@@ -13,6 +13,8 @@
 
 /// ECS components describing renderable entities (currently `MeshRenderer`).
 pub mod components;
+/// Pure hysteresis LOD-level selection.
+pub mod lod;
 /// The Bevy `Plugin` wiring transform propagation and frame rendering into the app schedule.
 pub mod plugin;
 /// Custom WGSL shader source asset and its loader.
@@ -21,5 +23,6 @@ pub mod shader_asset;
 pub mod texture_cache;
 
 pub use components::MeshRenderer;
+pub use lod::select_lod_level;
 pub use plugin::RenderPlugin;
 pub use shader_asset::{load_shader_source, ShaderSource, ShaderSourceLoader};

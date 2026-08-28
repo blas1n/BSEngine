@@ -25,5 +25,5 @@ pub use asset_loader::GltfSourceLoader;
 pub use loader::{
     GltfImageData, GltfLoader, LoadedGltf, MeshData, NodeTransform, SkinData, VertexSkin,
 };
-pub use plugin::{GltfAsset, GltfPlugin};
+pub use plugin::{GltfAsset, GltfPlugin, LodRequest};
 pub use skinned_mesh::{AnimationClipLibrary, SkinnedMesh, SkinnedMeshPlugin};

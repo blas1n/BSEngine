@@ -15,11 +15,33 @@ use bsengine_asset::{AssetServer, Assets, HeightmapAsset, Polled, TextureAsset};
 use bsengine_core::{GlobalTransform, Transform};
 use bsengine_ecs::{Commands, Component, Entity, Query, Res, ResMut, Without};
 use bsengine_physics::{Collider, ColliderShape, PhysicsInput, RigidBody};
-use bsengine_render::components::TerrainSplat;
+use bsengine_render::components::{LodLevels, TerrainSplat};
 use bsengine_render::MeshRenderer;
 use bsengine_rhi_wgpu::{GpuMeshRegistry, GpuTextureRegistry};
 use glam::{Quat, Vec3};
 use tracing::warn;
+
+/// `texel_stride` (see `terrain_chunking::generate_chunks_with_splatmap`)
+/// for the two lower-resolution LOD mesh variants generated per terrain
+/// chunk at chunk-creation time: LOD 1 samples every 2nd texel, LOD 2 every
+/// 4th. Never used to build a `Collider` -- see `generate_terrain_chunks`'s
+/// per-chunk loop, which builds the heightfield only from the `texel_stride:
+/// 1` chunk.
+const CHUNK_LOD_1_TEXEL_STRIDE: u32 = 2;
+const CHUNK_LOD_2_TEXEL_STRIDE: u32 = 4;
+
+/// Camera-distance ratios, relative to a `Terrain`'s own `chunk_size`, at
+/// which a chunk switches to a lower-detail LOD mesh, and the hysteresis
+/// band around each switch (see `select_lod_level`'s doc comment in
+/// `bsengine-render` for why a band prevents popping). Ratios rather than
+/// fixed absolute distances so they scale sensibly across differently-sized
+/// terrains -- multiplied by `params.chunk_size` at the point of use in
+/// `generate_terrain_chunks`. Simple module-level tuning-knob constants,
+/// matching this codebase's existing precedent for such values
+/// (`SNOW_HEIGHT_RATIO` etc. in `terrain_chunking.rs`).
+const CHUNK_LOD_DISTANCE_1_RATIO: f32 = 2.0;
+const CHUNK_LOD_DISTANCE_2_RATIO: f32 = 5.0;
+const CHUNK_LOD_HYSTERESIS_BAND_RATIO: f32 = 0.2;
 
 /// Re-exported from `bsengine-scene` rather than defined here: `Terrain`'s
 /// fields are plain, RON-serializable data with no runtime-only handles (the
@@ -231,6 +253,24 @@ fn generate_terrain_chunks(
             heightmap,
             &params,
             splatmap_override.as_ref(),
+            1,
+        );
+        // Two extra, lower-resolution mesh variants of the SAME chunks above,
+        // from the same heightmap/params -- used ONLY to populate each
+        // chunk's `LodLevels.mesh_ids` below. Their `heightfield_*` fields
+        // are never read: the `Collider` a few lines down is built
+        // exclusively from `chunks` (texel_stride 1), never from these.
+        let lod1_chunks = crate::terrain_chunking::generate_chunks_with_splatmap(
+            heightmap,
+            &params,
+            splatmap_override.as_ref(),
+            CHUNK_LOD_1_TEXEL_STRIDE,
+        );
+        let lod2_chunks = crate::terrain_chunking::generate_chunks_with_splatmap(
+            heightmap,
+            &params,
+            splatmap_override.as_ref(),
+            CHUNK_LOD_2_TEXEL_STRIDE,
         );
 
         // Rapier's heightfield shape is centered on its own local origin
@@ -245,8 +285,12 @@ fn generate_terrain_chunks(
         // collision would happen `chunk_size / 2` away from what is drawn.
         let half_chunk = Vec3::new(params.chunk_size / 2.0, 0.0, params.chunk_size / 2.0);
 
-        for chunk in chunks {
+        for ((chunk, lod1_chunk), lod2_chunk) in
+            chunks.into_iter().zip(lod1_chunks).zip(lod2_chunks)
+        {
             let mesh_id = mesh_reg.register(&chunk.vertices, &chunk.indices);
+            let lod1_mesh_id = mesh_reg.register(&lod1_chunk.vertices, &lod1_chunk.indices);
+            let lod2_mesh_id = mesh_reg.register(&lod2_chunk.vertices, &lod2_chunk.indices);
             let weight_bytes: Vec<u8> = chunk.splat_weights.iter().flatten().copied().collect();
             let weight_id = tex_reg.load_from_rgba(
                 chunk.heightfield_cols as u32,
@@ -264,8 +308,22 @@ fn generate_terrain_chunks(
                     weight_texture_id: weight_id,
                     layer_texture_ids: layer_ids,
                 },
+                LodLevels {
+                    mesh_ids: vec![lod1_mesh_id, lod2_mesh_id],
+                    switch_distances: vec![
+                        params.chunk_size * CHUNK_LOD_DISTANCE_1_RATIO,
+                        params.chunk_size * CHUNK_LOD_DISTANCE_2_RATIO,
+                    ],
+                    hysteresis_band: params.chunk_size * CHUNK_LOD_HYSTERESIS_BAND_RATIO,
+                    current_index: None,
+                },
                 TerrainChunkOf(entity),
                 RigidBody::fixed(),
+                // The heightfield below is built ONLY from `chunk`
+                // (texel_stride 1, full resolution) -- never from
+                // `lod1_chunk`/`lod2_chunk`. LOD is a rendering-only
+                // concept (see `LodLevels` above); it must never be
+                // reachable from anything that determines collision.
                 Collider {
                     shape: ColliderShape::Heightfield {
                         heights: chunk.heightfield_heights,
@@ -772,6 +830,179 @@ mod tests {
         assert!(
             backrefs.iter().all(|&e| e == terrain_entity),
             "every chunk's TerrainChunkOf must point at the Terrain entity it came from"
+        );
+    }
+
+    /// Mirrors `terrain_chunks_carry_a_terrain_splat_with_real_texture_ids`'s
+    /// shape, but for `LodLevels`: every chunk must carry two extra, real,
+    /// distinct registered mesh ids (not the zero-valued default a forgotten
+    /// registration would leave behind -- `GpuMeshRegistry` ids start at 1,
+    /// see `terrain_chunks_carry_a_terrain_splat_with_real_texture_ids`'s own
+    /// reasoning for its texture-id counterpart), and neither may collide
+    /// with each other or with the chunk's own full-resolution
+    /// `MeshRenderer.mesh_id`.
+    #[test]
+    fn terrain_chunks_carry_lod_levels_with_real_distinct_mesh_ids() {
+        let mut app = test_app();
+
+        let mut values = vec![0u16; 9 * 9];
+        for (i, v) in values.iter_mut().enumerate() {
+            *v = (i as u16 * 100) % u16::MAX;
+        }
+        let path = write_test_heightmap("lod", 9, 9, &values);
+
+        let chunk_count = (2u32, 2u32);
+        let terrain_entity = app
+            .world_mut()
+            .spawn((
+                Terrain {
+                    heightmap_path: path,
+                    chunk_count,
+                    chunk_size: 8.0,
+                    height_scale: 5.0,
+                    layer0_texture_path: write_test_texture("lod-l0", [50, 200, 50, 255]),
+                    layer1_texture_path: write_test_texture("lod-l1", [120, 120, 120, 255]),
+                    layer2_texture_path: write_test_texture("lod-l2", [110, 80, 40, 255]),
+                    layer3_texture_path: write_test_texture("lod-l3", [240, 240, 250, 255]),
+                    splatmap_path: None,
+                },
+                Transform::default(),
+            ))
+            .id();
+
+        run_until_generated(&mut app, terrain_entity);
+
+        let mut query = app.world_mut().query::<(&MeshRenderer, &LodLevels)>();
+        let chunks: Vec<(MeshRenderer, LodLevels)> = query
+            .iter(app.world())
+            .map(|(mr, lod)| (mr.clone(), lod.clone()))
+            .collect();
+        assert_eq!(
+            chunks.len(),
+            (chunk_count.0 * chunk_count.1) as usize,
+            "expected one chunk entity per (chunk_count.0 * chunk_count.1)"
+        );
+
+        for (mesh_renderer, lod) in &chunks {
+            assert_eq!(
+                lod.mesh_ids.len(),
+                2,
+                "expected exactly 2 extra LOD mesh ids, got {:?}",
+                lod.mesh_ids
+            );
+            for (i, id) in lod.mesh_ids.iter().enumerate() {
+                assert!(
+                    *id > 0,
+                    "lod.mesh_ids[{i}] must be a real registered id, got {id}"
+                );
+            }
+            assert_ne!(
+                lod.mesh_ids[0], lod.mesh_ids[1],
+                "the two LOD mesh ids must be distinct registrations"
+            );
+            assert_ne!(
+                lod.mesh_ids[0], mesh_renderer.mesh_id,
+                "LOD 1's mesh id must not collide with the full-res mesh id"
+            );
+            assert_ne!(
+                lod.mesh_ids[1], mesh_renderer.mesh_id,
+                "LOD 2's mesh id must not collide with the full-res mesh id"
+            );
+        }
+    }
+
+    /// The non-negotiable physics invariant this whole task exists to prove:
+    /// a terrain chunk's `Collider` is built exclusively from full-resolution
+    /// height data, completely independent of which LOD level is (or would
+    /// be) selected for rendering. Mirrors
+    /// `a_dropped_body_lands_on_the_chunk_it_visually_sits_above`'s setup,
+    /// but additionally forces `LodLevels.current_index` to `Some(1)`
+    /// (simulating "far away, lowest detail selected") before dropping the
+    /// body -- if that render-only selection ever became reachable from
+    /// collision, the ball would land at the wrong height (or not on the
+    /// terrain at all, since a lower-res mesh's height samples don't
+    /// necessarily coincide with the ball's drop point).
+    #[test]
+    fn a_dropped_body_lands_at_the_same_height_regardless_of_terrain_lod() {
+        let mut app = test_app();
+        app.add_plugins(bsengine_physics::PhysicsPlugin);
+
+        let flat_height_raw: u16 = 32768; // -> (32768 / 65535) * height_scale
+        let height_scale = 20.0f32;
+        let expected_height = (flat_height_raw as f32 / u16::MAX as f32) * height_scale;
+
+        let values = vec![flat_height_raw; 4 * 4];
+        let path = write_test_heightmap("flat-drop-lod", 4, 4, &values);
+
+        let chunk_size = 10.0;
+        let terrain_entity = app
+            .world_mut()
+            .spawn((
+                Terrain {
+                    heightmap_path: path,
+                    chunk_count: (1, 1),
+                    chunk_size,
+                    height_scale,
+                    layer0_texture_path: write_test_texture("flat-drop-lod-l0", [50, 200, 50, 255]),
+                    layer1_texture_path: write_test_texture(
+                        "flat-drop-lod-l1",
+                        [120, 120, 120, 255],
+                    ),
+                    layer2_texture_path: write_test_texture("flat-drop-lod-l2", [110, 80, 40, 255]),
+                    layer3_texture_path: write_test_texture(
+                        "flat-drop-lod-l3",
+                        [240, 240, 250, 255],
+                    ),
+                    splatmap_path: None,
+                },
+                Transform::from_position(Vec3::ZERO),
+            ))
+            .id();
+        run_until_generated(&mut app, terrain_entity);
+
+        // Force the render-only LOD selection to the lowest-detail level, as
+        // if the camera were far away. This must have zero bearing on where
+        // the collider is or how the body settles.
+        let mut lod_query = app.world_mut().query::<(&TerrainChunkOf, &mut LodLevels)>();
+        let mut forced_any = false;
+        for (chunk_of, mut lod) in lod_query.iter_mut(app.world_mut()) {
+            if chunk_of.0 == terrain_entity {
+                lod.current_index = Some(1);
+                forced_any = true;
+            }
+        }
+        assert!(
+            forced_any,
+            "expected at least one chunk entity to force LodLevels.current_index on"
+        );
+
+        let radius = 0.5;
+        let drop_xz = chunk_size / 2.0;
+        let start = Vec3::new(drop_xz, expected_height + 10.0, drop_xz);
+        let ball = app
+            .world_mut()
+            .spawn((
+                Transform::from_position(start),
+                bsengine_physics::RigidBody::dynamic(),
+                bsengine_physics::Collider::ball(radius),
+                bsengine_physics::PhysicsInput {
+                    position: start.into(),
+                    rotation: Quat::IDENTITY.into(),
+                },
+            ))
+            .id();
+
+        for _ in 0..200 {
+            app.update();
+        }
+
+        let y = app.world().get::<Transform>(ball).unwrap().position.0.y;
+        let expected = expected_height + radius;
+        assert!(
+            (y - expected).abs() < 0.1,
+            "expected the ball to rest at y ~= {expected} (terrain height {expected_height} \
+             + radius {radius}) regardless of the forced LOD selection, but it settled at \
+             y={y} -- LOD must never be reachable from collision"
         );
     }
 }

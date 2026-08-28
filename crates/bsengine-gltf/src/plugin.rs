@@ -31,6 +31,32 @@ impl GltfAsset {
     }
 }
 
+/// Marker component requesting extra, lower-detail glTF files be loaded
+/// for an entity that already has (or is about to have) a `MeshRenderer`
+/// from its own `GltfAsset`/base mesh. Consumed by `load_lod_assets`,
+/// which attaches `bsengine_render::components::LodLevels` once every
+/// requested file has loaded.
+///
+/// Registered for reflection (R1: every public `#[derive(Component)]` type
+/// must be registered), but not from here: `GltfPlugin::build` is the wrong
+/// place for the exact reason `GltfAsset`'s own doc comment gives -- the
+/// plugin is absent from the headless `bsengine-runtime --test` app (it
+/// needs the GPU registries), so a registration made in this crate would be
+/// missing from exactly the host the E2E replays run in.
+/// `bsengine_scene::register_gameplay_reflect_types` -- which both hosts
+/// call, and which already depends on this crate -- registers it instead,
+/// right alongside `GltfAsset`.
+#[derive(Component, Clone, Debug, bevy_reflect::Reflect)]
+#[reflect(Component)]
+pub struct LodRequest {
+    /// Filesystem paths to the extra glTF/GLB files, LOD 1 first.
+    pub paths: Vec<String>,
+    /// See `LodLevels::switch_distances`. Same length as `paths`.
+    pub switch_distances: Vec<f32>,
+    /// See `LodLevels::hysteresis_band`.
+    pub hysteresis_band: f32,
+}
+
 /// Bevy plugin that loads `GltfAsset` entities into renderable meshes each frame.
 pub struct GltfPlugin;
 
@@ -39,7 +65,10 @@ impl Plugin for GltfPlugin {
         use bevy_asset::AssetApp;
         app.init_asset::<LoadedGltf>()
             .register_asset_loader(crate::asset_loader::GltfSourceLoader)
-            .add_systems(Update, (load_gltf_assets, rebuild_modified_gltf).chain());
+            .add_systems(
+                Update,
+                (load_gltf_assets, load_lod_assets, rebuild_modified_gltf).chain(),
+            );
     }
 }
 
@@ -234,6 +263,122 @@ fn load_gltf_assets(
                 texture_ids: tex_ids.iter().flatten().copied().collect(),
             });
         }
+    }
+}
+
+/// The in-flight loads for a [`LodRequest`], one [`bsengine_asset::AssetSlot`]
+/// per extra glTF file, mirroring [`PendingGltf`]'s single-slot version (see
+/// its own doc comment) but for a variable-length list.
+#[derive(Component)]
+struct PendingLod {
+    slots: Vec<bsengine_asset::AssetSlot<LoadedGltf>>,
+}
+
+/// Loads every path in a [`LodRequest`], registers each as a GPU mesh (using
+/// only the FIRST mesh in each loaded glTF -- a LOD level file is expected
+/// to contain exactly one mesh; if it contains more, the rest are silently
+/// ignored, matching the simplest reasonable interpretation of "this file
+/// is one LOD level" rather than treating extra meshes as more sub-parts),
+/// and attaches `bsengine_render::components::LodLevels` once every
+/// requested file has arrived.
+///
+/// Gated on `With<MeshRenderer>` -- the opposite of [`load_gltf_assets`],
+/// which gates on `Without<MeshRenderer>` -- because a `LodRequest` only
+/// makes sense once the entity's own base mesh has finished loading. `GltfPlugin`
+/// therefore chains this strictly after `load_gltf_assets` in the same
+/// `Update` schedule, so an entity whose base glTF and LOD files both start
+/// loading in the same frame cannot have its `LodRequest` processed before
+/// `MeshRenderer` exists.
+fn load_lod_assets(
+    mut commands: Commands,
+    mut query: Query<(Entity, &LodRequest, Option<&mut PendingLod>), With<MeshRenderer>>,
+    mut mesh_registry: Option<ResMut<GpuMeshRegistry>>,
+    mut gltf_assets: ResMut<bevy_asset::Assets<LoadedGltf>>,
+    asset_server: Res<bevy_asset::AssetServer>,
+) {
+    for (entity, request, pending) in query.iter_mut() {
+        // Request every path exactly once, then retain the handles. See
+        // `PendingLod`/`PendingGltf`.
+        let Some(mut pending) = pending else {
+            let slots = request
+                .paths
+                .iter()
+                .map(|path| {
+                    match bsengine_asset::load(
+                        bsengine_asset::LoadMode::Async,
+                        &asset_server,
+                        &mut gltf_assets,
+                        path,
+                        GltfLoader::load_full,
+                    ) {
+                        Ok(handle) => bsengine_asset::AssetSlot::from_handle(handle),
+                        Err(_) => {
+                            unreachable!("LoadMode::Async is infallible, see load_gltf_assets")
+                        }
+                    }
+                })
+                .collect();
+            commands.entity(entity).insert(PendingLod { slots });
+            continue;
+        };
+
+        let mut any_failed = false;
+        for slot in pending.slots.iter_mut() {
+            if matches!(
+                slot.poll(&asset_server, &gltf_assets),
+                bsengine_asset::Polled::Failed(_)
+            ) {
+                any_failed = true;
+            }
+        }
+        if any_failed {
+            warn!("[lod] one or more LOD levels failed to load; dropping LodRequest");
+            commands.entity(entity).remove::<(LodRequest, PendingLod)>();
+            continue;
+        }
+
+        let mut loaded_meshes = Vec::with_capacity(pending.slots.len());
+        let mut all_arrived = true;
+        for slot in pending.slots.iter() {
+            match gltf_assets.get(slot.handle()) {
+                Some(loaded) => loaded_meshes.push(loaded),
+                None => {
+                    all_arrived = false;
+                    break;
+                }
+            }
+        }
+        if !all_arrived {
+            continue;
+        }
+
+        let Some(mesh_reg) = mesh_registry.as_mut() else {
+            continue;
+        };
+
+        let mesh_ids: Vec<u64> = loaded_meshes
+            .iter()
+            .filter_map(|loaded| loaded.meshes.first())
+            .map(|mesh_data| mesh_reg.register(&mesh_data.vertices, &mesh_data.indices))
+            .collect();
+
+        if mesh_ids.len() != request.paths.len() {
+            warn!(
+                "[lod] expected {} LOD mesh(es), got {} (one or more LOD files had no meshes)",
+                request.paths.len(),
+                mesh_ids.len()
+            );
+        }
+
+        commands
+            .entity(entity)
+            .insert(bsengine_render::components::LodLevels {
+                mesh_ids,
+                switch_distances: request.switch_distances.clone(),
+                hysteresis_band: request.hysteresis_band,
+                current_index: None,
+            })
+            .remove::<(LodRequest, PendingLod)>();
     }
 }
 
@@ -1312,6 +1457,108 @@ mod tests {
             gave_up,
             "a GltfAsset with an unloadable path must be given up on, not \
              retried on every frame forever"
+        );
+    }
+
+    /// Drives `load_lod_assets` end to end: a `LodRequest` naming two files
+    /// becomes `LodLevels` once both have loaded, chained strictly after
+    /// `load_gltf_assets` resolves the base `MeshRenderer`.
+    ///
+    /// Reuses `fox.glb` -- the one committed `.glb`/`.gltf` fixture anywhere
+    /// in this repository (outside `target/`), already the fixture every
+    /// other loading test in this file resolves via `CARGO_MANIFEST_DIR` --
+    /// for the base mesh *and* both LOD levels, rather than hand-authoring a
+    /// new binary glTF fixture. `load_lod_assets` doesn't care whether a LOD
+    /// level is literally lower-poly than LOD 0; it only needs a real,
+    /// independently loadable glTF per path, and `GpuMeshRegistry::register`
+    /// hands out a fresh id on every call regardless of whether the source
+    /// data is identical, so reusing one file still exercises "N requested
+    /// paths become N distinct registered mesh ids."
+    #[test]
+    fn lod_request_becomes_lod_levels_once_every_file_loads() {
+        use bsengine_render::components::LodLevels;
+
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../games/mini-arena/assets/models/fox.glb");
+        let path = fixture.to_str().unwrap().to_owned();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::windowed());
+        app.add_plugins(GltfPlugin);
+        insert_headless_gpu_registries(&mut app);
+
+        let e = app
+            .world_mut()
+            .spawn((
+                GltfAsset::new(path.clone()),
+                LodRequest {
+                    paths: vec![path.clone(), path.clone()],
+                    switch_distances: vec![10.0, 30.0],
+                    hysteresis_band: 2.0,
+                },
+            ))
+            .id();
+
+        let mut ready = false;
+        for _ in 0..200 {
+            app.update();
+            if app.world().get::<MeshRenderer>(e).is_some()
+                && app.world().get::<LodLevels>(e).is_some()
+            {
+                ready = true;
+                break;
+            }
+        }
+        assert!(
+            ready,
+            "MeshRenderer (from GltfAsset) and LodLevels (from LodRequest) must \
+             both appear within 200 frames"
+        );
+
+        let mesh_id = app
+            .world()
+            .get::<MeshRenderer>(e)
+            .expect("checked above")
+            .mesh_id;
+        let lod_levels = app
+            .world()
+            .get::<LodLevels>(e)
+            .expect("checked above")
+            .clone();
+
+        assert_eq!(
+            lod_levels.mesh_ids.len(),
+            2,
+            "one registered mesh id per requested LOD path, got {:?}",
+            lod_levels.mesh_ids
+        );
+        assert!(
+            lod_levels.mesh_ids.iter().all(|id| *id > 0),
+            "GpuMeshRegistry ids start at 1 and are never 0: {:?}",
+            lod_levels.mesh_ids
+        );
+        assert_ne!(
+            lod_levels.mesh_ids[0], lod_levels.mesh_ids[1],
+            "each requested LOD level must register as its own mesh, even when \
+             both paths name the same source file"
+        );
+        assert!(
+            !lod_levels.mesh_ids.contains(&mesh_id),
+            "LOD mesh ids ({:?}) must be distinct from the base MeshRenderer's \
+             mesh id ({mesh_id}) -- LOD 0 is that id already and must not be \
+             duplicated into mesh_ids",
+            lod_levels.mesh_ids
+        );
+
+        assert!(
+            app.world().get::<LodRequest>(e).is_none(),
+            "LodRequest must be removed once LodLevels attaches, or the request \
+             would be reprocessed forever"
+        );
+        assert!(
+            app.world().get::<PendingLod>(e).is_none(),
+            "PendingLod must be removed alongside LodRequest"
         );
     }
 }

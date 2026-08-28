@@ -330,6 +330,30 @@ pub struct EntityDescriptor {
     /// logs a warning and is skipped, not a hard load failure.
     #[serde(default)]
     pub components: Vec<(String, String)>,
+    /// Extra, lower-detail mesh levels for this entity, switched by camera
+    /// distance. Absent means no LOD levels -- this entity always renders
+    /// its `gltf` mesh, exactly as every scene written before this field
+    /// existed.
+    #[serde(default)]
+    pub lod: Option<LodDescriptor>,
+}
+
+/// Extra, lower-detail glTF meshes for a scene entity and the camera
+/// distances at which to switch to them. The entity's own `gltf` field
+/// remains LOD 0 (highest detail).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LodDescriptor {
+    /// Additional meshes, index 0 = LOD 1 (first drop from full detail).
+    pub levels: Vec<AssetRef>,
+    /// One distance per entry in `levels` -- see `levels`' own ordering.
+    pub distances: Vec<f32>,
+    /// See `bsengine_render::components::LodLevels::hysteresis_band`.
+    #[serde(default = "default_lod_hysteresis_band")]
+    pub hysteresis_band: f32,
+}
+
+fn default_lod_hysteresis_band() -> f32 {
+    2.0
 }
 
 /// Position, rotation, and scale for a scene entity, as written in a scene file.
@@ -884,6 +908,49 @@ mod tests {
         assert_eq!(d.name, "X");
         assert_eq!(d.transform, None);
         assert!(d.components.is_empty());
+    }
+
+    #[test]
+    fn lod_field_parses_and_defaults_to_absent() {
+        let none: EntityDescriptor = ron::from_str(r#"EntityDescriptor(name: "A")"#)
+            .expect("scenes written before this field must still parse");
+        assert_eq!(none.lod, None);
+
+        let with_lod: EntityDescriptor = ron::from_str(
+            r#"EntityDescriptor(
+                name: "Tree",
+                gltf: Some("models/tree_lod0.glb"),
+                lod: Some((
+                    levels: ["models/tree_lod1.glb", "models/tree_lod2.glb"],
+                    distances: [20.0, 60.0],
+                )),
+            )"#,
+        )
+        .expect("a scene entity should be able to declare LOD levels");
+        let lod = with_lod.lod.expect("lod should be Some");
+        assert_eq!(lod.levels.len(), 2);
+        assert_eq!(lod.levels[0].path(), "models/tree_lod1.glb");
+        assert_eq!(lod.distances, [20.0, 60.0]);
+        assert_eq!(
+            lod.hysteresis_band, 2.0,
+            "should default when not specified"
+        );
+    }
+
+    #[test]
+    fn lod_hysteresis_band_can_be_overridden() {
+        let with_band: EntityDescriptor = ron::from_str(
+            r#"EntityDescriptor(
+                name: "Tree",
+                lod: Some((
+                    levels: ["models/tree_lod1.glb"],
+                    distances: [20.0],
+                    hysteresis_band: 5.0,
+                )),
+            )"#,
+        )
+        .expect("hysteresis_band should be overridable");
+        assert_eq!(with_band.lod.unwrap().hysteresis_band, 5.0);
     }
 
     #[test]

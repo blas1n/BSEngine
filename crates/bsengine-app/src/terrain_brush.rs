@@ -528,6 +528,7 @@ fn preview_terrain_brush_stroke(
                 &dummy_hm,
                 &params,
                 Some(&overlay),
+                1,
             );
             let chunks_x = params.chunk_count.0;
 

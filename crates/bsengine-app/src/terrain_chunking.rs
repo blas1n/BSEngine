@@ -238,7 +238,7 @@ pub struct ChunkData {
 /// `heightmap`'s resolution doesn't evenly divide `chunk_count`, the
 /// remainder is absorbed into the last chunk along that axis.
 pub fn generate_chunks(heightmap: &HeightmapAsset, params: &ChunkParams) -> Vec<ChunkData> {
-    generate_chunks_with_splatmap(heightmap, params, None)
+    generate_chunks_with_splatmap(heightmap, params, None, 1)
 }
 
 /// Same as `generate_chunks`, but when `splatmap` is `Some`, every vertex's
@@ -246,11 +246,28 @@ pub fn generate_chunks(heightmap: &HeightmapAsset, params: &ChunkParams) -> Vec<
 /// `splat_weight_for`. `splatmap`'s dimensions are assumed to match
 /// `heightmap`'s (the terrain brush tool is responsible for keeping the two
 /// files the same size when it creates a splatmap).
+///
+/// `texel_stride` selects a lower-resolution variant of the same chunk span
+/// for use as an LOD mesh: at `1` (the only value every pre-LOD call site
+/// used, and still every call site except terrain LOD generation), every
+/// texel is sampled and this function's output is byte-identical to its
+/// pre-`texel_stride` behavior. At `N > 1`, only every Nth texel is sampled
+/// (`hx = origin_x + lx * texel_stride`), producing roughly `1/N` the vertex
+/// resolution along each axis while `world_offset`/the chunk's world-space
+/// footprint (`params.chunk_size`) are unchanged -- fewer samples over the
+/// same physical area, not a smaller chunk. `heightfield_heights` /
+/// `heightfield_rows` / `heightfield_cols` on a strided `ChunkData` describe
+/// that same lower-resolution grid too; callers building a `Collider` MUST
+/// use a `texel_stride: 1` chunk's fields for that, never a strided one's --
+/// LOD is a rendering-only concept, so this function makes no attempt to
+/// keep a strided chunk's heightfield collision-worthy.
 pub fn generate_chunks_with_splatmap(
     heightmap: &HeightmapAsset,
     params: &ChunkParams,
     splatmap: Option<&SplatmapOverride>,
+    texel_stride: u32,
 ) -> Vec<ChunkData> {
+    let stride = texel_stride.max(1);
     let (chunks_x, chunks_z) = params.chunk_count;
     let base_texels_x = heightmap.width / chunks_x;
     let base_texels_z = heightmap.height / chunks_z;
@@ -272,19 +289,24 @@ pub fn generate_chunks_with_splatmap(
 
             let origin_x = cx * base_texels_x;
             let origin_z = cz * base_texels_z;
-            // +1 on both axes: the shared boundary row/column with the next chunk.
-            let verts_x = texels_x + 1;
-            let verts_z = texels_z + 1;
+            // Number of strided steps spanning this chunk's texel extent --
+            // equals `texels_x`/`texels_z` exactly when `stride == 1`. +1 on
+            // both axes: the shared boundary row/column with the next chunk
+            // (same convention as full resolution).
+            let lod_texels_x = texels_x.div_ceil(stride).max(1);
+            let lod_texels_z = texels_z.div_ceil(stride).max(1);
+            let verts_x = lod_texels_x + 1;
+            let verts_z = lod_texels_z + 1;
 
             let mut vertices = Vec::with_capacity((verts_x * verts_z) as usize);
             let mut heightfield_heights = Vec::with_capacity((verts_x * verts_z) as usize);
             let mut splat_weights = Vec::with_capacity((verts_x * verts_z) as usize);
-            let world_step = params.chunk_size / texels_x.max(1) as f32; // square chunks; x and z share one step
+            let world_step = params.chunk_size / lod_texels_x.max(1) as f32; // square chunks; x and z share one step
 
             for lz in 0..verts_z {
                 for lx in 0..verts_x {
-                    let hx = origin_x + lx;
-                    let hz = origin_z + lz;
+                    let hx = origin_x + lx * stride;
+                    let hz = origin_z + lz * stride;
                     let y = height_at(heightmap, params.height_scale, hx, hz);
                     heightfield_heights.push(y);
 
@@ -301,14 +323,17 @@ pub fn generate_chunks_with_splatmap(
                         position: [lx as f32 * world_step, y, lz as f32 * world_step],
                         color: [1.0, 1.0, 1.0],
                         normal: normal.to_array(),
-                        uv: [lx as f32 / texels_x as f32, lz as f32 / texels_z as f32],
+                        uv: [
+                            lx as f32 / lod_texels_x as f32,
+                            lz as f32 / lod_texels_z as f32,
+                        ],
                     });
                 }
             }
 
-            let mut indices = Vec::with_capacity((texels_x * texels_z * 6) as usize);
-            for lz in 0..texels_z {
-                for lx in 0..texels_x {
+            let mut indices = Vec::with_capacity((lod_texels_x * lod_texels_z * 6) as usize);
+            for lz in 0..lod_texels_z {
+                for lx in 0..lod_texels_x {
                     let i0 = lz * verts_x + lx;
                     let i1 = lz * verts_x + lx + 1;
                     let i2 = (lz + 1) * verts_x + lx + 1;
@@ -505,7 +530,7 @@ mod tests {
             data: splatmap_rgba,
         };
 
-        let chunks = generate_chunks_with_splatmap(&hm, &params, Some(&splatmap));
+        let chunks = generate_chunks_with_splatmap(&hm, &params, Some(&splatmap), 1);
         let chunk = &chunks[0];
         for w in &chunk.splat_weights {
             assert_eq!(
@@ -527,8 +552,102 @@ mod tests {
             height_scale: 1.0,
         };
         let via_old_fn = generate_chunks(&hm, &params);
-        let via_new_fn = generate_chunks_with_splatmap(&hm, &params, None);
+        let via_new_fn = generate_chunks_with_splatmap(&hm, &params, None, 1);
         assert_eq!(via_old_fn[0].splat_weights, via_new_fn[0].splat_weights);
+    }
+
+    #[test]
+    fn texel_stride_of_one_is_byte_identical_to_the_pre_stride_behavior() {
+        let hm = test_heightmap();
+        let params = ChunkParams {
+            chunk_count: (2, 2),
+            chunk_size: 10.0,
+            height_scale: 1.0,
+        };
+        let via_generate_chunks = generate_chunks(&hm, &params);
+        let via_explicit_stride_1 = generate_chunks_with_splatmap(&hm, &params, None, 1);
+        assert_eq!(via_generate_chunks.len(), via_explicit_stride_1.len());
+        for (a, b) in via_generate_chunks.iter().zip(via_explicit_stride_1.iter()) {
+            assert_eq!(a.vertices.len(), b.vertices.len());
+            for (va, vb) in a.vertices.iter().zip(b.vertices.iter()) {
+                assert_eq!(va.position, vb.position);
+                assert_eq!(va.normal, vb.normal);
+                assert_eq!(va.uv, vb.uv);
+                assert_eq!(va.color, vb.color);
+            }
+            assert_eq!(a.indices, b.indices);
+            assert_eq!(a.world_offset, b.world_offset);
+            assert_eq!(a.heightfield_heights, b.heightfield_heights);
+            assert_eq!(a.heightfield_rows, b.heightfield_rows);
+            assert_eq!(a.heightfield_cols, b.heightfield_cols);
+            assert_eq!(a.splat_weights, b.splat_weights);
+        }
+    }
+
+    #[test]
+    fn texel_stride_of_two_roughly_halves_vertex_resolution_but_keeps_the_same_footprint() {
+        // An 8x8 heightmap in a single chunk: with chunk_count (1, 1),
+        // texels_x/texels_z equal the heightmap's own width/height exactly
+        // (there's no other chunk to absorb a remainder against), so a
+        // stride of 2 divides the texel span evenly (no remainder-absorption
+        // noise to account for), making "roughly half" an exact half here.
+        let mut data = vec![0u16; 8 * 8];
+        for (i, v) in data.iter_mut().enumerate() {
+            *v = (i as u16 * 100) % u16::MAX;
+        }
+        let hm = HeightmapAsset {
+            width: 8,
+            height: 8,
+            data,
+        };
+        let params = ChunkParams {
+            chunk_count: (1, 1),
+            chunk_size: 16.0,
+            height_scale: 5.0,
+        };
+
+        let full_res = generate_chunks_with_splatmap(&hm, &params, None, 1);
+        let half_res = generate_chunks_with_splatmap(&hm, &params, None, 2);
+        assert_eq!(full_res.len(), 1);
+        assert_eq!(half_res.len(), 1);
+
+        let full = &full_res[0];
+        let half = &half_res[0];
+
+        // Full res: 8 texels -> 9x9 verts. Half res (stride 2): 4 texels -> 5x5 verts.
+        assert_eq!(full.heightfield_cols, 9);
+        assert_eq!(full.heightfield_rows, 9);
+        assert_eq!(half.heightfield_cols, 5);
+        assert_eq!(half.heightfield_rows, 5);
+        assert!(
+            half.vertices.len() < full.vertices.len(),
+            "a texel_stride of 2 must produce fewer vertices than full resolution"
+        );
+
+        // Same physical footprint: both chunks describe the same world_offset
+        // and were generated from the same chunk_size, and both meshes' far
+        // corner vertex should land at (approximately) the same world position.
+        assert_eq!(full.world_offset, half.world_offset);
+        let full_far_corner = full.vertices.last().unwrap().position;
+        let half_far_corner = half.vertices.last().unwrap().position;
+        assert!(
+            (full_far_corner[0] - half_far_corner[0]).abs() < 0.001,
+            "full-res and half-res far corners should be at the same world x, \
+             got {} vs {}",
+            full_far_corner[0],
+            half_far_corner[0]
+        );
+        assert!(
+            (full_far_corner[2] - half_far_corner[2]).abs() < 0.001,
+            "full-res and half-res far corners should be at the same world z, \
+             got {} vs {}",
+            full_far_corner[2],
+            half_far_corner[2]
+        );
+        assert_eq!(
+            full_far_corner[0], params.chunk_size,
+            "the far corner should sit exactly at chunk_size along x"
+        );
     }
 
     #[test]

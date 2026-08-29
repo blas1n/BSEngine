@@ -2549,9 +2549,11 @@ impl WgpuSurface {
                 ssao_intensity: ao.intensity,
                 ssao_sample_count: ao.sample_count,
                 ssao_enabled: ao.enabled as u32,
-                _pad0: 0.0,
-                _pad1: 0.0,
-                _pad2: 0.0,
+                // Not yet driven by the camera's `Taa` component, so the TAA
+                // pass stays disabled and passes colour straight through.
+                taa_enabled: 0,
+                taa_history_blend: 0.0,
+                taa_clamp_strength: 0.0,
             };
             self.post_process.update_config(&self.queue, pp_config);
             let inv_proj = cam_proj.inverse();

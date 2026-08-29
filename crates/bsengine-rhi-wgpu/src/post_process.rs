@@ -4,6 +4,7 @@ const BLOOM_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 const AO_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 const CONFIG_SIZE: u64 = 64;
 const SSAO_CAM_SIZE: u64 = 128;
+const TAA_CAM_SIZE: u64 = 128;
 
 const BLOOM_WGSL: &str = r#"
 struct FullscreenOut {
@@ -14,7 +15,7 @@ struct PostProcessConfig {
     bloom_threshold: f32, bloom_softness: f32, bloom_intensity: f32, bloom_radius: f32,
     bloom_enabled: u32, tonemap_mode: u32, tonemap_exposure: f32, tonemap_enabled: u32,
     ssao_radius: f32, ssao_bias: f32, ssao_intensity: f32, ssao_sample_count: u32,
-    ssao_enabled: u32, _pad0: f32, _pad1: f32, _pad2: f32,
+    ssao_enabled: u32, taa_enabled: u32, taa_history_blend: f32, taa_clamp_strength: f32,
 }
 @group(0) @binding(0) var hdr_tex: texture_2d<f32>;
 @group(0) @binding(1) var tex_sampler: sampler;
@@ -73,7 +74,7 @@ struct PostProcessConfig {
     bloom_threshold: f32, bloom_softness: f32, bloom_intensity: f32, bloom_radius: f32,
     bloom_enabled: u32, tonemap_mode: u32, tonemap_exposure: f32, tonemap_enabled: u32,
     ssao_radius: f32, ssao_bias: f32, ssao_intensity: f32, ssao_sample_count: u32,
-    ssao_enabled: u32, _pad0: f32, _pad1: f32, _pad2: f32,
+    ssao_enabled: u32, taa_enabled: u32, taa_history_blend: f32, taa_clamp_strength: f32,
 }
 struct SsaoCamera {
     proj: mat4x4<f32>,
@@ -164,7 +165,7 @@ struct PostProcessConfig {
     bloom_threshold: f32, bloom_softness: f32, bloom_intensity: f32, bloom_radius: f32,
     bloom_enabled: u32, tonemap_mode: u32, tonemap_exposure: f32, tonemap_enabled: u32,
     ssao_radius: f32, ssao_bias: f32, ssao_intensity: f32, ssao_sample_count: u32,
-    ssao_enabled: u32, _pad0: f32, _pad1: f32, _pad2: f32,
+    ssao_enabled: u32, taa_enabled: u32, taa_history_blend: f32, taa_clamp_strength: f32,
 }
 @group(0) @binding(0) var hdr_tex: texture_2d<f32>;
 @group(0) @binding(1) var hdr_sampler: sampler;
@@ -288,12 +289,13 @@ pub struct PostProcessConfigGpu {
     pub ssao_sample_count: u32,
     /// Nonzero to enable the SSAO pass; zero always returns full visibility.
     pub ssao_enabled: u32,
-    /// Padding to satisfy uniform buffer alignment; unused.
-    pub _pad0: f32,
-    /// Padding to satisfy uniform buffer alignment; unused.
-    pub _pad1: f32,
-    /// Padding to satisfy uniform buffer alignment; unused.
-    pub _pad2: f32,
+    /// Nonzero to enable the TAA pass; zero passes the composite result
+    /// through unchanged.
+    pub taa_enabled: u32,
+    /// See `Taa::history_blend`.
+    pub taa_history_blend: f32,
+    /// See `Taa::clamp_strength`.
+    pub taa_clamp_strength: f32,
 }
 
 /// GPU-uniform-buffer layout for the camera matrices the SSAO pass needs to
@@ -305,6 +307,24 @@ pub struct SsaoCameraGpu {
     pub proj: [[f32; 4]; 4],
     /// Inverse of `proj`, used to unproject depth back to view space.
     pub inv_proj: [[f32; 4]; 4],
+}
+
+/// GPU-uniform-buffer layout for the matrices the TAA pass needs to
+/// reproject a pixel into the previous frame.
+///
+/// Both matrices are deliberately **unjittered**. Jitter belongs to
+/// rasterization only: reprojecting with jittered matrices would chase the
+/// jitter instead of the camera, and the accumulated image would never
+/// converge.
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct TaaCameraGpu {
+    /// Inverse of this frame's UNJITTERED view-projection, used to turn a
+    /// pixel plus its depth back into a world-space position.
+    pub inv_view_proj: [[f32; 4]; 4],
+    /// The PREVIOUS frame's unjittered view-projection, used to find where
+    /// that world position appeared last frame.
+    pub prev_view_proj: [[f32; 4]; 4],
 }
 
 struct PostProcessTargets {
@@ -320,6 +340,9 @@ struct PostProcessTargets {
     ldr_texture: crate::profiler::TrackedTexture,
     ldr_view: wgpu::TextureView,
     ldr_bg: wgpu::BindGroup,
+    history_textures: [crate::profiler::TrackedTexture; 2],
+    history_views: [wgpu::TextureView; 2],
+    history_bgs: [wgpu::BindGroup; 2],
     depth_bg: wgpu::BindGroup,
 }
 
@@ -339,6 +362,22 @@ pub struct PostProcessState {
     /// texture it is rendering into.
     ldr_view: wgpu::TextureView,
     _ldr_texture: crate::profiler::TrackedTexture,
+    /// Two history targets, swapped each frame: one holds the previous
+    /// frame's TAA output while the other receives this frame's. A single
+    /// texture cannot be sampled and rendered to in the same pass.
+    history_views: [wgpu::TextureView; 2],
+    _history_textures: [crate::profiler::TrackedTexture; 2],
+    history_bgs: [wgpu::BindGroup; 2],
+    /// Index of the history texture holding the PREVIOUS frame's result.
+    /// Flipped at the end of every `apply`.
+    // Only read once the resolve pass actually samples history; the
+    // passthrough blit in `apply` does not.
+    #[allow(dead_code)]
+    history_read: usize,
+    /// False until a frame has been written to history. The first frame has
+    /// no history to reproject, so it must pass through unblended rather
+    /// than blending against an uninitialised texture.
+    history_valid: bool,
     hdr_bg: wgpu::BindGroup,
     bloom_bg: wgpu::BindGroup,
     ao_bg: wgpu::BindGroup,
@@ -349,6 +388,11 @@ pub struct PostProcessState {
     config_bg: wgpu::BindGroup,
     ssao_cam_buffer: wgpu::Buffer,
     ssao_cam_bg: wgpu::BindGroup,
+    taa_cam_buffer: wgpu::Buffer,
+    // Bound once the resolve pass reprojects; the passthrough blit in `apply`
+    // takes no camera uniform.
+    #[allow(dead_code)]
+    taa_cam_bg: wgpu::BindGroup,
     /// Pipeline for the bright-pass bloom extraction shader.
     pub bloom_pipeline: wgpu::RenderPipeline,
     /// Pipeline for the SSAO occlusion shader.
@@ -449,6 +493,20 @@ impl PostProcessState {
             }],
         });
 
+        let taa_cam_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("pp taa cam bgl"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: wgpu::BufferSize::new(TAA_CAM_SIZE),
+                },
+                count: None,
+            }],
+        });
+
         let config_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("pp config buffer"),
             size: CONFIG_SIZE,
@@ -479,6 +537,21 @@ impl PostProcessState {
             }],
         });
 
+        let taa_cam_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("pp taa cam buffer"),
+            size: TAA_CAM_SIZE,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let taa_cam_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("pp taa cam bg"),
+            layout: &taa_cam_bgl,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: taa_cam_buffer.as_entire_binding(),
+            }],
+        });
+
         let bloom_pipeline = Self::make_bloom_pipeline(device, &tex2d_bgl, &config_bgl);
         let ssao_pipeline =
             Self::make_ssao_pipeline(device, &depth_bgl, &config_bgl, &ssao_cam_bgl);
@@ -506,6 +579,11 @@ impl PostProcessState {
             _ao_texture: targets.ao_texture,
             ldr_view: targets.ldr_view,
             _ldr_texture: targets.ldr_texture,
+            history_views: targets.history_views,
+            _history_textures: targets.history_textures,
+            history_bgs: targets.history_bgs,
+            history_read: 0,
+            history_valid: false,
             hdr_bg: targets.hdr_bg,
             bloom_bg: targets.bloom_bg,
             ao_bg: targets.ao_bg,
@@ -516,6 +594,8 @@ impl PostProcessState {
             config_bg,
             ssao_cam_buffer,
             ssao_cam_bg,
+            taa_cam_buffer,
+            taa_cam_bg,
             bloom_pipeline,
             ssao_pipeline,
             composite_pipeline,
@@ -569,6 +649,18 @@ impl PostProcessState {
         // format keeps the round trip through it exact.
         let ldr_texture = make_tex("pp ldr", surface_format);
         let ldr_view = ldr_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        // The TAA history ping-pong pair. Both hold a finished LDR frame, so
+        // like the LDR target they use `surface_format` at the full surface
+        // size; a pair rather than one texture because the resolve pass has
+        // to sample last frame's history while rendering this frame's.
+        let history_textures = [
+            make_tex("pp history 0", surface_format),
+            make_tex("pp history 1", surface_format),
+        ];
+        let history_views = [
+            history_textures[0].create_view(&wgpu::TextureViewDescriptor::default()),
+            history_textures[1].create_view(&wgpu::TextureViewDescriptor::default()),
+        ];
 
         let make_tex2d_bg = |label: &str, view: &wgpu::TextureView| {
             device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -591,6 +683,10 @@ impl PostProcessState {
         let bloom_bg = make_tex2d_bg("pp bloom bg", &bloom_view);
         let ao_bg = make_tex2d_bg("pp ao bg", &ao_view);
         let ldr_bg = make_tex2d_bg("pp ldr bg", &ldr_view);
+        let history_bgs = [
+            make_tex2d_bg("pp history bg 0", &history_views[0]),
+            make_tex2d_bg("pp history bg 1", &history_views[1]),
+        ];
 
         let depth_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("pp depth bg"),
@@ -614,6 +710,9 @@ impl PostProcessState {
             ldr_texture,
             ldr_view,
             ldr_bg,
+            history_textures,
+            history_views,
+            history_bgs,
             depth_bg,
         }
     }
@@ -811,6 +910,12 @@ impl PostProcessState {
         self._ao_texture = t.ao_texture;
         self.ldr_view = t.ldr_view;
         self._ldr_texture = t.ldr_texture;
+        self.history_views = t.history_views;
+        self._history_textures = t.history_textures;
+        self.history_bgs = t.history_bgs;
+        // The freshly created history pair is uninitialised at the new
+        // resolution, so nothing in it may be blended against.
+        self.history_valid = false;
         self.hdr_bg = t.hdr_bg;
         self.bloom_bg = t.bloom_bg;
         self.ao_bg = t.ao_bg;
@@ -826,6 +931,12 @@ impl PostProcessState {
     /// Uploads the current frame's camera projection matrices for SSAO depth reconstruction.
     pub fn update_ssao_camera(&self, queue: &wgpu::Queue, cam: SsaoCameraGpu) {
         queue.write_buffer(&self.ssao_cam_buffer, 0, bytemuck::cast_slice(&[cam]));
+    }
+
+    /// Uploads the unjittered view-projection matrices the TAA pass reprojects
+    /// with: this frame's inverse and the previous frame's forward matrix.
+    pub fn update_taa_camera(&self, queue: &wgpu::Queue, cam: TaaCameraGpu) {
+        queue.write_buffer(&self.taa_cam_buffer, 0, bytemuck::cast_slice(&[cam]));
     }
 
     /// Runs the bloom, SSAO, composite, and TAA passes in sequence, writing
@@ -963,6 +1074,11 @@ mod tests {
     #[test]
     fn ssao_cam_gpu_size() {
         assert_eq!(std::mem::size_of::<SsaoCameraGpu>(), 128);
+    }
+
+    #[test]
+    fn taa_cam_gpu_size() {
+        assert_eq!(std::mem::size_of::<TaaCameraGpu>(), 128);
     }
 
     #[test]

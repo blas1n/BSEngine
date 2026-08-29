@@ -33,9 +33,29 @@ pub const BRDF_LUT_SIZE: u32 = 512;
 /// would show up as stepped reflectance.
 pub const BRDF_LUT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg16Float;
 
+/// Format of the environment cubemap and the maps convolved from it.
+///
+/// Half float rather than the 8-bit sRGB the skybox itself is stored in: these
+/// are *linear* radiance values that the irradiance and prefilter passes then
+/// sum thousands of samples of, and an 8-bit linear intermediate bands visibly
+/// in the dark end of that sum. Filterable on every backend, so the cube views
+/// still get hardware trilinear filtering across face seams.
+pub const ENV_CUBE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+
 /// A cubemap has six faces; in wgpu they are six array layers of a 2D
 /// texture, in the fixed order +X, -X, +Y, -Y, +Z, -Z.
 const CUBE_FACES: u32 = 6;
+
+/// Stride between the per-face uniform records the face passes index with a
+/// dynamic offset. 256 rather than the record's actual size because that is
+/// wgpu's minimum uniform-buffer offset alignment on every backend -- the same
+/// convention `surface.rs` uses for `MODEL_STRIDE` and `POINT_SHADOW_STRIDE`.
+const FACE_UNIFORM_STRIDE: u64 = 256;
+
+/// Size of one face-uniform record: a single `u32` face index padded out to a
+/// `vec4<u32>`, because WGSL's uniform layout rules round struct members up to
+/// 16 bytes anyway.
+const FACE_UNIFORM_SIZE: u64 = 16;
 
 /// Creates a cube texture: `size` x `size`, six array layers, `mip_levels`
 /// mips.
@@ -108,18 +128,24 @@ pub fn face_view(texture: &wgpu::Texture, face: u32, mip: u32) -> wgpu::TextureV
     })
 }
 
-const BRDF_LUT_WGSL: &str = r#"
+/// WGSL every IBL pass needs, prepended to each pass's own source rather than
+/// copied into it.
+///
+/// The fullscreen triangle is shared because it is what decides what `uv`
+/// means, and [`cube_face_direction`](self) is built directly on that: if one
+/// pass's triangle disagreed with another's, their faces would come out
+/// flipped relative to each other with nothing to say so.
+const COMMON_WGSL: &str = r#"
 const PI: f32 = 3.14159265359;
-// Sample count for the Monte Carlo integration. 1024 Hammersley points is the
-// standard figure; because this LUT is generated once ever, the cost is paid
-// at startup and never again.
-const SAMPLE_COUNT: u32 = 1024u;
 
 struct FullscreenOut {
     @builtin(position) pos: vec4<f32>,
     @location(0) uv: vec2<f32>,
 }
 
+// One oversized triangle covering the whole target. `uv` is (0, 0) at the
+// target's top-left texel and (1, 1) at its bottom-right -- image order, the
+// same order the texels are stored in, not NDC order.
 @vertex
 fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> FullscreenOut {
     var positions = array<vec2<f32>, 3>(
@@ -131,6 +157,42 @@ fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> FullscreenOut {
     out.uv = vec2<f32>(p.x * 0.5 + 0.5, -p.y * 0.5 + 0.5);
     return out;
 }
+
+// The direction the cube-face texel at `uv` on `face` looks along.
+//
+// `face` is wgpu's cubemap layer order, +X, -X, +Y, -Y, +Z, -Z as 0..5, and
+// the per-face axes below are the fixed cubemap convention that order belongs
+// to: wgpu hands a Cube view straight to the backend's cube image type
+// (`vk::ImageViewType::CUBE` in wgpu-hal's Vulkan `conv.rs`, `TextureCube` in
+// D3D12), so the sampling convention is the backends', not wgpu's to choose.
+// This function is the inverse of their shared (major axis, sc, tc) table,
+// with `uv` in stored image order -- which is why every face's vertical axis
+// comes out negated.
+//
+// Do not "tidy" a sign here. Every one of them is load-bearing and a wrong one
+// produces a plausible-looking image, mirrored, that only a direction test
+// catches.
+fn cube_face_direction(face: u32, uv: vec2<f32>) -> vec3<f32> {
+    let a = 2.0 * uv.x - 1.0;
+    let b = 2.0 * uv.y - 1.0;
+    var dir = vec3<f32>(0.0, 0.0, 1.0);
+    switch face {
+        case 0u: { dir = vec3<f32>( 1.0,   -b,   -a); }
+        case 1u: { dir = vec3<f32>(-1.0,   -b,    a); }
+        case 2u: { dir = vec3<f32>(   a,  1.0,    b); }
+        case 3u: { dir = vec3<f32>(   a, -1.0,   -b); }
+        case 4u: { dir = vec3<f32>(   a,   -b,  1.0); }
+        default: { dir = vec3<f32>(  -a,   -b, -1.0); }
+    }
+    return normalize(dir);
+}
+"#;
+
+const BRDF_LUT_WGSL: &str = r#"
+// Sample count for the Monte Carlo integration. 1024 Hammersley points is the
+// standard figure; because this LUT is generated once ever, the cost is paid
+// at startup and never again.
+const SAMPLE_COUNT: u32 = 1024u;
 
 // Van der Corput radical inverse: reverse the bits of `bits_in` and read them
 // back as a binary fraction.
@@ -269,7 +331,7 @@ pub fn generate_brdf_lut(
 
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("ibl brdf lut shader"),
-        source: wgpu::ShaderSource::Wgsl(BRDF_LUT_WGSL.into()),
+        source: wgpu::ShaderSource::Wgsl(format!("{COMMON_WGSL}{BRDF_LUT_WGSL}").into()),
     });
     // No bind groups at all: the integration reads nothing but its own
     // fragment coordinates.
@@ -329,10 +391,228 @@ pub fn generate_brdf_lut(
     (texture, view)
 }
 
+const EQUIRECT_TO_CUBE_WGSL: &str = r#"
+struct FaceUniform {
+    // .x is the cube face this pass renders; the rest is padding to the
+    // 16-byte uniform stride.
+    face: vec4<u32>,
+};
+@group(0) @binding(0) var<uniform> face_data: FaceUniform;
+@group(0) @binding(1) var t_equirect: texture_2d<f32>;
+@group(0) @binding(2) var s_equirect: sampler;
+
+// Direction -> equirectangular UV.
+//
+// COPIED VERBATIM from `fs_sky` in `surface.rs`, which is what actually draws
+// the sky the player sees. It is not derived here and must not be "cleaned
+// up": an independently derived mapping that looks equivalent is how the IBL
+// environment ends up rotated or mirrored against the visible skybox, which
+// reads as plausible reflections that are subtly, permanently wrong.
+fn equirect_uv(dir: vec3<f32>) -> vec2<f32> {
+    let phi = atan2(dir.z, dir.x);
+    let theta = asin(clamp(dir.y, -1.0, 1.0));
+    let u = phi / (2.0 * PI) + 0.5;
+    let v = 0.5 - theta / PI;
+    return vec2<f32>(u, v);
+}
+
+@fragment
+fn fs_equirect_to_cube(in: FullscreenOut) -> @location(0) vec4<f32> {
+    let dir = cube_face_direction(face_data.face.x, in.uv);
+    // SampleLevel, not Sample: `u` jumps by a full turn across the longitude
+    // seam, so the implicit derivative there is enormous and would pick a mip
+    // that is not the one this pass means to read.
+    return textureSampleLevel(t_equirect, s_equirect, equirect_uv(dir), 0.0);
+}
+"#;
+
+/// Projects an equirectangular (lat-long) environment image onto a real
+/// cubemap: an [`ENV_CUBE_SIZE`]-square [`ENV_CUBE_FORMAT`] texture of six
+/// faces, plus a `Cube` view of it for sampling by direction.
+///
+/// One render pass per face, each writing a [`face_view`] of the target. The
+/// fragment shader turns the face texel's `uv` into a world direction with
+/// [`COMMON_WGSL`]'s `cube_face_direction`, then reads the source through the
+/// **same** direction->UV mapping `surface.rs`'s `fs_sky` uses, so the
+/// environment the material shader reflects sits exactly where the sky the
+/// camera sees does.
+///
+/// `equirect_view` and `sampler` are the skybox's own texture view and
+/// sampler; nothing about the source's format is assumed beyond its being
+/// filterable, so the sRGB decode the real skybox texture carries applies
+/// here exactly as it does in `fs_sky`.
+///
+/// Handles the equirectangular projection only. `SkyboxProjection::Cubemap`
+/// exists in `bsengine-core` but nothing reads it -- neither the loader nor
+/// `fs_sky` branches on it -- so a cross-layout image is already sampled as
+/// though it were equirectangular today, and this pass changes nothing about
+/// that.
+pub fn equirect_to_cubemap(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    equirect_view: &wgpu::TextureView,
+    sampler: &wgpu::Sampler,
+) -> (TrackedTexture, wgpu::TextureView) {
+    let texture = create_cubemap(
+        device,
+        "ibl env cube",
+        ENV_CUBE_SIZE,
+        1,
+        ENV_CUBE_FORMAT,
+        wgpu::TextureUsages::RENDER_ATTACHMENT
+            | wgpu::TextureUsages::TEXTURE_BINDING
+            // COPY_SRC so the faces can be read back and checked against the
+            // directions they are supposed to hold. A mirrored conversion is
+            // invisible in any smooth environment, so "it rendered something"
+            // is not evidence of anything.
+            | wgpu::TextureUsages::COPY_SRC,
+    );
+
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("ibl equirect to cube shader"),
+        source: wgpu::ShaderSource::Wgsl(format!("{COMMON_WGSL}{EQUIRECT_TO_CUBE_WGSL}").into()),
+    });
+
+    // One record per face, indexed by dynamic offset, so all six passes share
+    // a single buffer and bind group and the whole conversion is one submit.
+    let face_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("ibl face uniform"),
+        size: FACE_UNIFORM_STRIDE * CUBE_FACES as u64,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    for face in 0..CUBE_FACES {
+        let mut record = [0u8; FACE_UNIFORM_SIZE as usize];
+        record[..4].copy_from_slice(&face.to_le_bytes());
+        queue.write_buffer(&face_buffer, face as u64 * FACE_UNIFORM_STRIDE, &record);
+    }
+
+    let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("ibl equirect to cube bgl"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: true,
+                    min_binding_size: wgpu::BufferSize::new(FACE_UNIFORM_SIZE),
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    });
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("ibl equirect to cube bg"),
+        layout: &bgl,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                // An explicit binding size, not `as_entire_binding`: with a
+                // dynamic offset the bound range starts at the offset, so a
+                // whole-buffer size would run past the end on every face but
+                // the first.
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &face_buffer,
+                    offset: 0,
+                    size: wgpu::BufferSize::new(FACE_UNIFORM_SIZE),
+                }),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(equirect_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+        ],
+    });
+
+    let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("ibl equirect to cube pll"),
+        bind_group_layouts: &[&bgl],
+        push_constant_ranges: &[],
+    });
+    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("ibl equirect to cube pipeline"),
+        layout: Some(&layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: "vs_fullscreen",
+            buffers: &[],
+            compilation_options: Default::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: "fs_equirect_to_cube",
+            targets: &[Some(wgpu::ColorTargetState {
+                format: ENV_CUBE_FORMAT,
+                blend: Some(wgpu::BlendState::REPLACE),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: Default::default(),
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview: None,
+        cache: None,
+    });
+
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("ibl equirect to cube encoder"),
+    });
+    for face in 0..CUBE_FACES {
+        let target = face_view(&texture, face, 0);
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("ibl equirect to cube pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &target,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            ..Default::default()
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(
+            0,
+            &bind_group,
+            &[(face as u64 * FACE_UNIFORM_STRIDE) as wgpu::DynamicOffset],
+        );
+        pass.draw(0..3, 0..1);
+    }
+    queue.submit(std::iter::once(encoder.finish()));
+
+    let view = cube_view(&texture);
+    (texture, view)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::surface::WgpuSurface;
+    use glam::Vec3;
 
     /// Decodes one IEEE-754 binary16 value. `Rg16Float` readback comes back
     /// as raw half-floats, and nothing in this crate's dependency tree
@@ -498,5 +778,499 @@ mod tests {
         // The shader's fragment entry returns a vec2<f32>; a format with a
         // different channel count would be a pipeline validation error.
         assert_eq!(BRDF_LUT_FORMAT, wgpu::TextureFormat::Rg16Float);
+    }
+
+    // ---------------------------------------------------------------------
+    // Equirect -> cubemap
+    // ---------------------------------------------------------------------
+
+    /// Reads one array layer of an [`ENV_CUBE_FORMAT`] texture back as linear
+    /// RGBA floats.
+    ///
+    /// Same padded-row idiom as [`crate::output::read_pixels`], which Task 1
+    /// reused for the LUT, widened where a cube face does not fit it: that one
+    /// is hard-wired to array layer 0 and four bytes per texel, and a face is
+    /// layer `layer` of eight-byte texels.
+    fn read_rgba16f_layer(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        texture: &wgpu::Texture,
+        width: u32,
+        height: u32,
+        layer: u32,
+    ) -> Vec<[f32; 4]> {
+        const BYTES_PER_TEXEL: u32 = 8;
+        let unpadded_bytes_per_row = width * BYTES_PER_TEXEL;
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let padded_bytes_per_row = unpadded_bytes_per_row.div_ceil(align) * align;
+
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("ibl face readback"),
+            size: (padded_bytes_per_row * height) as u64,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("ibl face readback encoder"),
+        });
+        encoder.copy_texture_to_buffer(
+            wgpu::ImageCopyTexture {
+                texture,
+                mip_level: 0,
+                // The layer selector: for a 2D array, `origin.z` is the layer.
+                origin: wgpu::Origin3d {
+                    x: 0,
+                    y: 0,
+                    z: layer,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::ImageCopyBuffer {
+                buffer: &buffer,
+                layout: wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bytes_per_row),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        queue.submit(std::iter::once(encoder.finish()));
+
+        let slice = buffer.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |r| {
+            let _ = tx.send(r);
+        });
+        device.poll(wgpu::Maintain::Wait);
+        rx.recv()
+            .expect("map_async never reported a result")
+            .expect("mapping the readback buffer failed");
+
+        let mapped = slice.get_mapped_range();
+        let mut texels = Vec::with_capacity((width * height) as usize);
+        for row in 0..height {
+            let start = (row * padded_bytes_per_row) as usize;
+            let end = start + unpadded_bytes_per_row as usize;
+            for t in mapped[start..end].chunks_exact(BYTES_PER_TEXEL as usize) {
+                texels.push([
+                    f16_to_f32(u16::from_le_bytes([t[0], t[1]])),
+                    f16_to_f32(u16::from_le_bytes([t[2], t[3]])),
+                    f16_to_f32(u16::from_le_bytes([t[4], t[5]])),
+                    f16_to_f32(u16::from_le_bytes([t[6], t[7]])),
+                ]);
+            }
+        }
+        drop(mapped);
+        buffer.unmap();
+        texels
+    }
+
+    /// Size of the synthetic equirectangular source. 2:1, as every lat-long
+    /// panorama is.
+    const TEST_EQUIRECT_W: u32 = 512;
+    const TEST_EQUIRECT_H: u32 = 256;
+
+    /// Encodes a unit direction as a colour: `[-1, 1]` onto `[0, 1]` per
+    /// component.
+    fn encode_direction(d: Vec3) -> [u8; 4] {
+        let q = |x: f32| ((x * 0.5 + 0.5) * 255.0).round().clamp(0.0, 255.0) as u8;
+        [q(d.x), q(d.y), q(d.z), 255]
+    }
+
+    /// The inverse of [`encode_direction`]. Not renormalised here -- callers
+    /// that want a unit vector say so, and the raw length is occasionally the
+    /// thing that tells you the readback itself went wrong.
+    fn decode_direction(c: [f32; 4]) -> Vec3 {
+        Vec3::new(c[0] * 2.0 - 1.0, c[1] * 2.0 - 1.0, c[2] * 2.0 - 1.0)
+    }
+
+    /// An equirectangular panorama whose every texel stores **the direction
+    /// that texel represents**, encoded as its colour.
+    ///
+    /// This is what makes the conversion checkable at all. A photograph, a
+    /// gradient, or six flat octant colours all survive a mirrored or rotated
+    /// conversion looking entirely reasonable; a direction-encoded source does
+    /// not, because whatever comes out of a cube face texel decodes straight
+    /// back into the direction the source believed it was.
+    ///
+    /// Built from the inverse of `fs_sky`'s mapping (`u` is longitude, `v` is
+    /// latitude measured downwards), so it is by construction the thing that
+    /// mapping expects to read.
+    fn direction_encoded_equirect() -> Vec<u8> {
+        let mut pixels = Vec::with_capacity((TEST_EQUIRECT_W * TEST_EQUIRECT_H * 4) as usize);
+        for j in 0..TEST_EQUIRECT_H {
+            let v = (j as f32 + 0.5) / TEST_EQUIRECT_H as f32;
+            let theta = (0.5 - v) * std::f32::consts::PI;
+            for i in 0..TEST_EQUIRECT_W {
+                let u = (i as f32 + 0.5) / TEST_EQUIRECT_W as f32;
+                let phi = (u - 0.5) * 2.0 * std::f32::consts::PI;
+                let dir = Vec3::new(
+                    theta.cos() * phi.cos(),
+                    theta.sin(),
+                    theta.cos() * phi.sin(),
+                );
+                pixels.extend_from_slice(&encode_direction(dir));
+            }
+        }
+        pixels
+    }
+
+    /// Uploads [`direction_encoded_equirect`] and returns it with a sampler
+    /// configured exactly as `set_skybox_from_rgba`'s is -- `Repeat` across the
+    /// longitude seam, `ClampToEdge` at the poles, linear both ways.
+    ///
+    /// **`Rgba8Unorm`, not the `Rgba8UnormSrgb` the real skybox uses.** These
+    /// texels are an encoded direction rather than a colour, and an sRGB decode
+    /// would bend the encoding out of shape before it could be read back. The
+    /// conversion pass reads whatever the view's format declares and does
+    /// nothing format-specific, so this narrows nothing about what is under
+    /// test: where directions land, not colour management.
+    fn upload_direction_encoded_equirect(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> (wgpu::Texture, wgpu::TextureView, wgpu::Sampler) {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("direction-encoded equirect"),
+            size: wgpu::Extent3d {
+                width: TEST_EQUIRECT_W,
+                height: TEST_EQUIRECT_H,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            texture.as_image_copy(),
+            &direction_encoded_equirect(),
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * TEST_EQUIRECT_W),
+                rows_per_image: Some(TEST_EQUIRECT_H),
+            },
+            wgpu::Extent3d {
+                width: TEST_EQUIRECT_W,
+                height: TEST_EQUIRECT_H,
+                depth_or_array_layers: 1,
+            },
+        );
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("direction-encoded equirect sampler"),
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        (texture, view, sampler)
+    }
+
+    /// How many directions [`sample_cube_by_direction`] probes at once. Must
+    /// match the array length hard-coded in `PROBE_WGSL`.
+    const PROBE_COUNT: usize = 16;
+    const _: () = assert!(PROBE_COUNT == 16, "PROBE_WGSL declares array<_, 16>");
+
+    const PROBE_WGSL: &str = r#"
+struct Probes {
+    dirs: array<vec4<f32>, 16>,
+};
+@group(0) @binding(0) var<uniform> probes: Probes;
+@group(0) @binding(1) var t_cube: texture_cube<f32>;
+@group(0) @binding(2) var s_cube: sampler;
+
+@vertex
+fn vs_probe(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
+    var positions = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -3.0), vec2<f32>(-1.0, 1.0), vec2<f32>(3.0, 1.0),
+    );
+    let p = positions[vi];
+    return vec4<f32>(p.x, p.y, 0.0, 1.0);
+}
+
+// The target is PROBE_COUNT x 1, so the fragment's x is the probe index.
+@fragment
+fn fs_probe(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
+    let i = u32(pos.x);
+    return textureSampleLevel(t_cube, s_cube, normalize(probes.dirs[i].xyz), 0.0);
+}
+"#;
+
+    /// Samples `cube` at each of `dirs` **through the GPU's own cube sampler**
+    /// and returns what came back.
+    ///
+    /// This is the half of the direction test that is not circular. Reading
+    /// face texels back and comparing them against a Rust copy of the same
+    /// face-direction table the shader uses would pass just as happily if both
+    /// copies were mirrored. Asking the hardware to sample by direction cannot
+    /// be fooled that way: the cubemap convention it applies is fixed by the
+    /// backend, so if the conversion wrote a face mirrored, the colour returned
+    /// for direction `d` decodes to a different direction and the assertion
+    /// fails.
+    fn sample_cube_by_direction(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        cube: &wgpu::TextureView,
+        dirs: &[Vec3; PROBE_COUNT],
+    ) -> Vec<Vec3> {
+        let mut records = [[0f32; 4]; PROBE_COUNT];
+        for (record, dir) in records.iter_mut().zip(dirs) {
+            let d = dir.normalize();
+            *record = [d.x, d.y, d.z, 0.0];
+        }
+        let uniform = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("ibl probe uniform"),
+            size: (PROBE_COUNT * 16) as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        queue.write_buffer(&uniform, 0, bytemuck::cast_slice(records.as_slice()));
+
+        let target = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("ibl probe target"),
+            size: wgpu::Extent3d {
+                width: PROBE_COUNT as u32,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: ENV_CUBE_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("ibl probe shader"),
+            source: wgpu::ShaderSource::Wgsl(PROBE_WGSL.into()),
+        });
+        let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("ibl probe bgl"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: wgpu::BufferSize::new((PROBE_COUNT * 16) as u64),
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::Cube,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("ibl probe sampler"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("ibl probe bg"),
+            layout: &bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(cube),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("ibl probe pll"),
+            bind_group_layouts: &[&bgl],
+            push_constant_ranges: &[],
+        });
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("ibl probe pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_probe",
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_probe",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: ENV_CUBE_FORMAT,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("ibl probe encoder"),
+        });
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("ibl probe pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &target_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                ..Default::default()
+            });
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+            pass.draw(0..3, 0..1);
+        }
+        queue.submit(std::iter::once(encoder.finish()));
+
+        read_rgba16f_layer(device, queue, &target, PROBE_COUNT as u32, 1, 0)
+            .into_iter()
+            .map(decode_direction)
+            .collect()
+    }
+
+    #[test]
+    fn equirect_to_cubemap_puts_each_direction_on_the_right_face() {
+        let (device, queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
+        device.push_error_scope(wgpu::ErrorFilter::Validation);
+
+        let (_src, src_view, src_sampler) = upload_direction_encoded_equirect(&device, &queue);
+        let (cube, cube_v) = equirect_to_cubemap(&device, &queue, &src_view, &src_sampler);
+
+        assert_eq!(cube.width(), ENV_CUBE_SIZE);
+        assert_eq!(cube.height(), ENV_CUBE_SIZE);
+        assert_eq!(cube.size().depth_or_array_layers, CUBE_FACES);
+
+        // Part 1: every face looks along its own axis.
+        //
+        // The centre texel of face `i` must decode to the axis wgpu's layer
+        // order assigns to layer `i`. This is what catches a permuted or
+        // off-by-one face loop -- the failure that puts the sky on the floor.
+        let axes = [
+            (Vec3::X, "+X"),
+            (Vec3::NEG_X, "-X"),
+            (Vec3::Y, "+Y"),
+            (Vec3::NEG_Y, "-Y"),
+            (Vec3::Z, "+Z"),
+            (Vec3::NEG_Z, "-Z"),
+        ];
+        let centre = (ENV_CUBE_SIZE / 2 * ENV_CUBE_SIZE + ENV_CUBE_SIZE / 2) as usize;
+        for (face, (axis, name)) in axes.iter().enumerate() {
+            let texels = read_rgba16f_layer(
+                &device,
+                &queue,
+                &cube,
+                ENV_CUBE_SIZE,
+                ENV_CUBE_SIZE,
+                face as u32,
+            );
+            assert_eq!(texels.len(), (ENV_CUBE_SIZE * ENV_CUBE_SIZE) as usize);
+            let got = decode_direction(texels[centre]);
+            assert!(
+                got.length() > 0.5,
+                "face {face} ({name}) centre carries no direction at all -- \
+                 the pass wrote nothing there: {got:?}"
+            );
+            let alignment = got.normalize().dot(*axis);
+            assert!(
+                alignment > 0.999,
+                "face {face} must look along {name}, but its centre texel \
+                 decodes to {:?} (alignment {alignment})",
+                got.normalize(),
+            );
+        }
+
+        // Part 2: nothing inside a face is mirrored or rotated.
+        //
+        // Face centres alone cannot see this: mirror a face about either of
+        // its own axes and its centre texel does not move. So probe the cube
+        // through the hardware's cube sampler at directions that are
+        // asymmetric within their face -- two per face, off-centre in both
+        // axes -- and require each to hand back the direction it asked for.
+        // Any mirror, any 90-degree rotation, moves the answer far outside the
+        // tolerance below.
+        let probes = [
+            Vec3::X,
+            Vec3::NEG_X,
+            Vec3::Y,
+            Vec3::NEG_Y,
+            Vec3::Z,
+            Vec3::NEG_Z,
+            Vec3::new(1.0, 0.5, 0.3),
+            Vec3::new(1.0, -0.6, 0.2),
+            Vec3::new(-1.0, 0.4, 0.7),
+            Vec3::new(-1.0, -0.3, -0.55),
+            Vec3::new(0.3, 1.0, 0.6),
+            Vec3::new(-0.55, 1.0, -0.25),
+            Vec3::new(0.5, -1.0, -0.3),
+            Vec3::new(-0.2, -1.0, 0.65),
+            Vec3::new(0.2, 0.6, 1.0),
+            Vec3::new(-0.4, 0.3, -1.0),
+        ];
+        let sampled = sample_cube_by_direction(&device, &queue, &cube_v, &probes);
+        assert_eq!(sampled.len(), PROBE_COUNT);
+        for (probe, got) in probes.iter().zip(&sampled) {
+            let want = probe.normalize();
+            let alignment = got.normalize().dot(want);
+            // 0.999 is ~2.6 degrees. The real error is quantisation of the
+            // 8-bit source encoding plus one bilinear tap, both well under
+            // half a degree; the smallest mistake this is guarding against --
+            // a mirror about a face axis -- costs far more than 2.6 degrees
+            // for every one of the ten asymmetric probes.
+            assert!(
+                alignment > 0.999,
+                "sampling the cube along {want:?} returned the encoding of \
+                 {:?} (alignment {alignment}) -- the conversion is mirrored \
+                 or rotated within a face",
+                got.normalize(),
+            );
+        }
+
+        device.poll(wgpu::Maintain::Wait);
+        assert!(
+            pollster::block_on(device.pop_error_scope()).is_none(),
+            "the conversion must not raise a validation error"
+        );
     }
 }

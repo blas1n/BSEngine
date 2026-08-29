@@ -2368,4 +2368,302 @@ mod tests {
              something beyond occlusion, or the two runs did not render the same scene"
         );
     }
+
+    /// The environment colour the IBL demo scene's skybox is painted, as
+    /// authored in the image file.
+    const IBL_SKY_RGB: [u8; 3] = [0, 255, 0];
+
+    /// Writes a throwaway project holding one metallic sphere, optionally under
+    /// a strongly coloured skybox.
+    ///
+    /// `[window]` is pinned small on purpose: the offscreen surface takes its
+    /// size from the manifest, and this test only reads a patch in the middle.
+    fn write_ibl_project(root: &std::path::Path, with_skybox: bool) {
+        std::fs::create_dir_all(root.join("assets/scenes")).unwrap();
+        std::fs::write(
+            root.join("project.toml"),
+            "[project]\nname = \"IBL E2E\"\n\
+             entry_scene = \"assets/scenes/main.ron\"\n\
+             [window]\nwidth = 200\nheight = 150\n",
+        )
+        .unwrap();
+
+        // A flat, saturated green sky. Flat because this test asks whether the
+        // environment reaches the surface at all, not how it is filtered --
+        // `bsengine-rhi-wgpu`'s `pixels_ibl.rs` covers the structure of the
+        // reflection with a sky that has something in it to blur. Green
+        // because the clear colour and the ambient term are both grey, so
+        // green cannot arrive here by accident.
+        let [r, g, b] = IBL_SKY_RGB;
+        let sky = image::RgbaImage::from_pixel(64, 32, image::Rgba([r, g, b, 255]));
+        sky.save(root.join("assets/scenes/sky.png"))
+            .expect("write the temp project's skybox image");
+
+        // `Material` has no typed `EntityDescriptor` field -- `color:` writes
+        // the albedo and nothing else -- so metallic and roughness are
+        // authored through the generic reflected `components:` list, the same
+        // way the occlusion test above authors `Occluder`. Every field is
+        // spelled out, and `run_and_screenshot` checks the component actually
+        // landed rather than inferring it: a reflected value that does not
+        // match its type's shape is skipped with a warning, which would leave
+        // the sphere a rough dielectric reflecting almost nothing, and this
+        // test would then report that IBL does not work.
+        //
+        // The sun is switched off (`color: (0.0, 0.0, 0.0)`) so every photon
+        // reaching the sphere came from the environment. With a white sun the
+        // direct specular highlight alone would move these pixels further than
+        // IBL does and the measurement would mean nothing.
+        let skybox_line = if with_skybox {
+            "\n    skybox: Some(\"sky.png\"),"
+        } else {
+            ""
+        };
+        std::fs::write(
+            root.join("assets/scenes/main.ron"),
+            format!(
+                r#"SceneDescriptor(entities: [
+    EntityDescriptor(
+        name: "Camera",
+        camera: true,
+        transform: Some((position: (0.0, 0.0, 5.0))),
+        look_at: Some((0.0, 0.0, 0.0)),
+    ),
+    EntityDescriptor(
+        name: "Sun",
+        directional_light: Some((
+            direction: (0.0, -1.0, 0.0),
+            color: (0.0, 0.0, 0.0),
+            ambient: (0.2, 0.2, 0.2),
+        )),
+    ),
+    EntityDescriptor(
+        name: "Ball",
+        primitive: Some(Sphere),
+        transform: Some((position: (0.0, 0.0, 0.0), scale: (3.0, 3.0, 3.0))),
+        components: [
+            ("bsengine_core::material::Material", "(texture_id: None, metallic: 1.0, roughness: 0.0, emissive: (0.0, 0.0, 0.0), base_color: (1.0, 1.0, 1.0), opacity: 1.0)"),
+        ],
+    ),
+],{skybox_line}
+)"#
+            ),
+        )
+        .unwrap();
+    }
+
+    /// Runs the temp project until it has drawn a settled frame, then returns
+    /// that frame decoded from the `screenshot` query's base64 PNG.
+    fn run_and_screenshot(project_dir: &str, expect_ibl: bool) -> image::RgbaImage {
+        let mut app = build_test_app(project_dir, None, false);
+
+        // The skybox loads asynchronously and the IBL maps are built when it
+        // arrives, so "has the environment reached the renderer" has to be
+        // waited on rather than assumed. Waiting on `has_ibl` rather than a
+        // fixed frame count also gives the skyboxless run a real assertion:
+        // the maps are still absent after as many frames as were enough to
+        // build them.
+        let mut ready = false;
+        for _ in 0..300 {
+            app.update();
+            let has_ibl = app
+                .world()
+                .get_resource::<bsengine_rhi_wgpu::WgpuSurfaceResource>()
+                .expect("WgpuRHIPlugin::offscreen should have inserted the surface")
+                .0
+                .has_ibl();
+            let meshes = app
+                .world_mut()
+                .query::<&bsengine_render::components::MeshRenderer>()
+                .iter(app.world())
+                .count();
+            if meshes >= 1 && has_ibl == expect_ibl {
+                ready = true;
+                break;
+            }
+        }
+        assert!(
+            ready,
+            "within 300 frames the temp project never reached one MeshRenderer with \
+             has_ibl() == {expect_ibl}: either the sphere primitive never resolved to a \
+             mesh, or the skybox never loaded and no IBL maps were generated. Either way \
+             nothing below would be measuring image-based lighting"
+        );
+        // A few more frames, so the sphere is drawn with the maps in place
+        // rather than in the frame that built them.
+        for _ in 0..3 {
+            app.update();
+        }
+
+        {
+            let mut q = app
+                .world_mut()
+                .query::<(&bsengine_scene::Name, &bsengine_core::Material)>();
+            let material = q
+                .iter(app.world())
+                .find(|(n, _)| n.0 == "Ball")
+                .map(|(_, m)| m.clone())
+                .expect(
+                    "Ball must carry the Material authored in its scene `components:` list -- \
+                     an unparseable reflected component is only warned about, so its absence \
+                     here means the type path or the RON value is wrong",
+                );
+            assert_eq!(material.metallic, 1.0, "Ball should be fully metallic");
+            assert_eq!(material.roughness, 0.0, "Ball should be mirror-smooth");
+        }
+
+        let stats = crate::test_query::run_query(app.world_mut(), "get_frame_stats", &json!({}))
+            .expect("get_frame_stats should succeed once RenderPlugin has drawn a frame");
+        assert!(
+            stats["triangles"].as_u64().unwrap_or(0) > 0,
+            "no geometry was drawn at all, so the pixels below are not a sphere: {stats}"
+        );
+
+        let shot = crate::test_query::run_query(app.world_mut(), "screenshot", &json!({}))
+            .expect("screenshot should succeed once RenderPlugin has drawn a frame");
+        use base64::Engine;
+        let png_bytes = base64::engine::general_purpose::STANDARD
+            .decode(
+                shot["data_base64"]
+                    .as_str()
+                    .expect("screenshot should return a data_base64 string"),
+            )
+            .expect("data_base64 should be valid base64");
+        image::load_from_memory(&png_bytes)
+            .expect("the screenshot PNG should decode")
+            .to_rgba8()
+    }
+
+    /// Mean colour of the disc of `radius` pixels around the frame's centre.
+    ///
+    /// A patch rather than the single centre pixel, for two reasons found by
+    /// looking at the frames rather than guessing at them. The sphere's exact
+    /// centre carries a small dark shading artifact -- present in the
+    /// skyboxless run too, where the shader takes the pre-IBL path, so it
+    /// predates this work and is not IBL's doing -- and the outermost ring of
+    /// the silhouette sits against the background. Radius 22 of a silhouette
+    /// that reaches past 30 is all surface, and averaging over it makes the
+    /// measurement independent of exactly where the sphere lands.
+    fn disc_mean(image: &image::RgbaImage, radius: f32) -> [f32; 3] {
+        let (cx, cy) = (image.width() as f32 / 2.0, image.height() as f32 / 2.0);
+        let mut sum = [0.0f32; 3];
+        let mut count = 0.0f32;
+        for y in 0..image.height() {
+            for x in 0..image.width() {
+                let dx = x as f32 - cx;
+                let dy = y as f32 - cy;
+                if dx * dx + dy * dy <= radius * radius {
+                    let px = image.get_pixel(x, y).0;
+                    for c in 0..3 {
+                        sum[c] += px[c] as f32;
+                    }
+                    count += 1.0;
+                }
+            }
+        }
+        [sum[0] / count, sum[1] / count, sum[2] / count]
+    }
+
+    /// Sum of the per-channel gaps between a measured colour and a target.
+    ///
+    /// Per-channel rather than luma: a frame that merely got brighter closes
+    /// the luma gap to a bright environment while taking on none of its hue.
+    fn gap_to(colour: [f32; 3], target: [f32; 3]) -> f32 {
+        (0..3).map(|i| (colour[i] - target[i]).abs()).sum()
+    }
+
+    /// Completion condition 4: the same demo scene, rendered with and without
+    /// a skybox and compared as screenshots, must show image-based lighting on
+    /// a metallic surface.
+    ///
+    /// Both runs are captured through the `screenshot` query and its base64
+    /// PNG is decoded here -- the round trip
+    /// `screenshot_returns_a_decodable_png` above establishes -- so this is
+    /// literally the on/off screenshot comparison rather than a proxy for one.
+    ///
+    /// The assertions are written so that a change alone cannot pass them. An
+    /// IBL that simply brightened every frame would raise all three channels;
+    /// what is required here is that red and blue *fall* to nothing while
+    /// green climbs, which only reflecting a green environment can do.
+    #[test]
+    fn ibl_visibly_changes_a_metallic_surface_under_a_skybox() {
+        const SPHERE_RADIUS_PX: f32 = 22.0;
+
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let project_dir = root.to_str().unwrap().to_string();
+
+        write_ibl_project(root, true);
+        let with_sky = run_and_screenshot(&project_dir, true);
+
+        // The second app builds its own GPU device, so the first one has to be
+        // gone by now: `run_and_screenshot` drops its `App` on return, the
+        // same ordering `occlusion_culling_reduces_draw_calls_without_hiding_
+        // visible_objects` above keeps between its two phases.
+        write_ibl_project(root, false);
+        let without_sky = run_and_screenshot(&project_dir, false);
+
+        let lit = disc_mean(&with_sky, SPHERE_RADIUS_PX);
+        let unlit = disc_mean(&without_sky, SPHERE_RADIUS_PX);
+        // The environment as the renderer actually displays it, read out of
+        // the skybox run's own corner rather than assumed from the image file:
+        // the sky goes through the same HDR buffer and output encoding the
+        // sphere does, and a mirror can only ever match what that produces.
+        let env = {
+            let px = with_sky.get_pixel(2, 2).0;
+            [px[0] as f32, px[1] as f32, px[2] as f32]
+        };
+        let background = {
+            let px = without_sky.get_pixel(2, 2).0;
+            [px[0] as f32, px[1] as f32, px[2] as f32]
+        };
+        println!(
+            "IBL on: sphere {lit:?} sky {env:?} | IBL off: sphere {unlit:?} \
+             background {background:?}"
+        );
+
+        // Before anything is claimed about the sphere's colour, establish that
+        // these pixels are the sphere. Were they not, the skybox run would be
+        // measuring the green sky itself and would pass whatever the shader
+        // did. The scene, camera and geometry are identical between the runs,
+        // so proving it in the skyboxless one -- where the background is the
+        // grey clear colour rather than the sky -- proves it in both.
+        assert!(
+            gap_to(unlit, background) > 30.0,
+            "the measured patch is barely distinguishable from the frame's corner \
+             ({unlit:?} against {background:?}), so the sphere is not covering the middle \
+             of the frame and neither measurement below is of a surface at all"
+        );
+
+        // Each channel individually, so a uniform brightening cannot pass it:
+        // that would raise red and blue as well as green.
+        assert!(
+            lit[0] <= unlit[0] && lit[1] >= unlit[1] && lit[2] <= unlit[2],
+            "every channel of the metallic sphere should move towards the green \
+             environment: {unlit:?} without the skybox, {lit:?} with it"
+        );
+
+        let near = gap_to(lit, env);
+        let far = gap_to(unlit, env);
+        assert!(
+            near * 2.0 < far,
+            "the sphere should end up far closer to the environment's colour under the \
+             skybox: per-channel gap {far} without it ({unlit:?}), {near} with it \
+             ({lit:?}), against an environment of {env:?}"
+        );
+
+        // The strongest form of the claim, and the one a brightening cannot
+        // imitate: the off-environment channels collapse rather than merely
+        // holding still, while the environment's own channel climbs.
+        assert!(
+            lit[0] < 20.0 && lit[2] < 20.0,
+            "a mirror under a pure green sky should reflect no red and no blue: {lit:?}"
+        );
+        assert!(
+            lit[1] > unlit[1] + 30.0,
+            "the green the sphere reflects should be well above the grey it shows with no \
+             environment: {} against {}",
+            lit[1],
+            unlit[1]
+        );
+    }
 }

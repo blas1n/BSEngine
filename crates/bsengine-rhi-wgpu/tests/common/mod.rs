@@ -76,8 +76,11 @@ impl Draw {
     /// which is where aliasing actually lives.
     pub fn rotated_z(mut self, radians: f32) -> Self {
         let (scale, _, translation) = self.transform.to_scale_rotation_translation();
-        self.transform =
-            Mat4::from_scale_rotation_translation(scale, Quat::from_rotation_z(radians), translation);
+        self.transform = Mat4::from_scale_rotation_translation(
+            scale,
+            Quat::from_rotation_z(radians),
+            translation,
+        );
         self
     }
 

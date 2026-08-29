@@ -171,7 +171,8 @@ fn taa_softens_a_diagonal_edge() {
     // With no antialiasing anywhere in the pipeline and a flat-shaded fixture,
     // a pixel is one side of the edge or the other. Not "few": none.
     assert_eq!(
-        off_count, 0,
+        off_count,
+        0,
         "without TAA the edge must be hard -- {off_count} intermediate pixels \
          means something else in the pipeline is already softening it, and \
          this test would be measuring that instead. Frame: {}",

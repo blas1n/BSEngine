@@ -67,6 +67,23 @@ impl Draw {
         self
     }
 
+    /// Rotates the draw about Z, keeping its current scale and translation.
+    ///
+    /// Exists for the antialiasing tests: an axis-aligned box lands on exact
+    /// pixel columns and rows and so has no stair-steps to smooth, which makes
+    /// it useless as a fixture for anything about edge quality. Turning it a
+    /// few degrees puts the silhouette across the pixel grid at an angle,
+    /// which is where aliasing actually lives.
+    pub fn rotated_z(mut self, radians: f32) -> Self {
+        let (scale, _, translation) = self.transform.to_scale_rotation_translation();
+        self.transform = Mat4::from_scale_rotation_translation(
+            scale,
+            Quat::from_rotation_z(radians),
+            translation,
+        );
+        self
+    }
+
     pub fn textured(mut self, id: u64) -> Self {
         self.texture = Some(id);
         self
@@ -154,6 +171,10 @@ pub struct Scene {
     pub bloom: Option<bsengine_core::Bloom>,
     pub tone_map: Option<bsengine_core::ToneMap>,
     pub ssao: Option<bsengine_core::AmbientOcclusion>,
+    /// Absent means off, exactly as it does on a real camera. Note that
+    /// `render` shows almost nothing of TAA even when this is set -- it
+    /// accumulates over frames, so use [`Harness::render_converged`].
+    pub taa: Option<bsengine_core::Taa>,
     pub hud: HashMap<String, String>,
     pub with_skybox: bool,
     /// Particle batches for the pass that runs after transparency.
@@ -170,6 +191,7 @@ impl Default for Scene {
             bloom: None,
             tone_map: None,
             ssao: None,
+            taa: None,
             hud: HashMap::new(),
             with_skybox: false,
             particles: Vec::new(),
@@ -364,7 +386,46 @@ struct VertOut {{
     }
 
     /// Draws one frame and reads it back.
+    ///
+    /// The TAA history is discarded first, so this is always a single fresh
+    /// frame. The surface is reused across every call on a `Harness`, and
+    /// without the reset a frame would blend against whatever the previous
+    /// `render` on the same harness drew -- every existing pixel test calls
+    /// this two or more times, so results would silently depend on test
+    /// order.
     pub fn render(&mut self, scene: &Scene) -> Pixels {
+        self.surface.invalidate_taa_history();
+        self.render_frame_at(scene, 0)
+    }
+
+    /// Renders `frames` consecutive frames of the same scene and returns the
+    /// last one.
+    ///
+    /// TAA accumulates: each frame samples a different sub-pixel position and
+    /// blends into the history built by the ones before it, so a single
+    /// `render` call can never show its effect. A test that used one would be
+    /// measuring the un-antialiased first frame and calling it a pass.
+    ///
+    /// History is discarded once at the start and then deliberately allowed to
+    /// carry across the frames -- that accumulation is the thing under test.
+    pub fn render_converged(&mut self, scene: &Scene, frames: u32) -> Pixels {
+        assert!(frames > 0, "render_converged needs at least one frame");
+        self.surface.invalidate_taa_history();
+        let mut last = None;
+        for frame in 0..frames {
+            last = Some(self.render_frame_at(scene, frame));
+        }
+        last.expect("the loop runs at least once")
+    }
+
+    /// One frame at jitter position `frame_index`, with the history left
+    /// exactly as it was.
+    ///
+    /// The jitter is computed the same way `bsengine-render`'s `render_frame`
+    /// system computes it -- from the frame counter when TAA is on, and not at
+    /// all when it is off. Deriving it independently here would let the
+    /// harness antialias with a sequence the engine never uses.
+    fn render_frame_at(&mut self, scene: &Scene, frame_index: u32) -> Pixels {
         let aspect = WIDTH as f32 / HEIGHT as f32;
         let proj = Mat4::perspective_rh(60.0_f32.to_radians(), aspect, 0.1, 100.0);
         let view = Mat4::look_at_rh(scene.camera_pos, scene.look_at, Vec3::Y);
@@ -389,6 +450,12 @@ struct VertOut {{
             Some(view_proj.inverse())
         } else {
             None
+        };
+
+        let jitter_clip = if scene.taa.map(|t| t.enabled).unwrap_or(false) {
+            bsengine_rhi_wgpu::taa_jitter::jitter_clip_offset(frame_index, WIDTH, HEIGHT)
+        } else {
+            (0.0, 0.0)
         };
 
         self.surface
@@ -422,6 +489,11 @@ struct VertOut {{
                 None,
                 0.0,
                 &scene.particles,
+                scene.taa,
+                jitter_clip,
+                // The unjittered matrix, on purpose: reprojection has to track
+                // the camera, not the jitter.
+                view_proj,
             )
             .expect("render_frame failed");
 

@@ -889,6 +889,7 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     app.register_type::<bsengine_core::SaveData>();
     app.register_type::<bsengine_core::Shield>();
     app.register_type::<bsengine_core::Skybox>();
+    app.register_type::<bsengine_core::Taa>();
     app.register_type::<bsengine_core::Timer>();
     app.register_type::<bsengine_core::ToneMap>();
     app.register_type::<bsengine_core::Visible>();

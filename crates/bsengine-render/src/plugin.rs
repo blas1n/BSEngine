@@ -3,7 +3,7 @@ use bevy_ecs::prelude::{EventReader, IntoSystemConfigs, Local, ParamSet, Query, 
 use bsengine_core::{
     AmbientOcclusion, Bloom, Camera, CustomShader, DirectionalLight, EditorPanelRegistry,
     EditorPlayState, GlobalTransform, HudTexts, InspectorState, Material, PointLight, SkyboxPath,
-    SpotLight, Time, ToneMap, Transform, UiState, Visible,
+    SpotLight, Taa, Time, ToneMap, Transform, UiState, Visible,
 };
 use bsengine_ecs::Res;
 use bsengine_input::{Input, KeyCode, KeyInput, MouseButton, MouseState};
@@ -532,6 +532,7 @@ fn render_frame(
             Option<&Bloom>,
             Option<&ToneMap>,
             Option<&AmbientOcclusion>,
+            Option<&Taa>,
         )>,
         Query<(
             &MeshRenderer,
@@ -577,9 +578,18 @@ fn render_frame(
     // this system reads it -- so it does not belong in the ECS world -- but
     // its 64 KB backing allocation should persist across frames rather than
     // be rebuilt every one.
-    (occlusion_enabled, mut occlusion_buf): (
+    //
+    // `taa_frame_index` rides along in the same tuple for exactly the reason
+    // above: with the tuple counted as one, this function already stands at
+    // 16 top-level params, and `bevy_ecs` 0.14 stops implementing
+    // `SystemParamFunction` at 16 (`all_tuples!(impl_system_function, 0, 16,
+    // F)`). It is a `Local` for the same reason the buffer is -- it is this
+    // system's own frame counter, driving the Halton jitter cycle, and no
+    // one else reads it.
+    (occlusion_enabled, mut occlusion_buf, mut taa_frame_index): (
         Option<Res<bsengine_core::OcclusionCullingEnabled>>,
         Local<crate::occlusion::OcclusionBuffer>,
+        Local<u32>,
     ),
 ) {
     let (Some(mut surface), Some(registry)) = (surface, registry) else {
@@ -615,12 +625,12 @@ fn render_frame(
         .map(|k| k.is_pressed(&KeyCode::AltLeft) || k.is_pressed(&KeyCode::AltRight))
         .unwrap_or(false);
 
-    let (mut view_proj, mut cam_pos, mut cam_proj, bloom, tone_map, ambient_occlusion) =
+    let (mut view_proj, mut cam_pos, mut cam_proj, bloom, tone_map, ambient_occlusion, taa) =
         render_queries
             .p0()
             .iter()
             .next()
-            .map(|(cam, t, b, tm, ao)| {
+            .map(|(cam, t, b, tm, ao, taa)| {
                 let proj = cam.projection_matrix();
                 (
                     proj * t.view_matrix(),
@@ -629,9 +639,18 @@ fn render_frame(
                     b.copied(),
                     tm.copied(),
                     ao.copied(),
+                    taa.copied(),
                 )
             })
-            .unwrap_or((Mat4::IDENTITY, Vec3::ZERO, Mat4::IDENTITY, None, None, None));
+            .unwrap_or((
+                Mat4::IDENTITY,
+                Vec3::ZERO,
+                Mat4::IDENTITY,
+                None,
+                None,
+                None,
+                None,
+            ));
 
     // While editing (not Playing), override camera matrices from the orbit
     // camera computed by EditorPlugin. Once Play starts, the viewport should
@@ -646,9 +665,35 @@ fn render_frame(
         }
     }
 
+    // TAA reprojection inputs, computed *after* the editor override above and
+    // never before it: whichever camera won that block is the one this frame
+    // rasterizes with, so it must also be the one the next frame reprojects
+    // against. Capturing the game camera's matrix here instead would make the
+    // editor viewport smear every time the orbit camera moved.
+    //
+    // `view_proj` itself stays unjittered -- everything downstream of it
+    // (occlusion rasterization, frustum culling, and the reprojection matrix
+    // below) wants the camera's true matrix. The jitter is a separate offset
+    // that `WgpuSurface::render_frame` applies to the rasterization
+    // projection alone.
+    let unjittered_view_proj = view_proj;
+    let jitter_clip = if taa.map(|t| t.enabled).unwrap_or(false) {
+        bsengine_rhi_wgpu::taa_jitter::jitter_clip_offset(
+            *taa_frame_index,
+            surface.0.width(),
+            surface.0.height(),
+        )
+    } else {
+        (0.0, 0.0)
+    };
+    // Advanced every frame, not only the TAA ones, so the cycle never stalls
+    // on a repeated offset. `wrapping_add` because this counts frames
+    // forever; `jitter_clip_offset` takes it modulo the cycle length anyway.
+    *taa_frame_index = taa_frame_index.wrapping_add(1);
+
     // Rotation-only VP inverse for skybox (no translation → direction-only)
     let sky_vp_inv: Option<Mat4> = if surface.0.has_skybox() {
-        render_queries.p0().iter().next().map(|(cam, t, _, _, _)| {
+        render_queries.p0().iter().next().map(|(cam, t, ..)| {
             let proj = cam.projection_matrix();
             let view = t.view_matrix();
             let view_rot = Mat4::from_cols(view.x_axis, view.y_axis, view.z_axis, Vec4::W);
@@ -893,6 +938,9 @@ fn render_frame(
         type_registry.as_deref(),
         time.as_deref().map(|t| t.elapsed_seconds).unwrap_or(0.0),
         &particle_batches,
+        taa,
+        jitter_clip,
+        unjittered_view_proj,
     ) {
         Ok(clicked) => {
             if let Some(ref mut state) = ui_state {

@@ -106,7 +106,10 @@ fn a_smooth_metal_reflects_the_environment_colour() {
     assert!(!h.has_ibl(), "no skybox has been loaded yet");
 
     h.set_test_skybox(GREEN_SKY);
-    assert!(h.has_ibl(), "loading a skybox should have built the IBL maps");
+    assert!(
+        h.has_ibl(),
+        "loading a skybox should have built the IBL maps"
+    );
     let with_sky = h.render(&mirror);
 
     let env = [GREEN_SKY[0], GREEN_SKY[1], GREEN_SKY[2]];

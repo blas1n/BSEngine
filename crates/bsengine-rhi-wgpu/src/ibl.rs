@@ -1010,6 +1010,66 @@ pub fn prefilter_from_cubemap(
     (texture, view)
 }
 
+/// The environment-dependent IBL maps, rebuilt whenever the skybox changes.
+///
+/// **The BRDF integration LUT is deliberately not in here.** It depends only on
+/// the BRDF -- not the environment, the scene, or the camera -- so it is
+/// generated once at startup, lives on the surface, and outlives every skybox.
+/// These two are convolutions *of* a particular environment, so they are thrown
+/// away and rebuilt each time that environment changes. Two schedules, two
+/// homes: putting the LUT here would mean re-integrating it on every skybox
+/// swap for a table that cannot have changed.
+pub struct IblMaps {
+    /// Cube view of the irradiance map: diffuse IBL, sampled by surface normal.
+    pub irradiance_view: wgpu::TextureView,
+    /// Held only to keep the texture `irradiance_view` looks at alive -- and
+    /// counted in the profiler -- for as long as that view can be bound.
+    _irradiance: TrackedTexture,
+    /// Cube view of the roughness-mipped prefiltered map: specular IBL, sampled
+    /// by reflection direction at a mip level chosen from roughness.
+    pub prefilter_view: wgpu::TextureView,
+    /// Held alive for the same reason as [`Self::_irradiance`].
+    _prefilter: TrackedTexture,
+}
+
+impl IblMaps {
+    /// Runs all three environment passes against an equirectangular source:
+    /// [`equirect_to_cubemap`], then [`irradiance_from_cubemap`] and
+    /// [`prefilter_from_cubemap`] over the cubemap that produced.
+    ///
+    /// `equirect_view` and `sampler` are the skybox's own texture view and
+    /// sampler, so the environment reflected off materials is read through the
+    /// same texture, with the same sRGB decode and the same filtering, as the
+    /// sky the camera sees.
+    ///
+    /// **The sharp environment cubemap is an intermediate and is not kept.**
+    /// Nothing downstream samples it: the sky itself is still drawn from the
+    /// original equirectangular texture by `fs_sky`, and materials read only the
+    /// two convolutions. Dropping it here is safe even though its passes have
+    /// only been submitted, not completed -- wgpu keeps a resource alive until
+    /// the submissions referencing it finish.
+    ///
+    /// This is not cheap: 6 + 6 + 30 render passes, each Monte-Carlo
+    /// integrating per texel. It runs once per skybox change, never per frame.
+    pub fn generate(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        equirect_view: &wgpu::TextureView,
+        sampler: &wgpu::Sampler,
+    ) -> Self {
+        let (_env_cube, env_view) = equirect_to_cubemap(device, queue, equirect_view, sampler);
+        let (irradiance, irradiance_view) =
+            irradiance_from_cubemap(device, queue, &env_view, sampler);
+        let (prefilter, prefilter_view) = prefilter_from_cubemap(device, queue, &env_view, sampler);
+        Self {
+            irradiance_view,
+            _irradiance: irradiance,
+            prefilter_view,
+            _prefilter: prefilter,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

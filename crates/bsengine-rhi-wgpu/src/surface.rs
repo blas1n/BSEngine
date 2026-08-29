@@ -997,6 +997,27 @@ pub struct WgpuSurface {
     egui_renderer: egui_wgpu::Renderer,
     skybox: Option<SkyboxState>,
     loaded_skybox_path: Option<String>,
+    /// The irradiance and prefiltered specular maps convolved from the current
+    /// skybox, or `None` when no skybox is loaded.
+    ///
+    /// Rebuilt by [`Self::set_skybox_from_rgba`] and dropped by
+    /// [`Self::clear_skybox`], because both maps are convolutions of one
+    /// specific environment and mean nothing once that environment is gone.
+    ibl: Option<crate::ibl::IblMaps>,
+    /// The BRDF integration LUT, sampled by `(n_dot_v, roughness)` for the
+    /// split-sum approximation's second term.
+    ///
+    /// Unlike [`Self::ibl`] this is **not** optional and is never rebuilt: it is
+    /// a pure function of the BRDF, so one table generated at construction
+    /// serves every skybox, and every frame without one.
+    ///
+    /// `allow(dead_code)` only until the material bind group binds it: the
+    /// table is generated and owned here now, and nothing samples it yet.
+    #[allow(dead_code)]
+    brdf_lut_view: wgpu::TextureView,
+    /// Held only to keep the texture [`Self::brdf_lut_view`] looks at alive --
+    /// and counted in the profiler -- for the lifetime of the surface.
+    _brdf_lut_texture: crate::profiler::TrackedTexture,
     pipeline_layout: wgpu::PipelineLayout,
     terrain_pipeline: wgpu::RenderPipeline,
     terrain_bgl: wgpu::BindGroupLayout,
@@ -1904,6 +1925,14 @@ impl WgpuSurface {
         let post_process =
             crate::post_process::PostProcessState::new(&device, width, height, &depth_view, format);
 
+        // Generated here, with the other one-time GPU resources, because the
+        // split-sum BRDF table depends on nothing but the BRDF: no environment,
+        // no scene, no camera. One integration at construction serves every
+        // skybox this surface ever loads -- and every frame it loads none.
+        // Both constructors reach this point, so an offscreen surface has the
+        // LUT on exactly the same terms a windowed one does.
+        let (brdf_lut_texture, brdf_lut_view) = crate::ibl::generate_brdf_lut(&device, &queue);
+
         Ok(Self {
             output,
             device,
@@ -1937,6 +1966,10 @@ impl WgpuSurface {
             egui_renderer,
             skybox: None,
             loaded_skybox_path: None,
+            // No skybox yet, so there is no environment to have convolved.
+            ibl: None,
+            brdf_lut_view,
+            _brdf_lut_texture: brdf_lut_texture,
             pipeline_layout,
             terrain_pipeline,
             terrain_bgl,
@@ -2244,6 +2277,20 @@ impl WgpuSurface {
                 cache: None,
             });
 
+        // The environment changed, so everything convolved from the old one is
+        // stale: rebuild the irradiance and prefiltered maps from the texture
+        // and sampler this very skybox is about to be drawn with, so what
+        // materials reflect and what the camera sees are the same image.
+        //
+        // Here rather than lazily at first use because it is a heavy one-off
+        // (42 render passes) that belongs to the load, not to a frame.
+        self.ibl = Some(crate::ibl::IblMaps::generate(
+            &self.device,
+            &self.queue,
+            &tex_view,
+            &sampler,
+        ));
+
         self.skybox = Some(SkyboxState {
             pipeline,
             uniform_buffer,
@@ -2258,11 +2305,21 @@ impl WgpuSurface {
     pub fn clear_skybox(&mut self) {
         self.skybox = None;
         self.loaded_skybox_path = None;
+        // The IBL maps are convolutions of the skybox that just went away;
+        // keeping them would light the scene with an environment no longer
+        // being rendered.
+        self.ibl = None;
     }
 
     /// Whether a skybox is currently loaded and will be rendered.
     pub fn has_skybox(&self) -> bool {
         self.skybox.is_some()
+    }
+
+    /// Whether image-based lighting maps are currently available -- true
+    /// exactly when a skybox is loaded, since they are generated from it.
+    pub fn has_ibl(&self) -> bool {
+        self.ibl.is_some()
     }
 
     /// Path of the currently loaded skybox texture, if any.

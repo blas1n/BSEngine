@@ -3771,6 +3771,20 @@ impl WgpuSurface {
             .resize_targets(&self.device, &self.depth_view, width, height);
     }
 
+    /// Throws away the accumulated TAA history, so the next
+    /// [`Self::render_frame`] starts a fresh temporal accumulation instead of
+    /// blending against whatever was rendered before.
+    ///
+    /// A surface is long-lived and its history survives across frames by
+    /// design -- that accumulation *is* the effect. Anything that wants a
+    /// frame to depend only on the scene it was handed, rather than on the
+    /// scene rendered before it, has to say so explicitly; the pixel-test
+    /// harness calls this before every one-shot `render` for exactly that
+    /// reason.
+    pub fn invalidate_taa_history(&mut self) {
+        self.post_process.invalidate_history();
+    }
+
     /// Checks that `wgsl` is a shader `wgpu` will accept, without touching the
     /// GPU. `path` only labels the message.
     ///

@@ -89,6 +89,18 @@ impl Draw {
         self
     }
 
+    /// 1.0 makes `base_color` the reflectance; 0.0 leaves the dielectric
+    /// `f0 = 0.04`.
+    pub fn metallic(mut self, m: f32) -> Self {
+        self.metallic = m;
+        self
+    }
+
+    pub fn roughness(mut self, r: f32) -> Self {
+        self.roughness = r;
+        self
+    }
+
     /// Below 1.0 sends the draw to the transparent pass.
     pub fn opacity(mut self, a: f32) -> Self {
         self.opacity = a;
@@ -383,6 +395,33 @@ struct VertOut {{
     /// Puts a single flat colour in the skybox.
     pub fn set_test_skybox(&mut self, rgba: [u8; 4]) {
         self.surface.set_skybox_from_rgba(1, 1, &rgba);
+    }
+
+    /// Installs an arbitrary equirectangular skybox image.
+    ///
+    /// A flat one-texel sky is enough to prove a reflection picks up the
+    /// environment's *colour*, but not that it picks up its *structure*: every
+    /// prefiltered mip of a constant environment is that same constant, so a
+    /// roughness test against [`Self::set_test_skybox`] would pass with mip
+    /// selection removed entirely. Tests that care about blur need a sky with
+    /// something in it to blur.
+    pub fn set_test_skybox_image(&mut self, width: u32, height: u32, rgba: &[u8]) {
+        assert_eq!(
+            rgba.len() as u32,
+            width * height * 4,
+            "the equirect data must be exactly width * height RGBA texels"
+        );
+        self.surface.set_skybox_from_rgba(width, height, rgba);
+    }
+
+    /// Unloads the skybox, taking the IBL maps with it.
+    pub fn clear_test_skybox(&mut self) {
+        self.surface.clear_skybox();
+    }
+
+    /// Whether the renderer currently holds IBL maps.
+    pub fn has_ibl(&self) -> bool {
+        self.surface.has_ibl()
     }
 
     /// Draws one frame and reads it back.

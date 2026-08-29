@@ -2100,11 +2100,47 @@ region_alone` 회귀 테스트가 이 숫자를 의미 있게 만듦 — 이게 
 전반적인 렌더링 품질을 끌어올린다.
 
 **완료 조건:**
-- [ ] 최소 하나의 IBL 경로(환경 큐브맵 기반 diffuse/specular 근사) 구현
-- [ ] 하나 이상의 실시간 또는 베이크드 GI 근사(예: 라이트 프로브) 구현
-- [ ] 머티리얼의 metallic/roughness와 통합되어 반사가 표면 속성을 반영
-- [ ] 데모 씬에서 GI 켬/끔 스크린샷 비교로 시각적 차이 입증
-- [ ] 테스트 추가, CI 통과
+- [x] 최소 하나의 IBL 경로(환경 큐브맵 기반 diffuse/specular 근사) 구현
+- [ ] 하나 이상의 실시간 또는 베이크드 GI 근사(예: 라이트 프로브) 구현 — **sub-step 2/2, 남음**
+- [x] 머티리얼의 metallic/roughness와 통합되어 반사가 표면 속성을 반영
+- [x] 데모 씬에서 GI 켬/끔 스크린샷 비교로 시각적 차이 입증
+- [x] 테스트 추가, CI 통과
+
+**진행 중 — sub-step 1/2 (IBL)만 완료.** [[feedback_split_when_complexity_grows]]에 따라 IBL과
+라이트 프로브 GI를 분리함. 라이트 프로브(프로브 배치/저장/보간/베이크)는 IBL과 공유하는 인프라가
+없어 sub-step 2/2로 남아 있으며, 이게 유일한 미충족 조건.
+
+**sub-step 1/2 (IBL) 완료: PR #1812 (2026-08-30).** 셰이더에 이미 완비된 Cook-Torrance
+(`distribution_ggx`/`geometry_smith`/`fresnel_schlick`/`f0 = mix(vec3(0.04), albedo, metallic)`)
+덕분에 통합이 매우 깔끔했음 — 마지막 줄 `let color = light.ambient * albedo + lo + emissive;`의
+평범한 상수 앰비언트가 정확히 IBL이 대체할 항이었고, f0/metallic/roughness가 이미 스코프에 있어
+**완료조건 3(반사가 표면 속성 반영)이 통합에서 그냥 따라나옴.**
+
+**진짜 큐브맵**(`TextureViewDimension::Cube`, 6 array layer) 인프라를 새로 도입 — 이 엔진에
+없던 것. 포인트 라이트 섀도우가 이미 6레이어 배열을 쓰지만 수동 면 선택 방식이고(R32Float이
+필터링 불가라는 문서화된 이유), IBL은 그 제약이 없어 하드웨어 큐브 필터링을 씀.
+
+**4개 GPU 패스, 2가지 주기:** equirect→큐브맵 / irradiance 컨볼루션 / specular prefilter
+(5밉 × 6면)는 스카이박스 변경 시 재생성. **BRDF 적분 LUT(512×512 Rg16Float)는 환경·씬·카메라와
+무관하게 BRDF만의 함수이므로 시작 시 1회 생성 후 모든 스카이박스에 재사용** — 주기가 다르다는 게
+설계의 핵심. 해석적 Karis fit 대신 진짜 LUT를 씀(grazing angle과 낮은 roughness에서 오차가 보임).
+
+**가장 위험했던 부분은 IBL 수학이 아니라 스카이박스 부재 시 폴백.** wgpu는 바인드그룹 레이아웃이
+고정이라 group 2가 큐브 바인딩을 선언하면 항상 뭔가 바인드돼 있어야 함 — 더미가 틀리면 스카이박스
+없는 모든 프레임이 조용히 바뀜. 1×1 더미 큐브맵/LUT + `ibl_enabled` 유니폼 플래그로 해결했고,
+플래그가 `LightUniform`의 기존 여유 패딩(`_pad2`~`_pad4`)에 들어가서 **LIGHT_UNIFORM_SIZE가
+960 그대로** — 연쇄 변경 없음. 기존 8개 픽셀 테스트가 무수정 통과하는지를 3개 태스크에서 반복 검증.
+
+**조용히 실패하는 버그를 겨냥한 유닛 테스트들:** 큐브맵 변환이 거울반전돼도 부드러운 그라디언트
+에서는 안 보이고(→ `equirect_to_cubemap_puts_each_direction_on_the_right_face`), irradiance
+정규화 계수가 틀려도 그냥 "좀 밝네"로 보이며(→ `irradiance_of_a_uniform_environment_is_that_
+same_colour`, 상수 환경의 코사인 가중 반구 적분은 그 상수라는 정확한 성질 이용), roughness별 밉
+매핑이 아예 적용 안 돼도 반사는 그럴듯하게 나옴(→ `prefilter_mip_zero_is_sharp_and_the_last_
+mip_is_blurred`). BRDF LUT는 `(1, 0)`을 전부에 쓰는 구현이 통과 못 하도록 3개 코너를 단언.
+
+픽셀 테스트는 켬/끔 반대 방향 회귀와 짝지음 — `a_scene_with_no_skybox_is_pixel_identical`이
+"IBL이 그냥 화면 전체를 밝게 만듦"을 잡아내고, `metal_tints_its_reflection_but_a_dielectric_
+does_not`이 완료조건 3을 가정이 아니라 직접 증명.
 
 ---
 

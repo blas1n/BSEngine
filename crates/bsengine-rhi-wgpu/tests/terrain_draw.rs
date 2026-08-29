@@ -70,6 +70,11 @@ fn a_terrain_draw_call_does_not_panic_alongside_regular_draw_calls() {
         None,
         0.0,
         &[],
+        // No `Taa`, no jitter: this test only checks that a terrain draw call
+        // records without a validation error.
+        None,
+        (0.0, 0.0),
+        Mat4::IDENTITY,
     );
 
     assert!(

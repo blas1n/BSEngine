@@ -422,6 +422,12 @@ struct VertOut {{
                 None,
                 0.0,
                 &scene.particles,
+                // No TAA, no jitter: a single `render` call is one frame, and
+                // TAA needs several to accumulate. Task 7 gives `Scene` its
+                // own `taa` field plus a multi-frame path.
+                None,
+                (0.0, 0.0),
+                view_proj,
             )
             .expect("render_frame failed");
 

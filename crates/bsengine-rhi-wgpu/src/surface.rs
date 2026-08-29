@@ -916,6 +916,33 @@ fn map_keycode_to_egui(code: bsengine_input::KeyCode) -> Option<egui::Key> {
     })
 }
 
+/// Applies a TAA sub-pixel jitter to the view-projection used for
+/// rasterization, leaving the caller's unjittered matrix alone.
+///
+/// The offset goes on the **projection's third column** (glam is
+/// column-major, so `z_axis.x`/`z_axis.y` are rows 0 and 1 of that column).
+/// That is the column the perspective divide scales by `w`, so the resulting
+/// NDC shift is the same sub-pixel amount at every depth. Adding the offset to
+/// the *combined* view-projection instead would scale it by the world-space z
+/// coordinate — a shear, not a sub-pixel nudge.
+///
+/// `cam_proj` is the projection factor of `view_proj` (every caller builds the
+/// latter as `cam_proj * view`), so `cam_proj.inverse() * view_proj` recovers
+/// the view matrix to re-compose the jittered projection against.
+///
+/// A degenerate `cam_proj` returns `view_proj` unchanged rather than a matrix
+/// full of NaNs: the editor override hands over an all-zero `editor_proj`
+/// until its orbit camera has run once.
+fn jittered_view_proj(view_proj: Mat4, cam_proj: Mat4, jitter_clip: (f32, f32)) -> Mat4 {
+    if jitter_clip == (0.0, 0.0) || cam_proj.determinant().abs() < f32::EPSILON {
+        return view_proj;
+    }
+    let mut jittered_proj = cam_proj;
+    jittered_proj.z_axis.x += jitter_clip.0;
+    jittered_proj.z_axis.y += jitter_clip.1;
+    jittered_proj * (cam_proj.inverse() * view_proj)
+}
+
 /// Computes the 6 face view-projection matrices for a point light's cube shadow
 /// map, one per axis-aligned direction, using the standard cubemap face
 /// orientation convention (+Y/-Y up-vectors on the X/Z faces to avoid a
@@ -1006,6 +1033,19 @@ pub struct WgpuSurface {
     /// [`Self::frame_stats_history`].
     frame_stats_history:
         std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<crate::profiler::FrameStats>>>,
+    /// The previous frame's **unjittered** view-projection, which the TAA
+    /// resolve reprojects through to find where this frame's pixel sat in the
+    /// image it is blending against.
+    ///
+    /// Deliberately unjittered: the jitter exists only to move the
+    /// rasterization sample point inside a pixel, so reprojecting with it
+    /// would chase the jitter instead of the camera and the accumulation
+    /// would never converge.
+    ///
+    /// Updated at the end of every `render_frame`, whether or not TAA is
+    /// enabled, so enabling it mid-run reprojects against the frame that
+    /// actually preceded it rather than an arbitrarily old one.
+    prev_unjittered_view_proj: Mat4,
 }
 
 impl WgpuSurface {
@@ -1902,6 +1942,11 @@ impl WgpuSurface {
             terrain_bgl,
             custom_pipelines: std::collections::HashMap::new(),
             post_process,
+            // No frame has been rendered yet, so there is no previous
+            // view-projection. It is never read before the first frame
+            // stores one: `PostProcessState` starts with `history_valid`
+            // false, and the resolve does not reproject without history.
+            prev_unjittered_view_proj: Mat4::IDENTITY,
             start_time: std::time::Instant::now(),
             dock_state: None,
             last_saved_layout_json: None,
@@ -2394,12 +2439,24 @@ impl WgpuSurface {
         type_registry: Option<&bevy_ecs::reflect::AppTypeRegistry>,
         elapsed_seconds: f32,
         particles: &[crate::particles::ParticleBatch],
+        taa: Option<bsengine_core::Taa>,
+        jitter_clip: (f32, f32),
+        unjittered_view_proj: Mat4,
     ) -> Result<std::collections::HashSet<String>, String> {
         // Wall-clock CPU time for this call, for `FrameStats::cpu_frame_time_ms`.
         let frame_start = std::time::Instant::now();
 
+        // The sub-pixel TAA jitter belongs to *rasterization only*, so it is
+        // applied here rather than by the caller, and only to the matrix the
+        // vertex shader uses. `unjittered_view_proj` stays untouched and is
+        // what the reprojection matrices uploaded below are built from --
+        // reprojecting through a jittered matrix would chase the jitter
+        // instead of the camera and never converge. See `jittered_view_proj`
+        // for why the offset goes where it does.
+        let raster_view_proj = jittered_view_proj(view_proj, cam_proj, jitter_clip);
+
         let camera_data = CameraUniformData {
-            view_proj: view_proj.to_cols_array_2d(),
+            view_proj: raster_view_proj.to_cols_array_2d(),
             light_view_proj: light_view_proj.to_cols_array_2d(),
             cam_pos: cam_pos.to_array(),
             time: elapsed_seconds,
@@ -2549,11 +2606,13 @@ impl WgpuSurface {
                 ssao_intensity: ao.intensity,
                 ssao_sample_count: ao.sample_count,
                 ssao_enabled: ao.enabled as u32,
-                // Not yet driven by the camera's `Taa` component, so the TAA
-                // pass stays disabled and passes colour straight through.
-                taa_enabled: 0,
-                taa_history_blend: 0.0,
-                taa_clamp_strength: 0.0,
+                // Not `taa.unwrap_or_default()` like the three effects above:
+                // `Taa::default()` is enabled, and for TAA an absent component
+                // has to mean *off* -- that is what leaves every pre-existing
+                // pixel test rendering exactly as it did before.
+                taa_enabled: taa.map(|t| t.enabled).unwrap_or(false) as u32,
+                taa_history_blend: taa.map(|t| t.history_blend).unwrap_or(0.0),
+                taa_clamp_strength: taa.map(|t| t.clamp_strength).unwrap_or(0.0),
             };
             self.post_process.update_config(&self.queue, pp_config);
             let inv_proj = cam_proj.inverse();
@@ -2562,6 +2621,16 @@ impl WgpuSurface {
                 crate::post_process::SsaoCameraGpu {
                     proj: cam_proj.to_cols_array_2d(),
                     inv_proj: inv_proj.to_cols_array_2d(),
+                },
+            );
+            // Both matrices are the unjittered ones on purpose -- see
+            // `TaaCameraGpu` and the jitter comment at the top of this
+            // function.
+            self.post_process.update_taa_camera(
+                &self.queue,
+                crate::post_process::TaaCameraGpu {
+                    inv_view_proj: unjittered_view_proj.inverse().to_cols_array_2d(),
+                    prev_view_proj: self.prev_unjittered_view_proj.to_cols_array_2d(),
                 },
             );
         }
@@ -3681,6 +3750,10 @@ impl WgpuSurface {
             }
         }
 
+        // This frame's camera becomes next frame's reprojection source. Stored
+        // last, after the resolve above has consumed the previous value.
+        self.prev_unjittered_view_proj = unjittered_view_proj;
+
         Ok(clicked)
     }
 
@@ -3881,6 +3954,97 @@ pub struct WgpuSurfaceResource(pub WgpuSurface);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // A `(view_proj, cam_proj)` pair of the exact shape `render_frame`
+    // receives. The camera is deliberately off-origin and rotated: with a
+    // camera at the origin looking down -Z the view matrix is the identity,
+    // `view_proj == cam_proj`, and jittering the combined matrix would be
+    // indistinguishable from jittering the projection -- the test would
+    // certify nothing.
+    fn test_camera() -> (Mat4, Mat4) {
+        let proj = Mat4::perspective_rh(60.0_f32.to_radians(), 16.0 / 9.0, 0.1, 100.0);
+        let view = Mat4::look_at_rh(
+            Vec3::new(3.0, 2.0, 5.0),
+            Vec3::new(-1.0, 0.5, -2.0),
+            Vec3::Y,
+        );
+        (proj * view, proj)
+    }
+
+    fn ndc(view_proj: Mat4, world: Vec3) -> (f32, f32) {
+        let clip = view_proj * world.extend(1.0);
+        (clip.x / clip.w, clip.y / clip.w)
+    }
+
+    #[test]
+    fn jitter_shifts_ndc_by_the_same_amount_at_every_depth() {
+        // The whole reason the offset goes on the projection's third column
+        // (the one scaled by `w`) rather than onto the combined
+        // view-projection: a sub-pixel nudge has to move near and far
+        // geometry by the SAME amount in NDC. Applied to the combined matrix
+        // the shift would scale with world-space z, shearing the scene
+        // instead of resampling it, and TAA would blur rather than resolve.
+        let (view_proj, proj) = test_camera();
+        let jitter = (0.004_f32, -0.003_f32);
+        let jittered = jittered_view_proj(view_proj, proj, jitter);
+
+        // Four points spread over two decades of distance and off the view
+        // axis in both screen directions, so a shift that scaled with depth
+        // (or with a world coordinate) could not hide.
+        let probes = [
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(-2.0, 1.5, -1.0),
+            Vec3::new(4.0, -3.0, -20.0),
+            Vec3::new(-6.0, 2.0, -55.0),
+        ];
+        let shifts: Vec<(f32, f32)> = probes
+            .iter()
+            .map(|p| {
+                let (a, b) = ndc(view_proj, *p);
+                let (c, d) = ndc(jittered, *p);
+                (c - a, d - b)
+            })
+            .collect();
+        for (i, s) in shifts.iter().enumerate() {
+            assert!(
+                (s.0 - shifts[0].0).abs() < 1e-5 && (s.1 - shifts[0].1).abs() < 1e-5,
+                "jitter must be depth-independent, but probe {i} at {:?} shifted \
+                 by {s:?} while the first shifted by {:?}",
+                probes[i],
+                shifts[0]
+            );
+        }
+        // ...and by exactly the amount asked for. The sign flips because the
+        // third column is multiplied by view-space z while the divide is by
+        // `w = -z`, so a `+jitter` column entry lands as a `-jitter` NDC
+        // shift. Which direction is irrelevant to TAA -- the Halton offsets
+        // are symmetric about zero -- but pinning it keeps the magnitude
+        // assertion from passing on a matrix that merely moved *somewhere*.
+        assert!(
+            (shifts[0].0 + jitter.0).abs() < 1e-5 && (shifts[0].1 + jitter.1).abs() < 1e-5,
+            "expected an NDC shift of {:?}, got {:?}",
+            (-jitter.0, -jitter.1),
+            shifts[0]
+        );
+    }
+
+    #[test]
+    fn zero_jitter_leaves_the_matrix_bit_for_bit_alone() {
+        // Every camera without a `Taa` component takes this path, so any
+        // drift here would change what all eight existing pixel tests render.
+        let (view_proj, proj) = test_camera();
+        assert_eq!(jittered_view_proj(view_proj, proj, (0.0, 0.0)), view_proj);
+    }
+
+    #[test]
+    fn a_degenerate_projection_falls_back_instead_of_producing_nans() {
+        // `InspectorState::editor_proj` starts as an all-zero matrix, and the
+        // editor override installs it before the orbit camera has ever run.
+        // Inverting it would poison the whole frame.
+        let (view_proj, _) = test_camera();
+        let jittered = jittered_view_proj(view_proj, Mat4::ZERO, (0.004, -0.003));
+        assert_eq!(jittered, view_proj);
+    }
 
     #[test]
     fn point_light_face_view_projs_all_invertible() {

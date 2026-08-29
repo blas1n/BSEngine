@@ -15,6 +15,9 @@
 
 /// Screen-space translate/rotate gizmo math and drawing.
 pub mod gizmo;
+/// Image-based lighting: cubemap helpers, the BRDF integration LUT, and the
+/// environment preprocessing passes.
+pub mod ibl;
 /// GPU mesh generation and the mesh registry.
 pub mod mesh;
 /// Minimal glTF parsing + a small dedicated render pipeline for the Asset

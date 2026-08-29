@@ -66,8 +66,11 @@ struct LightUniform {
     num_point_lights: u32,
     point_lights: array<PointLightEntry, 8>,
     num_spot_lights: u32,
-    _pad2: f32,
-    _pad3: f32,
+    // Two of the three spare floats that used to sit here. Both shaders read
+    // the *same* uniform buffer, so both must declare this struct identically
+    // -- even the terrain shader, which does not sample IBL.
+    ibl_enabled: u32,
+    ibl_max_mip: f32,
     _pad4: f32,
     spot_lights: array<SpotLightEntry, 8>,
 };
@@ -79,6 +82,16 @@ struct LightUniform {
 @group(2) @binding(1) var shadow_sampler: sampler_comparison;
 @group(2) @binding(2) var shadow_map: texture_depth_2d;
 @group(2) @binding(4) var point_shadow_map: texture_2d_array<f32>;
+// Image-based lighting. These are always bound -- with 1x1 dummies when no
+// skybox is loaded -- because a bind group layout cannot vary per frame;
+// `light.ibl_enabled` is what actually decides whether they are read.
+@group(2) @binding(5) var irradiance_cube: texture_cube<f32>;
+@group(2) @binding(6) var prefilter_cube: texture_cube<f32>;
+@group(2) @binding(7) var brdf_lut: texture_2d<f32>;
+// Binding 8, not 3: 3 is already taken in the bind group layout by the point
+// shadow sampler, which no shader declares (the cube lookup uses textureLoad)
+// but which is bound all the same, as a non-filtering sampler.
+@group(2) @binding(8) var ibl_sampler: sampler;
 
 struct VertIn {
     @location(0) pos: vec3<f32>,
@@ -201,6 +214,12 @@ fn geometry_smith(n_dot_v: f32, n_dot_l: f32, roughness: f32) -> f32 {
 fn fresnel_schlick(cos_theta: f32, f0: vec3<f32>) -> vec3<f32> {
     return f0 + (vec3<f32>(1.0, 1.0, 1.0) - f0) * pow(clamp(1.0 - cos_theta, 0.0, 1.0), 5.0);
 }
+// Schlick with a roughness term. The plain Fresnel is derived for a perfect
+// mirror and over-brightens rough metals at grazing angles.
+fn fresnel_schlick_roughness(cos_theta: f32, f0: vec3<f32>, roughness: f32) -> vec3<f32> {
+    let inv_rough = vec3<f32>(1.0 - roughness);
+    return f0 + (max(inv_rough, f0) - f0) * pow(clamp(1.0 - cos_theta, 0.0, 1.0), 5.0);
+}
 @fragment
 fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
     let n = normalize(in.world_normal);
@@ -270,7 +289,31 @@ fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
             }
         }
     }
-    let color = light.ambient * albedo + lo + model_data.emissive;
+    // With no skybox this is exactly the old flat-ambient term, evaluated by
+    // exactly the old expression -- the branch is on a uniform, so every
+    // no-skybox frame stays bit-for-bit what it was before IBL existed.
+    //
+    // No ambient-occlusion factor multiplies the IBL term: SSAO here is a
+    // post-process pass over the depth buffer, so no AO value exists at this
+    // point in the frame, and SSAO keeps attenuating the composited result
+    // exactly as it does today.
+    var ambient_term = light.ambient * albedo;
+    if (light.ibl_enabled != 0u) {
+        let f_ibl = fresnel_schlick_roughness(n_dot_v, f0, roughness);
+        let kd_ibl = (vec3<f32>(1.0) - f_ibl) * (1.0 - metallic);
+        let irradiance = textureSample(irradiance_cube, ibl_sampler, n).rgb;
+        let diffuse_ibl = irradiance * albedo * kd_ibl;
+
+        let r = reflect(-v, n);
+        let prefiltered = textureSampleLevel(
+            prefilter_cube, ibl_sampler, r, roughness * light.ibl_max_mip
+        ).rgb;
+        let brdf = textureSample(brdf_lut, ibl_sampler, vec2<f32>(n_dot_v, roughness)).rg;
+        let specular_ibl = prefiltered * (f_ibl * brdf.x + brdf.y);
+
+        ambient_term = diffuse_ibl + specular_ibl;
+    }
+    let color = ambient_term + lo + model_data.emissive;
     return vec4<f32>(color, model_data.opacity);
 }
 "#;
@@ -328,8 +371,11 @@ struct LightUniform {
     num_point_lights: u32,
     point_lights: array<PointLightEntry, 8>,
     num_spot_lights: u32,
-    _pad2: f32,
-    _pad3: f32,
+    // Two of the three spare floats that used to sit here. Both shaders read
+    // the *same* uniform buffer, so both must declare this struct identically
+    // -- even the terrain shader, which does not sample IBL.
+    ibl_enabled: u32,
+    ibl_max_mip: f32,
     _pad4: f32,
     spot_lights: array<SpotLightEntry, 8>,
 };
@@ -655,6 +701,14 @@ const SKY_UNIFORM_SIZE: u64 = 64;
 // direction(16) + color(16) + ambient+count(16) + 8×PointLightGpu(48=384) +
 // num_spot+pad(16) + 8×SpotLightGpu(64=512) = 960
 const LIGHT_UNIFORM_SIZE: u64 = 960;
+// The IBL flags took two of the three spare floats in that `num_spot+pad(16)`
+// block rather than growing the struct, so this must still hold. It is also
+// the layout's `min_binding_size`, so a mismatch would be a bind group
+// validation failure at runtime rather than here.
+const _: () = assert!(
+    std::mem::size_of::<LightUniformData>() as u64 == LIGHT_UNIFORM_SIZE,
+    "LightUniformData must stay exactly LIGHT_UNIFORM_SIZE bytes"
+);
 // Vertex stride: position(12) + color(12) + normal(12) + uv(8) = 44 bytes
 const VERTEX_STRIDE: u64 = 44;
 const SHADOW_MAP_SIZE: u32 = 2048;
@@ -825,8 +879,16 @@ struct LightUniformData {
     num_point_lights: u32,
     point_lights: [PointLightGpu; 8],
     num_spot_lights: u32,
-    _pad2: f32,
-    _pad3: f32,
+    /// Non-zero when `WgpuSurface::ibl` holds maps for the current skybox.
+    /// Zero makes the shader fall back to the flat `ambient * albedo` term,
+    /// which is why the IBL bindings can be dummies without changing a pixel.
+    ///
+    /// Took `_pad2`'s slot, and a `u32` is the same 4 bytes that `f32` was, so
+    /// `LIGHT_UNIFORM_SIZE` is still 960.
+    ibl_enabled: u32,
+    /// Highest mip index of the prefiltered specular cube, i.e. the mip the
+    /// shader samples at `roughness == 1`. Took `_pad3`'s slot.
+    ibl_max_mip: f32,
     _pad4: f32,
     spot_lights: [SpotLightGpu; 8],
 }
@@ -961,6 +1023,79 @@ fn point_light_face_view_projs(position: Vec3, range: f32) -> [Mat4; 6] {
     dirs.map(|(dir, up)| proj * Mat4::look_at_rh(position, position + dir, up))
 }
 
+/// Everything group 2 ("light") binds, gathered into one struct.
+///
+/// The group is built twice -- once in the constructor and again every time
+/// the skybox changes, since a bind group is immutable and the IBL views it
+/// holds are not -- and only the two cube views differ between those calls.
+/// Passing nine loose references to a helper twice is exactly how the two
+/// call sites would drift apart, so they pass this instead.
+struct LightBindings<'a> {
+    light_buffer: &'a wgpu::Buffer,
+    shadow_sampler: &'a wgpu::Sampler,
+    shadow_map_view: &'a wgpu::TextureView,
+    point_shadow_sampler: &'a wgpu::Sampler,
+    point_shadow_view: &'a wgpu::TextureView,
+    ibl_sampler: &'a wgpu::Sampler,
+    /// Real irradiance cube, or the 1x1x6 dummy when no skybox is loaded.
+    irradiance_view: &'a wgpu::TextureView,
+    /// Real prefiltered cube, or that same dummy.
+    prefilter_view: &'a wgpu::TextureView,
+    brdf_lut_view: &'a wgpu::TextureView,
+}
+
+/// Builds the light bind group. The single place the group-2 binding numbers
+/// appear on the Rust side, so a skybox load cannot bind them differently from
+/// how construction did.
+fn create_light_bind_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    bindings: &LightBindings,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("light bg"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: bindings.light_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(bindings.shadow_sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::TextureView(bindings.shadow_map_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: wgpu::BindingResource::Sampler(bindings.point_shadow_sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 4,
+                resource: wgpu::BindingResource::TextureView(bindings.point_shadow_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 5,
+                resource: wgpu::BindingResource::TextureView(bindings.irradiance_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 6,
+                resource: wgpu::BindingResource::TextureView(bindings.prefilter_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 7,
+                resource: wgpu::BindingResource::TextureView(bindings.brdf_lut_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 8,
+                resource: wgpu::BindingResource::Sampler(bindings.ibl_sampler),
+            },
+        ],
+    })
+}
+
 /// Owns the render output target (a window's swapchain or an offscreen
 /// texture), all GPU pipelines/buffers for the main scene and shadow passes,
 /// the egui renderer, and per-frame render state.
@@ -979,24 +1114,63 @@ pub struct WgpuSurface {
     model_bind_group: wgpu::BindGroup,
     light_buffer: wgpu::Buffer,
     light_bind_group: wgpu::BindGroup,
+    /// Kept because `light_bind_group` is rebuilt whenever the skybox changes:
+    /// a bind group is immutable, so swapping the dummy IBL maps for real ones
+    /// (or back) means building a new one against this same layout.
+    light_bgl: wgpu::BindGroupLayout,
     _white_texture: crate::profiler::TrackedTexture,
     _sampler: wgpu::Sampler,
     default_texture_bind_group: wgpu::BindGroup,
     shadow_pipeline: wgpu::RenderPipeline,
     _shadow_map_texture: crate::profiler::TrackedTexture,
     shadow_map_view: wgpu::TextureView,
-    _shadow_comparison_sampler: wgpu::Sampler,
+    // No longer underscore-prefixed: the two shadow samplers and the point
+    // shadow array view are read back whenever `light_bind_group` is rebuilt.
+    shadow_comparison_sampler: wgpu::Sampler,
     point_shadow_pipeline: wgpu::RenderPipeline,
     _point_shadow_color_texture: crate::profiler::TrackedTexture,
     _point_shadow_depth_texture: crate::profiler::TrackedTexture,
+    point_shadow_color_full_view: wgpu::TextureView,
     point_shadow_depth_view: wgpu::TextureView,
-    _point_shadow_sampler: wgpu::Sampler,
+    point_shadow_sampler: wgpu::Sampler,
     point_shadow_uniform_buffer: wgpu::Buffer,
     point_shadow_bind_group: wgpu::BindGroup,
     egui_ctx: egui::Context,
     egui_renderer: egui_wgpu::Renderer,
     skybox: Option<SkyboxState>,
     loaded_skybox_path: Option<String>,
+    /// The irradiance and prefiltered specular maps convolved from the current
+    /// skybox, or `None` when no skybox is loaded.
+    ///
+    /// Rebuilt by [`Self::set_skybox_from_rgba`] and dropped by
+    /// [`Self::clear_skybox`], because both maps are convolutions of one
+    /// specific environment and mean nothing once that environment is gone.
+    ibl: Option<crate::ibl::IblMaps>,
+    /// The BRDF integration LUT, sampled by `(n_dot_v, roughness)` for the
+    /// split-sum approximation's second term.
+    ///
+    /// Unlike [`Self::ibl`] this is **not** optional and is never rebuilt: it is
+    /// a pure function of the BRDF, so one table generated at construction
+    /// serves every skybox, and every frame without one. That is also why it
+    /// needs no dummy counterpart -- it is bound at group 2 binding 7 in every
+    /// frame, skybox or not.
+    brdf_lut_view: wgpu::TextureView,
+    /// Held only to keep the texture [`Self::brdf_lut_view`] looks at alive --
+    /// and counted in the profiler -- for the lifetime of the surface.
+    _brdf_lut_texture: crate::profiler::TrackedTexture,
+    /// Trilinear clamped sampler for all three IBL bindings.
+    ibl_sampler: wgpu::Sampler,
+    /// A 1x1x6 black cubemap bound at bindings 5 and 6 whenever [`Self::ibl`]
+    /// is `None`.
+    ///
+    /// A bind group layout is fixed at creation, so the IBL bindings exist in
+    /// every scene -- including the many that never load a skybox. Rather than
+    /// branch the layout (two layouts means two pipelines and two code paths
+    /// that can disagree), those scenes bind this and set `ibl_enabled` to 0,
+    /// which stops the shader reading it at all.
+    dummy_ibl_cube_view: wgpu::TextureView,
+    /// Held only to keep [`Self::dummy_ibl_cube_view`]'s texture alive.
+    _dummy_ibl_cube_texture: crate::profiler::TrackedTexture,
     pipeline_layout: wgpu::PipelineLayout,
     terrain_pipeline: wgpu::RenderPipeline,
     terrain_bgl: wgpu::BindGroupLayout,
@@ -1412,7 +1586,102 @@ impl WgpuSurface {
                     },
                     count: None,
                 },
+                // 5/6/7/8 are the IBL maps and their sampler. A layout is
+                // fixed at creation, so these entries exist even in scenes
+                // that never load a skybox; the dummies bound in that case
+                // are never sampled, because `ibl_enabled` is 0.
+                wgpu::BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::Cube,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 6,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::Cube,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 7,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 8,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
+        });
+
+        // Bound at 5 and 6 whenever no skybox is loaded. 1x1x6 and cleared to
+        // black: the shader never samples it (`ibl_enabled` is 0 in that case),
+        // so its only job is to satisfy the layout, and the smallest possible
+        // texture is the one least likely to be mistaken for real lighting if
+        // that flag ever went wrong.
+        //
+        // The BRDF LUT needs no equivalent: it is a pure function of the BRDF,
+        // exists unconditionally on the surface, and so is bound at 7 in both
+        // cases.
+        let dummy_ibl_cube_texture = crate::ibl::create_cubemap(
+            &device,
+            "ibl dummy cube",
+            1,
+            1,
+            crate::ibl::ENV_CUBE_FORMAT,
+            wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        );
+        // Explicitly zeroed rather than left to wgpu's lazy zero-init, so the
+        // contents are a property of this code and not of a backend detail.
+        // 8 bytes per Rgba16Float texel, one texel per face, six faces.
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &dummy_ibl_cube_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &[0u8; 48],
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(8),
+                rows_per_image: Some(1),
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 6,
+            },
+        );
+        let dummy_ibl_cube_view = crate::ibl::cube_view(&dummy_ibl_cube_texture);
+
+        // Trilinear and clamped: the prefiltered cube's roughness lookup lands
+        // between mips, and a nearest sampler would turn that continuous
+        // roughness response into five visible steps.
+        let ibl_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("ibl sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
         });
 
         let (white_texture, sampler, texture_bgl, default_texture_bind_group) =
@@ -1547,32 +1816,32 @@ impl WgpuSurface {
             }],
         });
 
-        let light_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("light bg"),
-            layout: &light_bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: light_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&shadow_comparison_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&shadow_map_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::Sampler(&point_shadow_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::TextureView(&point_shadow_color_full_view),
-                },
-            ],
-        });
+        // Generated here, with the other one-time GPU resources, because the
+        // split-sum BRDF table depends on nothing but the BRDF: no environment,
+        // no scene, no camera. One integration at construction serves every
+        // skybox this surface ever loads -- and every frame it loads none.
+        // Both constructors reach this point, so an offscreen surface has the
+        // LUT on exactly the same terms a windowed one does.
+        let (brdf_lut_texture, brdf_lut_view) = crate::ibl::generate_brdf_lut(&device, &queue);
+
+        // No skybox at construction, so the cube bindings get the dummy. Every
+        // later rebuild goes through `rebuild_light_bind_group`, which binds
+        // the same way from the same struct.
+        let light_bind_group = create_light_bind_group(
+            &device,
+            &light_bgl,
+            &LightBindings {
+                light_buffer: &light_buffer,
+                shadow_sampler: &shadow_comparison_sampler,
+                shadow_map_view: &shadow_map_view,
+                point_shadow_sampler: &point_shadow_sampler,
+                point_shadow_view: &point_shadow_color_full_view,
+                ibl_sampler: &ibl_sampler,
+                irradiance_view: &dummy_ibl_cube_view,
+                prefilter_view: &dummy_ibl_cube_view,
+                brdf_lut_view: &brdf_lut_view,
+            },
+        );
 
         let vertex_buffer_layout = wgpu::VertexBufferLayout {
             array_stride: VERTEX_STRIDE,
@@ -1919,24 +2188,33 @@ impl WgpuSurface {
             model_bind_group,
             light_buffer,
             light_bind_group,
+            light_bgl,
             _white_texture: white_texture,
             _sampler: sampler,
             default_texture_bind_group,
             shadow_pipeline,
             _shadow_map_texture: shadow_map_texture,
             shadow_map_view,
-            _shadow_comparison_sampler: shadow_comparison_sampler,
+            shadow_comparison_sampler,
             point_shadow_pipeline,
             _point_shadow_color_texture: point_shadow_color_texture,
             _point_shadow_depth_texture: point_shadow_depth_texture,
+            point_shadow_color_full_view,
             point_shadow_depth_view,
-            _point_shadow_sampler: point_shadow_sampler,
+            point_shadow_sampler,
             point_shadow_uniform_buffer,
             point_shadow_bind_group,
             egui_ctx,
             egui_renderer,
             skybox: None,
             loaded_skybox_path: None,
+            // No skybox yet, so there is no environment to have convolved.
+            ibl: None,
+            brdf_lut_view,
+            _brdf_lut_texture: brdf_lut_texture,
+            ibl_sampler,
+            dummy_ibl_cube_view,
+            _dummy_ibl_cube_texture: dummy_ibl_cube_texture,
             pipeline_layout,
             terrain_pipeline,
             terrain_bgl,
@@ -2244,6 +2522,23 @@ impl WgpuSurface {
                 cache: None,
             });
 
+        // The environment changed, so everything convolved from the old one is
+        // stale: rebuild the irradiance and prefiltered maps from the texture
+        // and sampler this very skybox is about to be drawn with, so what
+        // materials reflect and what the camera sees are the same image.
+        //
+        // Here rather than lazily at first use because it is a heavy one-off
+        // (42 render passes) that belongs to the load, not to a frame.
+        self.ibl = Some(crate::ibl::IblMaps::generate(
+            &self.device,
+            &self.queue,
+            &tex_view,
+            &sampler,
+        ));
+        // The group-2 bind group still points at the dummy cube (or the
+        // previous skybox's maps); a bind group cannot be edited in place.
+        self.rebuild_light_bind_group();
+
         self.skybox = Some(SkyboxState {
             pipeline,
             uniform_buffer,
@@ -2258,11 +2553,55 @@ impl WgpuSurface {
     pub fn clear_skybox(&mut self) {
         self.skybox = None;
         self.loaded_skybox_path = None;
+        // The IBL maps are convolutions of the skybox that just went away;
+        // keeping them would light the scene with an environment no longer
+        // being rendered.
+        self.ibl = None;
+        // Back to the dummy cube. Dropping the maps without this would leave
+        // the bind group holding views into freed textures.
+        self.rebuild_light_bind_group();
+    }
+
+    /// Rebuilds the group-2 bind group so bindings 5 and 6 point at whatever
+    /// [`Self::ibl`] currently is: the real maps, or the dummy cube when there
+    /// is no skybox.
+    ///
+    /// Must be called after *every* assignment to `self.ibl`. The uniform's
+    /// `ibl_enabled` flag is written from `self.ibl` each frame, so a stale
+    /// bind group here would mean the shader sampling one skybox's maps while
+    /// the flag describes another's.
+    fn rebuild_light_bind_group(&mut self) {
+        let (irradiance_view, prefilter_view) = match &self.ibl {
+            Some(maps) => (&maps.irradiance_view, &maps.prefilter_view),
+            None => (&self.dummy_ibl_cube_view, &self.dummy_ibl_cube_view),
+        };
+        let bind_group = create_light_bind_group(
+            &self.device,
+            &self.light_bgl,
+            &LightBindings {
+                light_buffer: &self.light_buffer,
+                shadow_sampler: &self.shadow_comparison_sampler,
+                shadow_map_view: &self.shadow_map_view,
+                point_shadow_sampler: &self.point_shadow_sampler,
+                point_shadow_view: &self.point_shadow_color_full_view,
+                ibl_sampler: &self.ibl_sampler,
+                irradiance_view,
+                prefilter_view,
+                brdf_lut_view: &self.brdf_lut_view,
+            },
+        );
+        self.light_bind_group = bind_group;
     }
 
     /// Whether a skybox is currently loaded and will be rendered.
     pub fn has_skybox(&self) -> bool {
         self.skybox.is_some()
+    }
+
+    /// Whether image-based lighting maps are currently available -- true
+    /// exactly when a skybox is loaded, since they are generated from it.
+    pub fn has_ibl(&self) -> bool {
+        self.ibl.is_some()
     }
 
     /// Path of the currently loaded skybox texture, if any.
@@ -2523,8 +2862,10 @@ impl WgpuSurface {
             num_point_lights,
             point_lights: point_lights_gpu,
             num_spot_lights,
-            _pad2: 0.0,
-            _pad3: 0.0,
+            // The maps and the flag come from the same place, so the shader
+            // can never sample dummy cubemaps as if they were an environment.
+            ibl_enabled: u32::from(self.ibl.is_some()),
+            ibl_max_mip: (crate::ibl::PREFILTER_MIP_LEVELS - 1) as f32,
             _pad4: 0.0,
             spot_lights: spot_lights_gpu,
         };

@@ -36,6 +36,7 @@ pub mod post_process;
 pub mod profiler;
 /// Swapchain/frame lifecycle and the main scene render pass.
 pub mod surface;
+pub mod taa_jitter;
 /// GPU texture loading and the texture registry.
 pub mod texture;
 pub mod theme;

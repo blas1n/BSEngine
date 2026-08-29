@@ -223,6 +223,40 @@ fn fs_composite(in: FullscreenOut) -> @location(0) vec4<f32> {
 }
 "#;
 
+/// The temporal-antialiasing resolve pass.
+///
+/// Right now it is a straight passthrough: it copies the composite pass's LDR
+/// result to the swapchain unchanged, so the frame is pixel-identical to the
+/// composite-writes-straight-to-the-swapchain arrangement it replaces. The
+/// pass exists at this point only to establish the structure -- composite ->
+/// readable LDR texture -> final blit -- that the real resolve needs, because
+/// a pass cannot sample the texture it is rendering into.
+const TAA_WGSL: &str = r#"
+struct FullscreenOut {
+    @builtin(position) pos: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+@group(0) @binding(0) var ldr_tex: texture_2d<f32>;
+@group(0) @binding(1) var ldr_sampler: sampler;
+
+@vertex
+fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> FullscreenOut {
+    var positions = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -3.0), vec2<f32>(-1.0, 1.0), vec2<f32>(3.0, 1.0),
+    );
+    let p = positions[vi];
+    var out: FullscreenOut;
+    out.pos = vec4<f32>(p.x, p.y, 0.0, 1.0);
+    out.uv = vec2<f32>(p.x * 0.5 + 0.5, -p.y * 0.5 + 0.5);
+    return out;
+}
+
+@fragment
+fn fs_taa(in: FullscreenOut) -> @location(0) vec4<f32> {
+    return textureSample(ldr_tex, ldr_sampler, in.uv);
+}
+"#;
+
 /// GPU-uniform-buffer layout for bloom/tonemap/SSAO settings, matching the
 /// `PostProcessConfig` struct declared in the WGSL shaders above.
 #[repr(C)]
@@ -283,6 +317,9 @@ struct PostProcessTargets {
     ao_texture: crate::profiler::TrackedTexture,
     ao_view: wgpu::TextureView,
     ao_bg: wgpu::BindGroup,
+    ldr_texture: crate::profiler::TrackedTexture,
+    ldr_view: wgpu::TextureView,
+    ldr_bg: wgpu::BindGroup,
     depth_bg: wgpu::BindGroup,
 }
 
@@ -296,9 +333,16 @@ pub struct PostProcessState {
     _bloom_texture: crate::profiler::TrackedTexture,
     ao_view: wgpu::TextureView,
     _ao_texture: crate::profiler::TrackedTexture,
+    /// LDR output of the composite pass. Composite used to write straight to
+    /// the swapchain; it writes here instead so the TAA pass has a readable
+    /// copy of this frame's finished colour -- a pass cannot sample the
+    /// texture it is rendering into.
+    ldr_view: wgpu::TextureView,
+    _ldr_texture: crate::profiler::TrackedTexture,
     hdr_bg: wgpu::BindGroup,
     bloom_bg: wgpu::BindGroup,
     ao_bg: wgpu::BindGroup,
+    ldr_bg: wgpu::BindGroup,
     depth_bg: wgpu::BindGroup,
     sampler: wgpu::Sampler,
     config_buffer: wgpu::Buffer,
@@ -311,8 +355,15 @@ pub struct PostProcessState {
     pub ssao_pipeline: wgpu::RenderPipeline,
     /// Pipeline for the final composite (HDR + bloom + AO, tonemapped) shader.
     pub composite_pipeline: wgpu::RenderPipeline,
+    /// Pipeline for the temporal-antialiasing resolve that writes the
+    /// swapchain image. Currently a passthrough blit of the composite result.
+    pub taa_pipeline: wgpu::RenderPipeline,
     tex2d_bgl: wgpu::BindGroupLayout,
     depth_bgl: wgpu::BindGroupLayout,
+    /// Format of the final swapchain image. The LDR intermediate target must
+    /// match it exactly, or the round trip through it would requantize the
+    /// frame; kept here so `resize_targets` can recreate that target.
+    surface_format: wgpu::TextureFormat,
 }
 
 impl PostProcessState {
@@ -433,9 +484,17 @@ impl PostProcessState {
             Self::make_ssao_pipeline(device, &depth_bgl, &config_bgl, &ssao_cam_bgl);
         let composite_pipeline =
             Self::make_composite_pipeline(device, &tex2d_bgl, &config_bgl, surface_format);
+        let taa_pipeline = Self::make_taa_pipeline(device, &tex2d_bgl, surface_format);
 
         let targets = Self::create_targets(
-            device, width, height, depth_view, &sampler, &tex2d_bgl, &depth_bgl,
+            device,
+            width,
+            height,
+            depth_view,
+            &sampler,
+            &tex2d_bgl,
+            &depth_bgl,
+            surface_format,
         );
 
         Self {
@@ -445,9 +504,12 @@ impl PostProcessState {
             _bloom_texture: targets.bloom_texture,
             ao_view: targets.ao_view,
             _ao_texture: targets.ao_texture,
+            ldr_view: targets.ldr_view,
+            _ldr_texture: targets.ldr_texture,
             hdr_bg: targets.hdr_bg,
             bloom_bg: targets.bloom_bg,
             ao_bg: targets.ao_bg,
+            ldr_bg: targets.ldr_bg,
             depth_bg: targets.depth_bg,
             sampler,
             config_buffer,
@@ -457,11 +519,14 @@ impl PostProcessState {
             bloom_pipeline,
             ssao_pipeline,
             composite_pipeline,
+            taa_pipeline,
             tex2d_bgl,
             depth_bgl,
+            surface_format,
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn create_targets(
         device: &wgpu::Device,
         width: u32,
@@ -470,6 +535,7 @@ impl PostProcessState {
         sampler: &wgpu::Sampler,
         tex2d_bgl: &wgpu::BindGroupLayout,
         depth_bgl: &wgpu::BindGroupLayout,
+        surface_format: wgpu::TextureFormat,
     ) -> PostProcessTargets {
         let make_tex = |label: &str, fmt: wgpu::TextureFormat| {
             crate::profiler::create_tracked_texture(
@@ -498,6 +564,11 @@ impl PostProcessState {
         let bloom_view = bloom_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let ao_texture = make_tex("pp ao", AO_FORMAT);
         let ao_view = ao_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        // `surface_format`, not HDR_FORMAT: this holds the already-tonemapped
+        // LDR image on its way to the swapchain, so matching the swapchain's
+        // format keeps the round trip through it exact.
+        let ldr_texture = make_tex("pp ldr", surface_format);
+        let ldr_view = ldr_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let make_tex2d_bg = |label: &str, view: &wgpu::TextureView| {
             device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -519,6 +590,7 @@ impl PostProcessState {
         let hdr_bg = make_tex2d_bg("pp hdr bg", &hdr_view);
         let bloom_bg = make_tex2d_bg("pp bloom bg", &bloom_view);
         let ao_bg = make_tex2d_bg("pp ao bg", &ao_view);
+        let ldr_bg = make_tex2d_bg("pp ldr bg", &ldr_view);
 
         let depth_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("pp depth bg"),
@@ -539,6 +611,9 @@ impl PostProcessState {
             ao_texture,
             ao_view,
             ao_bg,
+            ldr_texture,
+            ldr_view,
+            ldr_bg,
             depth_bg,
         }
     }
@@ -668,8 +743,49 @@ impl PostProcessState {
         })
     }
 
-    /// Recreates the sized render targets (HDR/bloom/AO/depth bind group) for
-    /// a new surface resolution, leaving pipelines and samplers untouched.
+    fn make_taa_pipeline(
+        device: &wgpu::Device,
+        tex2d_bgl: &wgpu::BindGroupLayout,
+        surface_format: wgpu::TextureFormat,
+    ) -> wgpu::RenderPipeline {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("taa shader"),
+            source: wgpu::ShaderSource::Wgsl(TAA_WGSL.into()),
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("taa pll"),
+            bind_group_layouts: &[tex2d_bgl],
+            push_constant_ranges: &[],
+        });
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("taa pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_fullscreen",
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_taa",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: surface_format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        })
+    }
+
+    /// Recreates the sized render targets (HDR/bloom/AO/LDR/depth bind group)
+    /// for a new surface resolution, leaving pipelines and samplers untouched.
     pub fn resize_targets(
         &mut self,
         device: &wgpu::Device,
@@ -685,6 +801,7 @@ impl PostProcessState {
             &self.sampler,
             &self.tex2d_bgl,
             &self.depth_bgl,
+            self.surface_format,
         );
         self.hdr_view = t.hdr_view;
         self._hdr_texture = t.hdr_texture;
@@ -692,9 +809,12 @@ impl PostProcessState {
         self._bloom_texture = t.bloom_texture;
         self.ao_view = t.ao_view;
         self._ao_texture = t.ao_texture;
+        self.ldr_view = t.ldr_view;
+        self._ldr_texture = t.ldr_texture;
         self.hdr_bg = t.hdr_bg;
         self.bloom_bg = t.bloom_bg;
         self.ao_bg = t.ao_bg;
+        self.ldr_bg = t.ldr_bg;
         self.depth_bg = t.depth_bg;
     }
 
@@ -708,8 +828,13 @@ impl PostProcessState {
         queue.write_buffer(&self.ssao_cam_buffer, 0, bytemuck::cast_slice(&[cam]));
     }
 
-    /// Runs the bloom, SSAO, and composite passes in sequence, writing the
-    /// final tonemapped result into `surface_view`.
+    /// Runs the bloom, SSAO, composite, and TAA passes in sequence, writing
+    /// the final tonemapped result into `surface_view`.
+    ///
+    /// Composite writes into an intermediate LDR target rather than straight
+    /// into `surface_view`; the TAA pass then reads that target and writes the
+    /// swapchain. The TAA pass is a passthrough for now, so the image reaching
+    /// `surface_view` is the same one composite used to write there directly.
     ///
     /// `fast_render` skips the bloom/SSAO shading work but still clears both
     /// targets to their neutral values (black = "no bloom contribution",
@@ -781,7 +906,7 @@ impl PostProcessState {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("composite pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: surface_view,
+                    view: &self.ldr_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
@@ -796,6 +921,27 @@ impl PostProcessState {
             pass.set_bind_group(1, &self.bloom_bg, &[]);
             pass.set_bind_group(2, &self.ao_bg, &[]);
             pass.set_bind_group(3, &self.config_bg, &[]);
+            pass.draw(0..3, 0..1);
+            draw_calls += 1;
+            triangles += 1;
+        }
+
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("taa pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: surface_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                ..Default::default()
+            });
+            pass.set_pipeline(&self.taa_pipeline);
+            pass.set_bind_group(0, &self.ldr_bg, &[]);
             pass.draw(0..3, 0..1);
             draw_calls += 1;
             triangles += 1;
@@ -848,6 +994,15 @@ mod tests {
         let _m = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
             source: wgpu::ShaderSource::Wgsl(COMPOSITE_WGSL.into()),
+        });
+    }
+
+    #[test]
+    fn taa_shader_compiles() {
+        let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
+        let _m = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: None,
+            source: wgpu::ShaderSource::Wgsl(TAA_WGSL.into()),
         });
     }
 }

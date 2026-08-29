@@ -81,6 +81,8 @@ pub mod screen_size;
 pub mod shield;
 /// Skybox background component and its projection mode.
 pub mod skybox;
+/// Temporal antialiasing post-process settings.
+pub mod taa;
 /// Frame and elapsed-time resource driven by the app's main loop.
 pub mod time;
 /// Simple countdown timer component.
@@ -136,6 +138,7 @@ pub use save_data::SaveData;
 pub use screen_size::ScreenSize;
 pub use shield::Shield;
 pub use skybox::{Skybox, SkyboxPath, SkyboxProjection};
+pub use taa::Taa;
 pub use time::Time;
 pub use timer::Timer;
 pub use tone_map::{ToneMap, ToneMappingMode};

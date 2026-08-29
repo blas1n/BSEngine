@@ -39,7 +39,9 @@ pub(crate) fn bytes_per_texel(format: wgpu::TextureFormat) -> u64 {
         wgpu::TextureFormat::Rgba8Unorm
         | wgpu::TextureFormat::Rgba8UnormSrgb
         | wgpu::TextureFormat::Depth32Float
-        | wgpu::TextureFormat::R32Float => 4,
+        | wgpu::TextureFormat::R32Float
+        // The BRDF integration LUT: two 16-bit floats, so also 4 bytes.
+        | wgpu::TextureFormat::Rg16Float => 4,
         wgpu::TextureFormat::Rgba16Float => 8,
         other => {
             tracing::warn!(
@@ -230,5 +232,6 @@ mod tests {
         assert_eq!(bytes_per_texel(wgpu::TextureFormat::Rgba16Float), 8);
         assert_eq!(bytes_per_texel(wgpu::TextureFormat::Depth32Float), 4);
         assert_eq!(bytes_per_texel(wgpu::TextureFormat::R32Float), 4);
+        assert_eq!(bytes_per_texel(wgpu::TextureFormat::Rg16Float), 4);
     }
 }

@@ -128,6 +128,166 @@ pub fn face_view(texture: &wgpu::Texture, face: u32, mip: u32) -> wgpu::TextureV
     })
 }
 
+/// The bind group layout every face-rendering pass shares: a dynamic-offset
+/// uniform record saying which face (and, for the prefilter, which roughness)
+/// this pass is writing, the source environment, and its sampler.
+///
+/// `source_dimension` is the only thing that varies between the three passes:
+/// the equirect conversion reads a flat 2D panorama, while both convolutions
+/// read the cubemap that conversion produced.
+fn face_pass_bind_group_layout(
+    device: &wgpu::Device,
+    label: &str,
+    uniform_size: u64,
+    source_dimension: wgpu::TextureViewDimension,
+) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some(label),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: true,
+                    min_binding_size: wgpu::BufferSize::new(uniform_size),
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: source_dimension,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+    })
+}
+
+/// The bind group for [`face_pass_bind_group_layout`], built once and reused by
+/// every face pass with a differing dynamic offset.
+fn face_pass_bind_group(
+    device: &wgpu::Device,
+    label: &str,
+    layout: &wgpu::BindGroupLayout,
+    uniforms: &wgpu::Buffer,
+    uniform_size: u64,
+    source: &wgpu::TextureView,
+    sampler: &wgpu::Sampler,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some(label),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                // An explicit binding size, not `as_entire_binding`: with a
+                // dynamic offset the bound range starts at the offset, so a
+                // whole-buffer size would run past the end on every pass but
+                // the first.
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: uniforms,
+                    offset: 0,
+                    size: wgpu::BufferSize::new(uniform_size),
+                }),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(source),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+        ],
+    })
+}
+
+/// The fullscreen-triangle pipeline every face pass runs: no vertex buffers, no
+/// depth, one colour target, `vs_fullscreen` from [`COMMON_WGSL`] paired with
+/// whichever fragment entry the pass supplies.
+fn face_pass_pipeline(
+    device: &wgpu::Device,
+    label: &str,
+    wgsl: &str,
+    fragment_entry: &str,
+    bgl: &wgpu::BindGroupLayout,
+    format: wgpu::TextureFormat,
+) -> wgpu::RenderPipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some(label),
+        source: wgpu::ShaderSource::Wgsl(wgsl.into()),
+    });
+    let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some(label),
+        bind_group_layouts: &[bgl],
+        push_constant_ranges: &[],
+    });
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some(label),
+        layout: Some(&layout),
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: "vs_fullscreen",
+            buffers: &[],
+            compilation_options: Default::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: fragment_entry,
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: Some(wgpu::BlendState::REPLACE),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: Default::default(),
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview: None,
+        cache: None,
+    })
+}
+
+/// Draws the shared fullscreen triangle into `target`, selecting this pass's
+/// uniform record with `dynamic_offset`.
+fn draw_face_pass(
+    encoder: &mut wgpu::CommandEncoder,
+    label: &str,
+    target: &wgpu::TextureView,
+    pipeline: &wgpu::RenderPipeline,
+    bind_group: &wgpu::BindGroup,
+    dynamic_offset: u64,
+) {
+    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some(label),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view: target,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                store: wgpu::StoreOp::Store,
+            },
+        })],
+        depth_stencil_attachment: None,
+        ..Default::default()
+    });
+    pass.set_pipeline(pipeline);
+    pass.set_bind_group(0, bind_group, &[dynamic_offset as wgpu::DynamicOffset]);
+    pass.draw(0..3, 0..1);
+}
+
 /// WGSL every IBL pass needs, prepended to each pass's own source rather than
 /// copied into it.
 ///
@@ -188,12 +348,15 @@ fn cube_face_direction(face: u32, uv: vec2<f32>) -> vec3<f32> {
 }
 "#;
 
-const BRDF_LUT_WGSL: &str = r#"
-// Sample count for the Monte Carlo integration. 1024 Hammersley points is the
-// standard figure; because this LUT is generated once ever, the cost is paid
-// at startup and never again.
-const SAMPLE_COUNT: u32 = 1024u;
-
+/// GGX importance sampling, shared by the BRDF LUT and the specular prefilter.
+///
+/// Kept apart from either pass rather than duplicated into both: the two are
+/// the *same* integral split in half -- the LUT integrates the BRDF with the
+/// environment factored out, the prefilter integrates the environment with the
+/// BRDF factored out -- so if their sample distributions ever drifted apart,
+/// recombining the halves in the material shader would no longer reconstruct
+/// the integral they came from.
+const IMPORTANCE_SAMPLING_WGSL: &str = r#"
 // Van der Corput radical inverse: reverse the bits of `bits_in` and read them
 // back as a binary fraction.
 fn radical_inverse_vdc(bits_in: u32) -> f32 {
@@ -229,6 +392,13 @@ fn importance_sample_ggx(xi: vec2<f32>, n: vec3<f32>, roughness: f32) -> vec3<f3
     let bitangent = cross(n, tangent);
     return normalize(tangent * h_tangent.x + bitangent * h_tangent.y + n * h_tangent.z);
 }
+"#;
+
+const BRDF_LUT_WGSL: &str = r#"
+// Sample count for the Monte Carlo integration. 1024 Hammersley points is the
+// standard figure; because this LUT is generated once ever, the cost is paid
+// at startup and never again.
+const SAMPLE_COUNT: u32 = 1024u;
 
 // Smith geometry term with the IBL remapping k = a^2/2. Direct lighting uses
 // k = (roughness + 1)^2 / 8 instead; substituting the direct k here would
@@ -331,7 +501,9 @@ pub fn generate_brdf_lut(
 
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("ibl brdf lut shader"),
-        source: wgpu::ShaderSource::Wgsl(format!("{COMMON_WGSL}{BRDF_LUT_WGSL}").into()),
+        source: wgpu::ShaderSource::Wgsl(
+            format!("{COMMON_WGSL}{IMPORTANCE_SAMPLING_WGSL}{BRDF_LUT_WGSL}").into(),
+        ),
     });
     // No bind groups at all: the integration reads nothing but its own
     // fragment coordinates.
@@ -468,15 +640,57 @@ pub fn equirect_to_cubemap(
             | wgpu::TextureUsages::COPY_SRC,
     );
 
-    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: Some("ibl equirect to cube shader"),
-        source: wgpu::ShaderSource::Wgsl(format!("{COMMON_WGSL}{EQUIRECT_TO_CUBE_WGSL}").into()),
-    });
+    let face_buffer = write_face_uniforms(device, queue, "ibl equirect to cube uniform");
 
-    // One record per face, indexed by dynamic offset, so all six passes share
-    // a single buffer and bind group and the whole conversion is one submit.
-    let face_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("ibl face uniform"),
+    let bgl = face_pass_bind_group_layout(
+        device,
+        "ibl equirect to cube bgl",
+        FACE_UNIFORM_SIZE,
+        wgpu::TextureViewDimension::D2,
+    );
+    let bind_group = face_pass_bind_group(
+        device,
+        "ibl equirect to cube bg",
+        &bgl,
+        &face_buffer,
+        FACE_UNIFORM_SIZE,
+        equirect_view,
+        sampler,
+    );
+    let pipeline = face_pass_pipeline(
+        device,
+        "ibl equirect to cube",
+        &format!("{COMMON_WGSL}{EQUIRECT_TO_CUBE_WGSL}"),
+        "fs_equirect_to_cube",
+        &bgl,
+        ENV_CUBE_FORMAT,
+    );
+
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("ibl equirect to cube encoder"),
+    });
+    for face in 0..CUBE_FACES {
+        draw_face_pass(
+            &mut encoder,
+            "ibl equirect to cube pass",
+            &face_view(&texture, face, 0),
+            &pipeline,
+            &bind_group,
+            face as u64 * FACE_UNIFORM_STRIDE,
+        );
+    }
+    queue.submit(std::iter::once(encoder.finish()));
+
+    let view = cube_view(&texture);
+    (texture, view)
+}
+
+/// Fills a uniform buffer with one [`FACE_UNIFORM_SIZE`] record per cube face,
+/// each at its own [`FACE_UNIFORM_STRIDE`] offset, so the six face passes share
+/// a single buffer and bind group and differ only by dynamic offset.
+fn write_face_uniforms(device: &wgpu::Device, queue: &wgpu::Queue, label: &str) -> wgpu::Buffer {
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some(label),
         size: FACE_UNIFORM_STRIDE * CUBE_FACES as u64,
         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
@@ -484,123 +698,311 @@ pub fn equirect_to_cubemap(
     for face in 0..CUBE_FACES {
         let mut record = [0u8; FACE_UNIFORM_SIZE as usize];
         record[..4].copy_from_slice(&face.to_le_bytes());
-        queue.write_buffer(&face_buffer, face as u64 * FACE_UNIFORM_STRIDE, &record);
+        queue.write_buffer(&buffer, face as u64 * FACE_UNIFORM_STRIDE, &record);
+    }
+    buffer
+}
+
+const IRRADIANCE_WGSL: &str = r#"
+// Steps around the normal and from the normal down to the horizon. 128 x 32
+// midpoint samples put the cosine-weighted integral of a constant environment
+// within 0.05% of the analytic answer -- far tighter than half-float storage
+// can even represent, so more steps would buy nothing measurable.
+const PHI_STEPS: u32 = 128u;
+const THETA_STEPS: u32 = 32u;
+
+struct FaceUniform {
+    face: vec4<u32>,
+};
+@group(0) @binding(0) var<uniform> face_data: FaceUniform;
+@group(0) @binding(1) var t_env: texture_cube<f32>;
+@group(0) @binding(2) var s_env: sampler;
+
+@fragment
+fn fs_irradiance(in: FullscreenOut) -> @location(0) vec4<f32> {
+    let n = cube_face_direction(face_data.face.x, in.uv);
+
+    // Any frame perpendicular to n will do: the integral covers the whole
+    // hemisphere, so rolling the frame about n cannot change the answer. The
+    // select() guards the one case that is not free -- crossing n with an up
+    // vector parallel to it gives a zero-length vector, and normalizing that
+    // writes NaN into exactly the texels nearest the poles.
+    let up = select(vec3<f32>(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), abs(n.y) < 0.999);
+    let right = normalize(cross(up, n));
+    let forward = cross(n, right);
+
+    let d_phi = 2.0 * PI / f32(PHI_STEPS);
+    let d_theta = 0.5 * PI / f32(THETA_STEPS);
+
+    var sum = vec3<f32>(0.0);
+    for (var i = 0u; i < PHI_STEPS; i++) {
+        // Midpoint, not left edge: a left-edge sum over theta double-counts
+        // the pole and misses the horizon, and lands about 0.5% high.
+        let phi = (f32(i) + 0.5) * d_phi;
+        let cos_phi = cos(phi);
+        let sin_phi = sin(phi);
+        for (var j = 0u; j < THETA_STEPS; j++) {
+            let theta = (f32(j) + 0.5) * d_theta;
+            let sin_theta = sin(theta);
+            let cos_theta = cos(theta);
+            let dir = right * (sin_theta * cos_phi)
+                + forward * (sin_theta * sin_phi)
+                + n * cos_theta;
+            // cos_theta is Lambert's law; sin_theta is the Jacobian of the
+            // (theta, phi) parametrisation of solid angle, not part of the
+            // BRDF. Dropping either one is the classic wrong-normalisation
+            // bug, and both produce a map that still looks plausible.
+            sum += textureSampleLevel(t_env, s_env, dir, 0.0).rgb * cos_theta * sin_theta;
+        }
     }
 
-    let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        label: Some("ibl equirect to cube bgl"),
-        entries: &[
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: true,
-                    min_binding_size: wgpu::BufferSize::new(FACE_UNIFORM_SIZE),
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: false,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 2,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                count: None,
-            },
-        ],
-    });
-    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("ibl equirect to cube bg"),
-        layout: &bgl,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                // An explicit binding size, not `as_entire_binding`: with a
-                // dynamic offset the bound range starts at the offset, so a
-                // whole-buffer size would run past the end on every face but
-                // the first.
-                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                    buffer: &face_buffer,
-                    offset: 0,
-                    size: wgpu::BufferSize::new(FACE_UNIFORM_SIZE),
-                }),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::TextureView(equirect_view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: wgpu::BindingResource::Sampler(sampler),
-            },
-        ],
-    });
+    // sum * d_theta * d_phi is the irradiance E, which is PI * L for a
+    // constant environment of radiance L. What gets stored is E / PI: the
+    // Lambert BRDF is albedo / PI, so folding the 1/PI in here lets the
+    // material shader write `irradiance * albedo` with no stray constant, and
+    // makes a uniform environment come back out as its own colour.
+    let irradiance = sum * d_theta * d_phi / PI;
+    return vec4<f32>(irradiance, 1.0);
+}
+"#;
 
-    let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("ibl equirect to cube pll"),
-        bind_group_layouts: &[&bgl],
-        push_constant_ranges: &[],
-    });
-    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("ibl equirect to cube pipeline"),
-        layout: Some(&layout),
-        vertex: wgpu::VertexState {
-            module: &shader,
-            entry_point: "vs_fullscreen",
-            buffers: &[],
-            compilation_options: Default::default(),
-        },
-        fragment: Some(wgpu::FragmentState {
-            module: &shader,
-            entry_point: "fs_equirect_to_cube",
-            targets: &[Some(wgpu::ColorTargetState {
-                format: ENV_CUBE_FORMAT,
-                blend: Some(wgpu::BlendState::REPLACE),
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
-            compilation_options: Default::default(),
-        }),
-        primitive: wgpu::PrimitiveState::default(),
-        depth_stencil: None,
-        multisample: wgpu::MultisampleState::default(),
-        multiview: None,
-        cache: None,
-    });
+/// Convolves an environment cubemap into a diffuse irradiance cubemap: an
+/// [`IRRADIANCE_CUBE_SIZE`]-square [`ENV_CUBE_FORMAT`] texture whose texel for
+/// direction `n` holds the cosine-weighted average of the environment over the
+/// hemisphere around `n`, divided by PI.
+///
+/// That division is why a uniform environment convolves to its own colour, and
+/// why the material shader can multiply the result straight by albedo: the
+/// Lambert BRDF's 1/PI is already folded in here.
+///
+/// [`IRRADIANCE_CUBE_SIZE`] is 32 on purpose. Irradiance is the environment
+/// smeared over an entire hemisphere, so it has no detail above the very
+/// lowest frequencies -- a larger map would store the same image at more
+/// expense.
+///
+/// One render pass per face, six in one submit. Returns the tracked texture,
+/// which the caller must keep alive for the profiler to keep counting it,
+/// alongside a `Cube` view for binding.
+pub fn irradiance_from_cubemap(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    env_cube_view: &wgpu::TextureView,
+    sampler: &wgpu::Sampler,
+) -> (TrackedTexture, wgpu::TextureView) {
+    let texture = create_cubemap(
+        device,
+        "ibl irradiance cube",
+        IRRADIANCE_CUBE_SIZE,
+        1,
+        ENV_CUBE_FORMAT,
+        wgpu::TextureUsages::RENDER_ATTACHMENT
+            | wgpu::TextureUsages::TEXTURE_BINDING
+            // COPY_SRC so the convolution can be read back and checked against
+            // the one environment whose answer is known exactly -- a constant
+            // one, which must convolve to that same constant. A map that is
+            // uniformly twice too bright looks entirely fine on screen.
+            | wgpu::TextureUsages::COPY_SRC,
+    );
+
+    let face_buffer = write_face_uniforms(device, queue, "ibl irradiance uniform");
+    let bgl = face_pass_bind_group_layout(
+        device,
+        "ibl irradiance bgl",
+        FACE_UNIFORM_SIZE,
+        wgpu::TextureViewDimension::Cube,
+    );
+    let bind_group = face_pass_bind_group(
+        device,
+        "ibl irradiance bg",
+        &bgl,
+        &face_buffer,
+        FACE_UNIFORM_SIZE,
+        env_cube_view,
+        sampler,
+    );
+    let pipeline = face_pass_pipeline(
+        device,
+        "ibl irradiance",
+        &format!("{COMMON_WGSL}{IRRADIANCE_WGSL}"),
+        "fs_irradiance",
+        &bgl,
+        ENV_CUBE_FORMAT,
+    );
 
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("ibl equirect to cube encoder"),
+        label: Some("ibl irradiance encoder"),
     });
     for face in 0..CUBE_FACES {
-        let target = face_view(&texture, face, 0);
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("ibl equirect to cube pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &target,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            ..Default::default()
-        });
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(
-            0,
+        draw_face_pass(
+            &mut encoder,
+            "ibl irradiance pass",
+            &face_view(&texture, face, 0),
+            &pipeline,
             &bind_group,
-            &[(face as u64 * FACE_UNIFORM_STRIDE) as wgpu::DynamicOffset],
+            face as u64 * FACE_UNIFORM_STRIDE,
         );
-        pass.draw(0..3, 0..1);
+    }
+    queue.submit(std::iter::once(encoder.finish()));
+
+    let view = cube_view(&texture);
+    (texture, view)
+}
+
+/// Size of one prefilter uniform record: the cube face this pass writes and the
+/// roughness it convolves at, each rounded up to 16 bytes by WGSL's uniform
+/// layout rules.
+const PREFILTER_UNIFORM_SIZE: u64 = 32;
+
+const PREFILTER_WGSL: &str = r#"
+// 1024 GGX-importance-sampled directions per texel. Matches the BRDF LUT's
+// count deliberately: the two are the same integral split in half, and the
+// prefilter is the half where too few samples show up as visible fireflies
+// around bright spots rather than as a small bias.
+const SAMPLE_COUNT: u32 = 1024u;
+
+struct PrefilterUniform {
+    // .x is the cube face this pass renders.
+    face: vec4<u32>,
+    // .x is the roughness this mip represents.
+    params: vec4<f32>,
+};
+@group(0) @binding(0) var<uniform> pf: PrefilterUniform;
+@group(0) @binding(1) var t_env: texture_cube<f32>;
+@group(0) @binding(2) var s_env: sampler;
+
+@fragment
+fn fs_prefilter(in: FullscreenOut) -> @location(0) vec4<f32> {
+    let n = cube_face_direction(pf.face.x, in.uv);
+    // The split-sum approximation's first half is evaluated with n = v = r, so
+    // one map per roughness can be indexed by reflection direction alone.
+    // That is what makes this a cubemap instead of a five-dimensional table;
+    // the price is that grazing reflections come out a little too round, which
+    // is the standard trade every real-time IBL implementation makes.
+    let v = n;
+    let roughness = pf.params.x;
+
+    var color = vec3<f32>(0.0);
+    var weight = 0.0;
+    for (var i = 0u; i < SAMPLE_COUNT; i++) {
+        let xi = hammersley(i, SAMPLE_COUNT);
+        let h = importance_sample_ggx(xi, n, roughness);
+        let l = normalize(2.0 * dot(v, h) * h - v);
+        let n_dot_l = dot(n, l);
+        if (n_dot_l > 0.0) {
+            // Weighted by n_dot_l rather than averaged flat: grazing samples
+            // contribute proportionally less, which is measurably closer to
+            // ground truth at any sample count that is affordable here.
+            color += textureSampleLevel(t_env, s_env, l, 0.0).rgb * n_dot_l;
+            weight += n_dot_l;
+        }
+    }
+    // At roughness 0 the GGX lobe collapses to a single direction, every
+    // sample lands on n, and this returns the environment unblurred. Nothing
+    // special-cases that -- it falls out of the same loop.
+    return vec4<f32>(color / max(weight, 1e-4), 1.0);
+}
+"#;
+
+/// Convolves an environment cubemap into the prefiltered specular map: a
+/// [`PREFILTER_CUBE_SIZE`]-square [`ENV_CUBE_FORMAT`] cubemap with
+/// [`PREFILTER_MIP_LEVELS`] mips, mip `m` holding the environment convolved
+/// with the GGX lobe at `roughness = m / (PREFILTER_MIP_LEVELS - 1)`.
+///
+/// So mip 0 is roughness 0 -- a mirror, the environment unchanged -- and the
+/// last mip is roughness 1. The material shader picks a level with
+/// `roughness * (PREFILTER_MIP_LEVELS - 1)` and lets hardware trilinear
+/// filtering interpolate between the two nearest.
+///
+/// **This runs 6 x [`PREFILTER_MIP_LEVELS`] = 30 render passes**, one per
+/// (face, mip) pair, because each pair convolves at a different roughness and
+/// writes a different [`face_view`]. That is not a mistake to optimise away:
+/// it happens once per skybox change, not once per frame.
+///
+/// Returns the tracked texture, which the caller must keep alive for the
+/// profiler to keep counting it, alongside a `Cube` view spanning every mip.
+pub fn prefilter_from_cubemap(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    env_cube_view: &wgpu::TextureView,
+    sampler: &wgpu::Sampler,
+) -> (TrackedTexture, wgpu::TextureView) {
+    let texture = create_cubemap(
+        device,
+        "ibl prefilter cube",
+        PREFILTER_CUBE_SIZE,
+        PREFILTER_MIP_LEVELS,
+        ENV_CUBE_FORMAT,
+        wgpu::TextureUsages::RENDER_ATTACHMENT
+            | wgpu::TextureUsages::TEXTURE_BINDING
+            // COPY_SRC so a test can read mip 0 and the last mip back and
+            // confirm they are not the same image. If the roughness-per-mip
+            // mapping were dropped entirely, every downstream test would still
+            // pass while specular IBL was silently a mirror at every gloss.
+            | wgpu::TextureUsages::COPY_SRC,
+    );
+
+    // One record per (face, mip) pair, so all 30 passes share one buffer and
+    // one bind group and differ only by dynamic offset.
+    let pass_count = CUBE_FACES * PREFILTER_MIP_LEVELS;
+    let uniforms = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("ibl prefilter uniform"),
+        size: FACE_UNIFORM_STRIDE * pass_count as u64,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let prefilter_offset =
+        |face: u32, mip: u32| (mip * CUBE_FACES + face) as u64 * FACE_UNIFORM_STRIDE;
+    for mip in 0..PREFILTER_MIP_LEVELS {
+        // Mip 0 is a mirror and the last mip is fully rough; everything in
+        // between is spaced evenly, which is exactly the mapping the material
+        // shader inverts when it converts a material's roughness into a level.
+        let roughness = mip as f32 / (PREFILTER_MIP_LEVELS - 1) as f32;
+        for face in 0..CUBE_FACES {
+            let mut record = [0u8; PREFILTER_UNIFORM_SIZE as usize];
+            record[..4].copy_from_slice(&face.to_le_bytes());
+            record[16..20].copy_from_slice(&roughness.to_le_bytes());
+            queue.write_buffer(&uniforms, prefilter_offset(face, mip), &record);
+        }
+    }
+
+    let bgl = face_pass_bind_group_layout(
+        device,
+        "ibl prefilter bgl",
+        PREFILTER_UNIFORM_SIZE,
+        wgpu::TextureViewDimension::Cube,
+    );
+    let bind_group = face_pass_bind_group(
+        device,
+        "ibl prefilter bg",
+        &bgl,
+        &uniforms,
+        PREFILTER_UNIFORM_SIZE,
+        env_cube_view,
+        sampler,
+    );
+    let pipeline = face_pass_pipeline(
+        device,
+        "ibl prefilter",
+        &format!("{COMMON_WGSL}{IMPORTANCE_SAMPLING_WGSL}{PREFILTER_WGSL}"),
+        "fs_prefilter",
+        &bgl,
+        ENV_CUBE_FORMAT,
+    );
+
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("ibl prefilter encoder"),
+    });
+    for mip in 0..PREFILTER_MIP_LEVELS {
+        for face in 0..CUBE_FACES {
+            draw_face_pass(
+                &mut encoder,
+                "ibl prefilter pass",
+                &face_view(&texture, face, mip),
+                &pipeline,
+                &bind_group,
+                prefilter_offset(face, mip),
+            );
+        }
     }
     queue.submit(std::iter::once(encoder.finish()));
 
@@ -784,13 +1186,13 @@ mod tests {
     // Equirect -> cubemap
     // ---------------------------------------------------------------------
 
-    /// Reads one array layer of an [`ENV_CUBE_FORMAT`] texture back as linear
-    /// RGBA floats.
+    /// Reads one mip of one array layer of an [`ENV_CUBE_FORMAT`] texture back
+    /// as linear RGBA floats.
     ///
     /// Same padded-row idiom as [`crate::output::read_pixels`], which Task 1
     /// reused for the LUT, widened where a cube face does not fit it: that one
-    /// is hard-wired to array layer 0 and four bytes per texel, and a face is
-    /// layer `layer` of eight-byte texels.
+    /// is hard-wired to mip 0 of array layer 0 at four bytes per texel, and a
+    /// prefiltered face is mip `mip` of layer `layer` at eight bytes per texel.
     fn read_rgba16f_layer(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -798,6 +1200,7 @@ mod tests {
         width: u32,
         height: u32,
         layer: u32,
+        mip: u32,
     ) -> Vec<[f32; 4]> {
         const BYTES_PER_TEXEL: u32 = 8;
         let unpadded_bytes_per_row = width * BYTES_PER_TEXEL;
@@ -817,7 +1220,7 @@ mod tests {
         encoder.copy_texture_to_buffer(
             wgpu::ImageCopyTexture {
                 texture,
-                mip_level: 0,
+                mip_level: mip,
                 // The layer selector: for a 2D array, `origin.z` is the layer.
                 origin: wgpu::Origin3d {
                     x: 0,
@@ -903,6 +1306,18 @@ mod tests {
     /// latitude measured downwards), so it is by construction the thing that
     /// mapping expects to read.
     fn direction_encoded_equirect() -> Vec<u8> {
+        build_equirect(encode_direction)
+    }
+
+    /// Builds an equirectangular panorama by asking `texel` what colour the
+    /// direction each texel represents should be.
+    ///
+    /// The direction it passes is the inverse of `fs_sky`'s mapping (`u` is
+    /// longitude, `v` is latitude measured downwards), so every environment
+    /// built through here is by construction the thing that mapping expects to
+    /// read -- and every test environment agrees with every other about where a
+    /// given direction lives.
+    fn build_equirect(texel: impl Fn(Vec3) -> [u8; 4]) -> Vec<u8> {
         let mut pixels = Vec::with_capacity((TEST_EQUIRECT_W * TEST_EQUIRECT_H * 4) as usize);
         for j in 0..TEST_EQUIRECT_H {
             let v = (j as f32 + 0.5) / TEST_EQUIRECT_H as f32;
@@ -915,25 +1330,36 @@ mod tests {
                     theta.sin(),
                     theta.cos() * phi.sin(),
                 );
-                pixels.extend_from_slice(&encode_direction(dir));
+                pixels.extend_from_slice(&texel(dir));
             }
         }
         pixels
     }
 
-    /// Uploads [`direction_encoded_equirect`] and returns it with a sampler
+    /// Uploads [`direction_encoded_equirect`] with a skybox-shaped sampler.
+    fn upload_direction_encoded_equirect(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+    ) -> (wgpu::Texture, wgpu::TextureView, wgpu::Sampler) {
+        upload_equirect(device, queue, &direction_encoded_equirect())
+    }
+
+    /// Uploads an equirectangular panorama and returns it with a sampler
     /// configured exactly as `set_skybox_from_rgba`'s is -- `Repeat` across the
     /// longitude seam, `ClampToEdge` at the poles, linear both ways.
     ///
     /// **`Rgba8Unorm`, not the `Rgba8UnormSrgb` the real skybox uses.** These
-    /// texels are an encoded direction rather than a colour, and an sRGB decode
-    /// would bend the encoding out of shape before it could be read back. The
-    /// conversion pass reads whatever the view's format declares and does
-    /// nothing format-specific, so this narrows nothing about what is under
-    /// test: where directions land, not colour management.
-    fn upload_direction_encoded_equirect(
+    /// texels are encoded test data -- a direction, or a known linear radiance
+    /// -- rather than photographic colour, and an sRGB decode would bend both
+    /// out of shape before they could be checked against the numbers they were
+    /// written as. Every pass here reads whatever the view's format declares
+    /// and does nothing format-specific, so this narrows nothing about what is
+    /// under test: where directions land and how energy is normalised, not
+    /// colour management.
+    fn upload_equirect(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        pixels: &[u8],
     ) -> (wgpu::Texture, wgpu::TextureView, wgpu::Sampler) {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("direction-encoded equirect"),
@@ -951,7 +1377,7 @@ mod tests {
         });
         queue.write_texture(
             texture.as_image_copy(),
-            &direction_encoded_equirect(),
+            pixels,
             wgpu::ImageDataLayout {
                 offset: 0,
                 bytes_per_row: Some(4 * TEST_EQUIRECT_W),
@@ -1164,7 +1590,7 @@ fn fs_probe(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
         }
         queue.submit(std::iter::once(encoder.finish()));
 
-        read_rgba16f_layer(device, queue, &target, PROBE_COUNT as u32, 1, 0)
+        read_rgba16f_layer(device, queue, &target, PROBE_COUNT as u32, 1, 0, 0)
             .into_iter()
             .map(decode_direction)
             .collect()
@@ -1204,6 +1630,7 @@ fn fs_probe(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
                 ENV_CUBE_SIZE,
                 ENV_CUBE_SIZE,
                 face as u32,
+                0,
             );
             assert_eq!(texels.len(), (ENV_CUBE_SIZE * ENV_CUBE_SIZE) as usize);
             let got = decode_direction(texels[centre]);
@@ -1271,6 +1698,232 @@ fn fs_probe(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
         assert!(
             pollster::block_on(device.pop_error_scope()).is_none(),
             "the conversion must not raise a validation error"
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // Irradiance convolution
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn irradiance_of_a_uniform_environment_is_that_same_colour() {
+        let (device, queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
+        device.push_error_scope(wgpu::ErrorFilter::Validation);
+
+        // 51, 153 and 102 over 255 are exactly 0.2, 0.6 and 0.4 -- three
+        // different values on purpose, so a swapped channel or a collapse to
+        // luminance shows up as the wrong colour rather than merely the wrong
+        // brightness.
+        const WANT: [f32; 3] = [0.2, 0.6, 0.4];
+        let (_src, src_view, src_sampler) =
+            upload_equirect(&device, &queue, &build_equirect(|_| [51, 153, 102, 255]));
+        let (_env, env_view) = equirect_to_cubemap(&device, &queue, &src_view, &src_sampler);
+        let (irradiance, _irradiance_view) =
+            irradiance_from_cubemap(&device, &queue, &env_view, &src_sampler);
+
+        assert_eq!(irradiance.width(), IRRADIANCE_CUBE_SIZE);
+        assert_eq!(irradiance.height(), IRRADIANCE_CUBE_SIZE);
+        assert_eq!(irradiance.size().depth_or_array_layers, CUBE_FACES);
+
+        // The cosine-weighted hemisphere integral of a constant radiance L is
+        // exactly PI * L, and this pass divides by PI, so every texel of every
+        // face must come back as L itself. That is the point of checking a
+        // uniform environment: the answer is a number, not a judgement. A pass
+        // that dropped the sin(theta) Jacobian, or divided by the sample count
+        // instead of scaling by the step sizes, produces a map that is
+        // uniformly too bright or too dark -- and a uniformly 2x map looks
+        // entirely plausible on screen.
+        //
+        // The tolerance covers three known, bounded error sources and nothing
+        // else: the midpoint rule's 0.04% discretisation bias, and half-float
+        // rounding of both the environment cube and this map, each ~0.05%.
+        // Measured worst case across all 6144 texels is 0.065%, so 1% leaves
+        // fifteen times that for another GPU's rounding, while anything
+        // structurally wrong misses by tens of percent at least.
+        const TOLERANCE: f32 = 0.01;
+
+        let mut worst = 0.0f32;
+        for face in 0..CUBE_FACES {
+            let texels = read_rgba16f_layer(
+                &device,
+                &queue,
+                &irradiance,
+                IRRADIANCE_CUBE_SIZE,
+                IRRADIANCE_CUBE_SIZE,
+                face,
+                0,
+            );
+            assert_eq!(
+                texels.len(),
+                (IRRADIANCE_CUBE_SIZE * IRRADIANCE_CUBE_SIZE) as usize
+            );
+            for (i, texel) in texels.iter().enumerate() {
+                let x = i as u32 % IRRADIANCE_CUBE_SIZE;
+                let y = i as u32 / IRRADIANCE_CUBE_SIZE;
+                for (channel, want) in WANT.iter().enumerate() {
+                    let got = texel[channel];
+                    // is_finite first: the tangent frame degenerates where the
+                    // normal is parallel to the up vector, and an unguarded
+                    // normalize() there writes NaN into the texels nearest the
+                    // poles -- which a relative comparison alone reports as a
+                    // baffling magnitude failure instead.
+                    assert!(
+                        got.is_finite(),
+                        "face {face} texel ({x}, {y}) channel {channel} is not finite: {got}"
+                    );
+                    let relative_error = (got - want).abs() / want;
+                    worst = worst.max(relative_error);
+                    assert!(
+                        relative_error < TOLERANCE,
+                        "a uniform environment must convolve to its own colour: face {face} \
+                         texel ({x}, {y}) channel {channel} is {got}, want {want} \
+                         (relative error {relative_error})"
+                    );
+                }
+            }
+        }
+
+        // Not a restatement of the loop: it pins how much of the budget the
+        // pass actually uses, so a future change that quietly eats most of the
+        // tolerance shows up here rather than at the moment it finally crosses
+        // the line.
+        assert!(
+            worst < TOLERANCE * 0.5,
+            "the convolution should sit well inside its tolerance, not at the \
+             edge of it; worst relative error was {worst}"
+        );
+
+        device.poll(wgpu::Maintain::Wait);
+        assert!(
+            pollster::block_on(device.pop_error_scope()).is_none(),
+            "the irradiance convolution must not raise a validation error"
+        );
+    }
+
+    // ---------------------------------------------------------------------
+    // Specular prefilter
+    // ---------------------------------------------------------------------
+
+    /// Minimum, maximum and mean of the RGB average over one prefiltered face.
+    ///
+    /// The prefilter test's environment is white-on-grey, so all three channels
+    /// carry the same signal and averaging them is only noise reduction.
+    fn face_stats(texels: &[[f32; 4]]) -> (f32, f32, f32) {
+        let mut min = f32::INFINITY;
+        let mut max = f32::NEG_INFINITY;
+        let mut total = 0.0;
+        for texel in texels {
+            let value = (texel[0] + texel[1] + texel[2]) / 3.0;
+            assert!(
+                value.is_finite(),
+                "prefiltered texel is not finite: {texel:?}"
+            );
+            min = min.min(value);
+            max = max.max(value);
+            total += value;
+        }
+        (min, max, total / texels.len() as f32)
+    }
+
+    #[test]
+    fn prefilter_mip_zero_is_sharp_and_the_last_mip_is_blurred() {
+        let (device, queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
+        device.push_error_scope(wgpu::ErrorFilter::Validation);
+
+        // A dim environment with one bright spot straight down +Z, which is the
+        // direction the centre of cube face 4 looks along. A smooth environment
+        // could not tell a sharp convolution from a blurred one: blurring
+        // something already flat changes nothing.
+        //
+        // The spot's angular radius is not free to pick. The last mip's face is
+        // only 8 x 8, each texel covering about 11 degrees, so a spot smaller
+        // than that falls between texel centres and vanishes from the last mip
+        // *whatever* roughness it was convolved at -- and this test would then
+        // pass on an unblurred map, which is exactly the failure it exists to
+        // catch. 20 degrees is comfortably wider than one texel there while
+        // still occupying only a tenth of the face at mip 0.
+        const SPOT_RADIUS_DEGREES: f32 = 20.0;
+        const SPOT_FACE: u32 = 4;
+        let cos_radius = SPOT_RADIUS_DEGREES.to_radians().cos();
+        let pixels = build_equirect(|dir| {
+            if dir.normalize().dot(Vec3::Z) >= cos_radius {
+                [255, 255, 255, 255]
+            } else {
+                [5, 5, 5, 255]
+            }
+        });
+        let (_src, src_view, src_sampler) = upload_equirect(&device, &queue, &pixels);
+        let (_env, env_view) = equirect_to_cubemap(&device, &queue, &src_view, &src_sampler);
+        let (prefiltered, _prefiltered_view) =
+            prefilter_from_cubemap(&device, &queue, &env_view, &src_sampler);
+
+        assert_eq!(prefiltered.width(), PREFILTER_CUBE_SIZE);
+        assert_eq!(prefiltered.height(), PREFILTER_CUBE_SIZE);
+        assert_eq!(prefiltered.size().depth_or_array_layers, CUBE_FACES);
+        assert_eq!(prefiltered.mip_level_count(), PREFILTER_MIP_LEVELS);
+
+        let last_mip = PREFILTER_MIP_LEVELS - 1;
+        let last_size = PREFILTER_CUBE_SIZE >> last_mip;
+        let read = |mip: u32, size: u32| {
+            read_rgba16f_layer(&device, &queue, &prefiltered, size, size, SPOT_FACE, mip)
+        };
+        let (sharp_min, sharp_max, sharp_mean) = face_stats(&read(0, PREFILTER_CUBE_SIZE));
+        let (blurred_min, blurred_max, blurred_mean) = face_stats(&read(last_mip, last_size));
+        let sharp_contrast = sharp_max - sharp_min;
+        let blurred_contrast = blurred_max - blurred_min;
+
+        // Mip 0 is roughness 0, where the GGX lobe collapses to a single
+        // direction: the spot must still be a spot, at very nearly its full
+        // brightness against the dim background.
+        assert!(
+            sharp_max > 0.9,
+            "mip 0 is a mirror and must still hold the bright spot at full \
+             brightness, but its brightest texel is only {sharp_max}"
+        );
+        assert!(
+            sharp_contrast > 0.8,
+            "mip 0 must keep the spot sharply separated from its surroundings, \
+             but its contrast is only {sharp_contrast} \
+             (min {sharp_min}, max {sharp_max})"
+        );
+
+        // The last mip is roughness 1, where the lobe covers the hemisphere and
+        // smears the spot across the whole face. If both mips came out equally
+        // sharp, the roughness-per-mip mapping is not being applied at all --
+        // and every downstream test would still pass while specular IBL was
+        // silently a mirror at every gloss.
+        assert!(
+            blurred_contrast < sharp_contrast * 0.2,
+            "the last mip must be visibly blurrier than mip 0, but their \
+             contrasts are {blurred_contrast} and {sharp_contrast} -- the \
+             roughness-per-mip mapping is not being applied"
+        );
+        // The peak says the same thing from the other side, and independently
+        // of the background: a mirror-sharp last mip still reads 1.0 at the
+        // spot, while a properly convolved one cannot, because the spot's
+        // energy is now spread over the whole lobe.
+        assert!(
+            blurred_max < sharp_max * 0.5,
+            "the last mip must not still contain the spot at near-full \
+             brightness: mip 0 peak {sharp_max} vs last mip peak {blurred_max}"
+        );
+
+        // The opposite-direction regression, and the reason those two are not
+        // enough on their own: a pass that wrote black, or garbage, or nothing
+        // at all into the high mips would have neither contrast nor a peak and
+        // would sail through both. Blurring redistributes energy, it does not
+        // destroy it, so the blurred face's mean must stay in the same
+        // neighbourhood as the sharp one's.
+        assert!(
+            blurred_mean > sharp_mean * 0.5 && blurred_mean < sharp_mean * 2.0,
+            "blurring must redistribute the environment's energy, not discard \
+             it: mip 0 mean {sharp_mean} vs last mip mean {blurred_mean}"
+        );
+
+        device.poll(wgpu::Maintain::Wait);
+        assert!(
+            pollster::block_on(device.pop_error_scope()).is_none(),
+            "the specular prefilter must not raise a validation error"
         );
     }
 }

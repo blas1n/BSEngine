@@ -560,6 +560,7 @@ struct VertOut {{
                 // not ask for a volume keeps rendering exactly as it did before
                 // light probes existed.
                 light_probes,
+                None,
             )
             .expect("render_frame failed");
 

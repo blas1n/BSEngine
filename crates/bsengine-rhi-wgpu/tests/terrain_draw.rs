@@ -74,6 +74,7 @@ fn a_terrain_draw_call_does_not_panic_alongside_regular_draw_calls() {
         // records without a validation error.
         None,
         (0.0, 0.0),
+        0,
         Mat4::IDENTITY,
         // No probe volume either; terrain chunks are not captured into probes.
         None,

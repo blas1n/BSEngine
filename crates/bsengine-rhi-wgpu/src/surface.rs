@@ -14,7 +14,11 @@ const MAX_TIMED_PASSES: u32 = 16;
 /// Two timestamp queries (begin + end) per timed pass.
 const TIMESTAMP_QUERY_COUNT: u32 = MAX_TIMED_PASSES * 2;
 
-const MESH_WGSL: &str = r#"
+/// `pub(crate)` only so that
+/// `post_process::tests::the_injection_pass_ports_point_shadow_factor_verbatim`
+/// can compare this text against the froxel injection shader's copy of
+/// `point_shadow_factor`. Nothing outside a test reads it.
+pub(crate) const MESH_WGSL: &str = r#"
 const MAX_POINT_LIGHTS: u32 = 8u;
 const MAX_SPOT_LIGHTS: u32 = 8u;
 const PI: f32 = 3.14159265358979323846;
@@ -1164,7 +1168,9 @@ const CAMERA_UNIFORM_SIZE: u64 = 144;
 const SKY_UNIFORM_SIZE: u64 = 64;
 // direction(16) + color(16) + ambient+count(16) + 8×PointLightGpu(48=384) +
 // num_spot+pad(16) + 8×SpotLightGpu(64=512) = 960
-const LIGHT_UNIFORM_SIZE: u64 = 960;
+// `pub(crate)`: the froxel injection pass binds this same buffer, and its own
+// layout has to declare the identical `min_binding_size`.
+pub(crate) const LIGHT_UNIFORM_SIZE: u64 = 960;
 // The IBL flags took two of the three spare floats in that `num_spot+pad(16)`
 // block rather than growing the struct, so this must still hold. It is also
 // the layout's `min_binding_size`, so a mismatch would be a bind group
@@ -2016,6 +2022,14 @@ pub struct WgpuSurface {
     /// enabled, so enabling it mid-run reprojects against the frame that
     /// actually preceded it rather than an arbitrarily old one.
     prev_unjittered_view_proj: Mat4,
+    /// The previous frame's camera position, stored alongside
+    /// [`Self::prev_unjittered_view_proj`] and updated with it.
+    ///
+    /// The froxel fog's temporal accumulation needs it: reprojecting a world
+    /// position into the previous frame's volume means measuring its depth along
+    /// a ray from where the camera *was*, and a matrix alone does not hand that
+    /// back without an extra inverse-transform.
+    prev_camera_pos: Vec3,
 }
 
 impl WgpuSurface {
@@ -3207,8 +3221,23 @@ impl WgpuSurface {
         crate::theme::apply(&egui_ctx);
         let egui_renderer = egui_wgpu::Renderer::new(&device, format, None, 1, false);
 
-        let post_process =
-            crate::post_process::PostProcessState::new(&device, width, height, &depth_view, format);
+        // The froxel injection pass shares the scene's shadow maps and light
+        // uniform rather than owning copies -- see `FroxelShadowBindings`. All
+        // four outlive the post-process state and none is recreated, so the
+        // bind group it builds from them holds for the surface's whole life.
+        let post_process = crate::post_process::PostProcessState::new(
+            &device,
+            width,
+            height,
+            &depth_view,
+            format,
+            &crate::post_process::FroxelShadowBindings {
+                shadow_map_view: &shadow_map_view,
+                shadow_sampler: &shadow_comparison_sampler,
+                point_shadow_view: &point_shadow_color_full_view,
+                light_buffer: &light_buffer,
+            },
+        );
 
         Ok(Self {
             output,
@@ -3273,6 +3302,7 @@ impl WgpuSurface {
             // stores one: `PostProcessState` starts with `history_valid`
             // false, and the resolve does not reproject without history.
             prev_unjittered_view_proj: Mat4::IDENTITY,
+            prev_camera_pos: Vec3::ZERO,
             start_time: std::time::Instant::now(),
             dock_state: None,
             last_saved_layout_json: None,
@@ -4143,6 +4173,13 @@ impl WgpuSurface {
         particles: &[crate::particles::ParticleBatch],
         taa: Option<bsengine_core::Taa>,
         jitter_clip: (f32, f32),
+        // The caller's frame counter -- the same one `jitter_clip` above was
+        // derived from. Passed alongside that offset rather than instead of it
+        // because the fog needs it on the frames the offset is `(0.0, 0.0)`:
+        // the froxel depth dither runs whether or not TAA does, and a frozen
+        // index would make every frame pick the same offset, which is a fixed
+        // pattern rather than a dither.
+        frame_index: u32,
         unjittered_view_proj: Mat4,
         light_probes: Option<ProbeVolumeParams>,
         fog: Option<bsengine_core::VolumetricFog>,
@@ -4386,6 +4423,20 @@ impl WgpuSurface {
                     // unjittered one would read depth a fraction of a pixel
                     // off its own reconstruction.
                     inv_view_proj: raster_view_proj.inverse().to_cols_array_2d(),
+                    // The same matrix the shadow pass below rasterises with and
+                    // the scene shader tests surfaces against. Sharing it is
+                    // what lets a froxel and a surface at one world position
+                    // agree about whether they are in shadow.
+                    light_view_proj: light_view_proj.to_cols_array_2d(),
+                    // The *unjittered* pair, unlike `inv_view_proj` above and
+                    // for the same reason `TaaCameraGpu` uses unjittered
+                    // matrices: reprojection has to follow the camera, and
+                    // chasing a sub-pixel offset would stop the accumulation
+                    // ever settling. Inverted here rather than stored inverted
+                    // because the froxel reprojection needs both directions and
+                    // the TAA resolve needs only one.
+                    prev_view_proj: self.prev_unjittered_view_proj.to_cols_array_2d(),
+                    prev_inv_view_proj: self.prev_unjittered_view_proj.inverse().to_cols_array_2d(),
                     camera_pos: cam_pos.to_array(),
                     near: fog_near,
                     // Toward the light, which is the convention the scene
@@ -4399,10 +4450,16 @@ impl WgpuSurface {
                     density: active_fog.map(|f| f.density).unwrap_or(0.0),
                     fog_color: active_fog.map(|f| *f.color).unwrap_or(Vec3::ONE).to_array(),
                     anisotropy: active_fog.map(|f| f.anisotropy).unwrap_or(0.0),
-                    enabled: u32::from(active_fog.is_some()),
+                    prev_camera_pos: self.prev_camera_pos.to_array(),
                     _pad0: 0.0,
+                    enabled: u32::from(active_fog.is_some()),
+                    // Unconditional, unlike `jitter_clip`: the depth dither is
+                    // not part of TAA and runs on every foggy frame.
+                    frame_index,
+                    // Stamped by `update_fog` from the ping-pong's own state;
+                    // see `FogUniform::history_valid`.
+                    history_valid: 0,
                     _pad1: 0.0,
-                    _pad2: 0.0,
                 },
             );
         }
@@ -5523,8 +5580,11 @@ impl WgpuSurface {
         }
 
         // This frame's camera becomes next frame's reprojection source. Stored
-        // last, after the resolve above has consumed the previous value.
+        // last, after the resolve above has consumed the previous value, and as
+        // a pair because the froxel fog reprojects from the position as well as
+        // the matrix.
         self.prev_unjittered_view_proj = unjittered_view_proj;
+        self.prev_camera_pos = cam_pos;
 
         Ok(clicked)
     }
@@ -6558,6 +6618,7 @@ mod tests {
                 &[],
                 None,
                 (0.0, 0.0),
+                0,
                 Mat4::IDENTITY,
                 volume,
                 None,

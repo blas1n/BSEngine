@@ -44,6 +44,35 @@ pub fn henyey_greenstein(cos_theta: f32, g: f32) -> f32 {
     (1.0 - g2) / (4.0 * std::f32::consts::PI * denom.max(1e-4).powf(1.5))
 }
 
+/// Pseudo-random offset in `[0, 1)` for the froxel at `coord` on frame
+/// `frame`, used to move that froxel's lighting sample around inside its own
+/// depth slice.
+///
+/// Shaft edges are high-contrast, so the grid's Z quantisation shows far more
+/// than it does in uniform fog: every slice lights from a single depth, and the
+/// step between a lit slice and a shadowed one draws a visible band across the
+/// beam. Offsetting each froxel's sample point within its own slice trades
+/// those bands for fine noise, which temporal accumulation then averages away.
+///
+/// A hash of the froxel coordinate *and* the frame index, not a random number
+/// generator: headless replays have to stay reproducible, so the same froxel on
+/// the same frame must produce the same offset on every run. The multipliers are
+/// the usual spatial-hash primes; the products wrap on purpose (`wrapping_mul`
+/// here, and u32 arithmetic wraps by definition in WGSL), which is what mixes
+/// the high bits down into the low sixteen this actually reads.
+///
+/// Mirrored in WGSL by `froxel_jitter` in `post_process.rs`'s shared froxel
+/// block -- the same arrangement [`henyey_greenstein`] uses -- and
+/// `the_wgsl_froxel_jitter_matches_the_rust_one` asserts the two agree bit for
+/// bit.
+pub fn froxel_jitter(coord: [u32; 3], frame: u32) -> f32 {
+    let h = coord[0].wrapping_mul(73856093)
+        ^ coord[1].wrapping_mul(19349663)
+        ^ coord[2].wrapping_mul(83492791)
+        ^ frame.wrapping_mul(2654435761);
+    (h & 0xFFFF) as f32 / 65536.0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -122,5 +151,88 @@ mod tests {
             last > first * 10.0,
             "far slices must be much thicker than near ones: near {first}, far {last}"
         );
+    }
+
+    #[test]
+    fn froxel_jitter_is_deterministic_for_a_given_frame() {
+        // Headless replays must stay reproducible: the same froxel and frame
+        // index have to produce the same offset every time, or two runs of the
+        // same recording diverge and every pixel assertion downstream becomes
+        // a coin toss.
+        for frame in [0u32, 1, 7, 4096] {
+            for coord in [[0u32, 0, 0], [3, 11, 41], [FROXEL_X - 1, FROXEL_Y - 1, 0]] {
+                let first = froxel_jitter(coord, frame);
+                for _ in 0..4 {
+                    assert_eq!(
+                        froxel_jitter(coord, frame),
+                        first,
+                        "froxel {coord:?} on frame {frame} must always jitter by \
+                         the same amount"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn different_froxels_in_one_frame_jitter_differently() {
+        // The other half of the determinism claim, and the half that says this
+        // is dithering at all: an offset that were the same everywhere would be
+        // a constant shift of the whole grid, which moves the bands rather than
+        // breaking them up.
+        let frame = 3u32;
+        let mut seen = std::collections::HashSet::new();
+        // A whole slab of the real grid, so this cannot pass on a lucky pair.
+        for y in 0..8u32 {
+            for x in 0..8u32 {
+                seen.insert(froxel_jitter([x, y, 5], frame).to_bits());
+            }
+        }
+        assert!(
+            seen.len() > 48,
+            "64 neighbouring froxels produced only {} distinct offsets on one \
+             frame -- a jitter that barely varies across the grid shifts the \
+             slice boundaries instead of dissolving them",
+            seen.len()
+        );
+    }
+
+    #[test]
+    fn one_froxel_jitters_differently_across_frames() {
+        // What makes the noise *temporal*: if a froxel took the same offset
+        // every frame, averaging frames together would converge on that one
+        // biased sample and the dither would never resolve into a gradient.
+        let coord = [17u32, 23, 9];
+        let mut seen = std::collections::HashSet::new();
+        for frame in 0..16u32 {
+            seen.insert(froxel_jitter(coord, frame).to_bits());
+        }
+        assert!(
+            seen.len() > 12,
+            "one froxel produced only {} distinct offsets over 16 frames; \
+             temporal accumulation cannot average away a fixed offset",
+            seen.len()
+        );
+    }
+
+    #[test]
+    fn the_offset_never_leaves_its_own_slice() {
+        // `[0, 1)`, because the shader interpolates between this slice's near
+        // and far edge with it. A value outside that range would sample a
+        // neighbouring slice's depth, which is exactly the cross-slice leak the
+        // dither exists to avoid.
+        for frame in 0..4u32 {
+            for z in 0..FROXEL_Z {
+                for x in 0..16u32 {
+                    let j = froxel_jitter([x, x * 7 + 1, z], frame);
+                    assert!(
+                        (0.0..1.0).contains(&j),
+                        "froxel [{x}, {}, {z}] on frame {frame} jittered to {j}, \
+                         outside its own slice",
+                        x * 7 + 1
+                    );
+                }
+            }
+        }
     }
 }

@@ -691,6 +691,348 @@ fn fs_sky(in: SkyOut) -> @location(0) vec4<f32> {
 }
 "#;
 
+/// The scene shader used to capture light probes.
+///
+/// A near-copy of [`MESH_WGSL`] with exactly two deliberate differences:
+///
+///  1. The camera comes from a per-face dynamic-offset uniform instead of
+///     `camera`, because one bake renders `probes * 6` views inside a single
+///     command encoder and `queue.write_buffer` cannot vary between passes of
+///     one submission -- the same reason the point-shadow pass has its own
+///     per-face uniform.
+///  2. **It shades direct light only**: the directional light, the point
+///     lights, the spot lights, the flat ambient term and emissive. It never
+///     samples the IBL cubes and never samples probes.
+///
+/// Point 2 is not an optimisation, it is what makes the bake terminate.
+/// Probe irradiance is *derived from* what this shader outputs; if this
+/// shader also read probe or IBL irradiance, the bake would be feeding its
+/// own output back in -- probes lighting probes, and (with IBL) sky light
+/// counted twice, since the skybox is already captured as this pass's
+/// background. The result is deliberately **one bounce**.
+///
+/// `LightUniform` must stay byte-identical to the copies in [`MESH_WGSL`] and
+/// [`TERRAIN_WGSL`]: all three read the same `light_buffer`.
+const PROBE_CAPTURE_WGSL: &str = r#"
+const MAX_POINT_LIGHTS: u32 = 8u;
+const MAX_SPOT_LIGHTS: u32 = 8u;
+const PI: f32 = 3.14159265358979323846;
+struct CaptureUniform {
+    view_proj: mat4x4<f32>,
+    light_view_proj: mat4x4<f32>,
+    inv_view_proj: mat4x4<f32>,
+    probe_pos: vec3<f32>,
+    _pad: f32,
+};
+struct ModelUniform {
+    model: mat4x4<f32>,
+    metallic: f32,
+    roughness: f32,
+    _pad0: f32,
+    _pad1: f32,
+    emissive: vec3<f32>,
+    _pad2: f32,
+    base_color: vec3<f32>,
+    opacity: f32,
+};
+struct PointLightEntry {
+    position: vec3<f32>,
+    _pad0: f32,
+    color: vec3<f32>,
+    intensity: f32,
+    range: f32,
+    _pad1: f32,
+    _pad2: f32,
+    _pad3: f32,
+};
+struct SpotLightEntry {
+    position: vec3<f32>,
+    _pad0: f32,
+    direction: vec3<f32>,
+    inner_cos: f32,
+    color: vec3<f32>,
+    outer_cos: f32,
+    intensity: f32,
+    range: f32,
+    _pad1: f32,
+    _pad2: f32,
+};
+struct LightUniform {
+    direction: vec3<f32>,
+    _pad0: f32,
+    color: vec3<f32>,
+    _pad1: f32,
+    ambient: vec3<f32>,
+    num_point_lights: u32,
+    point_lights: array<PointLightEntry, 8>,
+    num_spot_lights: u32,
+    ibl_enabled: u32,
+    ibl_max_mip: f32,
+    _pad4: f32,
+    spot_lights: array<SpotLightEntry, 8>,
+};
+@group(0) @binding(0) var<uniform> capture: CaptureUniform;
+@group(1) @binding(0) var<uniform> model_data: ModelUniform;
+@group(2) @binding(0) var<uniform> light: LightUniform;
+@group(2) @binding(1) var shadow_sampler: sampler_comparison;
+@group(2) @binding(2) var shadow_map: texture_depth_2d;
+@group(2) @binding(4) var point_shadow_map: texture_2d_array<f32>;
+// Bindings 3 and 5..8 of group 2 exist in the layout (the point-shadow
+// sampler and the three IBL resources) and are deliberately NOT declared
+// here: an unused binding is legal, and declaring the IBL cubes is the first
+// step toward accidentally sampling them.
+@group(3) @binding(0) var t_diffuse: texture_2d<f32>;
+@group(3) @binding(1) var s_diffuse: sampler;
+
+struct VertIn {
+    @location(0) pos: vec3<f32>,
+    @location(1) col: vec3<f32>,
+    @location(2) normal: vec3<f32>,
+    @location(3) uv: vec2<f32>,
+}
+struct VertOut {
+    @builtin(position) clip_pos: vec4<f32>,
+    @location(0) col: vec3<f32>,
+    @location(1) world_normal: vec3<f32>,
+    @location(2) uv: vec2<f32>,
+    @location(3) world_pos: vec3<f32>,
+    @location(4) light_space_pos: vec4<f32>,
+}
+@vertex
+fn vs_capture(in: VertIn) -> VertOut {
+    var out: VertOut;
+    let world_pos4 = model_data.model * vec4<f32>(in.pos, 1.0);
+    out.clip_pos = capture.view_proj * world_pos4;
+    out.world_pos = world_pos4.xyz;
+    out.col = in.col;
+    let normal_matrix = mat3x3<f32>(
+        model_data.model[0].xyz,
+        model_data.model[1].xyz,
+        model_data.model[2].xyz,
+    );
+    out.world_normal = normalize(normal_matrix * in.normal);
+    out.uv = in.uv;
+    out.light_space_pos = capture.light_view_proj * world_pos4;
+    return out;
+}
+fn shadow_factor(lsp: vec4<f32>) -> f32 {
+    let proj = lsp.xyz / lsp.w;
+    let uv = proj.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5, 0.5);
+    let depth = proj.z;
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || depth < 0.0 || depth > 1.0) {
+        return 1.0;
+    }
+    return textureSampleCompare(shadow_map, shadow_sampler, uv, depth - 0.003);
+}
+fn point_shadow_factor(light_index: u32, to_frag: vec3<f32>) -> f32 {
+    let ax = abs(to_frag.x);
+    let ay = abs(to_frag.y);
+    let az = abs(to_frag.z);
+    var face: u32;
+    var u: f32;
+    var v: f32;
+    var ma: f32;
+    if (ax >= ay && ax >= az) {
+        ma = ax;
+        if (to_frag.x > 0.0) {
+            face = 0u;
+            u = -to_frag.z;
+            v = -to_frag.y;
+        } else {
+            face = 1u;
+            u = to_frag.z;
+            v = -to_frag.y;
+        }
+    } else if (ay >= ax && ay >= az) {
+        ma = ay;
+        if (to_frag.y > 0.0) {
+            face = 2u;
+            u = to_frag.x;
+            v = to_frag.z;
+        } else {
+            face = 3u;
+            u = to_frag.x;
+            v = -to_frag.z;
+        }
+    } else {
+        ma = az;
+        if (to_frag.z > 0.0) {
+            face = 4u;
+            u = to_frag.x;
+            v = -to_frag.y;
+        } else {
+            face = 5u;
+            u = -to_frag.x;
+            v = -to_frag.y;
+        }
+    }
+    let ndc = vec2<f32>(u, v) / max(ma, 0.0001);
+    let uv = ndc * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5, 0.5);
+    let size = 512.0;
+    let px = vec2<i32>(clamp(uv, vec2<f32>(0.0), vec2<f32>(0.999999)) * size);
+    let layer = i32(light_index * 6u + face);
+    let stored = textureLoad(point_shadow_map, px, layer, 0).r;
+    let dist = length(to_frag);
+    if (dist - 0.1 > stored) {
+        return 0.0;
+    }
+    return 1.0;
+}
+fn distribution_ggx(n_dot_h: f32, roughness: f32) -> f32 {
+    let a = roughness * roughness;
+    let a2 = a * a;
+    let denom = n_dot_h * n_dot_h * (a2 - 1.0) + 1.0;
+    return a2 / (PI * denom * denom);
+}
+fn geometry_schlick_ggx(ndotx: f32, roughness: f32) -> f32 {
+    let r = roughness + 1.0;
+    let k = r * r / 8.0;
+    return ndotx / (ndotx * (1.0 - k) + k);
+}
+fn geometry_smith(n_dot_v: f32, n_dot_l: f32, roughness: f32) -> f32 {
+    return geometry_schlick_ggx(n_dot_v, roughness) * geometry_schlick_ggx(n_dot_l, roughness);
+}
+fn fresnel_schlick(cos_theta: f32, f0: vec3<f32>) -> vec3<f32> {
+    return f0 + (vec3<f32>(1.0, 1.0, 1.0) - f0) * pow(clamp(1.0 - cos_theta, 0.0, 1.0), 5.0);
+}
+@fragment
+fn fs_capture(in: VertOut) -> @location(0) vec4<f32> {
+    let n = normalize(in.world_normal);
+    // The "eye" for this capture is the probe itself: what the probe records
+    // is the radiance leaving each surface *toward the probe*.
+    let v = normalize(capture.probe_pos - in.world_pos);
+    let albedo = textureSample(t_diffuse, s_diffuse, in.uv).rgb * in.col * model_data.base_color;
+    let metallic = model_data.metallic;
+    let roughness = max(model_data.roughness, 0.04);
+    let f0 = mix(vec3<f32>(0.04, 0.04, 0.04), albedo, metallic);
+    let n_dot_v = max(dot(n, v), 0.0001);
+    let lit = shadow_factor(in.light_space_pos);
+
+    var lo = vec3<f32>(0.0, 0.0, 0.0);
+    {
+        let l = normalize(-light.direction);
+        let h = normalize(v + l);
+        let n_dot_l = max(dot(n, l), 0.0);
+        let n_dot_h = max(dot(n, h), 0.0);
+        let h_dot_v = max(dot(h, v), 0.0);
+        let ndf = distribution_ggx(n_dot_h, roughness);
+        let g = geometry_smith(n_dot_v, n_dot_l, roughness);
+        let f = fresnel_schlick(h_dot_v, f0);
+        let kd = (vec3<f32>(1.0, 1.0, 1.0) - f) * (1.0 - metallic);
+        let specular = (ndf * g * f) / (4.0 * n_dot_v * n_dot_l + 0.0001);
+        lo += (kd * albedo / PI + specular) * light.color * n_dot_l * lit;
+    }
+    for (var i: u32 = 0u; i < light.num_point_lights; i++) {
+        let pl = light.point_lights[i];
+        let to_light = pl.position - in.world_pos;
+        let dist = length(to_light);
+        if dist < pl.range {
+            let l = normalize(to_light);
+            let h = normalize(v + l);
+            let n_dot_l = max(dot(n, l), 0.0);
+            let n_dot_h = max(dot(n, h), 0.0);
+            let h_dot_v = max(dot(h, v), 0.0);
+            let t = 1.0 - dist / pl.range;
+            let ndf = distribution_ggx(n_dot_h, roughness);
+            let g = geometry_smith(n_dot_v, n_dot_l, roughness);
+            let f = fresnel_schlick(h_dot_v, f0);
+            let kd = (vec3<f32>(1.0, 1.0, 1.0) - f) * (1.0 - metallic);
+            let specular = (ndf * g * f) / (4.0 * n_dot_v * n_dot_l + 0.0001);
+            let pt_lit = point_shadow_factor(i, -to_light);
+            lo += (kd * albedo / PI + specular) * pl.color * (pl.intensity * t * t) * n_dot_l * pt_lit;
+        }
+    }
+    for (var j: u32 = 0u; j < light.num_spot_lights; j++) {
+        let sl = light.spot_lights[j];
+        let to_light = sl.position - in.world_pos;
+        let dist = length(to_light);
+        if dist < sl.range {
+            let light_dir = normalize(to_light);
+            let cos_angle = dot(-light_dir, sl.direction);
+            let spot_factor = smoothstep(sl.outer_cos, sl.inner_cos, cos_angle);
+            if spot_factor > 0.0 {
+                let l = light_dir;
+                let h = normalize(v + l);
+                let n_dot_l = max(dot(n, l), 0.0);
+                let n_dot_h = max(dot(n, h), 0.0);
+                let h_dot_v = max(dot(h, v), 0.0);
+                let t = 1.0 - dist / sl.range;
+                let ndf = distribution_ggx(n_dot_h, roughness);
+                let g = geometry_smith(n_dot_v, n_dot_l, roughness);
+                let f = fresnel_schlick(h_dot_v, f0);
+                let kd = (vec3<f32>(1.0, 1.0, 1.0) - f) * (1.0 - metallic);
+                let specular = (ndf * g * f) / (4.0 * n_dot_v * n_dot_l + 0.0001);
+                lo += (kd * albedo / PI + specular) * sl.color * (sl.intensity * t * t * spot_factor) * n_dot_l;
+            }
+        }
+    }
+    // The flat ambient term stays -- it is a *direct* constant light in this
+    // engine's model, not a bounce, so it cannot make the bake recursive.
+    // What is deliberately missing is the image-based-lighting branch
+    // MESH_WGSL has at this exact point: see this shader's doc comment.
+    let ambient_term = light.ambient * albedo;
+    let color = ambient_term + lo + model_data.emissive;
+    return vec4<f32>(color, 1.0);
+}
+"#;
+
+/// The skybox, drawn as the background of every probe capture face.
+///
+/// A separate module rather than another entry point in
+/// [`PROBE_CAPTURE_WGSL`]: the sky texture would have to occupy a
+/// `@group @binding` slot that shader already gives a different type, and two
+/// conflicting declarations of one binding is a WGSL validation error whether
+/// or not both entry points use them.
+///
+/// The probe must see the sky, because sky light reaching a wall and bouncing
+/// onto the floor is exactly the effect probes exist to capture. Sampling the
+/// sky here (as *background radiance*) is not the same as sampling IBL: this
+/// is the environment itself, at one texel, not an irradiance convolution fed
+/// back into the shading.
+const PROBE_CAPTURE_SKY_WGSL: &str = r#"
+const PI: f32 = 3.14159265358979323846;
+struct CaptureUniform {
+    view_proj: mat4x4<f32>,
+    light_view_proj: mat4x4<f32>,
+    inv_view_proj: mat4x4<f32>,
+    probe_pos: vec3<f32>,
+    _pad: f32,
+};
+@group(0) @binding(0) var<uniform> capture: CaptureUniform;
+@group(1) @binding(0) var t_sky: texture_2d<f32>;
+@group(1) @binding(1) var s_sky: sampler;
+struct SkyOut {
+    @builtin(position) clip_pos: vec4<f32>,
+    @location(0) ndc: vec2<f32>,
+};
+@vertex
+fn vs_capture_sky(@builtin(vertex_index) vi: u32) -> SkyOut {
+    var positions = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -1.0),
+        vec2<f32>( 3.0, -1.0),
+        vec2<f32>(-1.0,  3.0),
+    );
+    let p = positions[vi];
+    var out: SkyOut;
+    // z = w so NDC depth = 1.0; LessEqual passes only where no geometry drew.
+    out.clip_pos = vec4<f32>(p.x, p.y, 1.0, 1.0);
+    out.ndc = p;
+    return out;
+}
+@fragment
+fn fs_capture_sky(in: SkyOut) -> @location(0) vec4<f32> {
+    // Same equirectangular lookup SKYBOX_WGSL does, through this face's own
+    // inverse view-projection instead of the camera's.
+    let world = capture.inv_view_proj * vec4<f32>(in.ndc.x, in.ndc.y, 1.0, 1.0);
+    let dir = normalize(world.xyz);
+    let phi = atan2(dir.z, dir.x);
+    let theta = asin(clamp(dir.y, -1.0, 1.0));
+    let u = phi / (2.0 * PI) + 0.5;
+    let v = 0.5 - theta / PI;
+    return textureSample(t_sky, s_sky, vec2<f32>(u, v));
+}
+"#;
+
 pub(crate) const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 const MAX_OBJECTS: usize = 1024;
 const MODEL_STRIDE: u64 = 256;
@@ -720,6 +1062,28 @@ const POINT_SHADOW_MAP_SIZE: u32 = 512;
 /// `MODEL_STRIDE`'s 256-byte convention (`PointShadowUniformData` is 80 bytes;
 /// 256 satisfies wgpu's minimum uniform buffer offset alignment on every backend).
 const POINT_SHADOW_STRIDE: u64 = 256;
+
+/// Edge length, in texels, of one cube face of a probe capture.
+///
+/// Deliberately tiny. The capture's entire purpose is to be reduced to nine
+/// SH coefficients immediately afterward, and an L2 expansion cannot represent
+/// anything finer than a very broad lobe -- every texel above this resolution
+/// is work whose result is thrown away by the projection. 16x16x6 is already
+/// 1536 samples per probe, far more than nine coefficients need.
+const PROBE_FACE_SIZE: u32 = 16;
+/// Per-face dynamic-offset stride for `probe_capture_uniform_buffer`, same
+/// 256-byte convention as `MODEL_STRIDE` and `POINT_SHADOW_STRIDE`
+/// (`ProbeCaptureUniformData` is 208 bytes).
+const PROBE_CAPTURE_STRIDE: u64 = 256;
+/// Far plane of each probe capture frustum. A probe integrates the whole
+/// sphere around it, so this is "how far away scene geometry still counts",
+/// not a light range -- generous, because a wall that falls outside it simply
+/// vanishes from the probe and its colour never bleeds.
+const PROBE_CAPTURE_RANGE: f32 = 200.0;
+/// Colour format of the probe capture target. HDR, like the main scene buffer:
+/// probe radiance is pre-tonemap and routinely exceeds 1.0, and clipping it to
+/// 8-bit here would quietly cap how much light a probe can carry.
+const PROBE_CAPTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -783,6 +1147,28 @@ struct PointShadowUniformData {
     light_pos: [f32; 3],
     _pad: f32,
 }
+
+/// One probe capture face's camera, addressed by dynamic offset. Mirrors
+/// `CaptureUniform` in [`PROBE_CAPTURE_WGSL`] and [`PROBE_CAPTURE_SKY_WGSL`].
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct ProbeCaptureUniformData {
+    view_proj: [[f32; 4]; 4],
+    light_view_proj: [[f32; 4]; 4],
+    /// Rotation-only inverse of `view_proj`, for the sky background.
+    inv_view_proj: [[f32; 4]; 4],
+    /// The probe's world position, which is this capture's eye point.
+    probe_pos: [f32; 3],
+    _pad: f32,
+}
+
+// The dynamic offset of face `n` is `n * PROBE_CAPTURE_STRIDE`, so a struct
+// larger than the stride would have consecutive faces overwriting each other's
+// tails -- silently, and only for the faces after the first.
+const _: () = assert!(
+    std::mem::size_of::<ProbeCaptureUniformData>() as u64 <= PROBE_CAPTURE_STRIDE,
+    "ProbeCaptureUniformData must fit within PROBE_CAPTURE_STRIDE"
+);
 
 /// A single point light entry for the GPU buffer.
 pub struct PointLightEntry {
@@ -1005,22 +1391,132 @@ fn jittered_view_proj(view_proj: Mat4, cam_proj: Mat4, jitter_clip: (f32, f32)) 
     jittered_proj * (cam_proj.inverse() * view_proj)
 }
 
+/// The `(forward, up)` pair of every cube face, in face order.
+///
+/// The standard cubemap face orientation convention (+Y/-Y up-vectors on the
+/// X/Z faces to avoid a degenerate look-at when looking straight up/down).
+///
+/// **This is the single authority for the cube-face convention in this file.**
+/// [`point_light_face_view_projs`] builds its `look_at_rh` matrices from it,
+/// and [`probe_face_texel_direction`] recovers a per-texel direction from it,
+/// so the direction a probe attributes a captured texel to cannot drift from
+/// the matrix that texel was actually rendered with. Writing a second
+/// convention next to this one is how probes end up lit from the wrong side --
+/// a bug whose output still looks like plausible lighting.
+const CUBE_FACE_DIRS: [(Vec3, Vec3); 6] = [
+    (Vec3::X, Vec3::NEG_Y),
+    (Vec3::NEG_X, Vec3::NEG_Y),
+    (Vec3::Y, Vec3::Z),
+    (Vec3::NEG_Y, Vec3::NEG_Z),
+    (Vec3::Z, Vec3::NEG_Y),
+    (Vec3::NEG_Z, Vec3::NEG_Y),
+];
+
+/// The 90-degree square projection every cube face is rendered through.
+fn cube_face_projection(range: f32) -> Mat4 {
+    Mat4::perspective_rh(std::f32::consts::FRAC_PI_2, 1.0, 0.05, range.max(0.5))
+}
+
 /// Computes the 6 face view-projection matrices for a point light's cube shadow
-/// map, one per axis-aligned direction, using the standard cubemap face
-/// orientation convention (+Y/-Y up-vectors on the X/Z faces to avoid a
-/// degenerate look-at when looking straight up/down).
+/// map, one per axis-aligned direction, using [`CUBE_FACE_DIRS`].
 fn point_light_face_view_projs(position: Vec3, range: f32) -> [Mat4; 6] {
-    let far = range.max(0.5);
-    let proj = Mat4::perspective_rh(std::f32::consts::FRAC_PI_2, 1.0, 0.05, far);
-    let dirs: [(Vec3, Vec3); 6] = [
-        (Vec3::X, Vec3::NEG_Y),
-        (Vec3::NEG_X, Vec3::NEG_Y),
-        (Vec3::Y, Vec3::Z),
-        (Vec3::NEG_Y, Vec3::NEG_Z),
-        (Vec3::Z, Vec3::NEG_Y),
-        (Vec3::NEG_Z, Vec3::NEG_Y),
-    ];
-    dirs.map(|(dir, up)| proj * Mat4::look_at_rh(position, position + dir, up))
+    let proj = cube_face_projection(range);
+    CUBE_FACE_DIRS.map(|(dir, up)| proj * Mat4::look_at_rh(position, position + dir, up))
+}
+
+/// The rotation-only inverse view-projection of each cube face, which is what
+/// an equirectangular skybox lookup needs: dropping the translation leaves a
+/// matrix that maps an NDC corner to a *direction*, so the sky stays infinitely
+/// far away instead of sliding past the probe.
+///
+/// Built the same way `bsengine-render`'s `sky_vp_inv` is (strip the
+/// translation column, then invert the product), so a probe's captured sky is
+/// the same image the camera would see looking that way.
+fn probe_face_sky_vp_invs(range: f32) -> [Mat4; 6] {
+    let proj = cube_face_projection(range);
+    CUBE_FACE_DIRS.map(|(dir, up)| {
+        let view = Mat4::look_at_rh(Vec3::ZERO, dir, up);
+        let view_rot = Mat4::from_cols(view.x_axis, view.y_axis, view.z_axis, glam::Vec4::W);
+        (proj * view_rot).inverse()
+    })
+}
+
+/// The world-space direction, as seen from the probe, of texel `(x, y)` on
+/// cube face `face` of a probe capture.
+///
+/// Derived from [`CUBE_FACE_DIRS`] and glam's `look_at_rh`, not from a
+/// hand-written cube convention. `look_at_rh` builds the basis
+/// `f = forward, s = normalize(f x up), u = s x f` and maps a world offset `p`
+/// to view space as `(dot(s, p), dot(u, p), dot(-f, p))`. A 90-degree square
+/// perspective projects view-space `(vx, vy, vz)` to
+/// `ndc = (vx / -vz, vy / -vz)`, so the ray through `ndc` is view-space
+/// `(ndc.x, ndc.y, -1)`, which is world-space `f + ndc.x * s + ndc.y * u`.
+///
+/// `probe_face_texel_direction_matches_the_capture_matrix_ndc` closes that
+/// derivation against the real matrices rather than trusting the algebra.
+fn probe_face_texel_direction(face: usize, x: u32, y: u32) -> Vec3 {
+    let (ndc_x, ndc_y) = probe_face_texel_ndc(x, y);
+    let (forward, up) = CUBE_FACE_DIRS[face];
+    let s = forward.cross(up).normalize();
+    let u = s.cross(forward);
+    (forward + s * ndc_x + u * ndc_y).normalize()
+}
+
+/// The NDC coordinates of the centre of texel `(x, y)` on a probe capture
+/// face. `y` counts down the framebuffer while NDC `y` counts up, hence the
+/// flip.
+fn probe_face_texel_ndc(x: u32, y: u32) -> (f32, f32) {
+    let n = PROBE_FACE_SIZE as f32;
+    (
+        ((x as f32 + 0.5) / n) * 2.0 - 1.0,
+        1.0 - ((y as f32 + 0.5) / n) * 2.0,
+    )
+}
+
+/// Decodes one IEEE-754 binary16 value, the element type of the `Rgba16Float`
+/// probe capture target.
+///
+/// Hand-rolled because this workspace has no `half` dependency and pulling one
+/// in for a dozen lines of bit twiddling is not worth the supply-chain
+/// surface. `f16_round_trips_exact_values` and
+/// `f16_decodes_subnormals_and_specials` pin the three branches.
+fn f16_bits_to_f32(bits: u16) -> f32 {
+    let sign = if bits & 0x8000 != 0 { -1.0f32 } else { 1.0 };
+    let exp = ((bits >> 10) & 0x1f) as i32;
+    let frac = (bits & 0x03ff) as f32;
+    if exp == 0 {
+        // Subnormal (and zero): the value is frac * 2^-24, with no implicit
+        // leading 1.
+        sign * frac * 2.0f32.powi(-24)
+    } else if exp == 0x1f {
+        if frac == 0.0 {
+            sign * f32::INFINITY
+        } else {
+            f32::NAN
+        }
+    } else {
+        sign * (1.0 + frac / 1024.0) * 2.0f32.powi(exp - 15)
+    }
+}
+
+/// The solid angle, in steradians, that texel `(x, y)` of a probe capture face
+/// subtends at the probe.
+///
+/// A cube face is a *flat* square held at unit distance, so its texels do not
+/// all cover the same slice of the sphere: a corner texel is both further away
+/// and seen edge-on. The projected solid angle of the texel at `(u, v)` in
+/// `[-1, 1]` is therefore `dA * (1 + u^2 + v^2)^(-3/2)` with `dA = 4 / n^2`.
+///
+/// The tempting shortcut is a flat `4*PI / (6*n*n)` for every texel. It is
+/// wrong in a way that survives eyeballing: it over-weights the face corners
+/// (by up to `3^(3/2)`, about 5.2x, at the very corner), which biases every
+/// probe's directional terms toward the cube's diagonals.
+/// `probe_face_texel_solid_angles_sum_to_the_full_sphere` and
+/// `a_corner_texel_covers_less_sky_than_a_centre_texel` pin both properties.
+fn probe_face_texel_solid_angle(x: u32, y: u32) -> f32 {
+    let n = PROBE_FACE_SIZE as f32;
+    let (u, v) = probe_face_texel_ndc(x, y);
+    (4.0 / (n * n)) * (1.0 + u * u + v * v).powf(-1.5)
 }
 
 /// Everything group 2 ("light") binds, gathered into one struct.
@@ -1135,6 +1631,33 @@ pub struct WgpuSurface {
     point_shadow_sampler: wgpu::Sampler,
     point_shadow_uniform_buffer: wgpu::Buffer,
     point_shadow_bind_group: wgpu::BindGroup,
+    /// Probe capture target: one cube face per `(probe, face)` as an array
+    /// layer, laid out exactly like `_point_shadow_color_texture`
+    /// (`probe * 6 + face`). Underscore-prefixed only in the sense that
+    /// nothing samples it in a shader -- `project_captures_to_sh` copies out
+    /// of it, which is why it is `COPY_SRC`.
+    probe_capture_texture: crate::profiler::TrackedTexture,
+    /// One shared depth buffer for the capture, cleared per face, exactly as
+    /// the point-shadow pass reuses `point_shadow_depth_view`.
+    _probe_capture_depth_texture: crate::profiler::TrackedTexture,
+    probe_capture_depth_view: wgpu::TextureView,
+    /// Draws scene geometry into a capture face with **direct light only** --
+    /// see [`PROBE_CAPTURE_WGSL`] for why that restriction is load-bearing.
+    probe_capture_pipeline: wgpu::RenderPipeline,
+    /// Fills the rest of a capture face with the skybox, when one is loaded.
+    probe_capture_sky_pipeline: wgpu::RenderPipeline,
+    /// Per-face camera for the capture, one `PROBE_CAPTURE_STRIDE` slot per
+    /// `(probe, face)`. A capture renders every face inside one command
+    /// encoder, and `queue.write_buffer` cannot vary between passes of a
+    /// single submission -- the same constraint that gave the point-shadow
+    /// pass its own per-face uniform buffer.
+    probe_capture_uniform_buffer: wgpu::Buffer,
+    probe_capture_bind_group: wgpu::BindGroup,
+    /// Layout of the skybox's texture+sampler group. Held here rather than
+    /// built inside `set_skybox_from_rgba` because `probe_capture_sky_pipeline`
+    /// is built once at construction and has to bind `SkyboxState::texture_bg`
+    /// against the very same layout object.
+    sky_tex_bgl: wgpu::BindGroupLayout,
     egui_ctx: egui::Context,
     egui_renderer: egui_wgpu::Renderer,
     skybox: Option<SkyboxState>,
@@ -1960,6 +2483,207 @@ impl WgpuSurface {
                 cache: None,
             });
 
+        // --- light probe capture (one cube per probe, MAX_PROBES of them) ---
+        let probe_capture_texture = crate::profiler::create_tracked_texture(
+            &device,
+            &wgpu::TextureDescriptor {
+                label: Some("probe capture array"),
+                size: wgpu::Extent3d {
+                    width: PROBE_FACE_SIZE,
+                    height: PROBE_FACE_SIZE,
+                    depth_or_array_layers: (bsengine_core::MAX_PROBES * 6) as u32,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: PROBE_CAPTURE_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[],
+            },
+        );
+        let probe_capture_depth_texture = crate::profiler::create_tracked_texture(
+            &device,
+            &wgpu::TextureDescriptor {
+                label: Some("probe capture depth"),
+                size: wgpu::Extent3d {
+                    width: PROBE_FACE_SIZE,
+                    height: PROBE_FACE_SIZE,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: DEPTH_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            },
+        );
+        let probe_capture_depth_view =
+            probe_capture_depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let probe_capture_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("probe capture uniform"),
+            size: PROBE_CAPTURE_STRIDE * (bsengine_core::MAX_PROBES * 6) as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let probe_capture_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("probe capture bgl"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: true,
+                    min_binding_size: wgpu::BufferSize::new(std::mem::size_of::<
+                        ProbeCaptureUniformData,
+                    >() as u64),
+                },
+                count: None,
+            }],
+        });
+        let probe_capture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("probe capture bg"),
+            layout: &probe_capture_bgl,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &probe_capture_uniform_buffer,
+                    offset: 0,
+                    size: wgpu::BufferSize::new(
+                        std::mem::size_of::<ProbeCaptureUniformData>() as u64
+                    ),
+                }),
+            }],
+        });
+
+        let probe_capture_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("probe capture shader"),
+            source: wgpu::ShaderSource::Wgsl(PROBE_CAPTURE_WGSL.into()),
+        });
+        // Groups 1..3 are the scene's own model / light / texture groups, so a
+        // capture draw is the main pass's draw with a different camera. Group 2
+        // carries the IBL bindings the capture shader deliberately never
+        // declares; a bind group layout may expose more than an entry point
+        // uses.
+        let probe_capture_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("probe capture pipeline layout"),
+                bind_group_layouts: &[&probe_capture_bgl, &model_bgl, &light_bgl, &texture_bgl],
+                push_constant_ranges: &[],
+            });
+        let probe_capture_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("probe capture pipeline"),
+                layout: Some(&probe_capture_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &probe_capture_shader,
+                    entry_point: "vs_capture",
+                    buffers: std::slice::from_ref(&vertex_buffer_layout),
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &probe_capture_shader,
+                    entry_point: "fs_capture",
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: PROBE_CAPTURE_FORMAT,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                // Same culling and depth rules as the opaque mesh pipeline: a
+                // probe should see the scene the camera sees.
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    cull_mode: Some(wgpu::Face::Back),
+                    front_face: wgpu::FrontFace::Ccw,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            });
+
+        let sky_tex_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("sky tex bgl"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let probe_capture_sky_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("probe capture sky shader"),
+            source: wgpu::ShaderSource::Wgsl(PROBE_CAPTURE_SKY_WGSL.into()),
+        });
+        let probe_capture_sky_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("probe capture sky pipeline layout"),
+                bind_group_layouts: &[&probe_capture_bgl, &sky_tex_bgl],
+                push_constant_ranges: &[],
+            });
+        let probe_capture_sky_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("probe capture sky pipeline"),
+                layout: Some(&probe_capture_sky_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &probe_capture_sky_shader,
+                    entry_point: "vs_capture_sky",
+                    buffers: &[],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &probe_capture_sky_shader,
+                    entry_point: "fs_capture_sky",
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: PROBE_CAPTURE_FORMAT,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    cull_mode: None,
+                    ..Default::default()
+                },
+                // Depth-test only, at NDC depth 1.0: the sky fills exactly the
+                // texels no geometry claimed, and never overwrites one that did.
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: false,
+                    depth_compare: wgpu::CompareFunction::LessEqual,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            });
+
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("mesh shader"),
             source: wgpu::ShaderSource::Wgsl(MESH_WGSL.into()),
@@ -2204,6 +2928,14 @@ impl WgpuSurface {
             point_shadow_sampler,
             point_shadow_uniform_buffer,
             point_shadow_bind_group,
+            probe_capture_texture,
+            _probe_capture_depth_texture: probe_capture_depth_texture,
+            probe_capture_depth_view,
+            probe_capture_pipeline,
+            probe_capture_sky_pipeline,
+            probe_capture_uniform_buffer,
+            probe_capture_bind_group,
+            sky_tex_bgl,
             egui_ctx,
             egui_renderer,
             skybox: None,
@@ -2429,32 +3161,13 @@ impl WgpuSurface {
             }],
         });
 
-        let sky_tex_bgl = self
-            .device
-            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("sky tex bgl"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-            });
+        // `self.sky_tex_bgl`, not a fresh layout: `probe_capture_sky_pipeline`
+        // was built against that object at construction and binds the very
+        // `texture_bg` created here.
+        let sky_tex_bgl = &self.sky_tex_bgl;
         let texture_bg = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("sky tex bg"),
-            layout: &sky_tex_bgl,
+            layout: sky_tex_bgl,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
@@ -2477,7 +3190,7 @@ impl WgpuSurface {
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("skybox pipeline layout"),
-                bind_group_layouts: &[&sky_uniform_bgl, &sky_tex_bgl],
+                bind_group_layouts: &[&sky_uniform_bgl, sky_tex_bgl],
                 push_constant_ranges: &[],
             });
         let pipeline = self
@@ -2741,6 +3454,253 @@ impl WgpuSurface {
         };
         readback_buffer.unmap();
         timings
+    }
+
+    /// Renders the scene once per probe per cube face into
+    /// `probe_capture_texture`, ready for [`Self::project_captures_to_sh`].
+    ///
+    /// Structurally the point-light shadow loop with a different target: one
+    /// single-layer `TextureView` per `(probe, face)` at layer
+    /// `probe * 6 + face`, a render pass into it, the capture pipeline, the
+    /// per-face uniform by dynamic offset, then the same `draw_calls` walk with
+    /// the model bind group's own dynamic offset.
+    ///
+    /// **The caller must already have uploaded this frame's `light_buffer` and
+    /// `model_buffer`** -- `render_frame` writes both before it reaches any
+    /// pass, and a capture reuses them rather than duplicating that work.
+    ///
+    /// Terrain chunks are not captured. They take a different group-3 layout
+    /// than the capture pipeline is built for, and terrain is ground: it
+    /// receives bounced light far more than it contributes it.
+    ///
+    /// Probes past [`bsengine_core::MAX_PROBES`] are ignored, matching the
+    /// uniform array's fixed size.
+    // Exercised by this module's tests; `render_frame` starts calling it when
+    // the bake is driven from `bsengine-render` (roadmap item 48, task 5).
+    #[allow(dead_code)]
+    fn capture_probes(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        light_view_proj: Mat4,
+        draw_calls: &[(u64, Mat4, Option<u64>, MaterialParams, Option<String>)],
+        registry: &GpuMeshRegistry,
+        tex_registry: Option<&crate::texture::GpuTextureRegistry>,
+        positions: &[Vec3],
+    ) {
+        let probe_count = positions.len().min(bsengine_core::MAX_PROBES);
+        if probe_count == 0 {
+            return;
+        }
+
+        // Every face's uniform is written up front, before a single pass is
+        // encoded, because `queue.write_buffer` is ordered against *submits*,
+        // not against passes: rewriting one slot between passes of this
+        // encoder would give every face the last value written. The
+        // point-shadow loop stages its faces the same way and for the same
+        // reason.
+        let sky_vp_invs = probe_face_sky_vp_invs(PROBE_CAPTURE_RANGE);
+        for (probe_idx, position) in positions.iter().take(probe_count).enumerate() {
+            let view_projs = point_light_face_view_projs(*position, PROBE_CAPTURE_RANGE);
+            for (face, vp) in view_projs.iter().enumerate() {
+                let slot = probe_idx * 6 + face;
+                let data = ProbeCaptureUniformData {
+                    view_proj: vp.to_cols_array_2d(),
+                    light_view_proj: light_view_proj.to_cols_array_2d(),
+                    inv_view_proj: sky_vp_invs[face].to_cols_array_2d(),
+                    probe_pos: position.to_array(),
+                    _pad: 0.0,
+                };
+                self.queue.write_buffer(
+                    &self.probe_capture_uniform_buffer,
+                    slot as u64 * PROBE_CAPTURE_STRIDE,
+                    bytemuck::cast_slice(&[data]),
+                );
+            }
+        }
+
+        for probe_idx in 0..probe_count {
+            for face in 0..6usize {
+                let slot = probe_idx * 6 + face;
+                let layer_view =
+                    self.probe_capture_texture
+                        .create_view(&wgpu::TextureViewDescriptor {
+                            label: Some("probe capture layer view"),
+                            dimension: Some(wgpu::TextureViewDimension::D2),
+                            base_array_layer: slot as u32,
+                            array_layer_count: Some(1),
+                            ..Default::default()
+                        });
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("probe capture pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &layer_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            // The same background the main pass clears to, so a
+                            // probe in an empty scene records the scene's own
+                            // backdrop rather than black. Overwritten by the sky
+                            // pipeline below wherever a skybox is loaded.
+                            load: wgpu::LoadOp::Clear(wgpu::Color {
+                                r: 0.08,
+                                g: 0.08,
+                                b: 0.08,
+                                a: 1.0,
+                            }),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &self.probe_capture_depth_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    // A bake is `probes * 6` passes -- up to 192 -- which no
+                    // query set can hold a slot pair for, and it happens once
+                    // rather than every frame, so it is deliberately untimed.
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+                let uniform_offset = (slot as u64 * PROBE_CAPTURE_STRIDE) as u32;
+                pass.set_pipeline(&self.probe_capture_pipeline);
+                pass.set_bind_group(0, &self.probe_capture_bind_group, &[uniform_offset]);
+                pass.set_bind_group(2, &self.light_bind_group, &[]);
+                for (i, (mesh_id, _, tex_id, _, _)) in draw_calls.iter().enumerate() {
+                    if i >= MAX_OBJECTS {
+                        break;
+                    }
+                    let Some(mesh) = registry.get(*mesh_id) else {
+                        continue;
+                    };
+                    // Custom-shader draws are captured with the standard
+                    // capture shader: a custom pipeline binds group 0 as the
+                    // camera uniform, which this pass does not have, and a
+                    // custom shader's output is not decomposable into direct
+                    // light anyway.
+                    let tex_bg = tex_id
+                        .and_then(|id| tex_registry.and_then(|r| r.get_bind_group(id)))
+                        .unwrap_or(&self.default_texture_bind_group);
+                    let offset = (i as u64 * MODEL_STRIDE) as u32;
+                    pass.set_bind_group(1, &self.model_bind_group, &[offset]);
+                    pass.set_bind_group(3, tex_bg, &[]);
+                    pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                    pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                }
+                if let Some(sky) = &self.skybox {
+                    pass.set_pipeline(&self.probe_capture_sky_pipeline);
+                    pass.set_bind_group(0, &self.probe_capture_bind_group, &[uniform_offset]);
+                    pass.set_bind_group(1, &sky.texture_bg, &[]);
+                    pass.draw(0..3, 0..1);
+                }
+            }
+        }
+    }
+
+    /// Reads `probe_capture_texture` back and projects each probe's six faces
+    /// onto L2 spherical harmonics.
+    ///
+    /// Must run after the encoder [`Self::capture_probes`] wrote into has been
+    /// submitted: this copies the texture on its own encoder and blocks on the
+    /// map, so anything still sitting in an unsubmitted encoder would be
+    /// missed.
+    ///
+    /// Every texel contributes `radiance * basis(dir) * solid_angle`, with
+    /// `dir` from [`probe_face_texel_direction`] (the same cube convention the
+    /// capture matrices were built from) and `solid_angle` from
+    /// [`probe_face_texel_solid_angle`] (the real projected solid angle, not a
+    /// flat share of the sphere).
+    // See `capture_probes` for why this is `allow(dead_code)` for now.
+    #[allow(dead_code)]
+    fn project_captures_to_sh(&self, probe_count: usize) -> Vec<crate::sh::ShL2> {
+        let probes = probe_count.min(bsengine_core::MAX_PROBES);
+        if probes == 0 {
+            return Vec::new();
+        }
+        // Rgba16Float.
+        const BYTES_PER_TEXEL: u32 = 8;
+        let layers = (probes * 6) as u32;
+        let unpadded_bytes_per_row = PROBE_FACE_SIZE * BYTES_PER_TEXEL;
+        // `copy_texture_to_buffer` requires every row to start on a 256-byte
+        // boundary. A 16-texel row is 128 bytes, so each row really is padded
+        // here -- reading the buffer as if it were tightly packed would
+        // interleave two rows per face and silently scramble every direction.
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let padded_bytes_per_row = unpadded_bytes_per_row.div_ceil(align) * align;
+        let layer_stride = (padded_bytes_per_row * PROBE_FACE_SIZE) as u64;
+
+        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("probe capture readback"),
+            size: layer_stride * layers as u64,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("probe capture readback encoder"),
+            });
+        encoder.copy_texture_to_buffer(
+            wgpu::ImageCopyTexture {
+                texture: &self.probe_capture_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::ImageCopyBuffer {
+                buffer: &buffer,
+                layout: wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bytes_per_row),
+                    rows_per_image: Some(PROBE_FACE_SIZE),
+                },
+            },
+            wgpu::Extent3d {
+                width: PROBE_FACE_SIZE,
+                height: PROBE_FACE_SIZE,
+                depth_or_array_layers: layers,
+            },
+        );
+        self.queue.submit(std::iter::once(encoder.finish()));
+
+        let slice = buffer.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |r| {
+            let _ = tx.send(r);
+        });
+        self.device.poll(wgpu::Maintain::Wait);
+        rx.recv()
+            .expect("map_async never reported a result")
+            .expect("mapping the probe capture readback buffer failed");
+
+        let mapped = slice.get_mapped_range();
+        let mut out = vec![crate::sh::ShL2::default(); probes];
+        for (probe_idx, sh) in out.iter_mut().enumerate() {
+            for face in 0..6usize {
+                let layer_start = (probe_idx * 6 + face) as u64 * layer_stride;
+                for y in 0..PROBE_FACE_SIZE {
+                    let row_start = (layer_start + (y * padded_bytes_per_row) as u64) as usize;
+                    for x in 0..PROBE_FACE_SIZE {
+                        let t = &mapped[row_start + (x * BYTES_PER_TEXEL) as usize..];
+                        let radiance = Vec3::new(
+                            f16_bits_to_f32(u16::from_le_bytes([t[0], t[1]])),
+                            f16_bits_to_f32(u16::from_le_bytes([t[2], t[3]])),
+                            f16_bits_to_f32(u16::from_le_bytes([t[4], t[5]])),
+                        );
+                        sh.accumulate(
+                            probe_face_texel_direction(face, x, y),
+                            radiance,
+                            probe_face_texel_solid_angle(x, y),
+                        );
+                    }
+                }
+            }
+        }
+        drop(mapped);
+        buffer.unmap();
+        out
     }
 
     /// Renders one full frame: shadow map, main scene pass, post-processing,
@@ -4726,5 +5686,405 @@ mod tests {
     fn point_shadow_shader_compiles() {
         let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
         let _module = WgpuSurface::compile_shader(&device, POINT_SHADOW_WGSL);
+    }
+
+    #[test]
+    fn probe_capture_wgsl_is_valid() {
+        assert_eq!(
+            WgpuSurface::validate_wgsl("probe_capture.wgsl", PROBE_CAPTURE_WGSL),
+            Ok(()),
+            "PROBE_CAPTURE_WGSL must pass the same validation MESH_WGSL does"
+        );
+    }
+
+    #[test]
+    fn probe_capture_sky_wgsl_is_valid() {
+        assert_eq!(
+            WgpuSurface::validate_wgsl("probe_capture_sky.wgsl", PROBE_CAPTURE_SKY_WGSL),
+            Ok(()),
+            "PROBE_CAPTURE_SKY_WGSL must pass the same validation SKYBOX_WGSL does"
+        );
+    }
+
+    /// The capture shades **direct light only**, and this is the guard that
+    /// keeps it that way. Sampling IBL (or, later, probes) from the capture
+    /// would make the bake feed on its own output: probes lit by probes, and
+    /// sky light counted twice over -- once as the captured background and
+    /// again as the irradiance convolved from that same sky. The result is
+    /// meant to be exactly one bounce.
+    ///
+    /// A source-level assertion rather than a rendered one because the failure
+    /// it guards against is *plausible-looking*: an IBL-contaminated bake is
+    /// brighter, not obviously broken, and no pixel test would flag it.
+    #[test]
+    fn the_probe_capture_shader_never_reads_the_ibl_resources() {
+        for forbidden in [
+            "irradiance_cube",
+            "prefilter_cube",
+            "brdf_lut",
+            "ibl_sampler",
+            // The branch itself, not the struct field: `ibl_enabled` must
+            // still be *declared*, since this shader shares `light_buffer`
+            // with MESH_WGSL and the layouts have to match byte for byte.
+            "light.ibl_enabled",
+        ] {
+            assert!(
+                !PROBE_CAPTURE_WGSL.contains(forbidden),
+                "the probe capture shader references `{forbidden}`; capturing \
+                 IBL into a probe makes the bake recursive"
+            );
+        }
+        assert!(
+            PROBE_CAPTURE_WGSL.contains("ibl_enabled: u32,"),
+            "LightUniform must still declare ibl_enabled: this shader reads the \
+             same buffer MESH_WGSL does, and a shorter struct would misalign \
+             every field after it"
+        );
+    }
+
+    /// Closes the loop on the per-texel direction: for each face, take the
+    /// direction `probe_face_texel_direction` reports for a texel, project it
+    /// through the **actual** matrix that face was rendered with, and require
+    /// the result to land back on that texel's NDC.
+    ///
+    /// Deliberately uses off-centre texels including the corners. A texel at
+    /// the face centre projects to NDC (0, 0) under any axis swap or sign
+    /// error, so a centre-only check certifies nothing.
+    #[test]
+    fn probe_face_texel_direction_matches_the_capture_matrix_ndc() {
+        let probe_pos = Vec3::new(2.0, -1.0, 4.0);
+        let view_projs = point_light_face_view_projs(probe_pos, PROBE_CAPTURE_RANGE);
+        let n = PROBE_FACE_SIZE;
+        let texels = [
+            (0, 0),
+            (n - 1, 0),
+            (0, n - 1),
+            (n - 1, n - 1),
+            (n / 2, n / 2),
+            (3, n - 4),
+            (n - 2, 5),
+        ];
+        for (face, vp) in view_projs.iter().enumerate() {
+            for (x, y) in texels {
+                let dir = probe_face_texel_direction(face, x, y);
+                assert!(
+                    (dir.length() - 1.0).abs() < 1e-5,
+                    "face {face} texel ({x},{y}): direction must be unit length, got {dir:?}"
+                );
+                // A point out along the ray, from the probe. Any positive
+                // distance inside the frustum projects to the same NDC.
+                let world = probe_pos + dir * 10.0;
+                let clip = *vp * world.extend(1.0);
+                let got = (clip.x / clip.w, clip.y / clip.w);
+                let want = probe_face_texel_ndc(x, y);
+                assert!(
+                    (got.0 - want.0).abs() < 1e-4 && (got.1 - want.1).abs() < 1e-4,
+                    "face {face} texel ({x},{y}): the direction we attribute this \
+                     texel to projects to NDC {got:?}, but the texel sits at \
+                     {want:?} -- the capture and the projection disagree about \
+                     which way this texel looks"
+                );
+            }
+        }
+    }
+
+    /// The six faces' texels must tile the whole sphere exactly once. This is
+    /// what makes the projection an integral over the sphere rather than an
+    /// arbitrarily scaled sum, and it is the assertion a wrong normalisation
+    /// cannot survive.
+    #[test]
+    fn probe_face_texel_solid_angles_sum_to_the_full_sphere() {
+        let mut total = 0.0f64;
+        for _face in 0..6 {
+            for y in 0..PROBE_FACE_SIZE {
+                for x in 0..PROBE_FACE_SIZE {
+                    total += probe_face_texel_solid_angle(x, y) as f64;
+                }
+            }
+        }
+        let four_pi = 4.0 * std::f64::consts::PI;
+        assert!(
+            (total - four_pi).abs() < 0.02,
+            "the six faces must cover 4*pi steradians, got {total} (want {four_pi})"
+        );
+    }
+
+    /// The specific mistake the projected solid angle exists to avoid: a flat
+    /// `4*pi / (6*n*n)` per texel. It sums to 4*pi too, so the test above
+    /// would not catch it -- what distinguishes the two is that a real cube
+    /// face's corner texels are further away and seen edge-on, so they cover
+    /// *less* sky than the centre ones, not the same amount.
+    #[test]
+    fn a_corner_texel_covers_less_sky_than_a_centre_texel() {
+        let n = PROBE_FACE_SIZE;
+        let centre = probe_face_texel_solid_angle(n / 2, n / 2);
+        let corner = probe_face_texel_solid_angle(0, 0);
+        assert!(
+            corner < centre,
+            "a corner texel ({corner}) must subtend less solid angle than a \
+             centre texel ({centre}); equal values mean the flat \
+             4*pi/(6*n*n) shortcut crept back in and the face corners are \
+             being over-weighted"
+        );
+        let flat = 4.0 * std::f32::consts::PI / (6.0 * (n * n) as f32);
+        assert!(
+            corner < flat * 0.75,
+            "the corner texel's real solid angle ({corner}) should be well \
+             below the flat share ({flat}); if it is not, the foreshortening \
+             factor is not being applied"
+        );
+    }
+
+    #[test]
+    fn f16_decodes_normal_subnormal_and_special_values() {
+        assert_eq!(f16_bits_to_f32(0x0000), 0.0);
+        assert_eq!(f16_bits_to_f32(0x3C00), 1.0);
+        assert_eq!(f16_bits_to_f32(0xBC00), -1.0);
+        assert_eq!(f16_bits_to_f32(0x4000), 2.0);
+        assert!((f16_bits_to_f32(0x3555) - 1.0 / 3.0).abs() < 1e-3);
+        // Largest subnormal: 1023 * 2^-24.
+        assert!((f16_bits_to_f32(0x03FF) - 1023.0 * 2.0f32.powi(-24)).abs() < 1e-12);
+        assert!(f16_bits_to_f32(0x7C00).is_infinite());
+        assert!(f16_bits_to_f32(0x7E00).is_nan());
+    }
+
+    /// One emissive quad, standing off-axis, plus a probe at the origin --
+    /// everything a bake needs and nothing else.
+    ///
+    /// The scene is deliberately minimal: the directional light and the
+    /// ambient term are both black, so the *only* radiance in the capture is
+    /// the quad's emissive and the pass's own background clear. That makes
+    /// the l=1 coefficients an almost pure readout of where the quad is.
+    struct ProbeBakeScene {
+        surface: WgpuSurface,
+        registry: crate::mesh::GpuMeshRegistry,
+        draw_calls: Vec<(u64, Mat4, Option<u64>, MaterialParams, Option<String>)>,
+    }
+
+    impl ProbeBakeScene {
+        /// `corners` are the quad's four vertices in counter-clockwise order
+        /// *as seen from the origin*, so the front face points at the probe
+        /// and back-face culling does not swallow it.
+        fn new(corners: [Vec3; 4], emissive: Vec3) -> Self {
+            let surface = pollster::block_on(WgpuSurface::new_offscreen(64, 64, false))
+                .expect("an offscreen surface is what every GPU test here uses");
+            let mut registry = crate::mesh::GpuMeshRegistry::new(surface.device.clone());
+            let normal = (corners[1] - corners[0])
+                .cross(corners[2] - corners[0])
+                .normalize();
+            let vertices: Vec<crate::mesh::Vertex> = corners
+                .iter()
+                .map(|p| crate::mesh::Vertex {
+                    position: p.to_array(),
+                    color: [1.0, 1.0, 1.0],
+                    normal: normal.to_array(),
+                    uv: [0.0, 0.0],
+                })
+                .collect();
+            let mesh_id = registry.register(&vertices, &[0, 1, 2, 0, 2, 3]);
+            let draw_calls = vec![(
+                mesh_id,
+                Mat4::IDENTITY,
+                None,
+                MaterialParams {
+                    metallic: 0.0,
+                    roughness: 1.0,
+                    emissive,
+                    // Black albedo: nothing reflects, so the quad contributes
+                    // its emissive and only its emissive.
+                    base_color: Vec3::ZERO,
+                    opacity: 1.0,
+                },
+                None,
+            )];
+            let scene = Self {
+                surface,
+                registry,
+                draw_calls,
+            };
+            scene.upload_uniforms();
+            scene
+        }
+
+        /// `capture_probes` reads `model_buffer` and `light_buffer` rather
+        /// than writing them -- `render_frame` fills both before any pass runs.
+        /// A test that skips this bakes whatever was left in GPU memory.
+        fn upload_uniforms(&self) {
+            for (i, (_, model, _, mat, _)) in self.draw_calls.iter().enumerate() {
+                let data = ModelUniformData {
+                    model: model.to_cols_array_2d(),
+                    metallic: mat.metallic,
+                    roughness: mat.roughness,
+                    _pad0: 0.0,
+                    _pad1: 0.0,
+                    emissive: mat.emissive.to_array(),
+                    _pad2: 0.0,
+                    base_color: mat.base_color.to_array(),
+                    opacity: mat.opacity,
+                };
+                self.surface.queue.write_buffer(
+                    &self.surface.model_buffer,
+                    i as u64 * MODEL_STRIDE,
+                    bytemuck::cast_slice(&[data]),
+                );
+            }
+            // Zeroed: no point or spot lights, no IBL, black sun, black
+            // ambient. `direction` still has to be a real unit vector because
+            // the shader normalizes it.
+            let mut light_data: LightUniformData = bytemuck::Zeroable::zeroed();
+            light_data.direction = [0.0, -1.0, 0.0];
+            self.surface.queue.write_buffer(
+                &self.surface.light_buffer,
+                0,
+                bytemuck::cast_slice(&[light_data]),
+            );
+        }
+
+        fn bake(&self, positions: &[Vec3]) -> Vec<crate::sh::ShL2> {
+            let mut encoder =
+                self.surface
+                    .device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("probe bake test encoder"),
+                    });
+            self.surface.capture_probes(
+                &mut encoder,
+                // No shadow map has been rendered, and the directional light
+                // is black anyway; any matrix that keeps `shadow_factor`'s
+                // lookup in range would do.
+                Mat4::orthographic_rh(-20.0, 20.0, -20.0, 20.0, 0.1, 60.0)
+                    * Mat4::look_at_rh(Vec3::new(0.0, 20.0, 0.0), Vec3::ZERO, Vec3::Z),
+                &self.draw_calls,
+                &self.registry,
+                None,
+                positions,
+            );
+            self.surface.queue.submit(std::iter::once(encoder.finish()));
+            self.surface.project_captures_to_sh(positions.len())
+        }
+    }
+
+    /// The direction an L2 expansion attributes its brightest lobe to, read
+    /// out of the l=1 band of one colour channel. `sh_basis` orders l=1 as
+    /// `(y, z, x)`, so this un-permutes it.
+    fn dominant_direction_red(sh: &crate::sh::ShL2) -> Vec3 {
+        Vec3::new(sh.coeffs[3].x, sh.coeffs[1].x, sh.coeffs[2].x).normalize()
+    }
+
+    /// The end-to-end version of `probe_face_texel_direction_matches_...`:
+    /// render a real emissive quad, project the real capture, and require the
+    /// reconstructed lobe to point at where the quad actually is.
+    ///
+    /// Two placements, on two different cube faces, because face 0 (+X, up
+    /// -Y) and face 2 (+Y, up +Z) use different up-vectors -- a bug that
+    /// permutes faces or flips one face's V axis survives a single-face test.
+    /// Both quads are off-axis in two coordinates at once, so no axis swap can
+    /// hide.
+    #[test]
+    fn a_baked_probe_points_its_brightest_lobe_at_the_emissive_quad() {
+        let cases: [([Vec3; 4], &str); 2] = [
+            (
+                [
+                    Vec3::new(3.0, 0.75, 0.0),
+                    Vec3::new(3.0, 0.75, 1.5),
+                    Vec3::new(3.0, 2.25, 1.5),
+                    Vec3::new(3.0, 2.25, 0.0),
+                ],
+                "+X face",
+            ),
+            (
+                [
+                    Vec3::new(0.75, 3.0, 0.0),
+                    Vec3::new(2.25, 3.0, 0.0),
+                    Vec3::new(2.25, 3.0, 1.5),
+                    Vec3::new(0.75, 3.0, 1.5),
+                ],
+                "+Y face",
+            ),
+        ];
+        for (corners, label) in cases {
+            let centre = (corners[0] + corners[1] + corners[2] + corners[3]) / 4.0;
+            let expected = centre.normalize();
+            let scene = ProbeBakeScene::new(corners, Vec3::new(20.0, 0.0, 0.0));
+            let sh = scene.bake(&[Vec3::ZERO]);
+            assert_eq!(sh.len(), 1);
+
+            // The pass's own 0.08 grey background alone integrates to
+            // 0.282095 * 4*pi * 0.08 ~= 0.28 in *every* channel, so "is
+            // anything there?" has to be asked as "is red above grey?", not
+            // as an absolute floor. A capture that drew no geometry leaves
+            // these two equal.
+            assert!(
+                sh[0].coeffs[0].x > sh[0].coeffs[0].y * 2.0 && sh[0].coeffs[0].x > 1.0,
+                "{label}: l=0 is ({}, {}) -- red barely exceeds green, so the \
+                 red quad was never rendered into the probe and all that was \
+                 captured is the grey background",
+                sh[0].coeffs[0].x,
+                sh[0].coeffs[0].y
+            );
+            let got = dominant_direction_red(&sh[0]);
+            assert!(
+                got.dot(expected) > 0.9,
+                "{label}: the probe's brightest red direction is {got:?} but the \
+                 quad is at {expected:?} (dot {}). A probe lit from the wrong \
+                 side still looks like lighting, which is why this is asserted \
+                 rather than eyeballed",
+                got.dot(expected)
+            );
+            // The quad is pure red; the only other radiance is the grey
+            // background clear, which is isotropic and so cancels in l=1.
+            assert!(
+                sh[0].coeffs[3].x.abs() > sh[0].coeffs[3].y.abs() * 3.0,
+                "{label}: the red channel must carry the directional signal, \
+                 not the grey background -- got red {} vs green {}",
+                sh[0].coeffs[3].x,
+                sh[0].coeffs[3].y
+            );
+        }
+    }
+
+    /// CI's headless replays re-render the same scenes and compare pixels, so
+    /// a bake that wobbled between runs would make every downstream test
+    /// flaky rather than failing here.
+    #[test]
+    fn baking_the_same_scene_twice_gives_the_same_coefficients() {
+        let scene = ProbeBakeScene::new(
+            [
+                Vec3::new(3.0, 0.75, 0.0),
+                Vec3::new(3.0, 0.75, 1.5),
+                Vec3::new(3.0, 2.25, 1.5),
+                Vec3::new(3.0, 2.25, 0.0),
+            ],
+            Vec3::new(20.0, 8.0, 2.0),
+        );
+        // More than one probe, and none of them at the origin: a bake that
+        // reused one probe's capture for all of them, or that mixed up the
+        // layer indices, would still pass a single-probe check.
+        let positions = [
+            Vec3::ZERO,
+            Vec3::new(0.5, -0.5, 0.25),
+            Vec3::new(-1.0, 0.75, 1.5),
+        ];
+        let first = scene.bake(&positions);
+        let second = scene.bake(&positions);
+        assert_eq!(first.len(), positions.len());
+        assert_eq!(
+            first, second,
+            "two bakes of one unchanged scene must produce identical \
+             coefficients; CI's replay tests depend on that reproducibility"
+        );
+        // A determinism check passes trivially if both bakes are all zeros.
+        assert!(
+            first.iter().any(|sh| sh.coeffs[0].length() > 0.5),
+            "the bake produced nothing to compare -- every probe's l=0 \
+             coefficient is ~0, so this test would pass on a no-op capture"
+        );
+        // The probes sit at different points and the quad is close, so their
+        // coefficients must actually differ from each other.
+        assert_ne!(
+            first[0], first[1],
+            "two probes at different positions saw identical radiance, which \
+             means the per-probe view-projections are not being applied"
+        );
     }
 }

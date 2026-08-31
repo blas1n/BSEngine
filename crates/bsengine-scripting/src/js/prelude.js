@@ -296,6 +296,12 @@ var Bsengine = {
     getToneMapMode:     (name)             => Deno.core.ops.bsengine_get_tone_map_mode(name),
     getToneMapExposure: (name)             => Deno.core.ops.bsengine_get_tone_map_exposure(name),
     isToneMapEnabled:   (name)             => Deno.core.ops.bsengine_is_tone_map_enabled(name),
+    setFogEnabled:      (name, v)          => Deno.core.ops.bsengine_set_fog_enabled(name, v),
+    setFogDensity:      (name, v)          => Deno.core.ops.bsengine_set_fog_density(name, v),
+    // All three channels in one call. A setFogColorR/G/B trio is exactly the
+    // per-axis shape the component catalogue's R2 ratchet forbids.
+    setFogColor:        (name, r, g, b)    => Deno.core.ops.bsengine_set_fog_color(name, r, g, b),
+    setFogAnisotropy:   (name, v)          => Deno.core.ops.bsengine_set_fog_anisotropy(name, v),
     setTweenDuration:(name, duration)      => Deno.core.ops.bsengine_set_tween_duration(name, duration),
     setTweenEasing: (name, easing)         => Deno.core.ops.bsengine_set_tween_easing(name, easing),
     setTweenRepeat: (name, repeat)         => Deno.core.ops.bsengine_set_tween_repeat(name, repeat),

@@ -526,6 +526,11 @@ fn render_frame(
     // sub-query needs the same treatment applied one level down (a tuple,
     // or a `#[derive(SystemParam)]` struct), not another entry here.
     mut render_queries: ParamSet<(
+        // `VolumetricFog` rides in this tuple rather than as a seventeenth
+        // top-level parameter for the reason spelled out above: this function
+        // is at Bevy 0.14's 16/16 `SystemParamFunction` ceiling, and going
+        // over it does not say so -- it surfaces as a `.chain()` trait-bound
+        // error in `RenderPlugin::build`.
         Query<(
             &Camera,
             &Transform,
@@ -533,6 +538,7 @@ fn render_frame(
             Option<&ToneMap>,
             Option<&AmbientOcclusion>,
             Option<&Taa>,
+            Option<&bsengine_core::VolumetricFog>,
         )>,
         Query<(
             &MeshRenderer,
@@ -637,12 +643,12 @@ fn render_frame(
         .map(|k| k.is_pressed(&KeyCode::AltLeft) || k.is_pressed(&KeyCode::AltRight))
         .unwrap_or(false);
 
-    let (mut view_proj, mut cam_pos, mut cam_proj, bloom, tone_map, ambient_occlusion, taa) =
+    let (mut view_proj, mut cam_pos, mut cam_proj, bloom, tone_map, ambient_occlusion, taa, fog) =
         render_queries
             .p0()
             .iter()
             .next()
-            .map(|(cam, t, b, tm, ao, taa)| {
+            .map(|(cam, t, b, tm, ao, taa, fog)| {
                 let proj = cam.projection_matrix();
                 (
                     proj * t.view_matrix(),
@@ -652,12 +658,14 @@ fn render_frame(
                     tm.copied(),
                     ao.copied(),
                     taa.copied(),
+                    fog.copied(),
                 )
             })
             .unwrap_or((
                 Mat4::IDENTITY,
                 Vec3::ZERO,
                 Mat4::IDENTITY,
+                None,
                 None,
                 None,
                 None,
@@ -979,6 +987,7 @@ fn render_frame(
         jitter_clip,
         unjittered_view_proj,
         light_probes,
+        fog,
     ) {
         Ok(clicked) => {
             if let Some(ref mut state) = ui_state {

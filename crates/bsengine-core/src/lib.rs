@@ -99,6 +99,8 @@ pub mod tween;
 pub mod ui_state;
 /// Visibility toggle component controlling whether an entity is rendered.
 pub mod visible;
+/// Volumetric (froxel) fog post-process settings.
+pub mod volumetric_fog;
 
 pub use ambient_occlusion::AmbientOcclusion;
 pub use animation_player::AnimationPlayer;
@@ -149,6 +151,7 @@ pub use transform::Transform;
 pub use tween::{EasingFn, RepeatMode, Tween, TweenTarget};
 pub use ui_state::{UiState, UiWidget};
 pub use visible::Visible;
+pub use volumetric_fog::VolumetricFog;
 
 /// Recomputes every entity's [`GlobalTransform`] from its local [`Transform`]
 /// and [`Parent`] chain, iterating a fixed number of passes to settle deep hierarchies.

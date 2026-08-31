@@ -1608,6 +1608,40 @@ fn jittered_view_proj(view_proj: Mat4, cam_proj: Mat4, jitter_clip: (f32, f32)) 
     jittered_proj * (cam_proj.inverse() * view_proj)
 }
 
+/// The camera's near and far clip distances, recovered from its projection.
+///
+/// The froxel grid slices the range between them, and the apply pass inverts
+/// that slicing, so both need the two numbers as scalars. Reading them back out
+/// of the same matrix the frame rasterises with -- rather than plumbing
+/// `Camera::near`/`far` down as two more parameters -- is what keeps them from
+/// ever disagreeing with the depth buffer the apply pass unprojects, including
+/// on the editor path where the projection comes from the orbit camera and no
+/// `Camera` component is involved at all.
+///
+/// Unprojecting NDC z of 0 and 1 down the view axis gives them directly: glam's
+/// `perspective_rh` writes wgpu's 0..1 depth range, so those are the two clip
+/// planes. A degenerate or reversed projection falls back to
+/// `Camera::default()`'s planes rather than returning zeros -- the slicing
+/// divides by `log(far/near)`, and a zero near would put NaN in every froxel.
+fn camera_near_far(cam_proj: Mat4) -> (f32, f32) {
+    let fallback = (0.1, 1000.0);
+    if cam_proj.determinant().abs() < f32::EPSILON {
+        return fallback;
+    }
+    let inv = cam_proj.inverse();
+    let view_depth_at = |ndc_z: f32| {
+        let p = inv * glam::Vec4::new(0.0, 0.0, ndc_z, 1.0);
+        // View space looks down -Z, so the positive depth is the negated z.
+        -(p.z / p.w)
+    };
+    let near = view_depth_at(0.0);
+    let far = view_depth_at(1.0);
+    if !near.is_finite() || !far.is_finite() || near <= 0.0 || far <= near {
+        return fallback;
+    }
+    (near, far)
+}
+
 /// The `(forward, up)` pair of every cube face, in face order.
 ///
 /// The standard cubemap face orientation convention (+Y/-Y up-vectors on the
@@ -4111,6 +4145,7 @@ impl WgpuSurface {
         jitter_clip: (f32, f32),
         unjittered_view_proj: Mat4,
         light_probes: Option<ProbeVolumeParams>,
+        fog: Option<bsengine_core::VolumetricFog>,
     ) -> Result<std::collections::HashSet<String>, String> {
         // Wall-clock CPU time for this call, for `FrameStats::cpu_frame_time_ms`.
         let frame_start = std::time::Instant::now();
@@ -4332,6 +4367,42 @@ impl WgpuSurface {
                 crate::post_process::TaaCameraGpu {
                     inv_view_proj: unjittered_view_proj.inverse().to_cols_array_2d(),
                     prev_view_proj: self.prev_unjittered_view_proj.to_cols_array_2d(),
+                },
+            );
+
+            // Volumetric fog. An absent component -- and a present but
+            // disabled one -- uploads `enabled: 0`, which makes the apply
+            // pass an exact passthrough. That is what leaves every scene
+            // that never asks for fog rendering as it did before the froxel
+            // volumes existed.
+            let active_fog = fog.filter(|f| f.enabled);
+            let (fog_near, fog_far) = camera_near_far(cam_proj);
+            self.post_process.update_fog(
+                &self.queue,
+                crate::post_process::FogUniform {
+                    // The *jittered* matrix, matching what actually
+                    // rasterised the depth buffer the apply pass unprojects.
+                    // With TAA off the two are identical; with it on, the
+                    // unjittered one would read depth a fraction of a pixel
+                    // off its own reconstruction.
+                    inv_view_proj: raster_view_proj.inverse().to_cols_array_2d(),
+                    camera_pos: cam_pos.to_array(),
+                    near: fog_near,
+                    // Toward the light, which is the convention the scene
+                    // shader's `let l = normalize(-light.direction)` uses.
+                    // Handing over the travel direction instead would flip
+                    // the phase function and darken exactly the view that
+                    // should be brightest.
+                    light_dir: (-light.direction.normalize_or_zero()).to_array(),
+                    far: fog_far,
+                    light_color: light.color.to_array(),
+                    density: active_fog.map(|f| f.density).unwrap_or(0.0),
+                    fog_color: active_fog.map(|f| *f.color).unwrap_or(Vec3::ONE).to_array(),
+                    anisotropy: active_fog.map(|f| f.anisotropy).unwrap_or(0.0),
+                    enabled: u32::from(active_fog.is_some()),
+                    _pad0: 0.0,
+                    _pad1: 0.0,
+                    _pad2: 0.0,
                 },
             );
         }
@@ -5762,6 +5833,37 @@ mod tests {
     }
 
     #[test]
+    fn near_and_far_come_back_out_of_the_projection_they_went_into() {
+        // The froxel slicing spans exactly this range and the apply pass
+        // inverts that span, so a wrong pair puts the fog at the wrong
+        // distance -- which reads as a density problem, not a mapping one.
+        for (near, far) in [(0.1_f32, 100.0_f32), (0.05, 500.0), (1.0, 20.0)] {
+            let proj = Mat4::perspective_rh(60.0_f32.to_radians(), 16.0 / 9.0, near, far);
+            let (n, f) = camera_near_far(proj);
+            assert!(
+                (n - near).abs() < near * 1e-3,
+                "near {n} should have been {near}"
+            );
+            assert!(
+                (f - far).abs() < far * 1e-3,
+                "far {f} should have been {far}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_degenerate_projection_yields_usable_near_and_far() {
+        // Same all-zero `editor_proj` as the jitter fallback above. A zero
+        // near would divide by `log(far/0)` in the froxel mapping and fill
+        // every slice with NaN.
+        let (near, far) = camera_near_far(Mat4::ZERO);
+        assert!(
+            near > 0.0 && far > near && near.is_finite() && far.is_finite(),
+            "expected a usable range, got near {near}, far {far}"
+        );
+    }
+
+    #[test]
     fn point_light_face_view_projs_all_invertible() {
         let vps = point_light_face_view_projs(Vec3::new(1.0, 2.0, 3.0), 10.0);
         for (i, vp) in vps.iter().enumerate() {
@@ -6458,6 +6560,7 @@ mod tests {
                 (0.0, 0.0),
                 Mat4::IDENTITY,
                 volume,
+                None,
             )
         }
 

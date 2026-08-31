@@ -9,13 +9,18 @@ const TAA_CAM_SIZE: u64 = 128;
 /// The volumetric-fog apply pass.
 ///
 /// It is the first pass of the post-process chain: the scene renders into
-/// `hdr_texture`, this reads that and writes `fog_hdr_texture`, and every
-/// downstream pass reads the copy. Two HDR targets rather than one because a
-/// pass may not sample the texture it renders into.
+/// `hdr_texture`, this reads that plus the integrated froxel volume and writes
+/// `fog_hdr_texture`, and every downstream pass reads that result. Two HDR
+/// targets rather than one because a pass may not sample the texture it
+/// renders into.
 ///
-/// Today it is an exact passthrough, so the chain produces the same image it
-/// did when bloom and composite sampled the scene target directly. The froxel
-/// lookup replaces the body of `fs_fog` without moving the pass.
+/// Composed by [`fog_apply_wgsl`], which prepends the grid constants and the
+/// shared froxel declarations -- `fog` at group 3, and `depth_to_froxel_w`,
+/// the inverse of the depth slicing the injection pass uses.
+///
+/// With `fog.enabled == 0u` this returns the scene sample untouched, so the
+/// chain produces exactly the image it did before the froxel lookup existed.
+/// Every pixel test relies on that: none of them sets `VolumetricFog`.
 const FOG_WGSL: &str = r#"
 struct FullscreenOut {
     @builtin(position) pos: vec4<f32>,
@@ -23,6 +28,10 @@ struct FullscreenOut {
 }
 @group(0) @binding(0) var hdr_tex: texture_2d<f32>;
 @group(0) @binding(1) var tex_sampler: sampler;
+@group(1) @binding(0) var depth_tex: texture_depth_2d;
+@group(2) @binding(0) var integrated_vol: texture_3d<f32>;
+@group(2) @binding(1) var vol_sampler: sampler;
+// `fog` sits at @group(3) @binding(0); see `fog_uniform_wgsl`.
 
 @vertex
 fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> FullscreenOut {
@@ -36,9 +45,58 @@ fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> FullscreenOut {
     return out;
 }
 
+fn load_depth(uv: vec2<f32>) -> f32 {
+    let dims = vec2<i32>(textureDimensions(depth_tex, 0));
+    let coord = clamp(vec2<i32>(uv * vec2<f32>(dims)), vec2<i32>(0), dims - vec2<i32>(1));
+    return textureLoad(depth_tex, coord, 0);
+}
+
+// The camera-to-far-plane vector through this pixel: the exact ray the
+// injection pass builds this screen column of froxels along.
+fn view_ray(uv: vec2<f32>) -> vec3<f32> {
+    let ndc = vec4<f32>(uv.x * 2.0 - 1.0, -(uv.y * 2.0 - 1.0), 1.0, 1.0);
+    let far_h = fog.inv_view_proj * ndc;
+    return far_h.xyz / far_h.w - fog.camera_pos;
+}
+
+// View depth of whatever was drawn at this pixel, in the same units
+// `froxel_slice_depth` speaks.
+//
+// `ray` spans exactly `fog.far` of view depth and the reconstructed point lies
+// on it, so the fraction along it scales straight to a view depth -- the exact
+// inverse of the injection pass's `world_pos = camera_pos + ray * (depth/far)`.
+// Deriving it from the same `inv_view_proj` is what keeps the two in step; a
+// separately supplied near/far linearisation would not.
+fn surface_view_depth(uv: vec2<f32>, depth: f32, ray: vec3<f32>) -> f32 {
+    let ndc = vec4<f32>(uv.x * 2.0 - 1.0, -(uv.y * 2.0 - 1.0), depth, 1.0);
+    let world_h = fog.inv_view_proj * ndc;
+    let world = world_h.xyz / world_h.w;
+    return fog.far * dot(world - fog.camera_pos, ray) / max(dot(ray, ray), 1e-6);
+}
+
 @fragment
 fn fs_fog(in: FullscreenOut) -> @location(0) vec4<f32> {
-    return textureSample(hdr_tex, tex_sampler, in.uv);
+    let scene = textureSample(hdr_tex, tex_sampler, in.uv);
+    // The whole pass is a passthrough with fog off, and this is the branch
+    // that makes it one. It is also the only reason the pre-existing pixel
+    // tests still produce their reference images.
+    if fog.enabled == 0u {
+        return scene;
+    }
+    let depth = load_depth(in.uv);
+    let ray = view_ray(in.uv);
+    // Background pixels (nothing drawn) take the volume's last slice, so the
+    // sky is fogged too. Skipping them -- the tempting shortcut, since the
+    // SSAO pass in this same file does skip them -- would leave a crisp
+    // horizon standing behind thick fog.
+    let view_z = select(surface_view_depth(in.uv, depth, ray), fog.far, depth >= 1.0);
+    let vol = textureSampleLevel(
+        integrated_vol, vol_sampler,
+        vec3<f32>(in.uv, depth_to_froxel_w(view_z)), 0.0,
+    );
+    // RGB is the light in-scattered between the camera and this pixel; A is
+    // the transmittance across that same stretch.
+    return vec4<f32>(scene.rgb * vol.a + vol.rgb, scene.a);
 }
 "#;
 
@@ -70,14 +128,11 @@ fn froxel_wgsl_preamble() -> String {
     )
 }
 
-/// Declarations both froxel compute shaders share: the parameter uniform and
-/// the depth slicing.
+/// The `FogUniform` declaration, matching the Rust [`FogUniform`].
 ///
-/// `froxel_slice_depth` here is a direct port of [`crate::froxel::froxel_slice_depth`]
-/// -- exponential, not linear. The same mapping appears in the Rust, here, and
-/// (inverted) in the apply pass; all three have to agree or the fog sits at the
-/// wrong distance.
-const FROXEL_COMMON_WGSL: &str = r#"
+/// Split from [`FROXEL_COMMON_WGSL`] only so the binding line can name a
+/// different group per shader; see [`fog_uniform_wgsl`].
+const FOG_UNIFORM_STRUCT_WGSL: &str = r#"
 struct FogUniform {
     inv_view_proj: mat4x4<f32>,
     camera_pos: vec3<f32>,
@@ -93,8 +148,27 @@ struct FogUniform {
     pad1: f32,
     pad2: f32,
 }
-@group(0) @binding(0) var<uniform> fog: FogUniform;
+"#;
 
+/// The `FogUniform` struct plus its binding at `group`.
+///
+/// The two compute passes take it at group 0, where it is their first group.
+/// The apply pass takes it at group 3, its first three being the scene colour,
+/// the depth buffer, and the integrated volume.
+fn fog_uniform_wgsl(group: u32) -> String {
+    format!("{FOG_UNIFORM_STRUCT_WGSL}@group({group}) @binding(0) var<uniform> fog: FogUniform;\n")
+}
+
+/// Declarations every froxel shader shares: the depth slicing and its inverse.
+///
+/// `froxel_slice_depth` here is a direct port of [`crate::froxel::froxel_slice_depth`]
+/// -- exponential, not linear -- and `depth_to_froxel_w` inverts it. The
+/// mapping exists in the Rust, in this forward function, and in that inverse;
+/// all three have to agree or the fog sits at the wrong distance, which reads
+/// as a density problem rather than a mapping one. `depth_to_froxel_w` lives
+/// here, beside the mapping it inverts, rather than in the apply shader that
+/// is its only caller, so the pair cannot drift apart unnoticed.
+const FROXEL_COMMON_WGSL: &str = r#"
 const PI: f32 = 3.14159265358979;
 
 // Port of `froxel::froxel_slice_depth`: the world-space view depth at the far
@@ -102,6 +176,17 @@ const PI: f32 = 3.14159265358979;
 fn froxel_slice_depth(slice: u32) -> f32 {
     let t = f32(slice + 1u) / f32(FROXEL_Z);
     return fog.near * pow(fog.far / fog.near, t);
+}
+
+// Inverse of `froxel_slice_depth`, as a 0..1 coordinate down the volume's W
+// axis. Solving `view_z = near * pow(far/near, t)` for `t` gives
+// `log(view_z/near) / log(far/near)`.
+//
+// Clamped at both ends: nothing nearer than the near plane or beyond the far
+// plane has a slice, and the volume's edge texels are what those should read.
+fn depth_to_froxel_w(view_z: f32) -> f32 {
+    let z = clamp(view_z, fog.near, fog.far);
+    return clamp(log(z / fog.near) / log(fog.far / fog.near), 0.0, 1.0);
 }
 "#;
 
@@ -187,15 +272,23 @@ fn cs_integrate(@builtin(global_invocation_id) gid: vec3<u32>) {
 }
 "#;
 
-/// Full source of the injection shader: the generated grid constants, the
-/// shared declarations, then the pass itself.
+/// Full source of the injection shader: the generated grid constants, the fog
+/// uniform at group 0, the shared declarations, then the pass itself.
 fn fog_inject_wgsl() -> String {
-    froxel_wgsl_preamble() + FROXEL_COMMON_WGSL + FOG_INJECT_WGSL
+    froxel_wgsl_preamble() + &fog_uniform_wgsl(0) + FROXEL_COMMON_WGSL + FOG_INJECT_WGSL
 }
 
 /// Full source of the integration shader. See [`fog_inject_wgsl`].
 fn fog_integrate_wgsl() -> String {
-    froxel_wgsl_preamble() + FROXEL_COMMON_WGSL + FOG_INTEGRATE_WGSL
+    froxel_wgsl_preamble() + &fog_uniform_wgsl(0) + FROXEL_COMMON_WGSL + FOG_INTEGRATE_WGSL
+}
+
+/// Full source of the apply shader. Same shared declarations as the compute
+/// passes -- which is what makes its `depth_to_froxel_w` the genuine inverse of
+/// their `froxel_slice_depth` rather than a re-derivation -- with the uniform
+/// at group 3 instead of group 0.
+fn fog_apply_wgsl() -> String {
+    froxel_wgsl_preamble() + &fog_uniform_wgsl(3) + FROXEL_COMMON_WGSL + FOG_WGSL
 }
 
 const BLOOM_WGSL: &str = r#"
@@ -757,8 +850,8 @@ pub struct PostProcessState {
     /// would silently rebuild them on every resize for no reason.
     _injection_volume: crate::profiler::TrackedTexture,
     /// The integrated volume: RGB is accumulated in-scattered light up to each
-    /// slice, A is the transmittance to it. Written by the integration pass;
-    /// nothing samples it until the apply pass does.
+    /// slice, A is the transmittance to it. Written by the integration pass and
+    /// sampled by the apply pass.
     ///
     /// Not resized -- see [`PostProcessState::_injection_volume`].
     _integrated_volume: crate::profiler::TrackedTexture,
@@ -771,6 +864,10 @@ pub struct PostProcessState {
     /// not offer for storage textures.
     injection_read_bg: wgpu::BindGroup,
     integrated_write_bg: wgpu::BindGroup,
+    /// The integrated volume bound for the apply pass to sample: a filtering
+    /// sampler and a `texture_3d<f32>`, not the storage binding the
+    /// integration pass writes it through.
+    integrated_read_bg: wgpu::BindGroup,
     /// Whether the last [`PostProcessState::update_fog`] enabled the effect.
     ///
     /// Mirrored on the CPU because `apply` skips the dispatch entirely when
@@ -781,8 +878,8 @@ pub struct PostProcessState {
     /// Compute pipeline that marches each froxel column front to back.
     fog_integrate_pipeline: wgpu::ComputePipeline,
     /// Pipeline for the volumetric-fog apply shader, the first pass of the
-    /// chain. Currently an HDR passthrough; the name is the one the froxel
-    /// lookup will keep when it replaces the shader behind it.
+    /// chain: it composites the integrated volume onto the scene's HDR image.
+    /// An exact passthrough while `fog.enabled` is zero.
     pub fog_pipeline: wgpu::RenderPipeline,
     /// Pipeline for the bright-pass bloom extraction shader.
     pub bloom_pipeline: wgpu::RenderPipeline,
@@ -815,6 +912,10 @@ impl PostProcessState {
             label: Some("pp sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
+            // W matters only to the fog apply pass, the one user of a 3D
+            // texture here: clamping is what makes a lookup past the far slice
+            // hold at that slice instead of wrapping back to the near one.
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
@@ -969,11 +1070,14 @@ impl PostProcessState {
         // Created here rather than in `create_targets` on purpose: the froxel
         // grid has a fixed resolution, so unlike every other texture in this
         // file these two must survive a window resize untouched.
+        // Visible to both stages: the two compute passes read these parameters
+        // to fill the volumes, and the apply pass reads the same buffer for
+        // `enabled`, the near/far mapping, and the camera matrix.
         let fog_uniform_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("pp fog uniform bgl"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::COMPUTE,
+                visibility: wgpu::ShaderStages::COMPUTE | wgpu::ShaderStages::FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
@@ -1007,6 +1111,32 @@ impl PostProcessState {
                 },
                 count: None,
             }],
+        });
+        // The apply pass reads the integrated volume as a *sampled* texture --
+        // it wants the trilinear filter between froxels, which a storage
+        // binding cannot give it -- so its layout is a `Texture` entry with a
+        // `D3` view dimension plus a filtering sampler, not the storage entry
+        // the integration pass writes through.
+        let froxel_apply_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("pp froxel apply bgl"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D3,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
         });
 
         let fog_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -1081,6 +1211,24 @@ impl PostProcessState {
             &froxel_write_bgl,
             &integrated_view,
         );
+        // The same volume the integration pass writes, bound for the apply
+        // pass to sample. `sampler` clamps on every axis, W included, so the
+        // near and far ends of the volume hold at their edge slices instead of
+        // wrapping around to each other.
+        let integrated_read_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("pp froxel integrated read bg"),
+            layout: &froxel_apply_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&integrated_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
 
         let fog_inject_pipeline =
             Self::make_fog_inject_pipeline(device, &fog_uniform_bgl, &froxel_write_bgl);
@@ -1091,7 +1239,13 @@ impl PostProcessState {
             &froxel_write_bgl,
         );
 
-        let fog_pipeline = Self::make_fog_pipeline(device, &tex2d_bgl);
+        let fog_pipeline = Self::make_fog_pipeline(
+            device,
+            &tex2d_bgl,
+            &depth_bgl,
+            &froxel_apply_bgl,
+            &fog_uniform_bgl,
+        );
         let bloom_pipeline = Self::make_bloom_pipeline(device, &tex2d_bgl, &config_bgl);
         let ssao_pipeline =
             Self::make_ssao_pipeline(device, &depth_bgl, &config_bgl, &ssao_cam_bgl);
@@ -1152,6 +1306,7 @@ impl PostProcessState {
             injection_write_bg,
             injection_read_bg,
             integrated_write_bg,
+            integrated_read_bg,
             fog_enabled: false,
             fog_inject_pipeline,
             fog_integrate_pipeline,
@@ -1340,17 +1495,24 @@ impl PostProcessState {
 
     /// The fog apply pass renders HDR into HDR, so its colour target is
     /// `HDR_FORMAT` rather than the swapchain format the later passes use.
+    ///
+    /// Four bind groups -- scene colour, depth, the integrated volume, the fog
+    /// parameters -- which is the WebGPU baseline `max_bind_groups`, the same
+    /// ceiling the TAA resolve sits at.
     fn make_fog_pipeline(
         device: &wgpu::Device,
         tex2d_bgl: &wgpu::BindGroupLayout,
+        depth_bgl: &wgpu::BindGroupLayout,
+        froxel_apply_bgl: &wgpu::BindGroupLayout,
+        fog_uniform_bgl: &wgpu::BindGroupLayout,
     ) -> wgpu::RenderPipeline {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("fog shader"),
-            source: wgpu::ShaderSource::Wgsl(FOG_WGSL.into()),
+            source: wgpu::ShaderSource::Wgsl(fog_apply_wgsl().into()),
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("fog pll"),
-            bind_group_layouts: &[tex2d_bgl],
+            bind_group_layouts: &[tex2d_bgl, depth_bgl, froxel_apply_bgl, fog_uniform_bgl],
             push_constant_ranges: &[],
         });
         device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -1640,14 +1802,14 @@ impl PostProcessState {
     /// writing the final tonemapped result into `surface_view`.
     ///
     /// When the last [`PostProcessState::update_fog`] enabled the effect, a
-    /// compute pass runs first and fills the two froxel volumes. Nothing
-    /// samples them yet.
+    /// compute pass runs first and fills the two froxel volumes; the apply
+    /// pass then samples the integrated one.
     ///
-    /// The fog pass comes first and copies the scene's HDR image into a second
+    /// The fog pass comes first and writes the scene's HDR image into a second
     /// HDR target that every later pass samples, because a pass cannot sample
-    /// the texture it renders into. It is an exact passthrough for now, so the
-    /// image reaching `surface_view` is the one the chain produced when bloom
-    /// and composite read the scene target directly.
+    /// the texture it renders into. With fog disabled it is an exact
+    /// passthrough, so the image reaching `surface_view` is the one the chain
+    /// produced when bloom and composite read the scene target directly.
     ///
     /// Composite writes into an intermediate LDR target rather than straight
     /// into `surface_view`; the TAA pass then reads that target and writes both
@@ -1724,6 +1886,12 @@ impl PostProcessState {
             });
             pass.set_pipeline(&self.fog_pipeline);
             pass.set_bind_group(0, &self.hdr_bg, &[]);
+            pass.set_bind_group(1, &self.depth_bg, &[]);
+            // Bound even with fog off: the pipeline layout demands all four
+            // groups, and the shader's `enabled == 0` early-out is what stops
+            // the volume from being read.
+            pass.set_bind_group(2, &self.integrated_read_bg, &[]);
+            pass.set_bind_group(3, &self.fog_uniform_bg, &[]);
             pass.draw(0..3, 0..1);
             draw_calls += 1;
             triangles += 1;
@@ -1897,7 +2065,7 @@ mod tests {
         let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
         let _m = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
-            source: wgpu::ShaderSource::Wgsl(FOG_WGSL.into()),
+            source: wgpu::ShaderSource::Wgsl(fog_apply_wgsl().into()),
         });
     }
 
@@ -1923,37 +2091,24 @@ mod tests {
         });
     }
 
-    /// Reads `froxel_slice_depth` out of the real shared WGSL and compares it
-    /// against the Rust it was ported from.
+    /// Runs a test-only compute entry point named `cs_probe`, appended to the
+    /// real shared froxel WGSL, and returns the `out_floats` values it wrote
+    /// to `out_values` at `@group(1) @binding(0)`.
     ///
-    /// The only test-only part is the entry point below: the preamble and
-    /// `FROXEL_COMMON_WGSL` it is appended to are the exact source both compute
-    /// pipelines are built from. Nothing else checks this -- the volumes are
-    /// filled but unread until the apply pass lands -- and a mapping that
-    /// disagrees with the Rust puts the fog at the wrong distance, which reads
-    /// as a mistuned density rather than as a mapping bug.
-    #[test]
-    fn the_wgsl_depth_slicing_matches_froxel_slice_depth() {
-        const PROBE_WGSL: &str = r#"
-@group(1) @binding(0) var<storage, read_write> out_depths: array<f32>;
-
-@compute @workgroup_size(64, 1, 1)
-fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
-    if gid.x >= FROXEL_Z {
-        return;
-    }
-    out_depths[gid.x] = froxel_slice_depth(gid.x);
-}
-"#;
-        let (near, far) = (0.1f32, 100.0f32);
-        let slices = crate::froxel::FROXEL_Z as usize;
-        let bytes = (slices * std::mem::size_of::<f32>()) as u64;
+    /// Only the entry point a caller supplies is test-only. The preamble, the
+    /// `FogUniform`, and `FROXEL_COMMON_WGSL` around it are the exact source
+    /// the two compute pipelines are built from, and `depth_to_froxel_w` in
+    /// there is the exact function the apply shader calls -- so what these
+    /// probes measure is the shipping mapping, not a copy of it.
+    fn run_froxel_probe(near: f32, far: f32, probe_wgsl: &str, out_floats: usize) -> Vec<f32> {
+        let bytes = (out_floats * std::mem::size_of::<f32>()) as u64;
 
         let (device, queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("froxel slice depth probe"),
+            label: Some("froxel probe"),
             source: wgpu::ShaderSource::Wgsl(
-                (froxel_wgsl_preamble() + FROXEL_COMMON_WGSL + PROBE_WGSL).into(),
+                (froxel_wgsl_preamble() + &fog_uniform_wgsl(0) + FROXEL_COMMON_WGSL + probe_wgsl)
+                    .into(),
             ),
         });
 
@@ -2064,6 +2219,31 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
             .expect("mapping the readback buffer failed");
         let got: Vec<f32> = bytemuck::cast_slice(&slice.get_mapped_range()).to_vec();
         readback.unmap();
+        got
+    }
+
+    /// Reads `froxel_slice_depth` out of the real shared WGSL and compares it
+    /// against the Rust it was ported from.
+    ///
+    /// A mapping that disagrees with the Rust puts the fog at the wrong
+    /// distance, which reads as a mistuned density rather than as a mapping
+    /// bug. See [`run_froxel_probe`] for what is and is not test-only here.
+    #[test]
+    fn the_wgsl_depth_slicing_matches_froxel_slice_depth() {
+        const PROBE_WGSL: &str = r#"
+@group(1) @binding(0) var<storage, read_write> out_values: array<f32>;
+
+@compute @workgroup_size(64, 1, 1)
+fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if gid.x >= FROXEL_Z {
+        return;
+    }
+    out_values[gid.x] = froxel_slice_depth(gid.x);
+}
+"#;
+        let (near, far) = (0.1f32, 100.0f32);
+        let slices = crate::froxel::FROXEL_Z as usize;
+        let got = run_froxel_probe(near, far, PROBE_WGSL, slices);
 
         for s in 0..crate::froxel::FROXEL_Z {
             let expected = crate::froxel::froxel_slice_depth(s, near, far);
@@ -2075,6 +2255,61 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
                  wrong distance and looks like a density problem"
             );
         }
+    }
+
+    /// `depth_to_froxel_w`, the function the apply pass turns a pixel's view
+    /// depth into a volume coordinate with, must be the exact inverse of the
+    /// slicing the injection pass placed that light at.
+    ///
+    /// Slice `s` holds what was integrated up to its far edge, at
+    /// `froxel_slice_depth(s)`, which is `(s+1)/FROXEL_Z` of the way down the
+    /// volume -- so feeding that depth back in has to return `(s+1)/FROXEL_Z`.
+    /// An inverse that disagrees samples a neighbouring slice's light and
+    /// again reads as a density problem, not a mapping one.
+    ///
+    /// The two entries past the grid check the clamp the background path
+    /// depends on: a depth outside `near..far` must land on an edge slice.
+    #[test]
+    fn the_wgsl_depth_to_froxel_w_inverts_the_slice_mapping() {
+        const PROBE_WGSL: &str = r#"
+@group(1) @binding(0) var<storage, read_write> out_values: array<f32>;
+
+@compute @workgroup_size(64, 1, 1)
+fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if gid.x >= FROXEL_Z {
+        return;
+    }
+    out_values[gid.x] = depth_to_froxel_w(froxel_slice_depth(gid.x));
+    if gid.x == 0u {
+        out_values[FROXEL_Z] = depth_to_froxel_w(fog.near * 0.5);
+        out_values[FROXEL_Z + 1u] = depth_to_froxel_w(fog.far * 2.0);
+    }
+}
+"#;
+        let (near, far) = (0.1f32, 100.0f32);
+        let slices = crate::froxel::FROXEL_Z as usize;
+        let got = run_froxel_probe(near, far, PROBE_WGSL, slices + 2);
+
+        for s in 0..crate::froxel::FROXEL_Z {
+            let expected = (s + 1) as f32 / crate::froxel::FROXEL_Z as f32;
+            let actual = got[s as usize];
+            assert!(
+                (actual - expected).abs() <= 1e-4,
+                "slice {s}: depth_to_froxel_w(froxel_slice_depth({s})) gave \
+                 {actual}, not {expected}. The apply pass would sample the \
+                 wrong slice, which looks like mistuned density"
+            );
+        }
+        assert_eq!(
+            got[slices], 0.0,
+            "a depth nearer than the near plane must clamp onto the first slice"
+        );
+        assert_eq!(
+            got[slices + 1],
+            1.0,
+            "a depth past the far plane must clamp onto the last slice -- this \
+             is the path every background pixel takes"
+        );
     }
 
     /// The generated preamble is the only thing keeping the WGSL grid bounds

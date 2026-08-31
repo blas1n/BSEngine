@@ -1164,7 +1164,9 @@ const CAMERA_UNIFORM_SIZE: u64 = 144;
 const SKY_UNIFORM_SIZE: u64 = 64;
 // direction(16) + color(16) + ambient+count(16) + 8×PointLightGpu(48=384) +
 // num_spot+pad(16) + 8×SpotLightGpu(64=512) = 960
-const LIGHT_UNIFORM_SIZE: u64 = 960;
+// `pub(crate)`: the froxel injection pass binds this same buffer, and its own
+// layout has to declare the identical `min_binding_size`.
+pub(crate) const LIGHT_UNIFORM_SIZE: u64 = 960;
 // The IBL flags took two of the three spare floats in that `num_spot+pad(16)`
 // block rather than growing the struct, so this must still hold. It is also
 // the layout's `min_binding_size`, so a mismatch would be a bind group
@@ -3207,8 +3209,23 @@ impl WgpuSurface {
         crate::theme::apply(&egui_ctx);
         let egui_renderer = egui_wgpu::Renderer::new(&device, format, None, 1, false);
 
-        let post_process =
-            crate::post_process::PostProcessState::new(&device, width, height, &depth_view, format);
+        // The froxel injection pass shares the scene's shadow maps and light
+        // uniform rather than owning copies -- see `FroxelShadowBindings`. All
+        // four outlive the post-process state and none is recreated, so the
+        // bind group it builds from them holds for the surface's whole life.
+        let post_process = crate::post_process::PostProcessState::new(
+            &device,
+            width,
+            height,
+            &depth_view,
+            format,
+            &crate::post_process::FroxelShadowBindings {
+                shadow_map_view: &shadow_map_view,
+                shadow_sampler: &shadow_comparison_sampler,
+                point_shadow_view: &point_shadow_color_full_view,
+                light_buffer: &light_buffer,
+            },
+        );
 
         Ok(Self {
             output,
@@ -4386,6 +4403,11 @@ impl WgpuSurface {
                     // unjittered one would read depth a fraction of a pixel
                     // off its own reconstruction.
                     inv_view_proj: raster_view_proj.inverse().to_cols_array_2d(),
+                    // The same matrix the shadow pass below rasterises with and
+                    // the scene shader tests surfaces against. Sharing it is
+                    // what lets a froxel and a surface at one world position
+                    // agree about whether they are in shadow.
+                    light_view_proj: light_view_proj.to_cols_array_2d(),
                     camera_pos: cam_pos.to_array(),
                     near: fog_near,
                     // Toward the light, which is the convention the scene

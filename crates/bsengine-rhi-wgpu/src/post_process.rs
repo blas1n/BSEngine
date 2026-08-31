@@ -108,7 +108,7 @@ fn fs_fog(in: FullscreenOut) -> @location(0) vec4<f32> {
 const FROXEL_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
 /// Size of [`FogUniform`], in bytes. See the test of the same name.
-const FOG_UNIFORM_SIZE: u64 = 144;
+const FOG_UNIFORM_SIZE: u64 = 208;
 
 /// Compute workgroup edge, matching the `@workgroup_size(8, 8, 1)` in both
 /// froxel shaders. The dispatch counts are derived from it.
@@ -135,6 +135,7 @@ fn froxel_wgsl_preamble() -> String {
 const FOG_UNIFORM_STRUCT_WGSL: &str = r#"
 struct FogUniform {
     inv_view_proj: mat4x4<f32>,
+    light_view_proj: mat4x4<f32>,
     camera_pos: vec3<f32>,
     near: f32,
     light_dir: vec3<f32>,
@@ -188,6 +189,64 @@ fn depth_to_froxel_w(view_z: f32) -> f32 {
     let z = clamp(view_z, fog.near, fog.far);
     return clamp(log(z / fog.near) / log(fog.far / fog.near), 0.0, 1.0);
 }
+"#;
+
+/// The shadow resources the injection pass reads, at group 2.
+///
+/// Every one of them is the *same GPU object* the scene shader's group 2 binds:
+/// the same directional depth map, the same comparison sampler, the same point
+/// shadow array, and -- crucially -- the same light uniform buffer, not a copy
+/// of it. `LightUniform` is 960 bytes of point/spot arrays; duplicating it into
+/// [`FogUniform`] would mean a second per-frame upload and two structs that have
+/// to be kept in step by hand. The terrain shader already shares this buffer the
+/// same way, and its comment says what the rule is: both shaders read one
+/// buffer, so both must declare the struct identically. That includes this one.
+///
+/// `light_view_proj` is the exception and lives in [`FogUniform`]: on the scene
+/// side it is a field of the *camera* uniform, not of `LightUniform`.
+const FROXEL_SHADOW_WGSL: &str = r#"
+struct PointLightEntry {
+    position: vec3<f32>,
+    _pad0: f32,
+    color: vec3<f32>,
+    intensity: f32,
+    range: f32,
+    _pad1: f32,
+    _pad2: f32,
+    _pad3: f32,
+}
+struct SpotLightEntry {
+    position: vec3<f32>,
+    _pad0: f32,
+    direction: vec3<f32>,
+    inner_cos: f32,
+    color: vec3<f32>,
+    outer_cos: f32,
+    intensity: f32,
+    range: f32,
+    _pad1: f32,
+    _pad2: f32,
+}
+// Must match `LightUniformData` in surface.rs field for field, padding
+// included: this binds that struct's buffer.
+struct LightUniform {
+    direction: vec3<f32>,
+    _pad0: f32,
+    color: vec3<f32>,
+    _pad1: f32,
+    ambient: vec3<f32>,
+    num_point_lights: u32,
+    point_lights: array<PointLightEntry, 8>,
+    num_spot_lights: u32,
+    ibl_enabled: u32,
+    ibl_max_mip: f32,
+    _pad4: f32,
+    spot_lights: array<SpotLightEntry, 8>,
+}
+@group(2) @binding(0) var shadow_map: texture_depth_2d;
+@group(2) @binding(1) var shadow_sampler: sampler_comparison;
+@group(2) @binding(2) var point_shadow_map: texture_2d_array<f32>;
+@group(2) @binding(3) var<uniform> lights: LightUniform;
 "#;
 
 /// Injection: one thread per froxel, writing in-scattered light in RGB and
@@ -273,9 +332,14 @@ fn cs_integrate(@builtin(global_invocation_id) gid: vec3<u32>) {
 "#;
 
 /// Full source of the injection shader: the generated grid constants, the fog
-/// uniform at group 0, the shared declarations, then the pass itself.
+/// uniform at group 0, the shared declarations, the group-2 shadow resources,
+/// then the pass itself.
 fn fog_inject_wgsl() -> String {
-    froxel_wgsl_preamble() + &fog_uniform_wgsl(0) + FROXEL_COMMON_WGSL + FOG_INJECT_WGSL
+    froxel_wgsl_preamble()
+        + &fog_uniform_wgsl(0)
+        + FROXEL_COMMON_WGSL
+        + FROXEL_SHADOW_WGSL
+        + FOG_INJECT_WGSL
 }
 
 /// Full source of the integration shader. See [`fog_inject_wgsl`].
@@ -733,6 +797,14 @@ pub struct TaaCameraGpu {
 pub struct FogUniform {
     /// Inverse view-projection, to turn a froxel into a world position.
     pub inv_view_proj: [[f32; 4]; 4],
+    /// The directional shadow map's view-projection -- the same matrix the
+    /// scene shader's camera uniform carries as `light_view_proj`.
+    ///
+    /// It lives here rather than being read out of the shared light uniform
+    /// because it is not in there: on the scene side it belongs to the *camera*
+    /// uniform, next to `view_proj`, and this pass already carries its own
+    /// camera matrices for the same reason (they are the jittered ones).
+    pub light_view_proj: [[f32; 4]; 4],
     /// Camera position in world space.
     pub camera_pos: [f32; 3],
     /// Camera near plane; the front edge of the first depth slice.
@@ -757,6 +829,31 @@ pub struct FogUniform {
     pub _pad1: f32,
     /// See [`FogUniform::_pad0`].
     pub _pad2: f32,
+}
+
+/// The scene's shadow resources, borrowed for the froxel injection pass's
+/// group 2.
+///
+/// Gathered into a struct for the same reason `surface.rs`'s `LightBindings`
+/// is: four loose references in a constructor argument list are four chances to
+/// hand over the point shadow view where the directional one belongs, and both
+/// are `&wgpu::TextureView`.
+///
+/// Every field is owned by [`crate::surface::WgpuSurface`] for its whole life
+/// and none of them is recreated on resize -- the shadow maps are fixed-size,
+/// and so is the froxel grid -- so the bind group built from these is built
+/// once, in [`PostProcessState::new`].
+pub struct FroxelShadowBindings<'a> {
+    /// The directional shadow map, as the scene shader's group 2 binding 2
+    /// binds it.
+    pub shadow_map_view: &'a wgpu::TextureView,
+    /// The `LessEqual` comparison sampler the directional lookup uses.
+    pub shadow_sampler: &'a wgpu::Sampler,
+    /// The full `D2Array` view of the point-light linear-distance cube array.
+    pub point_shadow_view: &'a wgpu::TextureView,
+    /// The scene's light uniform buffer, shared rather than copied. See
+    /// [`FROXEL_SHADOW_WGSL`].
+    pub light_buffer: &'a wgpu::Buffer,
 }
 
 struct PostProcessTargets {
@@ -857,6 +954,10 @@ pub struct PostProcessState {
     _integrated_volume: crate::profiler::TrackedTexture,
     fog_uniform_buffer: wgpu::Buffer,
     fog_uniform_bg: wgpu::BindGroup,
+    /// The scene's shadow maps and light uniform, bound for the injection pass
+    /// to test each froxel against. Built once from [`FroxelShadowBindings`];
+    /// none of the resources behind it is ever recreated.
+    froxel_shadow_bg: wgpu::BindGroup,
     /// The injection volume bound for writing (injection pass).
     injection_write_bg: wgpu::BindGroup,
     /// The same volume bound for sampling (integration pass). A second bind
@@ -907,6 +1008,7 @@ impl PostProcessState {
         height: u32,
         depth_view: &wgpu::TextureView,
         surface_format: wgpu::TextureFormat,
+        shadow: &FroxelShadowBindings,
     ) -> Self {
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("pp sampler"),
@@ -1086,6 +1188,74 @@ impl PostProcessState {
                 count: None,
             }],
         });
+        // Group 2 of the injection pass. Mirrors the scene shader's group 2
+        // entry types exactly -- a `Depth` sample type for the directional map,
+        // a `Comparison` sampler, and a *non-filterable* float array for the
+        // point shadows, which is what `R32Float` allows without the
+        // FLOAT32_FILTERABLE feature this engine never requests.
+        let froxel_shadow_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("pp froxel shadow bgl"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: wgpu::BufferSize::new(crate::surface::LIGHT_UNIFORM_SIZE),
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let froxel_shadow_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("pp froxel shadow bg"),
+            layout: &froxel_shadow_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(shadow.shadow_map_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(shadow.shadow_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(shadow.point_shadow_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: shadow.light_buffer.as_entire_binding(),
+                },
+            ],
+        });
         let froxel_write_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("pp froxel write bgl"),
             entries: &[wgpu::BindGroupLayoutEntry {
@@ -1230,8 +1400,12 @@ impl PostProcessState {
             ],
         });
 
-        let fog_inject_pipeline =
-            Self::make_fog_inject_pipeline(device, &fog_uniform_bgl, &froxel_write_bgl);
+        let fog_inject_pipeline = Self::make_fog_inject_pipeline(
+            device,
+            &fog_uniform_bgl,
+            &froxel_write_bgl,
+            &froxel_shadow_bgl,
+        );
         let fog_integrate_pipeline = Self::make_fog_integrate_pipeline(
             device,
             &fog_uniform_bgl,
@@ -1303,6 +1477,7 @@ impl PostProcessState {
             _integrated_volume: integrated_volume,
             fog_uniform_buffer,
             fog_uniform_bg,
+            froxel_shadow_bg,
             injection_write_bg,
             injection_read_bg,
             integrated_write_bg,
@@ -1441,10 +1616,14 @@ impl PostProcessState {
     }
 
     /// The froxel injection pass: the engine's first compute pipeline.
+    ///
+    /// Three groups: the fog parameters, the volume it writes, and the scene's
+    /// shadow resources it tests each froxel against.
     fn make_fog_inject_pipeline(
         device: &wgpu::Device,
         fog_uniform_bgl: &wgpu::BindGroupLayout,
         froxel_write_bgl: &wgpu::BindGroupLayout,
+        froxel_shadow_bgl: &wgpu::BindGroupLayout,
     ) -> wgpu::ComputePipeline {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("fog inject shader"),
@@ -1452,7 +1631,7 @@ impl PostProcessState {
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("fog inject pll"),
-            bind_group_layouts: &[fog_uniform_bgl, froxel_write_bgl],
+            bind_group_layouts: &[fog_uniform_bgl, froxel_write_bgl, froxel_shadow_bgl],
             push_constant_ranges: &[],
         });
         device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -1856,6 +2035,11 @@ impl PostProcessState {
             pass.set_pipeline(&self.fog_inject_pipeline);
             pass.set_bind_group(0, &self.fog_uniform_bg, &[]);
             pass.set_bind_group(1, &self.injection_write_bg, &[]);
+            // The shadow maps this frame's shadow passes just filled. The
+            // integration pass below re-binds group 2 for its own output
+            // volume, which is why this one has to be set per dispatch rather
+            // than once for the pass.
+            pass.set_bind_group(2, &self.froxel_shadow_bg, &[]);
             // One thread per froxel.
             pass.dispatch_workgroups(groups_x, groups_y, crate::froxel::FROXEL_Z);
 
@@ -2366,6 +2550,97 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
         });
     }
 
+    /// Stand-ins for the scene's shadow resources, so a test can build a
+    /// [`PostProcessState`] without a whole [`WgpuSurface`] behind it.
+    ///
+    /// 1x1 textures on purpose: nothing here asserts on what the shadow lookup
+    /// *reads*, only that the pipeline layout, the bind group and the WGSL
+    /// agree about what is bound. The formats and view dimensions therefore do
+    /// have to be the real ones -- those are exactly what a mismatch would show
+    /// up in -- but the sizes do not.
+    struct TestShadowResources {
+        _shadow_texture: crate::profiler::TrackedTexture,
+        shadow_view: wgpu::TextureView,
+        shadow_sampler: wgpu::Sampler,
+        _point_texture: crate::profiler::TrackedTexture,
+        point_view: wgpu::TextureView,
+        light_buffer: wgpu::Buffer,
+    }
+
+    impl TestShadowResources {
+        fn new(device: &wgpu::Device) -> Self {
+            let one = wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            };
+            let shadow_texture = crate::profiler::create_tracked_texture(
+                device,
+                &wgpu::TextureDescriptor {
+                    label: Some("test shadow map"),
+                    size: one,
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: crate::surface::DEPTH_FORMAT,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                },
+            );
+            let shadow_view = shadow_texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let shadow_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+                label: Some("test shadow comparison sampler"),
+                compare: Some(wgpu::CompareFunction::LessEqual),
+                ..Default::default()
+            });
+            let point_texture = crate::profiler::create_tracked_texture(
+                device,
+                &wgpu::TextureDescriptor {
+                    label: Some("test point shadow array"),
+                    size: wgpu::Extent3d {
+                        depth_or_array_layers: 6,
+                        ..one
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::R32Float,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                },
+            );
+            let point_view = point_texture.create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2Array),
+                ..Default::default()
+            });
+            let light_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("test light uniform"),
+                size: crate::surface::LIGHT_UNIFORM_SIZE,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            Self {
+                _shadow_texture: shadow_texture,
+                shadow_view,
+                shadow_sampler,
+                _point_texture: point_texture,
+                point_view,
+                light_buffer,
+            }
+        }
+
+        fn bindings(&self) -> FroxelShadowBindings<'_> {
+            FroxelShadowBindings {
+                shadow_map_view: &self.shadow_view,
+                shadow_sampler: &self.shadow_sampler,
+                point_shadow_view: &self.point_view,
+                light_buffer: &self.light_buffer,
+            }
+        }
+    }
+
     /// The resolve binds five groups and writes two colour attachments, and
     /// every one of them has to line up with the WGSL: a wrong group index, a
     /// binding the layout does not declare, or a second target the fragment
@@ -2403,6 +2678,7 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
         let target = crate::output::create_offscreen_texture(&device, width, height);
         let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
 
+        let shadow = TestShadowResources::new(&device);
         device.push_error_scope(wgpu::ErrorFilter::Validation);
         let mut pp = PostProcessState::new(
             &device,
@@ -2410,6 +2686,7 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
             height,
             &depth_view,
             crate::output::OFFSCREEN_FORMAT,
+            &shadow.bindings(),
         );
 
         let mut encoder =
@@ -2474,6 +2751,7 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
         let target = crate::output::create_offscreen_texture(&device, width, height);
         let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
 
+        let shadow = TestShadowResources::new(&device);
         device.push_error_scope(wgpu::ErrorFilter::Validation);
         let mut pp = PostProcessState::new(
             &device,
@@ -2481,6 +2759,7 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
             height,
             &depth_view,
             crate::output::OFFSCREEN_FORMAT,
+            &shadow.bindings(),
         );
         assert!(
             !pp.fog_enabled,
@@ -2493,6 +2772,8 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
             FogUniform {
                 inv_view_proj: glam::Mat4::perspective_rh(1.0, 1.0, 0.1, 100.0)
                     .inverse()
+                    .to_cols_array_2d(),
+                light_view_proj: glam::Mat4::orthographic_rh(-30.0, 30.0, -30.0, 30.0, 0.1, 200.0)
                     .to_cols_array_2d(),
                 camera_pos: [0.0, 0.0, 0.0],
                 near: 0.1,

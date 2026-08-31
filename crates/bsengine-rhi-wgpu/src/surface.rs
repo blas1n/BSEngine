@@ -14,7 +14,11 @@ const MAX_TIMED_PASSES: u32 = 16;
 /// Two timestamp queries (begin + end) per timed pass.
 const TIMESTAMP_QUERY_COUNT: u32 = MAX_TIMED_PASSES * 2;
 
-const MESH_WGSL: &str = r#"
+/// `pub(crate)` only so that
+/// `post_process::tests::the_injection_pass_ports_point_shadow_factor_verbatim`
+/// can compare this text against the froxel injection shader's copy of
+/// `point_shadow_factor`. Nothing outside a test reads it.
+pub(crate) const MESH_WGSL: &str = r#"
 const MAX_POINT_LIGHTS: u32 = 8u;
 const MAX_SPOT_LIGHTS: u32 = 8u;
 const PI: f32 = 3.14159265358979323846;

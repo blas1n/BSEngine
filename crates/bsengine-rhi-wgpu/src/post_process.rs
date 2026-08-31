@@ -252,10 +252,12 @@ struct LightUniform {
 /// Injection: one thread per froxel, writing in-scattered light in RGB and
 /// extinction in A.
 ///
-/// Each froxel is tested against the directional shadow map before it scatters
-/// anything, which is what makes this light shafts rather than uniform fog. See
-/// `directional_shadow_factor` for the one way it has to differ from the scene
-/// shader's own lookup.
+/// Each froxel is tested against the shadow maps before it scatters anything,
+/// which is what makes this light shafts rather than uniform fog. Two separate
+/// lookups do that, because the engine stores the two kinds of shadow in
+/// completely different ways: see `directional_shadow_factor` for the one way
+/// the sun's lookup has to differ from the scene shader's, and
+/// `point_shadow_factor` for the cube-array one, which is a verbatim port.
 const FOG_INJECT_WGSL: &str = r#"
 @group(1) @binding(0) var injection_vol: texture_storage_3d<rgba16float, write>;
 
@@ -294,6 +296,84 @@ fn directional_shadow_factor(world_pos: vec3<f32>) -> f32 {
     return textureSampleCompareLevel(shadow_map, shadow_sampler, uv, depth - 0.003);
 }
 
+// Verbatim port of the scene shader's `point_shadow_factor` (surface.rs) --
+// body, comment and all. Nothing about it needs changing for compute: it reads
+// a raw texel with `textureLoad`, which has no implicit-derivative requirement,
+// so unlike the directional lookup above there is no substitute sampler here.
+//
+// The face selection below is copied, NOT re-derived. Its own comment records
+// that it matches `point_light_face_view_projs`'s Rust-side construction and
+// was verified by hand against glam's `look_at_rh` convention; a re-derivation
+// that picked a neighbouring face would still return plausible-looking shadows
+// and would be very hard to catch afterwards. Copying it also keeps the froxel
+// and the surface at one world position reading the same texel, which is the
+// same reason `directional_shadow_factor` keeps the scene shader's bias.
+//
+// Linear-distance cube shadow lookup: `to_frag` is the direction from the
+// light to the fragment (world-space, unnormalized). Selects the cube face
+// whose axis has the largest magnitude, derives that face's UV analytically
+// (matching point_light_face_view_projs's Rust-side look_at_rh/perspective
+// construction exactly -- verified by hand against glam's look_at_rh
+// convention), then compares against the stored linear distance for that
+// face/light layer instead of using a depth-compare sampler (R32Float isn't
+// natively filterable without an unrequested device feature, so this reads
+// a raw texel via textureLoad rather than textureSample).
+fn point_shadow_factor(light_index: u32, to_frag: vec3<f32>) -> f32 {
+    let ax = abs(to_frag.x);
+    let ay = abs(to_frag.y);
+    let az = abs(to_frag.z);
+    var face: u32;
+    var u: f32;
+    var v: f32;
+    var ma: f32;
+    if (ax >= ay && ax >= az) {
+        ma = ax;
+        if (to_frag.x > 0.0) {
+            face = 0u;
+            u = -to_frag.z;
+            v = -to_frag.y;
+        } else {
+            face = 1u;
+            u = to_frag.z;
+            v = -to_frag.y;
+        }
+    } else if (ay >= ax && ay >= az) {
+        ma = ay;
+        if (to_frag.y > 0.0) {
+            face = 2u;
+            u = to_frag.x;
+            v = to_frag.z;
+        } else {
+            face = 3u;
+            u = to_frag.x;
+            v = -to_frag.z;
+        }
+    } else {
+        ma = az;
+        if (to_frag.z > 0.0) {
+            face = 4u;
+            u = to_frag.x;
+            v = -to_frag.y;
+        } else {
+            face = 5u;
+            u = -to_frag.x;
+            v = -to_frag.y;
+        }
+    }
+    let ndc = vec2<f32>(u, v) / max(ma, 0.0001);
+    let uv = ndc * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5, 0.5);
+    // Must match POINT_SHADOW_MAP_SIZE in bsengine-rhi-wgpu/src/surface.rs.
+    let size = 512.0;
+    let px = vec2<i32>(clamp(uv, vec2<f32>(0.0), vec2<f32>(0.999999)) * size);
+    let layer = i32(light_index * 6u + face);
+    let stored = textureLoad(point_shadow_map, px, layer, 0).r;
+    let dist = length(to_frag);
+    if (dist - 0.1 > stored) {
+        return 0.0;
+    }
+    return 1.0;
+}
+
 @compute @workgroup_size(8, 8, 1)
 fn cs_inject(@builtin(global_invocation_id) gid: vec3<u32>) {
     if gid.x >= FROXEL_X || gid.y >= FROXEL_Y || gid.z >= FROXEL_Z {
@@ -321,8 +401,62 @@ fn cs_inject(@builtin(global_invocation_id) gid: vec3<u32>) {
     // dark gaps between the beams.
     let sun_shadow = directional_shadow_factor(world_pos);
     // `var`, not `let`: the point and spot lights add their own contributions
-    // to this in the next commit.
+    // to this below.
     var in_scatter = fog.light_color * scattering * phase * sun_shadow;
+
+    // Point lights, accumulated exactly as the scene shader accumulates them
+    // into `lo`: the same `dist < range` cutoff, the same
+    // `intensity * t * t` falloff with `t = 1 - dist / range`, and the same
+    // `point_shadow_factor(i, -to_light)` argument. Matching the attenuation
+    // is not cosmetic -- a froxel and a surface at one world position have to
+    // agree about how bright the light is there, or a lit floor will sit under
+    // fog that thinks the same lamp is twice as strong.
+    //
+    // What replaces the BRDF is the phase function, the same substitution the
+    // sun term above makes: fog has no normal, so `n_dot_l` and the
+    // GGX/Fresnel factors have no meaning here, and the medium's `scattering`
+    // times the phase at this view angle is what stands in for them.
+    for (var i: u32 = 0u; i < lights.num_point_lights; i++) {
+        let pl = lights.point_lights[i];
+        let to_light = pl.position - world_pos;
+        let dist = length(to_light);
+        if dist < pl.range {
+            let l = normalize(to_light);
+            let t = 1.0 - dist / pl.range;
+            // `dot(view_dir, l)` with `l` pointing *toward* the light, which is
+            // the convention `fog.light_dir` uses for the sun (surface.rs
+            // uploads `-light.direction`). Using the travel direction for one
+            // and the toward direction for the other would mirror the phase
+            // lobe between the two kinds of light.
+            let pt_phase = henyey_greenstein(dot(view_dir, l), fog.anisotropy);
+            let pt_lit = point_shadow_factor(i, -to_light);
+            in_scatter += pl.color * (pl.intensity * t * t) * scattering * pt_phase * pt_lit;
+        }
+    }
+
+    // Spot lights, likewise mirroring the scene shader: the same cone
+    // `smoothstep(outer_cos, inner_cos, cos_angle)` and the same
+    // `intensity * t * t * spot_factor`. No shadow term, for the same reason
+    // the scene shader has none -- spot lights have no shadow map at all in
+    // this renderer, so inventing one here would make the fog claim an
+    // occlusion the lit surfaces below it do not show.
+    for (var j: u32 = 0u; j < lights.num_spot_lights; j++) {
+        let sl = lights.spot_lights[j];
+        let to_light = sl.position - world_pos;
+        let dist = length(to_light);
+        if dist < sl.range {
+            let l = normalize(to_light);
+            let cos_angle = dot(-l, sl.direction);
+            let spot_factor = smoothstep(sl.outer_cos, sl.inner_cos, cos_angle);
+            if spot_factor > 0.0 {
+                let t = 1.0 - dist / sl.range;
+                let sp_phase = henyey_greenstein(dot(view_dir, l), fog.anisotropy);
+                in_scatter += sl.color * (sl.intensity * t * t * spot_factor)
+                    * scattering * sp_phase;
+            }
+        }
+    }
+
     textureStore(injection_vol, vec3<i32>(gid), vec4<f32>(in_scatter, extinction));
 }
 "#;
@@ -2295,6 +2429,51 @@ mod tests {
             label: None,
             source: wgpu::ShaderSource::Wgsl(fog_inject_wgsl().into()),
         });
+    }
+
+    /// The text of `point_shadow_factor` in `src`, from its signature to the
+    /// closing brace in column 0. Every brace inside the function is indented,
+    /// so the first unindented one is its end.
+    fn point_shadow_factor_source(src: &str) -> &str {
+        let start = src
+            .find("fn point_shadow_factor(")
+            .expect("both shaders define point_shadow_factor");
+        let body = &src[start..];
+        let end = body
+            .find("\n}\n")
+            .expect("the function ends at a closing brace in column 0")
+            + "\n}\n".len();
+        &body[..end]
+    }
+
+    /// The cube-face selection in `point_shadow_factor` matches
+    /// `point_light_face_view_projs`'s Rust-side `look_at_rh`/`perspective`
+    /// construction, and that correspondence was established by hand rather
+    /// than by any test. So the froxel copy must be exactly the scene shader's,
+    /// character for character -- a re-derivation that picked the wrong face,
+    /// or the right face with a mirrored in-face UV, would still return
+    /// plausible shadows.
+    ///
+    /// A pixel test cannot stand in for this, and it was worth checking rather
+    /// than assuming: swapping the `+Y`/`-Y` face constants does move
+    /// `pixels_shafts.rs`'s reading (which is why its point-light assertion is
+    /// a fraction rather than a fixed margin), but flipping the sign of `v`
+    /// within a face does not move it at all, because the test's occluder
+    /// covers that whole face and every texel on it reads the same distance.
+    /// Only comparing the source catches that one.
+    #[test]
+    fn the_injection_pass_ports_point_shadow_factor_verbatim() {
+        let inject = fog_inject_wgsl();
+        let scene = point_shadow_factor_source(crate::surface::MESH_WGSL);
+        let froxel = point_shadow_factor_source(&inject);
+        assert_eq!(
+            scene, froxel,
+            "the froxel injection shader's `point_shadow_factor` has drifted \
+             from the scene shader's. Whichever side changed, make them equal \
+             again rather than re-deriving either: a froxel and a surface at \
+             one world position have to read the same cube texel, or the fog's \
+             shafts will not line up with the shadows the geometry casts"
+        );
     }
 
     /// See [`fog_inject_shader_compiles`].

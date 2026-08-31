@@ -195,6 +195,10 @@ pub struct Scene {
     /// for one. A test that wants a surface outside the volume moves the
     /// surface, not the box.
     pub light_probes: Option<bsengine_core::LightProbeVolume>,
+    /// Volumetric fog for this camera, or `None` for no fog at all -- which is
+    /// exactly what an absent component means on a real camera, and what every
+    /// other test file in this directory leaves it as.
+    pub fog: Option<bsengine_core::VolumetricFog>,
     pub hud: HashMap<String, String>,
     pub with_skybox: bool,
     /// Particle batches for the pass that runs after transparency.
@@ -213,6 +217,7 @@ impl Default for Scene {
             ssao: None,
             taa: None,
             light_probes: None,
+            fog: None,
             hud: HashMap::new(),
             with_skybox: false,
             particles: Vec::new(),
@@ -560,7 +565,10 @@ struct VertOut {{
                 // not ask for a volume keeps rendering exactly as it did before
                 // light probes existed.
                 light_probes,
-                None,
+                // `None` uploads `enabled: 0`, so the fog apply pass is an
+                // exact passthrough and every scene that does not ask for fog
+                // renders as it did before the froxel volumes existed.
+                scene.fog,
             )
             .expect("render_frame failed");
 

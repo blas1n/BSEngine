@@ -187,6 +187,14 @@ pub struct Scene {
     /// `render` shows almost nothing of TAA even when this is set -- it
     /// accumulates over frames, so use [`Harness::render_converged`].
     pub taa: Option<bsengine_core::Taa>,
+    /// A baked light-probe volume, or `None` for the IBL/flat-ambient path.
+    ///
+    /// The box is **centred on the world origin**. The component itself only
+    /// carries half-extents; in the engine the centre comes from the entity's
+    /// `Transform`, and this harness has no entities, so the origin stands in
+    /// for one. A test that wants a surface outside the volume moves the
+    /// surface, not the box.
+    pub light_probes: Option<bsengine_core::LightProbeVolume>,
     pub hud: HashMap<String, String>,
     pub with_skybox: bool,
     /// Particle batches for the pass that runs after transparency.
@@ -204,6 +212,7 @@ impl Default for Scene {
             tone_map: None,
             ssao: None,
             taa: None,
+            light_probes: None,
             hud: HashMap::new(),
             with_skybox: false,
             particles: Vec::new(),
@@ -491,6 +500,20 @@ struct VertOut {{
             None
         };
 
+        // Exactly the conversion `bsengine-render`'s `render_frame` system
+        // does, minus the entity transform: origin at the box's minimum
+        // corner, extent as the full size, and the resolution already through
+        // `clamped_resolution` so the harness can never ask for more probes
+        // than the GPU uniform holds.
+        let light_probes = scene.light_probes.map(|v| {
+            let half = *v.half_extents;
+            bsengine_rhi_wgpu::ProbeVolumeParams {
+                origin: -half,
+                extent: half * 2.0,
+                resolution: v.clamped_resolution(),
+            }
+        });
+
         let jitter_clip = if scene.taa.map(|t| t.enabled).unwrap_or(false) {
             bsengine_rhi_wgpu::taa_jitter::jitter_clip_offset(frame_index, WIDTH, HEIGHT)
         } else {
@@ -533,6 +556,10 @@ struct VertOut {{
                 // The unjittered matrix, on purpose: reprojection has to track
                 // the camera, not the jitter.
                 view_proj,
+                // `None` leaves `probes.enabled` at 0, so every scene that does
+                // not ask for a volume keeps rendering exactly as it did before
+                // light probes existed.
+                light_probes,
             )
             .expect("render_frame failed");
 

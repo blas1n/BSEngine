@@ -37,6 +37,9 @@ pub mod post_process;
 /// Frame/GPU statistics: texture memory tracking, draw-call/triangle
 /// counting, and feature-gated GPU pass timing.
 pub mod profiler;
+/// Spherical-harmonic (L2) projection, irradiance evaluation and trilinear
+/// blending for light probes.
+pub mod sh;
 /// Swapchain/frame lifecycle and the main scene render pass.
 pub mod surface;
 pub mod taa_jitter;
@@ -49,6 +52,7 @@ pub use mesh::{
 };
 pub use plugin::{GpuQueueResource, WgpuRHIPlugin};
 pub use surface::{
-    LightData, MaterialParams, PointLightEntry, SpotLightEntry, WgpuSurfaceResource,
+    LightData, MaterialParams, PointLightEntry, ProbeVolumeParams, SpotLightEntry,
+    WgpuSurfaceResource,
 };
 pub use texture::GpuTextureRegistry;

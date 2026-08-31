@@ -52,6 +52,7 @@ pub use mesh::{
 };
 pub use plugin::{GpuQueueResource, WgpuRHIPlugin};
 pub use surface::{
-    LightData, MaterialParams, PointLightEntry, SpotLightEntry, WgpuSurfaceResource,
+    LightData, MaterialParams, PointLightEntry, ProbeVolumeParams, SpotLightEntry,
+    WgpuSurfaceResource,
 };
 pub use texture::GpuTextureRegistry;

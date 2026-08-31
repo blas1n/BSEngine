@@ -533,6 +533,10 @@ struct VertOut {{
                 // The unjittered matrix, on purpose: reprojection has to track
                 // the camera, not the jitter.
                 view_proj,
+                // No probe volume, so `probes.enabled` stays 0 and every scene
+                // this harness draws keeps rendering exactly as it did before
+                // light probes existed.
+                None,
             )
             .expect("render_frame failed");
 

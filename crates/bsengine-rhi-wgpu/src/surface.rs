@@ -1251,6 +1251,57 @@ const _: () = assert!(
     "ProbeUniformData must stay exactly PROBE_UNIFORM_SIZE bytes"
 );
 
+/// The world-space box and grid one probe bake was performed for.
+///
+/// [`WgpuSurface::render_frame`] takes this per frame and re-bakes only when it
+/// differs from the last bake, which is what turns "bake once after load" into
+/// a rule the render system can enforce without a second ECS system or any
+/// `Added`/`Changed` bookkeeping.
+///
+/// It describes the **volume**, not the scene inside it. Moving a wall after
+/// load does not re-bake, and the floor keeps the colour the wall used to
+/// bleed onto it -- the accepted cost of baking once rather than every frame.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ProbeVolumeParams {
+    /// World-space minimum corner of the box.
+    pub origin: Vec3,
+    /// World-space size of the box (full extent, not half).
+    pub extent: Vec3,
+    /// Probes per axis, already through
+    /// [`bsengine_core::LightProbeVolume::clamped_resolution`].
+    pub resolution: [u32; 3],
+}
+
+/// World positions of one volume's probes, in the order the scene shader
+/// indexes them: x fastest, then y, then z.
+///
+/// The first probe on each axis sits exactly on the box's minimum face and the
+/// last exactly on its maximum face. Trilinear interpolation is defined by the
+/// eight *corners* of a cell, so lattice-point placement is what makes the
+/// interpolation well-formed; probes at cell centres would leave the outer
+/// half-cell of the volume extrapolating instead.
+fn probe_positions(params: &ProbeVolumeParams) -> Vec<Vec3> {
+    let [rx, ry, rz] = params.resolution;
+    let mut out = Vec::with_capacity((rx * ry * rz) as usize);
+    // `clamped_resolution` guarantees at least 2 per axis; a single probe on an
+    // axis has no cell to span, so it sits on the minimum face.
+    let t = |i: u32, r: u32| {
+        if r <= 1 {
+            0.0
+        } else {
+            i as f32 / (r - 1) as f32
+        }
+    };
+    for z in 0..rz {
+        for y in 0..ry {
+            for x in 0..rx {
+                out.push(params.origin + params.extent * Vec3::new(t(x, rx), t(y, ry), t(z, rz)));
+            }
+        }
+    }
+    out
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct CameraUniformData {
@@ -1833,6 +1884,14 @@ pub struct WgpuSurface {
     /// with zeroed coefficients rather than as a missing binding -- the same
     /// arrangement [`Self::dummy_ibl_cube_view`] gives the IBL maps.
     probe_buffer: wgpu::Buffer,
+    /// The volume [`Self::probe_buffer`]'s contents were baked for, or `None`
+    /// when nothing has been baked and the buffer is still the zeroed,
+    /// `enabled: 0` one construction wrote.
+    ///
+    /// Comparing this against each frame's volume is the whole of the
+    /// bake-once policy: a bake happens when a volume appears or its own
+    /// parameters change, and never otherwise.
+    baked_probe_volume: Option<ProbeVolumeParams>,
     /// Layout of the skybox's texture+sampler group. Held here rather than
     /// built inside `set_skybox_from_rgba` because `probe_capture_sky_pipeline`
     /// is built once at construction and has to bind `SkyboxState::texture_bg`
@@ -2544,8 +2603,15 @@ impl WgpuSurface {
 
         let probe_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("probe uniform"),
+            // COPY_SRC so a test can read back what the bake actually uploaded.
+            // A bake's result is otherwise entirely invisible to the CPU -- it
+            // goes straight from a texture readback into a uniform only the
+            // shader ever sees -- and "the probes were baked" would then only
+            // be assertable indirectly, through pixels.
+            usage: wgpu::BufferUsages::UNIFORM
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
             size: PROBE_UNIFORM_SIZE,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         // Explicitly zeroed rather than left to wgpu's lazy zero-init, for the
@@ -3149,6 +3215,8 @@ impl WgpuSurface {
             probe_capture_uniform_buffer,
             probe_capture_bind_group,
             probe_buffer,
+            // Nothing baked yet, and `probe_buffer` was just zeroed to match.
+            baked_probe_volume: None,
             sky_tex_bgl,
             egui_ctx,
             egui_renderer,
@@ -3690,9 +3758,6 @@ impl WgpuSurface {
     ///
     /// Probes past [`bsengine_core::MAX_PROBES`] are ignored, matching the
     /// uniform array's fixed size.
-    // Exercised by this module's tests; `render_frame` starts calling it when
-    // the bake is driven from `bsengine-render` (roadmap item 48, task 5).
-    #[allow(dead_code)]
     fn capture_probes(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -3827,8 +3892,6 @@ impl WgpuSurface {
     /// capture matrices were built from) and `solid_angle` from
     /// [`probe_face_texel_solid_angle`] (the real projected solid angle, not a
     /// flat share of the sphere).
-    // See `capture_probes` for why this is `allow(dead_code)` for now.
-    #[allow(dead_code)]
     fn project_captures_to_sh(&self, probe_count: usize) -> Vec<crate::sh::ShL2> {
         let probes = probe_count.min(bsengine_core::MAX_PROBES);
         if probes == 0 {
@@ -3918,6 +3981,97 @@ impl WgpuSurface {
         out
     }
 
+    /// Bakes `volume`'s probe grid into [`Self::probe_buffer`], or uploads a
+    /// disabled grid when `volume` is `None`.
+    ///
+    /// Runs on its own command encoder, submitted before returning, because
+    /// [`Self::project_captures_to_sh`] blocks on a buffer map and so cannot
+    /// see anything still sitting in the frame's unsubmitted encoder.
+    ///
+    /// Expensive by design -- up to `MAX_PROBES * 6` render passes plus a
+    /// synchronous readback -- which is why the caller runs it once rather than
+    /// per frame.
+    fn bake_probes(
+        &self,
+        light_view_proj: Mat4,
+        draw_calls: &[(u64, Mat4, Option<u64>, MaterialParams, Option<String>)],
+        registry: &GpuMeshRegistry,
+        tex_registry: Option<&crate::texture::GpuTextureRegistry>,
+        volume: Option<ProbeVolumeParams>,
+    ) {
+        let mut data = <ProbeUniformData as bytemuck::Zeroable>::zeroed();
+        if let Some(params) = volume {
+            let positions = probe_positions(&params);
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("probe bake encoder"),
+                });
+            self.capture_probes(
+                &mut encoder,
+                light_view_proj,
+                draw_calls,
+                registry,
+                tex_registry,
+                &positions,
+            );
+            self.queue.submit(std::iter::once(encoder.finish()));
+
+            for (probe, sh) in self
+                .project_captures_to_sh(positions.len())
+                .iter()
+                .enumerate()
+            {
+                for (slot, coeff) in sh.coeffs.iter().enumerate() {
+                    data.coeffs[probe][slot] = [coeff.x, coeff.y, coeff.z, 0.0];
+                }
+            }
+            data.origin = params.origin.to_array();
+            data.enabled = 1;
+            data.extent = params.extent.to_array();
+            data.resolution = params.resolution;
+        }
+        // Written even in the `None` case: the binding exists in every frame,
+        // so "no probes" has to be expressed as `enabled: 0` with zeroed
+        // coefficients rather than as a skipped upload -- otherwise removing a
+        // volume would leave the previous bake lighting the scene forever.
+        self.queue
+            .write_buffer(&self.probe_buffer, 0, bytemuck::bytes_of(&data));
+    }
+
+    /// Reads [`Self::probe_buffer`] back, so a test can assert on what the
+    /// shader is actually about to sample rather than on a CPU-side mirror of
+    /// it. Blocks on a buffer map; not for use in a frame.
+    #[cfg(test)]
+    fn read_probe_uniform(&self) -> ProbeUniformData {
+        let staging = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("probe uniform readback"),
+            size: PROBE_UNIFORM_SIZE,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("probe uniform readback encoder"),
+            });
+        encoder.copy_buffer_to_buffer(&self.probe_buffer, 0, &staging, 0, PROBE_UNIFORM_SIZE);
+        self.queue.submit(std::iter::once(encoder.finish()));
+
+        let slice = staging.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |r| {
+            let _ = tx.send(r);
+        });
+        self.device.poll(wgpu::Maintain::Wait);
+        rx.recv()
+            .expect("map_async never reported a result")
+            .expect("mapping the probe uniform readback buffer failed");
+        let data = *bytemuck::from_bytes::<ProbeUniformData>(&slice.get_mapped_range());
+        staging.unmap();
+        data
+    }
+
     /// Renders one full frame: shadow map, main scene pass, post-processing,
     /// skybox, and the game/editor UI overlay, then presents the swapchain.
     /// Returns the ids of any `UiWidget::Button`s clicked this frame.
@@ -3956,6 +4110,7 @@ impl WgpuSurface {
         taa: Option<bsengine_core::Taa>,
         jitter_clip: (f32, f32),
         unjittered_view_proj: Mat4,
+        light_probes: Option<ProbeVolumeParams>,
     ) -> Result<std::collections::HashSet<String>, String> {
         // Wall-clock CPU time for this call, for `FrameStats::cpu_frame_time_ms`.
         let frame_start = std::time::Instant::now();
@@ -4067,6 +4222,36 @@ impl WgpuSurface {
                 i as u64 * MODEL_STRIDE,
                 bytemuck::cast_slice(&[data]),
             );
+        }
+
+        // --- light probe bake ---
+        // Here, after the light and model uniforms are written and before the
+        // frame's own encoder exists: `capture_probes` reuses both of those
+        // buffers, and `bake_probes` submits its own encoder and blocks on a
+        // readback, which is cleaner to do outside the frame's encoder than
+        // interleaved with it.
+        //
+        // `fast_render` never bakes. 192 render passes plus a synchronous map
+        // is precisely the expensive work that mode exists to skip, and the
+        // neutral result -- an `enabled: 0` grid -- is what the shadow pass's
+        // "clear to nothing occludes anything" is for shadows. Folding it into
+        // the comparison rather than guarding the call keeps a fast_render
+        // surface at zero bakes rather than one per frame.
+        let volume_to_bake = if self.fast_render { None } else { light_probes };
+        // A bake happens only when the volume appears or its own parameters
+        // change. Note this tracks the *volume*, not the scene inside it:
+        // moving a wall after load does not re-bake, and the floor keeps the
+        // colour that wall used to bleed onto it. That is the accepted cost of
+        // baking once, which is what item 48 asked for.
+        if self.baked_probe_volume != volume_to_bake {
+            self.bake_probes(
+                light_view_proj,
+                draw_calls,
+                registry,
+                tex_registry,
+                volume_to_bake,
+            );
+            self.baked_probe_volume = volume_to_bake;
         }
 
         // Per-frame draw-call/triangle counters for the profiler. Local to
@@ -6129,7 +6314,11 @@ mod tests {
         /// *as seen from the origin*, so the front face points at the probe
         /// and back-face culling does not swallow it.
         fn new(corners: [Vec3; 4], emissive: Vec3) -> Self {
-            let surface = pollster::block_on(WgpuSurface::new_offscreen(64, 64, false))
+            Self::build(corners, emissive, false)
+        }
+
+        fn build(corners: [Vec3; 4], emissive: Vec3, fast_render: bool) -> Self {
+            let surface = pollster::block_on(WgpuSurface::new_offscreen(64, 64, fast_render))
                 .expect("an offscreen surface is what every GPU test here uses");
             let mut registry = crate::mesh::GpuMeshRegistry::new(surface.device.clone());
             let normal = (corners[1] - corners[0])
@@ -6225,6 +6414,80 @@ mod tests {
             self.surface.queue.submit(std::iter::once(encoder.finish()));
             self.surface.project_captures_to_sh(positions.len())
         }
+
+        /// One real `render_frame`, with everything this scene does not care
+        /// about at its neutral value. The `Result` is returned rather than
+        /// swallowed so a wgpu validation error fails the test instead of
+        /// becoming a log line.
+        fn render(
+            &mut self,
+            volume: Option<ProbeVolumeParams>,
+        ) -> Result<std::collections::HashSet<String>, String> {
+            let ui_state = bsengine_core::UiState::default();
+            self.surface.render_frame(
+                Mat4::IDENTITY,
+                Vec3::new(0.0, 0.0, 5.0),
+                Mat4::IDENTITY,
+                None,
+                &self.draw_calls,
+                &[],
+                0,
+                &self.registry,
+                LightData::default(),
+                None,
+                &std::collections::HashMap::new(),
+                &ui_state,
+                0.0,
+                0.0,
+                false,
+                false,
+                Mat4::IDENTITY,
+                None,
+                None,
+                None,
+                None,
+                &[],
+                false,
+                false,
+                false,
+                None,
+                None,
+                0.0,
+                &[],
+                None,
+                (0.0, 0.0),
+                Mat4::IDENTITY,
+                volume,
+            )
+        }
+
+        /// Repaints the quad, so a later frame's capture would differ from an
+        /// earlier one's -- the lever that makes "it did not re-bake"
+        /// observable rather than merely asserted about a cached field.
+        fn set_emissive(&mut self, emissive: Vec3) {
+            self.draw_calls[0].3.emissive = emissive;
+        }
+    }
+
+    /// A test volume big enough to hold `ProbeBakeScene`'s quad.
+    fn test_volume(origin: Vec3) -> ProbeVolumeParams {
+        ProbeVolumeParams {
+            origin,
+            extent: Vec3::splat(8.0),
+            resolution: [2, 2, 2],
+        }
+    }
+
+    fn a_red_quad_scene() -> ProbeBakeScene {
+        ProbeBakeScene::new(
+            [
+                Vec3::new(3.0, 0.75, 0.0),
+                Vec3::new(3.0, 0.75, 1.5),
+                Vec3::new(3.0, 2.25, 1.5),
+                Vec3::new(3.0, 2.25, 0.0),
+            ],
+            Vec3::new(20.0, 0.0, 0.0),
+        )
     }
 
     /// The direction an L2 expansion attributes its brightest lobe to, read
@@ -6348,6 +6611,167 @@ mod tests {
             first[0], first[1],
             "two probes at different positions saw identical radiance, which \
              means the per-probe view-projections are not being applied"
+        );
+    }
+
+    /// Probes sit on the grid's lattice points and are indexed x-fastest, and
+    /// the scene shader's `probe_coeff_base` hardcodes that same order. Nothing
+    /// but this ties the two together -- swap them and every probe would be
+    /// read from the wrong lattice corner, which still looks like lighting.
+    #[test]
+    fn probe_positions_sit_on_the_lattice_corners_of_the_box() {
+        let params = ProbeVolumeParams {
+            origin: Vec3::new(-2.0, 1.0, 5.0),
+            extent: Vec3::new(4.0, 6.0, 10.0),
+            // Deliberately unequal per axis: an implementation that walked the
+            // grid in the wrong nesting order still passes on a cube.
+            resolution: [2, 3, 4],
+        };
+        let positions = probe_positions(&params);
+        assert_eq!(positions.len(), 2 * 3 * 4);
+        assert_eq!(
+            positions[0], params.origin,
+            "the first probe must sit exactly on the box's minimum corner"
+        );
+        assert_eq!(
+            positions[positions.len() - 1],
+            params.origin + params.extent,
+            "the last probe must sit exactly on the box's maximum corner -- \
+             probes on cell centres would leave the outer half-cell of the \
+             volume extrapolating"
+        );
+        // x fastest, then y, then z: index (z*ry + y)*rx + x, exactly what
+        // `probe_coeff_base` computes in MESH_WGSL.
+        let [rx, ry, _rz] = params.resolution;
+        for (i, p) in positions.iter().enumerate() {
+            let x = i as u32 % rx;
+            let y = (i as u32 / rx) % ry;
+            let z = i as u32 / (rx * ry);
+            let expected = params.origin
+                + params.extent
+                    * Vec3::new(
+                        x as f32 / (rx - 1) as f32,
+                        y as f32 / (ry - 1) as f32,
+                        z as f32 / 3.0,
+                    );
+            assert!(
+                (*p - expected).length() < 1e-5,
+                "probe {i} is at {p:?} but x-fastest ordering puts it at \
+                 {expected:?}"
+            );
+        }
+    }
+
+    /// "Automatic bake once after load", as actually enforced: a volume is
+    /// baked when it appears, is **not** re-baked while it is unchanged even
+    /// though the scene inside it moved, is re-baked when the volume itself
+    /// changes, and is replaced by a disabled grid when it goes away.
+    ///
+    /// The middle case is the one worth writing a GPU test for. It is the
+    /// documented cost of baking once -- move a wall after load and the floor
+    /// keeps the old colour -- and it is asserted here by repainting the quad
+    /// between two frames and requiring the uploaded coefficients not to
+    /// budge. Asserting on `baked_probe_volume` alone would only restate the
+    /// cache key back to itself.
+    #[test]
+    fn a_volume_is_baked_once_and_rebaked_only_when_the_volume_itself_changes() {
+        let mut scene = a_red_quad_scene();
+        assert_eq!(scene.surface.baked_probe_volume, None);
+        assert_eq!(
+            scene.surface.read_probe_uniform().enabled,
+            0,
+            "a fresh surface must start with probes disabled, or every scene \
+             that never places a volume would be lit by whatever the buffer \
+             happened to contain"
+        );
+
+        let volume = test_volume(Vec3::splat(-4.0));
+        scene.render(Some(volume)).expect(
+            "a frame with a probe volume must render without a \
+                     validation error",
+        );
+        assert_eq!(scene.surface.baked_probe_volume, Some(volume));
+        let baked = scene.surface.read_probe_uniform();
+        assert_eq!(baked.enabled, 1);
+        assert_eq!(baked.origin, volume.origin.to_array());
+        assert_eq!(baked.extent, volume.extent.to_array());
+        assert_eq!(baked.resolution, volume.resolution);
+        assert!(
+            baked.coeffs[..8]
+                .iter()
+                .all(|probe| probe[0][0].abs() > 1e-4),
+            "every probe of a 2x2x2 grid must have captured something; an \
+             all-zero l=0 means the bake ran but drew nothing"
+        );
+
+        // Same volume, different scene. The bake must not re-run.
+        scene.set_emissive(Vec3::new(0.0, 20.0, 0.0));
+        scene
+            .render(Some(volume))
+            .expect("a second frame must render");
+        let after = scene.surface.read_probe_uniform();
+        assert_eq!(
+            after.coeffs[0], baked.coeffs[0],
+            "the volume did not change, so no re-bake should have happened -- \
+             repainting the quad red-to-green must leave the baked \
+             coefficients exactly as they were"
+        );
+
+        // Moving the volume is a change to the volume, so it does re-bake --
+        // and now picks up the green quad.
+        let moved = test_volume(Vec3::splat(-3.0));
+        scene
+            .render(Some(moved))
+            .expect("a third frame must render");
+        assert_eq!(scene.surface.baked_probe_volume, Some(moved));
+        let rebaked = scene.surface.read_probe_uniform();
+        assert_eq!(rebaked.origin, moved.origin.to_array());
+        assert!(
+            rebaked.coeffs[0][0][1] > rebaked.coeffs[0][0][0],
+            "the re-bake must see the *current* scene: the quad is green now, \
+             so probe 0's l=0 should be green-dominant, got {:?}",
+            rebaked.coeffs[0][0]
+        );
+
+        // Removing the volume uploads the disabled grid rather than leaving
+        // the last bake lighting the scene forever.
+        scene.render(None).expect("a fourth frame must render");
+        assert_eq!(scene.surface.baked_probe_volume, None);
+        let cleared = scene.surface.read_probe_uniform();
+        assert_eq!(cleared.enabled, 0);
+        assert_eq!(cleared.coeffs[0][0], [0.0; 4]);
+    }
+
+    /// `fast_render` -- the mode CI's headless replays use -- must never bake.
+    /// A bake is up to 192 render passes and a synchronous readback, which is
+    /// exactly the expensive work that mode exists to skip; the neutral result
+    /// is a disabled grid, the same way the shadow pass still clears its map
+    /// to "nothing occludes anything".
+    #[test]
+    fn a_fast_render_surface_never_bakes_a_probe_volume() {
+        let mut scene = ProbeBakeScene::build(
+            [
+                Vec3::new(3.0, 0.75, 0.0),
+                Vec3::new(3.0, 0.75, 1.5),
+                Vec3::new(3.0, 2.25, 1.5),
+                Vec3::new(3.0, 2.25, 0.0),
+            ],
+            Vec3::new(20.0, 0.0, 0.0),
+            true,
+        );
+        scene
+            .render(Some(test_volume(Vec3::splat(-4.0))))
+            .expect("a fast_render frame with a volume must still render");
+        assert_eq!(
+            scene.surface.baked_probe_volume, None,
+            "fast_render must leave the surface with nothing baked, so the \
+             next frame does not try again"
+        );
+        assert_eq!(
+            scene.surface.read_probe_uniform().enabled,
+            0,
+            "fast_render skips the bake, so probes must be disabled rather \
+             than enabled over zeroed coefficients"
         );
     }
 }

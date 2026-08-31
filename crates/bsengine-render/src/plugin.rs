@@ -586,10 +586,22 @@ fn render_frame(
     // F)`). It is a `Local` for the same reason the buffer is -- it is this
     // system's own frame counter, driving the Halton jitter cycle, and no
     // one else reads it.
-    (occlusion_enabled, mut occlusion_buf, mut taa_frame_index): (
+    //
+    // The light-probe volume query joins this tuple for exactly that reason.
+    // Both limits above are already at their maximum, so a 17th top-level
+    // parameter and a 9th `ParamSet` entry are equally impossible -- the
+    // `ParamSet` comment names this same remedy, "the same treatment applied
+    // one level down (a tuple ...)". The query is read-only and touches no
+    // component the `ParamSet` writes, so it conflicts with nothing.
+    (occlusion_enabled, mut occlusion_buf, mut taa_frame_index, probe_volumes): (
         Option<Res<bsengine_core::OcclusionCullingEnabled>>,
         Local<crate::occlusion::OcclusionBuffer>,
         Local<u32>,
+        Query<(
+            &bsengine_core::LightProbeVolume,
+            &Transform,
+            Option<&GlobalTransform>,
+        )>,
     ),
 ) {
     let (Some(mut surface), Some(registry)) = (surface, registry) else {
@@ -702,6 +714,31 @@ fn render_frame(
     } else {
         None
     };
+
+    // The baked-probe volume, read in one self-contained block for the same
+    // reason the occlusion pre-pass below is one: the whole query is consumed
+    // here and nothing downstream holds a borrow of it.
+    //
+    // Only the first volume counts. The GPU side has one `MAX_PROBES` grid,
+    // and picking silently among several would be worse than ignoring the
+    // extras -- there is nothing sensible to blend between two boxes.
+    //
+    // The box is axis-aligned in world space: the entity's translation moves
+    // it, but its rotation and scale do not, because `inside_probe_volume` and
+    // the trilinear lookup in the scene shader are both written against an
+    // AABB. `half_extents` is therefore taken as world units directly, not
+    // scaled by the transform.
+    let light_probes = probe_volumes.iter().next().map(|(volume, t, gt)| {
+        let centre = gt
+            .map(|g| g.to_matrix().w_axis.truncate())
+            .unwrap_or(t.position.0);
+        let half = *volume.half_extents;
+        bsengine_rhi_wgpu::ProbeVolumeParams {
+            origin: centre - half,
+            extent: half * 2.0,
+            resolution: volume.clamped_resolution(),
+        }
+    });
 
     // Occlusion pre-pass. It has to finish before the draw-call loop below
     // borrows `p1()`: a ParamSet lends exactly one sub-query at a time, so
@@ -941,6 +978,7 @@ fn render_frame(
         taa,
         jitter_clip,
         unjittered_view_proj,
+        light_probes,
     ) {
         Ok(clicked) => {
             if let Some(ref mut state) = ui_state {

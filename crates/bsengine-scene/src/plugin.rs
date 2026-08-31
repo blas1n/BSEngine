@@ -894,6 +894,7 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     app.register_type::<bsengine_core::Timer>();
     app.register_type::<bsengine_core::ToneMap>();
     app.register_type::<bsengine_core::Visible>();
+    app.register_type::<bsengine_core::VolumetricFog>();
     app.register_type::<bsengine_core::Follow>();
     app.register_type::<bsengine_core::LookAt>();
     app.register_type::<bsengine_core::NavMeshAgent>();

@@ -42,6 +42,162 @@ fn fs_fog(in: FullscreenOut) -> @location(0) vec4<f32> {
 }
 "#;
 
+/// Storage/sample format of the two froxel volumes.
+///
+/// `Rgba16Float` carries `all_flags` in wgpu's format capability table, so it
+/// supports `STORAGE_BINDING` with no extra device feature, and it is
+/// filterable, which the Task 5 apply pass needs for its trilinear lookup.
+const FROXEL_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+
+/// Size of [`FogUniform`], in bytes. See the test of the same name.
+const FOG_UNIFORM_SIZE: u64 = 144;
+
+/// Compute workgroup edge, matching the `@workgroup_size(8, 8, 1)` in both
+/// froxel shaders. The dispatch counts are derived from it.
+const FROXEL_WORKGROUP: u32 = 8;
+
+/// The froxel grid dimensions, emitted as WGSL constants so the two compute
+/// shaders cannot drift from [`crate::froxel`]'s Rust ones.
+///
+/// A disagreement would not fail to compile: it would leave part of the grid
+/// unwritten, or place fog at the wrong depth, which reads as a density bug.
+fn froxel_wgsl_preamble() -> String {
+    format!(
+        "const FROXEL_X: u32 = {}u;\nconst FROXEL_Y: u32 = {}u;\nconst FROXEL_Z: u32 = {}u;\n",
+        crate::froxel::FROXEL_X,
+        crate::froxel::FROXEL_Y,
+        crate::froxel::FROXEL_Z,
+    )
+}
+
+/// Declarations both froxel compute shaders share: the parameter uniform and
+/// the depth slicing.
+///
+/// `froxel_slice_depth` here is a direct port of [`crate::froxel::froxel_slice_depth`]
+/// -- exponential, not linear. The same mapping appears in the Rust, here, and
+/// (inverted) in the apply pass; all three have to agree or the fog sits at the
+/// wrong distance.
+const FROXEL_COMMON_WGSL: &str = r#"
+struct FogUniform {
+    inv_view_proj: mat4x4<f32>,
+    camera_pos: vec3<f32>,
+    near: f32,
+    light_dir: vec3<f32>,
+    far: f32,
+    light_color: vec3<f32>,
+    density: f32,
+    fog_color: vec3<f32>,
+    anisotropy: f32,
+    enabled: u32,
+    pad0: f32,
+    pad1: f32,
+    pad2: f32,
+}
+@group(0) @binding(0) var<uniform> fog: FogUniform;
+
+const PI: f32 = 3.14159265358979;
+
+// Port of `froxel::froxel_slice_depth`: the world-space view depth at the far
+// edge of slice `slice`.
+fn froxel_slice_depth(slice: u32) -> f32 {
+    let t = f32(slice + 1u) / f32(FROXEL_Z);
+    return fog.near * pow(fog.far / fog.near, t);
+}
+"#;
+
+/// Injection: one thread per froxel, writing in-scattered light in RGB and
+/// extinction in A.
+///
+/// **No shadow-map lookup.** Every froxel is treated as lit, so this is fog,
+/// not light shafts; the shadowed variant is roadmap item 49's second
+/// sub-step.
+const FOG_INJECT_WGSL: &str = r#"
+@group(1) @binding(0) var injection_vol: texture_storage_3d<rgba16float, write>;
+
+// Port of `froxel::henyey_greenstein`, 1/(4*PI) included. Dropping that factor
+// -- easy, since many references quote the unnormalised form -- makes the fog
+// roughly 12x too bright and merely reads as a mistuned density.
+fn henyey_greenstein(cos_theta: f32, g_in: f32) -> f32 {
+    let g = clamp(g_in, -0.99, 0.99);
+    let g2 = g * g;
+    let denom = 1.0 + g2 - 2.0 * g * cos_theta;
+    return (1.0 - g2) / (4.0 * PI * pow(max(denom, 1e-4), 1.5));
+}
+
+@compute @workgroup_size(8, 8, 1)
+fn cs_inject(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if gid.x >= FROXEL_X || gid.y >= FROXEL_Y || gid.z >= FROXEL_Z {
+        return;
+    }
+    let uv = (vec2<f32>(f32(gid.x), f32(gid.y)) + vec2<f32>(0.5, 0.5))
+        / vec2<f32>(f32(FROXEL_X), f32(FROXEL_Y));
+    // The far-plane point behind this froxel column. The camera-to-far-plane
+    // vector has a view-space z of exactly `far`, so scaling it by
+    // `depth / far` lands on the slice's view depth -- the same quantity the
+    // apply pass will invert -- without needing the view matrix separately.
+    let ndc = vec4<f32>(uv.x * 2.0 - 1.0, -(uv.y * 2.0 - 1.0), 1.0, 1.0);
+    let far_h = fog.inv_view_proj * ndc;
+    let far_world = far_h.xyz / far_h.w;
+    let depth = froxel_slice_depth(gid.z);
+    let world_pos = fog.camera_pos + (far_world - fog.camera_pos) * (depth / fog.far);
+
+    let scattering = fog.fog_color * fog.density;
+    let extinction = fog.density;
+    let view_dir = normalize(world_pos - fog.camera_pos);
+    let cos_theta = dot(view_dir, fog.light_dir);
+    let phase = henyey_greenstein(cos_theta, fog.anisotropy);
+    let in_scatter = fog.light_color * scattering * phase;
+    textureStore(injection_vol, vec3<i32>(gid), vec4<f32>(in_scatter, extinction));
+}
+"#;
+
+/// Integration: one thread per froxel *column*, marching front to back and
+/// writing the running (in-scattered light, transmittance) at every slice.
+const FOG_INTEGRATE_WGSL: &str = r#"
+@group(1) @binding(0) var injection_vol: texture_3d<f32>;
+@group(2) @binding(0) var integrated_vol: texture_storage_3d<rgba16float, write>;
+
+@compute @workgroup_size(8, 8, 1)
+fn cs_integrate(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if gid.x >= FROXEL_X || gid.y >= FROXEL_Y {
+        return;
+    }
+    var accum = vec3<f32>(0.0, 0.0, 0.0);
+    var transmittance = 1.0;
+    // Slice 0 starts at the near plane; every later slice starts where the
+    // previous one ended.
+    var prev_depth = fog.near;
+    for (var z: u32 = 0u; z < FROXEL_Z; z = z + 1u) {
+        let s = textureLoad(injection_vol, vec3<i32>(i32(gid.x), i32(gid.y), i32(z)), 0);
+        let depth = froxel_slice_depth(z);
+        let slice_thickness = depth - prev_depth;
+        prev_depth = depth;
+        let slice_t = exp(-s.a * slice_thickness);
+        // Analytic integration across the slice, not a point sample at its
+        // centre: a point sample biases thick slices, and the exponential
+        // depth distribution guarantees thick slices at distance.
+        accum += transmittance * s.rgb * (1.0 - slice_t) / max(s.a, 1e-5);
+        transmittance *= slice_t;
+        textureStore(
+            integrated_vol,
+            vec3<i32>(i32(gid.x), i32(gid.y), i32(z)),
+            vec4<f32>(accum, transmittance),
+        );
+    }
+}
+"#;
+
+/// Full source of the injection shader: the generated grid constants, the
+/// shared declarations, then the pass itself.
+fn fog_inject_wgsl() -> String {
+    froxel_wgsl_preamble() + FROXEL_COMMON_WGSL + FOG_INJECT_WGSL
+}
+
+/// Full source of the integration shader. See [`fog_inject_wgsl`].
+fn fog_integrate_wgsl() -> String {
+    froxel_wgsl_preamble() + FROXEL_COMMON_WGSL + FOG_INTEGRATE_WGSL
+}
+
 const BLOOM_WGSL: &str = r#"
 struct FullscreenOut {
     @builtin(position) pos: vec4<f32>,
@@ -474,6 +630,42 @@ pub struct TaaCameraGpu {
     pub prev_view_proj: [[f32; 4]; 4],
 }
 
+/// GPU-uniform layout for the froxel passes.
+///
+/// A buffer of its own rather than more fields on [`PostProcessConfigGpu`]:
+/// that struct is exactly 64 bytes and full, IBL and TAA having taken the last
+/// of its padding.
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct FogUniform {
+    /// Inverse view-projection, to turn a froxel into a world position.
+    pub inv_view_proj: [[f32; 4]; 4],
+    /// Camera position in world space.
+    pub camera_pos: [f32; 3],
+    /// Camera near plane; the front edge of the first depth slice.
+    pub near: f32,
+    /// Direction *toward* the light, matching the scene shader's convention.
+    pub light_dir: [f32; 3],
+    /// Camera far plane; the back edge of the last depth slice.
+    pub far: f32,
+    /// Radiance of the directional light the fog scatters.
+    pub light_color: [f32; 3],
+    /// Uniform participating-media density (both scattering and extinction).
+    pub density: f32,
+    /// Albedo of the medium, multiplied into the scattering coefficient.
+    pub fog_color: [f32; 3],
+    /// Henyey-Greenstein anisotropy `g`; see [`crate::froxel::henyey_greenstein`].
+    pub anisotropy: f32,
+    /// Nonzero to run the fog passes at all.
+    pub enabled: u32,
+    /// Padding to the 16-byte uniform stride. See `fog_uniform_size`.
+    pub _pad0: f32,
+    /// See [`FogUniform::_pad0`].
+    pub _pad1: f32,
+    /// See [`FogUniform::_pad0`].
+    pub _pad2: f32,
+}
+
 struct PostProcessTargets {
     hdr_texture: crate::profiler::TrackedTexture,
     hdr_view: wgpu::TextureView,
@@ -552,6 +744,42 @@ pub struct PostProcessState {
     /// two the other passes use, because the resolve is already at the
     /// four-bind-group WebGPU baseline limit.
     taa_uniform_bg: wgpu::BindGroup,
+    /// The scattering volume: RGB is in-scattered light, A is extinction, one
+    /// texel per froxel. Filled by the injection pass, read by the integration
+    /// pass.
+    ///
+    /// **Deliberately not in `PostProcessTargets`, unlike every other texture
+    /// in this file.** Everything there lives in that struct because a window
+    /// resize has to reallocate it. The froxel grid is a fixed
+    /// `FROXEL_X x FROXEL_Y x FROXEL_Z` resolution, chosen independently of the
+    /// output size, so these two volumes are the only render resources here
+    /// that a resize must leave alone -- putting them in `PostProcessTargets`
+    /// would silently rebuild them on every resize for no reason.
+    _injection_volume: crate::profiler::TrackedTexture,
+    /// The integrated volume: RGB is accumulated in-scattered light up to each
+    /// slice, A is the transmittance to it. Written by the integration pass;
+    /// nothing samples it until the apply pass does.
+    ///
+    /// Not resized -- see [`PostProcessState::_injection_volume`].
+    _integrated_volume: crate::profiler::TrackedTexture,
+    fog_uniform_buffer: wgpu::Buffer,
+    fog_uniform_bg: wgpu::BindGroup,
+    /// The injection volume bound for writing (injection pass).
+    injection_write_bg: wgpu::BindGroup,
+    /// The same volume bound for sampling (integration pass). A second bind
+    /// group rather than a read-write binding, which the WebGPU baseline does
+    /// not offer for storage textures.
+    injection_read_bg: wgpu::BindGroup,
+    integrated_write_bg: wgpu::BindGroup,
+    /// Whether the last [`PostProcessState::update_fog`] enabled the effect.
+    ///
+    /// Mirrored on the CPU because `apply` skips the dispatch entirely when
+    /// fog is off, and it cannot read the flag back out of the uniform buffer.
+    fog_enabled: bool,
+    /// Compute pipeline that fills the scattering volume.
+    fog_inject_pipeline: wgpu::ComputePipeline,
+    /// Compute pipeline that marches each froxel column front to back.
+    fog_integrate_pipeline: wgpu::ComputePipeline,
     /// Pipeline for the volumetric-fog apply shader, the first pass of the
     /// chain. Currently an HDR passthrough; the name is the one the froxel
     /// lookup will keep when it replaces the shader behind it.
@@ -736,6 +964,133 @@ impl PostProcessState {
             ],
         });
 
+        // --- froxel volumes and the two compute pipelines ---
+        //
+        // Created here rather than in `create_targets` on purpose: the froxel
+        // grid has a fixed resolution, so unlike every other texture in this
+        // file these two must survive a window resize untouched.
+        let fog_uniform_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("pp fog uniform bgl"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: wgpu::BufferSize::new(FOG_UNIFORM_SIZE),
+                },
+                count: None,
+            }],
+        });
+        let froxel_write_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("pp froxel write bgl"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::StorageTexture {
+                    access: wgpu::StorageTextureAccess::WriteOnly,
+                    format: FROXEL_FORMAT,
+                    view_dimension: wgpu::TextureViewDimension::D3,
+                },
+                count: None,
+            }],
+        });
+        let froxel_read_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("pp froxel read bgl"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D3,
+                    multisampled: false,
+                },
+                count: None,
+            }],
+        });
+
+        let fog_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("pp fog uniform buffer"),
+            size: FOG_UNIFORM_SIZE,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let fog_uniform_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("pp fog uniform bg"),
+            layout: &fog_uniform_bgl,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: fog_uniform_buffer.as_entire_binding(),
+            }],
+        });
+
+        let make_volume = |label: &str| {
+            crate::profiler::create_tracked_texture(
+                device,
+                &wgpu::TextureDescriptor {
+                    label: Some(label),
+                    size: wgpu::Extent3d {
+                        width: crate::froxel::FROXEL_X,
+                        height: crate::froxel::FROXEL_Y,
+                        depth_or_array_layers: crate::froxel::FROXEL_Z,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D3,
+                    format: FROXEL_FORMAT,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::STORAGE_BINDING,
+                    view_formats: &[],
+                },
+            )
+        };
+        let volume_view = |tex: &crate::profiler::TrackedTexture| {
+            tex.create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D3),
+                ..Default::default()
+            })
+        };
+        let injection_volume = make_volume("pp froxel injection");
+        let integrated_volume = make_volume("pp froxel integrated");
+        let injection_view = volume_view(&injection_volume);
+        let integrated_view = volume_view(&integrated_volume);
+
+        let make_volume_bg =
+            |label: &str, bgl: &wgpu::BindGroupLayout, view: &wgpu::TextureView| {
+                device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some(label),
+                    layout: bgl,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(view),
+                    }],
+                })
+            };
+        let injection_write_bg = make_volume_bg(
+            "pp froxel injection write bg",
+            &froxel_write_bgl,
+            &injection_view,
+        );
+        let injection_read_bg = make_volume_bg(
+            "pp froxel injection read bg",
+            &froxel_read_bgl,
+            &injection_view,
+        );
+        let integrated_write_bg = make_volume_bg(
+            "pp froxel integrated write bg",
+            &froxel_write_bgl,
+            &integrated_view,
+        );
+
+        let fog_inject_pipeline =
+            Self::make_fog_inject_pipeline(device, &fog_uniform_bgl, &froxel_write_bgl);
+        let fog_integrate_pipeline = Self::make_fog_integrate_pipeline(
+            device,
+            &fog_uniform_bgl,
+            &froxel_read_bgl,
+            &froxel_write_bgl,
+        );
+
         let fog_pipeline = Self::make_fog_pipeline(device, &tex2d_bgl);
         let bloom_pipeline = Self::make_bloom_pipeline(device, &tex2d_bgl, &config_bgl);
         let ssao_pipeline =
@@ -790,6 +1145,16 @@ impl PostProcessState {
             ssao_cam_bg,
             taa_cam_buffer,
             taa_uniform_bg,
+            _injection_volume: injection_volume,
+            _integrated_volume: integrated_volume,
+            fog_uniform_buffer,
+            fog_uniform_bg,
+            injection_write_bg,
+            injection_read_bg,
+            integrated_write_bg,
+            fog_enabled: false,
+            fog_inject_pipeline,
+            fog_integrate_pipeline,
             fog_pipeline,
             bloom_pipeline,
             ssao_pipeline,
@@ -918,6 +1283,59 @@ impl PostProcessState {
             history_bgs,
             depth_bg,
         }
+    }
+
+    /// The froxel injection pass: the engine's first compute pipeline.
+    fn make_fog_inject_pipeline(
+        device: &wgpu::Device,
+        fog_uniform_bgl: &wgpu::BindGroupLayout,
+        froxel_write_bgl: &wgpu::BindGroupLayout,
+    ) -> wgpu::ComputePipeline {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("fog inject shader"),
+            source: wgpu::ShaderSource::Wgsl(fog_inject_wgsl().into()),
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("fog inject pll"),
+            bind_group_layouts: &[fog_uniform_bgl, froxel_write_bgl],
+            push_constant_ranges: &[],
+        });
+        device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("fog inject pipeline"),
+            layout: Some(&layout),
+            module: &shader,
+            entry_point: "cs_inject",
+            compilation_options: Default::default(),
+            cache: None,
+        })
+    }
+
+    /// The froxel integration pass. Reads the injection volume as a sampled
+    /// texture and writes the integrated one as storage; the same texture
+    /// cannot be both in one binding on the WebGPU baseline.
+    fn make_fog_integrate_pipeline(
+        device: &wgpu::Device,
+        fog_uniform_bgl: &wgpu::BindGroupLayout,
+        froxel_read_bgl: &wgpu::BindGroupLayout,
+        froxel_write_bgl: &wgpu::BindGroupLayout,
+    ) -> wgpu::ComputePipeline {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("fog integrate shader"),
+            source: wgpu::ShaderSource::Wgsl(fog_integrate_wgsl().into()),
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("fog integrate pll"),
+            bind_group_layouts: &[fog_uniform_bgl, froxel_read_bgl, froxel_write_bgl],
+            push_constant_ranges: &[],
+        });
+        device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("fog integrate pipeline"),
+            layout: Some(&layout),
+            module: &shader,
+            entry_point: "cs_integrate",
+            compilation_options: Default::default(),
+            cache: None,
+        })
     }
 
     /// The fog apply pass renders HDR into HDR, so its colour target is
@@ -1200,6 +1618,18 @@ impl PostProcessState {
         queue.write_buffer(&self.ssao_cam_buffer, 0, bytemuck::cast_slice(&[cam]));
     }
 
+    /// Uploads the froxel passes' parameters, and records whether those passes
+    /// should run at all.
+    ///
+    /// Takes `&mut self`, unlike the uploads either side of it, because the
+    /// enabled flag has to stay readable on the CPU: `apply` skips the whole
+    /// dispatch when fog is off, and it cannot read the flag back out of the
+    /// uniform buffer.
+    pub fn update_fog(&mut self, queue: &wgpu::Queue, fog: FogUniform) {
+        self.fog_enabled = fog.enabled != 0;
+        queue.write_buffer(&self.fog_uniform_buffer, 0, bytemuck::cast_slice(&[fog]));
+    }
+
     /// Uploads the unjittered view-projection matrices the TAA pass reprojects
     /// with: this frame's inverse and the previous frame's forward matrix.
     pub fn update_taa_camera(&self, queue: &wgpu::Queue, cam: TaaCameraGpu) {
@@ -1208,6 +1638,10 @@ impl PostProcessState {
 
     /// Runs the fog, bloom, SSAO, composite, and TAA passes in sequence,
     /// writing the final tonemapped result into `surface_view`.
+    ///
+    /// When the last [`PostProcessState::update_fog`] enabled the effect, a
+    /// compute pass runs first and fills the two froxel volumes. Nothing
+    /// samples them yet.
     ///
     /// The fog pass comes first and copies the scene's HDR image into a second
     /// HDR target that every later pass samples, because a pass cannot sample
@@ -1242,6 +1676,35 @@ impl PostProcessState {
     ) -> (u32, u64) {
         let mut draw_calls = 0u32;
         let mut triangles = 0u64;
+
+        if self.fog_enabled {
+            // The froxel volumes, filled before anything samples them. One
+            // pass with two dispatches: the injection volume's transition from
+            // storage-write to sampled between them is what orders the second
+            // behind the first.
+            //
+            // Compute contributes no draws, so the counters below stay out of
+            // this block.
+            let groups_x = crate::froxel::FROXEL_X.div_ceil(FROXEL_WORKGROUP);
+            let groups_y = crate::froxel::FROXEL_Y.div_ceil(FROXEL_WORKGROUP);
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("froxel fog pass"),
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(&self.fog_inject_pipeline);
+            pass.set_bind_group(0, &self.fog_uniform_bg, &[]);
+            pass.set_bind_group(1, &self.injection_write_bg, &[]);
+            // One thread per froxel.
+            pass.dispatch_workgroups(groups_x, groups_y, crate::froxel::FROXEL_Z);
+
+            pass.set_pipeline(&self.fog_integrate_pipeline);
+            pass.set_bind_group(0, &self.fog_uniform_bg, &[]);
+            pass.set_bind_group(1, &self.injection_read_bg, &[]);
+            pass.set_bind_group(2, &self.integrated_write_bg, &[]);
+            // One thread per froxel *column*: each marches the whole Z axis.
+            pass.dispatch_workgroups(groups_x, groups_y, 1);
+        }
+
         {
             // Always drawn, `fast_render` included: every pass below reads
             // `fog_hdr_bg`, so skipping this one would leave them sampling the
@@ -1413,6 +1876,18 @@ mod tests {
     }
 
     #[test]
+    fn fog_uniform_size() {
+        // Must equal the `min_binding_size` the fog bind group layout declares
+        // and the size WGSL computes for `FogUniform`; a mismatch is a
+        // validation error at bind time, not a compile error.
+        assert_eq!(
+            std::mem::size_of::<FogUniform>() as u64,
+            FOG_UNIFORM_SIZE,
+            "FogUniform must stay {FOG_UNIFORM_SIZE} bytes"
+        );
+    }
+
+    #[test]
     fn hdr_format_is_rgba16float() {
         assert_eq!(HDR_FORMAT, wgpu::TextureFormat::Rgba16Float);
     }
@@ -1424,6 +1899,200 @@ mod tests {
             label: None,
             source: wgpu::ShaderSource::Wgsl(FOG_WGSL.into()),
         });
+    }
+
+    /// The two compute shaders are the first in the engine, so nothing else
+    /// would catch a WGSL error in them until it surfaced as a panic deep
+    /// inside a pixel test.
+    #[test]
+    fn fog_inject_shader_compiles() {
+        let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
+        let _m = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: None,
+            source: wgpu::ShaderSource::Wgsl(fog_inject_wgsl().into()),
+        });
+    }
+
+    /// See [`fog_inject_shader_compiles`].
+    #[test]
+    fn fog_integrate_shader_compiles() {
+        let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
+        let _m = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: None,
+            source: wgpu::ShaderSource::Wgsl(fog_integrate_wgsl().into()),
+        });
+    }
+
+    /// Reads `froxel_slice_depth` out of the real shared WGSL and compares it
+    /// against the Rust it was ported from.
+    ///
+    /// The only test-only part is the entry point below: the preamble and
+    /// `FROXEL_COMMON_WGSL` it is appended to are the exact source both compute
+    /// pipelines are built from. Nothing else checks this -- the volumes are
+    /// filled but unread until the apply pass lands -- and a mapping that
+    /// disagrees with the Rust puts the fog at the wrong distance, which reads
+    /// as a mistuned density rather than as a mapping bug.
+    #[test]
+    fn the_wgsl_depth_slicing_matches_froxel_slice_depth() {
+        const PROBE_WGSL: &str = r#"
+@group(1) @binding(0) var<storage, read_write> out_depths: array<f32>;
+
+@compute @workgroup_size(64, 1, 1)
+fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if gid.x >= FROXEL_Z {
+        return;
+    }
+    out_depths[gid.x] = froxel_slice_depth(gid.x);
+}
+"#;
+        let (near, far) = (0.1f32, 100.0f32);
+        let slices = crate::froxel::FROXEL_Z as usize;
+        let bytes = (slices * std::mem::size_of::<f32>()) as u64;
+
+        let (device, queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("froxel slice depth probe"),
+            source: wgpu::ShaderSource::Wgsl(
+                (froxel_wgsl_preamble() + FROXEL_COMMON_WGSL + PROBE_WGSL).into(),
+            ),
+        });
+
+        let fog_uniform_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: wgpu::BufferSize::new(FOG_UNIFORM_SIZE),
+                },
+                count: None,
+            }],
+        });
+        let out_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: wgpu::BufferSize::new(bytes),
+                },
+                count: None,
+            }],
+        });
+
+        use bytemuck::Zeroable as _;
+        let mut fog = FogUniform::zeroed();
+        fog.near = near;
+        fog.far = far;
+        let fog_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: FOG_UNIFORM_SIZE,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        queue.write_buffer(&fog_buffer, 0, bytemuck::cast_slice(&[fog]));
+        let out_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: bytes,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
+        });
+        let readback = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: bytes,
+            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let fog_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &fog_uniform_bgl,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: fog_buffer.as_entire_binding(),
+            }],
+        });
+        let out_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &out_bgl,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: out_buffer.as_entire_binding(),
+            }],
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[&fog_uniform_bgl, &out_bgl],
+            push_constant_ranges: &[],
+        });
+        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: None,
+            layout: Some(&layout),
+            module: &shader,
+            entry_point: "cs_probe",
+            compilation_options: Default::default(),
+            cache: None,
+        });
+
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: None,
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &fog_bg, &[]);
+            pass.set_bind_group(1, &out_bg, &[]);
+            pass.dispatch_workgroups(crate::froxel::FROXEL_Z.div_ceil(64), 1, 1);
+        }
+        encoder.copy_buffer_to_buffer(&out_buffer, 0, &readback, 0, bytes);
+        queue.submit(Some(encoder.finish()));
+
+        let slice = readback.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |r| {
+            let _ = tx.send(r);
+        });
+        device.poll(wgpu::Maintain::Wait);
+        rx.recv()
+            .expect("map_async never reported a result")
+            .expect("mapping the readback buffer failed");
+        let got: Vec<f32> = bytemuck::cast_slice(&slice.get_mapped_range()).to_vec();
+        readback.unmap();
+
+        for s in 0..crate::froxel::FROXEL_Z {
+            let expected = crate::froxel::froxel_slice_depth(s, near, far);
+            let actual = got[s as usize];
+            assert!(
+                (actual - expected).abs() <= expected * 1e-4,
+                "slice {s}: the WGSL depth mapping gave {actual}, the Rust one \
+                 {expected}. The two must agree exactly, or fog lands at the \
+                 wrong distance and looks like a density problem"
+            );
+        }
+    }
+
+    /// The generated preamble is the only thing keeping the WGSL grid bounds
+    /// tied to the Rust ones, so assert it actually carries them.
+    #[test]
+    fn froxel_preamble_carries_the_rust_grid_dimensions() {
+        let p = froxel_wgsl_preamble();
+        for (name, value) in [
+            ("FROXEL_X", crate::froxel::FROXEL_X),
+            ("FROXEL_Y", crate::froxel::FROXEL_Y),
+            ("FROXEL_Z", crate::froxel::FROXEL_Z),
+        ] {
+            let expected = format!("const {name}: u32 = {value}u;");
+            assert!(
+                p.contains(&expected),
+                "the WGSL preamble must declare `{expected}`, got:\n{p}"
+            );
+        }
     }
 
     #[test]
@@ -1535,6 +2204,87 @@ mod tests {
             "the TAA resolve pass must record cleanly; a validation error here \
              means the pipeline layout, the bind groups, or the two colour \
              attachments disagree with the shader"
+        );
+    }
+
+    /// Compiling the two compute shaders proves nothing about the bindings
+    /// around them: a wrong group index, a storage format the layout does not
+    /// declare, or a dispatch over the device's workgroup limits is a `wgpu`
+    /// validation error, not a WGSL one. No pixel test reaches this code
+    /// either, because none of them enables fog.
+    #[test]
+    fn froxel_compute_passes_record_without_validation_errors() {
+        let (device, queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
+        let width = 64;
+        let height = 64;
+        let depth_texture = crate::profiler::create_tracked_texture(
+            &device,
+            &wgpu::TextureDescriptor {
+                label: Some("froxel test depth"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: crate::surface::DEPTH_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            },
+        );
+        let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let target = crate::output::create_offscreen_texture(&device, width, height);
+        let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
+
+        device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let mut pp = PostProcessState::new(
+            &device,
+            width,
+            height,
+            &depth_view,
+            crate::output::OFFSCREEN_FORMAT,
+        );
+        assert!(
+            !pp.fog_enabled,
+            "fog must be off until something uploads a FogUniform, or every \
+             pre-existing pixel test would start dispatching the froxel passes"
+        );
+
+        pp.update_fog(
+            &queue,
+            FogUniform {
+                inv_view_proj: glam::Mat4::perspective_rh(1.0, 1.0, 0.1, 100.0)
+                    .inverse()
+                    .to_cols_array_2d(),
+                camera_pos: [0.0, 0.0, 0.0],
+                near: 0.1,
+                light_dir: [0.0, 1.0, 0.0],
+                far: 100.0,
+                light_color: [1.0, 1.0, 1.0],
+                density: 0.05,
+                fog_color: [0.5, 0.6, 0.7],
+                anisotropy: 0.3,
+                enabled: 1,
+                _pad0: 0.0,
+                _pad1: 0.0,
+                _pad2: 0.0,
+            },
+        );
+        assert!(pp.fog_enabled, "a nonzero `enabled` must arm the dispatch");
+
+        let mut encoder =
+            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        pp.apply(&mut encoder, &target_view, false);
+        queue.submit(Some(encoder.finish()));
+        device.poll(wgpu::Maintain::Wait);
+        assert!(
+            pollster::block_on(device.pop_error_scope()).is_none(),
+            "the froxel injection and integration passes must record cleanly; \
+             a validation error here means the pipeline layouts, the bind \
+             groups, or the storage-texture formats disagree with the WGSL"
         );
     }
 }

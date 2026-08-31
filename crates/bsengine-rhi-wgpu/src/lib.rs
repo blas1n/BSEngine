@@ -13,6 +13,7 @@
 #![allow(clippy::type_complexity)]
 #![warn(missing_docs)]
 
+pub mod froxel;
 /// Screen-space translate/rotate gizmo math and drawing.
 pub mod gizmo;
 /// Image-based lighting: cubemap helpers, the BRDF integration LUT, and the

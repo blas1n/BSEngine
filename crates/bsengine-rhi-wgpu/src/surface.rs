@@ -92,6 +92,29 @@ struct LightUniform {
 // shadow sampler, which no shader declares (the cube lookup uses textureLoad)
 // but which is bound all the same, as a non-filtering sampler.
 @group(2) @binding(8) var ibl_sampler: sampler;
+// Baked light probes. A uniform buffer with a fixed maximum, not a storage
+// buffer: this engine uses no storage buffers anywhere, and fixed-size uniform
+// arrays are its established pattern (see MAX_POINT_LIGHTS above). 32 probes x
+// 9 coefficients x vec4 is 4608 bytes, well inside the 64 KiB uniform limit.
+//
+// Bound in every frame, exactly like the IBL maps: a bind group layout is fixed
+// at creation, so a scene with no volume uploads `enabled: 0` and zeroed
+// coefficients rather than skipping the binding.
+struct ProbeUniform {
+    // MAX_PROBES(32) * 9 coefficients. vec4 rather than vec3 because std140
+    // pads a vec3 array element out to 16 bytes anyway.
+    coeffs: array<vec4<f32>, 288>,
+    // World-space minimum corner of the volume.
+    origin: vec3<f32>,
+    enabled: u32,
+    // World-space size of the volume (full extent, not half).
+    extent: vec3<f32>,
+    _pad0: f32,
+    // Probes per axis, sitting on the grid's lattice points.
+    resolution: vec3<u32>,
+    _pad1: u32,
+};
+@group(2) @binding(9) var<uniform> probes: ProbeUniform;
 
 struct VertIn {
     @location(0) pos: vec3<f32>,
@@ -220,6 +243,87 @@ fn fresnel_schlick_roughness(cos_theta: f32, f0: vec3<f32>, roughness: f32) -> v
     let inv_rough = vec3<f32>(1.0 - roughness);
     return f0 + (max(inv_rough, f0) - f0) * pow(clamp(1.0 - cos_theta, 0.0, 1.0), 5.0);
 }
+// True when `world_pos` is inside the baked volume's box. Outside it there are
+// no surrounding probes to interpolate between, so the IBL path stands.
+fn inside_probe_volume(world_pos: vec3<f32>) -> bool {
+    let local = world_pos - probes.origin;
+    return all(local >= vec3<f32>(0.0, 0.0, 0.0)) && all(local <= probes.extent);
+}
+// `world_pos` in lattice units. Probes sit on the grid's *corners*, so a volume
+// with `resolution` probes along an axis spans `resolution - 1` cells, and the
+// last probe lands exactly on the far face rather than one cell short of it.
+fn probe_grid_coord(world_pos: vec3<f32>) -> vec3<f32> {
+    let cells = max(vec3<f32>(probes.resolution) - vec3<f32>(1.0, 1.0, 1.0), vec3<f32>(1.0, 1.0, 1.0));
+    let extent = max(probes.extent, vec3<f32>(1e-6, 1e-6, 1e-6));
+    let t = (world_pos - probes.origin) / extent;
+    return clamp(t, vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0)) * cells;
+}
+// Index of probe (ix, iy, iz)'s first coefficient. x fastest, then y, then z --
+// the same order the CPU walks the lattice in when it uploads them.
+fn probe_coeff_base(ix: u32, iy: u32, iz: u32) -> u32 {
+    let idx = (iz * probes.resolution.y + iy) * probes.resolution.x + ix;
+    // MAX_PROBES - 1. A resolution the CPU side never produces would otherwise
+    // read past the end of the array.
+    return min(idx, 31u) * 9u;
+}
+// The probe grid's irradiance at `world_pos` for a surface facing `n`, in the
+// same units the irradiance cube stores: E / PI, with the Lambert BRDF's 1/PI
+// folded in, so callers write `* albedo` with no stray constant exactly as the
+// IBL path does.
+//
+// The eight surrounding probes' COEFFICIENTS are blended and the result
+// evaluated once, rather than evaluating eight probes and blending the results.
+// SH evaluation is linear in the coefficients, so the two are equivalent -- and
+// this one does an eighth of the evaluation work.
+fn eval_probe_sh(world_pos: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
+    let g = probe_grid_coord(world_pos);
+    let last = vec3<i32>(probes.resolution) - vec3<i32>(1, 1, 1);
+    let i0 = clamp(vec3<i32>(floor(g)), vec3<i32>(0, 0, 0), last);
+    let i1 = min(i0 + vec3<i32>(1, 1, 1), last);
+    let frac = clamp(g - floor(g), vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0));
+
+    var blended: array<vec4<f32>, 9>;
+    for (var c: u32 = 0u; c < 9u; c++) {
+        blended[c] = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+    }
+    // Corner bit 0 is x, bit 1 is y, bit 2 is z -- the same ordering
+    // `trilinear_weights` in sh.rs uses, so the two cannot disagree.
+    for (var corner: u32 = 0u; corner < 8u; corner++) {
+        let hi_x = (corner & 1u) != 0u;
+        let hi_y = (corner & 2u) != 0u;
+        let hi_z = (corner & 4u) != 0u;
+        let w = select(1.0 - frac.x, frac.x, hi_x)
+            * select(1.0 - frac.y, frac.y, hi_y)
+            * select(1.0 - frac.z, frac.z, hi_z);
+        let base = probe_coeff_base(
+            u32(select(i0.x, i1.x, hi_x)),
+            u32(select(i0.y, i1.y, hi_y)),
+            u32(select(i0.z, i1.z, hi_z)),
+        );
+        for (var c: u32 = 0u; c < 9u; c++) {
+            blended[c] = blended[c] + probes.coeffs[base + c] * w;
+        }
+    }
+
+    // Cosine-lobe convolution constants: the per-band factors that turn a
+    // radiance expansion into the irradiance a Lambertian surface receives.
+    // Identical to `ShL2::eval_irradiance` in sh.rs, which asserts them.
+    let a0 = 3.141593;
+    let a1 = 2.094395;
+    let a2 = 0.785398;
+    var e = blended[0].rgb * (0.282095 * a0);
+    e = e + blended[1].rgb * (0.488603 * n.y * a1);
+    e = e + blended[2].rgb * (0.488603 * n.z * a1);
+    e = e + blended[3].rgb * (0.488603 * n.x * a1);
+    e = e + blended[4].rgb * (1.092548 * n.x * n.y * a2);
+    e = e + blended[5].rgb * (1.092548 * n.y * n.z * a2);
+    e = e + blended[6].rgb * (0.315392 * (3.0 * n.z * n.z - 1.0) * a2);
+    e = e + blended[7].rgb * (1.092548 * n.x * n.z * a2);
+    e = e + blended[8].rgb * (0.546274 * (n.x * n.x - n.y * n.y) * a2);
+    // Ringing in a truncated expansion can drive irradiance below zero, which
+    // would darken a surface rather than light it.
+    return max(e, vec3<f32>(0.0, 0.0, 0.0)) / PI;
+}
 @fragment
 fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
     let n = normalize(in.world_normal);
@@ -297,10 +401,18 @@ fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
     // post-process pass over the depth buffer, so no AO value exists at this
     // point in the frame, and SSAO keeps attenuating the composited result
     // exactly as it does today.
+    //
+    // The diffuse/specular energy split is hoisted out of the IBL branch
+    // because the probe path below needs `kd_ibl` too, and a probe volume in a
+    // scene with no skybox still has to light something. It depends only on the
+    // material and the view angle, so computing it unconditionally changes no
+    // pixel: `ambient_term` is still exactly `light.ambient * albedo` whenever
+    // both branches are skipped.
+    let f_ibl = fresnel_schlick_roughness(n_dot_v, f0, roughness);
+    let kd_ibl = (vec3<f32>(1.0) - f_ibl) * (1.0 - metallic);
+    var specular_ibl = vec3<f32>(0.0, 0.0, 0.0);
     var ambient_term = light.ambient * albedo;
     if (light.ibl_enabled != 0u) {
-        let f_ibl = fresnel_schlick_roughness(n_dot_v, f0, roughness);
-        let kd_ibl = (vec3<f32>(1.0) - f_ibl) * (1.0 - metallic);
         let irradiance = textureSample(irradiance_cube, ibl_sampler, n).rgb;
         let diffuse_ibl = irradiance * albedo * kd_ibl;
 
@@ -309,9 +421,19 @@ fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
             prefilter_cube, ibl_sampler, r, roughness * light.ibl_max_mip
         ).rgb;
         let brdf = textureSample(brdf_lut, ibl_sampler, vec2<f32>(n_dot_v, roughness)).rg;
-        let specular_ibl = prefiltered * (f_ibl * brdf.x + brdf.y);
+        specular_ibl = prefiltered * (f_ibl * brdf.x + brdf.y);
 
         ambient_term = diffuse_ibl + specular_ibl;
+    }
+    if (probes.enabled != 0u && inside_probe_volume(in.world_pos)) {
+        // REPLACES the ambient/IBL irradiance, never adds to it. The probes
+        // captured the real scene *including the skybox background and the flat
+        // ambient term*, so their SH already carries the sky's contribution;
+        // adding would double-count sky light and wash the scene out. The
+        // specular half is kept as-is -- probes are a diffuse-only, L2
+        // representation and carry no reflection to replace it with.
+        let probe_irradiance = eval_probe_sh(in.world_pos, n);
+        ambient_term = probe_irradiance * albedo * kd_ibl + specular_ibl;
     }
     let color = ambient_term + lo + model_data.emissive;
     return vec4<f32>(color, model_data.opacity);
@@ -1084,6 +1206,50 @@ const PROBE_CAPTURE_RANGE: f32 = 200.0;
 /// probe radiance is pre-tonemap and routinely exceeds 1.0, and clipping it to
 /// 8-bit here would quietly cap how much light a probe can carry.
 const PROBE_CAPTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+/// Size of [`ProbeUniformData`], and the group-2 binding-9 `min_binding_size`.
+///
+/// `MAX_PROBES(32) * 9 coefficients * vec4(16)` = 4608 bytes of coefficients,
+/// plus 48 bytes describing the volume's box and grid. Far inside the 64 KiB
+/// uniform binding limit, which is what makes a fixed-size uniform array a
+/// workable substitute for the storage buffer this engine does not use.
+const PROBE_UNIFORM_SIZE: u64 = 4656;
+
+/// GPU-uniform layout for the baked probe grid. Mirrors `ProbeUniform` in
+/// [`MESH_WGSL`].
+///
+/// A uniform buffer with a fixed maximum rather than a storage buffer: this
+/// engine uses no storage buffers anywhere, and fixed-size uniform arrays are
+/// its established pattern (`MAX_POINT_LIGHTS`).
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct ProbeUniformData {
+    /// Nine coefficients per probe, `vec4` each because std140 pads a `vec3`
+    /// array element out to 16 bytes regardless. Nested rather than a flat
+    /// `[[f32; 4]; 288]` purely so the probe index is visible at the use site;
+    /// the bytes are identical, and the shader reads them flat.
+    coeffs: [[[f32; 4]; crate::sh::SH_COEFF_COUNT]; bsengine_core::MAX_PROBES],
+    /// World-space minimum corner of the volume.
+    origin: [f32; 3],
+    /// Nonzero when probe GI should be sampled at all. Zero -- with zeroed
+    /// coefficients -- is what a scene with no volume uploads: a bind group
+    /// layout is fixed at creation, so the binding cannot simply be skipped.
+    enabled: u32,
+    /// World-space size of the volume (full extent, not half).
+    extent: [f32; 3],
+    _pad0: f32,
+    /// Probes per axis, on the grid's lattice points.
+    resolution: [u32; 3],
+    _pad1: u32,
+}
+
+// The layout's `min_binding_size`, so a mismatch here would surface as a bind
+// group validation failure at runtime rather than at compile time. It also has
+// to match `ProbeUniform` in MESH_WGSL byte for byte: a shorter Rust struct
+// would leave the shader reading the volume's bounds out of coefficient data.
+const _: () = assert!(
+    std::mem::size_of::<ProbeUniformData>() as u64 == PROBE_UNIFORM_SIZE,
+    "ProbeUniformData must stay exactly PROBE_UNIFORM_SIZE bytes"
+);
 
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -1538,6 +1704,9 @@ struct LightBindings<'a> {
     /// Real prefiltered cube, or that same dummy.
     prefilter_view: &'a wgpu::TextureView,
     brdf_lut_view: &'a wgpu::TextureView,
+    /// The baked probe grid. Always present; `enabled` is 0 when no volume
+    /// has been baked.
+    probe_buffer: &'a wgpu::Buffer,
 }
 
 /// Builds the light bind group. The single place the group-2 binding numbers
@@ -1587,6 +1756,10 @@ fn create_light_bind_group(
             wgpu::BindGroupEntry {
                 binding: 8,
                 resource: wgpu::BindingResource::Sampler(bindings.ibl_sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 9,
+                resource: bindings.probe_buffer.as_entire_binding(),
             },
         ],
     })
@@ -1653,6 +1826,13 @@ pub struct WgpuSurface {
     /// pass its own per-face uniform buffer.
     probe_capture_uniform_buffer: wgpu::Buffer,
     probe_capture_bind_group: wgpu::BindGroup,
+    /// The baked probe grid the scene shader samples, at group 2 binding 9.
+    ///
+    /// Bound in every frame, not only when a volume exists: a bind group layout
+    /// is fixed at creation, so the no-probe case is expressed as `enabled: 0`
+    /// with zeroed coefficients rather than as a missing binding -- the same
+    /// arrangement [`Self::dummy_ibl_cube_view`] gives the IBL maps.
+    probe_buffer: wgpu::Buffer,
     /// Layout of the skybox's texture+sampler group. Held here rather than
     /// built inside `set_skybox_from_rgba` because `probe_capture_sky_pipeline`
     /// is built once at construction and has to bind `SkyboxState::texture_bg`
@@ -2149,6 +2329,21 @@ impl WgpuSurface {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                // 9 is the baked probe grid. Like the IBL entries above it is
+                // present in every scene, including the many with no probe
+                // volume; those upload `enabled: 0` and zeroed coefficients.
+                // Binding 3 is the only other free slot and is taken by the
+                // point shadow sampler, which no shader declares.
+                wgpu::BindGroupLayoutEntry {
+                    binding: 9,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: wgpu::BufferSize::new(PROBE_UNIFORM_SIZE),
+                    },
+                    count: None,
+                },
             ],
         });
 
@@ -2347,6 +2542,23 @@ impl WgpuSurface {
         // LUT on exactly the same terms a windowed one does.
         let (brdf_lut_texture, brdf_lut_view) = crate::ibl::generate_brdf_lut(&device, &queue);
 
+        let probe_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("probe uniform"),
+            size: PROBE_UNIFORM_SIZE,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        // Explicitly zeroed rather than left to wgpu's lazy zero-init, for the
+        // same reason the dummy IBL cube is: `enabled: 0` is exactly what keeps
+        // every scene without a probe volume rendering as it did before probes
+        // existed, and that should be a property of this code rather than of a
+        // backend detail.
+        queue.write_buffer(
+            &probe_buffer,
+            0,
+            bytemuck::bytes_of(&<ProbeUniformData as bytemuck::Zeroable>::zeroed()),
+        );
+
         // No skybox at construction, so the cube bindings get the dummy. Every
         // later rebuild goes through `rebuild_light_bind_group`, which binds
         // the same way from the same struct.
@@ -2363,6 +2575,7 @@ impl WgpuSurface {
                 irradiance_view: &dummy_ibl_cube_view,
                 prefilter_view: &dummy_ibl_cube_view,
                 brdf_lut_view: &brdf_lut_view,
+                probe_buffer: &probe_buffer,
             },
         );
 
@@ -2935,6 +3148,7 @@ impl WgpuSurface {
             probe_capture_sky_pipeline,
             probe_capture_uniform_buffer,
             probe_capture_bind_group,
+            probe_buffer,
             sky_tex_bgl,
             egui_ctx,
             egui_renderer,
@@ -3301,6 +3515,7 @@ impl WgpuSurface {
                 irradiance_view,
                 prefilter_view,
                 brdf_lut_view: &self.brdf_lut_view,
+                probe_buffer: &self.probe_buffer,
             },
         );
         self.light_bind_group = bind_group;
@@ -5739,6 +5954,54 @@ mod tests {
             "LightUniform must still declare ibl_enabled: this shader reads the \
              same buffer MESH_WGSL does, and a shorter struct would misalign \
              every field after it"
+        );
+    }
+
+    /// Inside a volume the probe irradiance **replaces** the ambient/IBL
+    /// irradiance; it must never be added to it.
+    ///
+    /// The probes captured the real scene including its skybox background and
+    /// its flat ambient term, so their SH already carries both. Adding would
+    /// count sky light twice and wash the scene out -- and, like the recursive
+    /// bake this file's other source-level guard catches, the failure is merely
+    /// *brighter* rather than obviously broken, so no pixel test would flag it.
+    #[test]
+    fn the_scene_shader_replaces_the_ibl_irradiance_inside_a_probe_volume() {
+        assert!(
+            MESH_WGSL.contains("ambient_term = probe_irradiance * albedo * kd_ibl + specular_ibl;"),
+            "the probe branch must assign `ambient_term`, replacing whatever the \
+             ambient/IBL path produced"
+        );
+        for adding in ["ambient_term +=", "ambient_term = ambient_term +"] {
+            assert!(
+                !MESH_WGSL.contains(adding),
+                "`{adding}` accumulates onto the ambient term; probe irradiance \
+                 already contains the sky, so adding double-counts it"
+            );
+        }
+    }
+
+    /// The shader's coefficient array is a hand-written literal, so nothing but
+    /// this ties it to `MAX_PROBES`. Raising `MAX_PROBES` without raising it
+    /// would leave the upper probes writing past the end of the uniform.
+    #[test]
+    fn the_scene_shader_probe_array_is_sized_from_max_probes() {
+        let expected = format!(
+            "array<vec4<f32>, {}>",
+            bsengine_core::MAX_PROBES * crate::sh::SH_COEFF_COUNT
+        );
+        assert!(
+            MESH_WGSL.contains(&expected),
+            "MESH_WGSL must declare `{expected}`; MAX_PROBES is \
+             {} and there are {} coefficients per probe",
+            bsengine_core::MAX_PROBES,
+            crate::sh::SH_COEFF_COUNT
+        );
+        // The shader's own out-of-range clamp, which cannot be written in terms
+        // of a Rust constant.
+        assert!(
+            MESH_WGSL.contains(&format!("min(idx, {}u)", bsengine_core::MAX_PROBES - 1)),
+            "the shader's probe-index clamp must be MAX_PROBES - 1"
         );
     }
 

@@ -6,6 +6,42 @@ const CONFIG_SIZE: u64 = 64;
 const SSAO_CAM_SIZE: u64 = 128;
 const TAA_CAM_SIZE: u64 = 128;
 
+/// The volumetric-fog apply pass.
+///
+/// It is the first pass of the post-process chain: the scene renders into
+/// `hdr_texture`, this reads that and writes `fog_hdr_texture`, and every
+/// downstream pass reads the copy. Two HDR targets rather than one because a
+/// pass may not sample the texture it renders into.
+///
+/// Today it is an exact passthrough, so the chain produces the same image it
+/// did when bloom and composite sampled the scene target directly. The froxel
+/// lookup replaces the body of `fs_fog` without moving the pass.
+const FOG_WGSL: &str = r#"
+struct FullscreenOut {
+    @builtin(position) pos: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+@group(0) @binding(0) var hdr_tex: texture_2d<f32>;
+@group(0) @binding(1) var tex_sampler: sampler;
+
+@vertex
+fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> FullscreenOut {
+    var positions = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -3.0), vec2<f32>(-1.0, 1.0), vec2<f32>(3.0, 1.0),
+    );
+    let p = positions[vi];
+    var out: FullscreenOut;
+    out.pos = vec4<f32>(p.x, p.y, 0.0, 1.0);
+    out.uv = vec2<f32>(p.x * 0.5 + 0.5, -p.y * 0.5 + 0.5);
+    return out;
+}
+
+@fragment
+fn fs_fog(in: FullscreenOut) -> @location(0) vec4<f32> {
+    return textureSample(hdr_tex, tex_sampler, in.uv);
+}
+"#;
+
 const BLOOM_WGSL: &str = r#"
 struct FullscreenOut {
     @builtin(position) pos: vec4<f32>,
@@ -442,6 +478,12 @@ struct PostProcessTargets {
     hdr_texture: crate::profiler::TrackedTexture,
     hdr_view: wgpu::TextureView,
     hdr_bg: wgpu::BindGroup,
+    /// Second HDR target. The scene renders into `hdr_texture`; the fog pass
+    /// reads that and writes here, and bloom/composite read this one. Two
+    /// targets because a pass may not sample the texture it renders to.
+    fog_hdr_texture: crate::profiler::TrackedTexture,
+    fog_hdr_view: wgpu::TextureView,
+    fog_hdr_bg: wgpu::BindGroup,
     bloom_texture: crate::profiler::TrackedTexture,
     bloom_view: wgpu::TextureView,
     bloom_bg: wgpu::BindGroup,
@@ -458,11 +500,18 @@ struct PostProcessTargets {
 }
 
 /// Owns the render targets, bind groups, and pipelines for the post-process
-/// chain (bloom -> SSAO -> tonemapped composite onto the swapchain).
+/// chain (fog -> bloom -> SSAO -> tonemapped composite -> TAA resolve onto the
+/// swapchain).
 pub struct PostProcessState {
     /// View of the HDR scene-color render target the main pass writes into.
     pub hdr_view: wgpu::TextureView,
     _hdr_texture: crate::profiler::TrackedTexture,
+    /// The fog pass's HDR output, and the image the rest of the chain reads.
+    /// `hdr_view` above is what the scene rendered; this is that image with
+    /// fog applied, and it exists as a second target because the fog pass
+    /// cannot sample the texture it renders into.
+    fog_hdr_view: wgpu::TextureView,
+    _fog_hdr_texture: crate::profiler::TrackedTexture,
     bloom_view: wgpu::TextureView,
     _bloom_texture: crate::profiler::TrackedTexture,
     ao_view: wgpu::TextureView,
@@ -487,6 +536,7 @@ pub struct PostProcessState {
     /// than blending against an uninitialised texture.
     history_valid: bool,
     hdr_bg: wgpu::BindGroup,
+    fog_hdr_bg: wgpu::BindGroup,
     bloom_bg: wgpu::BindGroup,
     ao_bg: wgpu::BindGroup,
     ldr_bg: wgpu::BindGroup,
@@ -502,6 +552,10 @@ pub struct PostProcessState {
     /// two the other passes use, because the resolve is already at the
     /// four-bind-group WebGPU baseline limit.
     taa_uniform_bg: wgpu::BindGroup,
+    /// Pipeline for the volumetric-fog apply shader, the first pass of the
+    /// chain. Currently an HDR passthrough; the name is the one the froxel
+    /// lookup will keep when it replaces the shader behind it.
+    pub fog_pipeline: wgpu::RenderPipeline,
     /// Pipeline for the bright-pass bloom extraction shader.
     pub bloom_pipeline: wgpu::RenderPipeline,
     /// Pipeline for the SSAO occlusion shader.
@@ -682,6 +736,7 @@ impl PostProcessState {
             ],
         });
 
+        let fog_pipeline = Self::make_fog_pipeline(device, &tex2d_bgl);
         let bloom_pipeline = Self::make_bloom_pipeline(device, &tex2d_bgl, &config_bgl);
         let ssao_pipeline =
             Self::make_ssao_pipeline(device, &depth_bgl, &config_bgl, &ssao_cam_bgl);
@@ -709,6 +764,8 @@ impl PostProcessState {
         Self {
             hdr_view: targets.hdr_view,
             _hdr_texture: targets.hdr_texture,
+            fog_hdr_view: targets.fog_hdr_view,
+            _fog_hdr_texture: targets.fog_hdr_texture,
             bloom_view: targets.bloom_view,
             _bloom_texture: targets.bloom_texture,
             ao_view: targets.ao_view,
@@ -721,6 +778,7 @@ impl PostProcessState {
             history_read: 0,
             history_valid: false,
             hdr_bg: targets.hdr_bg,
+            fog_hdr_bg: targets.fog_hdr_bg,
             bloom_bg: targets.bloom_bg,
             ao_bg: targets.ao_bg,
             ldr_bg: targets.ldr_bg,
@@ -732,6 +790,7 @@ impl PostProcessState {
             ssao_cam_bg,
             taa_cam_buffer,
             taa_uniform_bg,
+            fog_pipeline,
             bloom_pipeline,
             ssao_pipeline,
             composite_pipeline,
@@ -776,6 +835,10 @@ impl PostProcessState {
 
         let hdr_texture = make_tex("pp hdr", HDR_FORMAT);
         let hdr_view = hdr_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        // Same format and size as `hdr_texture`: the fog pass copies the scene
+        // image through it, so anything narrower would requantize the frame.
+        let fog_hdr_texture = make_tex("pp fog hdr", HDR_FORMAT);
+        let fog_hdr_view = fog_hdr_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let bloom_texture = make_tex("pp bloom", BLOOM_FORMAT);
         let bloom_view = bloom_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let ao_texture = make_tex("pp ao", AO_FORMAT);
@@ -816,6 +879,7 @@ impl PostProcessState {
         };
 
         let hdr_bg = make_tex2d_bg("pp hdr bg", &hdr_view);
+        let fog_hdr_bg = make_tex2d_bg("pp fog hdr bg", &fog_hdr_view);
         let bloom_bg = make_tex2d_bg("pp bloom bg", &bloom_view);
         let ao_bg = make_tex2d_bg("pp ao bg", &ao_view);
         let ldr_bg = make_tex2d_bg("pp ldr bg", &ldr_view);
@@ -837,6 +901,9 @@ impl PostProcessState {
             hdr_texture,
             hdr_view,
             hdr_bg,
+            fog_hdr_texture,
+            fog_hdr_view,
+            fog_hdr_bg,
             bloom_texture,
             bloom_view,
             bloom_bg,
@@ -851,6 +918,48 @@ impl PostProcessState {
             history_bgs,
             depth_bg,
         }
+    }
+
+    /// The fog apply pass renders HDR into HDR, so its colour target is
+    /// `HDR_FORMAT` rather than the swapchain format the later passes use.
+    fn make_fog_pipeline(
+        device: &wgpu::Device,
+        tex2d_bgl: &wgpu::BindGroupLayout,
+    ) -> wgpu::RenderPipeline {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("fog shader"),
+            source: wgpu::ShaderSource::Wgsl(FOG_WGSL.into()),
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("fog pll"),
+            bind_group_layouts: &[tex2d_bgl],
+            push_constant_ranges: &[],
+        });
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("fog pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_fullscreen",
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_fog",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: HDR_FORMAT,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        })
     }
 
     fn make_bloom_pipeline(
@@ -1026,8 +1135,9 @@ impl PostProcessState {
         })
     }
 
-    /// Recreates the sized render targets (HDR/bloom/AO/LDR/depth bind group)
-    /// for a new surface resolution, leaving pipelines and samplers untouched.
+    /// Recreates the sized render targets (HDR/fog HDR/bloom/AO/LDR/history and
+    /// the depth bind group) for a new surface resolution, leaving pipelines and
+    /// samplers untouched.
     pub fn resize_targets(
         &mut self,
         device: &wgpu::Device,
@@ -1047,6 +1157,8 @@ impl PostProcessState {
         );
         self.hdr_view = t.hdr_view;
         self._hdr_texture = t.hdr_texture;
+        self.fog_hdr_view = t.fog_hdr_view;
+        self._fog_hdr_texture = t.fog_hdr_texture;
         self.bloom_view = t.bloom_view;
         self._bloom_texture = t.bloom_texture;
         self.ao_view = t.ao_view;
@@ -1060,6 +1172,7 @@ impl PostProcessState {
         // resolution, so nothing in it may be blended against.
         self.invalidate_history();
         self.hdr_bg = t.hdr_bg;
+        self.fog_hdr_bg = t.fog_hdr_bg;
         self.bloom_bg = t.bloom_bg;
         self.ao_bg = t.ao_bg;
         self.ldr_bg = t.ldr_bg;
@@ -1093,8 +1206,14 @@ impl PostProcessState {
         queue.write_buffer(&self.taa_cam_buffer, 0, bytemuck::cast_slice(&[cam]));
     }
 
-    /// Runs the bloom, SSAO, composite, and TAA passes in sequence, writing
-    /// the final tonemapped result into `surface_view`.
+    /// Runs the fog, bloom, SSAO, composite, and TAA passes in sequence,
+    /// writing the final tonemapped result into `surface_view`.
+    ///
+    /// The fog pass comes first and copies the scene's HDR image into a second
+    /// HDR target that every later pass samples, because a pass cannot sample
+    /// the texture it renders into. It is an exact passthrough for now, so the
+    /// image reaching `surface_view` is the one the chain produced when bloom
+    /// and composite read the scene target directly.
     ///
     /// Composite writes into an intermediate LDR target rather than straight
     /// into `surface_view`; the TAA pass then reads that target and writes both
@@ -1124,6 +1243,30 @@ impl PostProcessState {
         let mut draw_calls = 0u32;
         let mut triangles = 0u64;
         {
+            // Always drawn, `fast_render` included: every pass below reads
+            // `fog_hdr_bg`, so skipping this one would leave them sampling the
+            // clear colour instead of the scene.
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("fog apply pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.fog_hdr_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                ..Default::default()
+            });
+            pass.set_pipeline(&self.fog_pipeline);
+            pass.set_bind_group(0, &self.hdr_bg, &[]);
+            pass.draw(0..3, 0..1);
+            draw_calls += 1;
+            triangles += 1;
+        }
+
+        {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("bloom pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1139,7 +1282,7 @@ impl PostProcessState {
             });
             if !fast_render {
                 pass.set_pipeline(&self.bloom_pipeline);
-                pass.set_bind_group(0, &self.hdr_bg, &[]);
+                pass.set_bind_group(0, &self.fog_hdr_bg, &[]);
                 pass.set_bind_group(1, &self.config_bg, &[]);
                 pass.draw(0..3, 0..1);
                 draw_calls += 1;
@@ -1187,7 +1330,7 @@ impl PostProcessState {
                 ..Default::default()
             });
             pass.set_pipeline(&self.composite_pipeline);
-            pass.set_bind_group(0, &self.hdr_bg, &[]);
+            pass.set_bind_group(0, &self.fog_hdr_bg, &[]);
             pass.set_bind_group(1, &self.bloom_bg, &[]);
             pass.set_bind_group(2, &self.ao_bg, &[]);
             pass.set_bind_group(3, &self.config_bg, &[]);
@@ -1272,6 +1415,15 @@ mod tests {
     #[test]
     fn hdr_format_is_rgba16float() {
         assert_eq!(HDR_FORMAT, wgpu::TextureFormat::Rgba16Float);
+    }
+
+    #[test]
+    fn fog_shader_compiles() {
+        let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
+        let _m = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: None,
+            source: wgpu::ShaderSource::Wgsl(FOG_WGSL.into()),
+        });
     }
 
     #[test]

@@ -108,7 +108,7 @@ fn fs_fog(in: FullscreenOut) -> @location(0) vec4<f32> {
 const FROXEL_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
 /// Size of [`FogUniform`], in bytes. See the test of the same name.
-const FOG_UNIFORM_SIZE: u64 = 208;
+const FOG_UNIFORM_SIZE: u64 = 352;
 
 /// Compute workgroup edge, matching the `@workgroup_size(8, 8, 1)` in both
 /// froxel shaders. The dispatch counts are derived from it.
@@ -136,6 +136,8 @@ const FOG_UNIFORM_STRUCT_WGSL: &str = r#"
 struct FogUniform {
     inv_view_proj: mat4x4<f32>,
     light_view_proj: mat4x4<f32>,
+    prev_view_proj: mat4x4<f32>,
+    prev_inv_view_proj: mat4x4<f32>,
     camera_pos: vec3<f32>,
     near: f32,
     light_dir: vec3<f32>,
@@ -144,10 +146,12 @@ struct FogUniform {
     density: f32,
     fog_color: vec3<f32>,
     anisotropy: f32,
+    prev_camera_pos: vec3<f32>,
+    pad0: f32,
     enabled: u32,
     frame_index: u32,
+    history_valid: u32,
     pad1: f32,
-    pad2: f32,
 }
 "#;
 
@@ -221,6 +225,88 @@ fn froxel_sample_depth(coord: vec3<u32>, frame: u32) -> f32 {
     let slice_near = select(froxel_slice_depth(coord.z - 1u), fog.near, coord.z == 0u);
     return mix(slice_near, slice_far, froxel_jitter(coord, frame));
 }
+
+// The world-space point at view depth `depth` down the screen column of froxel
+// column `coord_xy`.
+//
+// The far-plane point behind that column, scaled back along the ray to `depth`.
+// The camera-to-far-plane vector has a view-space z of exactly `far`, so scaling
+// it by `depth / far` lands on the right depth without the view matrix having to
+// be supplied separately -- the same relation the apply pass's
+// `surface_view_depth` runs backwards.
+fn froxel_ray_point(coord_xy: vec2<u32>, depth: f32) -> vec3<f32> {
+    let uv = (vec2<f32>(f32(coord_xy.x), f32(coord_xy.y)) + vec2<f32>(0.5, 0.5))
+        / vec2<f32>(f32(FROXEL_X), f32(FROXEL_Y));
+    let ndc = vec4<f32>(uv.x * 2.0 - 1.0, -(uv.y * 2.0 - 1.0), 1.0, 1.0);
+    let far_h = fog.inv_view_proj * ndc;
+    let far_world = far_h.xyz / far_h.w;
+    return fog.camera_pos + (far_world - fog.camera_pos) * (depth / fog.far);
+}
+
+// The world-space point froxel `coord` samples its lighting at on frame `frame`:
+// its ray at the dithered depth.
+fn froxel_world_pos(coord: vec3<u32>, frame: u32) -> vec3<f32> {
+    return froxel_ray_point(coord.xy, froxel_sample_depth(coord, frame));
+}
+
+// The centre of froxel `coord`, in world space and deliberately undithered.
+//
+// This is the point the temporal blend reprojects, and it is NOT
+// `froxel_world_pos`. The volume stores one accumulated value per froxel, and
+// the point that value describes is the froxel's centre; asking for the history
+// at the dithered sample position instead would move the lookup by a jitter's
+// worth every frame, and a trilinear read at a wobbling coordinate re-injects
+// the very variance the accumulation exists to remove. Measured, not guessed:
+// with the dithered position here, two settled frames differed in half as many
+// pixels as two raw ones instead of a small fraction of them.
+//
+// The centre is taken in the volume's own W coordinate rather than halfway
+// between the slice's two depths, because the slicing is exponential: the
+// arithmetic midpoint of a slice sits nearer its front edge than the texel
+// centre does, and a lookup there would straddle two texels forever.
+fn froxel_centre_world_pos(coord: vec3<u32>) -> vec3<f32> {
+    let t = (f32(coord.z) + 0.5) / f32(FROXEL_Z);
+    return froxel_ray_point(coord.xy, fog.near * pow(fog.far / fog.near, t));
+}
+
+// Where a world-space point sat in the PREVIOUS frame's froxel grid: `.xyz` is
+// the volume coordinate in 0..1 and `.w` is 1.0 when that point was inside the
+// previous volume at all, 0.0 when it was not.
+//
+// The mapping is the forward one `cs_inject` runs, inverted and rebuilt from
+// last frame's matrices: the same far-plane ray construction, the same
+// `depth_to_froxel_w`. Deriving the depth from `prev_inv_view_proj` rather than
+// from a separately supplied linearisation is what keeps the two in step, for
+// the same reason the apply pass builds `surface_view_depth` out of
+// `inv_view_proj`.
+//
+// Out-of-volume is a hard rejection, never a clamp. A froxel whose world
+// position was off-screen, behind the eye, or outside the near/far range last
+// frame has no history at all; clamping would hand it the edge froxel's light
+// instead and smear that light along the frustum border. It is the same rule
+// the TAA resolve applies to off-screen history, and for the same reason.
+fn froxel_history_uvw(world_pos: vec3<f32>) -> vec4<f32> {
+    let clip = fog.prev_view_proj * vec4<f32>(world_pos, 1.0);
+    if clip.w <= 0.0 {
+        return vec4<f32>(0.0);
+    }
+    let ndc = clip.xyz / clip.w;
+    let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+    if uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 {
+        return vec4<f32>(0.0);
+    }
+    // The previous frame's far-plane point behind this column, and the view
+    // depth of `world_pos` along the ray to it -- the same construction
+    // `cs_inject` runs forwards to place a froxel in the world.
+    let far_h = fog.prev_inv_view_proj * vec4<f32>(ndc.x, ndc.y, 1.0, 1.0);
+    let ray = far_h.xyz / far_h.w - fog.prev_camera_pos;
+    let view_z = fog.far * dot(world_pos - fog.prev_camera_pos, ray)
+        / max(dot(ray, ray), 1e-6);
+    if view_z < fog.near || view_z > fog.far {
+        return vec4<f32>(0.0);
+    }
+    return vec4<f32>(uv, depth_to_froxel_w(view_z), 1.0);
+}
 "#;
 
 /// The shadow resources the injection pass reads, at group 2.
@@ -292,6 +378,20 @@ struct LightUniform {
 /// `point_shadow_factor` for the cube-array one, which is a verbatim port.
 const FOG_INJECT_WGSL: &str = r#"
 @group(1) @binding(0) var injection_vol: texture_storage_3d<rgba16float, write>;
+// The other half of the scattering ping-pong: what this pass wrote last frame,
+// bound for sampling. A pass cannot read the volume it is writing, so the two
+// swap roles every frame.
+@group(3) @binding(0) var history_vol: texture_3d<f32>;
+@group(3) @binding(1) var history_sampler: sampler;
+
+// How much of the accumulated history survives into each new frame.
+//
+// High on purpose: the dither above deliberately makes a single frame noisy, and
+// only the average over many frames is the answer it is approximating. At 0.9 a
+// froxel's value is spread over roughly ten frames, which is enough to resolve
+// the noise into a gradient while still following a moving light or a moving
+// occluder within a few frames of it moving.
+const FOG_HISTORY_WEIGHT: f32 = 0.9;
 
 // Port of `froxel::henyey_greenstein`, 1/(4*PI) included. Dropping that factor
 // -- easy, since many references quote the unnormalised form -- makes the fog
@@ -411,24 +511,14 @@ fn cs_inject(@builtin(global_invocation_id) gid: vec3<u32>) {
     if gid.x >= FROXEL_X || gid.y >= FROXEL_Y || gid.z >= FROXEL_Z {
         return;
     }
-    let uv = (vec2<f32>(f32(gid.x), f32(gid.y)) + vec2<f32>(0.5, 0.5))
-        / vec2<f32>(f32(FROXEL_X), f32(FROXEL_Y));
-    // The far-plane point behind this froxel column. The camera-to-far-plane
-    // vector has a view-space z of exactly `far`, so scaling it by
-    // `depth / far` lands on the slice's view depth -- the same quantity the
-    // apply pass will invert -- without needing the view matrix separately.
-    let ndc = vec4<f32>(uv.x * 2.0 - 1.0, -(uv.y * 2.0 - 1.0), 1.0, 1.0);
-    let far_h = fog.inv_view_proj * ndc;
-    let far_world = far_h.xyz / far_h.w;
     // Dithered, and deliberately bounded to this froxel's own slice: the sample
     // point moves between that slice's two edges and never past them, so no
     // froxel lights from a neighbour's depth. What it removes is the hard band
     // each slice boundary otherwise draws across a shaft edge -- far more
     // visible here than in uniform fog, because a shaft edge is a step in
     // brightness rather than a gradient. The fine noise left behind is what the
-    // temporal accumulation averages back into an even gradient.
-    let depth = froxel_sample_depth(gid, fog.frame_index);
-    let world_pos = fog.camera_pos + (far_world - fog.camera_pos) * (depth / fog.far);
+    // temporal accumulation below averages back into an even gradient.
+    let world_pos = froxel_world_pos(gid, fog.frame_index);
 
     let scattering = fog.fog_color * fog.density;
     let extinction = fog.density;
@@ -496,7 +586,41 @@ fn cs_inject(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
     }
 
-    textureStore(injection_vol, vec3<i32>(gid), vec4<f32>(in_scatter, extinction));
+    // Temporal accumulation. The dither above bought its way out of banding
+    // with per-frame noise, and this is the half of the bargain that pays for
+    // it: each froxel's value is an exponential average over the frames that
+    // reached the same world position, so the noise averages back out while the
+    // dither keeps the bands from re-forming.
+    //
+    // Reprojection, not a plain read of the same froxel: the grid is anchored to
+    // the camera, so between frames a world position slides across it. Blending
+    // one froxel with whatever the same *index* held last frame would average
+    // two different places in the world and smear the shafts along the view
+    // direction as soon as the camera moved.
+    //
+    // Three ways this frame stands alone rather than blending, all of them the
+    // same rule TAA uses: no history exists yet (`history_valid`), the position
+    // was outside the previous volume (`h.w`), or -- the case those two do not
+    // cover -- the fog was switched off in between, which `apply` reports by
+    // clearing `history_valid` because the volumes then hold a stale frame.
+    var scatter = vec4<f32>(in_scatter, extinction);
+    if fog.history_valid != 0u {
+        // The froxel's centre, not the dithered position the lighting above was
+        // sampled at -- see `froxel_centre_world_pos` for why that distinction
+        // is the difference between an accumulation that settles and one that
+        // shimmers.
+        let h = froxel_history_uvw(froxel_centre_world_pos(gid));
+        if h.w > 0.0 {
+            // `textureSampleLevel`, not `textureSample`: this sits under a
+            // per-froxel branch, and an implicit-derivative sample does not
+            // exist in compute at all, let alone in non-uniform control flow.
+            // The trilinear filter it does keep is what stops the reprojection
+            // from snapping to whole froxels.
+            let prev = textureSampleLevel(history_vol, history_sampler, h.xyz, 0.0);
+            scatter = mix(scatter, prev, FOG_HISTORY_WEIGHT);
+        }
+    }
+    textureStore(injection_vol, vec3<i32>(gid), scatter);
 }
 "#;
 
@@ -1010,6 +1134,16 @@ pub struct FogUniform {
     /// uniform, next to `view_proj`, and this pass already carries its own
     /// camera matrices for the same reason (they are the jittered ones).
     pub light_view_proj: [[f32; 4]; 4],
+    /// The PREVIOUS frame's view-projection, used to find where a froxel's world
+    /// position sat in the previous frame's volume.
+    ///
+    /// Unjittered, like [`TaaCameraGpu`]'s pair and for the same reason:
+    /// reprojection has to track the camera, and chasing a sub-pixel offset
+    /// would keep the accumulation from ever settling.
+    pub prev_view_proj: [[f32; 4]; 4],
+    /// Inverse of [`FogUniform::prev_view_proj`], used to rebuild the previous
+    /// frame's far-plane ray and so recover a view depth from a world position.
+    pub prev_inv_view_proj: [[f32; 4]; 4],
     /// Camera position in world space.
     pub camera_pos: [f32; 3],
     /// Camera near plane; the front edge of the first depth slice.
@@ -1026,6 +1160,11 @@ pub struct FogUniform {
     pub fog_color: [f32; 3],
     /// Henyey-Greenstein anisotropy `g`; see [`crate::froxel::henyey_greenstein`].
     pub anisotropy: f32,
+    /// The PREVIOUS frame's camera position, the origin the reprojection ray is
+    /// measured from.
+    pub prev_camera_pos: [f32; 3],
+    /// Padding to the 16-byte uniform stride. See `fog_uniform_size`.
+    pub _pad0: f32,
     /// Nonzero to run the fog passes at all.
     pub enabled: u32,
     /// The frame counter driving the injection pass's depth dither; see
@@ -1037,10 +1176,16 @@ pub struct FogUniform {
     /// averages to nothing. It takes the slot that used to be padding, so the
     /// uniform is the same size it was.
     pub frame_index: u32,
+    /// Nonzero once the scattering ping-pong holds a frame worth blending
+    /// against.
+    ///
+    /// **Written by [`PostProcessState::update_fog`], not by its caller.** The
+    /// flag belongs to the ping-pong, which only `apply` advances, so whatever a
+    /// caller puts here is overwritten. It is a field of this struct rather than
+    /// a separate uniform because the injection shader reads it per froxel.
+    pub history_valid: u32,
     /// Padding to the 16-byte uniform stride. See `fog_uniform_size`.
     pub _pad1: f32,
-    /// See [`FogUniform::_pad1`].
-    pub _pad2: f32,
 }
 
 /// The scene's shadow resources, borrowed for the froxel injection pass's
@@ -1146,23 +1291,31 @@ pub struct PostProcessState {
     /// two the other passes use, because the resolve is already at the
     /// four-bind-group WebGPU baseline limit.
     taa_uniform_bg: wgpu::BindGroup,
-    /// The scattering volume: RGB is in-scattered light, A is extinction, one
+    /// The scattering volumes: RGB is in-scattered light, A is extinction, one
     /// texel per froxel. Filled by the injection pass, read by the integration
     /// pass.
+    ///
+    /// A **pair**, swapped each frame, because the injection pass blends this
+    /// frame's scattering into the accumulation the previous frame left behind
+    /// and a pass cannot sample the volume it is writing. Which half is which is
+    /// [`PostProcessState::fog_history_read`].
     ///
     /// **Deliberately not in `PostProcessTargets`, unlike every other texture
     /// in this file.** Everything there lives in that struct because a window
     /// resize has to reallocate it. The froxel grid is a fixed
     /// `FROXEL_X x FROXEL_Y x FROXEL_Z` resolution, chosen independently of the
-    /// output size, so these two volumes are the only render resources here
-    /// that a resize must leave alone -- putting them in `PostProcessTargets`
-    /// would silently rebuild them on every resize for no reason.
-    _injection_volume: crate::profiler::TrackedTexture,
+    /// output size, so these volumes are the only render resources here that a
+    /// resize must leave alone -- putting them in `PostProcessTargets` would
+    /// silently rebuild them on every resize for no reason.
+    _injection_volumes: [crate::profiler::TrackedTexture; 2],
     /// The integrated volume: RGB is accumulated in-scattered light up to each
     /// slice, A is the transmittance to it. Written by the integration pass and
     /// sampled by the apply pass.
     ///
-    /// Not resized -- see [`PostProcessState::_injection_volume`].
+    /// Not resized -- see [`PostProcessState::_injection_volumes`].
+    ///
+    /// Single, unlike those: nothing reads it across frames, because the
+    /// accumulation happens before integration rather than after it.
     _integrated_volume: crate::profiler::TrackedTexture,
     fog_uniform_buffer: wgpu::Buffer,
     fog_uniform_bg: wgpu::BindGroup,
@@ -1170,12 +1323,30 @@ pub struct PostProcessState {
     /// to test each froxel against. Built once from [`FroxelShadowBindings`];
     /// none of the resources behind it is ever recreated.
     froxel_shadow_bg: wgpu::BindGroup,
-    /// The injection volume bound for writing (injection pass).
-    injection_write_bg: wgpu::BindGroup,
-    /// The same volume bound for sampling (integration pass). A second bind
-    /// group rather than a read-write binding, which the WebGPU baseline does
-    /// not offer for storage textures.
-    injection_read_bg: wgpu::BindGroup,
+    /// Each scattering volume bound for writing (injection pass).
+    injection_write_bgs: [wgpu::BindGroup; 2],
+    /// The same volumes bound for `textureLoad` (integration pass). Separate
+    /// bind groups rather than a read-write binding, which the WebGPU baseline
+    /// does not offer for storage textures.
+    injection_read_bgs: [wgpu::BindGroup; 2],
+    /// The same volumes again, bound with a filtering sampler for the injection
+    /// pass to reproject its history out of. A third set rather than a reuse of
+    /// [`PostProcessState::injection_read_bgs`] because that layout carries no
+    /// sampler, and the reprojected lookup lands between froxels.
+    injection_history_bgs: [wgpu::BindGroup; 2],
+    /// Index of the scattering volume holding the PREVIOUS frame's
+    /// accumulation. The injection pass samples this one and writes the other;
+    /// they swap after every dispatch.
+    fog_history_read: usize,
+    /// False until a fog frame has been written to the ping-pong. The first
+    /// frame has nothing to reproject, so it must stand alone rather than blend
+    /// against an uninitialised volume -- exactly what
+    /// [`PostProcessState::history_valid`] does for the TAA resolve.
+    ///
+    /// Also cleared whenever fog is *off* for a frame: the volumes then keep
+    /// whatever the last foggy frame left in them, which a later frame must not
+    /// mistake for its own previous one.
+    fog_history_valid: bool,
     integrated_write_bg: wgpu::BindGroup,
     /// The integrated volume bound for the apply pass to sample: a filtering
     /// sampler and a `texture_3d<f32>`, not the storage binding the
@@ -1494,6 +1665,32 @@ impl PostProcessState {
                 count: None,
             }],
         });
+        // Group 3 of the injection pass: the other half of the scattering
+        // ping-pong, bound for sampling. A filtering sampler beside the texture,
+        // unlike `froxel_read_bgl` above, because the reprojected history lookup
+        // lands between froxels and a nearest read would snap it to whole ones.
+        let froxel_history_bgl =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("pp froxel history bgl"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D3,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
         // The apply pass reads the integrated volume as a *sampled* texture --
         // it wants the trilinear filter between froxels, which a storage
         // binding cannot give it -- so its layout is a `Texture` entry with a
@@ -1562,9 +1759,18 @@ impl PostProcessState {
                 ..Default::default()
             })
         };
-        let injection_volume = make_volume("pp froxel injection");
+        // Two scattering volumes, not one: the injection pass blends this
+        // frame's light into the accumulation the previous frame left, and a
+        // pass cannot sample the volume it is writing.
+        let injection_volumes = [
+            make_volume("pp froxel injection 0"),
+            make_volume("pp froxel injection 1"),
+        ];
         let integrated_volume = make_volume("pp froxel integrated");
-        let injection_view = volume_view(&injection_volume);
+        let injection_views = [
+            volume_view(&injection_volumes[0]),
+            volume_view(&injection_volumes[1]),
+        ];
         let integrated_view = volume_view(&integrated_volume);
 
         let make_volume_bg =
@@ -1578,16 +1784,54 @@ impl PostProcessState {
                     }],
                 })
             };
-        let injection_write_bg = make_volume_bg(
-            "pp froxel injection write bg",
-            &froxel_write_bgl,
-            &injection_view,
-        );
-        let injection_read_bg = make_volume_bg(
-            "pp froxel injection read bg",
-            &froxel_read_bgl,
-            &injection_view,
-        );
+        let injection_write_bgs = [
+            make_volume_bg(
+                "pp froxel injection write bg 0",
+                &froxel_write_bgl,
+                &injection_views[0],
+            ),
+            make_volume_bg(
+                "pp froxel injection write bg 1",
+                &froxel_write_bgl,
+                &injection_views[1],
+            ),
+        ];
+        let injection_read_bgs = [
+            make_volume_bg(
+                "pp froxel injection read bg 0",
+                &froxel_read_bgl,
+                &injection_views[0],
+            ),
+            make_volume_bg(
+                "pp froxel injection read bg 1",
+                &froxel_read_bgl,
+                &injection_views[1],
+            ),
+        ];
+        // The same pair once more, this time with `sampler` beside them. It
+        // clamps on every axis, W included, so a reprojection that lands just
+        // past the volume's near or far end reads that end's slice rather than
+        // wrapping around to the other one.
+        let make_history_bg = |label: &str, view: &wgpu::TextureView| {
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some(label),
+                layout: &froxel_history_bgl,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                ],
+            })
+        };
+        let injection_history_bgs = [
+            make_history_bg("pp froxel injection history bg 0", &injection_views[0]),
+            make_history_bg("pp froxel injection history bg 1", &injection_views[1]),
+        ];
         let integrated_write_bg = make_volume_bg(
             "pp froxel integrated write bg",
             &froxel_write_bgl,
@@ -1617,6 +1861,7 @@ impl PostProcessState {
             &fog_uniform_bgl,
             &froxel_write_bgl,
             &froxel_shadow_bgl,
+            &froxel_history_bgl,
         );
         let fog_integrate_pipeline = Self::make_fog_integrate_pipeline(
             device,
@@ -1685,13 +1930,16 @@ impl PostProcessState {
             ssao_cam_bg,
             taa_cam_buffer,
             taa_uniform_bg,
-            _injection_volume: injection_volume,
+            _injection_volumes: injection_volumes,
             _integrated_volume: integrated_volume,
             fog_uniform_buffer,
             fog_uniform_bg,
             froxel_shadow_bg,
-            injection_write_bg,
-            injection_read_bg,
+            injection_write_bgs,
+            injection_read_bgs,
+            injection_history_bgs,
+            fog_history_read: 0,
+            fog_history_valid: false,
             integrated_write_bg,
             integrated_read_bg,
             fog_enabled: false,
@@ -1829,13 +2077,16 @@ impl PostProcessState {
 
     /// The froxel injection pass: the engine's first compute pipeline.
     ///
-    /// Three groups: the fog parameters, the volume it writes, and the scene's
-    /// shadow resources it tests each froxel against.
+    /// Four groups: the fog parameters, the volume it writes, the scene's shadow
+    /// resources it tests each froxel against, and the previous frame's volume
+    /// it accumulates into. Four is the WebGPU baseline `max_bind_groups`, so
+    /// this pass has no room for a fifth.
     fn make_fog_inject_pipeline(
         device: &wgpu::Device,
         fog_uniform_bgl: &wgpu::BindGroupLayout,
         froxel_write_bgl: &wgpu::BindGroupLayout,
         froxel_shadow_bgl: &wgpu::BindGroupLayout,
+        froxel_history_bgl: &wgpu::BindGroupLayout,
     ) -> wgpu::ComputePipeline {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("fog inject shader"),
@@ -1843,7 +2094,12 @@ impl PostProcessState {
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("fog inject pll"),
-            bind_group_layouts: &[fog_uniform_bgl, froxel_write_bgl, froxel_shadow_bgl],
+            bind_group_layouts: &[
+                fog_uniform_bgl,
+                froxel_write_bgl,
+                froxel_shadow_bgl,
+                froxel_history_bgl,
+            ],
             push_constant_ranges: &[],
         });
         device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -2150,15 +2406,19 @@ impl PostProcessState {
         self.depth_bg = t.depth_bg;
     }
 
-    /// Discards the accumulated TAA history, so the next resolve blends the
-    /// frame with itself instead of with a stale or uninitialised image.
+    /// Discards both accumulated histories -- the TAA resolve's and the froxel
+    /// fog's -- so the next frame stands alone instead of blending against a
+    /// stale or uninitialised one.
     ///
-    /// Anything that makes the history textures stop describing the frame the
-    /// next resolve will produce has to call this -- a resize above being the
-    /// standing example, since the reallocated pair holds garbage at the new
-    /// resolution.
+    /// Anything that makes those textures stop describing the frame that comes
+    /// next has to call this -- a resize above being the standing example, since
+    /// the reallocated history pair holds garbage at the new resolution. The fog
+    /// volumes survive a resize untouched, being fixed-resolution, but their
+    /// contents were reprojected through the old camera and a resize changes the
+    /// aspect ratio, so they are equally stale.
     pub fn invalidate_history(&mut self) {
         self.history_valid = false;
+        self.fog_history_valid = false;
     }
 
     /// Uploads new bloom/tonemap/SSAO settings to the config uniform buffer.
@@ -2178,8 +2438,18 @@ impl PostProcessState {
     /// enabled flag has to stay readable on the CPU: `apply` skips the whole
     /// dispatch when fog is off, and it cannot read the flag back out of the
     /// uniform buffer.
+    ///
+    /// [`FogUniform::history_valid`] is stamped here rather than taken from the
+    /// caller. Only `apply` advances the scattering ping-pong, so only this
+    /// struct knows whether there is anything in it worth blending against;
+    /// letting a caller answer that question would let it ask the injection pass
+    /// to average this frame with an uninitialised volume.
     pub fn update_fog(&mut self, queue: &wgpu::Queue, fog: FogUniform) {
         self.fog_enabled = fog.enabled != 0;
+        let fog = FogUniform {
+            history_valid: u32::from(self.fog_history_valid),
+            ..fog
+        };
         queue.write_buffer(&self.fog_uniform_buffer, 0, bytemuck::cast_slice(&[fog]));
     }
 
@@ -2240,27 +2510,49 @@ impl PostProcessState {
             // this block.
             let groups_x = crate::froxel::FROXEL_X.div_ceil(FROXEL_WORKGROUP);
             let groups_y = crate::froxel::FROXEL_Y.div_ceil(FROXEL_WORKGROUP);
+            // Write into the half NOT being sampled, exactly as the TAA resolve
+            // does with its history pair.
+            let fog_history_write = 1 - self.fog_history_read;
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("froxel fog pass"),
                 timestamp_writes: None,
             });
             pass.set_pipeline(&self.fog_inject_pipeline);
             pass.set_bind_group(0, &self.fog_uniform_bg, &[]);
-            pass.set_bind_group(1, &self.injection_write_bg, &[]);
+            pass.set_bind_group(1, &self.injection_write_bgs[fog_history_write], &[]);
             // The shadow maps this frame's shadow passes just filled. The
             // integration pass below re-binds group 2 for its own output
             // volume, which is why this one has to be set per dispatch rather
             // than once for the pass.
             pass.set_bind_group(2, &self.froxel_shadow_bg, &[]);
+            // The accumulation the previous fog frame left. Bound even when
+            // `fog_history_valid` is false -- the pipeline layout demands the
+            // group, and the shader's `history_valid` check is what keeps an
+            // uninitialised volume from reaching the blend.
+            pass.set_bind_group(3, &self.injection_history_bgs[self.fog_history_read], &[]);
             // One thread per froxel.
             pass.dispatch_workgroups(groups_x, groups_y, crate::froxel::FROXEL_Z);
 
             pass.set_pipeline(&self.fog_integrate_pipeline);
             pass.set_bind_group(0, &self.fog_uniform_bg, &[]);
-            pass.set_bind_group(1, &self.injection_read_bg, &[]);
+            // The volume the injection dispatch above just wrote, not the one it
+            // read: integration marches this frame's accumulated scattering.
+            pass.set_bind_group(1, &self.injection_read_bgs[fog_history_write], &[]);
             pass.set_bind_group(2, &self.integrated_write_bg, &[]);
             // One thread per froxel *column*: each marches the whole Z axis.
             pass.dispatch_workgroups(groups_x, groups_y, 1);
+            drop(pass);
+
+            // The volume just written holds the accumulation the next foggy
+            // frame reprojects out of.
+            self.fog_history_read = fog_history_write;
+            self.fog_history_valid = true;
+        } else {
+            // Nothing ran, so the pair still holds whatever the last foggy frame
+            // left there -- a frame with a different camera, and possibly a
+            // different scene. Switching fog back on has to start over rather
+            // than average against it.
+            self.fog_history_valid = false;
         }
 
         {
@@ -2542,6 +2834,22 @@ mod tests {
     /// there is the exact function the apply shader calls -- so what these
     /// probes measure is the shipping mapping, not a copy of it.
     fn run_froxel_probe(near: f32, far: f32, probe_wgsl: &str, out_floats: usize) -> Vec<f32> {
+        use bytemuck::Zeroable as _;
+        run_froxel_probe_with(
+            FogUniform {
+                near,
+                far,
+                ..FogUniform::zeroed()
+            },
+            probe_wgsl,
+            out_floats,
+        )
+    }
+
+    /// [`run_froxel_probe`] with the whole uniform supplied, for probes that
+    /// read more of it than the depth range -- the reprojection, which needs
+    /// real camera matrices, being the case in point.
+    fn run_froxel_probe_with(fog: FogUniform, probe_wgsl: &str, out_floats: usize) -> Vec<f32> {
         let bytes = (out_floats * std::mem::size_of::<f32>()) as u64;
 
         let (device, queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
@@ -2580,10 +2888,6 @@ mod tests {
             }],
         });
 
-        use bytemuck::Zeroable as _;
-        let mut fog = FogUniform::zeroed();
-        fog.near = near;
-        fog.far = far;
         let fog_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: None,
             size: FOG_UNIFORM_SIZE,
@@ -2880,6 +3184,126 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
         );
     }
 
+    /// The history reprojection must be the exact inverse of the mapping that
+    /// placed the froxel in the world, and must reject rather than clamp when
+    /// there is no history to find.
+    ///
+    /// A still camera is the case where the answer is knowable exactly: with the
+    /// previous frame's matrices equal to this frame's, every froxel has to
+    /// reproject onto *itself*. Nothing else about temporal accumulation can be
+    /// checked this precisely -- a pixel test sees the blend, not the
+    /// coordinate, so a reprojection off by a froxel or two would show up there
+    /// as slightly soft shafts and nothing more.
+    ///
+    /// The rejection half matters just as much and is not implied: history from
+    /// outside the previous volume does not exist, and taking the edge froxel's
+    /// light instead would smear it along the frustum border. It is the same
+    /// rule the TAA resolve applies to off-screen history.
+    #[test]
+    fn the_history_reprojection_inverts_the_froxel_mapping() {
+        // Four outputs per thread: the reprojected coordinate and its validity
+        // flag. `froxel_centre_world_pos` is what the injection pass actually
+        // reprojects, and its round trip has an exactly known answer -- the
+        // froxel's own texel centre -- so nothing here has to be compared
+        // against another run of the same shader code.
+        const PROBE_WGSL: &str = r#"
+@group(1) @binding(0) var<storage, read_write> out_values: array<f32>;
+
+@compute @workgroup_size(64, 1, 1)
+fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if gid.x >= FROXEL_Z {
+        return;
+    }
+    // Deliberately off-centre in X and Y: a column through the middle of the
+    // screen reprojects onto itself under almost any matrix mistake, because
+    // both its U and its V are 0.5.
+    let coord = vec3<u32>(37u, 19u, gid.x);
+    let h = froxel_history_uvw(froxel_centre_world_pos(coord));
+    out_values[gid.x * 4u + 0u] = h.x;
+    out_values[gid.x * 4u + 1u] = h.y;
+    out_values[gid.x * 4u + 2u] = h.z;
+    out_values[gid.x * 4u + 3u] = h.w;
+}
+"#;
+        use bytemuck::Zeroable as _;
+        let (near, far) = (0.1f32, 100.0f32);
+        let cam_pos = glam::Vec3::new(3.0, 2.0, 9.0);
+        let proj = glam::Mat4::perspective_rh(60f32.to_radians(), 16.0 / 9.0, near, far);
+        let view_proj = proj * glam::Mat4::look_at_rh(cam_pos, glam::Vec3::ZERO, glam::Vec3::Y);
+        let still = FogUniform {
+            inv_view_proj: view_proj.inverse().to_cols_array_2d(),
+            prev_view_proj: view_proj.to_cols_array_2d(),
+            prev_inv_view_proj: view_proj.inverse().to_cols_array_2d(),
+            camera_pos: cam_pos.to_array(),
+            prev_camera_pos: cam_pos.to_array(),
+            near,
+            far,
+            ..FogUniform::zeroed()
+        };
+
+        let slices = crate::froxel::FROXEL_Z as usize;
+        let got = run_froxel_probe_with(still, PROBE_WGSL, slices * 4);
+
+        let expect_u = (37.0 + 0.5) / crate::froxel::FROXEL_X as f32;
+        let expect_v = (19.0 + 0.5) / crate::froxel::FROXEL_Y as f32;
+        for s in 0..slices {
+            let (u, v, w, valid) = (got[s * 4], got[s * 4 + 1], got[s * 4 + 2], got[s * 4 + 3]);
+            // The froxel's own texel centre down the W axis. Landing anywhere
+            // else means the trilinear read straddles two slices on every frame
+            // of a *still* camera, which mixes the neighbours' light back in
+            // instead of accumulating this froxel's.
+            let expect_w = (s as f32 + 0.5) / crate::froxel::FROXEL_Z as f32;
+            assert_eq!(
+                valid, 1.0,
+                "slice {s} reprojected to nothing under a still camera. Every \
+                 froxel of this frame's volume was in the previous one too, so a \
+                 rejection here is the mapping failing, not history genuinely \
+                 missing"
+            );
+            assert!(
+                (u - expect_u).abs() < 1e-4 && (v - expect_v).abs() < 1e-4,
+                "slice {s} reprojected to ({u}, {v}), not its own ({expect_u}, \
+                 {expect_v}). With the camera still, a froxel must find itself; \
+                 an offset here blends each froxel with a neighbouring column's \
+                 light and smears the shafts sideways"
+            );
+            assert!(
+                (w - expect_w).abs() < 1e-3,
+                "slice {s} reprojected to depth coordinate {w}, not its own \
+                 texel centre {expect_w}. The recovered view depth does not \
+                 invert the forward mapping, so the accumulation averages each \
+                 froxel with one at a different distance"
+            );
+        }
+
+        // The other half: a camera that was facing the other way last frame puts
+        // every one of this frame's froxels behind the previous eye, where no
+        // history exists.
+        let backwards = proj
+            * glam::Mat4::look_at_rh(
+                cam_pos,
+                cam_pos + (cam_pos - glam::Vec3::ZERO),
+                glam::Vec3::Y,
+            );
+        let turned = FogUniform {
+            prev_view_proj: backwards.to_cols_array_2d(),
+            prev_inv_view_proj: backwards.inverse().to_cols_array_2d(),
+            ..still
+        };
+        let got = run_froxel_probe_with(turned, PROBE_WGSL, slices * 4);
+        for s in 0..slices {
+            assert_eq!(
+                got[s * 4 + 3],
+                0.0,
+                "slice {s} claimed history from a frame whose camera faced the \
+                 other way. A point that was behind the previous eye has no \
+                 history, and accepting one means the rejection is not \
+                 rejecting -- which shows up as light smeared along the frustum \
+                 border whenever the camera turns"
+            );
+        }
+    }
+
     /// The generated preamble is the only thing keeping the WGSL grid bounds
     /// tied to the Rust ones, so assert it actually carries them.
     #[test]
@@ -3159,6 +3583,10 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
                     .to_cols_array_2d(),
                 light_view_proj: glam::Mat4::orthographic_rh(-30.0, 30.0, -30.0, 30.0, 0.1, 200.0)
                     .to_cols_array_2d(),
+                prev_view_proj: glam::Mat4::perspective_rh(1.0, 1.0, 0.1, 100.0).to_cols_array_2d(),
+                prev_inv_view_proj: glam::Mat4::perspective_rh(1.0, 1.0, 0.1, 100.0)
+                    .inverse()
+                    .to_cols_array_2d(),
                 camera_pos: [0.0, 0.0, 0.0],
                 near: 0.1,
                 light_dir: [0.0, 1.0, 0.0],
@@ -3167,24 +3595,135 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
                 density: 0.05,
                 fog_color: [0.5, 0.6, 0.7],
                 anisotropy: 0.3,
+                prev_camera_pos: [0.0, 0.0, 0.0],
+                _pad0: 0.0,
                 enabled: 1,
                 frame_index: 0,
+                history_valid: 0,
                 _pad1: 0.0,
-                _pad2: 0.0,
             },
         );
         assert!(pp.fog_enabled, "a nonzero `enabled` must arm the dispatch");
+        assert!(
+            !pp.fog_history_valid,
+            "the scattering ping-pong must start empty, or the very first fog \
+             frame averages itself with an uninitialised volume"
+        );
 
-        let mut encoder =
-            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-        pp.apply(&mut encoder, &target_view, false);
-        queue.submit(Some(encoder.finish()));
+        // Twice, because the two history states take different branches through
+        // the injection pass, exactly as they do in the TAA resolve: the first
+        // dispatch has nothing to reproject, the second reprojects what the
+        // first wrote.
+        for expected_read in [1usize, 0] {
+            let mut encoder =
+                device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+            pp.apply(&mut encoder, &target_view, false);
+            queue.submit(Some(encoder.finish()));
+            assert_eq!(
+                pp.fog_history_read, expected_read,
+                "the scattering ping-pong must advance: the volume just written \
+                 is the next frame's history, and never the one just sampled"
+            );
+            assert!(
+                pp.fog_history_valid,
+                "a fog dispatch leaves an accumulation behind for the next one"
+            );
+        }
+
         device.poll(wgpu::Maintain::Wait);
         assert!(
             pollster::block_on(device.pop_error_scope()).is_none(),
             "the froxel injection and integration passes must record cleanly; \
              a validation error here means the pipeline layouts, the bind \
              groups, or the storage-texture formats disagree with the WGSL"
+        );
+    }
+
+    /// Fog switched off has to reset the accumulation, not merely pause it.
+    ///
+    /// The volumes are never cleared, so a frame with fog off leaves the last
+    /// foggy frame's scattering sitting in them -- rendered with a different
+    /// camera, and quite possibly a different scene. Blending against that when
+    /// fog comes back would ghost the old frame into the new one, and it is the
+    /// one stale-history case `history_valid`'s first-frame rule does not
+    /// already cover.
+    #[test]
+    fn switching_fog_off_discards_the_accumulation() {
+        let (device, queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
+        let width = 64;
+        let height = 64;
+        let depth_texture = crate::profiler::create_tracked_texture(
+            &device,
+            &wgpu::TextureDescriptor {
+                label: Some("fog history test depth"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: crate::surface::DEPTH_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            },
+        );
+        let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let target = crate::output::create_offscreen_texture(&device, width, height);
+        let target_view = target.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let shadow = TestShadowResources::new(&device);
+        let mut pp = PostProcessState::new(
+            &device,
+            width,
+            height,
+            &depth_view,
+            crate::output::OFFSCREEN_FORMAT,
+            &shadow.bindings(),
+        );
+
+        use bytemuck::Zeroable as _;
+        let foggy = FogUniform {
+            near: 0.1,
+            far: 100.0,
+            density: 0.05,
+            enabled: 1,
+            ..FogUniform::zeroed()
+        };
+        let run = |pp: &mut PostProcessState, fog: FogUniform| {
+            pp.update_fog(&queue, fog);
+            let mut encoder =
+                device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+            pp.apply(&mut encoder, &target_view, false);
+            queue.submit(Some(encoder.finish()));
+        };
+
+        run(&mut pp, foggy);
+        assert!(pp.fog_history_valid, "a foggy frame builds an accumulation");
+
+        run(
+            &mut pp,
+            FogUniform {
+                enabled: 0,
+                ..foggy
+            },
+        );
+        assert!(
+            !pp.fog_history_valid,
+            "a frame with fog off must discard the accumulation: the volumes \
+             still hold the last foggy frame, and blending the next one against \
+             it would ghost a frame rendered under a different camera into it"
+        );
+
+        // And the uniform the next foggy frame actually reads has to carry that
+        // decision -- the flag on this struct is only half of it.
+        pp.update_fog(&queue, foggy);
+        assert!(
+            !pp.fog_history_valid,
+            "uploading a foggy frame must not by itself revive the history; \
+             only a dispatch that fills a volume may"
         );
     }
 }

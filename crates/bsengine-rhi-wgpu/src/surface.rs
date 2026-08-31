@@ -2022,6 +2022,14 @@ pub struct WgpuSurface {
     /// enabled, so enabling it mid-run reprojects against the frame that
     /// actually preceded it rather than an arbitrarily old one.
     prev_unjittered_view_proj: Mat4,
+    /// The previous frame's camera position, stored alongside
+    /// [`Self::prev_unjittered_view_proj`] and updated with it.
+    ///
+    /// The froxel fog's temporal accumulation needs it: reprojecting a world
+    /// position into the previous frame's volume means measuring its depth along
+    /// a ray from where the camera *was*, and a matrix alone does not hand that
+    /// back without an extra inverse-transform.
+    prev_camera_pos: Vec3,
 }
 
 impl WgpuSurface {
@@ -3294,6 +3302,7 @@ impl WgpuSurface {
             // stores one: `PostProcessState` starts with `history_valid`
             // false, and the resolve does not reproject without history.
             prev_unjittered_view_proj: Mat4::IDENTITY,
+            prev_camera_pos: Vec3::ZERO,
             start_time: std::time::Instant::now(),
             dock_state: None,
             last_saved_layout_json: None,
@@ -4419,6 +4428,15 @@ impl WgpuSurface {
                     // what lets a froxel and a surface at one world position
                     // agree about whether they are in shadow.
                     light_view_proj: light_view_proj.to_cols_array_2d(),
+                    // The *unjittered* pair, unlike `inv_view_proj` above and
+                    // for the same reason `TaaCameraGpu` uses unjittered
+                    // matrices: reprojection has to follow the camera, and
+                    // chasing a sub-pixel offset would stop the accumulation
+                    // ever settling. Inverted here rather than stored inverted
+                    // because the froxel reprojection needs both directions and
+                    // the TAA resolve needs only one.
+                    prev_view_proj: self.prev_unjittered_view_proj.to_cols_array_2d(),
+                    prev_inv_view_proj: self.prev_unjittered_view_proj.inverse().to_cols_array_2d(),
                     camera_pos: cam_pos.to_array(),
                     near: fog_near,
                     // Toward the light, which is the convention the scene
@@ -4432,12 +4450,16 @@ impl WgpuSurface {
                     density: active_fog.map(|f| f.density).unwrap_or(0.0),
                     fog_color: active_fog.map(|f| *f.color).unwrap_or(Vec3::ONE).to_array(),
                     anisotropy: active_fog.map(|f| f.anisotropy).unwrap_or(0.0),
+                    prev_camera_pos: self.prev_camera_pos.to_array(),
+                    _pad0: 0.0,
                     enabled: u32::from(active_fog.is_some()),
                     // Unconditional, unlike `jitter_clip`: the depth dither is
                     // not part of TAA and runs on every foggy frame.
                     frame_index,
+                    // Stamped by `update_fog` from the ping-pong's own state;
+                    // see `FogUniform::history_valid`.
+                    history_valid: 0,
                     _pad1: 0.0,
-                    _pad2: 0.0,
                 },
             );
         }
@@ -5558,8 +5580,11 @@ impl WgpuSurface {
         }
 
         // This frame's camera becomes next frame's reprojection source. Stored
-        // last, after the resolve above has consumed the previous value.
+        // last, after the resolve above has consumed the previous value, and as
+        // a pair because the froxel fog reprojects from the position as well as
+        // the matrix.
         self.prev_unjittered_view_proj = unjittered_view_proj;
+        self.prev_camera_pos = cam_pos;
 
         Ok(clicked)
     }

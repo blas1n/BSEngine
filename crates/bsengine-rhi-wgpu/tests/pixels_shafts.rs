@@ -250,6 +250,96 @@ fn the_depth_dither_moves_the_froxel_sample_from_frame_to_frame() {
     );
 }
 
+#[test]
+fn shafts_converge_instead_of_shimmering() {
+    // The other half of the bargain the dither struck. It bought its way out of
+    // banding by making a single frame noisy; this is what pays that back, and
+    // the claim is that it does -- with a still camera, two consecutive settled
+    // frames have to be far closer to each other than two raw ones are.
+    //
+    // The control is the same two frame indices with no accumulation behind
+    // them, so the two measurements differ in exactly one thing. Comparing
+    // against nothing -- "the settled frames are similar" -- would pass on any
+    // scene quiet enough, this one included.
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let shafted = scene(cube, Some(OVERHEAD), Some(shaft_fog()));
+
+    // Raw: two fresh first frames, at the same two indices the settled pair
+    // below ends on. `render_at_frame` discards history, so each of these is one
+    // dithered frame standing alone.
+    let raw_a = h.render_at_frame(&shafted, 11);
+    let raw_b = h.render_at_frame(&shafted, 12);
+    let raw = raw_a.differing_pixels(&raw_b);
+
+    // Settled: the same frames reached with eleven and twelve frames of
+    // accumulation behind them. `render_converged` discards history once and
+    // then lets it build, which is the whole point.
+    let settled_a = h.render_converged(&shafted, 12);
+    let settled_b = h.render_converged(&shafted, 13);
+    let settled = settled_a.differing_pixels(&settled_b);
+
+    println!(
+        "frame-to-frame difference: raw {raw} px (max delta {}), settled \
+         {settled} px (max delta {})",
+        raw_a.max_channel_diff(&raw_b),
+        settled_a.max_channel_diff(&settled_b),
+    );
+
+    assert!(
+        raw > 1000,
+        "the control measured only {raw} differing pixels, so there is barely \
+         any per-frame noise here to average away and this test would pass \
+         with the accumulation removed. Check that the depth dither is still \
+         reaching the injection pass"
+    );
+    assert!(
+        settled * 4 < raw,
+        "two settled frames differ in {settled} pixels against the raw pair's \
+         {raw} -- the accumulation is not damping the dither. Check that the \
+         injection pass samples `history_vol`, that `history_valid` survives \
+         from one frame to the next, and that the reprojection is not \
+         rejecting every froxel"
+    );
+}
+
+#[test]
+fn converged_shafts_are_still_shafts() {
+    // The guard the test above needs and cannot make. "Consecutive frames are
+    // nearly identical" is also true of a volume that has averaged itself into
+    // a flat grey, or of one that stopped updating altogether -- both would pass
+    // convergence and both would have thrown the feature away.
+    //
+    // So: after the accumulation settles, the occluded column must still be
+    // markedly darker than the unoccluded one, by the same margin the
+    // single-frame test demands.
+    let mut h = Harness::new();
+    let cube = h.cube();
+
+    let unshadowed = h
+        .render_converged(&scene(cube, None, Some(shaft_fog())), 12)
+        .centre_luma();
+    let shadowed = h
+        .render_converged(&scene(cube, Some(OVERHEAD), Some(shaft_fog())), 12)
+        .centre_luma();
+
+    println!("converged centre fog luma: unshadowed {unshadowed:.1}, shadowed {shadowed:.1}");
+
+    assert!(
+        unshadowed > 20.0,
+        "the accumulation has dimmed the unshadowed fog to {unshadowed:.1}. A \
+         history blend that leaks light away every frame converges on darkness, \
+         which the frame-to-frame test would happily call converged"
+    );
+    assert!(
+        shadowed < unshadowed - 8.0,
+        "after settling, the shadowed column reads {shadowed:.1} against the \
+         unshadowed {unshadowed:.1}. The shafts have been averaged away: a \
+         volume blending toward a uniform value passes every convergence test \
+         there is and is no longer light shafts"
+    );
+}
+
 /// The lamp for the point-light case, hanging above the occluder.
 ///
 /// `y = 20` puts it clear above the slab at `y = 14`, so everything the slab

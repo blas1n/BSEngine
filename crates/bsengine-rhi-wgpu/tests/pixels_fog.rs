@@ -86,11 +86,7 @@ fn fixtures(h: &mut Harness) -> (u64, String) {
 }
 
 /// The two cubes, with everything downstream of the fog pass switched off.
-fn two_cubes(
-    cube: u64,
-    shader: &str,
-    fog: Option<bsengine_core::VolumetricFog>,
-) -> Scene {
+fn two_cubes(cube: u64, shader: &str, fog: Option<bsengine_core::VolumetricFog>) -> Scene {
     Scene {
         draws: vec![
             Draw::new(cube, NEAR_CENTRE).shader(shader),

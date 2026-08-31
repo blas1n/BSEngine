@@ -4397,10 +4397,7 @@ impl WgpuSurface {
                     far: fog_far,
                     light_color: light.color.to_array(),
                     density: active_fog.map(|f| f.density).unwrap_or(0.0),
-                    fog_color: active_fog
-                        .map(|f| *f.color)
-                        .unwrap_or(Vec3::ONE)
-                        .to_array(),
+                    fog_color: active_fog.map(|f| *f.color).unwrap_or(Vec3::ONE).to_array(),
                     anisotropy: active_fog.map(|f| f.anisotropy).unwrap_or(0.0),
                     enabled: u32::from(active_fog.is_some()),
                     _pad0: 0.0,
@@ -5847,7 +5844,10 @@ mod tests {
                 (n - near).abs() < near * 1e-3,
                 "near {n} should have been {near}"
             );
-            assert!((f - far).abs() < far * 1e-3, "far {f} should have been {far}");
+            assert!(
+                (f - far).abs() < far * 1e-3,
+                "far {f} should have been {far}"
+            );
         }
     }
 

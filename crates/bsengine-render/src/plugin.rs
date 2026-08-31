@@ -697,9 +697,14 @@ fn render_frame(
     // that `WgpuSurface::render_frame` applies to the rasterization
     // projection alone.
     let unjittered_view_proj = view_proj;
+    // Captured before the advance below, and handed to `render_frame` alongside
+    // the offset: the froxel fog's depth dither runs on every foggy frame, TAA
+    // enabled or not, so it needs the counter itself and not just the
+    // TAA-conditional offset derived from it.
+    let frame_index = *taa_frame_index;
     let jitter_clip = if taa.map(|t| t.enabled).unwrap_or(false) {
         bsengine_rhi_wgpu::taa_jitter::jitter_clip_offset(
-            *taa_frame_index,
+            frame_index,
             surface.0.width(),
             surface.0.height(),
         )
@@ -985,6 +990,7 @@ fn render_frame(
         &particle_batches,
         taa,
         jitter_clip,
+        frame_index,
         unjittered_view_proj,
         light_probes,
         fog,

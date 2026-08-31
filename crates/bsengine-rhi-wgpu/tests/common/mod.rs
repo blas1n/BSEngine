@@ -263,6 +263,31 @@ impl Pixels {
         self.data != other.data
     }
 
+    /// How many pixels differ from another frame's, in any channel.
+    ///
+    /// [`Self::differs_from`] answers "at all", which is the right question for
+    /// a passthrough guard. Anything measuring how *much* two frames differ --
+    /// noise that should have been averaged away, say -- needs a number instead,
+    /// and a count reports the extent of a difference where a maximum reports
+    /// only its worst pixel.
+    pub fn differing_pixels(&self, other: &Pixels) -> usize {
+        self.data
+            .chunks_exact(4)
+            .zip(other.data.chunks_exact(4))
+            .filter(|(a, b)| a[..3] != b[..3])
+            .count()
+    }
+
+    /// The largest single-channel difference against another frame.
+    pub fn max_channel_diff(&self, other: &Pixels) -> u8 {
+        self.data
+            .chunks_exact(4)
+            .zip(other.data.chunks_exact(4))
+            .flat_map(|(a, b)| (0..3).map(move |c| a[c].abs_diff(b[c])))
+            .max()
+            .unwrap_or(0)
+    }
+
     /// Whether every pixel is this colour, within `tolerance` per channel.
     /// Alpha is ignored.
     pub fn is_uniformly(&self, rgb: [u8; 3], tolerance: u8) -> bool {
@@ -451,6 +476,20 @@ struct VertOut {{
         self.render_frame_at(scene, 0)
     }
 
+    /// One fresh frame at an arbitrary point in the frame counter.
+    ///
+    /// [`Self::render`] always renders frame 0, which is what makes it
+    /// repeatable, and that is exactly why it cannot show anything the frame
+    /// index drives -- the froxel fog's depth dither being the case in point.
+    /// This is [`Self::render`] with the index chosen: history is discarded
+    /// first, so what comes back is a single unaccumulated frame either way,
+    /// and two calls with different indices differ only in what the frame
+    /// counter feeds.
+    pub fn render_at_frame(&mut self, scene: &Scene, frame_index: u32) -> Pixels {
+        self.surface.invalidate_taa_history();
+        self.render_frame_at(scene, frame_index)
+    }
+
     /// Renders `frames` consecutive frames of the same scene and returns the
     /// last one.
     ///
@@ -558,6 +597,10 @@ struct VertOut {{
                 &scene.particles,
                 scene.taa,
                 jitter_clip,
+                // The counter itself, not only the offset derived from it: the
+                // froxel depth dither runs whether or not TAA does, so it needs
+                // the index even on the frames `jitter_clip` is zero.
+                frame_index,
                 // The unjittered matrix, on purpose: reprojection has to track
                 // the camera, not the jitter.
                 view_proj,

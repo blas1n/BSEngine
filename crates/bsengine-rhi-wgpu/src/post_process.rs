@@ -145,7 +145,7 @@ struct FogUniform {
     fog_color: vec3<f32>,
     anisotropy: f32,
     enabled: u32,
-    pad0: f32,
+    frame_index: u32,
     pad1: f32,
     pad2: f32,
 }
@@ -188,6 +188,38 @@ fn froxel_slice_depth(slice: u32) -> f32 {
 fn depth_to_froxel_w(view_z: f32) -> f32 {
     let z = clamp(view_z, fog.near, fog.far);
     return clamp(log(z / fog.near) / log(fog.far / fog.near), 0.0, 1.0);
+}
+
+// Port of `froxel::froxel_jitter`: a pseudo-random offset in [0, 1) for one
+// froxel on one frame. See the Rust for why it is a hash of the coordinate and
+// the frame rather than a random number -- headless replays have to reproduce.
+//
+// It sits in the shared block rather than beside its only caller in the
+// injection shader so `the_wgsl_froxel_jitter_matches_the_rust_one` can reach it
+// through `run_froxel_probe`, which composes exactly this text and nothing from
+// the injection pass.
+fn froxel_jitter(coord: vec3<u32>, frame: u32) -> f32 {
+    let h = (coord.x * 73856093u) ^ (coord.y * 19349663u)
+          ^ (coord.z * 83492791u) ^ (frame * 2654435761u);
+    return f32(h & 0xFFFFu) / 65536.0;
+}
+
+// The view depth this froxel samples its lighting at: somewhere strictly inside
+// slice `coord.z`, picked by `froxel_jitter`.
+//
+// Slice 0 starts at the near plane and every later one starts where its
+// predecessor ended, which is exactly the span the integration pass integrates
+// across -- so interpolating between those two edges keeps the sample inside the
+// slice it belongs to. Reaching past an edge would light a froxel from a
+// neighbour's depth, which is the one thing worse than the banding this exists
+// to remove.
+//
+// Shared rather than local to the injection pass so
+// `the_jittered_sample_stays_inside_its_own_slice` can probe the real function.
+fn froxel_sample_depth(coord: vec3<u32>, frame: u32) -> f32 {
+    let slice_far = froxel_slice_depth(coord.z);
+    let slice_near = select(froxel_slice_depth(coord.z - 1u), fog.near, coord.z == 0u);
+    return mix(slice_near, slice_far, froxel_jitter(coord, frame));
 }
 "#;
 
@@ -388,7 +420,14 @@ fn cs_inject(@builtin(global_invocation_id) gid: vec3<u32>) {
     let ndc = vec4<f32>(uv.x * 2.0 - 1.0, -(uv.y * 2.0 - 1.0), 1.0, 1.0);
     let far_h = fog.inv_view_proj * ndc;
     let far_world = far_h.xyz / far_h.w;
-    let depth = froxel_slice_depth(gid.z);
+    // Dithered, and deliberately bounded to this froxel's own slice: the sample
+    // point moves between that slice's two edges and never past them, so no
+    // froxel lights from a neighbour's depth. What it removes is the hard band
+    // each slice boundary otherwise draws across a shaft edge -- far more
+    // visible here than in uniform fog, because a shaft edge is a step in
+    // brightness rather than a gradient. The fine noise left behind is what the
+    // temporal accumulation averages back into an even gradient.
+    let depth = froxel_sample_depth(gid, fog.frame_index);
     let world_pos = fog.camera_pos + (far_world - fog.camera_pos) * (depth / fog.far);
 
     let scattering = fog.fog_color * fog.density;
@@ -989,11 +1028,18 @@ pub struct FogUniform {
     pub anisotropy: f32,
     /// Nonzero to run the fog passes at all.
     pub enabled: u32,
+    /// The frame counter driving the injection pass's depth dither; see
+    /// [`crate::froxel::froxel_jitter`].
+    ///
+    /// The same counter the TAA jitter cycle runs on, and it has to advance
+    /// whether or not TAA is enabled: a frozen index would make every frame pick
+    /// the same offset, which is a fixed pattern rather than dithering and
+    /// averages to nothing. It takes the slot that used to be padding, so the
+    /// uniform is the same size it was.
+    pub frame_index: u32,
     /// Padding to the 16-byte uniform stride. See `fog_uniform_size`.
-    pub _pad0: f32,
-    /// See [`FogUniform::_pad0`].
     pub _pad1: f32,
-    /// See [`FogUniform::_pad0`].
+    /// See [`FogUniform::_pad1`].
     pub _pad2: f32,
 }
 
@@ -2707,6 +2753,133 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
         );
     }
 
+    /// The WGSL `froxel_jitter` must be the exact mirror of the Rust one, and
+    /// must be a real dither rather than a constant shift.
+    ///
+    /// Both halves matter and neither implies the other. Determinism is what
+    /// keeps a headless replay reproducible -- the same froxel on the same frame
+    /// has to give the same offset on every run, which is why this is a hash of
+    /// the coordinate rather than any kind of running random state. Variation
+    /// across froxels is what makes it dithering at all: a jitter that returned
+    /// one value everywhere would move every slice boundary together and leave
+    /// the bands exactly as visible as before.
+    ///
+    /// Comparing against the Rust rather than merely against itself is what
+    /// catches a drifted port -- the two are separate texts, and `froxel.rs`'s
+    /// own tests only pin the Rust side.
+    #[test]
+    fn the_wgsl_froxel_jitter_matches_the_rust_one() {
+        // One froxel coordinate per thread, over four frames, so the frame term
+        // is exercised too: a port that dropped it would still be deterministic
+        // and still vary across the grid.
+        const FRAMES: u32 = 4;
+        const PROBE_WGSL: &str = r#"
+@group(1) @binding(0) var<storage, read_write> out_values: array<f32>;
+
+@compute @workgroup_size(64, 1, 1)
+fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if gid.x >= FROXEL_Z {
+        return;
+    }
+    // A coordinate that varies on all three axes with the thread index, so no
+    // axis of the hash can be dropped without moving a value here.
+    let coord = vec3<u32>(gid.x * 3u + 1u, gid.x * 7u + 2u, gid.x);
+    for (var f: u32 = 0u; f < 4u; f = f + 1u) {
+        out_values[f * FROXEL_Z + gid.x] = froxel_jitter(coord, f);
+    }
+}
+"#;
+        let slices = crate::froxel::FROXEL_Z;
+        let got = run_froxel_probe(0.1, 100.0, PROBE_WGSL, (slices * FRAMES) as usize);
+
+        let mut distinct_within_a_frame = std::collections::HashSet::new();
+        for frame in 0..FRAMES {
+            for i in 0..slices {
+                let coord = [i * 3 + 1, i * 7 + 2, i];
+                let expected = crate::froxel::froxel_jitter(coord, frame);
+                let actual = got[(frame * slices + i) as usize];
+                assert_eq!(
+                    actual, expected,
+                    "froxel {coord:?} on frame {frame}: the WGSL jitter gave \
+                     {actual}, the Rust one {expected}. The two are separate \
+                     texts and have to stay identical, or the shader dithers \
+                     with a pattern no test on the Rust side describes"
+                );
+                if frame == 0 {
+                    distinct_within_a_frame.insert(actual.to_bits());
+                }
+            }
+        }
+        assert!(
+            distinct_within_a_frame.len() > (slices as usize) / 2,
+            "{} of {slices} froxels shared an offset within one frame -- a \
+             jitter that barely varies is a constant shift of the whole grid, \
+             which moves the slice bands rather than breaking them up",
+            slices as usize - distinct_within_a_frame.len()
+        );
+    }
+
+    /// The dithered sample depth must land strictly inside the froxel's own
+    /// slice, and must actually move when the frame index does.
+    ///
+    /// Three separate failures this rules out, none implied by the others:
+    /// reaching past a slice edge (which lights a froxel from its neighbour's
+    /// depth -- worse than the banding the dither exists to remove), collapsing
+    /// to a fixed point inside the slice (banding again, just at a different
+    /// depth), and ignoring `frame` (a static pattern that temporal
+    /// accumulation would average to itself forever rather than resolve).
+    ///
+    /// It probes the real shared `froxel_sample_depth`, which is why that
+    /// function lives in [`FROXEL_COMMON_WGSL`] rather than beside its caller.
+    #[test]
+    fn the_jittered_sample_stays_inside_its_own_slice() {
+        // Per slice: the sample depth on frames 0 and 1, then that slice's two
+        // edges, so the bounds are the shader's own rather than a Rust
+        // re-derivation of them.
+        const PROBE_WGSL: &str = r#"
+@group(1) @binding(0) var<storage, read_write> out_values: array<f32>;
+
+@compute @workgroup_size(64, 1, 1)
+fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
+    if gid.x >= FROXEL_Z {
+        return;
+    }
+    let coord = vec3<u32>(11u, 7u, gid.x);
+    out_values[gid.x * 4u + 0u] = froxel_sample_depth(coord, 0u);
+    out_values[gid.x * 4u + 1u] = froxel_sample_depth(coord, 1u);
+    out_values[gid.x * 4u + 2u] = select(froxel_slice_depth(gid.x - 1u), fog.near, gid.x == 0u);
+    out_values[gid.x * 4u + 3u] = froxel_slice_depth(gid.x);
+}
+"#;
+        let slices = crate::froxel::FROXEL_Z as usize;
+        let got = run_froxel_probe(0.1, 100.0, PROBE_WGSL, slices * 4);
+
+        let mut frames_differed = 0usize;
+        for s in 0..slices {
+            let [f0, f1, near_edge, far_edge] =
+                [got[s * 4], got[s * 4 + 1], got[s * 4 + 2], got[s * 4 + 3]];
+            for (frame, depth) in [(0, f0), (1, f1)] {
+                assert!(
+                    depth >= near_edge && depth <= far_edge,
+                    "slice {s} on frame {frame} sampled at depth {depth}, outside \
+                     its own span {near_edge}..{far_edge}. A sample past a slice \
+                     edge lights that froxel from its neighbour's depth, which \
+                     misplaces the shaft rather than smoothing it"
+                );
+            }
+            if f0 != f1 {
+                frames_differed += 1;
+            }
+        }
+        assert!(
+            frames_differed > slices / 2,
+            "only {frames_differed} of {slices} slices sampled a different depth \
+             on frame 1 than on frame 0 -- an offset that does not follow the \
+             frame index is a fixed pattern, and temporal accumulation averages \
+             a fixed pattern to itself instead of resolving it"
+        );
+    }
+
     /// The generated preamble is the only thing keeping the WGSL grid bounds
     /// tied to the Rust ones, so assert it actually carries them.
     #[test]
@@ -2995,7 +3168,7 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
                 fog_color: [0.5, 0.6, 0.7],
                 anisotropy: 0.3,
                 enabled: 1,
-                _pad0: 0.0,
+                frame_index: 0,
                 _pad1: 0.0,
                 _pad2: 0.0,
             },

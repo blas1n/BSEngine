@@ -4164,6 +4164,13 @@ impl WgpuSurface {
         particles: &[crate::particles::ParticleBatch],
         taa: Option<bsengine_core::Taa>,
         jitter_clip: (f32, f32),
+        // The caller's frame counter -- the same one `jitter_clip` above was
+        // derived from. Passed alongside that offset rather than instead of it
+        // because the fog needs it on the frames the offset is `(0.0, 0.0)`:
+        // the froxel depth dither runs whether or not TAA does, and a frozen
+        // index would make every frame pick the same offset, which is a fixed
+        // pattern rather than a dither.
+        frame_index: u32,
         unjittered_view_proj: Mat4,
         light_probes: Option<ProbeVolumeParams>,
         fog: Option<bsengine_core::VolumetricFog>,
@@ -4426,7 +4433,9 @@ impl WgpuSurface {
                     fog_color: active_fog.map(|f| *f.color).unwrap_or(Vec3::ONE).to_array(),
                     anisotropy: active_fog.map(|f| f.anisotropy).unwrap_or(0.0),
                     enabled: u32::from(active_fog.is_some()),
-                    _pad0: 0.0,
+                    // Unconditional, unlike `jitter_clip`: the depth dither is
+                    // not part of TAA and runs on every foggy frame.
+                    frame_index,
                     _pad1: 0.0,
                     _pad2: 0.0,
                 },
@@ -6584,6 +6593,7 @@ mod tests {
                 &[],
                 None,
                 (0.0, 0.0),
+                0,
                 Mat4::IDENTITY,
                 volume,
                 None,

@@ -204,6 +204,52 @@ fn moving_the_occluder_out_of_the_light_path_restores_the_brightness() {
     );
 }
 
+#[test]
+fn the_depth_dither_moves_the_froxel_sample_from_frame_to_frame() {
+    // What the unit tests around `froxel_jitter` cannot say: that the offset is
+    // wired into the frame the camera actually sees. They prove the hash is a
+    // good hash; this proves the injection pass consumes it, and consumes the
+    // frame index with it.
+    //
+    // A shadowed scene on purpose. Where the light is uniform, moving a sample
+    // inside its slice changes nothing worth measuring -- the fog is the same
+    // brightness a froxel's width nearer or further. It is the shaft edge, where
+    // brightness steps, that turns a depth offset into a different pixel, and
+    // that step is the banding the dither exists to break up.
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let shafted = scene(cube, Some(OVERHEAD), Some(shaft_fog()));
+
+    let frame_0 = h.render_at_frame(&shafted, 0);
+    let frame_5 = h.render_at_frame(&shafted, 5);
+    let frame_0_again = h.render_at_frame(&shafted, 0);
+
+    println!(
+        "dither: {} of {} pixels differ between frames 0 and 5 (max channel \
+         delta {})",
+        frame_0.differing_pixels(&frame_5),
+        (frame_0.width * frame_0.height) as usize,
+        frame_0.max_channel_diff(&frame_5),
+    );
+
+    assert!(
+        frame_0.differs_from(&frame_5),
+        "two frames of a static shafted scene came out pixel-identical at \
+         different frame indices, so nothing downstream of `froxel_jitter` is \
+         using it: the froxels are still sampling one fixed depth per slice and \
+         the slice boundaries are still drawing bands across the beam. Check \
+         that `cs_inject` takes its depth from `froxel_sample_depth` and that \
+         `frame_index` is reaching `FogUniform`"
+    );
+    assert!(
+        !frame_0_again.differs_from(&frame_0),
+        "the same scene at the same frame index rendered differently twice. The \
+         dither has to be a pure function of froxel and frame -- a headless \
+         replay that cannot reproduce its own frames makes every pixel \
+         assertion downstream a coin toss"
+    );
+}
+
 /// The lamp for the point-light case, hanging above the occluder.
 ///
 /// `y = 20` puts it clear above the slab at `y = 14`, so everything the slab

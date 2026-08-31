@@ -522,6 +522,43 @@ pub enum ScriptCommand {
         /// Whether the effect is enabled.
         enabled: bool,
     },
+    /// Enable or disable volumetric fog on a camera.
+    SetFogEnabled {
+        /// Name of the entity to modify.
+        name: String,
+        /// Whether the effect is enabled.
+        enabled: bool,
+    },
+    /// Set the volumetric fog's extinction per world unit.
+    SetFogDensity {
+        /// Name of the entity to modify.
+        name: String,
+        /// New density. Higher is thicker.
+        density: f32,
+    },
+    /// Set the colour the volumetric fog scatters.
+    ///
+    /// All three channels in one command, deliberately: the component
+    /// catalogue's R2 ratchet exists to stop `setFogColorR`/`G`/`B` triples
+    /// from accumulating the way the workspace's 45 grandfathered per-axis ops
+    /// did.
+    SetFogColor {
+        /// Name of the entity to modify.
+        name: String,
+        /// Red channel of the scattering albedo.
+        r: f32,
+        /// Green channel of the scattering albedo.
+        g: f32,
+        /// Blue channel of the scattering albedo.
+        b: f32,
+    },
+    /// Set the volumetric fog's Henyey-Greenstein anisotropy.
+    SetFogAnisotropy {
+        /// Name of the entity to modify.
+        name: String,
+        /// New anisotropy `g`; 0 is isotropic, positive scatters forward.
+        anisotropy: f32,
+    },
     /// Set the duration of a running tween.
     SetTweenDuration {
         /// Name of the entity to modify.
@@ -3969,6 +4006,45 @@ pub fn bsengine_set_tone_map_enabled(#[string] name: String, enabled: bool) {
     });
 }
 
+/// Queue enabling or disabling volumetric fog on a camera.
+#[op2(fast)]
+pub fn bsengine_set_fog_enabled(#[string] name: String, enabled: bool) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetFogEnabled { name, enabled })
+    });
+}
+
+/// Queue setting the volumetric fog's extinction per world unit.
+#[op2(fast)]
+pub fn bsengine_set_fog_density(#[string] name: String, density: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetFogDensity { name, density })
+    });
+}
+
+/// Queue setting the colour the volumetric fog scatters.
+///
+/// One op for all three channels rather than a `setFogColorR`/`G`/`B` trio:
+/// that shape is exactly what the component catalogue's R2 ratchet forbids.
+#[op2(fast)]
+pub fn bsengine_set_fog_color(#[string] name: String, r: f32, g: f32, b: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetFogColor { name, r, g, b })
+    });
+}
+
+/// Queue setting the volumetric fog's Henyey-Greenstein anisotropy.
+#[op2(fast)]
+pub fn bsengine_set_fog_anisotropy(#[string] name: String, anisotropy: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetFogAnisotropy { name, anisotropy })
+    });
+}
+
 /// Get the current tone-mapping operator, encoded as an integer.
 #[op2(fast)]
 pub fn bsengine_get_tone_map_mode(#[string] name: String) -> u32 {
@@ -5833,6 +5909,10 @@ deno_core::extension!(
         bsengine_get_tone_map_mode,
         bsengine_get_tone_map_exposure,
         bsengine_is_tone_map_enabled,
+        bsengine_set_fog_enabled,
+        bsengine_set_fog_density,
+        bsengine_set_fog_color,
+        bsengine_set_fog_anisotropy,
     ],
 );
 
@@ -9859,6 +9939,51 @@ JSON.stringify(received)
                 cmd,
                 super::ScriptCommand::SetToneMapEnabled { name, enabled }
                 if name == "Cam" && !*enabled
+            )));
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn fog_write_ops_queue_commands() {
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setFogEnabled("Cam", true);"#).unwrap();
+        rt.eval(r#"Bsengine.setFogDensity("Cam", 0.05);"#).unwrap();
+        // One call, three channels. A `setFogColorR`/`G`/`B` trio here would
+        // trip the component catalogue's R2 ratchet.
+        rt.eval(r#"Bsengine.setFogColor("Cam", 0.2, 0.4, 0.6);"#)
+            .unwrap();
+        rt.eval(r#"Bsengine.setFogAnisotropy("Cam", 0.7);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetFogEnabled { name, enabled }
+                if name == "Cam" && *enabled
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetFogDensity { name, density }
+                if name == "Cam" && (*density - 0.05).abs() < 0.001
+            )));
+            // All three channels asserted separately: a binding that passed
+            // the same argument three times, or dropped the last one, would
+            // still satisfy a check on `r` alone.
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetFogColor { name, r, g, b }
+                if name == "Cam"
+                    && (*r - 0.2).abs() < 0.001
+                    && (*g - 0.4).abs() < 0.001
+                    && (*b - 0.6).abs() < 0.001
+            )));
+            assert!(buf.iter().any(|cmd| matches!(
+                cmd,
+                super::ScriptCommand::SetFogAnisotropy { name, anisotropy }
+                if name == "Cam" && (*anisotropy - 0.7).abs() < 0.001
             )));
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());

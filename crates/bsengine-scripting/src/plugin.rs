@@ -1681,6 +1681,64 @@ fn run_scripts(world: &mut World) {
                     }
                 }
             }
+            // The four fog commands all modify a `VolumetricFog` already on
+            // the entity and never insert one, matching every other
+            // post-process setter here: a script that could conjure the
+            // component into existence would turn a typo'd camera name into a
+            // fogged scene rather than a no-op.
+            ScriptCommand::SetFogEnabled { name, enabled } => {
+                use bsengine_core::VolumetricFog;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut f) = world.get_mut::<VolumetricFog>(e) {
+                        f.enabled = enabled;
+                    }
+                }
+            }
+            ScriptCommand::SetFogDensity { name, density } => {
+                use bsengine_core::VolumetricFog;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut f) = world.get_mut::<VolumetricFog>(e) {
+                        // Negative extinction would make `exp(-density * dz)`
+                        // grow without bound down the froxel column.
+                        f.density = density.max(0.0);
+                    }
+                }
+            }
+            ScriptCommand::SetFogColor { name, r, g, b } => {
+                use bsengine_core::VolumetricFog;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut f) = world.get_mut::<VolumetricFog>(e) {
+                        f.color = glam::Vec3::new(r.max(0.0), g.max(0.0), b.max(0.0)).into();
+                    }
+                }
+            }
+            ScriptCommand::SetFogAnisotropy { name, anisotropy } => {
+                use bsengine_core::VolumetricFog;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut f) = world.get_mut::<VolumetricFog>(e) {
+                        // The phase function is singular at exactly +/-1; the
+                        // shader clamps too, but a component holding 1.0 would
+                        // read back as a value the renderer never uses.
+                        f.anisotropy = anisotropy.clamp(-0.99, 0.99);
+                    }
+                }
+            }
             ScriptCommand::SetTweenDuration { name, duration } => {
                 use bsengine_core::Tween;
                 let entity = {
@@ -5363,6 +5421,138 @@ mod tests {
             (pos["x"].as_f64().unwrap() - 3.0).abs() < 1e-4,
             "the spawned entity must be at the position instantiatePrefab was \
              called with, not the origin: {tick2}"
+        );
+    }
+
+    /// The four fog ops, driven through a real script on a real `App`, land on
+    /// the real `VolumetricFog` component.
+    ///
+    /// `fog_write_ops_queue_commands` in `ops.rs` proves the JS binding reaches
+    /// the command buffer; it says nothing about whether anything ever drains
+    /// that buffer into the world. A `ScriptCommand` variant with no match arm
+    /// would pass it and change nothing on screen. This is the half that
+    /// notices.
+    ///
+    /// Every starting value is deliberately the opposite of its target -- the
+    /// component starts disabled, black, and at zero density and zero
+    /// anisotropy -- so no assertion here can be satisfied by a field the
+    /// script never touched.
+    #[test]
+    fn fog_ops_reach_the_volumetric_fog_component() {
+        let (project, root, _guard) = script_probe("fog-ops-roundtrip");
+        std::fs::write(
+            root.join("assets").join("scripts").join("cam.js"),
+            "let done = false;\n\
+             function onUpdate(name) {\n\
+                 if (done) { return; }\n\
+                 done = true;\n\
+                 Bsengine.setFogEnabled(name, true);\n\
+                 Bsengine.setFogDensity(name, 0.05);\n\
+                 Bsengine.setFogColor(name, 0.2, 0.4, 0.6);\n\
+                 Bsengine.setFogAnisotropy(name, 0.7);\n\
+             }",
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: project.clone(),
+        });
+        app.world_mut().spawn((
+            Name("Cam".to_string()),
+            ScriptPath("assets/scripts/cam.js".to_string()),
+            bsengine_core::VolumetricFog {
+                enabled: false,
+                density: 0.0,
+                color: glam::Vec3::ZERO.into(),
+                anisotropy: 0.0,
+            },
+        ));
+
+        // Two ticks, for the reason
+        // `instantiated_prefab_position_is_not_available_until_the_next_tick`
+        // documents: the first loads the script and runs `onUpdate`, and the
+        // commands it queued are only drained into the world afterwards.
+        app.update();
+        app.update();
+
+        let world = app.world_mut();
+        let mut q = world.query::<(&Name, &bsengine_core::VolumetricFog)>();
+        let (_, fog) = q
+            .iter(world)
+            .find(|(n, _)| n.0 == "Cam")
+            .expect("the Cam entity still carries a VolumetricFog");
+
+        assert!(fog.enabled, "setFogEnabled did not reach the component");
+        assert!(
+            (fog.density - 0.05).abs() < 1e-6,
+            "setFogDensity did not reach the component: {}",
+            fog.density
+        );
+        assert!(
+            (fog.color.x - 0.2).abs() < 1e-6
+                && (fog.color.y - 0.4).abs() < 1e-6
+                && (fog.color.z - 0.6).abs() < 1e-6,
+            "setFogColor did not reach all three channels: {:?}",
+            *fog.color
+        );
+        assert!(
+            (fog.anisotropy - 0.7).abs() < 1e-6,
+            "setFogAnisotropy did not reach the component: {}",
+            fog.anisotropy
+        );
+    }
+
+    /// The clamps in the fog command arms, which exist because the values they
+    /// guard are not merely ugly but divergent: a negative density turns the
+    /// integration's `exp(-density * dz)` into unbounded growth down the
+    /// froxel column, and an anisotropy of exactly 1 makes the
+    /// Henyey-Greenstein denominator zero.
+    ///
+    /// Asserted through a script rather than by calling the arms directly, so
+    /// this measures what a game can actually do to the renderer.
+    #[test]
+    fn fog_ops_clamp_values_that_would_make_the_shader_diverge() {
+        let (project, root, _guard) = script_probe("fog-ops-clamping");
+        std::fs::write(
+            root.join("assets").join("scripts").join("cam.js"),
+            "let done = false;\n\
+             function onUpdate(name) {\n\
+                 if (done) { return; }\n\
+                 done = true;\n\
+                 Bsengine.setFogDensity(name, -5.0);\n\
+                 Bsengine.setFogAnisotropy(name, 1.0);\n\
+             }",
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: project.clone(),
+        });
+        app.world_mut().spawn((
+            Name("Cam".to_string()),
+            ScriptPath("assets/scripts/cam.js".to_string()),
+            bsengine_core::VolumetricFog::default(),
+        ));
+
+        app.update();
+        app.update();
+
+        let world = app.world_mut();
+        let mut q = world.query::<(&Name, &bsengine_core::VolumetricFog)>();
+        let (_, fog) = q
+            .iter(world)
+            .find(|(n, _)| n.0 == "Cam")
+            .expect("the Cam entity still carries a VolumetricFog");
+
+        assert_eq!(fog.density, 0.0, "a negative density must clamp to zero");
+        assert!(
+            fog.anisotropy < 1.0,
+            "anisotropy must stay strictly inside (-1, 1), got {}",
+            fog.anisotropy
         );
     }
 }

@@ -252,9 +252,10 @@ struct LightUniform {
 /// Injection: one thread per froxel, writing in-scattered light in RGB and
 /// extinction in A.
 ///
-/// **No shadow-map lookup.** Every froxel is treated as lit, so this is fog,
-/// not light shafts; the shadowed variant is roadmap item 49's second
-/// sub-step.
+/// Each froxel is tested against the directional shadow map before it scatters
+/// anything, which is what makes this light shafts rather than uniform fog. See
+/// `directional_shadow_factor` for the one way it has to differ from the scene
+/// shader's own lookup.
 const FOG_INJECT_WGSL: &str = r#"
 @group(1) @binding(0) var injection_vol: texture_storage_3d<rgba16float, write>;
 
@@ -266,6 +267,31 @@ fn henyey_greenstein(cos_theta: f32, g_in: f32) -> f32 {
     let g2 = g * g;
     let denom = 1.0 + g2 - 2.0 * g * cos_theta;
     return (1.0 - g2) / (4.0 * PI * pow(max(denom, 1e-4), 1.5));
+}
+
+// Port of the scene shader's `shadow_factor` (surface.rs), with one mandatory
+// change: `textureSampleCompare` needs implicit derivatives and so exists only
+// in fragment stages, which makes it unusable here. `textureSampleCompareLevel`
+// is its compute-safe form -- it samples level 0 explicitly instead of deriving
+// one -- and it is also what makes this legal after the early return below,
+// since that return is non-uniform control flow.
+//
+// Everything else matches the scene shader exactly: the w-divide, the
+// (0.5, -0.5) UV flip, the out-of-bounds return of 1.0 ("outside the map is
+// lit", the same answer the surface path gives), and the 0.003 depth bias. That
+// is the point -- a froxel and a surface at one world position have to agree
+// about whether they are in shadow, or the beams will not line up with the
+// shadows the geometry casts.
+fn directional_shadow_factor(world_pos: vec3<f32>) -> f32 {
+    let lsp = fog.light_view_proj * vec4<f32>(world_pos, 1.0);
+    let proj = lsp.xyz / lsp.w;
+    let uv = proj.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5, 0.5);
+    let depth = proj.z;
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0
+        || depth < 0.0 || depth > 1.0) {
+        return 1.0;
+    }
+    return textureSampleCompareLevel(shadow_map, shadow_sampler, uv, depth - 0.003);
 }
 
 @compute @workgroup_size(8, 8, 1)
@@ -290,7 +316,13 @@ fn cs_inject(@builtin(global_invocation_id) gid: vec3<u32>) {
     let view_dir = normalize(world_pos - fog.camera_pos);
     let cos_theta = dot(view_dir, fog.light_dir);
     let phase = henyey_greenstein(cos_theta, fog.anisotropy);
-    let in_scatter = fog.light_color * scattering * phase;
+    // The shadow factor is what turns uniform fog into shafts: a froxel the sun
+    // cannot reach scatters nothing from it, and those unlit froxels are the
+    // dark gaps between the beams.
+    let sun_shadow = directional_shadow_factor(world_pos);
+    // `var`, not `let`: the point and spot lights add their own contributions
+    // to this in the next commit.
+    var in_scatter = fog.light_color * scattering * phase * sun_shadow;
     textureStore(injection_vol, vec3<i32>(gid), vec4<f32>(in_scatter, extinction));
 }
 "#;

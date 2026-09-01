@@ -780,41 +780,77 @@ pub fn spawn_scene_entities(world: &mut World, entities: &[EntityDescriptor]) {
         }
     }
 
-    // Pass 3: resolve `parent: Some(name)` into a real `Parent(Entity)` now
-    // that every entity in this call has spawned. A name map built only from
-    // entities spawned *by this call* -- an entity left over from a previous
-    // scene is never a valid parent target.
+    // Pass 3: resolve every field that names *another entity* -- `parent:` and
+    // `joint:` -- now that every entity in this call has spawned. A name map
+    // built only from entities spawned *by this call* -- an entity left over
+    // from a previous scene is never a valid target.
+    //
+    // Both fields share this one pass and this one map on purpose. `parent:`
+    // established the mechanism (a name in a file, an `Entity` at runtime, a
+    // warning when the two don't meet) and `joint:` has exactly the same
+    // problem, so it takes the same path rather than a second, parallel one
+    // that could resolve names by a subtly different rule.
     let name_to_entity: std::collections::HashMap<&str, Entity> = entities
         .iter()
         .zip(spawned.iter().copied())
         .filter_map(|(e, s)| s.map(|entity| (e.name.as_str(), entity)))
         .collect();
-    for (entity, &child_entity) in entities.iter().zip(&spawned) {
-        let Some(child_entity) = child_entity else {
-            continue; // a prefab reference that failed to instantiate -- nothing to parent
+    for (entity, &spawned_entity) in entities.iter().zip(&spawned) {
+        let Some(spawned_entity) = spawned_entity else {
+            continue; // a prefab reference that failed to instantiate -- nothing to resolve
         };
-        let Some(parent_name) = &entity.parent else {
-            continue;
-        };
-        if parent_name == &entity.name {
-            tracing::warn!(
-                "scene: entity '{}' names itself as its own parent; leaving it a root",
-                entity.name
-            );
-            continue;
-        }
-        match name_to_entity.get(parent_name.as_str()) {
-            Some(&parent_entity) => {
-                world
-                    .entity_mut(child_entity)
-                    .insert(bsengine_core::Parent(parent_entity));
-            }
-            None => {
+
+        if let Some(parent_name) = &entity.parent {
+            if parent_name == &entity.name {
                 tracing::warn!(
-                    "scene: entity '{}' names parent '{parent_name}', which does not exist \
-                     in this scene; leaving it a root",
+                    "scene: entity '{}' names itself as its own parent; leaving it a root",
                     entity.name
                 );
+            } else {
+                match name_to_entity.get(parent_name.as_str()) {
+                    Some(&parent_entity) => {
+                        world
+                            .entity_mut(spawned_entity)
+                            .insert(bsengine_core::Parent(parent_entity));
+                    }
+                    None => {
+                        tracing::warn!(
+                            "scene: entity '{}' names parent '{parent_name}', which does not exist \
+                             in this scene; leaving it a root",
+                            entity.name
+                        );
+                    }
+                }
+            }
+        }
+
+        if let Some(joint) = &entity.joint {
+            let target = &joint.body_b;
+            if target == &entity.name {
+                // A body jointed to itself is not a constraint Rapier can
+                // solve, and it is always a typo rather than an intent.
+                tracing::warn!(
+                    "scene: entity '{}' joints itself to itself; skipping the joint",
+                    entity.name
+                );
+            } else {
+                match name_to_entity.get(target.as_str()) {
+                    Some(&body_b) => {
+                        world
+                            .entity_mut(spawned_entity)
+                            .insert(joint.to_joint(body_b));
+                    }
+                    // A typo in a scene file degrades to a missing joint and a
+                    // warning, exactly as an unresolvable `parent:` does. A
+                    // game must not fail to start over one.
+                    None => {
+                        tracing::warn!(
+                            "scene: entity '{}' joints to '{target}', which does not exist in \
+                             this scene; skipping the joint",
+                            entity.name
+                        );
+                    }
+                }
             }
         }
     }
@@ -1269,6 +1305,113 @@ mod tests {
             wheel_parent, body_entity,
             "Wheel's parent should be the Body entity"
         );
+    }
+
+    /// Every spawned entity's name paired with the `Joint` it ended up with,
+    /// if any. Written once because both joint tests below need exactly this
+    /// and neither can name an entity id up front -- an id is precisely the
+    /// thing a scene file cannot contain, which is the whole reason the
+    /// `body_b:` field is a name.
+    fn spawned_joints(
+        app: &mut bevy_app::App,
+    ) -> Vec<(
+        bevy_ecs::prelude::Entity,
+        String,
+        Option<bsengine_physics::Joint>,
+    )> {
+        let mut query = app.world_mut().query::<(
+            bevy_ecs::prelude::Entity,
+            &Name,
+            Option<&bsengine_physics::Joint>,
+        )>();
+        query
+            .iter(app.world())
+            .map(|(e, n, j)| (e, n.0.clone(), j.copied()))
+            .collect()
+    }
+
+    #[test]
+    fn a_scene_joint_resolves_its_target_by_name() {
+        let scene: crate::types::SceneDescriptor = ron::from_str(
+            r#"SceneDescriptor(entities: [
+                EntityDescriptor(name: "Anchor"),
+                EntityDescriptor(
+                    name: "Door",
+                    joint: Some((
+                        body_b: "Anchor",
+                        kind: Revolute(axis: (0.0, 1.0, 0.0), limits: Some((-1.5, 1.5))),
+                        anchor_a: (-0.5, 0.0, 0.0),
+                        anchor_b: (0.5, 0.0, 0.0),
+                    )),
+                ),
+            ])"#,
+        )
+        .expect("a scene entity naming its joint target should parse");
+
+        let mut app = new_app();
+        super::spawn_scene_entities(app.world_mut(), &scene.entities);
+        let rows = spawned_joints(&mut app);
+
+        let anchor = rows
+            .iter()
+            .find(|(_, name, _)| name == "Anchor")
+            .map(|(e, _, _)| *e)
+            .expect("Anchor should have spawned");
+        let joint = rows
+            .iter()
+            .find(|(_, name, _)| name == "Door")
+            .and_then(|(_, _, j)| *j)
+            .expect("Door should have a Joint component");
+
+        assert_eq!(
+            joint.body_b, anchor,
+            "the joint's body_b must be the real entity id the name 'Anchor' \
+             resolved to -- a scene file can only spell the name"
+        );
+        assert_eq!(
+            joint.kind,
+            bsengine_physics::JointKind::Revolute {
+                axis: glam::Vec3::Y.into(),
+                limits: Some([-1.5, 1.5]),
+            },
+            "the kind and its per-kind parameters must survive the descriptor"
+        );
+        assert_eq!(joint.anchor_a.0, Vec3::new(-0.5, 0.0, 0.0));
+        assert_eq!(joint.anchor_b.0, Vec3::new(0.5, 0.0, 0.0));
+    }
+
+    #[test]
+    fn a_joint_naming_a_nonexistent_entity_is_skipped_not_panicked() {
+        let scene: crate::types::SceneDescriptor = ron::from_str(
+            r#"SceneDescriptor(entities: [
+                EntityDescriptor(name: "Typo", joint: Some((body_b: "Doesnt Exist"))),
+                EntityDescriptor(name: "SelfRef", joint: Some((body_b: "SelfRef"))),
+                EntityDescriptor(name: "Bystander"),
+            ])"#,
+        )
+        .expect("a scene should parse even with an unresolvable joint target");
+
+        let mut app = new_app();
+        // The claim starts here: this call must return at all. A typo in a
+        // scene file has to degrade to a warning and a missing joint, the same
+        // way an unresolvable `parent:` does -- a game must not fail to start
+        // over one.
+        super::spawn_scene_entities(app.world_mut(), &scene.entities);
+        let rows = spawned_joints(&mut app);
+
+        assert_eq!(
+            rows.len(),
+            3,
+            "every entity must still spawn; only the joint is skipped"
+        );
+        for (_, name, joint) in &rows {
+            assert!(
+                joint.is_none(),
+                "'{name}' should have no Joint: one names a target that does not \
+                 exist and one names itself, and neither is a constraint that \
+                 could be built"
+            );
+        }
     }
 
     #[test]

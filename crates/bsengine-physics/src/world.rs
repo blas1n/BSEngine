@@ -585,6 +585,17 @@ impl PhysicsWorld {
         true
     }
 
+    /// Whether a joint currently links `a` and `b`, in either order.
+    ///
+    /// The read-only counterpart to [`Self::add_joint`]/[`Self::remove_joint`],
+    /// which report only what they just did. A caller that wants to know
+    /// whether the simulation actually holds a constraint — a test asserting a
+    /// script's `attach`/`detach` reached the world, a system deciding whether
+    /// to re-create one — otherwise has to remove the joint to find out.
+    pub fn has_joint(&self, a: Entity, b: Entity) -> bool {
+        self.joint_map.contains_key(&(a, b)) || self.joint_map.contains_key(&(b, a))
+    }
+
     fn cast_ray_filtered(
         &self,
         origin: Vec3,

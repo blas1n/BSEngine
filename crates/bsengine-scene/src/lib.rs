@@ -21,6 +21,7 @@ pub use plugin::{
 pub use prefab::{instantiate_prefab, next_instance_suffix, validate_prefab_descriptor};
 pub use types::{
     AssetRef, ColliderDesc, ColliderShapeDesc, DirectionalLightDescriptor, EntityDescriptor,
-    PendingSceneLoad, PhysicsBodyDesc, PointLightDescriptor, Primitive, PrimitiveMesh,
-    RigidBodyDesc, SceneDescriptor, ScriptPath, SpotLightDescriptor, Terrain, TransformDescriptor,
+    JointDescriptor, JointKindDesc, PendingSceneLoad, PhysicsBodyDesc, PointLightDescriptor,
+    Primitive, PrimitiveMesh, RigidBodyDesc, SceneDescriptor, ScriptPath, SpotLightDescriptor,
+    Terrain, TransformDescriptor,
 };

@@ -9,6 +9,21 @@ license.workspace = true
 [dependencies]
 bsengine-core    = { workspace = true }
 bsengine-ecs     = { workspace = true }
+# For the ragdoll only: `SkinnedMesh.nodes` (a `Vec<NodeTransform>`) is the
+# rest-pose bone hierarchy the bone bodies and joints are built from, and
+# re-parsing a skeleton out of glTF a second time here would be a second answer
+# to the same question. Acyclic: `bsengine-gltf` depends on `-core`/`-render`/
+# `-rhi-wgpu`/`-asset` and none of those lead back here, and every crate that
+# already depends on this one (`-app`, `-editor`, `-runtime`, `-scene`,
+# `-scripting`) already reaches `bsengine-gltf` too, so this adds no crate to
+# anyone's graph -- only a build-order edge.
+#
+# The edge points this way, and not the other, on purpose. Skinning must not
+# have to know what physics is; when the ragdoll drives the bones (roadmap item
+# 52 sub-step 1/2, task 3) it is this crate that publishes the pose, and
+# `bsengine-gltf` reads it without ever naming a physics type. Reversing the
+# edge would make both directions necessary at once, which is a cycle.
+bsengine-gltf    = { workspace = true }
 bevy_app         = { workspace = true }
 bevy_ecs         = { workspace = true }
 bevy_reflect     = { workspace = true }
@@ -18,3 +33,7 @@ tracing          = { workspace = true }
 
 [dev-dependencies]
 bsengine-app = { workspace = true }
+# Only to capture `tracing` output in tests: a `Ragdoll` on an entity with no
+# skeleton is *meant* to warn and do nothing, so a test that asserted on state
+# alone would pass just as happily on a version that stayed silent.
+tracing-subscriber = { workspace = true }

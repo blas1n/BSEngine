@@ -596,6 +596,63 @@ impl PhysicsWorld {
         self.joint_map.contains_key(&(a, b)) || self.joint_map.contains_key(&(b, a))
     }
 
+    /// Takes `entity`'s rigid body, its colliders, and every joint attached to
+    /// it out of the simulation, returning whether there was one.
+    ///
+    /// Despawning an entity does *not* do this on its own — `spawn_bodies` has
+    /// no despawn-time counterpart — so a body whose entity is gone otherwise
+    /// keeps falling, keeps colliding with the level, and keeps reporting
+    /// contacts against a collider handle that maps to nothing. That is
+    /// tolerable for entities that live as long as the scene; it is not
+    /// tolerable for a ragdoll, whose whole point is to be built and torn down
+    /// while the game runs.
+    ///
+    /// The three maps are cleaned in step with Rapier's sets. A `joint_map`
+    /// entry left behind would make [`Self::has_joint`] claim a constraint
+    /// that no longer exists and hand [`Self::remove_joint`] a dangling
+    /// handle; a `collider_entity_map` entry left behind would attribute a
+    /// later contact to a dead entity.
+    pub fn remove_body(&mut self, entity: Entity) -> bool {
+        let Some(handle) = self.entity_body_map.remove(&entity) else {
+            return false;
+        };
+        self.collider_entity_map.retain(|_, e| *e != entity);
+        self.joint_map
+            .retain(|&(a, b), _| a != entity && b != entity);
+        self.rigid_body_set
+            .remove(
+                handle,
+                &mut self.island_manager,
+                &mut self.collider_set,
+                &mut self.impulse_joint_set,
+                &mut self.multibody_joint_set,
+                true,
+            )
+            .is_some()
+    }
+
+    /// Restricts which other colliders `entity`'s collider interacts with.
+    ///
+    /// Crate-internal: the only caller is the ragdoll, which puts a
+    /// character's own bones in a group that does not collide with itself.
+    /// Exposing collision filtering as an authoring concept is a bigger
+    /// decision than this needs (it would want a `Collider` field, a scene
+    /// syntax, and a name for each group), and nothing outside this crate has
+    /// asked for one yet.
+    pub(crate) fn set_collision_groups(&mut self, entity: Entity, groups: InteractionGroups) {
+        let Some(&body_handle) = self.entity_body_map.get(&entity) else {
+            return;
+        };
+        let Some(body) = self.rigid_body_set.get(body_handle) else {
+            return;
+        };
+        for &collider_handle in body.colliders() {
+            if let Some(collider) = self.collider_set.get_mut(collider_handle) {
+                collider.set_collision_groups(groups);
+            }
+        }
+    }
+
     fn cast_ray_filtered(
         &self,
         origin: Vec3,

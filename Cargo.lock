@@ -1038,9 +1038,11 @@ dependencies = [
  "bsengine-app",
  "bsengine-core",
  "bsengine-ecs",
+ "bsengine-gltf",
  "glam 0.29.3",
  "rapier3d",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

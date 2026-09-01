@@ -249,6 +249,14 @@ pub struct Ragdoll {
     /// Per-bone joint overrides, keyed by bone name. Bones absent here get
     /// [`JointKind::Spherical`].
     ///
+    /// The name is the **skeleton node the joint sits on**, which is the one an
+    /// author is thinking of. A bone spans its parent node to itself, so the
+    /// constraint that holds it is at its parent — on a Mixamo-style rig, the
+    /// shin bone runs `LeftLeg`(knee) → `LeftFoot`(ankle) and the hinge that
+    /// stops the knee bending backwards is at `LeftLeg`. So
+    /// `{"LeftLeg": Revolute { .. }}` is a knee hinge, which is what it reads
+    /// like.
+    ///
     /// Spherical is the default because nothing in a skeleton says which bone
     /// is a knee, so a generic answer is required, and spherical is the
     /// physically stable one that needs no configuration at all. This map is
@@ -282,8 +290,12 @@ impl Default for Ragdoll {
 }
 
 impl Ragdoll {
-    /// The joint kind for the bone named `bone`, falling back to
-    /// [`JointKind::Spherical`] when nothing overrides it.
+    /// The joint kind for the bone whose joint sits on the node named `bone`,
+    /// falling back to [`JointKind::Spherical`] when nothing overrides it.
+    ///
+    /// See [`joint_overrides`] for which of a bone's two ends names it.
+    ///
+    /// [`joint_overrides`]: Ragdoll::joint_overrides
     pub fn joint_for_bone(&self, bone: &str) -> JointKind {
         self.joint_overrides
             .get(bone)
@@ -345,6 +357,16 @@ impl Default for PhysicsInput {
         }
     }
 }
+
+/// Internal: marks one of the bone bodies a [`Ragdoll`] spawned.
+///
+/// Deliberately not public, and so not a catalogue entry: these entities are
+/// the simulation's own bookkeeping, created and destroyed by the ragdoll pass
+/// rather than authored, and an engine-wide component catalogue should no more
+/// list them than it lists [`PhysicsHandles`]. The same reasoning `sync_joints`
+/// gives for keeping its `created` map a `Local`.
+#[derive(Component)]
+pub(crate) struct RagdollBone;
 
 /// Internal: Rapier handles stored per entity after body creation.
 #[derive(Component)]

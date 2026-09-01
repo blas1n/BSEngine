@@ -634,6 +634,7 @@ mod tests {
     /// A one-node skeleton at the origin, unrotated and unscaled.
     fn one_node() -> Vec<NodeTransform> {
         vec![NodeTransform {
+            name: String::new(),
             position: [0.0, 0.0, 0.0],
             rotation: [0.0, 0.0, 0.0, 1.0],
             scale: [1.0, 1.0, 1.0],
@@ -954,6 +955,7 @@ mod tests {
     #[test]
     fn no_clips_at_all_leaves_the_rest_pose() {
         let nodes = vec![NodeTransform {
+            name: String::new(),
             position: [1.0, 2.0, 3.0],
             rotation: [0.0, 0.0, 0.0, 1.0],
             scale: [1.0, 1.0, 1.0],
@@ -967,6 +969,7 @@ mod tests {
     #[test]
     fn compute_joint_matrices_uses_bind_pose_when_no_channels_animate_a_node() {
         let nodes = vec![NodeTransform {
+            name: String::new(),
             position: [1.0, 0.0, 0.0],
             rotation: [0.0, 0.0, 0.0, 1.0],
             scale: [1.0, 1.0, 1.0],
@@ -985,12 +988,14 @@ mod tests {
     fn compute_joint_matrices_composes_parent_child_hierarchy() {
         let nodes = vec![
             NodeTransform {
+                name: String::new(),
                 position: [1.0, 0.0, 0.0],
                 rotation: [0.0, 0.0, 0.0, 1.0],
                 scale: [1.0, 1.0, 1.0],
                 parent: None,
             },
             NodeTransform {
+                name: String::new(),
                 position: [0.0, 2.0, 0.0],
                 rotation: [0.0, 0.0, 0.0, 1.0],
                 scale: [1.0, 1.0, 1.0],

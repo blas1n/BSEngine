@@ -358,15 +358,26 @@ impl Default for PhysicsInput {
     }
 }
 
-/// Internal: marks one of the bone bodies a [`Ragdoll`] spawned.
+/// Internal: marks one of the bone bodies a [`Ragdoll`] spawned, and says which
+/// bone of whose skeleton it is.
 ///
 /// Deliberately not public, and so not a catalogue entry: these entities are
 /// the simulation's own bookkeeping, created and destroyed by the ragdoll pass
 /// rather than authored, and an engine-wide component catalogue should no more
 /// list them than it lists [`PhysicsHandles`]. The same reasoning `sync_joints`
 /// gives for keeping its `created` map a `Local`.
+///
+/// The two fields are what lets the pose the bodies imply be published back to
+/// the skeleton by a *different* system from the one that built them — the pass
+/// that reads where the bodies ended up has to run after Rapier has been
+/// stepped, and a `Local` cannot be shared between systems.
 #[derive(Component)]
-pub(crate) struct RagdollBone;
+pub(crate) struct RagdollBone {
+    /// The entity whose [`Ragdoll`] built this bone.
+    pub owner: Entity,
+    /// Index into that entity's `SkinnedMesh.nodes` — the bone's child end.
+    pub node: usize,
+}
 
 /// Internal: Rapier handles stored per entity after body creation.
 #[derive(Component)]

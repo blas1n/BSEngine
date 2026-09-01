@@ -168,6 +168,72 @@ pub fn plan_bones(nodes: &[NodeTransform], bone_radius: f32, total_mass: f32) ->
         .collect()
 }
 
+/// The per-node **global** transforms a ragdoll's bone bodies currently imply,
+/// ready to be handed to `SkinnedMesh::pose_override`.
+///
+/// `bone_poses` gives each plan's body's world `(position, rotation)`, in
+/// `plans` order; `None` for a bone whose body does not exist yet leaves that
+/// node in its rest pose rather than snapping it to the origin.
+///
+/// # Which bone drives which node
+///
+/// A [`BonePlan`] spans *from a node's parent to that node*, but the geometry
+/// skinned to a joint is the limb hanging *below* it: the thigh is weighted to
+/// the hip joint, not to the knee. So a node is driven by its **first child
+/// bone** — the capsule whose head sits on that node — and only a leaf, which
+/// has no child, falls back to its own. Driving each node from its own bone
+/// instead is the subtle version of this that looks almost right: every node
+/// would still be in exactly the right *place*, because the two bones meet
+/// there, and every limb would rotate with the segment above it, so the mesh
+/// would slide off its own capsules as the ragdoll bent.
+///
+/// A node with several children (a pelvis, with a spine and two legs) takes the
+/// first. That is not arbitrary in the case that matters: a rig's pelvis
+/// geometry runs from the hips up to the spine, and the spine is the child that
+/// bone belongs to.
+///
+/// # How a body becomes a transform
+///
+/// Each bone body carries a rigid delta from where its plan put it,
+/// `now * rest⁻¹`, and that delta is applied to the node's rest global. Nothing
+/// is decomposed and recomposed on the way through, so a rig with scale in its
+/// bind pose keeps it.
+pub fn pose_from_bones(
+    nodes: &[NodeTransform],
+    plans: &[BonePlan],
+    bone_poses: &[Option<(Vec3, Quat)>],
+) -> Vec<Mat4> {
+    let rest = rest_globals(nodes);
+
+    let mut own: Vec<Option<usize>> = vec![None; nodes.len()];
+    let mut first_child: Vec<Option<usize>> = vec![None; nodes.len()];
+    for (i, plan) in plans.iter().enumerate() {
+        if plan.node < nodes.len() {
+            own[plan.node] = Some(i);
+        }
+        if let Some(parent) = plan.parent {
+            if parent < nodes.len() && first_child[parent].is_none() {
+                first_child[parent] = Some(i);
+            }
+        }
+    }
+
+    (0..nodes.len())
+        .map(|node| {
+            let Some(driver) = first_child[node].or(own[node]) else {
+                return rest[node];
+            };
+            let Some(Some((position, rotation))) = bone_poses.get(driver).copied() else {
+                return rest[node];
+            };
+            let plan = &plans[driver];
+            let now = Mat4::from_rotation_translation(rotation, position);
+            let bone_rest = Mat4::from_rotation_translation(plan.rotation, plan.center);
+            now * bone_rest.inverse() * rest[node]
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -324,6 +390,126 @@ mod tests {
                 "node {child} must be jointed to the root's body, not left free"
             );
         }
+    }
+
+    // ---- the pose the bodies imply -------------------------------------
+
+    /// Every bone still exactly where its plan put it.
+    fn undisturbed(plans: &[BonePlan]) -> Vec<Option<(Vec3, Quat)>> {
+        plans.iter().map(|p| Some((p.center, p.rotation))).collect()
+    }
+
+    #[test]
+    fn bones_left_where_they_were_built_reproduce_the_rest_pose_exactly() {
+        // The frame a ragdoll switches on, before a single step, the bodies are
+        // on their plans' centres and the mesh must not move at all. Any error
+        // in the `now * rest⁻¹` round trip shows up here as a character that
+        // twitches into a different shape the instant it is activated.
+        let nodes = uneven_chain();
+        let plans = plan_bones(&nodes, 0.08, 70.0);
+        let pose = pose_from_bones(&nodes, &plans, &undisturbed(&plans));
+        let rest = rest_globals(&nodes);
+
+        assert_eq!(pose.len(), nodes.len(), "one transform per node");
+        for (i, (got, want)) in pose.iter().zip(&rest).enumerate() {
+            assert!(
+                got.abs_diff_eq(*want, 0.001),
+                "node {i} moved on activation: {got:?} vs the rest pose {want:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn moving_every_bone_carries_every_node_with_it() {
+        let nodes = uneven_chain();
+        let plans = plan_bones(&nodes, 0.08, 70.0);
+        let drop = Vec3::new(1.0, -4.0, 2.0);
+        let moved: Vec<Option<(Vec3, Quat)>> = plans
+            .iter()
+            .map(|p| Some((p.center + drop, p.rotation)))
+            .collect();
+
+        let pose = pose_from_bones(&nodes, &plans, &moved);
+        let rest = rest_globals(&nodes);
+        for (i, (got, want)) in pose.iter().zip(&rest).enumerate() {
+            let got = got.to_scale_rotation_translation().2;
+            let want = want.to_scale_rotation_translation().2 + drop;
+            assert!(
+                got.abs_diff_eq(want, 0.001),
+                "node {i} should have travelled with its bone to {want:?}, got {got:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_node_follows_the_bone_below_it_rather_than_the_one_above_it() {
+        // The decision this function exists to make, and the one whose wrong
+        // answer looks almost right. A bone spans parent -> child, but the
+        // geometry weighted to a joint is the limb *below* it: the thigh is
+        // skinned to the hip, not to the knee. Drive each node from its own
+        // bone instead and every node is still in exactly the right place --
+        // the two bones meet there -- while every limb rotates with the segment
+        // above it, and the mesh slides off its own capsules as the ragdoll
+        // bends.
+        //
+        // Only bone 2 (node 1 -> node 2) moves here: a quarter turn about Z,
+        // pivoting on the node it shares with its parent, so the whole of the
+        // change is a rotation of the segment below node 1.
+        let nodes = uneven_chain();
+        let plans = plan_bones(&nodes, 0.08, 70.0);
+        let shin = plans.iter().position(|p| p.node == 2).expect("bone 2");
+        let pivot = Vec3::new(0.0, 8.0, 0.0); // node 1's rest position
+        let turn = Quat::from_rotation_z(std::f32::consts::FRAC_PI_2);
+
+        let mut poses = undisturbed(&plans);
+        poses[shin] = Some((
+            pivot + turn * (plans[shin].center - pivot),
+            turn * plans[shin].rotation,
+        ));
+        let pose = pose_from_bones(&nodes, &plans, &poses);
+
+        let (_, rotation, translation) = pose[1].to_scale_rotation_translation();
+        assert!(
+            translation.abs_diff_eq(pivot, 0.001),
+            "node 1 is the pivot, so it must not have moved: {translation:?}"
+        );
+        assert!(
+            rotation.abs_diff_eq(turn, 0.001) || (-rotation).abs_diff_eq(turn, 0.001),
+            "node 1 must take its rotation from the bone hanging off it, which \
+             turned by 90 degrees about Z; got {rotation:?}"
+        );
+
+        // And the node below really did swing round to where that puts it.
+        let tip = pose[2].to_scale_rotation_translation().2;
+        assert!(
+            tip.abs_diff_eq(Vec3::new(1.0, 8.0, 0.0), 0.001),
+            "node 2 hangs one unit below node 1 at rest, so a quarter turn \
+             about Z puts it one unit to +X of the pivot; got {tip:?}"
+        );
+
+        // The root is above the bone that moved and must be untouched.
+        let root = pose[0].to_scale_rotation_translation().2;
+        assert!(
+            root.abs_diff_eq(Vec3::new(0.0, 10.0, 0.0), 0.001),
+            "nothing moved the root's own bone, so the root stays put: {root:?}"
+        );
+    }
+
+    #[test]
+    fn a_bone_with_no_body_yet_leaves_its_node_in_the_rest_pose() {
+        // There is one frame between a ragdoll being switched on and its bone
+        // bodies existing in Rapier. Snapping the node to the origin for that
+        // frame would be a visible pop; leaving it in the rest pose is not.
+        let nodes = uneven_chain();
+        let plans = plan_bones(&nodes, 0.08, 70.0);
+        let pose = pose_from_bones(&nodes, &plans, &vec![None; plans.len()]);
+        for (got, want) in pose.iter().zip(&rest_globals(&nodes)) {
+            assert!(got.abs_diff_eq(*want, 0.001));
+        }
+        assert!(
+            pose_from_bones(&[], &[], &[]).is_empty(),
+            "no nodes at all is no pose, not a panic"
+        );
     }
 
     #[test]

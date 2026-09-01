@@ -21,7 +21,7 @@ pub use components::{
     PhysicsTransform, Ragdoll, RaycastHit, RigidBody, RigidBodyType,
 };
 pub use plugin::PhysicsPlugin;
-pub use ragdoll::{plan_bones, BonePlan};
+pub use ragdoll::{plan_bones, pose_from_bones, BonePlan};
 pub use world::PhysicsWorld;
 
 #[cfg(test)]

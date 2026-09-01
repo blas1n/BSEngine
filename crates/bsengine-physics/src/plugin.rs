@@ -14,7 +14,7 @@ use crate::{
         CharacterBody, Collider, ColliderShape, CollisionEvent, Joint, PhysicsHandles,
         PhysicsInput, PhysicsTransform, Ragdoll, RagdollBone, RigidBody, RigidBodyType,
     },
-    ragdoll::plan_bones,
+    ragdoll::{plan_bones, pose_from_bones},
     world::PhysicsWorld,
 };
 
@@ -61,6 +61,10 @@ impl Plugin for PhysicsPlugin {
                 sync_joints,
                 step_world,
                 sync_from_rapier,
+                // After `sync_from_rapier`, which is what puts this step's
+                // simulated pose into `PhysicsTransform`. Read before that and
+                // the skinned mesh would trail the bodies by a frame.
+                publish_ragdoll_pose,
                 sync_transform_from_physics,
                 // After the transform sync, so the ground ray is cast from
                 // where the character actually ended up this step rather than
@@ -351,7 +355,10 @@ fn sync_ragdolls(
             };
 
             commands.entity(entities[i]).insert((
-                RagdollBone,
+                RagdollBone {
+                    owner,
+                    node: plan.node,
+                },
                 RigidBody::dynamic(),
                 Collider {
                     shape: ColliderShape::Capsule {
@@ -401,6 +408,60 @@ fn sync_ragdolls(
                     .collect(),
             },
         );
+    }
+}
+
+/// Publishes the pose the bone bodies imply into the skinned mesh, so the
+/// character on screen follows the simulation instead of its animation clips.
+///
+/// **This is the half of the ragdoll that fails silently.** Everything up to
+/// here can be perfect — capsules in the right places, joints holding, the
+/// skeleton collapsing exactly as it should — and if this pass is missing, the
+/// character goes on playing its walk cycle over the top of it and looks
+/// completely normal. Nothing about the bodies would show it; the only
+/// observable difference is in the joint matrices the skinning ends up with.
+///
+/// The direction of travel is what keeps the two crates apart:
+/// `bsengine-gltf` never names a physics type, it just honours a
+/// `pose_override` written by whoever put one there. See that field, and the
+/// `bsengine-gltf` dependency note in this crate's `Cargo.toml`.
+///
+/// Clearing the override again matters as much as writing it: while one is in
+/// place the clips are not read at all, so a ragdoll switched off without this
+/// leaves the character frozen in the pose it died in.
+fn publish_ragdoll_pose(
+    bones: Query<(&RagdollBone, &PhysicsTransform)>,
+    mut owners: Query<(Entity, &Ragdoll, &mut SkinnedMesh)>,
+) {
+    let mut by_owner: HashMap<Entity, HashMap<usize, (Vec3, Quat)>> = HashMap::new();
+    for (bone, transform) in bones.iter() {
+        by_owner
+            .entry(bone.owner)
+            .or_default()
+            .insert(bone.node, (transform.position.0, transform.rotation.0));
+    }
+
+    for (owner, ragdoll, mut skinned) in owners.iter_mut() {
+        let poses = by_owner.get(&owner).filter(|_| ragdoll.active);
+        let Some(poses) = poses else {
+            // `is_empty` first, not an unconditional `clear`: taking `&mut` out
+            // of the `Mut` marks the component changed, and every skinned mesh
+            // in the level that has a ragdoll it has never used would report a
+            // change every single frame.
+            if !skinned.pose_override.is_empty() {
+                skinned.pose_override.clear();
+            }
+            continue;
+        };
+
+        let radius = ragdoll.bone_radius.max(1.0e-3);
+        let plans = plan_bones(&skinned.nodes, radius, ragdoll.total_mass);
+        let bone_poses: Vec<Option<(Vec3, Quat)>> = plans
+            .iter()
+            .map(|plan| poses.get(&plan.node).copied())
+            .collect();
+        let pose = pose_from_bones(&skinned.nodes, &plans, &bone_poses);
+        skinned.pose_override = pose;
     }
 }
 
@@ -1169,21 +1230,45 @@ mod tests {
                 scale: [1.0, 1.0, 1.0],
                 parent,
             };
+        let nodes = vec![
+            node("Hips", [0.0, 10.0, 0.0], None),
+            node("Spine", [0.0, 0.45, 0.0], Some(0)),
+            node("Head", [0.0, 0.40, 0.0], Some(1)),
+            node("LeftUpLeg", [0.15, -0.10, 0.0], Some(0)),
+            node("LeftLeg", [0.0, -0.45, 0.0], Some(3)),
+            node("LeftFoot", [0.0, -0.42, 0.05], Some(4)),
+        ];
+        // Every node is a joint, and every inverse bind matrix is the identity.
+        // That is not what a real exporter writes, and it is chosen so a joint
+        // matrix reads back as the node's *global transform* with nothing to
+        // undo: `joint_matrices[j].transform_point3(ZERO)` is simply where node
+        // `j` is. `REST_POSITIONS` states independently where that should be.
         SkinnedMesh {
             mesh_id: 0,
             rest_vertices: Vec::new(),
             skin: Vec::new(),
-            skin_data: Default::default(),
-            nodes: vec![
-                node("Hips", [0.0, 10.0, 0.0], None),
-                node("Spine", [0.0, 0.45, 0.0], Some(0)),
-                node("Head", [0.0, 0.40, 0.0], Some(1)),
-                node("LeftUpLeg", [0.15, -0.10, 0.0], Some(0)),
-                node("LeftLeg", [0.0, -0.45, 0.0], Some(3)),
-                node("LeftFoot", [0.0, -0.42, 0.05], Some(4)),
-            ],
+            skin_data: bsengine_gltf::SkinData {
+                joint_node_indices: (0..nodes.len()).collect(),
+                inverse_bind_matrices: vec![glam::Mat4::IDENTITY.to_cols_array_2d(); nodes.len()],
+            },
+            nodes,
+            pose_override: Vec::new(),
+            joint_matrices: Vec::new(),
         }
     }
+
+    /// Where [`humanoid_skeleton`]'s six nodes sit in model space at rest,
+    /// written out rather than accumulated. Re-deriving them with the same
+    /// parent-chain walk the code under test uses would let a broken walk agree
+    /// with itself.
+    const REST_POSITIONS: [Vec3; 6] = [
+        Vec3::new(0.0, 10.0, 0.0),   // Hips
+        Vec3::new(0.0, 10.45, 0.0),  // Spine
+        Vec3::new(0.0, 10.85, 0.0),  // Head
+        Vec3::new(0.15, 9.90, 0.0),  // LeftUpLeg
+        Vec3::new(0.15, 9.45, 0.0),  // LeftLeg
+        Vec3::new(0.15, 9.03, 0.05), // LeftFoot
+    ];
 
     /// Every ragdoll bone body currently in the world, as
     /// `(entity, PhysicsTransform)`.
@@ -1440,6 +1525,224 @@ mod tests {
             logs.matches("no SkinnedMesh").count(),
             1,
             "and it must be said once, not once per frame forever: {logs:?}"
+        );
+    }
+
+    // ---- Skinning follows the ragdoll (item 52 sub-step 1/2, task 3) -----
+    //
+    // The task the whole feature lives or dies on, and it fails quietly. An
+    // implementation that builds the bodies and lets them fall while skinning
+    // goes on reading the animation clips produces a character that looks
+    // completely normal on screen with a full ragdoll simulating underneath it
+    // -- and every test above passes in that state, because they all inspect
+    // the physics bodies, and the bodies are exactly what a broken version also
+    // gets right. So these assert on the JOINT MATRICES, which are the only
+    // place the difference is observable.
+    //
+    // They live in this crate rather than in `bsengine-gltf` because this is
+    // the only one that can see both ends: `bsengine-gltf` must not know what
+    // physics is (see the dependency note in Cargo.toml), so it can be asked
+    // whether it honours a `pose_override` -- which it is, over there -- but
+    // not whether a real ragdoll is what fills one.
+
+    /// Where a clip holds the skeleton's root: 50 units along +X of where it
+    /// rests. Constant over the clip's whole timeline, so nothing here depends
+    /// on how far an `AnimationPlayer` has been ticked.
+    const CLIP_ROOT: Vec3 = Vec3::new(50.0, 10.0, 0.0);
+
+    fn shifted_clip_library() -> bsengine_gltf::AnimationClipLibrary {
+        bsengine_gltf::AnimationClipLibrary::from_clips(vec![bsengine_gltf::AnimationClip {
+            name: "pose".to_string(),
+            duration: 1.0,
+            channels: vec![bsengine_gltf::AnimationChannel {
+                node_index: 0,
+                times: vec![0.0, 1.0],
+                values: bsengine_gltf::KeyframeValues::Translations(vec![
+                    CLIP_ROOT.to_array(),
+                    CLIP_ROOT.to_array(),
+                ]),
+                interpolation: bsengine_gltf::Interpolation::Linear,
+            }],
+        }])
+    }
+
+    /// A skinned character playing [`shifted_clip_library`]'s clip, physics and
+    /// skinning both running, optionally carrying a `Ragdoll`.
+    fn skinned_character(ragdoll: Option<Ragdoll>) -> (App, Entity) {
+        let mut app = new_app();
+        app.add_plugins(PhysicsPlugin);
+        app.add_plugins(bsengine_gltf::SkinnedMeshPlugin);
+        let mut entity = app.world_mut().spawn((
+            humanoid_skeleton(),
+            shifted_clip_library(),
+            bsengine_core::AnimationPlayer::new("pose").with_duration(1.0),
+        ));
+        if let Some(ragdoll) = ragdoll {
+            entity.insert(ragdoll);
+        }
+        let owner = entity.id();
+        (app, owner)
+    }
+
+    /// Where each node currently is, according to the joint matrices the
+    /// skinning system last computed. The inverse bind matrices are the
+    /// identity (see [`humanoid_skeleton`]), so a joint matrix applied to the
+    /// origin is the node's global position and nothing else.
+    fn skinned_node_positions(app: &App, owner: Entity) -> Vec<Vec3> {
+        app.world()
+            .get::<SkinnedMesh>(owner)
+            .expect("the character keeps its skinned mesh")
+            .joint_matrices
+            .iter()
+            .map(|m| m.transform_point3(Vec3::ZERO))
+            .collect()
+    }
+
+    /// Each ragdoll bone body's position, keyed by the node it belongs to.
+    fn bone_positions_by_node(app: &mut App) -> HashMap<usize, Vec3> {
+        let mut query = app.world_mut().query::<(&RagdollBone, &PhysicsTransform)>();
+        query
+            .iter(app.world())
+            .map(|(bone, transform)| (bone.node, transform.position.0))
+            .collect()
+    }
+
+    #[test]
+    fn an_active_ragdoll_makes_the_joint_matrices_follow_physics_not_the_clip() {
+        let (mut app, owner) = skinned_character(Some(Ragdoll {
+            active: true,
+            ..Default::default()
+        }));
+
+        // One frame: the bodies exist and are on their plans' centres, so the
+        // pose is still the rest pose -- which is already the whole assertion
+        // against the quiet failure, because the clip would put the skeleton
+        // 50 units away along +X.
+        app.update();
+        let before = skinned_node_positions(&app, owner);
+        assert_eq!(before.len(), REST_POSITIONS.len(), "one matrix per joint");
+        for (node, rest) in REST_POSITIONS.iter().enumerate() {
+            assert!(
+                before[node].abs_diff_eq(*rest, 0.05),
+                "on the frame the ragdoll switched on, node {node} should still \
+                 be at its rest position {rest:?}; it is at {:?}. The clip puts \
+                 the skeleton at x = {}, so a skinning path still reading the \
+                 clip lands there instead",
+                before[node],
+                rest.x + CLIP_ROOT.x
+            );
+        }
+
+        // No floor: in free fall every bone accelerates identically and the
+        // joints stay satisfied, so the skeleton translates rigidly and "the
+        // mesh followed the bodies" is an exact claim rather than an
+        // approximate one.
+        let bones_before = bone_positions_by_node(&mut app);
+        for _ in 0..120 {
+            app.update();
+        }
+        let bones_after = bone_positions_by_node(&mut app);
+        let travel = bones_after[&0] - bones_before[&0];
+        println!("ragdoll skinning: the bone bodies travelled {travel:?}");
+        assert!(
+            travel.y < -1.0,
+            "the ragdoll has to have actually moved, or 'the mesh followed it' \
+             is a claim about nothing; it travelled {travel:?}"
+        );
+
+        let after = skinned_node_positions(&app, owner);
+        for (node, rest) in REST_POSITIONS.iter().enumerate() {
+            let moved = after[node] - before[node];
+            assert!(
+                moved.abs_diff_eq(travel, 0.05),
+                "node {node} moved {moved:?} while its bone bodies moved \
+                 {travel:?} -- the joint matrices are not following the physics"
+            );
+            assert!(
+                (after[node].x - (rest.x + CLIP_ROOT.x)).abs() > 10.0,
+                "...and they must not be following the clip either: node {node} \
+                 ended at {:?}, and the clip's pose is x = {}",
+                after[node],
+                rest.x + CLIP_ROOT.x
+            );
+        }
+    }
+
+    #[test]
+    fn an_inactive_ragdoll_leaves_the_joint_matrices_byte_identical() {
+        // The opposite direction, and the one every already-shipped character
+        // depends on: attaching a `Ragdoll` and never switching it on must
+        // leave the animation path producing bit-for-bit what it produced
+        // before this feature existed -- which is what an entity with no
+        // `Ragdoll` component at all still gets.
+        let (mut with, with_owner) = skinned_character(Some(Ragdoll::default()));
+        let (mut without, without_owner) = skinned_character(None);
+        for _ in 0..30 {
+            with.update();
+            without.update();
+        }
+
+        let a = with.world().get::<SkinnedMesh>(with_owner).unwrap();
+        let b = without.world().get::<SkinnedMesh>(without_owner).unwrap();
+        assert!(
+            a.pose_override.is_empty(),
+            "an inactive ragdoll must not publish a pose at all"
+        );
+        assert_eq!(a.joint_matrices.len(), REST_POSITIONS.len());
+        assert_eq!(a.joint_matrices.len(), b.joint_matrices.len());
+        for (node, (got, want)) in a.joint_matrices.iter().zip(&b.joint_matrices).enumerate() {
+            assert_eq!(
+                got.to_cols_array(),
+                want.to_cols_array(),
+                "joint {node} of a character carrying an inactive ragdoll must \
+                 be bit-for-bit the same matrix as one carrying no ragdoll"
+            );
+        }
+        // ...and the animation really is what both of them are doing, or the
+        // comparison above is between two copies of the same nothing.
+        let animated = a.joint_matrices[0].transform_point3(Vec3::ZERO);
+        assert!(
+            (animated.x - CLIP_ROOT.x).abs() < 0.001,
+            "the clip should be driving the root to x = {}, got {animated:?}",
+            CLIP_ROOT.x
+        );
+    }
+
+    #[test]
+    fn switching_a_ragdoll_off_hands_the_skeleton_back_to_the_animation() {
+        // While a pose override is in place the clips are not read at all, so a
+        // ragdoll that stops without clearing it leaves the character frozen in
+        // the pose it died in -- forever, and with nothing failing anywhere.
+        let (mut app, owner) = skinned_character(Some(Ragdoll {
+            active: true,
+            ..Default::default()
+        }));
+        for _ in 0..30 {
+            app.update();
+        }
+        let collapsed = skinned_node_positions(&app, owner)[0];
+        assert!(
+            (collapsed.x - CLIP_ROOT.x).abs() > 10.0,
+            "sanity: while active the ragdoll, not the clip, is driving"
+        );
+
+        app.world_mut().get_mut::<Ragdoll>(owner).unwrap().active = false;
+        app.update();
+
+        assert!(
+            app.world()
+                .get::<SkinnedMesh>(owner)
+                .unwrap()
+                .pose_override
+                .is_empty(),
+            "the override must be cleared, not merely stop being updated"
+        );
+        let animated = skinned_node_positions(&app, owner)[0];
+        assert!(
+            (animated.x - CLIP_ROOT.x).abs() < 0.001,
+            "with the ragdoll off the clip drives the root back to x = {}, got \
+             {animated:?}",
+            CLIP_ROOT.x
         );
     }
 

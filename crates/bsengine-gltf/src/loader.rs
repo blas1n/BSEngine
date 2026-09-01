@@ -30,8 +30,18 @@ pub struct GltfImageData {
 /// Per-node local rest-pose transform plus its parent, as decomposed straight
 /// from the glTF document — the "bind pose" a skinned mesh returns to for any
 /// node/joint not overridden by the currently-sampled animation clip.
-#[derive(Debug, Clone, Copy, PartialEq)]
+// Not `Copy`: `name` is a `String`. Nothing relied on the copy — every reader
+// takes `&[NodeTransform]` and looks at fields through the reference.
+#[derive(Debug, Clone, PartialEq)]
 pub struct NodeTransform {
+    /// The node's name, as given in the glTF file, or empty when it has none.
+    ///
+    /// This is the bone name a skeleton is authored against — what
+    /// `Ragdoll::joint_overrides` keys on to mark a knee or an elbow as a
+    /// hinge. glTF node names are optional, so an unnamed node gets `""`
+    /// rather than a synthesised placeholder: a made-up name would look
+    /// authorable and silently never match.
+    pub name: String,
     /// Local-space translation.
     pub position: [f32; 3],
     /// Local-space rotation quaternion, [x, y, z, w].
@@ -45,6 +55,7 @@ pub struct NodeTransform {
 impl Default for NodeTransform {
     fn default() -> Self {
         Self {
+            name: String::new(),
             position: [0.0, 0.0, 0.0],
             rotation: [0.0, 0.0, 0.0, 1.0],
             scale: [1.0, 1.0, 1.0],
@@ -130,6 +141,7 @@ impl GltfLoader {
             for node in doc.nodes() {
                 let (t, r, s) = node.transform().decomposed();
                 out[node.index()] = NodeTransform {
+                    name: node.name().unwrap_or_default().to_string(),
                     position: t,
                     rotation: r,
                     scale: s,

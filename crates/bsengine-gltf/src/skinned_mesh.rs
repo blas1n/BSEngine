@@ -12,7 +12,7 @@ use glam::{Mat4, Quat, Vec3};
 /// `MeshRenderer` by `GltfPlugin` when the source glTF had a skin.
 /// # What is reflected, and what is not
 ///
-/// `mesh_id` is reflected; the four bulk fields below are `#[reflect(ignore)]`.
+/// `mesh_id` is reflected; every other field below is `#[reflect(ignore)]`.
 /// R1 asks that a public component be *visible* — that the Inspector shows the
 /// entity has a skinned mesh and that MCP can see it is attached — and
 /// `mesh_id` is the whole of what identifies one. The rest is per-vertex data
@@ -52,6 +52,40 @@ pub struct SkinnedMesh {
     /// Not reflected: see the type-level note above.
     #[reflect(ignore)]
     pub nodes: Vec<NodeTransform>,
+    /// Per-node **global** transforms from somewhere other than the animation
+    /// clips, in [`nodes`] order — or empty, which means the clips are the
+    /// source and nothing has been overridden.
+    ///
+    /// This is the whole of how a ragdoll drives a skinned mesh. `bsengine-gltf`
+    /// must not know what physics is, so the physics crate — which already
+    /// depends on this one — writes the pose its bone bodies imply here, and
+    /// [`SkinnedMeshPlugin`]'s system feeds it through the same
+    /// `global * inverse_bind_matrix` step the animated path uses. Skinning
+    /// therefore never asks *why* the pose is what it is, and the ragdoll never
+    /// has to reach into vertex blending.
+    ///
+    /// Whoever fills it is responsible for emptying it again: as long as this
+    /// is non-empty the animation clips are ignored entirely, so a stale
+    /// override leaves the character frozen in whatever pose put it there.
+    ///
+    /// Not reflected: see the type-level note above.
+    ///
+    /// [`nodes`]: SkinnedMesh::nodes
+    #[reflect(ignore)]
+    pub pose_override: Vec<Mat4>,
+    /// The skinning matrix per joint as of the last time [`SkinnedMeshPlugin`]'s
+    /// system ran — `global[joint_node] * inverse_bind_matrix[joint]`, in
+    /// [`SkinData::joint_node_indices`] order.
+    ///
+    /// Output, not input: writing it does nothing, because the next frame
+    /// recomputes it from whichever source is driving the skeleton. It is the
+    /// pose the mesh is actually being deformed by, which nothing outside that
+    /// system could otherwise observe — the matrices used to be computed and
+    /// thrown away inside one loop body.
+    ///
+    /// Not reflected: see the type-level note above.
+    #[reflect(ignore)]
+    pub joint_matrices: Vec<Mat4>,
 }
 
 /// The full set of animation clips available to an entity's `AnimationPlayer`,
@@ -400,15 +434,12 @@ fn push_state_samples<'a>(
 }
 
 /// Walks the node hierarchy to compose each node's GLOBAL transform from its
-/// local transform and its parent chain, then returns one skinning matrix per
-/// joint (`global[joint_node] * inverse_bind_matrix[joint]`) — the matrix
-/// each of that joint's vertices gets blended through. Iterates a fixed
-/// number of passes rather than a proper topological sort, matching the same
-/// pattern `bsengine_core::propagate_global_transforms` already uses for
-/// parent/child Transform hierarchies in this codebase.
-fn compute_joint_matrices_blended(
+/// local transform and its parent chain. Iterates a fixed number of passes
+/// rather than a proper topological sort, matching the same pattern
+/// `bsengine_core::propagate_global_transforms` already uses for parent/child
+/// Transform hierarchies in this codebase.
+fn compute_global_transforms_blended(
     nodes: &[NodeTransform],
-    skin: &SkinData,
     clips: &[ClipSample<'_>],
 ) -> Vec<Mat4> {
     let locals = compute_local_transforms_blended(nodes, clips);
@@ -420,11 +451,41 @@ fn compute_joint_matrices_blended(
             }
         }
     }
+    globals
+}
+
+/// Turns per-node global transforms into one skinning matrix per joint
+/// (`global[joint_node] * inverse_bind_matrix[joint]`) — the matrix each of
+/// that joint's vertices gets blended through.
+///
+/// Split out from the animated path because it is the step the ragdoll shares.
+/// `SkinnedMesh::pose_override` supplies different globals and everything from
+/// here on is identical, which is what keeps "physics drives the bones" from
+/// touching vertex blending or the GPU upload at all.
+///
+/// A joint naming a node the skeleton does not have contributes the identity
+/// rather than panicking: with two sources of globals there are now two ways
+/// for the two to disagree about how many nodes there are, and a malformed
+/// asset should not take the frame down.
+fn joint_matrices_from_globals(globals: &[Mat4], skin: &SkinData) -> Vec<Mat4> {
     skin.joint_node_indices
         .iter()
         .zip(&skin.inverse_bind_matrices)
-        .map(|(&node_index, ibm)| globals[node_index] * Mat4::from_cols_array_2d(ibm))
+        .map(|(&node_index, ibm)| {
+            globals.get(node_index).copied().unwrap_or(Mat4::IDENTITY)
+                * Mat4::from_cols_array_2d(ibm)
+        })
         .collect()
+}
+
+/// The animated path: compose globals from the sampled clips, then turn them
+/// into skinning matrices.
+fn compute_joint_matrices_blended(
+    nodes: &[NodeTransform],
+    skin: &SkinData,
+    clips: &[ClipSample<'_>],
+) -> Vec<Mat4> {
+    joint_matrices_from_globals(&compute_global_transforms_blended(nodes, clips), skin)
 }
 
 /// Blends one rest-pose vertex position through up to 4 joint matrices by
@@ -465,10 +526,17 @@ fn blend_vertex_normal(rest_normal: Vec3, skin: &VertexSkin, joint_matrices: &[M
     result.normalize_or_zero()
 }
 
-/// Drives CPU-side skeletal skinning: each frame, for every entity with
-/// `SkinnedMesh` + `AnimationClipLibrary` + `AnimationPlayer`, samples the
-/// player's current clip, composes joint matrices, blends the rest-pose
-/// vertices, and re-uploads them into the same GPU mesh id. Runs in
+/// Drives CPU-side skeletal skinning: each frame, for every entity with a
+/// `SkinnedMesh`, composes that entity's joint matrices, blends the rest-pose
+/// vertices through them, and re-uploads the result into the same GPU mesh id.
+///
+/// The joint matrices come from one of two sources. Normally the entity's
+/// `AnimationClipLibrary`/`AnimationPlayer` are sampled and the pose is
+/// accumulated down the node hierarchy. When something has filled
+/// [`SkinnedMesh::pose_override`] — the ragdoll, today — those per-node globals
+/// are used instead and the clips are not read at all. Only the *source* of the
+/// globals differs; the `global * inverse_bind_matrix` step, the vertex
+/// blending, and the upload are shared. Runs in
 /// `PostUpdate`, after `bsengine_app::AnimationStateMachinePlugin` (if
 /// present) has already updated which clip/time the player should be
 /// showing this frame -- this plugin has no direct dependency on that one,
@@ -484,53 +552,71 @@ impl Plugin for SkinnedMeshPlugin {
 }
 
 fn update_skinned_meshes(
-    query: Query<(
-        &SkinnedMesh,
-        &AnimationClipLibrary,
-        &bsengine_core::AnimationPlayer,
+    mut query: Query<(
+        &mut SkinnedMesh,
+        Option<&AnimationClipLibrary>,
+        Option<&bsengine_core::AnimationPlayer>,
         Option<&bsengine_core::AnimationStateMachine>,
     )>,
     mesh_registry: Option<ResMut<bsengine_rhi_wgpu::GpuMeshRegistry>>,
     queue: Option<Res<bsengine_rhi_wgpu::GpuQueueResource>>,
 ) {
-    let (Some(mut mesh_registry), Some(queue)) = (mesh_registry, queue) else {
-        return;
-    };
-    for (skinned, library, player, asm) in query.iter() {
-        let Some(clip) = library.clips.get(&player.clip) else {
-            continue;
+    // Deliberately not an early return when there is no GPU. Composing the
+    // joint matrices is a few dozen matrix products over the skeleton and it is
+    // the *pose*, which a headless host still wants to be right; blending the
+    // vertices is tens of thousands of products whose only consumer is the
+    // upload, so that half is what the GPU's absence skips.
+    let mut gpu = mesh_registry.zip(queue);
+
+    for (mut skinned, library, player, asm) in query.iter_mut() {
+        // The one branch this whole feature turns on, and the one that fails
+        // silently: with the bodies built and falling but the clips still
+        // sourcing the pose, the character looks completely normal while a full
+        // ragdoll simulates underneath it.
+        let joint_matrices = if skinned.pose_override.is_empty() {
+            let (Some(library), Some(player)) = (library, player) else {
+                continue;
+            };
+            let Some(clip) = library.clips.get(&player.clip) else {
+                continue;
+            };
+
+            // A state machine mid-transition contributes the state it is
+            // leaving as well as the one it is entering. Until this existed,
+            // `blend_weight` was advanced every frame and read by nothing, so
+            // every "crossfade" was really a hard cut.
+            //
+            // Both clips are sampled at the same `player.time`. For the looping
+            // locomotion clips these transitions are for — idle/walk/run — that
+            // is what keeps the feet in phase across the blend; a clip whose
+            // meaning depends on its own timeline would need its own clock, and
+            // nothing here has one yet.
+            let samples = blend_samples(clip, library, player.time, asm);
+            compute_joint_matrices_blended(&skinned.nodes, &skinned.skin_data, &samples)
+        } else {
+            joint_matrices_from_globals(&skinned.pose_override, &skinned.skin_data)
         };
 
-        // A state machine mid-transition contributes the state it is leaving as
-        // well as the one it is entering. Until this existed, `blend_weight`
-        // was advanced every frame and read by nothing, so every "crossfade"
-        // was really a hard cut.
-        //
-        // Both clips are sampled at the same `player.time`. For the looping
-        // locomotion clips these transitions are for — idle/walk/run — that is
-        // what keeps the feet in phase across the blend; a clip whose meaning
-        // depends on its own timeline would need its own clock, and nothing
-        // here has one yet.
-        let samples = blend_samples(clip, library, player.time, asm);
+        if let Some((mesh_registry, queue)) = gpu.as_mut() {
+            let deformed: Vec<Vertex> = skinned
+                .rest_vertices
+                .iter()
+                .zip(&skinned.skin)
+                .map(|(v, s)| {
+                    let pos = blend_vertex_position(Vec3::from(v.position), s, &joint_matrices);
+                    let normal = blend_vertex_normal(Vec3::from(v.normal), s, &joint_matrices);
+                    Vertex {
+                        position: pos.to_array(),
+                        color: v.color,
+                        normal: normal.to_array(),
+                        uv: v.uv,
+                    }
+                })
+                .collect();
+            mesh_registry.update_vertices(&queue.0, skinned.mesh_id, &deformed);
+        }
 
-        let joint_matrices =
-            compute_joint_matrices_blended(&skinned.nodes, &skinned.skin_data, &samples);
-        let deformed: Vec<Vertex> = skinned
-            .rest_vertices
-            .iter()
-            .zip(&skinned.skin)
-            .map(|(v, s)| {
-                let pos = blend_vertex_position(Vec3::from(v.position), s, &joint_matrices);
-                let normal = blend_vertex_normal(Vec3::from(v.normal), s, &joint_matrices);
-                Vertex {
-                    position: pos.to_array(),
-                    color: v.color,
-                    normal: normal.to_array(),
-                    uv: v.uv,
-                }
-            })
-            .collect();
-        mesh_registry.update_vertices(&queue.0, skinned.mesh_id, &deformed);
+        skinned.joint_matrices = joint_matrices;
     }
 }
 
@@ -634,6 +720,7 @@ mod tests {
     /// A one-node skeleton at the origin, unrotated and unscaled.
     fn one_node() -> Vec<NodeTransform> {
         vec![NodeTransform {
+            name: String::new(),
             position: [0.0, 0.0, 0.0],
             rotation: [0.0, 0.0, 0.0, 1.0],
             scale: [1.0, 1.0, 1.0],
@@ -954,6 +1041,7 @@ mod tests {
     #[test]
     fn no_clips_at_all_leaves_the_rest_pose() {
         let nodes = vec![NodeTransform {
+            name: String::new(),
             position: [1.0, 2.0, 3.0],
             rotation: [0.0, 0.0, 0.0, 1.0],
             scale: [1.0, 1.0, 1.0],
@@ -967,6 +1055,7 @@ mod tests {
     #[test]
     fn compute_joint_matrices_uses_bind_pose_when_no_channels_animate_a_node() {
         let nodes = vec![NodeTransform {
+            name: String::new(),
             position: [1.0, 0.0, 0.0],
             rotation: [0.0, 0.0, 0.0, 1.0],
             scale: [1.0, 1.0, 1.0],
@@ -985,12 +1074,14 @@ mod tests {
     fn compute_joint_matrices_composes_parent_child_hierarchy() {
         let nodes = vec![
             NodeTransform {
+                name: String::new(),
                 position: [1.0, 0.0, 0.0],
                 rotation: [0.0, 0.0, 0.0, 1.0],
                 scale: [1.0, 1.0, 1.0],
                 parent: None,
             },
             NodeTransform {
+                name: String::new(),
                 position: [0.0, 2.0, 0.0],
                 rotation: [0.0, 0.0, 0.0, 1.0],
                 scale: [1.0, 1.0, 1.0],
@@ -1073,6 +1164,8 @@ mod tests {
                 inverse_bind_matrices: vec![Mat4::IDENTITY.to_cols_array_2d()],
             },
             nodes: vec![NodeTransform::default()],
+            pose_override: Vec::new(),
+            joint_matrices: Vec::new(),
         }
     }
 
@@ -1209,6 +1302,8 @@ mod tests {
                     skin,
                     skin_data,
                     nodes,
+                    pose_override: Vec::new(),
+                    joint_matrices: Vec::new(),
                 },
                 AnimationClipLibrary { clips },
                 bsengine_core::AnimationPlayer::new("wiggle").with_duration(1.0),
@@ -1223,10 +1318,141 @@ mod tests {
         app.update();
 
         // No GpuMeshRegistry/GpuQueueResource is present in this headless test
-        // (no RHI plugin added), so the system should compute the deformed
-        // pose without panicking even when it can't upload anywhere -- this
-        // test's job is to prove the math runs end-to-end via the ECS system,
-        // not to assert on GPU state.
-        assert!(app.world().get::<SkinnedMesh>(entity).is_some());
+        // (no RHI plugin added), so the system computes the pose without
+        // uploading it anywhere -- this test's job is to prove the math runs
+        // end-to-end via the ECS system, not to assert on GPU state.
+        let skinned = app
+            .world()
+            .get::<SkinnedMesh>(entity)
+            .expect("the component survives the system");
+        assert_eq!(skinned.joint_matrices.len(), 1);
+        let moved = skinned.joint_matrices[0].transform_point3(Vec3::ZERO);
+        assert!(
+            moved.abs_diff_eq(Vec3::new(0.0, 1.5, 0.0), 0.001),
+            "halfway through a 0 -> 3 translation the one joint should be at \
+             y = 1.5, got {moved:?}"
+        );
+    }
+
+    // ---- ragdoll-sourced poses (roadmap item 52, sub-step 1/2) ------------
+    //
+    // `pose_override` is the whole of what `bsengine-gltf` knows about the
+    // ragdoll: physics writes per-node globals into it and this crate feeds
+    // them through the same `global * inverse_bind_matrix` step the animated
+    // path uses. That the *physics* fills it correctly is asserted in
+    // `bsengine-physics`, which is the only crate that can see both ends; what
+    // belongs here is that the override is honoured at all, and that its
+    // absence changes nothing.
+
+    /// A one-node skeleton, a clip translating that node to (0, 3, 0), and an
+    /// identity inverse bind matrix — so a joint matrix reads back directly as
+    /// where the node ended up.
+    fn one_joint_app() -> (bevy_app::App, bevy_ecs::entity::Entity) {
+        let mut app = bsengine_app::new_app();
+        app.insert_resource(bsengine_core::Time::default());
+        app.add_plugins(SkinnedMeshPlugin);
+
+        let mut clips = std::collections::HashMap::new();
+        clips.insert(
+            "wiggle".to_string(),
+            AnimationClip {
+                name: "wiggle".to_string(),
+                duration: 1.0,
+                channels: vec![AnimationChannel {
+                    node_index: 0,
+                    times: vec![0.0, 1.0],
+                    values: KeyframeValues::Translations(vec![[0.0, 3.0, 0.0], [0.0, 3.0, 0.0]]),
+                    interpolation: Interpolation::Linear,
+                }],
+            },
+        );
+
+        let entity = app
+            .world_mut()
+            .spawn((
+                SkinnedMesh {
+                    mesh_id: 1,
+                    rest_vertices: Vec::new(),
+                    skin: Vec::new(),
+                    skin_data: SkinData {
+                        joint_node_indices: vec![0],
+                        inverse_bind_matrices: vec![Mat4::IDENTITY.to_cols_array_2d()],
+                    },
+                    nodes: one_node(),
+                    pose_override: Vec::new(),
+                    joint_matrices: Vec::new(),
+                },
+                AnimationClipLibrary { clips },
+                bsengine_core::AnimationPlayer::new("wiggle").with_duration(1.0),
+            ))
+            .id();
+        (app, entity)
+    }
+
+    #[test]
+    fn a_pose_override_is_what_the_joint_matrices_come_from() {
+        // The quiet failure this guards: the ragdoll's bodies can be built,
+        // simulating, and perfectly correct while skinning goes on reading the
+        // clip -- and the character then looks completely normal on screen with
+        // a full ragdoll running underneath it. Nothing about the bodies would
+        // show it; only the joint matrices do.
+        let (mut app, entity) = one_joint_app();
+        app.update();
+        let from_clip = app
+            .world()
+            .get::<SkinnedMesh>(entity)
+            .unwrap()
+            .joint_matrices[0]
+            .transform_point3(Vec3::ZERO);
+        assert!(
+            from_clip.abs_diff_eq(Vec3::new(0.0, 3.0, 0.0), 0.001),
+            "sanity: with no override the clip drives the pose, got {from_clip:?}"
+        );
+
+        app.world_mut()
+            .get_mut::<SkinnedMesh>(entity)
+            .unwrap()
+            .pose_override = vec![Mat4::from_translation(Vec3::new(7.0, -2.0, 0.0))];
+        app.update();
+
+        let overridden = app
+            .world()
+            .get::<SkinnedMesh>(entity)
+            .unwrap()
+            .joint_matrices[0]
+            .transform_point3(Vec3::ZERO);
+        assert!(
+            overridden.abs_diff_eq(Vec3::new(7.0, -2.0, 0.0), 0.001),
+            "with a pose override in place the clip must not be read at all; \
+             expected the override's (7, -2, 0), got {overridden:?}"
+        );
+    }
+
+    #[test]
+    fn an_empty_pose_override_leaves_the_animated_path_byte_identical() {
+        // The other direction, and the one a released engine depends on: every
+        // skinned mesh that has never heard of a ragdoll must come out of this
+        // exactly as it did before the feature existed.
+        let (mut app, entity) = one_joint_app();
+        app.update();
+
+        let skinned = app.world().get::<SkinnedMesh>(entity).unwrap();
+        let library = app.world().get::<AnimationClipLibrary>(entity).unwrap();
+        let player = app
+            .world()
+            .get::<bsengine_core::AnimationPlayer>(entity)
+            .unwrap();
+        let samples = blend_samples(&library.clips["wiggle"], library, player.time, None);
+        let expected = compute_joint_matrices_blended(&skinned.nodes, &skinned.skin_data, &samples);
+
+        assert_eq!(skinned.joint_matrices.len(), expected.len());
+        for (i, (got, want)) in skinned.joint_matrices.iter().zip(&expected).enumerate() {
+            assert_eq!(
+                got.to_cols_array(),
+                want.to_cols_array(),
+                "joint {i} must be bit-for-bit what the pre-ragdoll animation \
+                 path produced, not merely close to it"
+            );
+        }
     }
 }

@@ -989,6 +989,14 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     // types are named below.
     app.register_type::<bsengine_physics::Joint>();
     app.register_type::<bsengine_physics::JointKind>();
+    // `Ragdoll` is `bsengine-physics`'s too, and here for the same reason as
+    // `Joint`. Its `joint_overrides` is a `HashMap<String, JointKind>`, which
+    // needs no extra `register_type_data` the way `AnimationStateMachine`'s
+    // `HashSet<String>` did: a `Map` field *is* structurally recursed by
+    // `TypedReflectDeserializer`, so registering `JointKind` above is enough
+    // for a scene to author an override. There is a test below that fails if
+    // that ever stops being true.
+    app.register_type::<bsengine_physics::Ragdoll>();
     app.register_type::<PhysicsBodyDesc>();
     app.register_type::<crate::types::RigidBodyDesc>();
     app.register_type::<crate::types::ColliderDesc>();
@@ -1187,6 +1195,60 @@ mod tests {
                 "{path} did not survive deserialization -- one of its fields is an                  opaque wrapper with no ReflectDeserialize"
             );
         }
+    }
+
+    #[test]
+    fn a_ragdoll_with_joint_overrides_survives_scene_deserialization() {
+        // `Ragdoll::joint_overrides` is a `HashMap<String, JointKind>`, and
+        // whether that reflects was the one open question about the component's
+        // shape -- the alternative being a `Vec<(String, JointKind)>`. A map
+        // that does not reflect fails the way `ReflectColor` did: the scene
+        // parses, the entity spawns, one warning goes to the log, and the whole
+        // *containing component* is quietly absent.
+        //
+        // A non-empty map with a struct-variant value is the case that decides
+        // it: an empty `{}` would pass even if the value type were opaque.
+        let mut scene: crate::types::SceneDescriptor =
+            ron::from_str(r#"SceneDescriptor(entities: [EntityDescriptor(name: "E")])"#)
+                .expect("the base scene should parse");
+        scene.entities[0].components = vec![(
+            "bsengine_physics::components::Ragdoll".to_string(),
+            r#"(active: true, joint_overrides: {"LeftLeg": Revolute(axis: (1.0, 0.0, 0.0), limits: Some((0.0, 2.2)))}, bone_radius: 0.08, total_mass: 70.0)"#
+                .to_string(),
+        )];
+
+        let mut app = new_app();
+        super::register_gameplay_reflect_types(&mut app);
+        super::spawn_scene_entities(app.world_mut(), &scene.entities);
+
+        let entity = app
+            .world()
+            .iter_entities()
+            .next()
+            .expect("the entity should exist")
+            .id();
+        let ragdoll = app.world().get::<bsengine_physics::Ragdoll>(entity).expect(
+            "the Ragdoll component must survive deserialization -- if it is \
+                 absent, HashMap<String, JointKind> is not reflecting and the \
+                 field has to become a Vec of pairs",
+        );
+        assert!(ragdoll.active, "the authored `active: true` must come back");
+        assert!(
+            matches!(
+                ragdoll.joint_for_bone("LeftLeg"),
+                bsengine_physics::JointKind::Revolute { .. }
+            ),
+            "the authored override must come back through the map, not just the \
+             component's presence; got {:?}",
+            ragdoll.joint_for_bone("LeftLeg")
+        );
+        assert!(
+            matches!(
+                ragdoll.joint_for_bone("RightLeg"),
+                bsengine_physics::JointKind::Spherical
+            ),
+            "a bone the scene said nothing about keeps the Spherical default"
+        );
     }
 
     #[test]

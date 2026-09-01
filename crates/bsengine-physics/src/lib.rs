@@ -11,14 +11,17 @@
 pub mod components;
 /// The Bevy plugin that drives spawning, stepping, and syncing physics bodies.
 pub mod plugin;
+/// Turning a skeleton's rest pose into the ragdoll's bone bodies and joints.
+pub mod ragdoll;
 /// The Rapier-backed physics world resource and its query/mutation API.
 pub mod world;
 
 pub use components::{
     CharacterBody, Collider, ColliderShape, CollisionEvent, Joint, JointKind, PhysicsInput,
-    PhysicsTransform, RaycastHit, RigidBody, RigidBodyType,
+    PhysicsTransform, Ragdoll, RaycastHit, RigidBody, RigidBodyType,
 };
 pub use plugin::PhysicsPlugin;
+pub use ragdoll::{plan_bones, pose_from_bones, BonePlan};
 pub use world::PhysicsWorld;
 
 #[cfg(test)]

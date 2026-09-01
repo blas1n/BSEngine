@@ -1,8 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
+use bsengine_gltf::SkinnedMesh;
 use glam::{Quat, Vec3};
 use rapier3d::geometry::{CollisionEvent as RapierCollisionEvent, ContactPair};
 use rapier3d::pipeline::EventHandler;
@@ -11,8 +12,9 @@ use rapier3d::prelude::*;
 use crate::{
     components::{
         CharacterBody, Collider, ColliderShape, CollisionEvent, Joint, PhysicsHandles,
-        PhysicsInput, PhysicsTransform, RigidBody, RigidBodyType,
+        PhysicsInput, PhysicsTransform, Ragdoll, RagdollBone, RigidBody, RigidBodyType,
     },
+    ragdoll::{plan_bones, pose_from_bones},
     world::PhysicsWorld,
 };
 
@@ -43,7 +45,15 @@ impl Plugin for PhysicsPlugin {
             Update,
             (
                 sync_physics_input_from_transform_for_kinematic,
+                // Before `spawn_bodies`, so the bone entities it spawns get
+                // their Rapier bodies on the same frame the ragdoll switched
+                // on, and `sync_joints` below can link them that same frame
+                // rather than leaving the skeleton loose for one step.
+                sync_ragdolls,
                 spawn_bodies,
+                // After `spawn_bodies`, because the collider whose groups this
+                // narrows does not exist until then.
+                isolate_ragdoll_bones,
                 // After `spawn_bodies`, so a joint authored alongside its two
                 // bodies in the same scene is created on the frame those
                 // bodies register rather than the frame after; before
@@ -51,6 +61,10 @@ impl Plugin for PhysicsPlugin {
                 sync_joints,
                 step_world,
                 sync_from_rapier,
+                // After `sync_from_rapier`, which is what puts this step's
+                // simulated pose into `PhysicsTransform`. Read before that and
+                // the skinned mesh would trail the bodies by a frame.
+                publish_ragdoll_pose,
                 sync_transform_from_physics,
                 // After the transform sync, so the ground ray is cast from
                 // where the character actually ended up this step rather than
@@ -222,6 +236,250 @@ fn sync_joints(
         ) {
             created.insert(entity, joint.body_b);
         }
+    }
+}
+
+/// The collision group a ragdoll's own bone colliders belong to — and the one
+/// they are filtered *out* of, so a character's bones never collide with each
+/// other.
+///
+/// They have to be. Adjacent bone capsules share an endpoint by construction,
+/// so every joint in the skeleton is also a contact at full penetration depth:
+/// the solver shoves the two bones apart while the joint hauls them back, and
+/// the ragdoll shakes itself to pieces. Self-collision between a character's
+/// own bones is out of scope for this item, and this is what "out of scope"
+/// has to mean mechanically.
+///
+/// Only the bones' *filter* drops the group, not their membership, so a bone
+/// still collides with everything else in the world: Rapier requires both
+/// sides to accept, and an ordinary collider's default filter is `ALL`.
+const RAGDOLL_GROUP: Group = Group::GROUP_32;
+
+/// What [`sync_ragdolls`] built for one ragdoll, so switching it off can take
+/// away exactly what switching it on put there.
+struct BuiltRagdoll {
+    /// `(node index in `SkinnedMesh.nodes`, bone body entity)`.
+    bones: Vec<(usize, Entity)>,
+}
+
+/// Builds a ragdoll's bone bodies and joints when it becomes active, and
+/// removes them when it stops.
+///
+/// Mirrors [`sync_joints`]: the component says what the simulation should
+/// contain and this is the pass that makes it so. The bone entities are
+/// ordinary physics entities — `RigidBody`, `Collider`, `PhysicsInput`, and a
+/// `Joint` naming the bone above — so [`spawn_bodies`] and [`sync_joints`]
+/// bring them into Rapier and take their constraints away again, rather than
+/// this growing a private copy of both.
+///
+/// A `Local` rather than a component holds the bookkeeping, for the reason
+/// `sync_joints` gives for its own: which entities this pass created is its
+/// business alone, and no part of any entity's authored shape.
+fn sync_ragdolls(
+    mut commands: Commands,
+    mut world: ResMut<PhysicsWorld>,
+    mut built: Local<HashMap<Entity, BuiltRagdoll>>,
+    // Warned-about entities, so a misconfigured ragdoll says so once instead
+    // of once per frame forever. Cleared again if it later gets a skeleton.
+    mut warned: Local<HashSet<Entity>>,
+    ragdolls: Query<(Entity, &Ragdoll, Option<&SkinnedMesh>)>,
+) {
+    // Tear down first, so a ragdoll switched off and on again in the same
+    // frame is rebuilt rather than left with the old bodies. A lookup that
+    // misses covers an entity that despawned and one that merely lost its
+    // `Ragdoll`; neither is in `ragdolls` any more.
+    let stale: Vec<Entity> = built
+        .keys()
+        .copied()
+        .filter(|&owner| !ragdolls.get(owner).is_ok_and(|(_, r, _)| r.active))
+        .collect();
+    for owner in stale {
+        for (_, bone) in built.remove(&owner).into_iter().flat_map(|b| b.bones) {
+            // Despawning alone would leave the Rapier body simulating: nothing
+            // removes it, and it would go on falling through the level and
+            // reporting contacts under a collider handle that maps to nothing.
+            world.remove_body(bone);
+            commands.entity(bone).despawn();
+        }
+        warned.remove(&owner);
+    }
+
+    for (owner, ragdoll, skinned) in ragdolls.iter() {
+        if !ragdoll.active || built.contains_key(&owner) {
+            continue;
+        }
+        let Some(skinned) = skinned else {
+            if warned.insert(owner) {
+                tracing::warn!(
+                    "ragdoll: {owner:?} has an active Ragdoll but no SkinnedMesh, so there \
+                     is no skeleton to build bodies from; doing nothing"
+                );
+            }
+            continue;
+        };
+        warned.remove(&owner);
+
+        let radius = ragdoll.bone_radius.max(1.0e-3);
+        let plans = plan_bones(&skinned.nodes, radius, ragdoll.total_mass);
+        if plans.is_empty() {
+            if warned.insert(owner) {
+                tracing::warn!(
+                    "ragdoll: {owner:?} has a SkinnedMesh whose {} node(s) form no bone \
+                     (a bone is a node with a parent), so there is nothing to build",
+                    skinned.nodes.len()
+                );
+            }
+            continue;
+        }
+
+        // Ids first: a bone's `Joint` names its parent's entity, and half the
+        // bones are planned before the bone they hang from.
+        let entities: Vec<Entity> = plans.iter().map(|_| commands.spawn_empty().id()).collect();
+        let by_node: HashMap<usize, usize> = plans
+            .iter()
+            .enumerate()
+            .map(|(i, plan)| (plan.node, i))
+            .collect();
+
+        for (i, plan) in plans.iter().enumerate() {
+            // Rapier takes a density and derives the mass from the shape, so
+            // the mass the plan asked for has to be divided back out by the
+            // capsule's volume. A non-positive result would give the body zero
+            // mass, which Rapier reads as *infinite* -- a bone that anchors the
+            // skeleton in mid-air instead of falling.
+            let volume = plan.volume(radius);
+            let density = if volume > 0.0 && plan.mass > 0.0 {
+                plan.mass / volume
+            } else {
+                1.0
+            };
+
+            commands.entity(entities[i]).insert((
+                RagdollBone {
+                    owner,
+                    node: plan.node,
+                },
+                RigidBody::dynamic(),
+                Collider {
+                    shape: ColliderShape::Capsule {
+                        half_height: plan.half_height,
+                        radius,
+                    },
+                    restitution: 0.0,
+                    friction: 0.5,
+                    density,
+                    sensor: false,
+                },
+                PhysicsInput {
+                    position: plan.center.into(),
+                    rotation: plan.rotation.into(),
+                },
+            ));
+
+            let Some(parent_index) = plan.parent.and_then(|node| by_node.get(&node)).copied()
+            else {
+                continue;
+            };
+            let parent = &plans[parent_index];
+            // The two bones meet at the shared node: this bone's head is that
+            // point, and its parent's tail is the same point. Anchoring there
+            // means the joint starts already satisfied instead of the solver
+            // yanking the skeleton into shape on frame one.
+            //
+            // That shared node is also what names the joint. It is the knee,
+            // not either of the two bones the knee connects -- see
+            // `Ragdoll::joint_overrides`.
+            let joint_node = skinned.nodes[plan.node].parent.unwrap_or(plan.node);
+            commands.entity(entities[i]).insert(Joint {
+                body_b: entities[parent_index],
+                kind: ragdoll.joint_for_bone(&skinned.nodes[joint_node].name),
+                anchor_a: plan.local_head().into(),
+                anchor_b: parent.local_tail().into(),
+            });
+        }
+
+        built.insert(
+            owner,
+            BuiltRagdoll {
+                bones: plans
+                    .iter()
+                    .enumerate()
+                    .map(|(i, plan)| (plan.node, entities[i]))
+                    .collect(),
+            },
+        );
+    }
+}
+
+/// Publishes the pose the bone bodies imply into the skinned mesh, so the
+/// character on screen follows the simulation instead of its animation clips.
+///
+/// **This is the half of the ragdoll that fails silently.** Everything up to
+/// here can be perfect — capsules in the right places, joints holding, the
+/// skeleton collapsing exactly as it should — and if this pass is missing, the
+/// character goes on playing its walk cycle over the top of it and looks
+/// completely normal. Nothing about the bodies would show it; the only
+/// observable difference is in the joint matrices the skinning ends up with.
+///
+/// The direction of travel is what keeps the two crates apart:
+/// `bsengine-gltf` never names a physics type, it just honours a
+/// `pose_override` written by whoever put one there. See that field, and the
+/// `bsengine-gltf` dependency note in this crate's `Cargo.toml`.
+///
+/// Clearing the override again matters as much as writing it: while one is in
+/// place the clips are not read at all, so a ragdoll switched off without this
+/// leaves the character frozen in the pose it died in.
+fn publish_ragdoll_pose(
+    bones: Query<(&RagdollBone, &PhysicsTransform)>,
+    mut owners: Query<(Entity, &Ragdoll, &mut SkinnedMesh)>,
+) {
+    let mut by_owner: HashMap<Entity, HashMap<usize, (Vec3, Quat)>> = HashMap::new();
+    for (bone, transform) in bones.iter() {
+        by_owner
+            .entry(bone.owner)
+            .or_default()
+            .insert(bone.node, (transform.position.0, transform.rotation.0));
+    }
+
+    for (owner, ragdoll, mut skinned) in owners.iter_mut() {
+        let poses = by_owner.get(&owner).filter(|_| ragdoll.active);
+        let Some(poses) = poses else {
+            // `is_empty` first, not an unconditional `clear`: taking `&mut` out
+            // of the `Mut` marks the component changed, and every skinned mesh
+            // in the level that has a ragdoll it has never used would report a
+            // change every single frame.
+            if !skinned.pose_override.is_empty() {
+                skinned.pose_override.clear();
+            }
+            continue;
+        };
+
+        let radius = ragdoll.bone_radius.max(1.0e-3);
+        let plans = plan_bones(&skinned.nodes, radius, ragdoll.total_mass);
+        let bone_poses: Vec<Option<(Vec3, Quat)>> = plans
+            .iter()
+            .map(|plan| poses.get(&plan.node).copied())
+            .collect();
+        let pose = pose_from_bones(&skinned.nodes, &plans, &bone_poses);
+        skinned.pose_override = pose;
+    }
+}
+
+/// Keeps every ragdoll bone collider out of [`RAGDOLL_GROUP`]'s own traffic.
+///
+/// Runs every frame rather than once at creation, for the reason
+/// [`lock_character_rotation`] gives: a body is registered with Rapier by
+/// `spawn_bodies`, so there is no single moment observable from here at which
+/// "the collider now exists". Setting the same groups again is idempotent.
+fn isolate_ragdoll_bones(
+    mut world: ResMut<PhysicsWorld>,
+    query: Query<Entity, (With<RagdollBone>, With<PhysicsHandles>)>,
+) {
+    let groups = InteractionGroups::all()
+        .with_memberships(RAGDOLL_GROUP)
+        .with_filter(Group::ALL.difference(RAGDOLL_GROUP));
+    for entity in query.iter() {
+        world.set_collision_groups(entity, groups);
     }
 }
 
@@ -954,6 +1212,712 @@ mod tests {
                 .resource::<PhysicsWorld>()
                 .has_joint(hanging, bodyless),
             "an entity with no rigid body cannot be one end of a joint"
+        );
+    }
+
+    // ---- Ragdoll (roadmap item 52, sub-step 1/2) -------------------------
+
+    /// A ragdoll-shaped skeleton standing 10 units up: hips at the root, a
+    /// two-bone spine, and a three-bone left leg. Branching on purpose — a
+    /// straight chain would not notice a root that fails to hold its children
+    /// together.
+    fn humanoid_skeleton() -> SkinnedMesh {
+        let node =
+            |name: &str, position: [f32; 3], parent: Option<usize>| bsengine_gltf::NodeTransform {
+                name: name.to_string(),
+                position,
+                rotation: [0.0, 0.0, 0.0, 1.0],
+                scale: [1.0, 1.0, 1.0],
+                parent,
+            };
+        let nodes = vec![
+            node("Hips", [0.0, 10.0, 0.0], None),
+            node("Spine", [0.0, 0.45, 0.0], Some(0)),
+            node("Head", [0.0, 0.40, 0.0], Some(1)),
+            node("LeftUpLeg", [0.15, -0.10, 0.0], Some(0)),
+            node("LeftLeg", [0.0, -0.45, 0.0], Some(3)),
+            node("LeftFoot", [0.0, -0.42, 0.05], Some(4)),
+        ];
+        // Every node is a joint, and every inverse bind matrix is the identity.
+        // That is not what a real exporter writes, and it is chosen so a joint
+        // matrix reads back as the node's *global transform* with nothing to
+        // undo: `joint_matrices[j].transform_point3(ZERO)` is simply where node
+        // `j` is. `REST_POSITIONS` states independently where that should be.
+        SkinnedMesh {
+            mesh_id: 0,
+            rest_vertices: Vec::new(),
+            skin: Vec::new(),
+            skin_data: bsengine_gltf::SkinData {
+                joint_node_indices: (0..nodes.len()).collect(),
+                inverse_bind_matrices: vec![glam::Mat4::IDENTITY.to_cols_array_2d(); nodes.len()],
+            },
+            nodes,
+            pose_override: Vec::new(),
+            joint_matrices: Vec::new(),
+        }
+    }
+
+    /// Where [`humanoid_skeleton`]'s six nodes sit in model space at rest,
+    /// written out rather than accumulated. Re-deriving them with the same
+    /// parent-chain walk the code under test uses would let a broken walk agree
+    /// with itself.
+    const REST_POSITIONS: [Vec3; 6] = [
+        Vec3::new(0.0, 10.0, 0.0),   // Hips
+        Vec3::new(0.0, 10.45, 0.0),  // Spine
+        Vec3::new(0.0, 10.85, 0.0),  // Head
+        Vec3::new(0.15, 9.90, 0.0),  // LeftUpLeg
+        Vec3::new(0.15, 9.45, 0.0),  // LeftLeg
+        Vec3::new(0.15, 9.03, 0.05), // LeftFoot
+    ];
+
+    /// Every ragdoll bone body currently in the world, as
+    /// `(entity, PhysicsTransform)`.
+    fn bone_bodies(app: &mut App) -> Vec<(Entity, Vec3)> {
+        let mut query = app
+            .world_mut()
+            .query_filtered::<(Entity, &PhysicsTransform), With<RagdollBone>>();
+        query
+            .iter(app.world())
+            .map(|(e, t)| (e, t.position.0))
+            .collect()
+    }
+
+    #[derive(Clone, Default)]
+    struct LogSink(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl std::io::Write for LogSink {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl tracing_subscriber::fmt::MakeWriter<'_> for LogSink {
+        type Writer = Self;
+        fn make_writer(&self) -> Self {
+            self.clone()
+        }
+    }
+
+    /// Runs `body` with every `tracing` event on this thread captured.
+    fn capture_logs<T>(body: impl FnOnce() -> T) -> (T, String) {
+        let sink = LogSink::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(sink.clone())
+            .with_ansi(false)
+            .with_max_level(tracing::Level::WARN)
+            .finish();
+        let out = tracing::subscriber::with_default(subscriber, body);
+        let logs = String::from_utf8_lossy(&sink.0.lock().unwrap()).into_owned();
+        (out, logs)
+    }
+
+    #[test]
+    fn an_activated_ragdoll_falls_without_the_skeleton_coming_apart() {
+        // Both halves are needed, for the same reason item 51's chain test
+        // needed both: "it fell" alone passes on a skeleton that scattered to
+        // the four winds, and "it held together" alone passes on one that never
+        // moved at all.
+        //
+        // There is a *floor*, and one bone is kicked, and neither is decoration.
+        // In empty space every body accelerates identically, so the gaps between
+        // them never change and the cohesion half passes with no joints in the
+        // simulation at all -- the assertion would be about gravity, not about
+        // this feature. Landing puts real load through the joints, and the kick
+        // is the item-51 shape: something that would send one bone away on its
+        // own has to drag the rest of the skeleton with it instead.
+        let mut app = new_app();
+        app.add_plugins(PhysicsPlugin);
+        spawn_floor(&mut app);
+        let skeleton = humanoid_skeleton();
+        app.world_mut().spawn((
+            Ragdoll {
+                active: true,
+                ..Default::default()
+            },
+            skeleton.clone(),
+        ));
+
+        app.update();
+        let start: HashMap<Entity, Vec3> = bone_bodies(&mut app).into_iter().collect();
+        assert_eq!(
+            start.len(),
+            skeleton.nodes.len(),
+            "one bone body per node, the root included"
+        );
+
+        // The foot: the extremity furthest from the root, so an unconstrained
+        // one has the whole chain to get away from.
+        let foot = *start
+            .iter()
+            .min_by(|a, b| a.1.y.total_cmp(&b.1.y))
+            .expect("bones exist")
+            .0;
+        app.world_mut()
+            .resource_mut::<PhysicsWorld>()
+            .apply_impulse(foot, Vec3::new(60.0, 0.0, 25.0));
+
+        for _ in 0..300 {
+            app.update();
+        }
+        let end: HashMap<Entity, Vec3> = bone_bodies(&mut app).into_iter().collect();
+
+        // 1. It fell. It started 10 units up and the floor's surface is at 0.
+        let mut min_drop = f32::INFINITY;
+        for (entity, from) in &start {
+            let to = end[entity];
+            min_drop = min_drop.min(from.y - to.y);
+        }
+        println!("ragdoll collapse: smallest drop over 300 steps = {min_drop}");
+        assert!(
+            min_drop > 8.0,
+            "every bone must have fallen to the floor 10 units below; the \
+             least-moved one dropped only {min_drop} units"
+        );
+
+        // 2. It did not explode. A joint holds its two bones at a shared point,
+        //    so the two capsule centres can never be further apart than the sum
+        //    of their half-heights -- whatever angle the joint bends to.
+        //
+        // Which body is which bone is settled by where each one *started*: on
+        // the first frame a bone body sits exactly on its plan's centre. Query
+        // iteration order is an archetype detail and would be the wrong thing
+        // to trust here.
+        let plans = crate::ragdoll::plan_bones(&skeleton.nodes, 0.08, 70.0);
+        let entity_of: HashMap<usize, Entity> = plans
+            .iter()
+            .map(|plan| {
+                let (&entity, _) = start
+                    .iter()
+                    .find(|(_, &at)| at.abs_diff_eq(plan.center, 0.01))
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "no bone body spawned at node {}'s planned centre {:?}; \
+                             bodies started at {:?}",
+                            plan.node,
+                            plan.center,
+                            start.values().collect::<Vec<_>>()
+                        )
+                    });
+                (plan.node, entity)
+            })
+            .collect();
+
+        let mut separations: Vec<(usize, f32, f32)> = Vec::new();
+        for plan in &plans {
+            let Some(parent_node) = plan.parent else {
+                continue;
+            };
+            let parent = plans.iter().find(|p| p.node == parent_node).unwrap();
+            separations.push((
+                plan.node,
+                (end[&entity_of[&plan.node]] - end[&entity_of[&parent_node]]).length(),
+                plan.half_height + parent.half_height,
+            ));
+        }
+        println!("ragdoll cohesion (node, separation, joint distance): {separations:?}");
+        let (node, separation, limit) = separations
+            .iter()
+            .copied()
+            .max_by(|a, b| (a.1 - a.2).total_cmp(&(b.1 - b.2)))
+            .expect("a branching skeleton has jointed pairs");
+        assert!(
+            separation <= limit + 0.05,
+            "the skeleton came apart at node {node}: two jointed bones ended up \
+             {separation} apart when the joint can only let them reach {limit}"
+        );
+    }
+
+    #[test]
+    fn an_inactive_ragdoll_creates_no_bodies_at_all() {
+        // `active: false` must be completely inert -- a ragdoll component on a
+        // normal character may not perturb it, and `Ragdoll::default()` is what
+        // the Inspector's Add Component gives you.
+        let mut app = new_app();
+        app.add_plugins(PhysicsPlugin);
+        app.world_mut()
+            .spawn((Ragdoll::default(), humanoid_skeleton()));
+
+        for _ in 0..30 {
+            app.update();
+        }
+
+        assert!(
+            bone_bodies(&mut app).is_empty(),
+            "an inactive ragdoll must build nothing"
+        );
+    }
+
+    #[test]
+    fn switching_a_ragdoll_off_takes_its_bodies_out_of_the_simulation() {
+        // Despawning the bone entities is not enough on its own: nothing
+        // removes their Rapier bodies, so a "torn down" ragdoll would go on
+        // falling through the level and reporting contacts under collider
+        // handles that map to no entity. Nothing fails at the moment that
+        // happens, which is exactly why it needs asserting.
+        let mut app = new_app();
+        app.add_plugins(PhysicsPlugin);
+        let owner = app
+            .world_mut()
+            .spawn((
+                Ragdoll {
+                    active: true,
+                    ..Default::default()
+                },
+                humanoid_skeleton(),
+            ))
+            .id();
+
+        app.update();
+        let bones = bone_bodies(&mut app);
+        assert!(!bones.is_empty(), "the ragdoll should have built bodies");
+        let a_bone = bones[0].0;
+        assert!(app
+            .world()
+            .resource::<PhysicsWorld>()
+            .get_linvel(a_bone)
+            .is_some());
+
+        app.world_mut().get_mut::<Ragdoll>(owner).unwrap().active = false;
+        app.update();
+
+        assert!(
+            bone_bodies(&mut app).is_empty(),
+            "the bone entities must be gone"
+        );
+        assert!(
+            app.world()
+                .resource::<PhysicsWorld>()
+                .get_linvel(a_bone)
+                .is_none(),
+            "and so must their rigid bodies -- an entity-less body keeps simulating"
+        );
+    }
+
+    #[test]
+    fn a_ragdoll_without_a_skinned_mesh_warns_instead_of_panicking() {
+        // The bone hierarchy comes from `SkinnedMesh.nodes`; with no skeleton
+        // there is nothing to build. An authoring mistake is not a reason to
+        // take the game down -- but it is a reason to say so, or it looks
+        // exactly like a ragdoll that ran and did nothing.
+        let (mut app, logs) = capture_logs(|| {
+            let mut app = new_app();
+            app.add_plugins(PhysicsPlugin);
+            app.world_mut().spawn(Ragdoll {
+                active: true,
+                ..Default::default()
+            });
+            for _ in 0..5 {
+                app.update();
+            }
+            app
+        });
+
+        assert!(bone_bodies(&mut app).is_empty(), "no skeleton, no bodies");
+        assert!(
+            logs.contains("SkinnedMesh"),
+            "the warning must name what is missing; captured logs were: {logs:?}"
+        );
+        assert_eq!(
+            logs.matches("no SkinnedMesh").count(),
+            1,
+            "and it must be said once, not once per frame forever: {logs:?}"
+        );
+    }
+
+    // ---- Per-bone joint overrides reach the simulation --------------------
+
+    /// A root and two collinear bones hanging straight down from it, so that
+    /// consecutive bones share a rest rotation.
+    ///
+    /// That collinearity is not cosmetic. A revolute joint's axis is given in
+    /// *both* bodies' local frames, so two bones that rest at different
+    /// orientations start with the constraint already violated and the solver
+    /// spends the first steps hauling them into agreement — which is motion the
+    /// test would then have to tell apart from the motion it is measuring.
+    fn straight_leg() -> SkinnedMesh {
+        let node =
+            |name: &str, position: [f32; 3], parent: Option<usize>| bsengine_gltf::NodeTransform {
+                name: name.to_string(),
+                position,
+                rotation: [0.0, 0.0, 0.0, 1.0],
+                scale: [1.0, 1.0, 1.0],
+                parent,
+            };
+        SkinnedMesh {
+            mesh_id: 0,
+            rest_vertices: Vec::new(),
+            skin: Vec::new(),
+            skin_data: Default::default(),
+            nodes: vec![
+                node("Hips", [0.0, 5.0, 0.0], None),
+                node("Knee", [0.0, -1.0, 0.0], Some(0)),
+                node("Ankle", [0.0, -1.0, 0.0], Some(1)),
+            ],
+            pose_override: Vec::new(),
+            joint_matrices: Vec::new(),
+        }
+    }
+
+    /// Which entity is which bone, by the node the bone's child end sits on.
+    fn bone_entities_by_node(app: &mut App) -> HashMap<usize, Entity> {
+        let mut query = app.world_mut().query::<(Entity, &RagdollBone)>();
+        query
+            .iter(app.world())
+            .map(|(entity, bone)| (bone.node, entity))
+            .collect()
+    }
+
+    fn rotation_of(app: &App, entity: Entity) -> Quat {
+        app.world()
+            .get::<PhysicsTransform>(entity)
+            .expect("a bone body has a simulated transform")
+            .rotation
+            .0
+    }
+
+    #[test]
+    fn a_bone_overridden_to_revolute_is_constrained_off_axis() {
+        // Task 1 proved `joint_for_bone` RETURNS the override. This proves the
+        // construction path actually USES it: without it the map could be read
+        // and then dropped on the floor, every ragdoll would be spherical
+        // throughout, and everything else in this file would still pass.
+        //
+        // The measurement is the hinge axis as each of the joint's two bodies
+        // sees it. A revolute joint's whole content is that those two stay
+        // pointing the same way; a spherical joint says nothing about them. So
+        // the same off-axis torque, applied to the same bone of the same
+        // skeleton, must open that angle in one and not in the other.
+
+        /// The hinge axis, in each bone body's own local space.
+        const HINGE: Vec3 = Vec3::X;
+
+        use crate::JointKind;
+
+        /// Torques the shin about `local_torque_axis`, expressed in the shin's
+        /// own frame, and reports `(off-axis tilt, total bend)`:
+        ///
+        /// * how far the hinge axis as the shin sees it has drifted from the
+        ///   hinge axis as the thigh sees it — the whole content of a revolute
+        ///   constraint, and the number that must stay at zero;
+        /// * how far the two bones have turned relative to each other at all —
+        ///   which is what separates "a hinge refused an off-axis torque" from
+        ///   "the joint welded the skeleton solid" and from "the torque never
+        ///   landed".
+        fn torque_the_shin(
+            overrides: HashMap<String, JointKind>,
+            local_torque_axis: Vec3,
+        ) -> (f32, f32) {
+            let mut app = new_app();
+            app.add_plugins(PhysicsPlugin);
+            // No gravity and no floor: the only thing that can move a bone is
+            // the test's own torque, so a difference between the runs has one
+            // explanation rather than three.
+            app.world_mut()
+                .resource_mut::<PhysicsWorld>()
+                .set_gravity(0.0);
+            app.world_mut().spawn((
+                Ragdoll {
+                    active: true,
+                    joint_overrides: overrides,
+                    ..Default::default()
+                },
+                straight_leg(),
+            ));
+            app.update();
+
+            let bones = bone_entities_by_node(&mut app);
+            let shin = bones[&2];
+            let thigh = bones[&1];
+
+            let at_rest =
+                (rotation_of(&app, shin) * HINGE).angle_between(rotation_of(&app, thigh) * HINGE);
+            assert!(
+                at_rest < 0.01,
+                "the two bones start collinear, so the hinge axis must start \
+                 agreed; it is already {at_rest} rad apart and the measurement \
+                 below would be of the solver settling, not of the constraint"
+            );
+
+            let torque = rotation_of(&app, shin) * local_torque_axis;
+            app.world_mut()
+                .resource_mut::<PhysicsWorld>()
+                .apply_torque_impulse(shin, torque * 5.0);
+            for _ in 0..60 {
+                app.update();
+            }
+
+            let (shin_rot, thigh_rot) = (rotation_of(&app, shin), rotation_of(&app, thigh));
+            (
+                (shin_rot * HINGE).angle_between(thigh_rot * HINGE),
+                (thigh_rot.inverse() * shin_rot).to_axis_angle().1,
+            )
+        }
+
+        /// The joint sits on the node the two bones share, which is the knee —
+        /// not on either of the bones it joins. See `Ragdoll::joint_overrides`.
+        fn knee_hinge() -> HashMap<String, JointKind> {
+            HashMap::from([(
+                "Knee".to_string(),
+                JointKind::Revolute {
+                    axis: HINGE.into(),
+                    limits: None,
+                },
+            )])
+        }
+
+        // Off the hinge axis: a ball joint allows it, a hinge must not.
+        let (spherical, spherical_bend) = torque_the_shin(HashMap::new(), Vec3::Z);
+        let (revolute, revolute_bend) = torque_the_shin(knee_hinge(), Vec3::Z);
+        // Along it: proves the override produced a *hinge* and not a weld, so
+        // that the zero above is the axis being held and not the whole
+        // skeleton being frozen.
+        let (_, along_axis_bend) = torque_the_shin(knee_hinge(), HINGE);
+        println!(
+            "off-axis torque: spherical tilted {spherical} rad (bend \
+             {spherical_bend}), overridden tilted {revolute} rad (bend \
+             {revolute_bend}); on-axis torque bent the override by \
+             {along_axis_bend} rad"
+        );
+
+        assert!(
+            spherical > 0.3,
+            "the default ball joint must let the bone turn off-axis, or the \
+             comparison is between two motionless skeletons; got {spherical} rad"
+        );
+        assert!(
+            revolute < 0.05,
+            "with the knee overridden to a hinge, the same torque must not tilt \
+             it off its axis -- an override that is read and then discarded \
+             leaves this at the spherical {spherical} rad; got {revolute}"
+        );
+        assert!(
+            along_axis_bend > 0.3,
+            "...and the override has to be a hinge rather than a weld, or the \
+             {revolute} rad above is a skeleton that cannot move at all rather \
+             than one held to its axis; torquing along the axis bent it only \
+             {along_axis_bend} rad"
+        );
+    }
+
+    // ---- Skinning follows the ragdoll (item 52 sub-step 1/2, task 3) -----
+    //
+    // The task the whole feature lives or dies on, and it fails quietly. An
+    // implementation that builds the bodies and lets them fall while skinning
+    // goes on reading the animation clips produces a character that looks
+    // completely normal on screen with a full ragdoll simulating underneath it
+    // -- and every test above passes in that state, because they all inspect
+    // the physics bodies, and the bodies are exactly what a broken version also
+    // gets right. So these assert on the JOINT MATRICES, which are the only
+    // place the difference is observable.
+    //
+    // They live in this crate rather than in `bsengine-gltf` because this is
+    // the only one that can see both ends: `bsengine-gltf` must not know what
+    // physics is (see the dependency note in Cargo.toml), so it can be asked
+    // whether it honours a `pose_override` -- which it is, over there -- but
+    // not whether a real ragdoll is what fills one.
+
+    /// Where a clip holds the skeleton's root: 50 units along +X of where it
+    /// rests. Constant over the clip's whole timeline, so nothing here depends
+    /// on how far an `AnimationPlayer` has been ticked.
+    const CLIP_ROOT: Vec3 = Vec3::new(50.0, 10.0, 0.0);
+
+    fn shifted_clip_library() -> bsengine_gltf::AnimationClipLibrary {
+        bsengine_gltf::AnimationClipLibrary::from_clips(vec![bsengine_gltf::AnimationClip {
+            name: "pose".to_string(),
+            duration: 1.0,
+            channels: vec![bsengine_gltf::AnimationChannel {
+                node_index: 0,
+                times: vec![0.0, 1.0],
+                values: bsengine_gltf::KeyframeValues::Translations(vec![
+                    CLIP_ROOT.to_array(),
+                    CLIP_ROOT.to_array(),
+                ]),
+                interpolation: bsengine_gltf::Interpolation::Linear,
+            }],
+        }])
+    }
+
+    /// A skinned character playing [`shifted_clip_library`]'s clip, physics and
+    /// skinning both running, optionally carrying a `Ragdoll`.
+    fn skinned_character(ragdoll: Option<Ragdoll>) -> (App, Entity) {
+        let mut app = new_app();
+        app.add_plugins(PhysicsPlugin);
+        app.add_plugins(bsengine_gltf::SkinnedMeshPlugin);
+        let mut entity = app.world_mut().spawn((
+            humanoid_skeleton(),
+            shifted_clip_library(),
+            bsengine_core::AnimationPlayer::new("pose").with_duration(1.0),
+        ));
+        if let Some(ragdoll) = ragdoll {
+            entity.insert(ragdoll);
+        }
+        let owner = entity.id();
+        (app, owner)
+    }
+
+    /// Where each node currently is, according to the joint matrices the
+    /// skinning system last computed. The inverse bind matrices are the
+    /// identity (see [`humanoid_skeleton`]), so a joint matrix applied to the
+    /// origin is the node's global position and nothing else.
+    fn skinned_node_positions(app: &App, owner: Entity) -> Vec<Vec3> {
+        app.world()
+            .get::<SkinnedMesh>(owner)
+            .expect("the character keeps its skinned mesh")
+            .joint_matrices
+            .iter()
+            .map(|m| m.transform_point3(Vec3::ZERO))
+            .collect()
+    }
+
+    /// Each ragdoll bone body's position, keyed by the node it belongs to.
+    fn bone_positions_by_node(app: &mut App) -> HashMap<usize, Vec3> {
+        let mut query = app.world_mut().query::<(&RagdollBone, &PhysicsTransform)>();
+        query
+            .iter(app.world())
+            .map(|(bone, transform)| (bone.node, transform.position.0))
+            .collect()
+    }
+
+    #[test]
+    fn an_active_ragdoll_makes_the_joint_matrices_follow_physics_not_the_clip() {
+        let (mut app, owner) = skinned_character(Some(Ragdoll {
+            active: true,
+            ..Default::default()
+        }));
+
+        // One frame: the bodies exist and are on their plans' centres, so the
+        // pose is still the rest pose -- which is already the whole assertion
+        // against the quiet failure, because the clip would put the skeleton
+        // 50 units away along +X.
+        app.update();
+        let before = skinned_node_positions(&app, owner);
+        assert_eq!(before.len(), REST_POSITIONS.len(), "one matrix per joint");
+        for (node, rest) in REST_POSITIONS.iter().enumerate() {
+            assert!(
+                before[node].abs_diff_eq(*rest, 0.05),
+                "on the frame the ragdoll switched on, node {node} should still \
+                 be at its rest position {rest:?}; it is at {:?}. The clip puts \
+                 the skeleton at x = {}, so a skinning path still reading the \
+                 clip lands there instead",
+                before[node],
+                rest.x + CLIP_ROOT.x
+            );
+        }
+
+        // No floor: in free fall every bone accelerates identically and the
+        // joints stay satisfied, so the skeleton translates rigidly and "the
+        // mesh followed the bodies" is an exact claim rather than an
+        // approximate one.
+        let bones_before = bone_positions_by_node(&mut app);
+        for _ in 0..120 {
+            app.update();
+        }
+        let bones_after = bone_positions_by_node(&mut app);
+        let travel = bones_after[&0] - bones_before[&0];
+        println!("ragdoll skinning: the bone bodies travelled {travel:?}");
+        assert!(
+            travel.y < -1.0,
+            "the ragdoll has to have actually moved, or 'the mesh followed it' \
+             is a claim about nothing; it travelled {travel:?}"
+        );
+
+        let after = skinned_node_positions(&app, owner);
+        for (node, rest) in REST_POSITIONS.iter().enumerate() {
+            let moved = after[node] - before[node];
+            assert!(
+                moved.abs_diff_eq(travel, 0.05),
+                "node {node} moved {moved:?} while its bone bodies moved \
+                 {travel:?} -- the joint matrices are not following the physics"
+            );
+            assert!(
+                (after[node].x - (rest.x + CLIP_ROOT.x)).abs() > 10.0,
+                "...and they must not be following the clip either: node {node} \
+                 ended at {:?}, and the clip's pose is x = {}",
+                after[node],
+                rest.x + CLIP_ROOT.x
+            );
+        }
+    }
+
+    #[test]
+    fn an_inactive_ragdoll_leaves_the_joint_matrices_byte_identical() {
+        // The opposite direction, and the one every already-shipped character
+        // depends on: attaching a `Ragdoll` and never switching it on must
+        // leave the animation path producing bit-for-bit what it produced
+        // before this feature existed -- which is what an entity with no
+        // `Ragdoll` component at all still gets.
+        let (mut with, with_owner) = skinned_character(Some(Ragdoll::default()));
+        let (mut without, without_owner) = skinned_character(None);
+        for _ in 0..30 {
+            with.update();
+            without.update();
+        }
+
+        let a = with.world().get::<SkinnedMesh>(with_owner).unwrap();
+        let b = without.world().get::<SkinnedMesh>(without_owner).unwrap();
+        assert!(
+            a.pose_override.is_empty(),
+            "an inactive ragdoll must not publish a pose at all"
+        );
+        assert_eq!(a.joint_matrices.len(), REST_POSITIONS.len());
+        assert_eq!(a.joint_matrices.len(), b.joint_matrices.len());
+        for (node, (got, want)) in a.joint_matrices.iter().zip(&b.joint_matrices).enumerate() {
+            assert_eq!(
+                got.to_cols_array(),
+                want.to_cols_array(),
+                "joint {node} of a character carrying an inactive ragdoll must \
+                 be bit-for-bit the same matrix as one carrying no ragdoll"
+            );
+        }
+        // ...and the animation really is what both of them are doing, or the
+        // comparison above is between two copies of the same nothing.
+        let animated = a.joint_matrices[0].transform_point3(Vec3::ZERO);
+        assert!(
+            (animated.x - CLIP_ROOT.x).abs() < 0.001,
+            "the clip should be driving the root to x = {}, got {animated:?}",
+            CLIP_ROOT.x
+        );
+    }
+
+    #[test]
+    fn switching_a_ragdoll_off_hands_the_skeleton_back_to_the_animation() {
+        // While a pose override is in place the clips are not read at all, so a
+        // ragdoll that stops without clearing it leaves the character frozen in
+        // the pose it died in -- forever, and with nothing failing anywhere.
+        let (mut app, owner) = skinned_character(Some(Ragdoll {
+            active: true,
+            ..Default::default()
+        }));
+        for _ in 0..30 {
+            app.update();
+        }
+        let collapsed = skinned_node_positions(&app, owner)[0];
+        assert!(
+            (collapsed.x - CLIP_ROOT.x).abs() > 10.0,
+            "sanity: while active the ragdoll, not the clip, is driving"
+        );
+
+        app.world_mut().get_mut::<Ragdoll>(owner).unwrap().active = false;
+        app.update();
+
+        assert!(
+            app.world()
+                .get::<SkinnedMesh>(owner)
+                .unwrap()
+                .pose_override
+                .is_empty(),
+            "the override must be cleared, not merely stop being updated"
+        );
+        let animated = skinned_node_positions(&app, owner)[0];
+        assert!(
+            (animated.x - CLIP_ROOT.x).abs() < 0.001,
+            "with the ragdoll off the clip drives the root back to x = {}, got \
+             {animated:?}",
+            CLIP_ROOT.x
         );
     }
 

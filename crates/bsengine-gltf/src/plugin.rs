@@ -231,6 +231,8 @@ fn load_gltf_assets(
                             skin: skin_verts,
                             skin_data,
                             nodes: loaded.nodes.clone(),
+                            pose_override: Vec::new(),
+                            joint_matrices: Vec::new(),
                         },
                         clip_library,
                         AnimationPlayer::new(first_clip_name).with_duration(duration),

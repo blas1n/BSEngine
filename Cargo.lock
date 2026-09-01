@@ -1155,6 +1155,7 @@ dependencies = [
  "bsengine-core",
  "bsengine-ecs",
  "bsengine-gltf",
+ "bsengine-physics",
  "glam 0.29.3",
  "ron",
  "serde",

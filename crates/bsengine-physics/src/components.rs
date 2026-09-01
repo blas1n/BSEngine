@@ -185,6 +185,48 @@ impl Collider {
     }
 }
 
+/// Constrains this entity's rigid body to another's.
+///
+/// A joint links two bodies, but an ECS component lives on one entity, so it
+/// names the other — the same shape as `TerrainChunkOf(Entity)`.
+///
+/// The anchors are the point the constraint actually holds: each is given in
+/// its own body's local space, and the two are what a joint keeps together.
+/// Placing them so they already coincide at spawn means the joint starts
+/// satisfied instead of the solver yanking the bodies into place on frame one.
+///
+/// Public and reflected (catalogue rule R1) because scenes author it and
+/// scripting creates it.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Reflect)]
+#[reflect(Component)]
+pub struct Joint {
+    /// The other body this entity is constrained to.
+    pub body_b: Entity,
+    /// Which constraint, with its per-kind parameters.
+    pub kind: JointKind,
+    /// Attachment point in this entity's local space.
+    pub anchor_a: ReflectVec3,
+    /// Attachment point in `body_b`'s local space.
+    pub anchor_b: ReflectVec3,
+}
+
+/// The constraint a [`Joint`] applies.
+#[derive(Debug, Clone, Copy, PartialEq, Reflect)]
+pub enum JointKind {
+    /// Welds the two bodies rigidly: no relative motion at all.
+    Fixed,
+    /// A hinge. Rotation is allowed only about `axis`, optionally clamped to
+    /// `limits` in radians.
+    Revolute {
+        /// Hinge axis in the first body's local space.
+        axis: ReflectVec3,
+        /// Optional `[min, max]` angle limits, in radians.
+        limits: Option<[f32; 2]>,
+    },
+    /// A ball joint: free rotation about the shared anchor point.
+    Spherical,
+}
+
 /// Result of a raycast query.
 #[derive(Debug, Clone)]
 pub struct RaycastHit {

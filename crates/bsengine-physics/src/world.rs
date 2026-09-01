@@ -5,7 +5,7 @@ use glam::Vec3;
 use rapier3d::pipeline::EventHandler;
 use rapier3d::prelude::*;
 
-use crate::components::RaycastHit;
+use crate::components::{JointKind, RaycastHit};
 
 /// The Rapier simulation state: rigid bodies, colliders, and the pipeline that steps them.
 #[derive(Resource)]
@@ -21,6 +21,11 @@ pub struct PhysicsWorld {
     broad_phase: BroadPhaseBvh,
     narrow_phase: NarrowPhase,
     impulse_joint_set: ImpulseJointSet,
+    /// The reverse of `impulse_joint_set`: which handle a given pair of
+    /// entities produced, so `remove_joint` can find what `add_joint` created.
+    /// Rapier's set is keyed by its own handle and offers no lookup by body
+    /// pair, and a caller only ever has the two entities.
+    joint_map: HashMap<(Entity, Entity), ImpulseJointHandle>,
     multibody_joint_set: MultibodyJointSet,
     ccd_solver: CCDSolver,
 }
@@ -46,6 +51,7 @@ impl PhysicsWorld {
             broad_phase: BroadPhaseBvh::new(),
             narrow_phase: NarrowPhase::new(),
             impulse_joint_set: ImpulseJointSet::new(),
+            joint_map: HashMap::new(),
             multibody_joint_set: MultibodyJointSet::new(),
             ccd_solver: CCDSolver::new(),
         }
@@ -498,6 +504,87 @@ impl PhysicsWorld {
         true
     }
 
+    /// Constrains `a`'s body to `b`'s, with `anchor_a`/`anchor_b` given in each
+    /// body's own local space.
+    ///
+    /// Returns false when either entity has no rigid body, matching
+    /// [`Self::set_collider_shape`]'s convention that a stale entity is a
+    /// value-level failure rather than a panic — a scene naming an entity that
+    /// was never spawned, or a script holding an id that has since despawned,
+    /// should degrade to a missing joint and a warning.
+    ///
+    /// Nothing else has to happen for the joint to take effect: [`Self::step`]
+    /// already hands its `ImpulseJointSet` to the pipeline, so the constraint
+    /// is simulated from the very next step.
+    pub fn add_joint(
+        &mut self,
+        a: Entity,
+        b: Entity,
+        kind: &JointKind,
+        anchor_a: Vec3,
+        anchor_b: Vec3,
+    ) -> bool {
+        let (Some(&handle_a), Some(&handle_b)) =
+            (self.entity_body_map.get(&a), self.entity_body_map.get(&b))
+        else {
+            return false;
+        };
+
+        let anchor1 = Vector::new(anchor_a.x, anchor_a.y, anchor_a.z);
+        let anchor2 = Vector::new(anchor_b.x, anchor_b.y, anchor_b.z);
+        let data: GenericJoint = match kind {
+            JointKind::Fixed => FixedJointBuilder::new()
+                .local_anchor1(anchor1)
+                .local_anchor2(anchor2)
+                .build()
+                .into(),
+            JointKind::Revolute { axis, limits } => {
+                let mut builder = RevoluteJointBuilder::new(Vector::new(axis.x, axis.y, axis.z))
+                    .local_anchor1(anchor1)
+                    .local_anchor2(anchor2);
+                if let Some(limits) = limits {
+                    builder = builder.limits(*limits);
+                }
+                builder.build().into()
+            }
+            JointKind::Spherical => SphericalJointBuilder::new()
+                .local_anchor1(anchor1)
+                .local_anchor2(anchor2)
+                .build()
+                .into(),
+        };
+
+        // Re-jointing a pair replaces rather than stacks. Without this the old
+        // handle would stay in Rapier's set with nothing left pointing at it:
+        // two contradictory constraints fighting each other, and a
+        // `remove_joint` that could only ever undo one of them.
+        self.remove_joint(a, b);
+
+        let handle = self
+            .impulse_joint_set
+            .insert(handle_a, handle_b, data, true);
+        self.joint_map.insert((a, b), handle);
+        true
+    }
+
+    /// Removes the joint linking `a` and `b`, returning whether there was one.
+    ///
+    /// Either order finds it. A joint is symmetric, and a caller — a script
+    /// detaching one, a despawn sweep cleaning up — has no reason to know
+    /// which of the two entities [`Self::add_joint`] happened to be given
+    /// first.
+    pub fn remove_joint(&mut self, a: Entity, b: Entity) -> bool {
+        let Some(handle) = self
+            .joint_map
+            .remove(&(a, b))
+            .or_else(|| self.joint_map.remove(&(b, a)))
+        else {
+            return false;
+        };
+        self.impulse_joint_set.remove(handle, true);
+        true
+    }
+
     fn cast_ray_filtered(
         &self,
         origin: Vec3,
@@ -597,5 +684,255 @@ mod tests {
             unknown,
             &crate::components::ColliderShape::Sphere { radius: 1.0 }
         ));
+    }
+
+    // ---------------------------------------------------------------- joints
+    //
+    // Every joint test builds its bodies straight into the sets rather than
+    // through `PhysicsPlugin`, the same way the `set_collider_shape` tests
+    // above do: the claim is about `PhysicsWorld` itself, and going through a
+    // plugin app would put spawn ordering and `PhysicsInput` syncing between
+    // the setup and the assertion. Gravity is zero in all of them, so the only
+    // things that can move a body are the test's own push and the joint under
+    // test.
+
+    /// A fixed body with no collider — the immovable end of a joint.
+    ///
+    /// No collider on purpose: nothing in these tests should ever *touch* the
+    /// anchor, so the only thing connecting it to anything is the joint being
+    /// tested. A contact would be an alternative explanation for a body that
+    /// stayed put.
+    fn spawn_anchor(world: &mut PhysicsWorld, entity: Entity, pos: Vec3) {
+        let body = RigidBodyBuilder::fixed()
+            .translation(Vector::new(pos.x, pos.y, pos.z))
+            .build();
+        let handle = world.rigid_body_set.insert(body);
+        world.register_entity_body(entity, handle);
+    }
+
+    /// A free unit-density ball of radius 0.5 at `pos`.
+    ///
+    /// The collider is what gives a dynamic body its mass — one without a
+    /// collider has none, and Rapier will not move it however hard it is
+    /// pushed.
+    fn spawn_ball(world: &mut PhysicsWorld, entity: Entity, pos: Vec3) {
+        let body = RigidBodyBuilder::dynamic()
+            .translation(Vector::new(pos.x, pos.y, pos.z))
+            .build();
+        let body_handle = world.rigid_body_set.insert(body);
+        let collider = ColliderBuilder::ball(0.5).density(1.0).build();
+        let collider_handle = world.add_collider(collider, body_handle);
+        world.collider_entity_map.insert(collider_handle, entity);
+        world.register_entity_body(entity, body_handle);
+    }
+
+    fn position_of(world: &PhysicsWorld, entity: Entity) -> Vec3 {
+        let handle = world.entity_body_map[&entity];
+        let t = world.rigid_body_set[handle].translation();
+        Vec3::new(t.x, t.y, t.z)
+    }
+
+    fn rotation_of(world: &PhysicsWorld, entity: Entity) -> glam::Quat {
+        let handle = world.entity_body_map[&entity];
+        let r = world.rigid_body_set[handle].rotation();
+        glam::Quat::from_xyzw(r.x, r.y, r.z, r.w)
+    }
+
+    /// Where `entity`'s body-local point `local` currently is in the world —
+    /// which is how a joint anchor is checked, since the anchors are what the
+    /// constraint actually holds together.
+    fn world_point(world: &PhysicsWorld, entity: Entity, local: Vec3) -> Vec3 {
+        position_of(world, entity) + rotation_of(world, entity) * local
+    }
+
+    /// The scene the two fixed-joint tests share: `a` at the origin and `b`
+    /// two metres along +X, both free, in zero gravity.
+    ///
+    /// [`WELD_A`]/[`WELD_B`] put the joint frame at (1, 0, 0) for both bodies,
+    /// so the joint starts already satisfied — any change in separation is the
+    /// test's own push, not the solver correcting a setup that was wrong to
+    /// begin with.
+    fn free_pair() -> (PhysicsWorld, Entity, Entity) {
+        let mut world = PhysicsWorld::new(0.0);
+        let a = Entity::from_raw(1);
+        let b = Entity::from_raw(2);
+        spawn_ball(&mut world, a, Vec3::ZERO);
+        spawn_ball(&mut world, b, Vec3::new(2.0, 0.0, 0.0));
+        (world, a, b)
+    }
+
+    const WELD_A: Vec3 = Vec3::new(1.0, 0.0, 0.0);
+    const WELD_B: Vec3 = Vec3::new(-1.0, 0.0, 0.0);
+    /// Applied to `a` only, perpendicular to the line joining the two bodies,
+    /// so an unconstrained `b` is left behind immediately.
+    const PUSH: Vec3 = Vec3::new(0.0, 0.0, 3.0);
+
+    #[test]
+    fn a_fixed_joint_preserves_the_distance_between_two_bodies() {
+        let (mut world, a, b) = free_pair();
+        assert!(
+            world.add_joint(a, b, &JointKind::Fixed, WELD_A, WELD_B),
+            "add_joint must report success when both entities have bodies"
+        );
+
+        let before = position_of(&world, a).distance(position_of(&world, b));
+        world.apply_impulse(a, PUSH);
+        for _ in 0..60 {
+            world.step(&());
+        }
+        let after = position_of(&world, a).distance(position_of(&world, b));
+
+        assert!(
+            position_of(&world, a).length() > 0.5,
+            "sanity: the push has to have moved `a`. A preserved distance that \
+             nothing tried to change proves nothing at all. a is at {:?}",
+            position_of(&world, a)
+        );
+        assert!(
+            (after - before).abs() < 0.01,
+            "a fixed joint welds the two bodies, so pushing only `a` must carry `b` \
+             along and leave the separation unchanged. The claim is not that a body \
+             moved — it is that the relationship held. before={before}, after={after}"
+        );
+    }
+
+    #[test]
+    fn removing_the_joint_lets_the_bodies_separate() {
+        let (mut world, a, b) = free_pair();
+        assert!(world.add_joint(a, b, &JointKind::Fixed, WELD_A, WELD_B));
+        assert!(
+            world.remove_joint(a, b),
+            "remove_joint must report success for a pair it really unlinked"
+        );
+        assert!(
+            !world.remove_joint(a, b),
+            "a second removal has nothing left to remove"
+        );
+
+        let before = position_of(&world, a).distance(position_of(&world, b));
+        world.apply_impulse(a, PUSH);
+        for _ in 0..60 {
+            world.step(&());
+        }
+        let after = position_of(&world, a).distance(position_of(&world, b));
+
+        assert!(
+            after - before > 1.0,
+            "with the joint removed, the same push must pull the bodies apart. This \
+             is what makes the test above mean anything: without it, an implementation \
+             where nothing ever moves — a joint that freezes the world, or a push that \
+             never landed — passes that one too. before={before}, after={after}"
+        );
+    }
+
+    #[test]
+    fn a_revolute_joint_allows_rotation_about_its_axis_but_not_the_others() {
+        // A hinge at the origin: `frame` is immovable, `door` hangs one metre
+        // along +X from it, and the hinge axis is +Y.
+        fn hinge_then_torque(torque: Vec3) -> glam::Quat {
+            let mut world = PhysicsWorld::new(0.0);
+            let frame = Entity::from_raw(1);
+            let door = Entity::from_raw(2);
+            spawn_anchor(&mut world, frame, Vec3::ZERO);
+            spawn_ball(&mut world, door, Vec3::new(1.0, 0.0, 0.0));
+            assert!(world.add_joint(
+                frame,
+                door,
+                &JointKind::Revolute {
+                    axis: Vec3::Y.into(),
+                    limits: None,
+                },
+                Vec3::ZERO,
+                Vec3::new(-1.0, 0.0, 0.0),
+            ));
+            world.apply_torque_impulse(door, torque);
+            for _ in 0..60 {
+                world.step(&());
+            }
+            rotation_of(&world, door)
+        }
+
+        let (axis, angle) = hinge_then_torque(Vec3::new(0.0, 0.5, 0.0)).to_axis_angle();
+        assert!(
+            angle > 0.1,
+            "a hinge must turn when it is torqued about its own axis, got {angle} rad"
+        );
+        assert!(
+            axis.dot(Vec3::Y).abs() > 0.99,
+            "and it must turn about that axis and no other, got axis {axis:?}"
+        );
+
+        let (_, off_axis) = hinge_then_torque(Vec3::new(0.5, 0.0, 0.0)).to_axis_angle();
+        assert!(
+            off_axis < 0.02,
+            "torque perpendicular to the hinge axis must not turn the door. Asserting \
+             only that it rotates would pass on a joint constraining nothing at all, \
+             and the door would come off its hinges. got {off_axis} rad"
+        );
+    }
+
+    #[test]
+    fn a_spherical_joint_holds_the_anchor_distance_while_rotation_stays_free() {
+        // The ball hangs one metre below the pivot at (0, -1, 0), which is the
+        // anchor body's local (0, -1, 0) and the ball's local (0, 1, 0) — the
+        // two coincide at rest.
+        fn swing(torque: Vec3) -> (f32, f32) {
+            let mut world = PhysicsWorld::new(0.0);
+            let pivot = Entity::from_raw(1);
+            let ball = Entity::from_raw(2);
+            spawn_anchor(&mut world, pivot, Vec3::ZERO);
+            spawn_ball(&mut world, ball, Vec3::new(0.0, -2.0, 0.0));
+            assert!(world.add_joint(
+                pivot,
+                ball,
+                &JointKind::Spherical,
+                Vec3::new(0.0, -1.0, 0.0),
+                Vec3::new(0.0, 1.0, 0.0),
+            ));
+            world.apply_torque_impulse(ball, torque);
+            for _ in 0..30 {
+                world.step(&());
+            }
+            let (_, angle) = rotation_of(&world, ball).to_axis_angle();
+            let gap = world_point(&world, pivot, Vec3::new(0.0, -1.0, 0.0)).distance(world_point(
+                &world,
+                ball,
+                Vec3::new(0.0, 1.0, 0.0),
+            ));
+            (angle, gap)
+        }
+
+        // Every axis, because "free rotation" is the whole difference between
+        // this and the hinge above: a revolute joint would pass on one axis
+        // and fail on the other two.
+        for axis in [Vec3::X, Vec3::Y, Vec3::Z] {
+            let (angle, gap) = swing(axis * 0.2);
+            assert!(
+                angle > 0.05,
+                "a ball joint turns freely about every axis, {axis:?} included; \
+                 got only {angle} rad"
+            );
+            assert!(
+                gap < 0.02,
+                "...and however it turns, the two anchor points must stay coincident — \
+                 that separation is the entire constraint. About {axis:?} the gap \
+                 opened to {gap}"
+            );
+        }
+    }
+
+    #[test]
+    fn adding_a_joint_for_an_unknown_entity_returns_false() {
+        // `set_collider_shape`'s convention: a stale entity is a value-level
+        // failure, never a panic. A joint meets it twice over, since either of
+        // the two entities can be the stale one.
+        let mut world = PhysicsWorld::new(0.0);
+        let real = Entity::from_raw(1);
+        let ghost = Entity::from_raw(999);
+        spawn_ball(&mut world, real, Vec3::ZERO);
+
+        assert!(!world.add_joint(real, ghost, &JointKind::Fixed, Vec3::ZERO, Vec3::ZERO));
+        assert!(!world.add_joint(ghost, real, &JointKind::Fixed, Vec3::ZERO, Vec3::ZERO));
+        assert!(!world.remove_joint(real, ghost));
     }
 }

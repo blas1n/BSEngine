@@ -946,6 +946,13 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     // data -- their bulk per-vertex and per-keyframe fields are
     // `#[reflect(ignore)]`; see each type's own note for what is hidden and
     // why.
+    // `Joint` is `bsengine-physics`'s, and lands here for the same reason
+    // `GltfAsset` does: the plugin that would otherwise own the registration
+    // (`PhysicsPlugin`) is not what every host adds, and this function is. Its
+    // `JointKind` goes with it, for the same reason `PhysicsBodyDesc`'s field
+    // types are named below.
+    app.register_type::<bsengine_physics::Joint>();
+    app.register_type::<bsengine_physics::JointKind>();
     app.register_type::<PhysicsBodyDesc>();
     app.register_type::<crate::types::RigidBodyDesc>();
     app.register_type::<crate::types::ColliderDesc>();

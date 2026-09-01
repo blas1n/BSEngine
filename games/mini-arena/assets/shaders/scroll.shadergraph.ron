@@ -1,0 +1,42 @@
+// A scrolling texture, authored as a node graph rather than as WGSL text.
+//
+//   Uv ---------------------\
+//                            Add -> Fract -> TextureSample -> Output
+//   Time -> Multiply -> ----/
+//           Constant(0.1)
+//
+// `Add` broadcasts the scalar offset across both UV components, the way WGSL
+// does, so no ConstantVec3 is needed to spell it. `Fract` keeps the result in
+// [0, 1) so the scroll never runs off the end of a ClampToEdge sampler.
+//
+// Compile it with `bsengine_shadergraph::compile` and point a `CustomShader` at
+// the resulting `.wgsl`. The hand-written `glow.wgsl` beside this file goes
+// through exactly the same loading path -- the generated route is an addition
+// to the WGSL text path, not a replacement for it.
+(
+    nodes: [
+        (id: 0, kind: Uv),
+        (id: 1, kind: Time),
+        (id: 2, kind: Constant(0.1)),
+        (id: 3, kind: Multiply),
+        (id: 4, kind: Add),
+        (id: 5, kind: Fract),
+        (id: 6, kind: TextureSample),
+        (id: 7, kind: Output),
+    ],
+    edges: [
+        // camera.time * 0.1 -- the scroll offset in UV units per second.
+        (from: (1, "out"), to: (3, "a")),
+        (from: (2, "out"), to: (3, "b")),
+        // in.uv + that offset.
+        (from: (0, "out"), to: (4, "a")),
+        (from: (3, "out"), to: (4, "b")),
+        // Wrapped back into [0, 1).
+        (from: (4, "out"), to: (5, "x")),
+        // Sampled from the entity's own texture (group 3).
+        (from: (5, "out"), to: (6, "uv")),
+        // Straight out as the fragment colour; `alpha` is left unconnected,
+        // which the compiler fills with 1.0.
+        (from: (6, "out"), to: (7, "color")),
+    ],
+)

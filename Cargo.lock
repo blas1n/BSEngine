@@ -1091,6 +1091,7 @@ dependencies = [
  "bsengine-editor",
  "bsengine-input",
  "bsengine-scene",
+ "bsengine-shadergraph",
  "bsengine-window",
  "bytemuck",
  "egui",
@@ -1102,6 +1103,7 @@ dependencies = [
  "image",
  "notify-debouncer-full",
  "pollster",
+ "ron",
  "serde_json",
  "tracing",
  "wgpu",
@@ -1184,6 +1186,14 @@ dependencies = [
  "serde_json",
  "tracing",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "bsengine-shadergraph"
+version = "0.1.0"
+dependencies = [
+ "ron",
+ "serde",
 ]
 
 [[package]]

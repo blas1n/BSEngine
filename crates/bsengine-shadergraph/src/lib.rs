@@ -15,6 +15,8 @@
 
 #![deny(missing_docs)]
 
+pub mod compile;
 pub mod graph;
 
+pub use compile::compile;
 pub use graph::{Edge, GraphError, GraphNode, NodeKind, ShaderGraph};

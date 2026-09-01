@@ -227,6 +227,71 @@ pub enum JointKind {
     Spherical,
 }
 
+/// Turns a skeletal mesh into joint-linked rigid bodies so it collapses
+/// physically.
+///
+/// Requires a `SkinnedMesh` on the same entity: the bone hierarchy comes from
+/// its `nodes`. Activating this on an entity without one warns and does
+/// nothing, rather than panicking — a ragdoll on a non-skeletal entity is an
+/// authoring mistake, not a reason to take the game down.
+///
+/// [`active`] starts **false**. A component that collapsed the character the
+/// moment it was attached would make "give this character a ragdoll" and "kill
+/// this character" the same action; switching it on is a separate, deliberate
+/// step.
+///
+/// [`active`]: Ragdoll::active
+#[derive(Component, Debug, Clone, PartialEq, Reflect)]
+#[reflect(Component, Default)]
+pub struct Ragdoll {
+    /// While true, physics drives the bones instead of animation.
+    pub active: bool,
+    /// Per-bone joint overrides, keyed by bone name. Bones absent here get
+    /// [`JointKind::Spherical`].
+    ///
+    /// Spherical is the default because nothing in a skeleton says which bone
+    /// is a knee, so a generic answer is required, and spherical is the
+    /// physically stable one that needs no configuration at all. This map is
+    /// how an author says otherwise — marking a knee or an elbow `Revolute`
+    /// so it stops bending backwards. Guessing from the bone's *name* was
+    /// rejected: it depends on a rigging naming convention and fails silently
+    /// on a different rig or on non-English bone names.
+    ///
+    /// A `HashMap` rather than a `Vec` of pairs because `bevy_reflect` handles
+    /// it: a `Map`-kind field is structurally recursed by
+    /// `TypedReflectDeserializer`, so a scene can author this directly. (The
+    /// type that does *not* survive that is `HashSet`, which needs an explicit
+    /// `ReflectDeserialize` registration — see `AnimationStateMachine`'s
+    /// `triggers`.)
+    pub joint_overrides: std::collections::HashMap<String, JointKind>,
+    /// Radius of each bone's capsule collider, in world units.
+    pub bone_radius: f32,
+    /// Total mass, distributed across bones in proportion to bone length.
+    pub total_mass: f32,
+}
+
+impl Default for Ragdoll {
+    fn default() -> Self {
+        Self {
+            active: false,
+            joint_overrides: std::collections::HashMap::new(),
+            bone_radius: 0.08,
+            total_mass: 70.0,
+        }
+    }
+}
+
+impl Ragdoll {
+    /// The joint kind for the bone named `bone`, falling back to
+    /// [`JointKind::Spherical`] when nothing overrides it.
+    pub fn joint_for_bone(&self, bone: &str) -> JointKind {
+        self.joint_overrides
+            .get(bone)
+            .copied()
+            .unwrap_or(JointKind::Spherical)
+    }
+}
+
 /// Result of a raycast query.
 #[derive(Debug, Clone)]
 pub struct RaycastHit {
@@ -335,5 +400,71 @@ impl Default for CharacterBody {
             max_slope_deg: 50.0,
             grounded: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_ragdoll_defaults_to_spherical_for_every_bone() {
+        // With an empty override map, every bone must resolve to Spherical.
+        // Spherical is the physically stable default that works with no
+        // configuration at all; the overrides exist so knees and elbows can be
+        // marked Revolute and stop bending backwards. Nothing in a skeleton
+        // says which bone is a knee, so there has to be a generic answer, and
+        // a name-based guess was rejected: it depends on a rigging convention
+        // and fails silently on a rig that names bones differently.
+        let r = Ragdoll::default();
+        assert!(r.joint_overrides.is_empty(), "the default has no overrides");
+        for bone in ["Thigh", "Spine", "LeftForeArm", "허벅지", ""] {
+            assert!(
+                matches!(r.joint_for_bone(bone), JointKind::Spherical),
+                "bone {bone:?} should fall back to Spherical, got {:?}",
+                r.joint_for_bone(bone)
+            );
+        }
+    }
+
+    #[test]
+    fn an_override_replaces_the_default_for_that_bone_only() {
+        // Without this, the override map could be ignored entirely -- read and
+        // then dropped on the floor -- and the test above would still pass.
+        let mut r = Ragdoll::default();
+        r.joint_overrides.insert(
+            "LeftLeg".to_string(),
+            JointKind::Revolute {
+                axis: Vec3::X.into(),
+                limits: Some([0.0, 2.2]),
+            },
+        );
+
+        match r.joint_for_bone("LeftLeg") {
+            JointKind::Revolute { axis, limits } => {
+                assert_eq!(axis.0, Vec3::X, "the override's own axis must come back");
+                assert_eq!(limits, Some([0.0, 2.2]), "and its own limits");
+            }
+            other => panic!("the overridden bone should be Revolute, got {other:?}"),
+        }
+
+        // "for that bone only": an override is not a global switch.
+        assert!(
+            matches!(r.joint_for_bone("RightLeg"), JointKind::Spherical),
+            "a bone with no entry keeps the Spherical default even when a \
+             sibling was overridden"
+        );
+    }
+
+    #[test]
+    fn a_ragdoll_is_inactive_until_something_switches_it_on() {
+        // Attaching the component to a working character must change nothing.
+        // If this defaulted to true, adding a Ragdoll in the Inspector -- or a
+        // scene gaining the component -- would collapse the character on the
+        // spot.
+        assert!(
+            !Ragdoll::default().active,
+            "Ragdoll::default() must be inert"
+        );
     }
 }

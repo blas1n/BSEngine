@@ -16,7 +16,7 @@ pub mod world;
 
 pub use components::{
     CharacterBody, Collider, ColliderShape, CollisionEvent, Joint, JointKind, PhysicsInput,
-    PhysicsTransform, RaycastHit, RigidBody, RigidBodyType,
+    PhysicsTransform, Ragdoll, RaycastHit, RigidBody, RigidBodyType,
 };
 pub use plugin::PhysicsPlugin;
 pub use world::PhysicsWorld;

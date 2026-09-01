@@ -17,15 +17,18 @@ use crate::graph::{GraphError, GraphNode, NodeKind, ShaderGraph};
 
 /// The WGSL type a value carries between nodes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ValueType {
+pub enum ValueType {
+    /// A scalar `f32`.
     F32,
+    /// A `vec2<f32>`, as produced by the `Uv` node.
     Vec2,
+    /// A `vec3<f32>`, as a colour or a sampled texel.
     Vec3,
 }
 
 impl ValueType {
     /// How the type is spelled in WGSL, and in `GraphError::TypeMismatch`.
-    fn wgsl(self) -> &'static str {
+    pub fn wgsl(self) -> &'static str {
         match self {
             ValueType::F32 => "f32",
             ValueType::Vec2 => "vec2<f32>",
@@ -35,14 +38,18 @@ impl ValueType {
 }
 
 /// One input port of a node kind.
-struct Port {
+///
+/// Public so the node editor can label ports and decide whether to accept a
+/// connection by reading **this** table -- the same one the compiler type
+/// checks against -- rather than a duplicate of it that could drift.
+pub struct Port {
     /// The name an `Edge`'s `to.1` must carry to connect here.
-    name: &'static str,
+    pub name: &'static str,
     /// The type this port accepts, or `None` when it accepts any of them and
     /// the node's result type follows from what it is given.
-    expected: Option<ValueType>,
+    pub expected: Option<ValueType>,
     /// Whether leaving it unconnected is a `MissingInput` error.
-    required: bool,
+    pub required: bool,
 }
 
 const fn port(name: &'static str, expected: Option<ValueType>, required: bool) -> Port {
@@ -86,6 +93,39 @@ fn input_ports(kind: &NodeKind) -> &'static [Port] {
         NodeKind::Step => STEP,
         NodeKind::Fract => X_ANY,
         NodeKind::Output => OUTPUT,
+    }
+}
+
+impl NodeKind {
+    /// The input ports this node kind accepts, in display order.
+    ///
+    /// This is the compiler's own table, not a copy of it: the node editor
+    /// reads it to lay ports out and to decide whether a connection is
+    /// type-compatible, so its accept/reject decision cannot drift from what
+    /// [`compile`] would do with the same edge.
+    pub fn input_ports(&self) -> &'static [Port] {
+        input_ports(self)
+    }
+
+    /// The type this node produces on its single `"out"` port, or `None`
+    /// when that follows from what is connected to it.
+    ///
+    /// `Add`, `Multiply`, `Lerp` and `Fract` are polymorphic -- `Fract` of a
+    /// `vec2<f32>` is a `vec2<f32>`, `Fract` of an `f32` is an `f32` -- so
+    /// there is no honest static answer for them, and inventing one would
+    /// make the editor refuse connections the compiler accepts. Every other
+    /// kind delegates to the compiler's own `result_type`, which is what
+    /// keeps this from becoming a second table.
+    pub fn output_type(&self) -> Option<ValueType> {
+        match self {
+            NodeKind::Add | NodeKind::Multiply | NodeKind::Lerp | NodeKind::Fract => None,
+            fixed => {
+                // Safe to discard the error: `result_type` only fails for the
+                // polymorphic kinds excluded above, whose mismatch check needs
+                // input types. The empty map is never read for the rest.
+                result_type(0, fixed, &HashMap::new()).ok()
+            }
+        }
     }
 }
 
@@ -448,7 +488,7 @@ pub fn compile(graph: &ShaderGraph) -> Result<String, GraphError> {
 
 #[cfg(test)]
 mod tests {
-    use crate::compile::compile;
+    use crate::compile::{compile, ValueType};
     use crate::graph::{Edge, GraphError, GraphNode, NodeKind, ShaderGraph};
 
     /// `(from_node, to_node, to_port)` -- every node's single output port is
@@ -461,7 +501,14 @@ mod tests {
     }
 
     fn node(id: u32, kind: NodeKind) -> GraphNode {
-        GraphNode { id, kind }
+        // The compiler ignores `position`, so every compiler test leaves it
+        // at the origin; `the_compiler_ignores_node_positions` is where that
+        // indifference is actually asserted.
+        GraphNode {
+            id,
+            kind,
+            position: [0.0, 0.0],
+        }
     }
 
     #[test]
@@ -722,6 +769,144 @@ mod tests {
                 expected: "f32".to_string(),
                 found: "vec3<f32>".to_string(),
             })
+        );
+    }
+
+    #[test]
+    fn input_ports_are_publicly_queryable_with_their_types() {
+        // The editor needs this to refuse a type-mismatched connection
+        // before it is made. Without a public API it would have to
+        // duplicate the port table and drift from the compiler's.
+        assert_eq!(NodeKind::Lerp.input_ports().len(), 3);
+        assert_eq!(NodeKind::Sin.output_type(), Some(ValueType::F32));
+
+        // Names, types and requiredness must all be readable, since the UI
+        // labels ports with them and decides acceptance from them.
+        let out = NodeKind::Output.input_ports();
+        assert_eq!(out[0].name, "color");
+        assert_eq!(out[0].expected, Some(ValueType::Vec3));
+        assert!(out[0].required);
+        assert_eq!(out[1].name, "alpha");
+        assert_eq!(out[1].expected, Some(ValueType::F32));
+        assert!(
+            !out[1].required,
+            "alpha is optional; a UI that marked it required would demand a \
+             connection the compiler does not"
+        );
+
+        // A source node with no inputs still answers, and answers nothing.
+        assert!(NodeKind::Uv.input_ports().is_empty());
+        assert_eq!(NodeKind::Uv.output_type(), Some(ValueType::Vec2));
+        assert_eq!(ValueType::Vec2.wgsl(), "vec2<f32>");
+    }
+
+    #[test]
+    fn the_public_port_table_is_the_one_the_compiler_uses() {
+        // The whole point of exposing the table is that the editor's
+        // accept/reject decision is identical to the compiler's. Assert that
+        // by driving the compiler from the *public* API alone: for every
+        // typed port the table names, feed it a source of the wrong type and
+        // require the compiler to reject exactly that node and port. A
+        // duplicated or stale table would pass
+        // `input_ports_are_publicly_queryable_with_their_types` and fail
+        // here.
+
+        /// A node kind that produces `t`, for filling ports correctly.
+        fn source_of(t: ValueType) -> NodeKind {
+            match t {
+                ValueType::F32 => NodeKind::Constant(1.0),
+                ValueType::Vec2 => NodeKind::Uv,
+                ValueType::Vec3 => NodeKind::ConstantVec3([1.0, 1.0, 1.0]),
+            }
+        }
+
+        for kind in [
+            NodeKind::TextureSample,
+            NodeKind::Sin,
+            NodeKind::Step,
+            NodeKind::Lerp,
+            NodeKind::Output,
+        ] {
+            for under_test in kind.input_ports() {
+                // A port that accepts anything cannot be given a wrong type.
+                let Some(expected) = under_test.expected else {
+                    continue;
+                };
+                let wrong = if expected == ValueType::Vec3 {
+                    ValueType::F32
+                } else {
+                    ValueType::Vec3
+                };
+
+                // Node 1 is the kind under test. Every *other* required port
+                // gets a correctly typed source, or the node would be blamed
+                // for `MissingInput` on an earlier port and never reach the
+                // type check this test is about.
+                let mut nodes = vec![node(1, kind.clone())];
+                let mut edges = Vec::new();
+                for (i, p) in kind.input_ports().iter().enumerate() {
+                    let feed = if p.name == under_test.name {
+                        wrong
+                    } else if p.required {
+                        p.expected.unwrap_or(ValueType::F32)
+                    } else {
+                        continue;
+                    };
+                    let src = 10 + i as u32;
+                    nodes.push(node(src, source_of(feed)));
+                    edges.push(edge(src, 1, p.name));
+                }
+                // Unless it is the Output itself, the node under test must
+                // feed one, or the backward walk never reaches it and dead-node
+                // elimination hides the error entirely.
+                if kind != NodeKind::Output {
+                    nodes.push(node(2, NodeKind::Output));
+                    edges.push(edge(1, 2, "color"));
+                }
+
+                assert_eq!(
+                    compile(&ShaderGraph { nodes, edges }),
+                    Err(GraphError::TypeMismatch {
+                        node: 1,
+                        port: under_test.name.to_string(),
+                        expected: expected.wgsl().to_string(),
+                        found: wrong.wgsl().to_string(),
+                    }),
+                    "the compiler must reject what the public table says is \
+                     wrong for {kind:?}.{}",
+                    under_test.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_compiler_ignores_node_positions() {
+        // `position` is editor layout, not semantics. If the compiler ever
+        // started reading it, moving a node in the editor would silently
+        // change the shader it produces.
+        let build = |positions: [f32; 2]| ShaderGraph {
+            nodes: vec![
+                GraphNode {
+                    id: 0,
+                    kind: NodeKind::ConstantVec3([0.25, 0.5, 0.75]),
+                    position: positions,
+                },
+                GraphNode {
+                    id: 1,
+                    kind: NodeKind::Output,
+                    position: [positions[1], positions[0]],
+                },
+            ],
+            edges: vec![edge(0, 1, "color")],
+        };
+
+        let at_origin = compile(&build([0.0, 0.0])).expect("must compile at the origin");
+        let moved = compile(&build([-931.5, 42.0])).expect("must compile once moved");
+
+        assert_eq!(
+            at_origin, moved,
+            "moving a node must not change a single byte of the generated WGSL"
         );
     }
 }

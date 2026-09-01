@@ -27,15 +27,19 @@ blake3.workspace = true
 pollster.workspace = true
 tracing.workspace = true
 gltf.workspace = true
+# Promoted from a dev-dependency in item 50 sub-step 2/2: the Shader Graph
+# panel (`panels/shadergraph.rs`) holds a `ShaderGraph`, reads the compiler's
+# port table to type-check connections, and calls `compile` on demand, so the
+# crate is now needed at runtime and not only by the tests that pin the
+# generated preamble against MESH_WGSL.
+bsengine-shadergraph.workspace = true
+# Promoted alongside it, and for the same reason: the panel opens and saves
+# `.shadergraph.ron` files itself, so RON is a runtime dependency now and not
+# only a test one.
+ron = { workspace = true }
 
 [dev-dependencies]
 bsengine-app.workspace = true
 bsengine-editor.workspace = true
 bsengine-scene.workspace = true
-# A dev-dependency, not a regular one: the renderer never compiles a graph at
-# runtime -- it only consumes the `.wgsl` a graph was compiled to, exactly as it
-# consumes a hand-written one. The tests are the only place the two meet, to
-# pin the generated preamble against MESH_WGSL and to render a compiled graph.
-bsengine-shadergraph.workspace = true
 base64 = { workspace = true }
-ron = { workspace = true }

@@ -11,6 +11,8 @@ pub mod inspector;
 pub mod profiler;
 /// Generic egui widgets for editing `bevy_reflect`-reflected component fields.
 pub mod reflect_ui;
+/// The Shader Graph panel: a node editor for `bsengine-shadergraph` graphs.
+pub mod shadergraph;
 /// The Viewport panel: renders the 3D scene plus gizmo overlays.
 pub mod viewport;
 
@@ -23,4 +25,5 @@ pub use hierarchy::HierarchyPanel;
 pub use inspector::InspectorPanel;
 pub use profiler::ProfilerPanel;
 pub use reflect_ui::draw_reflect_ui;
+pub use shadergraph::ShaderGraphPanel;
 pub use viewport::ViewportPanel;

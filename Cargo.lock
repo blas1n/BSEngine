@@ -1187,6 +1187,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "bsengine-shadergraph"
+version = "0.1.0"
+dependencies = [
+ "ron",
+ "serde",
+]
+
+[[package]]
 name = "bsengine-window"
 version = "0.1.0"
 dependencies = [

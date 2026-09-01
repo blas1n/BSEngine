@@ -1,0 +1,11 @@
+[package]
+name = "bsengine-shadergraph"
+description = "Node-graph shader authoring: compiles a graph to WGSL for CustomShader"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+ron.workspace = true

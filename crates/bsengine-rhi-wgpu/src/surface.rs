@@ -5822,6 +5822,64 @@ mod tests {
         (clip.x / clip.w, clip.y / clip.w)
     }
 
+    /// One `struct <name> { ... };` declaration, lifted out of a WGSL source.
+    ///
+    /// A substring search rather than a parse: it is exactly as strong as the
+    /// property under test (these two texts must be identical) and it stays
+    /// correct as the shaders around the declaration change.
+    fn struct_decl(wgsl: &str, name: &str) -> String {
+        let head = format!("struct {name} {{");
+        let start = wgsl
+            .find(&head)
+            .unwrap_or_else(|| panic!("no `{head}` in:\n{wgsl}"));
+        let end = wgsl[start..]
+            .find("};")
+            .unwrap_or_else(|| panic!("`{head}` is never closed with `}};`"));
+        wgsl[start..start + end + 2].to_string()
+    }
+
+    #[test]
+    fn the_shadergraph_preamble_matches_the_mesh_pipeline_uniforms() {
+        // Custom shaders -- generated ones included -- are compiled against the
+        // standard mesh pipeline's `pipeline_layout` (see
+        // `compile_and_store_shader`). A single renamed field, reordered pair,
+        // or dropped `_pad` in the generated preamble makes pipeline creation
+        // fail inside wgpu validation, with a message that names the pipeline
+        // and says nothing about the compiler that emitted the mismatch. This
+        // test is what turns that far-away failure into a local one.
+        //
+        // It lives here rather than in `bsengine-shadergraph` because MESH_WGSL
+        // is `pub(crate)`: only this crate can see both texts at once.
+        let graph = bsengine_shadergraph::ShaderGraph {
+            nodes: vec![
+                bsengine_shadergraph::GraphNode {
+                    id: 0,
+                    kind: bsengine_shadergraph::NodeKind::ConstantVec3([1.0, 1.0, 1.0]),
+                },
+                bsengine_shadergraph::GraphNode {
+                    id: 1,
+                    kind: bsengine_shadergraph::NodeKind::Output,
+                },
+            ],
+            edges: vec![bsengine_shadergraph::Edge {
+                from: (0, "out".to_string()),
+                to: (1, "color".to_string()),
+            }],
+        };
+        let generated =
+            bsengine_shadergraph::compile(&graph).expect("a constant into Output must compile");
+
+        for name in ["CameraUniform", "ModelUniform"] {
+            assert_eq!(
+                struct_decl(&generated, name),
+                struct_decl(MESH_WGSL, name),
+                "the generated `{name}` has drifted from the mesh pipeline's. \
+                 Copy it verbatim from MESH_WGSL -- including every `_pad` \
+                 field -- or every generated shader will fail pipeline creation."
+            );
+        }
+    }
+
     #[test]
     fn jitter_shifts_ndc_by_the_same_amount_at_every_depth() {
         // The whole reason the offset goes on the projection's third column

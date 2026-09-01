@@ -1174,6 +1174,24 @@ pub enum ScriptCommand {
         /// Name of the entity to modify.
         name: String,
     },
+    /// Constrain one rigid body to another with a joint.
+    AttachJoint {
+        /// Name of the entity the joint is created on.
+        a: String,
+        /// Name of the entity it is constrained to.
+        b: String,
+        /// Which constraint, with its per-kind parameters. Resolved by the op
+        /// that queued this, so one variant covers all three joint types
+        /// rather than one command each.
+        kind: bsengine_physics::JointKind,
+    },
+    /// Remove the joint linking two rigid bodies, if there is one.
+    DetachJoint {
+        /// Name of one end. Either order finds the joint.
+        a: String,
+        /// Name of the other end.
+        b: String,
+    },
     /// Emit one burst from the named entity's `ParticleEmitter`.
     BurstParticles {
         /// Name of the entity holding the emitter.
@@ -4807,6 +4825,70 @@ pub fn bsengine_reset_forces(#[string] name: String) {
     });
 }
 
+/// Queues one `AttachJoint` command. Shared by all three `attach*` ops so the
+/// only thing that differs between them is the constraint itself.
+fn queue_attach_joint(a: String, b: String, kind: bsengine_physics::JointKind) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::AttachJoint { a, b, kind });
+    });
+}
+
+/// Queue welding two rigid bodies together, leaving no relative motion at all.
+///
+/// Both anchors sit at their own body's origin, which is Rapier's own default:
+/// a script-created joint holds the two origins together. A joint that has to
+/// be anchored somewhere else on the body is a scene-authoring concern -- see
+/// `EntityDescriptor`'s `joint:` field, which carries both anchors.
+#[op2(fast)]
+pub fn bsengine_joint_attach_fixed(#[string] a: String, #[string] b: String) {
+    queue_attach_joint(a, b, bsengine_physics::JointKind::Fixed);
+}
+
+/// Queue hinging two rigid bodies together about `(ax, ay, az)`, given in the
+/// first body's local space.
+///
+/// The axis is three arguments to one op rather than three ops: a per-axis
+/// `attachRevolute_x`/`_y`/`_z` split is exactly what the component
+/// catalogue's R2 ratchet exists to stop, and a hinge about a diagonal axis
+/// could not be expressed at all that way.
+#[op2(fast)]
+pub fn bsengine_joint_attach_revolute(
+    #[string] a: String,
+    #[string] b: String,
+    ax: f32,
+    ay: f32,
+    az: f32,
+) {
+    queue_attach_joint(
+        a,
+        b,
+        bsengine_physics::JointKind::Revolute {
+            axis: Vec3::new(ax, ay, az).into(),
+            // Scripting attaches a free-swinging hinge. Angle limits are a
+            // scene-authoring parameter (`JointKindDesc::Revolute.limits`);
+            // adding them here would mean two more arguments on the common
+            // call for the uncommon case.
+            limits: None,
+        },
+    );
+}
+
+/// Queue a ball joint between two rigid bodies: free rotation about the point
+/// where their origins are held together.
+#[op2(fast)]
+pub fn bsengine_joint_attach_spherical(#[string] a: String, #[string] b: String) {
+    queue_attach_joint(a, b, bsengine_physics::JointKind::Spherical);
+}
+
+/// Queue removing the joint linking two rigid bodies. Either order finds it.
+#[op2(fast)]
+pub fn bsengine_joint_detach(#[string] a: String, #[string] b: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::DetachJoint { a, b });
+    });
+}
+
 /// Queue one burst from an entity's particle emitter.
 #[op2(fast)]
 pub fn bsengine_burst_particles(#[string] name: String) {
@@ -5794,6 +5876,10 @@ deno_core::extension!(
         bsengine_add_force,
         bsengine_add_force_at_point,
         bsengine_reset_forces,
+        bsengine_joint_attach_fixed,
+        bsengine_joint_attach_revolute,
+        bsengine_joint_attach_spherical,
+        bsengine_joint_detach,
         bsengine_burst_particles,
         bsengine_set_velocity,
         bsengine_get_gravity,
@@ -9681,6 +9767,82 @@ JSON.stringify(received)
                     if *x == 3 && *z == 5 && !walkable)
             });
             assert!(found, "NavmeshSetWalkable not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn the_joint_ops_live_under_the_joint_namespace() {
+        // The shape of the API, not its effect. `Bsengine.jointAttachFixed`
+        // would pass every behavioural test in this crate and still be the
+        // wrong name, so the namespace is asserted where it is written: the
+        // eval below fails outright if `Bsengine.joint` is not an object with
+        // these four members.
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let shape = rt
+            .eval(
+                r#"[typeof Bsengine.joint,
+                    typeof Bsengine.joint.attachFixed,
+                    typeof Bsengine.joint.attachRevolute,
+                    typeof Bsengine.joint.attachSpherical,
+                    typeof Bsengine.joint.detach,
+                    typeof Bsengine.jointAttachFixed].join(",")"#,
+            )
+            .unwrap();
+        assert_eq!(
+            shape.trim(),
+            "object,function,function,function,function,undefined",
+            "the four ops must hang off Bsengine.joint, and nothing flat should \
+             exist alongside them"
+        );
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn attach_revolute_carries_the_whole_axis_in_one_call() {
+        // The R2 ratchet in one assertion: a diagonal axis survives the call.
+        // Per-axis `attachRevolute_x`/`_y`/`_z` ops could not express this at
+        // all, which is why the axis is three arguments to one op.
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.joint.attachRevolute("Door", "Frame", 0.0, 0.6, 0.8);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::AttachJoint { a, b, kind }
+                if a == "Door"
+                    && b == "Frame"
+                    && *kind == bsengine_physics::JointKind::Revolute {
+                        axis: glam::Vec3::new(0.0, 0.6, 0.8).into(),
+                        limits: None,
+                    })
+            });
+            assert!(
+                found,
+                "AttachJoint with the full axis not in buffer: {buf:?}"
+            );
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn attach_revolute_defaults_its_axis_to_up() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.joint.attachRevolute("Door", "Frame");"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::AttachJoint { kind, .. }
+                if *kind == bsengine_physics::JointKind::Revolute {
+                    axis: glam::Vec3::Y.into(),
+                    limits: None,
+                })
+            });
+            assert!(found, "an omitted axis should hinge about +Y: {buf:?}");
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

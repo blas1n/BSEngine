@@ -571,6 +571,18 @@ var Bsengine = {
         hasNoPath:        (name)                 => Deno.core.ops.bsengine_nav_has_no_path(name),
     },
 
+    // Physics joints — constrain one rigid body to another. Both bodies are
+    // named, and either order detaches. Each joint holds the two bodies'
+    // origins together; a joint anchored elsewhere on the body is a
+    // scene-file concern (EntityDescriptor's `joint:` field carries anchors).
+    joint: {
+        attachFixed:     (a, b)             => Deno.core.ops.bsengine_joint_attach_fixed(a, b),
+        // Axis defaults to +Y, the usual door hinge.
+        attachRevolute:  (a, b, ax, ay, az) => Deno.core.ops.bsengine_joint_attach_revolute(a, b, ax ?? 0, ay ?? 1, az ?? 0),
+        attachSpherical: (a, b)             => Deno.core.ops.bsengine_joint_attach_spherical(a, b),
+        detach:          (a, b)             => Deno.core.ops.bsengine_joint_detach(a, b),
+    },
+
     loadScene:      (path)                 => Deno.core.ops.bsengine_load_scene(path),
 
     save:           (path)                 => Deno.core.ops.bsengine_save_game(path ?? 'save.json'),

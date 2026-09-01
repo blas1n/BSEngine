@@ -68,8 +68,7 @@ fn compiled_scroll_shader(h: &mut Harness, stem: &str) -> String {
     let wgsl = bsengine_shadergraph::compile(&graph)
         .unwrap_or_else(|e| panic!("the demo graph failed to compile: {e}"));
 
-    let out =
-        std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("scroll.{stem}.wgsl"));
+    let out = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("scroll.{stem}.wgsl"));
     std::fs::write(&out, &wgsl)
         .unwrap_or_else(|e| panic!("could not write {}: {e}", out.display()));
     let from_disk = std::fs::read_to_string(&out)

@@ -47,8 +47,14 @@ pub fn default_dock_state() -> DockState<String> {
     state
 }
 
-/// Idempotently registers the five built-in panels if they aren't already
+/// Idempotently registers the six built-in panels if they aren't already
 /// present (e.g. from a previous frame, or pre-registered by app code).
+///
+/// Shader Graph is registered but is deliberately **not** in
+/// [`default_dock_state`]: it is a document editor opened for a particular
+/// asset, the way Unity's Shader Graph window is, not a panel that should
+/// occupy screen space in every session. Being in the registry is what puts
+/// it in the "Window ▾" menu, which is how it gets docked.
 pub fn ensure_builtin_panels(
     registry: &EditorPanelRegistry,
     device: std::sync::Arc<wgpu::Device>,
@@ -70,6 +76,9 @@ pub fn ensure_builtin_panels(
     });
     map.entry("profiler".to_string()).or_insert_with(|| {
         Box::new(crate::panels::ProfilerPanel::new(frame_stats_history)) as Box<dyn EditorPanel>
+    });
+    map.entry("shadergraph".to_string()).or_insert_with(|| {
+        Box::new(crate::panels::ShaderGraphPanel::default()) as Box<dyn EditorPanel>
     });
 }
 
@@ -262,7 +271,7 @@ mod tests {
     }
 
     #[test]
-    fn ensure_builtin_panels_registers_five_panels() {
+    fn ensure_builtin_panels_registers_six_panels() {
         let registry = EditorPanelRegistry::default();
         let surface = pollster::block_on(crate::surface::WgpuSurface::new_offscreen(16, 16, false))
             .expect("these tests need an adapter; a skip here would look like a pass");
@@ -280,7 +289,12 @@ mod tests {
             history,
         );
         let map = registry.0.lock().unwrap();
-        assert_eq!(map.len(), 5);
+        assert_eq!(map.len(), 6);
         assert!(map.contains_key("profiler"));
+        // Registered even though `default_dock_state` does not place it:
+        // that registration is what lists it in the Window menu, and
+        // without it the tab id in a saved layout renders the "Panel
+        // unavailable" placeholder instead of the editor.
+        assert!(map.contains_key("shadergraph"));
     }
 }

@@ -66,6 +66,19 @@ pub struct GraphNode {
     pub id: u32,
     /// What this node computes.
     pub kind: NodeKind,
+    /// Where the node sits on the editor canvas, in panel-local pixels.
+    ///
+    /// Part of the authored asset, not transient UI state: Unity and Unreal
+    /// both store graph layout in the asset, and a side-car file would mean
+    /// sharing a graph loses its layout, or that one logical asset is two
+    /// files. The compiler ignores it entirely, so the crate stays a pure
+    /// graph-to-WGSL function.
+    ///
+    /// `#[serde(default)]` so graphs authored before this field existed --
+    /// `games/mini-arena/assets/shaders/scroll.shadergraph.ron` among them --
+    /// keep parsing, landing at the origin instead of failing to load.
+    #[serde(default)]
+    pub position: [f32; 2],
 }
 
 /// A connection from one node's output port to another's input port.
@@ -174,44 +187,56 @@ mod tests {
         // authoring failure rather than a compile error. Cover every shape
         // the format has: a unit variant, a newtype variant carrying a
         // float, a newtype variant carrying an array, and the `(u32,
-        // String)` port tuples.
+        // String)` port tuples. Each node also carries a distinct position,
+        // so a serialiser that emitted them in the wrong order or dropped
+        // one would fail here rather than only in the dedicated position
+        // test.
         let graph = ShaderGraph {
             nodes: vec![
                 GraphNode {
                     id: 0,
                     kind: NodeKind::Uv,
+                    position: [0.0, 0.0],
                 },
                 GraphNode {
                     id: 1,
                     kind: NodeKind::Time,
+                    position: [10.0, 20.0],
                 },
                 GraphNode {
                     id: 2,
                     kind: NodeKind::Constant(0.25),
+                    position: [10.0, 80.0],
                 },
                 GraphNode {
                     id: 3,
                     kind: NodeKind::ConstantVec3([1.0, 0.5, 0.0]),
+                    position: [10.0, 140.0],
                 },
                 GraphNode {
                     id: 4,
                     kind: NodeKind::Multiply,
+                    position: [180.0, 50.0],
                 },
                 GraphNode {
                     id: 5,
                     kind: NodeKind::Add,
+                    position: [340.0, 25.0],
                 },
                 GraphNode {
                     id: 6,
                     kind: NodeKind::Fract,
+                    position: [500.0, 25.0],
                 },
                 GraphNode {
                     id: 7,
                     kind: NodeKind::TextureSample,
+                    position: [660.0, 25.0],
                 },
                 GraphNode {
                     id: 8,
                     kind: NodeKind::Output,
+                    position: [820.0, 25.0],
                 },
             ],
             edges: vec![
@@ -290,5 +315,78 @@ mod tests {
         );
 
         assert!(GraphError::UnknownNode(99).to_string().contains("99"));
+    }
+
+    #[test]
+    fn a_graph_without_positions_still_parses() {
+        // The demo graph committed in sub-step 1/2
+        // (`games/mini-arena/assets/shaders/scroll.shadergraph.ron`) has no
+        // `position` field. `#[serde(default)]` is what keeps it loading --
+        // assert it rather than assuming it, because the failure mode is a
+        // parse error on an already-shipped asset.
+        let ron = r#"(nodes: [(id: 1, kind: Time)], edges: [])"#;
+        let g: ShaderGraph = ron::from_str(ron).expect("must parse without positions");
+        assert_eq!(g.nodes[0].position, [0.0, 0.0]);
+    }
+
+    #[test]
+    fn the_shipped_demo_graph_still_parses() {
+        // The test above pins the mechanism on a synthetic string; this one
+        // pins it on the real file, which is what actually breaks. Reading
+        // the asset itself is the only way to catch someone adding a second
+        // non-defaulted field later.
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../games/mini-arena/assets/shaders/scroll.shadergraph.ron"
+        );
+        let text = std::fs::read_to_string(path)
+            .unwrap_or_else(|e| panic!("the demo graph must still be readable at {path}: {e}"));
+        let g: ShaderGraph = ron::from_str(&text)
+            .unwrap_or_else(|e| panic!("the shipped demo graph must still parse: {e}"));
+
+        assert_eq!(
+            g.nodes.len(),
+            8,
+            "the demo graph's eight nodes must survive"
+        );
+        assert!(
+            g.nodes.iter().all(|n| n.position == [0.0, 0.0]),
+            "a position-less node must default to the origin, not fail to parse"
+        );
+    }
+
+    #[test]
+    fn positions_round_trip_through_ron() {
+        // Layout is part of the authored asset, so it must survive a
+        // save/load cycle -- otherwise every reopen scrambles the graph.
+        // Negative and fractional values are included because a serialiser
+        // that dropped the sign or truncated would still pass on `[10, 20]`.
+        let graph = ShaderGraph {
+            nodes: vec![
+                GraphNode {
+                    id: 0,
+                    kind: NodeKind::Uv,
+                    position: [-120.5, 37.25],
+                },
+                GraphNode {
+                    id: 1,
+                    kind: NodeKind::Output,
+                    position: [640.0, -0.75],
+                },
+            ],
+            edges: vec![Edge {
+                from: (0, "out".to_string()),
+                to: (1, "color".to_string()),
+            }],
+        };
+
+        let text = ron::ser::to_string_pretty(&graph, ron::ser::PrettyConfig::default())
+            .expect("a positioned graph must serialise to RON");
+        let parsed: ShaderGraph =
+            ron::from_str(&text).unwrap_or_else(|e| panic!("RON round-trip failed: {e}\n{text}"));
+
+        assert_eq!(parsed, graph);
+        assert_eq!(parsed.nodes[0].position, [-120.5, 37.25]);
+        assert_eq!(parsed.nodes[1].position, [640.0, -0.75]);
     }
 }

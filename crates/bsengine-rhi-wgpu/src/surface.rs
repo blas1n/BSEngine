@@ -5855,10 +5855,12 @@ mod tests {
                 bsengine_shadergraph::GraphNode {
                     id: 0,
                     kind: bsengine_shadergraph::NodeKind::ConstantVec3([1.0, 1.0, 1.0]),
+                    position: [0.0, 0.0],
                 },
                 bsengine_shadergraph::GraphNode {
                     id: 1,
                     kind: bsengine_shadergraph::NodeKind::Output,
+                    position: [0.0, 0.0],
                 },
             ],
             edges: vec![bsengine_shadergraph::Edge {

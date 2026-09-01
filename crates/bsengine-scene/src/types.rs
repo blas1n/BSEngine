@@ -336,6 +336,99 @@ pub struct EntityDescriptor {
     /// existed.
     #[serde(default)]
     pub lod: Option<LodDescriptor>,
+    /// A physics joint constraining this entity's body to another entity's.
+    /// Resolved by name against the other entities in the same scene file
+    /// after all of them have spawned -- the same pass, and the same name
+    /// map, that [`parent`](EntityDescriptor::parent) uses; see
+    /// `spawn_scene_entities` in `plugin.rs`. Absent (the default) means no
+    /// joint, exactly as every scene written before this field existed.
+    /// Must name an entity in the *same* scene file, for the reason
+    /// `parent:` must: a name is only unambiguous within one file.
+    #[serde(default)]
+    pub joint: Option<JointDescriptor>,
+}
+
+/// A physics joint between this entity and another, as a scene file spells it.
+///
+/// `bsengine_physics::Joint` holds an `Entity` -- a runtime value that cannot
+/// appear in a file at all -- so the scene format names the other entity
+/// instead, and resolution happens once every entity in the file has spawned.
+/// That is exactly what [`EntityDescriptor::parent`] already does, and this
+/// reuses its pass rather than adding a second name-resolution mechanism.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct JointDescriptor {
+    /// Name of the entity whose body this one is constrained to.
+    pub body_b: String,
+    /// Which constraint, with its per-kind parameters. Defaults to `Fixed`.
+    #[serde(default)]
+    pub kind: JointKindDesc,
+    /// Attachment point in this entity's local space. Defaults to its origin.
+    #[serde(default)]
+    pub anchor_a: [f32; 3],
+    /// Attachment point in `body_b`'s local space. Defaults to its origin.
+    ///
+    /// Anchors that already coincide in world space when the scene loads mean
+    /// the joint starts satisfied, rather than the solver yanking both bodies
+    /// into place on the first frame.
+    #[serde(default)]
+    pub anchor_b: [f32; 3],
+}
+
+impl JointDescriptor {
+    /// Builds the real component from this descriptor and the entity its
+    /// [`body_b`](JointDescriptor::body_b) name resolved to.
+    ///
+    /// Taking the resolved `Entity` as an argument rather than looking it up
+    /// is what keeps the name resolution in one place -- the scene pass that
+    /// already has the name map.
+    pub fn to_joint(&self, body_b: bevy_ecs::prelude::Entity) -> bsengine_physics::Joint {
+        bsengine_physics::Joint {
+            body_b,
+            kind: self.kind.to_joint_kind(),
+            anchor_a: glam::Vec3::from(self.anchor_a).into(),
+            anchor_b: glam::Vec3::from(self.anchor_b).into(),
+        }
+    }
+}
+
+/// Which constraint a [`JointDescriptor`] creates -- the scene-file spelling
+/// of `bsengine_physics::JointKind`.
+///
+/// A separate type for the same reason [`RigidBodyDesc`] and [`ColliderDesc`]
+/// are separate from their `bsengine-physics` counterparts: a scene file is
+/// data, and its fields are plain arrays a human types by hand, whereas the
+/// component's `ReflectVec3` fields exist to satisfy `bevy_reflect` and are
+/// not serde types at all.
+#[derive(Debug, Clone, Copy, PartialEq, Default, Serialize, Deserialize)]
+pub enum JointKindDesc {
+    /// Welds the two bodies rigidly: no relative motion at all.
+    #[default]
+    Fixed,
+    /// A hinge. Rotation is allowed only about `axis`, optionally clamped to
+    /// `limits` in radians.
+    Revolute {
+        /// Hinge axis in this entity's local space.
+        axis: [f32; 3],
+        /// Optional `[min, max]` angle limits, in radians.
+        #[serde(default)]
+        limits: Option<[f32; 2]>,
+    },
+    /// A ball joint: free rotation about the shared anchor point.
+    Spherical,
+}
+
+impl JointKindDesc {
+    /// The `bsengine-physics` constraint this scene spelling means.
+    pub fn to_joint_kind(&self) -> bsengine_physics::JointKind {
+        match self {
+            Self::Fixed => bsengine_physics::JointKind::Fixed,
+            Self::Revolute { axis, limits } => bsengine_physics::JointKind::Revolute {
+                axis: glam::Vec3::from(*axis).into(),
+                limits: *limits,
+            },
+            Self::Spherical => bsengine_physics::JointKind::Spherical,
+        }
+    }
 }
 
 /// Extra, lower-detail glTF meshes for a scene entity and the camera
@@ -714,6 +807,99 @@ mod tests {
         let older: EntityDescriptor = ron::from_str(r#"EntityDescriptor(name: "Root")"#)
             .expect("a scene written before `parent` existed should still parse");
         assert_eq!(older.parent, None);
+    }
+
+    #[test]
+    fn joint_field_parses_and_defaults_to_absent() {
+        // Every scene written before this field existed must still parse.
+        let older: EntityDescriptor = ron::from_str(r#"EntityDescriptor(name: "Root")"#)
+            .expect("a scene written before `joint` existed should still parse");
+        assert_eq!(older.joint, None);
+
+        // The minimal spelling: a name and nothing else. `kind` and both
+        // anchors default, so a weld between two co-located bodies is one line.
+        let minimal: EntityDescriptor =
+            ron::from_str(r#"EntityDescriptor(name: "Crate", joint: Some((body_b: "Hook")))"#)
+                .expect("a joint naming only its target should parse");
+        assert_eq!(
+            minimal.joint,
+            Some(JointDescriptor {
+                body_b: "Hook".to_string(),
+                kind: JointKindDesc::Fixed,
+                anchor_a: [0.0, 0.0, 0.0],
+                anchor_b: [0.0, 0.0, 0.0],
+            })
+        );
+
+        // The full spelling, with the revolute axis and its limits -- the one
+        // kind that carries parameters of its own.
+        let full: EntityDescriptor = ron::from_str(
+            r#"EntityDescriptor(
+                name: "Door",
+                joint: Some((
+                    body_b: "Frame",
+                    kind: Revolute(axis: (0.0, 1.0, 0.0), limits: Some((-1.5, 1.5))),
+                    anchor_a: (-0.5, 0.0, 0.0),
+                    anchor_b: (0.5, 0.0, 0.0),
+                )),
+            )"#,
+        )
+        .expect("a fully specified revolute joint should parse");
+        assert_eq!(
+            full.joint,
+            Some(JointDescriptor {
+                body_b: "Frame".to_string(),
+                kind: JointKindDesc::Revolute {
+                    axis: [0.0, 1.0, 0.0],
+                    limits: Some([-1.5, 1.5]),
+                },
+                anchor_a: [-0.5, 0.0, 0.0],
+                anchor_b: [0.5, 0.0, 0.0],
+            })
+        );
+
+        // `limits` is optional inside the variant too: a free-swinging hinge
+        // should not have to write `limits: None`.
+        let unlimited: EntityDescriptor = ron::from_str(
+            r#"EntityDescriptor(name: "Wheel", joint: Some((body_b: "Axle", kind: Revolute(axis: (1.0, 0.0, 0.0)))))"#,
+        )
+        .expect("a revolute joint with no limits should parse");
+        assert_eq!(
+            unlimited.joint.unwrap().kind,
+            JointKindDesc::Revolute {
+                axis: [1.0, 0.0, 0.0],
+                limits: None,
+            }
+        );
+    }
+
+    #[test]
+    fn joint_descriptor_converts_to_the_physics_component() {
+        // The scene spelling and the engine component are separate types, so
+        // a field dropped or crossed in the conversion would be invisible in
+        // the parse tests above.
+        let desc = JointDescriptor {
+            body_b: "ignored -- the entity is passed in resolved".to_string(),
+            kind: JointKindDesc::Revolute {
+                axis: [0.0, 0.0, 1.0],
+                limits: Some([-0.25, 0.75]),
+            },
+            anchor_a: [1.0, 2.0, 3.0],
+            anchor_b: [4.0, 5.0, 6.0],
+        };
+        let body_b = bevy_ecs::prelude::Entity::from_raw(7);
+        let joint = desc.to_joint(body_b);
+
+        assert_eq!(joint.body_b, body_b);
+        assert_eq!(
+            joint.kind,
+            bsengine_physics::JointKind::Revolute {
+                axis: glam::Vec3::Z.into(),
+                limits: Some([-0.25, 0.75]),
+            }
+        );
+        assert_eq!(joint.anchor_a.0, glam::Vec3::new(1.0, 2.0, 3.0));
+        assert_eq!(joint.anchor_b.0, glam::Vec3::new(4.0, 5.0, 6.0));
     }
 
     #[test]

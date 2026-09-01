@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 use bevy_app::prelude::*;
@@ -9,8 +10,8 @@ use rapier3d::prelude::*;
 
 use crate::{
     components::{
-        CharacterBody, Collider, ColliderShape, CollisionEvent, PhysicsHandles, PhysicsInput,
-        PhysicsTransform, RigidBody, RigidBodyType,
+        CharacterBody, Collider, ColliderShape, CollisionEvent, Joint, PhysicsHandles,
+        PhysicsInput, PhysicsTransform, RigidBody, RigidBodyType,
     },
     world::PhysicsWorld,
 };
@@ -43,6 +44,11 @@ impl Plugin for PhysicsPlugin {
             (
                 sync_physics_input_from_transform_for_kinematic,
                 spawn_bodies,
+                // After `spawn_bodies`, so a joint authored alongside its two
+                // bodies in the same scene is created on the frame those
+                // bodies register rather than the frame after; before
+                // `step_world`, so it constrains that very step.
+                sync_joints,
                 step_world,
                 sync_from_rapier,
                 sync_transform_from_physics,
@@ -152,6 +158,70 @@ fn spawn_bodies(
                 rotation: rot.into(),
             },
         ));
+    }
+}
+
+/// Makes the simulation's joints match the [`Joint`] components in the world.
+///
+/// Mirrors [`spawn_bodies`]: a component says what the simulation should
+/// contain, and this is the pass that makes it so. It retries every frame
+/// rather than reacting once to insertion, because on the frame a scene's
+/// `Joint` first exists neither end has a Rapier body yet -- `spawn_bodies`
+/// creates those from the same scene's `RigidBody`/`Collider`, and a
+/// create-once-on-insert design would silently drop every scene-authored
+/// joint.
+///
+/// The removal half is the part with no immediate symptom: a joint whose
+/// target has despawned keeps constraining a body nothing points at any more,
+/// and nothing fails at the moment it happens.
+fn sync_joints(
+    mut world: ResMut<PhysicsWorld>,
+    // What this pass has already built, and against which body -- the one
+    // question neither the world nor the components can answer once something
+    // has gone away. `Joint.body_b` stops naming the pair that was actually
+    // inserted the moment the component is removed, its entity despawns, or
+    // `body_b` is re-pointed somewhere else, and all three are exactly when
+    // the joint has to come out.
+    //
+    // Deliberately a `Local` rather than a marker component: it is this
+    // system's own bookkeeping and no part of any entity's public shape, and
+    // an engine-wide component catalogue should not grow an entry for it.
+    mut created: Local<HashMap<Entity, Entity>>,
+    joints: Query<(Entity, &Joint)>,
+    // Every entity, purely to ask whether one still exists. `PhysicsWorld`
+    // cannot answer that: `entity_body_map` keeps a despawned entity's handle,
+    // so `add_joint` would happily re-joint a ghost.
+    alive: Query<Entity>,
+) {
+    // Drop what the components no longer ask for. A lookup that misses covers
+    // both an entity that despawned and one that merely lost its `Joint` --
+    // neither is in `joints` any more, and a despawned entity is in no query
+    // at all, which is why this is driven from the bookkeeping rather than
+    // from the world.
+    created.retain(|&entity, &mut body_b| {
+        let still_wanted =
+            joints.get(entity).is_ok_and(|(_, j)| j.body_b == body_b) && alive.get(body_b).is_ok();
+        if !still_wanted {
+            world.remove_joint(entity, body_b);
+        }
+        still_wanted
+    });
+
+    for (entity, joint) in joints.iter() {
+        if created.contains_key(&entity) || alive.get(joint.body_b).is_err() {
+            continue;
+        }
+        // False means one of the two bodies is not registered with Rapier yet;
+        // the next frame tries again.
+        if world.add_joint(
+            entity,
+            joint.body_b,
+            &joint.kind,
+            joint.anchor_a.0,
+            joint.anchor_b.0,
+        ) {
+            created.insert(entity, joint.body_b);
+        }
     }
 }
 
@@ -731,6 +801,159 @@ mod tests {
             "one call to apply_force should push for one step, but velocity went \
              from {after_one} to {after_eleven} over ten further steps with no \
              force applied"
+        );
+    }
+
+    // ---- Joint sync (roadmap item 51) ------------------------------------
+
+    /// A dynamic body at `at`, the shape a scene-authored jointed body has.
+    fn spawn_jointable_body(app: &mut App, at: Vec3) -> Entity {
+        app.world_mut()
+            .spawn((
+                Transform::from_position(at),
+                RigidBody::dynamic(),
+                Collider::ball(0.25),
+                PhysicsInput {
+                    position: at.into(),
+                    rotation: Quat::IDENTITY.into(),
+                },
+            ))
+            .id()
+    }
+
+    /// Two bodies a metre apart, jointed by a `Joint` component on the second
+    /// one, stepped until `sync_joints` has had both Rapier bodies to work
+    /// with. Returns them in `(anchor, hanging)` order.
+    fn jointed_pair(app: &mut App) -> (Entity, Entity) {
+        let anchor = spawn_jointable_body(app, Vec3::new(0.0, 0.0, 0.0));
+        let hanging = spawn_jointable_body(app, Vec3::new(0.0, -1.0, 0.0));
+        app.world_mut().entity_mut(hanging).insert(crate::Joint {
+            body_b: anchor,
+            kind: crate::JointKind::Spherical,
+            anchor_a: Vec3::new(0.0, 0.5, 0.0).into(),
+            anchor_b: Vec3::new(0.0, -0.5, 0.0).into(),
+        });
+        app.update();
+        (anchor, hanging)
+    }
+
+    #[test]
+    fn a_joint_component_becomes_a_real_joint_in_the_simulation() {
+        // Without this the two despawn tests below are vacuous: "no joint
+        // afterwards" is trivially true if one was never created.
+        let mut app = new_app();
+        app.add_plugins(PhysicsPlugin);
+        let (anchor, hanging) = jointed_pair(&mut app);
+
+        assert!(
+            app.world()
+                .resource::<PhysicsWorld>()
+                .has_joint(hanging, anchor),
+            "a Joint component on an entity whose two bodies both exist must \
+             reach the simulation, the same way RigidBody/Collider do"
+        );
+    }
+
+    #[test]
+    fn a_joint_is_removed_when_its_target_despawns() {
+        // Nothing fails at the moment this goes wrong, which is exactly why it
+        // needs a test: the constraint simply stays, holding a body nothing
+        // points at any more.
+        let mut app = new_app();
+        app.add_plugins(PhysicsPlugin);
+        let (anchor, hanging) = jointed_pair(&mut app);
+        assert!(app
+            .world()
+            .resource::<PhysicsWorld>()
+            .has_joint(hanging, anchor));
+
+        app.world_mut().despawn(anchor);
+        app.update();
+
+        assert!(
+            !app.world()
+                .resource::<PhysicsWorld>()
+                .has_joint(hanging, anchor),
+            "the joint's target despawned, so the joint must go with it"
+        );
+        assert!(
+            app.world().get::<crate::Joint>(hanging).is_some(),
+            "the surviving entity keeps its Joint component -- the component is \
+             what the scene authored, and only the simulation's copy is stale"
+        );
+    }
+
+    #[test]
+    fn a_joint_is_removed_when_the_entity_holding_it_despawns() {
+        // The other half of the same problem, and the half neither the
+        // component nor the target can report: the despawned entity is in no
+        // query at all afterwards.
+        let mut app = new_app();
+        app.add_plugins(PhysicsPlugin);
+        let (anchor, hanging) = jointed_pair(&mut app);
+        assert!(app
+            .world()
+            .resource::<PhysicsWorld>()
+            .has_joint(hanging, anchor));
+
+        app.world_mut().despawn(hanging);
+        app.update();
+
+        assert!(
+            !app.world()
+                .resource::<PhysicsWorld>()
+                .has_joint(hanging, anchor),
+            "the entity carrying the joint despawned, so the joint must go too"
+        );
+    }
+
+    #[test]
+    fn removing_the_joint_component_removes_the_joint() {
+        let mut app = new_app();
+        app.add_plugins(PhysicsPlugin);
+        let (anchor, hanging) = jointed_pair(&mut app);
+        assert!(app
+            .world()
+            .resource::<PhysicsWorld>()
+            .has_joint(hanging, anchor));
+
+        app.world_mut().entity_mut(hanging).remove::<crate::Joint>();
+        app.update();
+
+        assert!(
+            !app.world()
+                .resource::<PhysicsWorld>()
+                .has_joint(hanging, anchor),
+            "the component is what says the constraint should exist; taking it \
+             away must take the constraint away"
+        );
+    }
+
+    #[test]
+    fn a_joint_naming_a_body_that_never_spawns_is_simply_not_created() {
+        // A `Joint` can outlive its target's body, or name an entity that has
+        // none. Neither is a panic and neither is a joint -- and the retrying
+        // sync pass must not spin itself into creating one anyway.
+        let mut app = new_app();
+        app.add_plugins(PhysicsPlugin);
+        let bodyless = app.world_mut().spawn(Transform::default()).id();
+        let hanging = spawn_jointable_body(&mut app, Vec3::ZERO);
+        app.world_mut().entity_mut(hanging).insert(crate::Joint {
+            body_b: bodyless,
+            kind: crate::JointKind::Fixed,
+            anchor_a: Vec3::ZERO.into(),
+            anchor_b: Vec3::ZERO.into(),
+        });
+
+        for _ in 0..5 {
+            app.update();
+        }
+
+        assert!(
+            !app.world()
+                .resource::<PhysicsWorld>()
+                .has_joint(hanging, bodyless),
+            "an entity with no rigid body cannot be one end of a joint"
         );
     }
 

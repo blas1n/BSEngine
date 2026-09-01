@@ -780,6 +780,26 @@ pub const KEY_MAPPINGS: &[(KeyCode, &str)] = &[
     (KeyCode::Right, "Right"),
 ];
 
+/// The entities behind two names, found in one pass.
+///
+/// Every other name-taking command needs one entity and inlines the lookup; a
+/// joint is the first command that needs two, and doing it twice would walk
+/// every named entity in the world twice per call. Returns `None` for a name
+/// nothing answers to, so the caller decides what a missing end means.
+fn find_named_pair(world: &mut World, a: &str, b: &str) -> (Option<Entity>, Option<Entity>) {
+    let mut query = world.query::<(Entity, &Name)>();
+    let mut found = (None, None);
+    for (entity, name) in query.iter(world) {
+        if name.0 == a {
+            found.0 = Some(entity);
+        }
+        if name.0 == b {
+            found.1 = Some(entity);
+        }
+    }
+    found
+}
+
 fn run_scripts(world: &mut World) {
     // In editor mode, only run scripts when Play is active
     if let Some(insp) = world.get_resource::<InspectorState>() {
@@ -2317,6 +2337,43 @@ fn run_scripts(world: &mut World) {
                 if let (Some(e), Some(mut pw)) = (entity, world.get_resource_mut::<PhysicsWorld>())
                 {
                     pw.reset_forces(e);
+                }
+            }
+            ScriptCommand::AttachJoint { a, b, kind: _ } if a == b => {
+                // A body jointed to itself is not a constraint Rapier can
+                // solve; it is always a typo.
+                tracing::warn!(
+                    "[scripting] joint.attach('{a}', '{b}'): a body cannot joint itself"
+                );
+            }
+            ScriptCommand::AttachJoint { a, b, kind } => {
+                let (entity_a, entity_b) = find_named_pair(world, &a, &b);
+                if let (Some(ea), Some(eb), Some(mut pw)) =
+                    (entity_a, entity_b, world.get_resource_mut::<PhysicsWorld>())
+                {
+                    // Both anchors at the origin: see the op's own doc for why
+                    // the scripting API takes none. `add_joint` reports false
+                    // when either entity has no rigid body yet -- a joint that
+                    // silently never exists is worth a line in the log, since
+                    // nothing else about the call will look wrong.
+                    if !pw.add_joint(ea, eb, &kind, Vec3::ZERO, Vec3::ZERO) {
+                        tracing::warn!(
+                            "[scripting] joint.attach('{a}', '{b}'): one of them has no rigid \
+                             body, so no joint was created"
+                        );
+                    }
+                } else {
+                    tracing::warn!(
+                        "[scripting] joint.attach('{a}', '{b}'): no entity by one of those names"
+                    );
+                }
+            }
+            ScriptCommand::DetachJoint { a, b } => {
+                let (entity_a, entity_b) = find_named_pair(world, &a, &b);
+                if let (Some(ea), Some(eb), Some(mut pw)) =
+                    (entity_a, entity_b, world.get_resource_mut::<PhysicsWorld>())
+                {
+                    pw.remove_joint(ea, eb);
                 }
             }
             ScriptCommand::BurstParticles { name } => {
@@ -5075,6 +5132,138 @@ mod tests {
         // the (1.0, 0.0, 2.0) delta from `moveEntity` is applied twice: (2.0, 0.0, 4.0).
         assert!((t.position.x - 7.0).abs() < 1e-4, "x: {}", t.position.x);
         assert!((t.position.z - 9.0).abs() < 1e-4, "z: {}", t.position.z);
+
+        let _ = std::fs::remove_file(&script_path);
+    }
+
+    /// A named dynamic body, the minimum a joint needs at either end.
+    fn spawn_named_body(
+        app: &mut bevy_app::App,
+        name: &str,
+        at: Vec3,
+    ) -> bevy_ecs::prelude::Entity {
+        app.world_mut()
+            .spawn((
+                Name(name.to_string()),
+                Transform::from_position(at),
+                bsengine_physics::RigidBody::dynamic(),
+                bsengine_physics::Collider::ball(0.25),
+                bsengine_physics::PhysicsInput {
+                    position: at.into(),
+                    rotation: Default::default(),
+                },
+            ))
+            .id()
+    }
+
+    #[test]
+    fn joint_attach_and_detach_reach_the_real_physics_world() {
+        // The round trip, both directions, in one flow. Asserting only that
+        // the op returned without error would pass on a command nothing ever
+        // applied, and asserting only the detach would pass on an attach that
+        // never worked -- so the joint is checked while it should exist and
+        // again after the script takes it away.
+        let script_path =
+            std::env::temp_dir().join(format!("bsengine_test_joint_{}.js", std::process::id()));
+        std::fs::write(
+            &script_path,
+            "let ticks = 0;\n\
+             function onUpdate(name) {\n\
+                 ticks++;\n\
+                 if (ticks <= 3) { Bsengine.joint.attachSpherical(\"A\", \"B\"); }\n\
+                 else { Bsengine.joint.detach(\"A\", \"B\"); }\n\
+             }",
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(bsengine_physics::PhysicsPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: String::new(),
+        });
+
+        let a = spawn_named_body(&mut app, "A", Vec3::ZERO);
+        let b = spawn_named_body(&mut app, "B", Vec3::new(0.0, -1.0, 0.0));
+        app.world_mut().spawn((
+            Name("Driver".to_string()),
+            ScriptPath(script_path.to_string_lossy().to_string()),
+        ));
+
+        // Three ticks of attaching: the first may land before `spawn_bodies`
+        // has registered either body with Rapier, in which case there is
+        // nothing yet to joint and the next tick tries again.
+        for _ in 0..3 {
+            app.update();
+        }
+        assert!(
+            app.world()
+                .resource::<bsengine_physics::PhysicsWorld>()
+                .has_joint(a, b),
+            "Bsengine.joint.attachSpherical must create a joint the physics \
+             world really reports, not merely queue a command"
+        );
+
+        // Now the script switches to detaching.
+        for _ in 0..3 {
+            app.update();
+        }
+        assert!(
+            !app.world()
+                .resource::<bsengine_physics::PhysicsWorld>()
+                .has_joint(a, b),
+            "Bsengine.joint.detach must remove the joint from the physics world"
+        );
+
+        let _ = std::fs::remove_file(&script_path);
+    }
+
+    #[test]
+    fn joint_attach_fixed_and_revolute_reach_the_physics_world_too() {
+        // `attachSpherical` above proves the path; these two prove the other
+        // kinds are wired to it rather than only being queued. The revolute
+        // call also carries a real axis, which is the one op whose parameters
+        // could be dropped between the op and `add_joint` without any of the
+        // other tests noticing.
+        let script_path = std::env::temp_dir().join(format!(
+            "bsengine_test_joint_kinds_{}.js",
+            std::process::id()
+        ));
+        std::fs::write(
+            &script_path,
+            "function onUpdate(name) {\n\
+                 Bsengine.joint.attachFixed(\"A\", \"B\");\n\
+                 Bsengine.joint.attachRevolute(\"C\", \"D\", 0.0, 0.6, 0.8);\n\
+             }",
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(bsengine_physics::PhysicsPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: String::new(),
+        });
+
+        let a = spawn_named_body(&mut app, "A", Vec3::ZERO);
+        let b = spawn_named_body(&mut app, "B", Vec3::new(1.0, 0.0, 0.0));
+        let c = spawn_named_body(&mut app, "C", Vec3::new(0.0, 5.0, 0.0));
+        let d = spawn_named_body(&mut app, "D", Vec3::new(1.0, 5.0, 0.0));
+        app.world_mut().spawn((
+            Name("Driver".to_string()),
+            ScriptPath(script_path.to_string_lossy().to_string()),
+        ));
+
+        for _ in 0..3 {
+            app.update();
+        }
+
+        let world = app.world().resource::<bsengine_physics::PhysicsWorld>();
+        assert!(world.has_joint(a, b), "attachFixed did not reach the world");
+        assert!(
+            world.has_joint(c, d),
+            "attachRevolute did not reach the world"
+        );
 
         let _ = std::fs::remove_file(&script_path);
     }

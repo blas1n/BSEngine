@@ -1198,6 +1198,14 @@ fn build_entity_descriptors(entities: &[EntityInfo]) -> Vec<EntityDescriptor> {
                     // yet (that wiring is a later task in this plan), so
                     // there is nothing here to round-trip on save.
                     lod: None,
+                    // Always None, for the same reason `gltf` above is: the
+                    // snapshot this rebuilds from (`EntityInfo`) carries no
+                    // joint data, so there is nothing here to write back.
+                    // Saving a joint would also need the *name* of the other
+                    // body, and a joint's `body_b` is an entity id -- the
+                    // same id->name lookup `parent:` does above, which only
+                    // this function's own slice can answer.
+                    joint: None,
                 }
             })
         })

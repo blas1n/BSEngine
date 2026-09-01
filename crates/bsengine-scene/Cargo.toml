@@ -15,6 +15,12 @@ bsengine-gltf.workspace = true
 # this crate (`AssetRef::guid` is a `String` for that reason); only resolution
 # does.
 bsengine-asset.workspace = true
+# For `register_gameplay_reflect_types` only. `Joint` is a public reflected
+# component (catalogue rule R1) and this is the one registration function both
+# the editor and the headless test runtime call, so the type has to be nameable
+# from here. Acyclic: `bsengine-physics` depends on `bsengine-core`/`-ecs` and
+# nothing that leads back to this crate.
+bsengine-physics.workspace = true
 bevy_app.workspace = true
 bevy_ecs.workspace = true
 bevy_reflect.workspace = true

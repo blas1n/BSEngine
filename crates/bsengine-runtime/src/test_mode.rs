@@ -2666,4 +2666,209 @@ mod tests {
             unlit[1]
         );
     }
+
+    /// Roadmap item 51's demo, and the completion condition it exists to
+    /// satisfy: `games/mini-arena/assets/scenes/joint-chain.ron` -- five
+    /// bodies, the top one fixed, linked by four **spherical** joints --
+    /// swings under gravity without coming apart, driven through the real
+    /// runtime stack (`build_test_app`, the same plugin list `--test`/E2E
+    /// replays and `main.rs`'s windowed runtime use).
+    ///
+    /// A chain rather than a door hinge, deliberately. `bsengine-physics`'
+    /// own `a_spherical_joint_holds_the_anchor_distance_while_rotation_stays_
+    /// free` already proves *one* spherical joint in a hand-built world; what
+    /// no unit test here covers is several of them **in series**, where each
+    /// joint's correction perturbs its neighbour and the solver has to keep
+    /// all four satisfied at once. That is precisely the behaviour item 52's
+    /// ragdoll is assembled from, so it is the thing worth proving now.
+    ///
+    /// **Both halves of the assertion matter, and each covers the other's
+    /// blind spot.**
+    /// - Every consecutive pair's two joint anchors stay coincident -> the
+    ///   chain held. On its own this passes on a chain that never moved at
+    ///   all -- a frozen assembly satisfies every constraint perfectly.
+    /// - The free end actually travelled -> it swung. On its own this passes
+    ///   on a chain that flew apart, since five bodies in free fall move a
+    ///   very long way.
+    ///
+    /// The measured quantity for "the chain held" is the **anchor
+    /// separation**, `|(p_lower + R_lower*anchor_a) - (p_upper +
+    /// R_upper*anchor_b)|`, which is the constraint a spherical joint
+    /// actually enforces and which the solver drives to zero. Body-centre
+    /// distance would have been the weaker choice: a spherical joint only
+    /// bounds it *above* (by `|anchor_a| + |anchor_b|` = 1.0, since either
+    /// body may rotate about the shared anchor), so "centres within 1.0"
+    /// would also be satisfied by a fully folded chain and says nothing about
+    /// how well the constraint is being met.
+    ///
+    /// Both quantities are tracked across every frame rather than sampled
+    /// once at the end. For the separations that is strictly stronger -- a
+    /// mid-run blow-up that the solver later pulls back would be invisible in
+    /// a final-frame reading. For the travel it is also *necessary*: a
+    /// pendulum returns to where it started, so a final-frame displacement
+    /// could legitimately be near zero on a chain that swung through a wide
+    /// arc, and the maximum displacement is the honest measure of "it moved".
+    ///
+    /// A **third** check -- that `ChainAnchor` never moves -- turned out to be
+    /// load-bearing rather than decorative, and mutation testing is what
+    /// showed it. Flipping the anchor to `Dynamic` makes both halves above
+    /// pass *more* convincingly than the real scene does: every separation
+    /// reads exactly 0.0 (five bodies falling together satisfy every
+    /// constraint perfectly) and the free end "travels" 219 units. Only the
+    /// anchor's own immobility distinguishes a chain that swung from one that
+    /// simply fell. The other two mutations behave as the design intends:
+    /// dropping `sync_joints` from `PhysicsPlugin`'s schedule fails the
+    /// `has_joint` check with a 219-unit separation, and swizzling one
+    /// scene anchor's sign fails the separation check at 1.03 units -- which
+    /// the constants above are restated for, since reading them back out of
+    /// the loaded components would have made the check follow the mutation.
+    #[test]
+    fn a_spherical_joint_chain_swings_without_coming_apart() {
+        use bsengine_physics::PhysicsWorld;
+        use glam::{Quat, Vec3};
+
+        // Top-down order: `ChainAnchor` is the fixed body, `ChainLink4` the
+        // free end. Consecutive entries are exactly the jointed pairs.
+        const CHAIN: [&str; 5] = [
+            "ChainAnchor",
+            "ChainLink1",
+            "ChainLink2",
+            "ChainLink3",
+            "ChainLink4",
+        ];
+        // The scene's own anchor offsets. Restated here rather than read back
+        // out of the loaded `Joint` components on purpose: taking them from
+        // the thing under test would make this check agree with whatever the
+        // loader produced -- including with anchors it never applied at all.
+        const ANCHOR_A: Vec3 = Vec3::new(-0.5, 0.0, 0.0); // on the lower link
+        const ANCHOR_B: Vec3 = Vec3::new(0.5, 0.0, 0.0); // on the body above it
+        const FRAMES: usize = 400; // ~6.7s at the fixed 1/60 physics step
+
+        let project_dir = format!("{}/../../games/mini-arena", env!("CARGO_MANIFEST_DIR"));
+        let mut app = build_test_app(&project_dir, Some("assets/scenes/joint-chain.ron"), false);
+
+        // Spawns the scene's entities. The joints do not exist yet after this
+        // one frame -- `sync_joints` can only create a joint once
+        // `spawn_bodies` has registered *both* ends with Rapier, which is why
+        // it retries every frame; the `has_joint` assertions below are what
+        // confirm it got there.
+        app.update();
+
+        let ids: Vec<Entity> = CHAIN
+            .iter()
+            .map(|name| {
+                let mut q = app.world_mut().query::<(Entity, &bsengine_scene::Name)>();
+                q.iter(app.world())
+                    .find(|(_, n)| n.0 == *name)
+                    .map(|(e, _)| e)
+                    .unwrap_or_else(|| panic!("{name} should have spawned from joint-chain.ron"))
+            })
+            .collect();
+
+        let pose = |app: &App, entity: Entity| -> (Vec3, Quat) {
+            let t = app
+                .world()
+                .get::<bsengine_core::Transform>(entity)
+                .expect("every chain body carries a Transform");
+            (t.position.0, t.rotation.0)
+        };
+        // The world-space point each joint pins together, from the two bodies'
+        // own transforms.
+        let separation = |app: &App, upper: Entity, lower: Entity| -> f32 {
+            let (p_upper, r_upper) = pose(app, upper);
+            let (p_lower, r_lower) = pose(app, lower);
+            ((p_lower + r_lower * ANCHOR_A) - (p_upper + r_upper * ANCHOR_B)).length()
+        };
+
+        let free_end = *ids.last().expect("CHAIN is not empty");
+        let start_free_end = pose(&app, free_end).0;
+        let start_anchor = pose(&app, ids[0]).0;
+
+        let mut worst_separation = vec![0.0f32; CHAIN.len() - 1];
+        let mut max_travel = 0.0f32;
+        for _ in 0..FRAMES {
+            app.update();
+            for (i, pair) in ids.windows(2).enumerate() {
+                worst_separation[i] = worst_separation[i].max(separation(&app, pair[0], pair[1]));
+            }
+            max_travel = max_travel.max((pose(&app, free_end).0 - start_free_end).length());
+        }
+
+        let final_separation: Vec<f32> = ids
+            .windows(2)
+            .map(|pair| separation(&app, pair[0], pair[1]))
+            .collect();
+        let end_free_end = pose(&app, free_end).0;
+        let final_travel = (end_free_end - start_free_end).length();
+        let anchor_drift = (pose(&app, ids[0]).0 - start_anchor).length();
+
+        // Printed, not merely asserted on: the point of this test is the
+        // measured behaviour of four joints in series, and a pass that only
+        // says "under the tolerance" hides how much room there actually was.
+        println!(
+            "spherical-joint chain, {FRAMES} frames:\n  \
+             final anchor separations (0 = constraint exactly satisfied): {final_separation:?}\n  \
+             worst separation seen on any frame:                          {worst_separation:?}\n  \
+             free end {start_free_end} -> {end_free_end}: travelled {final_travel} by the last \
+             frame, {max_travel} at its furthest\n  \
+             fixed anchor drift: {anchor_drift}"
+        );
+
+        // Sanity first, and the thing to check before ever touching a
+        // tolerance below: all four joints reached the simulation at all, and
+        // the top body really is immovable. A chain that came apart is a real
+        // failure, and these two say whether to look for the cause here.
+        let world = app.world().resource::<PhysicsWorld>();
+        for (i, pair) in ids.windows(2).enumerate() {
+            assert!(
+                world.has_joint(pair[0], pair[1]),
+                "joint {i} ({} -> {}) never reached the simulation -- the scene's `joint:` \
+                 field did not resolve, or `sync_joints` never saw both bodies registered",
+                CHAIN[i + 1],
+                CHAIN[i],
+            );
+        }
+        assert!(
+            anchor_drift < 1e-4,
+            "ChainAnchor is `rigidbody: Some(Static)` and must not move at all, but it \
+             drifted {anchor_drift} units -- with the top of the chain falling, everything \
+             below it is in free fall together and no separation reading below means \
+             anything"
+        );
+
+        // Half one: the chain held. 0.05 is 5% of the 1.0 link spacing -- a
+        // residual the solver leaves behind, not a chain that has pulled
+        // apart, which would grow without bound as the links fell away from
+        // each other. Measured on this scene: the worst frame of the four
+        // joints reads 0.030/0.019/0.020/0.003, all of them on the opening
+        // frames where a chain released horizontally is under its heaviest
+        // load, settling to ~0.002 or below by the last frame.
+        for (i, worst) in worst_separation.iter().enumerate() {
+            assert!(
+                *worst < 0.05,
+                "joint {i} ({} -> {}) let its anchors drift {worst} units apart at their \
+                 worst (final separations {final_separation:?}) -- a spherical joint pins \
+                 those two points together, so anything approaching the 1.0 link spacing \
+                 means the chain came apart. Do not widen this tolerance: check that the \
+                 joints exist (asserted above), that the scene's anchors still sum to the \
+                 1.0 spacing between consecutive links, and that ChainAnchor is still Static",
+                CHAIN[i + 1],
+                CHAIN[i],
+            );
+        }
+
+        // Half two: it swung. Without this, a chain frozen solid at its
+        // starting pose -- or one whose bodies never got a Rapier body at all
+        // and so never moved -- passes every separation check above perfectly.
+        // The chain starts horizontal, so a link that swings to hanging moves
+        // on the order of its own distance from the anchor; 1.0 is well under
+        // that and well over any settling jitter.
+        assert!(
+            max_travel > 1.0,
+            "the free end (ChainLink4) never got further than {max_travel} units from where \
+             it started ({start_free_end}) in {FRAMES} frames -- the chain starts horizontal \
+             along +X with nothing under it, so under gravity it must swing. A stationary \
+             chain satisfies every joint perfectly and proves nothing"
+        );
+    }
 }

@@ -1528,6 +1528,181 @@ mod tests {
         );
     }
 
+    // ---- Per-bone joint overrides reach the simulation --------------------
+
+    /// A root and two collinear bones hanging straight down from it, so that
+    /// consecutive bones share a rest rotation.
+    ///
+    /// That collinearity is not cosmetic. A revolute joint's axis is given in
+    /// *both* bodies' local frames, so two bones that rest at different
+    /// orientations start with the constraint already violated and the solver
+    /// spends the first steps hauling them into agreement — which is motion the
+    /// test would then have to tell apart from the motion it is measuring.
+    fn straight_leg() -> SkinnedMesh {
+        let node =
+            |name: &str, position: [f32; 3], parent: Option<usize>| bsengine_gltf::NodeTransform {
+                name: name.to_string(),
+                position,
+                rotation: [0.0, 0.0, 0.0, 1.0],
+                scale: [1.0, 1.0, 1.0],
+                parent,
+            };
+        SkinnedMesh {
+            mesh_id: 0,
+            rest_vertices: Vec::new(),
+            skin: Vec::new(),
+            skin_data: Default::default(),
+            nodes: vec![
+                node("Hips", [0.0, 5.0, 0.0], None),
+                node("Knee", [0.0, -1.0, 0.0], Some(0)),
+                node("Ankle", [0.0, -1.0, 0.0], Some(1)),
+            ],
+            pose_override: Vec::new(),
+            joint_matrices: Vec::new(),
+        }
+    }
+
+    /// Which entity is which bone, by the node the bone's child end sits on.
+    fn bone_entities_by_node(app: &mut App) -> HashMap<usize, Entity> {
+        let mut query = app.world_mut().query::<(Entity, &RagdollBone)>();
+        query
+            .iter(app.world())
+            .map(|(entity, bone)| (bone.node, entity))
+            .collect()
+    }
+
+    fn rotation_of(app: &App, entity: Entity) -> Quat {
+        app.world()
+            .get::<PhysicsTransform>(entity)
+            .expect("a bone body has a simulated transform")
+            .rotation
+            .0
+    }
+
+    #[test]
+    fn a_bone_overridden_to_revolute_is_constrained_off_axis() {
+        // Task 1 proved `joint_for_bone` RETURNS the override. This proves the
+        // construction path actually USES it: without it the map could be read
+        // and then dropped on the floor, every ragdoll would be spherical
+        // throughout, and everything else in this file would still pass.
+        //
+        // The measurement is the hinge axis as each of the joint's two bodies
+        // sees it. A revolute joint's whole content is that those two stay
+        // pointing the same way; a spherical joint says nothing about them. So
+        // the same off-axis torque, applied to the same bone of the same
+        // skeleton, must open that angle in one and not in the other.
+
+        /// The hinge axis, in each bone body's own local space.
+        const HINGE: Vec3 = Vec3::X;
+
+        use crate::JointKind;
+
+        /// Torques the shin about `local_torque_axis`, expressed in the shin's
+        /// own frame, and reports `(off-axis tilt, total bend)`:
+        ///
+        /// * how far the hinge axis as the shin sees it has drifted from the
+        ///   hinge axis as the thigh sees it — the whole content of a revolute
+        ///   constraint, and the number that must stay at zero;
+        /// * how far the two bones have turned relative to each other at all —
+        ///   which is what separates "a hinge refused an off-axis torque" from
+        ///   "the joint welded the skeleton solid" and from "the torque never
+        ///   landed".
+        fn torque_the_shin(
+            overrides: HashMap<String, JointKind>,
+            local_torque_axis: Vec3,
+        ) -> (f32, f32) {
+            let mut app = new_app();
+            app.add_plugins(PhysicsPlugin);
+            // No gravity and no floor: the only thing that can move a bone is
+            // the test's own torque, so a difference between the runs has one
+            // explanation rather than three.
+            app.world_mut()
+                .resource_mut::<PhysicsWorld>()
+                .set_gravity(0.0);
+            app.world_mut().spawn((
+                Ragdoll {
+                    active: true,
+                    joint_overrides: overrides,
+                    ..Default::default()
+                },
+                straight_leg(),
+            ));
+            app.update();
+
+            let bones = bone_entities_by_node(&mut app);
+            let shin = bones[&2];
+            let thigh = bones[&1];
+
+            let at_rest =
+                (rotation_of(&app, shin) * HINGE).angle_between(rotation_of(&app, thigh) * HINGE);
+            assert!(
+                at_rest < 0.01,
+                "the two bones start collinear, so the hinge axis must start \
+                 agreed; it is already {at_rest} rad apart and the measurement \
+                 below would be of the solver settling, not of the constraint"
+            );
+
+            let torque = rotation_of(&app, shin) * local_torque_axis;
+            app.world_mut()
+                .resource_mut::<PhysicsWorld>()
+                .apply_torque_impulse(shin, torque * 5.0);
+            for _ in 0..60 {
+                app.update();
+            }
+
+            let (shin_rot, thigh_rot) = (rotation_of(&app, shin), rotation_of(&app, thigh));
+            (
+                (shin_rot * HINGE).angle_between(thigh_rot * HINGE),
+                (thigh_rot.inverse() * shin_rot).to_axis_angle().1,
+            )
+        }
+
+        /// The joint sits on the node the two bones share, which is the knee —
+        /// not on either of the bones it joins. See `Ragdoll::joint_overrides`.
+        fn knee_hinge() -> HashMap<String, JointKind> {
+            HashMap::from([(
+                "Knee".to_string(),
+                JointKind::Revolute {
+                    axis: HINGE.into(),
+                    limits: None,
+                },
+            )])
+        }
+
+        // Off the hinge axis: a ball joint allows it, a hinge must not.
+        let (spherical, spherical_bend) = torque_the_shin(HashMap::new(), Vec3::Z);
+        let (revolute, revolute_bend) = torque_the_shin(knee_hinge(), Vec3::Z);
+        // Along it: proves the override produced a *hinge* and not a weld, so
+        // that the zero above is the axis being held and not the whole
+        // skeleton being frozen.
+        let (_, along_axis_bend) = torque_the_shin(knee_hinge(), HINGE);
+        println!(
+            "off-axis torque: spherical tilted {spherical} rad (bend \
+             {spherical_bend}), overridden tilted {revolute} rad (bend \
+             {revolute_bend}); on-axis torque bent the override by \
+             {along_axis_bend} rad"
+        );
+
+        assert!(
+            spherical > 0.3,
+            "the default ball joint must let the bone turn off-axis, or the \
+             comparison is between two motionless skeletons; got {spherical} rad"
+        );
+        assert!(
+            revolute < 0.05,
+            "with the knee overridden to a hinge, the same torque must not tilt \
+             it off its axis -- an override that is read and then discarded \
+             leaves this at the spherical {spherical} rad; got {revolute}"
+        );
+        assert!(
+            along_axis_bend > 0.3,
+            "...and the override has to be a hinge rather than a weld, or the \
+             {revolute} rad above is a skeleton that cannot move at all rather \
+             than one held to its axis; torquing along the axis bent it only \
+             {along_axis_bend} rad"
+        );
+    }
+
     // ---- Skinning follows the ragdoll (item 52 sub-step 1/2, task 3) -----
     //
     // The task the whole feature lives or dies on, and it fails quietly. An

@@ -8,7 +8,9 @@
 //! zoom themselves are deliberately out of scope for item 50.
 
 use bsengine_core::{EditorPanel, EditorPanelContext};
-use bsengine_shadergraph::{compile, Edge, GraphError, GraphNode, NodeKind, ShaderGraph, ValueType};
+use bsengine_shadergraph::{
+    compile, Edge, GraphError, GraphNode, NodeKind, ShaderGraph, ValueType,
+};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -155,8 +157,8 @@ impl ShaderGraphPanel {
     /// As [`ShaderGraphPanel::from_path`].
     pub fn open(&mut self, path: impl Into<PathBuf>) -> Result<(), String> {
         let path = path.into();
-        let text = std::fs::read_to_string(&path)
-            .map_err(|e| format!("{}: {e}", path.display()))?;
+        let text =
+            std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         let graph: ShaderGraph =
             ron::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
 
@@ -234,9 +236,9 @@ impl ShaderGraphPanel {
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("shader");
-        let base = name.strip_suffix(".shadergraph.ron").unwrap_or_else(|| {
-            name.rsplit_once('.').map_or(name, |(stem, _)| stem)
-        });
+        let base = name
+            .strip_suffix(".shadergraph.ron")
+            .unwrap_or_else(|| name.rsplit_once('.').map_or(name, |(stem, _)| stem));
         graph.with_file_name(format!("{base}.wgsl"))
     }
 
@@ -249,8 +251,9 @@ impl ShaderGraphPanel {
         match self.compile_graph() {
             Ok(wgsl) => {
                 let Some(path) = self.path.clone() else {
-                    self.status =
-                        Some("compiled, but no file is open to write the shader beside".to_string());
+                    self.status = Some(
+                        "compiled, but no file is open to write the shader beside".to_string(),
+                    );
                     return;
                 };
                 let out = Self::wgsl_path(&path);
@@ -615,10 +618,7 @@ impl EditorPanel for ShaderGraphPanel {
             if ui
                 .add_enabled(
                     self.selected_node.is_some(),
-                    egui::Button::new(format!(
-                        "{} Delete Node",
-                        egui_phosphor::regular::TRASH
-                    )),
+                    egui::Button::new(format!("{} Delete Node", egui_phosphor::regular::TRASH)),
                 )
                 .clicked()
             {
@@ -642,10 +642,7 @@ impl EditorPanel for ShaderGraphPanel {
             save_clicked = ui
                 .add_enabled(
                     self.path.is_some(),
-                    egui::Button::new(format!(
-                        "{} Save",
-                        egui_phosphor::regular::FLOPPY_DISK
-                    )),
+                    egui::Button::new(format!("{} Save", egui_phosphor::regular::FLOPPY_DISK)),
                 )
                 .clicked();
             compile_clicked = ui
@@ -658,7 +655,10 @@ impl EditorPanel for ShaderGraphPanel {
             if let Err(e) = self.open(path) {
                 self.status = Some(e);
             } else {
-                self.status = self.path.as_ref().map(|p| format!("opened {}", p.display()));
+                self.status = self
+                    .path
+                    .as_ref()
+                    .map(|p| format!("opened {}", p.display()));
             }
         }
         if save_clicked {
@@ -1011,10 +1011,7 @@ mod tests {
             egui_ctx.set_fonts(egui::FontDefinitions::empty());
             Self {
                 egui_ctx,
-                screen_rect: egui::Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    egui::vec2(1200.0, 700.0),
-                ),
+                screen_rect: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 700.0)),
                 insp: InspectorState::default(),
                 entities_snapshot: Vec::new(),
                 panel: ShaderGraphPanel::new(graph),
@@ -1182,10 +1179,7 @@ mod tests {
     }
 
     /// Where the first text matching `predicate` was drawn in `output`.
-    fn text_pos(
-        output: &egui::FullOutput,
-        predicate: impl Fn(&str) -> bool,
-    ) -> Option<egui::Pos2> {
+    fn text_pos(output: &egui::FullOutput, predicate: impl Fn(&str) -> bool) -> Option<egui::Pos2> {
         collect_rendered_texts_with_pos(&output.shapes)
             .into_iter()
             .find(|(text, _)| predicate(text))
@@ -1347,7 +1341,10 @@ mod tests {
         // Moving is moving: nothing else about the graph may change. Without
         // this, a "drag" that rewired or duplicated as a side effect passes.
         let expected = demo_graph();
-        assert_eq!(h.panel.graph.edges, expected.edges, "a move must not rewire");
+        assert_eq!(
+            h.panel.graph.edges, expected.edges,
+            "a move must not rewire"
+        );
         assert_eq!(h.panel.graph.nodes.len(), expected.nodes.len());
         for node in &expected.nodes {
             if node.id != 3 {
@@ -1503,8 +1500,8 @@ mod tests {
         let mut h = Harness::new(demo_graph());
         let closed = h.settle();
 
-        let add_button = text_pos(&closed, |t| t.contains("Add Node"))
-            .expect("the Add Node button must render");
+        let add_button =
+            text_pos(&closed, |t| t.contains("Add Node")).expect("the Add Node button must render");
         h.click(add_button);
         // The settle frame is mandatory: a popup's first frame sizes its
         // `Area` from a placeholder and paints none of its rows. See
@@ -1523,9 +1520,18 @@ mod tests {
             "choosing a kind must append exactly one node"
         );
         let added = h.panel.graph.nodes.last().expect("a node was just added");
-        assert_eq!(added.kind, NodeKind::Sin, "the kind chosen is the kind added");
         assert_eq!(
-            h.panel.graph.nodes.iter().filter(|n| n.id == added.id).count(),
+            added.kind,
+            NodeKind::Sin,
+            "the kind chosen is the kind added"
+        );
+        assert_eq!(
+            h.panel
+                .graph
+                .nodes
+                .iter()
+                .filter(|n| n.id == added.id)
+                .count(),
             1,
             "the new node's id must be unused, or the compiler drops it as a duplicate"
         );
@@ -1614,8 +1620,8 @@ mod tests {
             .unwrap_or_else(|e| panic!("the shipped demo graph must open: {e}"));
         let settled = h.settle();
 
-        let compile_button = text_pos(&settled, |t| t.contains("Compile"))
-            .expect("the Compile button must render");
+        let compile_button =
+            text_pos(&settled, |t| t.contains("Compile")).expect("the Compile button must render");
         h.click(compile_button);
 
         let direct = compile(&h.panel.graph).expect("the demo graph must compile");
@@ -1624,15 +1630,17 @@ mod tests {
             Some(direct.as_str()),
             "the panel's WGSL must be byte-identical to compile(&graph)"
         );
-        assert_eq!(h.panel.last_error, None, "a successful compile leaves no error");
+        assert_eq!(
+            h.panel.last_error, None,
+            "a successful compile leaves no error"
+        );
 
         // And what reached disk is that same shader, under the name a
         // `CustomShader` would point at -- `scroll.wgsl`, not
         // `scroll.shadergraph.wgsl`.
         let wgsl_path = path.with_file_name("scroll.wgsl");
-        let written = std::fs::read_to_string(&wgsl_path).unwrap_or_else(|e| {
-            panic!("Compile must write {}: {e}", wgsl_path.display())
-        });
+        let written = std::fs::read_to_string(&wgsl_path)
+            .unwrap_or_else(|e| panic!("Compile must write {}: {e}", wgsl_path.display()));
         assert_eq!(
             written, direct,
             "the file written must be the shader the compiler produced"
@@ -1665,8 +1673,8 @@ mod tests {
         let mut h = Harness::new(cyclic);
         let settled = h.settle();
 
-        let compile_button = text_pos(&settled, |t| t.contains("Compile"))
-            .expect("the Compile button must render");
+        let compile_button =
+            text_pos(&settled, |t| t.contains("Compile")).expect("the Compile button must render");
         h.click(compile_button);
 
         let error = h
@@ -1696,9 +1704,7 @@ mod tests {
         let (_, at) = texts
             .iter()
             .find(|(text, _)| *text == message)
-            .unwrap_or_else(|| {
-                panic!("the error message must be drawn; got {texts:?}")
-            });
+            .unwrap_or_else(|| panic!("the error message must be drawn; got {texts:?}"));
         let blamed = error_node(&error).expect("a cycle names the nodes it is stuck on");
         let out = h.port(blamed, OUTPUT_PORT);
         // The panel anchors the message at the blamed node's top-right corner

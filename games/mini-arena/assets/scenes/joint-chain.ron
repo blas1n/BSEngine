@@ -1,0 +1,107 @@
+// A five-body chain hung from a fixed anchor by four spherical joints -- the
+// demo for roadmap item 51 (물리 조인트).
+//
+// A chain rather than a single door hinge on purpose: one hinge proves a joint
+// exists, whereas four joints in series prove the solver keeps a *chain* of
+// constraints satisfied at once. That series behaviour is exactly what item
+// 52's ragdoll is built out of, so this is the shape worth proving now.
+//
+// The chain starts laid out horizontally along +X, not hanging straight down.
+// A vertical chain under gravity is already at equilibrium and simply sits
+// there, which would make "it swung" unobservable; from horizontal, gravity
+// has maximum leverage and the free end swings through a wide arc.
+//
+// Geometry, which the E2E test
+// (`a_spherical_joint_chain_swings_without_coming_apart` in
+// `crates/bsengine-runtime/src/test_mode.rs`) reads back and checks:
+// bodies sit 1.0 apart on X, and each joint puts its two anchors at the
+// midpoint between them -- `anchor_a: (-0.5, 0, 0)` on the lower link,
+// `anchor_b: (0.5, 0, 0)` on the one above. The anchors therefore already
+// coincide in world space when the scene loads, so the chain starts satisfied
+// instead of being yanked into place on the first frame.
+//
+// The colliders (radius 0.2) are half the 1.0 link spacing wide, so adjacent
+// links start well clear of each other and only touch once the chain folds --
+// which is a real chain's behaviour, not interference with the joints.
+SceneDescriptor(entities: [
+    EntityDescriptor(
+        name: "Camera",
+        camera: true,
+        camera_fov: Some(60.0),
+        transform: Some((position: (2.0, 4.0, 10.0))),
+        look_at: Some((2.0, 2.0, 0.0)),
+    ),
+    EntityDescriptor(
+        name: "Sun",
+        directional_light: Some((direction: (-0.4, -0.8, -0.4), color: (1.0, 0.95, 0.85), ambient: (0.15, 0.15, 0.18))),
+    ),
+    // The one fixed body. Static, so Rapier treats it as immovable and the
+    // whole chain hangs from it; if this were Dynamic the entire assembly
+    // would simply fall as one and nothing would swing.
+    EntityDescriptor(
+        name: "ChainAnchor",
+        primitive: Some(Cube),
+        transform: Some((position: (0.0, 6.0, 0.0), scale: (0.4, 0.4, 0.4))),
+        color: Some((0.75, 0.72, 0.68)),
+        rigidbody: Some(Static),
+        collider: Some((shape: Sphere(radius: 0.2))),
+    ),
+    EntityDescriptor(
+        name: "ChainLink1",
+        primitive: Some(Cube),
+        transform: Some((position: (1.0, 6.0, 0.0), scale: (0.4, 0.4, 0.4))),
+        color: Some((0.85, 0.45, 0.30)),
+        rigidbody: Some(Dynamic),
+        collider: Some((shape: Sphere(radius: 0.2))),
+        joint: Some((
+            body_b: "ChainAnchor",
+            kind: Spherical,
+            anchor_a: (-0.5, 0.0, 0.0),
+            anchor_b: (0.5, 0.0, 0.0),
+        )),
+    ),
+    EntityDescriptor(
+        name: "ChainLink2",
+        primitive: Some(Cube),
+        transform: Some((position: (2.0, 6.0, 0.0), scale: (0.4, 0.4, 0.4))),
+        color: Some((0.85, 0.60, 0.30)),
+        rigidbody: Some(Dynamic),
+        collider: Some((shape: Sphere(radius: 0.2))),
+        joint: Some((
+            body_b: "ChainLink1",
+            kind: Spherical,
+            anchor_a: (-0.5, 0.0, 0.0),
+            anchor_b: (0.5, 0.0, 0.0),
+        )),
+    ),
+    EntityDescriptor(
+        name: "ChainLink3",
+        primitive: Some(Cube),
+        transform: Some((position: (3.0, 6.0, 0.0), scale: (0.4, 0.4, 0.4))),
+        color: Some((0.80, 0.75, 0.30)),
+        rigidbody: Some(Dynamic),
+        collider: Some((shape: Sphere(radius: 0.2))),
+        joint: Some((
+            body_b: "ChainLink2",
+            kind: Spherical,
+            anchor_a: (-0.5, 0.0, 0.0),
+            anchor_b: (0.5, 0.0, 0.0),
+        )),
+    ),
+    // The free end. Nothing is attached below it, so its travel is what
+    // "the chain swung" is measured on.
+    EntityDescriptor(
+        name: "ChainLink4",
+        primitive: Some(Cube),
+        transform: Some((position: (4.0, 6.0, 0.0), scale: (0.4, 0.4, 0.4))),
+        color: Some((0.55, 0.75, 0.40)),
+        rigidbody: Some(Dynamic),
+        collider: Some((shape: Sphere(radius: 0.2))),
+        joint: Some((
+            body_b: "ChainLink3",
+            kind: Spherical,
+            anchor_a: (-0.5, 0.0, 0.0),
+            anchor_b: (0.5, 0.0, 0.0),
+        )),
+    ),
+])

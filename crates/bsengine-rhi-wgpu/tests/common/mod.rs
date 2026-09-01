@@ -473,7 +473,32 @@ struct VertOut {{
     /// order.
     pub fn render(&mut self, scene: &Scene) -> Pixels {
         self.surface.invalidate_taa_history();
-        self.render_frame_at(scene, 0)
+        self.render_frame_at(scene, 0, 0.0)
+    }
+
+    /// One fresh frame with `camera.time` set to `seconds`.
+    ///
+    /// [`Self::render`] renders at time zero, which is what makes it
+    /// repeatable, and that is exactly why it cannot show anything the clock
+    /// drives -- a shader that scrolls its UVs by `camera.time` being the case
+    /// in point. This is [`Self::render`] with the clock chosen: history is
+    /// discarded first either way, so two calls differing only in `seconds`
+    /// differ only in what the shader's `camera.time` reads.
+    pub fn render_at_time(&mut self, scene: &Scene, seconds: f32) -> Pixels {
+        self.surface.invalidate_taa_history();
+        self.render_frame_at(scene, 0, seconds)
+    }
+
+    /// Compiles arbitrary WGSL and stores it under `key`, which a
+    /// [`Draw::shader`] then names.
+    ///
+    /// [`Self::constant_colour_shader`] is this with a fixed body. Tests whose
+    /// shader source comes from somewhere else -- a file, or a compiled shader
+    /// graph -- need the source to be theirs to supply, and need the `Err` so
+    /// they can print what failed to compile rather than leave a wgpu
+    /// validation message to be interpreted on its own.
+    pub fn compile_shader(&mut self, key: &str, wgsl: &str) -> Result<(), String> {
+        self.surface.compile_and_store_shader(key, wgsl)
     }
 
     /// One fresh frame at an arbitrary point in the frame counter.
@@ -487,7 +512,7 @@ struct VertOut {{
     /// counter feeds.
     pub fn render_at_frame(&mut self, scene: &Scene, frame_index: u32) -> Pixels {
         self.surface.invalidate_taa_history();
-        self.render_frame_at(scene, frame_index)
+        self.render_frame_at(scene, frame_index, 0.0)
     }
 
     /// Renders `frames` consecutive frames of the same scene and returns the
@@ -505,7 +530,7 @@ struct VertOut {{
         self.surface.invalidate_taa_history();
         let mut last = None;
         for frame in 0..frames {
-            last = Some(self.render_frame_at(scene, frame));
+            last = Some(self.render_frame_at(scene, frame, 0.0));
         }
         last.expect("the loop runs at least once")
     }
@@ -517,7 +542,7 @@ struct VertOut {{
     /// system computes it -- from the frame counter when TAA is on, and not at
     /// all when it is off. Deriving it independently here would let the
     /// harness antialias with a sequence the engine never uses.
-    fn render_frame_at(&mut self, scene: &Scene, frame_index: u32) -> Pixels {
+    fn render_frame_at(&mut self, scene: &Scene, frame_index: u32, elapsed_seconds: f32) -> Pixels {
         let aspect = WIDTH as f32 / HEIGHT as f32;
         let proj = Mat4::perspective_rh(60.0_f32.to_radians(), aspect, 0.1, 100.0);
         let view = Mat4::look_at_rh(scene.camera_pos, scene.look_at, Vec3::Y);
@@ -593,7 +618,7 @@ struct VertOut {{
                 false,
                 None,
                 None,
-                0.0,
+                elapsed_seconds,
                 &scene.particles,
                 scene.taa,
                 jitter_clip,

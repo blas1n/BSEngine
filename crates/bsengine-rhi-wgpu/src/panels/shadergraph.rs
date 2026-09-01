@@ -8,8 +8,9 @@
 //! zoom themselves are deliberately out of scope for item 50.
 
 use bsengine_core::{EditorPanel, EditorPanelContext};
-use bsengine_shadergraph::{Edge, GraphError, GraphNode, NodeKind, ShaderGraph, ValueType};
+use bsengine_shadergraph::{compile, Edge, GraphError, GraphNode, NodeKind, ShaderGraph, ValueType};
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 /// The name of the single output port every node kind has.
 const OUTPUT_PORT: &str = "out";
@@ -97,17 +98,170 @@ pub struct ShaderGraphPanel {
     selected_node: Option<u32>,
     /// Last compile error, shown inline beside the offending node.
     ///
-    /// Task 4 is what sets it; sub-step 1/2 made errors values carrying node
-    /// ids specifically so this could point at the node responsible.
+    /// Sub-step 1/2 made every failure a value carrying the node ids it
+    /// blames, specifically so the editor could put the message next to the
+    /// node responsible instead of in a log the author never reads.
     last_error: Option<GraphError>,
+    /// The file this graph was opened from and is saved back to.
+    ///
+    /// `None` for a graph that only exists in the panel: **Save** is disabled
+    /// until there is somewhere to save it to, rather than inventing a path.
+    pub path: Option<PathBuf>,
+    /// The path text field's contents, which is what **Open** reads.
+    ///
+    /// Separate from [`ShaderGraphPanel::path`] so a half-typed path never
+    /// looks like the open file.
+    path_buffer: String,
+    /// The WGSL the last **successful** compile produced.
+    ///
+    /// Public because it is the panel's real output: a test can assert it is
+    /// byte-identical to `compile(&graph)`, which is what keeps the panel
+    /// from quietly becoming a second, divergent code path to WGSL.
+    pub last_wgsl: Option<String>,
+    /// What the last open, save or compile did, shown in the toolbar.
+    status: Option<String>,
 }
 
 impl ShaderGraphPanel {
-    /// An editor opened on `graph`.
+    /// An editor opened on `graph`, with no file behind it.
     pub fn new(graph: ShaderGraph) -> Self {
         Self {
             graph,
             ..Default::default()
+        }
+    }
+
+    /// An editor opened on the graph stored at `path`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a human-readable message if the file cannot be read or is not
+    /// a valid `ShaderGraph`. Both are ordinary authoring mistakes -- a typo
+    /// in a path, a hand-edited RON file -- so neither panics; the panel
+    /// shows the message and stays open on whatever it already had.
+    pub fn from_path(path: impl Into<PathBuf>) -> Result<Self, String> {
+        let mut panel = Self::default();
+        panel.open(path)?;
+        Ok(panel)
+    }
+
+    /// Replaces the graph being edited with the one stored at `path`.
+    ///
+    /// On failure the panel is left exactly as it was: a mistyped path must
+    /// not cost the author the graph they had open.
+    ///
+    /// # Errors
+    ///
+    /// As [`ShaderGraphPanel::from_path`].
+    pub fn open(&mut self, path: impl Into<PathBuf>) -> Result<(), String> {
+        let path = path.into();
+        let text = std::fs::read_to_string(&path)
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        let graph: ShaderGraph =
+            ron::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+
+        self.graph = graph;
+        self.path_buffer = path.display().to_string();
+        self.path = Some(path);
+        // Everything below is about the *previous* graph, and carrying any of
+        // it over would leave the panel pointing at nodes that no longer
+        // exist -- an error message blaming an id from a different file.
+        self.last_error = None;
+        self.last_wgsl = None;
+        self.selected_node = None;
+        self.dragging_from = None;
+        self.dragging_node = None;
+        Ok(())
+    }
+
+    /// Writes the graph back to the file it was opened from.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message if no file is open or the write fails.
+    pub fn save(&self) -> Result<(), String> {
+        let path = self
+            .path
+            .as_ref()
+            .ok_or_else(|| "no graph file is open to save to".to_string())?;
+        // Pretty, like the shipped demo graph and like `graph.rs`'s own
+        // round-trip test writes them: a graph saved as one long line is
+        // unreviewable in a diff, and these files are committed assets.
+        let text = ron::ser::to_string_pretty(&self.graph, ron::ser::PrettyConfig::default())
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        std::fs::write(path, text).map_err(|e| format!("{}: {e}", path.display()))
+    }
+
+    /// Compiles the graph, remembering the outcome for the canvas to show.
+    ///
+    /// This is the only place the editor calls
+    /// [`bsengine_shadergraph::compile`], so the shader the panel produces is
+    /// the shader the compiler produces -- there is no second path for the
+    /// two to diverge along.
+    ///
+    /// # Errors
+    ///
+    /// Passes [`GraphError`] straight through. Half-built graphs are the
+    /// normal case while authoring, so a failure here is data, not an
+    /// exception: it lands in `last_error` and is drawn beside the node it
+    /// names.
+    pub fn compile_graph(&mut self) -> Result<String, GraphError> {
+        let result = compile(&self.graph);
+        match &result {
+            Ok(wgsl) => {
+                self.last_wgsl = Some(wgsl.clone());
+                self.last_error = None;
+            }
+            Err(error) => {
+                self.last_error = Some(error.clone());
+                // Dropped rather than kept: leaving the previous success
+                // behind would let the panel report WGSL that the graph on
+                // screen does not produce.
+                self.last_wgsl = None;
+            }
+        }
+        result
+    }
+
+    /// Where the generated shader for a graph file goes.
+    ///
+    /// The whole `.shadergraph.ron` suffix is stripped, not just the last
+    /// extension: `Path::set_extension` would turn `scroll.shadergraph.ron`
+    /// into `scroll.shadergraph.wgsl`, which reads like a graph file and
+    /// would be a confusing thing to point a `CustomShader` at.
+    fn wgsl_path(graph: &Path) -> PathBuf {
+        let name = graph
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("shader");
+        let base = name.strip_suffix(".shadergraph.ron").unwrap_or_else(|| {
+            name.rsplit_once('.').map_or(name, |(stem, _)| stem)
+        });
+        graph.with_file_name(format!("{base}.wgsl"))
+    }
+
+    /// Compiles and, when a file is open, writes the `.wgsl` beside it.
+    ///
+    /// The written shader is exactly what `CustomShader.path` already knows
+    /// how to load, which is what makes the graph route an addition to the
+    /// hand-written WGSL route rather than a replacement for it.
+    fn compile_and_write(&mut self) {
+        match self.compile_graph() {
+            Ok(wgsl) => {
+                let Some(path) = self.path.clone() else {
+                    self.status =
+                        Some("compiled, but no file is open to write the shader beside".to_string());
+                    return;
+                };
+                let out = Self::wgsl_path(&path);
+                self.status = Some(match std::fs::write(&out, wgsl) {
+                    Ok(()) => format!("wrote {}", out.display()),
+                    Err(e) => format!("{}: {e}", out.display()),
+                });
+            }
+            // The message itself is drawn on the canvas beside the offending
+            // node, so the toolbar only needs to say that it failed.
+            Err(_) => self.status = Some("the graph has an error".to_string()),
         }
     }
 
@@ -472,6 +626,57 @@ impl EditorPanel for ShaderGraphPanel {
             }
         });
 
+        // Row two: the file the graph lives in, and what to do with it.
+        let mut open_clicked = false;
+        let mut save_clicked = false;
+        let mut compile_clicked = false;
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut self.path_buffer)
+                    .desired_width(300.0)
+                    .hint_text("assets/shaders/name.shadergraph.ron"),
+            );
+            open_clicked = ui
+                .button(format!("{} Open", egui_phosphor::regular::FOLDER_OPEN))
+                .clicked();
+            save_clicked = ui
+                .add_enabled(
+                    self.path.is_some(),
+                    egui::Button::new(format!(
+                        "{} Save",
+                        egui_phosphor::regular::FLOPPY_DISK
+                    )),
+                )
+                .clicked();
+            compile_clicked = ui
+                .button(format!("{} Compile", egui_phosphor::regular::PLAY))
+                .clicked();
+        });
+
+        if open_clicked {
+            let path = self.path_buffer.trim().to_string();
+            if let Err(e) = self.open(path) {
+                self.status = Some(e);
+            } else {
+                self.status = self.path.as_ref().map(|p| format!("opened {}", p.display()));
+            }
+        }
+        if save_clicked {
+            self.status = Some(match self.save() {
+                Ok(()) => match &self.path {
+                    Some(p) => format!("saved {}", p.display()),
+                    None => "saved".to_string(),
+                },
+                Err(e) => e,
+            });
+        }
+        if compile_clicked {
+            self.compile_and_write();
+        }
+        if let Some(status) = &self.status {
+            ui.label(status.as_str());
+        }
+
         if let Some(button) = &add_button {
             egui::popup::popup_below_widget(
                 ui,
@@ -702,7 +907,32 @@ impl EditorPanel for ShaderGraphPanel {
 mod tests {
     use super::*;
     use bsengine_core::{InspectorEntityInfo, InspectorState};
-    use bsengine_shadergraph::compile;
+
+    /// The demo graph shipped with mini-arena -- the only real authored
+    /// `.shadergraph.ron` there is, and the file a serialisation asymmetry
+    /// would actually corrupt.
+    const DEMO_GRAPH_ASSET: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../games/mini-arena/assets/shaders/scroll.shadergraph.ron"
+    );
+
+    /// Copies the shipped demo graph into a fresh scratch directory and
+    /// returns the copy's path.
+    ///
+    /// A copy, never the original: **Compile** writes a `.wgsl` beside the
+    /// graph and **Save** rewrites the graph itself, so these tests would
+    /// otherwise dirty a committed asset.
+    fn demo_graph_copy(test_name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("bse_shadergraph_{test_name}"));
+        // Removed first so a previous run's `.wgsl` cannot be mistaken for
+        // one this run wrote.
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("the scratch directory must be creatable");
+        let path = dir.join("scroll.shadergraph.ron");
+        std::fs::copy(DEMO_GRAPH_ASSET, &path)
+            .unwrap_or_else(|e| panic!("the shipped demo graph must be readable: {e}"));
+        path
+    }
 
     fn node(id: u32, kind: NodeKind, position: [f32; 2]) -> GraphNode {
         GraphNode { id, kind, position }
@@ -1371,6 +1601,171 @@ mod tests {
             ),
             "the graph must not compile to UnknownNode: {:?}",
             compile(&h.panel.graph)
+        );
+    }
+
+    #[test]
+    fn compiling_from_the_panel_matches_calling_compile_directly() {
+        // The panel must not become a second, divergent code path to WGSL.
+        let path = demo_graph_copy("panel_compile");
+        let mut h = Harness::new(ShaderGraph::default());
+        h.panel
+            .open(&path)
+            .unwrap_or_else(|e| panic!("the shipped demo graph must open: {e}"));
+        let settled = h.settle();
+
+        let compile_button = text_pos(&settled, |t| t.contains("Compile"))
+            .expect("the Compile button must render");
+        h.click(compile_button);
+
+        let direct = compile(&h.panel.graph).expect("the demo graph must compile");
+        assert_eq!(
+            h.panel.last_wgsl.as_deref(),
+            Some(direct.as_str()),
+            "the panel's WGSL must be byte-identical to compile(&graph)"
+        );
+        assert_eq!(h.panel.last_error, None, "a successful compile leaves no error");
+
+        // And what reached disk is that same shader, under the name a
+        // `CustomShader` would point at -- `scroll.wgsl`, not
+        // `scroll.shadergraph.wgsl`.
+        let wgsl_path = path.with_file_name("scroll.wgsl");
+        let written = std::fs::read_to_string(&wgsl_path).unwrap_or_else(|e| {
+            panic!("Compile must write {}: {e}", wgsl_path.display())
+        });
+        assert_eq!(
+            written, direct,
+            "the file written must be the shader the compiler produced"
+        );
+    }
+
+    #[test]
+    fn a_compile_error_is_surfaced_rather_than_panicking() {
+        // Nodes 2 and 3 feed each other and 2 feeds the Output, so the cycle
+        // is reachable -- the same shape `compile.rs` uses for its own cycle
+        // test. Sub-step 1/2 made errors values carrying node ids
+        // *specifically* so the UI could show them beside the offending node;
+        // this is the payoff, so it is asserted, not just that no panic
+        // happened.
+        let cyclic = ShaderGraph {
+            nodes: vec![
+                node(0, NodeKind::ConstantVec3([1.0, 1.0, 1.0]), [20.0, 30.0]),
+                node(1, NodeKind::Output, [600.0, 30.0]),
+                node(2, NodeKind::Add, [220.0, 140.0]),
+                node(3, NodeKind::Add, [400.0, 260.0]),
+            ],
+            edges: vec![
+                edge(0, 2, "a"),
+                edge(3, 2, "b"),
+                edge(0, 3, "a"),
+                edge(2, 3, "b"),
+                edge(2, 1, "color"),
+            ],
+        };
+        let mut h = Harness::new(cyclic);
+        let settled = h.settle();
+
+        let compile_button = text_pos(&settled, |t| t.contains("Compile"))
+            .expect("the Compile button must render");
+        h.click(compile_button);
+
+        let error = h
+            .panel
+            .last_error
+            .clone()
+            .expect("a cyclic graph must leave an error behind, not panic");
+        assert!(
+            matches!(error, GraphError::Cycle(_)),
+            "the error must be the cycle itself: {error:?}"
+        );
+        assert_eq!(
+            h.panel.last_wgsl, None,
+            "a failed compile must not leave WGSL the graph does not produce"
+        );
+
+        // The panel still renders -- the whole point of errors being values.
+        let after = h.draw();
+        assert!(
+            !after.shapes.is_empty(),
+            "the panel must keep drawing after a failed compile"
+        );
+
+        // And the message is on screen, beside the node the error names.
+        let texts = collect_rendered_texts_with_pos(&after.shapes);
+        let message = error.to_string();
+        let (_, at) = texts
+            .iter()
+            .find(|(text, _)| *text == message)
+            .unwrap_or_else(|| {
+                panic!("the error message must be drawn; got {texts:?}")
+            });
+        let blamed = error_node(&error).expect("a cycle names the nodes it is stuck on");
+        let out = h.port(blamed, OUTPUT_PORT);
+        // The panel anchors the message at the blamed node's top-right corner
+        // plus a small gap, which the output port's recorded position pins:
+        // the corner is `NODE_WIDTH`-free on x and one header plus half a
+        // port row above it on y.
+        assert_eq!(
+            *at,
+            egui::pos2(out.x + 12.0, out.y - HEADER_HEIGHT - PORT_ROW_HEIGHT * 0.5),
+            "the message must sit beside node {blamed}, the one the error blames"
+        );
+    }
+
+    #[test]
+    fn the_demo_graph_loads_and_saves_without_changing_meaning() {
+        // A serialisation asymmetry would silently corrupt an artist's file
+        // the first time they pressed Save, so the whole cycle is driven
+        // through the toolbar the way a user reaches it.
+        let path = demo_graph_copy("panel_roundtrip");
+
+        let mut h = Harness::new(ShaderGraph::default());
+        h.panel.path_buffer = path.display().to_string();
+        let settled = h.settle();
+        let open_button =
+            text_pos(&settled, |t| t.contains("Open")).expect("the Open button must render");
+        h.click(open_button);
+
+        let loaded = h.panel.graph.clone();
+        assert_eq!(
+            loaded.nodes.len(),
+            8,
+            "the demo graph's eight nodes must survive being opened"
+        );
+        assert_eq!(h.panel.path.as_deref(), Some(path.as_path()));
+
+        // Move a node first: layout is the reason `position` was put in the
+        // asset at all, so a round trip that lost it would defeat the point.
+        h.panel.graph.nodes[0].position = [123.5, -47.25];
+        let edited = h.panel.graph.clone();
+
+        let drawn = h.draw();
+        let save_button =
+            text_pos(&drawn, |t| t.contains("Save")).expect("the Save button must render");
+        h.click(save_button);
+
+        let reloaded = ShaderGraphPanel::from_path(&path)
+            .unwrap_or_else(|e| panic!("the file Save just wrote must reopen: {e}"));
+
+        assert_eq!(
+            reloaded.graph, edited,
+            "a save/reload cycle must not change a single node, edge or position"
+        );
+        assert_eq!(
+            reloaded.graph.nodes[0].position,
+            [123.5, -47.25],
+            "the layout the author arranged must survive the round trip"
+        );
+        // "Without changing meaning" said in the terms that actually matter:
+        // the shader is byte-identical either side of the round trip.
+        assert_eq!(
+            compile(&reloaded.graph),
+            compile(&loaded),
+            "the reloaded graph must compile to exactly the same shader"
+        );
+        assert!(
+            compile(&reloaded.graph).is_ok(),
+            "and it must still be a graph that compiles at all"
         );
     }
 }

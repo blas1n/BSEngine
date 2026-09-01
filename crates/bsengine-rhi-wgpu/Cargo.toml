@@ -33,10 +33,13 @@ gltf.workspace = true
 # crate is now needed at runtime and not only by the tests that pin the
 # generated preamble against MESH_WGSL.
 bsengine-shadergraph.workspace = true
+# Promoted alongside it, and for the same reason: the panel opens and saves
+# `.shadergraph.ron` files itself, so RON is a runtime dependency now and not
+# only a test one.
+ron = { workspace = true }
 
 [dev-dependencies]
 bsengine-app.workspace = true
 bsengine-editor.workspace = true
 bsengine-scene.workspace = true
 base64 = { workspace = true }
-ron = { workspace = true }

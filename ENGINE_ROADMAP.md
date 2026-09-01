@@ -2426,10 +2426,50 @@ Rapier가 아무도 가리키지 않는 바디를 계속 구속함.
 기반 애니메이션을 표현한다.
 
 **완료 조건:**
-- [ ] `Ragdoll` 컴포넌트 — 스켈레톤 본 계층을 item 51 조인트로 자동 구성
-- [ ] 애니메이션 상태 기계 → 래그돌 전환(사망 트리거) 및 필요 시 복귀
-- [ ] 데모(기존 캐릭터 사망 시 래그돌)로 검증
-- [ ] 테스트 추가, CI 통과
+- [x] `Ragdoll` 컴포넌트 — 스켈레톤 본 계층을 item 51 조인트로 자동 구성
+- [ ] 애니메이션 상태 기계 → 래그돌 전환(사망 트리거) 및 필요 시 복귀 — **sub-step 2/2, 남음**
+- [ ] 데모(기존 캐릭터 사망 시 래그돌)로 검증 — **sub-step 2/2, 남음**
+- [x] 테스트 추가, CI 통과
+
+**진행 중 — sub-step 1/2(구성 + 물리가 스키닝을 구동)만 완료.**
+[[feedback_split_when_complexity_grows]]에 따라 분할. ASM 연동(사망 트리거/복귀)과 그걸 쓰는
+데모가 sub-step 2/2. 분할 이유: 래그돌이 이상해 보일 때 바디/조인트 구성이 틀린 건지,
+물리→스키닝 소싱이 틀린 건지, ASM 전환 타이밍이 틀린 건지를 구분할 수 있게.
+
+**sub-step 1/2 완료: PR #1819 (2026-09-01).** `Ragdoll { active, joint_overrides, bone_radius,
+total_mass }` — **`active` 기본값은 false**라 컴포넌트를 붙이는 것만으로는 멀쩡한 캐릭터가
+바뀌지 않음. 본마다 캡슐 바디 1개(`ColliderShape::Capsule`은 이미 있었음) + 부모와의 조인트,
+질량은 본 길이 비례 배분. 기하 결정은 순수 함수 `plan_bones`에 격리해서 물리 월드 없이 테스트
+가능(`select_lod_level`/SH 수학과 같은 격리).
+
+**본 계층은 이미 있었음** — `SkinnedMesh.nodes`가 모든 노드의 rest 트랜스폼과 *부모*를 들고
+있어서 glTF 재파싱이 불필요. **기본은 전부 spherical + 본별 오버라이드**: 스켈레톤만으론 어느
+본이 무릎인지 알 수 없으므로 제네릭 기본값이 필요하고 spherical이 설정 없이 동작하는 안정된
+기본값. 오버라이드가 무릎/팔꿈치를 revolute로 지정해 거꾸로 꺾이는 걸 막음(item 51의 3종 중
+2종이 실사용됨). **본 이름 휴리스틱은 거절** — 리깅 네이밍 규칙에 의존해 다른 리그나 비영어
+본 이름에서 조용히 실패함.
+
+**조용히 실패하는 지점, 그리고 설계 중 스펙을 고친 부분:** 처음엔 이걸 "애니메이션과 물리가
+같은 본 트랜스폼을 두고 싸우는 쓰기 충돌"로 적었는데, `compute_joint_matrices_blended`를 읽어
+보니 **본 트랜스폼은 어디에도 영속 저장되지 않고** 매 프레임 `nodes` + 클립에서 재계산됨.
+따라서 억제할 writer가 없고 **globals의 소스를 무엇으로 하느냐의 문제** — 훨씬 작고 안전한
+변경. 스펙을 구현 전에 고쳤음.
+
+그래도 조용히 실패함: 바디를 만들어 떨어뜨리면서 스키닝은 계속 클립을 읽는 구현은 **화면상
+캐릭터가 완전히 멀쩡해 보이는데** 밑에서 래그돌이 돌아감. 바디를 검사하는 테스트는 전부 통과.
+그래서 `an_active_ragdoll_makes_the_joint_matrices_follow_physics_not_the_clip`이 바디
+트랜스폼이 아니라 **스키닝된 조인트 출력**에 단언함.
+
+**짝지은 단언들:** `an_activated_ragdoll_falls_without_the_skeleton_coming_apart`가 **떨어짐**
+과 **인접 본 간 거리 유지**를 함께 단언(각각 단독으론 흩어진 스켈레톤/안 움직인 스켈레톤이
+통과). `a_bone_overridden_to_revolute_is_constrained_off_axis`는 컴포넌트 테스트가 증명한
+"`joint_for_bone`이 오버라이드를 *반환*한다"를 넘어 **구성 경로가 실제로 *사용*한다**를 증명.
+`a_ragdoll_with_joint_overrides_survives_scene_deserialization`이 `HashMap<String, JointKind>`가
+정말 reflect되는지 확인 — `ReflectColor` 실패 모드(씬은 파싱되고 엔티티는 스폰되고 경고 한 줄만
+남은 채 컴포넌트 전체가 조용히 사라짐)를 인용.
+
+`RagdollBone`(스폰된 본 바디의 마커)은 `pub(crate)`라 catalog R1 면제 — `PendingGltf`/
+`PendingTerrain` 비공개 마커 선례와 동일. 현재 65 컴포넌트 / 266 ops, 0 위반.
 
 ---
 

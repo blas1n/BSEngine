@@ -8,7 +8,8 @@ use std::io::{self, BufRead, Write};
 use bevy_app::App;
 use bevy_ecs::event::Events;
 use bsengine_app::{
-    LifetimePlugin, NavMeshPlugin, ParticlePlugin, TerrainBrushPlugin, TerrainPlugin, TimePlugin,
+    AnimationPlugin, AnimationStateMachinePlugin, LifetimePlugin, NavMeshPlugin, ParticlePlugin,
+    TerrainBrushPlugin, TerrainPlugin, TimePlugin,
 };
 use bsengine_asset::{AssetIdentityPlugin, AssetPlugin, AssetStatusPlugin};
 use bsengine_audio::AudioPlugin;
@@ -127,6 +128,14 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>, fast_rend
         .add_plugins(RenderPlugin)
         .add_plugins(GltfPlugin)
         .add_plugins(SkinnedMeshPlugin)
+        // Mirrors the windowed runtime (main.rs's run_windowed): the animation
+        // clip sampler and the state-machine system that drives it. Without
+        // AnimationStateMachinePlugin here, `advance_state_machines` is never
+        // registered, so ASM triggers accumulate but never fire a transition —
+        // the character stays in "locomotion" forever in headless mode while
+        // the same scene transitions correctly when windowed.
+        .add_plugins(AnimationPlugin)
+        .add_plugins(AnimationStateMachinePlugin)
         .add_plugins(NavMeshPlugin)
         // Same two as the windowed runtime, and for the reason item 11/12
         // recorded: a plugin present in one host and absent in the other is a
@@ -2869,6 +2878,202 @@ mod tests {
              it started ({start_free_end}) in {FRAMES} frames -- the chain starts horizontal \
              along +X with nothing under it, so under gravity it must swing. A stationary \
              chain satisfies every joint perfectly and proves nothing"
+        );
+    }
+
+    /// Roadmap item 52 sub-step 2/2 demo: proves that firing the "die" trigger
+    /// on mini-arena's Player activates its `Ragdoll` component, handing the
+    /// skeleton to physics rather than the animation clip.
+    ///
+    /// Two assertions, one in each direction, so neither a "ragdoll everything
+    /// at startup" implementation nor a "never activate ragdoll" implementation
+    /// can pass both:
+    ///
+    /// * Before the trigger: `Ragdoll.active` is **false** and the ASM is in
+    ///   `"locomotion"`. A broken implementation that activates every entity's
+    ///   ragdoll unconditionally fails here.
+    /// * After the trigger: `Ragdoll.active` is **true** and the ASM is in
+    ///   `"death"`. A no-op implementation where the ASM→Ragdoll connection is
+    ///   never wired fails here.
+    ///
+    /// The values are printed regardless so a failure message names what was
+    /// actually observed — not just "expected true, got false".
+    #[test]
+    fn a_character_collapses_when_its_death_trigger_fires() {
+        let project_dir = format!("{}/../../games/mini-arena", env!("CARGO_MANIFEST_DIR"));
+        let mut app = build_test_app(&project_dir, None, false);
+
+        // The ASM system queries (AnimationStateMachine, AnimationPlayer) —
+        // AnimationPlayer is spawned by GltfPlugin once fox.glb finishes
+        // loading. We must wait for that before firing the trigger, or the
+        // system skips the entity entirely (the query simply excludes it).
+        // The same approach as `mini_arenas_fox_mesh_loads_now_that_rendering_is_on`.
+        let mut fox_loaded = false;
+        for _ in 0..200 {
+            app.update();
+            let status =
+                crate::test_query::get_asset_status(app.world_mut(), "assets/models/fox.glb");
+            if status == json!("loaded") {
+                fox_loaded = true;
+                break;
+            }
+        }
+        assert!(
+            fox_loaded,
+            "fox.glb must load before the ragdoll test can run — without \
+             AnimationPlayer (spawned by GltfPlugin on load) the ASM system \
+             skips the entity and the trigger never fires"
+        );
+
+        // One more frame so GltfPlugin's just-spawned AnimationPlayer is
+        // visible to the ASM system in the next update.
+        app.update();
+
+        // Locate the Player entity by name.
+        let player = {
+            let mut q =
+                app.world_mut()
+                    .query::<(&bsengine_scene::Name, Entity)>();
+            q.iter(app.world())
+                .find(|(n, _)| n.0 == "Player")
+                .map(|(_, e)| e)
+                .expect("Player must exist after scene load")
+        };
+
+        // Diagnostic: verify AnimationPlayer exists on the entity (required by
+        // the ASM system) and transitions deserialized correctly.
+        let has_anim_player = app
+            .world()
+            .get::<bsengine_core::AnimationPlayer>(player)
+            .is_some();
+        let transitions_len = app
+            .world()
+            .get::<bsengine_core::AnimationStateMachine>(player)
+            .map(|a| a.transitions.len())
+            .unwrap_or(0);
+        println!(
+            "diagnostic: has_AnimationPlayer={has_anim_player}, \
+             transitions.len={transitions_len}"
+        );
+        assert!(
+            has_anim_player,
+            "Player must have an AnimationPlayer for the ASM system to run — \
+             fox.glb loaded but GltfPlugin may not have finished spawning it"
+        );
+        assert!(
+            transitions_len > 0,
+            "Player's ASM must have at least one transition after scene load — \
+             transitions.len={transitions_len} means AsmTransition/TransitionCondition \
+             are still not registered in register_gameplay_reflect_types"
+        );
+
+        // --- Control: before the trigger the character is animating normally ---
+        let active_before = app
+            .world()
+            .get::<bsengine_physics::Ragdoll>(player)
+            .expect(
+                "Player must have a Ragdoll component — was it added to \
+                 games/mini-arena/assets/scenes/main.ron?",
+            )
+            .active;
+        let state_before = app
+            .world()
+            .get::<bsengine_core::AnimationStateMachine>(player)
+            .expect("Player must have an AnimationStateMachine")
+            .current_state
+            .clone();
+
+        println!(
+            "before 'die' trigger: Ragdoll.active={active_before}, \
+             asm.current_state={state_before:?}"
+        );
+
+        assert!(
+            !active_before,
+            "before firing 'die': Ragdoll.active must be false — a broken \
+             implementation that activates every ragdoll at startup would fail \
+             here; asm.current_state={state_before:?}"
+        );
+        assert_eq!(
+            state_before, "locomotion",
+            "before firing 'die': ASM must be in 'locomotion'; \
+             Ragdoll.active={active_before}"
+        );
+
+        // --- Fire the death trigger directly against the ECS ---
+        app.world_mut()
+            .get_mut::<bsengine_core::AnimationStateMachine>(player)
+            .expect("Player must have an AnimationStateMachine")
+            .set_trigger("die");
+
+        // One frame for the ASM system to process the transition and the
+        // ragdoll-activation system to run.
+        app.update();
+
+        let active_after = app
+            .world()
+            .get::<bsengine_physics::Ragdoll>(player)
+            .map(|r| r.active)
+            .unwrap_or(false);
+        let state_after = app
+            .world()
+            .get::<bsengine_core::AnimationStateMachine>(player)
+            .map(|a| a.current_state.clone())
+            .unwrap_or_default();
+
+        println!(
+            "after 'die' trigger: Ragdoll.active={active_after}, \
+             asm.current_state={state_after:?}"
+        );
+
+        assert!(
+            active_after,
+            "after 'die' trigger: Ragdoll.active must be true — the ASM→Ragdoll \
+             integration in animation_state_machine.rs must set active=true when \
+             entering a state with ragdoll:true; a no-op integration fails here; \
+             asm.current_state={state_after:?}"
+        );
+        assert_eq!(
+            state_after, "death",
+            "after 'die' trigger: ASM must be in 'death' state; \
+             Ragdoll.active={active_after}"
+        );
+
+        // The flag being set is not the demo. The demo is the character
+        // actually collapsing, and this feature family's characteristic
+        // failure is that everything upstream looks right -- flag set, bodies
+        // built and falling -- while the skinning still reads the clip, so the
+        // character animates on as if nothing happened. `pose_override` is the
+        // channel physics hands the skeleton over through, so its going from
+        // empty to non-empty is the collapse becoming visible.
+        let override_before = app
+            .world()
+            .get::<bsengine_gltf::SkinnedMesh>(player)
+            .map(|s| s.pose_override.len())
+            .unwrap_or(0);
+        for _ in 0..10 {
+            app.update();
+        }
+        let override_after = app
+            .world()
+            .get::<bsengine_gltf::SkinnedMesh>(player)
+            .map(|s| s.pose_override.len())
+            .unwrap_or(0);
+
+        println!(
+            "pose_override length: {override_before} before the trigger, \
+             {override_after} ten frames after"
+        );
+        assert_eq!(
+            override_before, 0,
+            "while alive the clip is the sole source of the pose"
+        );
+        assert!(
+            override_after > 0,
+            "ten frames after the trigger physics must be driving the \
+             skeleton, but pose_override is still empty -- the ragdoll is \
+             switched on and simulating underneath a character that is still \
+             playing its animation"
         );
     }
 }

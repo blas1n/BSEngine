@@ -967,6 +967,20 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     // omits a defaulted field from its RON.
     app.register_type_data::<bsengine_core::AsmState, bevy_reflect::ReflectDeserialize>();
     app.register_type_data::<bsengine_core::AsmState, bevy_reflect::ReflectSerialize>();
+    // `AnimationStateMachine::transitions` is `Vec<AsmTransition>`, and each
+    // `AsmTransition` holds a `TransitionCondition` enum. Neither was ever
+    // registered because every scene in the project was authored with
+    // `transitions: []` — an empty `Vec` is structurally recursed by
+    // `TypedReflectDeserializer` without ever asking what its element type is,
+    // so the missing registrations went unnoticed. A non-empty transitions list
+    // (such as the "die" transition on the Player in mini-arena) silently
+    // deserializes as `[]` without them — the transition never fires and the
+    // "die" trigger has no effect. Registering both types fixes that, and the
+    // `a_character_collapses_when_its_death_trigger_fires` runtime test in
+    // `bsengine-runtime` fails without this registration and passes with it,
+    // which is exactly the guard this registration needs.
+    app.register_type::<bsengine_core::AsmTransition>();
+    app.register_type::<bsengine_core::TransitionCondition>();
     app.register_type::<bsengine_core::Tween>();
 
     // Two types that are not `bsengine_core`'s, registered here anyway, each

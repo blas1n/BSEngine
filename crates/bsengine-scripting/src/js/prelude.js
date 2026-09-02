@@ -583,6 +583,15 @@ var Bsengine = {
         detach:          (a, b)             => Deno.core.ops.bsengine_joint_detach(a, b),
     },
 
+    // Vehicle driver input. Three setters rather than one combined call so a
+    // script can change throttle without restating steering and brake, and so
+    // a value cannot land in the wrong input by argument order.
+    vehicle: {
+        setThrottle: (name, v) => Deno.core.ops.bsengine_vehicle_set_throttle(name, v),
+        setSteering: (name, v) => Deno.core.ops.bsengine_vehicle_set_steering(name, v),
+        setBrake:    (name, v) => Deno.core.ops.bsengine_vehicle_set_brake(name, v),
+    },
+
     loadScene:      (path)                 => Deno.core.ops.bsengine_load_scene(path),
 
     save:           (path)                 => Deno.core.ops.bsengine_save_game(path ?? 'save.json'),

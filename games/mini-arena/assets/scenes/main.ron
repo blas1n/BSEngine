@@ -54,8 +54,16 @@ SceneDescriptor(entities: [
                             (clip: "Run", threshold: 8.1),
                         ],
                     )), looping: true, speed: 1.0, duration: 1.0),
+                    // Roadmap item 52 sub-step 2/2 demo: entering this state
+                    // activates the Ragdoll component, handing the skeleton to
+                    // physics. The `ragdoll:` field is intentionally omitted on
+                    // "locomotion" above — AsmState has `#[serde(default)]` on
+                    // it precisely so old scenes keep loading unchanged.
+                    "death": (clip: "Survey", blend: None, ragdoll: true, looping: false, speed: 0.0, duration: 1.0),
                 },
-                transitions: [],
+                transitions: [
+                    (from: "locomotion", to: "death", condition: Trigger("die"), blend_duration: 0.0),
+                ],
                 current_state: "locomotion",
                 params_float: {"speed": 0.0},
                 params_bool: {},
@@ -66,6 +74,8 @@ SceneDescriptor(entities: [
                 blend_elapsed: 0.0,
             )"#),
             ("bsengine_core::shield::Shield", "(current: 100.0, max: 100.0, recharge_rate: 0.0, recharge_delay: 0.0, recharge_cooldown: 0.0)"),
+            // Ragdoll starts inactive; the "die" trigger above flips it on.
+            ("bsengine_physics::components::Ragdoll", "(active: false, joint_overrides: {}, bone_radius: 0.08, total_mass: 70.0)"),
             ("bsengine_core::save_data::SaveData", "(slot: 0, fields: {}, last_saved_at: 0, dirty: false, enabled: true)"),
         ],
     ),

@@ -892,6 +892,7 @@ dependencies = [
  "bevy_reflect",
  "egui",
  "glam 0.29.3",
+ "ron",
  "serde",
  "tracing",
  "tracing-subscriber",

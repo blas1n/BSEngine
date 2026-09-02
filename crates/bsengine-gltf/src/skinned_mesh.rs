@@ -73,6 +73,16 @@ pub struct SkinnedMesh {
     /// [`nodes`]: SkinnedMesh::nodes
     #[reflect(ignore)]
     pub pose_override: Vec<Mat4>,
+    /// How much of [`pose_override`](SkinnedMesh::pose_override) to use, where
+    /// 1.0 is the override alone and 0.0 is the animation alone.
+    ///
+    /// Exists so a ragdoll can hand the skeleton back to animation gradually
+    /// instead of snapping. This crate stays ignorant of what wrote the
+    /// override or why -- it just honours the weight.
+    ///
+    /// Not reflected: see the type-level note above.
+    #[reflect(ignore)]
+    pub pose_override_weight: f32,
     /// The skinning matrix per joint as of the last time [`SkinnedMeshPlugin`]'s
     /// system ran — `global[joint_node] * inverse_bind_matrix[joint]`, in
     /// [`SkinData::joint_node_indices`] order.
@@ -574,6 +584,8 @@ fn update_skinned_meshes(
         // sourcing the pose, the character looks completely normal while a full
         // ragdoll simulates underneath it.
         let joint_matrices = if skinned.pose_override.is_empty() {
+            // No override at all — clips are the sole source. Byte-identical to
+            // the pre-ragdoll path.
             let (Some(library), Some(player)) = (library, player) else {
                 continue;
             };
@@ -593,8 +605,47 @@ fn update_skinned_meshes(
             // nothing here has one yet.
             let samples = blend_samples(clip, library, player.time, asm);
             compute_joint_matrices_blended(&skinned.nodes, &skinned.skin_data, &samples)
-        } else {
+        } else if skinned.pose_override_weight >= 1.0 {
+            // Override present, full weight — clips are not read at all.
+            // Byte-identical to the pre-weight override path.
             joint_matrices_from_globals(&skinned.pose_override, &skinned.skin_data)
+        } else {
+            // Override present, partial weight — blend between clip-derived and
+            // override globals per node.
+            let override_matrices =
+                joint_matrices_from_globals(&skinned.pose_override, &skinned.skin_data);
+
+            // Clip sources are optional; if missing fall back to the override alone
+            // rather than skipping the entity with a partially-complete pose.
+            let animated_matrices = (|| {
+                let library = library?;
+                let player = player?;
+                let clip = library.clips.get(&player.clip)?;
+                let samples = blend_samples(clip, library, player.time, asm);
+                Some(compute_joint_matrices_blended(
+                    &skinned.nodes,
+                    &skinned.skin_data,
+                    &samples,
+                ))
+            })();
+
+            let w = skinned.pose_override_weight.clamp(0.0, 1.0);
+            match animated_matrices {
+                None => override_matrices,
+                Some(animated) => override_matrices
+                    .iter()
+                    .zip(&animated)
+                    .map(|(over_m, anim_m)| {
+                        let (over_s, over_r, over_t) = over_m.to_scale_rotation_translation();
+                        let (anim_s, anim_r, anim_t) = anim_m.to_scale_rotation_translation();
+                        Mat4::from_scale_rotation_translation(
+                            Vec3::lerp(anim_s, over_s, w),
+                            Quat::slerp(anim_r, over_r, w),
+                            Vec3::lerp(anim_t, over_t, w),
+                        )
+                    })
+                    .collect(),
+            }
         };
 
         if let Some((mesh_registry, queue)) = gpu.as_mut() {
@@ -1165,6 +1216,7 @@ mod tests {
             },
             nodes: vec![NodeTransform::default()],
             pose_override: Vec::new(),
+            pose_override_weight: 1.0,
             joint_matrices: Vec::new(),
         }
     }
@@ -1303,6 +1355,7 @@ mod tests {
                     skin_data,
                     nodes,
                     pose_override: Vec::new(),
+                    pose_override_weight: 1.0,
                     joint_matrices: Vec::new(),
                 },
                 AnimationClipLibrary { clips },
@@ -1380,6 +1433,7 @@ mod tests {
                     },
                     nodes: one_node(),
                     pose_override: Vec::new(),
+                    pose_override_weight: 1.0,
                     joint_matrices: Vec::new(),
                 },
                 AnimationClipLibrary { clips },
@@ -1454,5 +1508,124 @@ mod tests {
                  path produced, not merely close to it"
             );
         }
+    }
+
+    // ---- pose_override_weight (roadmap item 52, sub-step 2/2, Task 3a) ----
+    //
+    // These three tests prove that adding the weight field changed nothing for
+    // the cases that existed before it, and that the blended path lands strictly
+    // between the two endpoints (not quietly returning one of them).
+
+    #[test]
+    fn a_full_weight_override_is_byte_identical_to_no_weight_at_all() {
+        // The whole claim of this task. Prove the restructure changed nothing:
+        // weight 1.0 with an override must produce exactly the same matrices as
+        // the old binary branch that had no weight concept.
+        let (mut app, entity) = one_joint_app();
+
+        // Override: translate the node to (7, -2, 0).
+        app.world_mut()
+            .get_mut::<SkinnedMesh>(entity)
+            .unwrap()
+            .pose_override = vec![Mat4::from_translation(Vec3::new(7.0, -2.0, 0.0))];
+        // Weight stays at its constructed default of 1.0.
+        app.update();
+
+        let result = app
+            .world()
+            .get::<SkinnedMesh>(entity)
+            .unwrap()
+            .joint_matrices[0]
+            .transform_point3(Vec3::ZERO);
+        assert!(
+            result.abs_diff_eq(Vec3::new(7.0, -2.0, 0.0), 0.001),
+            "weight 1.0 must be bit-for-bit the override; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn a_zero_weight_override_gives_back_exactly_the_animated_pose() {
+        // The other endpoint: weight 0 with an override must equal what an
+        // empty override gives (the clip-driven pose). This is the guarantee
+        // that Task 3b can safely coast to 0 and fully restore animation.
+        let (mut app, entity) = one_joint_app();
+
+        // Compute the clip-driven reference first, no override.
+        app.update();
+        let animated = app
+            .world()
+            .get::<SkinnedMesh>(entity)
+            .unwrap()
+            .joint_matrices[0];
+
+        // Now set an override that would send the joint somewhere completely
+        // different, but drive the weight to zero.
+        {
+            let mut skinned = app.world_mut().get_mut::<SkinnedMesh>(entity).unwrap();
+            skinned.pose_override = vec![Mat4::from_translation(Vec3::new(100.0, 0.0, 0.0))];
+            skinned.pose_override_weight = 0.0;
+        }
+        app.update();
+
+        let result = app
+            .world()
+            .get::<SkinnedMesh>(entity)
+            .unwrap()
+            .joint_matrices[0];
+        assert_eq!(
+            result.to_cols_array(),
+            animated.to_cols_array(),
+            "weight 0.0 must yield exactly the animated pose, not the override"
+        );
+    }
+
+    #[test]
+    fn a_half_weight_override_lands_between_the_two() {
+        // Assert the blended result differs measurably from BOTH endpoints.
+        // A blend that quietly returns one endpoint passes any weaker check.
+        let (mut app, entity) = one_joint_app();
+
+        // Animated pose: node at (0, 3, 0) per the wiggle clip.
+        // Override: node at (10, 3, 0) — same Y so only X differs, making the
+        // arithmetic easy to reason about.
+        app.update();
+        let animated_pt = app
+            .world()
+            .get::<SkinnedMesh>(entity)
+            .unwrap()
+            .joint_matrices[0]
+            .transform_point3(Vec3::ZERO);
+
+        {
+            let mut skinned = app.world_mut().get_mut::<SkinnedMesh>(entity).unwrap();
+            skinned.pose_override = vec![Mat4::from_translation(Vec3::new(10.0, 3.0, 0.0))];
+            skinned.pose_override_weight = 0.5;
+        }
+        app.update();
+
+        let blended_pt = app
+            .world()
+            .get::<SkinnedMesh>(entity)
+            .unwrap()
+            .joint_matrices[0]
+            .transform_point3(Vec3::ZERO);
+
+        // Half-blend of X=0 (animated) and X=10 (override) should be near 5.
+        assert!(
+            (blended_pt.x - 5.0).abs() < 0.01,
+            "half weight should blend X to ~5.0, got {blended_pt:?}"
+        );
+        // Must differ from the animated endpoint (X=0).
+        assert!(
+            (blended_pt.x - animated_pt.x).abs() > 1.0,
+            "half blend must differ measurably from the animated pose; \
+             animated={animated_pt:?}, blended={blended_pt:?}"
+        );
+        // Must differ from the override endpoint (X=10).
+        assert!(
+            (blended_pt.x - 10.0).abs() > 1.0,
+            "half blend must differ measurably from the full override; \
+             blended={blended_pt:?}"
+        );
     }
 }

@@ -291,7 +291,11 @@ fn sync_ragdolls(
     let stale: Vec<Entity> = built
         .keys()
         .copied()
-        .filter(|&owner| !ragdolls.get(owner).is_ok_and(|(_, r, _)| r.active))
+        .filter(|&owner| {
+            !ragdolls
+                .get(owner)
+                .is_ok_and(|(_, r, _)| r.active || r.return_remaining > 0.0)
+        })
         .collect();
     for owner in stale {
         for (_, bone) in built.remove(&owner).into_iter().flat_map(|b| b.bones) {
@@ -431,8 +435,11 @@ fn sync_ragdolls(
 /// leaves the character frozen in the pose it died in.
 fn publish_ragdoll_pose(
     bones: Query<(&RagdollBone, &PhysicsTransform)>,
-    mut owners: Query<(Entity, &Ragdoll, &mut SkinnedMesh)>,
+    mut owners: Query<(Entity, &mut Ragdoll, &mut SkinnedMesh)>,
+    time: Option<Res<bsengine_core::Time>>,
 ) {
+    let dt = time.as_ref().map(|t| t.delta_seconds).unwrap_or(0.0);
+
     let mut by_owner: HashMap<Entity, HashMap<usize, (Vec3, Quat)>> = HashMap::new();
     for (bone, transform) in bones.iter() {
         by_owner
@@ -441,8 +448,9 @@ fn publish_ragdoll_pose(
             .insert(bone.node, (transform.position.0, transform.rotation.0));
     }
 
-    for (owner, ragdoll, mut skinned) in owners.iter_mut() {
-        let poses = by_owner.get(&owner).filter(|_| ragdoll.active);
+    for (owner, mut ragdoll, mut skinned) in owners.iter_mut() {
+        let is_active = ragdoll.active || ragdoll.return_remaining > 0.0;
+        let poses = by_owner.get(&owner).filter(|_| is_active);
         let Some(poses) = poses else {
             // `is_empty` first, not an unconditional `clear`: taking `&mut` out
             // of the `Mut` marks the component changed, and every skinned mesh
@@ -453,6 +461,24 @@ fn publish_ragdoll_pose(
             }
             continue;
         };
+
+        // While returning to animation: update the blend weight from the
+        // countdown, then tick the countdown down.  When it hits zero, hand
+        // off to animation immediately -- the pose published here would be
+        // discarded anyway, so skip it and clear the override.
+        if !ragdoll.active && ragdoll.return_remaining > 0.0 {
+            if ragdoll.return_duration > 0.0 {
+                skinned.pose_override_weight = ragdoll.return_remaining / ragdoll.return_duration;
+            }
+            ragdoll.return_remaining = (ragdoll.return_remaining - dt).max(0.0);
+            if ragdoll.return_remaining == 0.0 {
+                if !skinned.pose_override.is_empty() {
+                    skinned.pose_override.clear();
+                }
+                skinned.pose_override_weight = 1.0;
+                continue;
+            }
+        }
 
         let radius = ragdoll.bone_radius.max(1.0e-3);
         let plans = plan_bones(&skinned.nodes, radius, ragdoll.total_mass);
@@ -1253,6 +1279,7 @@ mod tests {
             },
             nodes,
             pose_override: Vec::new(),
+            pose_override_weight: 1.0,
             joint_matrices: Vec::new(),
         }
     }
@@ -1558,6 +1585,7 @@ mod tests {
                 node("Ankle", [0.0, -1.0, 0.0], Some(1)),
             ],
             pose_override: Vec::new(),
+            pose_override_weight: 1.0,
             joint_matrices: Vec::new(),
         }
     }
@@ -1918,6 +1946,164 @@ mod tests {
             "with the ragdoll off the clip drives the root back to x = {}, got \
              {animated:?}",
             CLIP_ROOT.x
+        );
+    }
+
+    // ---- Ragdoll return blend (roadmap item 52, sub-step 2/2, Task 3b) ---
+    //
+    // The blend ENDS at the animation pose, so an implementation that skips
+    // blending entirely and snaps immediately reaches an identical final state.
+    // Only the intermediate frames differ, which is why "after returning the
+    // pose is the animated pose" cannot stand alone: it passes on a snap.
+    // The mid-blend test is the load-bearing one.
+
+    /// Starts a skinned character with an active ragdoll (no gravity, no
+    /// floor) and advances until the skeleton has been driven by physics for
+    /// a bit, then manually starts a return blend and returns the app, the
+    /// owner entity, and the root position as the physics bodies left it.
+    fn start_return_blend(blend_duration: f32) -> (App, Entity, Vec3) {
+        let (mut app, owner) = skinned_character(Some(Ragdoll {
+            active: true,
+            ..Default::default()
+        }));
+        // No gravity: every bone falls identically, so the skeleton moves as a
+        // rigid body.  The clip would put the root at CLIP_ROOT (x = 50); the
+        // ragdoll keeps it at the rest position (x = 0).  The two poses are far
+        // enough apart that a non-blending implementation is detectable.
+        app.world_mut()
+            .resource_mut::<PhysicsWorld>()
+            .set_gravity(0.0);
+
+        // A few frames so bodies exist and pose_override is populated.
+        for _ in 0..5 {
+            app.update();
+        }
+
+        // Record where the ragdoll has driven the root to.
+        let ragdoll_root = skinned_node_positions(&app, owner)[0];
+
+        // Start the return blend by writing the runtime fields directly.
+        // In a running game these are set by the ASM bridge in
+        // `bsengine-app`; tests in *this* crate drive the physics layer only.
+        {
+            let mut r = app.world_mut().get_mut::<Ragdoll>(owner).unwrap();
+            r.active = false;
+            r.return_remaining = blend_duration;
+            r.return_duration = blend_duration;
+        }
+
+        // Set a fixed time step so the blend ticks predictably.
+        {
+            let mut t = bsengine_core::Time::default();
+            t.set_delta_for_test(0.1);
+            app.insert_resource(t);
+        }
+
+        (app, owner, ragdoll_root)
+    }
+
+    #[test]
+    fn returning_from_a_ragdoll_blends_rather_than_snapping() {
+        // THE test.  The blend ENDS at the animation pose, so an
+        // implementation that skips blending entirely and snaps immediately
+        // reaches an identical final state -- only the intermediate frames
+        // differ.  A test asserting "after returning the pose is the animated
+        // pose" passes on a snap.
+        //
+        // So sample MID-BLEND and assert the pose is neither the ragdoll pose
+        // nor the animated pose.  Without this the whole feature can be a
+        // no-op with every other test green.
+        //
+        // blend_duration = 0.5 s, dt = 0.1 s → blend takes 5 frames.
+        // Frame 1 of return: weight = 0.5/0.5 = 1.0 (still ragdoll)
+        // Frame 2 of return: weight = 0.4/0.5 = 0.8 (mid-blend)
+        // We check after frame 2.
+        let (mut app, owner, ragdoll_root) = start_return_blend(0.5);
+
+        // Two frames into the return blend.
+        app.update();
+        app.update();
+
+        let root = skinned_node_positions(&app, owner)[0];
+
+        // The clip drives the root to CLIP_ROOT.x = 50; the ragdoll left it
+        // near REST_POSITIONS[0].x = 0.  Mid-blend the root must be a
+        // MEANINGFUL fraction of the way between them.
+        //
+        // "Strictly between the two" is not enough and was the first version of
+        // this assertion: the bones keep settling under the joint solver, so
+        // the live physics pose drifts a hair off `ragdoll_root`, and a
+        // completely unblended pose satisfies `> ragdoll_root.x` by that noise
+        // alone.  Pinning the weight to 1.0 -- no blending at all -- passed.
+        // The band below fails on that mutation, which is the only reason this
+        // test is worth having.
+        //
+        // Expected here: two frames in, weight = 0.4/0.5 = 0.8 override, so the
+        // root sits about 20% of the way toward the clip.
+        let frac = (root.x - ragdoll_root.x) / (CLIP_ROOT.x - ragdoll_root.x);
+        assert!(
+            (0.05..0.95).contains(&frac),
+            "mid-blend: the root should be a real fraction of the way from the \
+             ragdoll pose (x = {}) to the clip pose (x = {}), but sits at {:.4} \
+             of the way (x = {}). Near 0 means it never blended and snapped at \
+             the end; near 1 means it snapped to the animation immediately.",
+            ragdoll_root.x,
+            CLIP_ROOT.x,
+            frac,
+            root.x
+        );
+    }
+
+    #[test]
+    fn the_return_blend_finishes_at_the_animated_pose() {
+        // The endpoint still has to be right.  Cannot stand alone (see above).
+        // blend_duration = 0.5 s, dt = 0.1 s → 5 frames to complete.
+        let (mut app, owner, _) = start_return_blend(0.5);
+
+        // Run until the blend timer would have expired (6 frames ≥ 5 needed).
+        for _ in 0..6 {
+            app.update();
+        }
+
+        let root = skinned_node_positions(&app, owner)[0];
+        assert!(
+            (root.x - CLIP_ROOT.x).abs() < 0.5,
+            "after the return blend completes the clip drives the root back to \
+             x = {}; got x = {}",
+            CLIP_ROOT.x,
+            root.x
+        );
+        assert!(
+            app.world()
+                .get::<SkinnedMesh>(owner)
+                .unwrap()
+                .pose_override
+                .is_empty(),
+            "the pose_override must be cleared once the return blend finishes"
+        );
+    }
+
+    #[test]
+    fn the_ragdoll_bodies_outlive_the_return_blend() {
+        // The blend interpolates FROM the ragdoll pose, so the bodies must
+        // still exist while it runs.  Assert the bone entities are still
+        // present mid-blend, and gone once it completes.
+        let (mut app, _owner, _) = start_return_blend(0.5);
+
+        // Mid-blend: bones must still be present.
+        app.update(); // frame 1 of return
+        assert!(
+            !bone_bodies(&mut app).is_empty(),
+            "bone entities must still exist during the return blend"
+        );
+
+        // Run past the end of the blend.
+        for _ in 0..6 {
+            app.update();
+        }
+        assert!(
+            bone_bodies(&mut app).is_empty(),
+            "bone entities must be despawned once the return blend completes"
         );
     }
 

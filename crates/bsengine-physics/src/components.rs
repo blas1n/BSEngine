@@ -276,6 +276,17 @@ pub struct Ragdoll {
     pub bone_radius: f32,
     /// Total mass, distributed across bones in proportion to bone length.
     pub total_mass: f32,
+    /// Seconds left in the blend back to animation, counting down. Zero means
+    /// no return is in progress.
+    ///
+    /// Runtime state, not authored content -- hence not reflected.
+    #[reflect(ignore)]
+    pub return_remaining: f32,
+    /// What `return_remaining` started at, so the blend weight is a ratio.
+    ///
+    /// Runtime state, not authored content -- hence not reflected.
+    #[reflect(ignore)]
+    pub return_duration: f32,
 }
 
 impl Default for Ragdoll {
@@ -285,6 +296,8 @@ impl Default for Ragdoll {
             joint_overrides: std::collections::HashMap::new(),
             bone_radius: 0.08,
             total_mass: 70.0,
+            return_remaining: 0.0,
+            return_duration: 0.0,
         }
     }
 }

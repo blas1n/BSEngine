@@ -2427,11 +2427,11 @@ Rapier가 아무도 가리키지 않는 바디를 계속 구속함.
 
 **완료 조건:**
 - [x] `Ragdoll` 컴포넌트 — 스켈레톤 본 계층을 item 51 조인트로 자동 구성
-- [ ] 애니메이션 상태 기계 → 래그돌 전환(사망 트리거) 및 필요 시 복귀 — **sub-step 2/2, 남음**
-- [ ] 데모(기존 캐릭터 사망 시 래그돌)로 검증 — **sub-step 2/2, 남음**
+- [x] 애니메이션 상태 기계 → 래그돌 전환(사망 트리거) 및 필요 시 복귀
+- [x] 데모(기존 캐릭터 사망 시 래그돌)로 검증
 - [x] 테스트 추가, CI 통과
 
-**진행 중 — sub-step 1/2(구성 + 물리가 스키닝을 구동)만 완료.**
+**완료 (2026-09-02).** sub-step 1/2는 PR #1819, sub-step 2/2는 아래.
 [[feedback_split_when_complexity_grows]]에 따라 분할. ASM 연동(사망 트리거/복귀)과 그걸 쓰는
 데모가 sub-step 2/2. 분할 이유: 래그돌이 이상해 보일 때 바디/조인트 구성이 틀린 건지,
 물리→스키닝 소싱이 틀린 건지, ASM 전환 타이밍이 틀린 건지를 구분할 수 있게.
@@ -2470,6 +2470,40 @@ total_mass }` — **`active` 기본값은 false**라 컴포넌트를 붙이는 �
 
 `RagdollBone`(스폰된 본 바디의 마커)은 `pub(crate)`라 catalog R1 면제 — `PendingGltf`/
 `PendingTerrain` 비공개 마커 선례와 동일. 현재 65 컴포넌트 / 266 ops, 0 위반.
+
+**sub-step 2/2 완료: PR #1820 (2026-09-02).** `AsmState`에 `ragdoll: bool` 추가 —
+`ragdoll: true` 상태로 전환하면 `Ragdoll.active`가 켜짐. **사망은 새 메커니즘이 아니라
+평범한 ASM 전환**이고, 래그돌은 그 전환이 도달한 상태의 결과일 뿐. **예약 상태 이름
+("Ragdoll") 방식은 거절** — 오타가 조용히 실패하고 로컬라이즈된 상태 이름에서 깨짐.
+
+**`#[serde(default)]`만으로는 하위 호환이 되지 않았음 — 이번 작업의 가장 큰 발견.** 씬
+컴포넌트는 serde가 아니라 `TypedReflectDeserializer`로 역직렬화되고, 이건 구조적으로 재귀하며
+**모든 reflect 필드가 RON에 있어야 함**. 없으면 에러가 아니라 **담고 있는 컬렉션이 빈 채로
+돌아옴** — 상태 기계의 `states`가 조용히 `{}`가 되고, 캐릭터는 멀쩡히 로드된 뒤 그냥 애니메이션을
+안 함(로그 한 줄 없음). `blend`를 추가했을 때 mini-arena가 실제로 이렇게 깨졌고 씬을 고쳐서
+덮었던 전례가 있음. 이번엔 **`AsmState`에 `ReflectDeserialize`/`ReflectSerialize`를 등록**해
+serde 경로로 보내서 `#[serde(default)]`가 처음으로 실제 의미를 갖게 함. mini-arena 씬은
+**손대지 않았고, 손댈 필요가 없다는 것 자체가 증거** — `a_state_machines_states_survive_deserialization`이
+defaulted 필드를 RON에서 생략한 채로 두는 이유.
+
+같은 계열의 잠복 버그를 하나 더 발견: **`AsmTransition`/`TransitionCondition`이 등록된 적이
+없었음.** 지금까지 모든 씬이 `transitions: []`로 저작돼 있었고 빈 Vec은 원소 타입이 레지스트리에
+없어도 통과하기 때문. 비어 있지 않은 전환 목록은 조용히 `[]`로 역직렬화됐음.
+
+**복귀 블렌딩:** 래그돌을 끄면 본이 애니메이션 포즈로 순간이동하면 안 됨. `SkinnedMesh`에
+`pose_override_weight`(기본 1.0, `#[reflect(ignore)]`)를 추가해 gltf가 물리 globals와 클립
+globals를 노드별로 decompose/slerp/recompose로 섞음. **가중치가 `SkinnedMesh`를 통해 전달되는
+이유는 크레이트 방향** — physics가 gltf에 의존하지 그 반대가 아니라서 gltf는 래그돌을 알면 안 됨.
+`Ragdoll.return_remaining`/`return_duration`(둘 다 `#[reflect(ignore)]` 런타임 상태)이
+카운트다운을 들고, **바디는 블렌딩이 끝난 뒤에 제거** — 블렌딩이 래그돌 포즈에서 출발하므로.
+
+**중간 프레임 단언이 유일하게 의미 있는 단언이고, 첫 버전은 작동하지 않았음.** 블렌딩은 *끝날 때*
+애니메이션 포즈에 도달하므로 아예 스냅해도 최종 상태가 동일함. 처음 작성된 단언은 루트가 래그돌
+포즈와 클립 포즈 "사이에 엄격히 있다"였는데, 조인트 솔버가 계속 본을 안정화시켜서 실제 물리 포즈가
+기록해둔 값에서 ~2e-12 어긋나고, **그 노이즈만으로 부등식이 만족됨**. `pose_override_weight`를
+1.0에 고정해 블렌딩을 완전히 죽인 뮤테이션이 그대로 통과했음. 지금은 "전체 거리의 실질적 비율
+(0.05..0.95)만큼 이동했다"를 단언하고 그 뮤테이션에서 실패함. [[feedback_narrow_window_broad_assertion]]
+의 정확한 재발 — 이번엔 "사이에 있다"가 노이즈로 충족된 형태.
 
 ---
 

@@ -12,7 +12,7 @@ use rapier3d::prelude::*;
 use crate::{
     components::{
         CharacterBody, Collider, ColliderShape, CollisionEvent, Joint, PhysicsHandles,
-        PhysicsInput, PhysicsTransform, Ragdoll, RagdollBone, RigidBody, RigidBodyType,
+        PhysicsInput, PhysicsTransform, Ragdoll, RagdollBone, RigidBody, RigidBodyType, Vehicle,
     },
     ragdoll::{plan_bones, pose_from_bones},
     world::PhysicsWorld,
@@ -59,6 +59,13 @@ impl Plugin for PhysicsPlugin {
                 // bodies register rather than the frame after; before
                 // `step_world`, so it constrains that very step.
                 sync_joints,
+                // After `spawn_bodies`, because the chassis body it looks up
+                // does not exist until then; before `step_world`, because
+                // `update_vehicle` applies impulses and an impulse added after
+                // the step has integrated does not move the car until the next
+                // frame. That failure is quiet -- the car still drives, just a
+                // frame behind, which reads as sluggish handling.
+                sync_vehicles,
                 step_world,
                 sync_from_rapier,
                 // After `sync_from_rapier`, which is what puts this step's
@@ -254,6 +261,95 @@ fn sync_joints(
 /// still collides with everything else in the world: Rapier requires both
 /// sides to accept, and an ordinary collider's default filter is `ALL`.
 const RAGDOLL_GROUP: Group = Group::GROUP_32;
+
+/// The chassis-space direction a wheel ray is cast along: straight down.
+///
+/// Not authored. `add_wheel` wants a basis vector, but it follows from the
+/// chassis convention (+Y up, -Z forward) rather than being a per-wheel choice,
+/// so a scene author writes a mount point and a radius instead.
+const WHEEL_RAY_DIRECTION: Vector = Vector::new(0.0, -1.0, 0.0);
+
+/// The chassis-space axle a wheel spins about: the lateral axis.
+///
+/// Not authored, for the same reason as [`WHEEL_RAY_DIRECTION`].
+const WHEEL_AXLE: Vector = Vector::new(-1.0, 0.0, 0.0);
+
+/// Builds a Rapier vehicle controller for each [`Vehicle`], pushes this frame's
+/// throttle/steering/brake into it, and steps it.
+///
+/// The controller holds its wheel state outside the ECS, so it lives in a
+/// `Local` side table keyed by entity — the same shape [`sync_ragdolls`] uses
+/// for the bodies it builds, and for the same reason.
+fn sync_vehicles(
+    mut world: ResMut<PhysicsWorld>,
+    mut controllers: Local<HashMap<Entity, rapier3d::control::DynamicRayCastVehicleController>>,
+    vehicles: Query<(Entity, &Vehicle)>,
+) {
+    // Tear down first, matching `sync_ragdolls`. A lookup that misses covers an
+    // entity that despawned and one that merely lost its `Vehicle`; neither is
+    // in `vehicles` any more, and without this the table grows forever and a
+    // re-added `Vehicle` would inherit the old controller's wheels.
+    let stale: Vec<Entity> = controllers
+        .keys()
+        .copied()
+        .filter(|e| vehicles.get(*e).is_err())
+        .collect();
+    for entity in stale {
+        controllers.remove(&entity);
+    }
+
+    for (entity, vehicle) in vehicles.iter() {
+        let Some(&chassis) = world.entity_body_map.get(&entity) else {
+            // No body yet. `spawn_bodies` runs before this, so this is a
+            // vehicle whose `RigidBody`/`Collider` are missing rather than a
+            // one-frame lag; leaving it alone is what lets it start working if
+            // they arrive later.
+            continue;
+        };
+
+        let controller = controllers.entry(entity).or_insert_with(|| {
+            let mut c = rapier3d::control::DynamicRayCastVehicleController::new(chassis);
+            for wheel in &vehicle.wheels {
+                // `..Default::default()` for the fields `WheelConfig` does not
+                // expose (max suspension force, side friction stiffness),
+                // rather than assigning field by field after a `default()`.
+                let tuning = rapier3d::control::WheelTuning {
+                    suspension_stiffness: wheel.suspension_stiffness,
+                    suspension_compression: wheel.damping_compression,
+                    suspension_damping: wheel.damping_relaxation,
+                    friction_slip: wheel.friction_slip,
+                    max_suspension_travel: wheel.max_suspension_travel,
+                    ..Default::default()
+                };
+                let c_ws = wheel.connection.0;
+                c.add_wheel(
+                    Vector::new(c_ws.x, c_ws.y, c_ws.z),
+                    WHEEL_RAY_DIRECTION,
+                    WHEEL_AXLE,
+                    wheel.suspension_rest_length,
+                    wheel.radius,
+                    &tuning,
+                );
+            }
+            c
+        });
+
+        // Push this frame's inputs in. Engine force reaches only `drives`
+        // wheels and steering only `steers` wheels, so a rear-wheel-drive,
+        // front-steering car falls out of the authored layout rather than
+        // needing a drivetrain enum.
+        for (i, cfg) in vehicle.wheels.iter().enumerate() {
+            let Some(w) = controller.wheels_mut().get_mut(i) else {
+                break;
+            };
+            w.engine_force = if cfg.drives { vehicle.throttle } else { 0.0 };
+            w.steering = if cfg.steers { vehicle.steering } else { 0.0 };
+            w.brake = vehicle.brake;
+        }
+
+        world.update_vehicle(controller);
+    }
+}
 
 /// What [`sync_ragdolls`] built for one ragdoll, so switching it off can take
 /// away exactly what switching it on put there.
@@ -2171,5 +2267,217 @@ mod tests {
              either it fell through the collider entirely or the shape is not \
              where the height data says it should be"
         );
+    }
+
+    // ---- Vehicle physics (roadmap item 53, sub-step 1/2) -----------------
+
+    /// A car on flat ground, with `Time` inserted so the controller advances by
+    /// a fixed step and the numbers below are reproducible.
+    ///
+    /// The wheels mount at local y = -0.2, INSIDE the chassis box (local y
+    /// spans -0.4..0.4), which is where real wheels sit and what makes the
+    /// chassis exclusion in `PhysicsWorld::update_vehicle` load-bearing. The
+    /// suspension reaches 0.5 + 0.35 = 0.85 from a mount at world y = 0.8, so
+    /// it touches the ground at y = 0 with a little compression.
+    fn car_on_flat_ground(throttle: f32, steering: f32, brake: f32) -> (App, Entity) {
+        let mut app = App::new();
+        app.add_plugins(PhysicsPlugin);
+        let mut t = bsengine_core::Time::default();
+        t.set_delta_for_test(1.0 / 60.0);
+        app.insert_resource(t);
+
+        // Ground: top face at y = 0.
+        app.world_mut().spawn((
+            RigidBody::fixed(),
+            Collider::cuboid(100.0, 0.5, 100.0),
+            PhysicsInput {
+                position: Vec3::new(0.0, -0.5, 0.0).into(),
+                rotation: Default::default(),
+            },
+        ));
+
+        let wheels = vec![
+            wheel_at(Vec3::new(0.8, -0.2, 1.4), true, false),
+            wheel_at(Vec3::new(-0.8, -0.2, 1.4), true, false),
+            wheel_at(Vec3::new(0.8, -0.2, -1.4), false, true),
+            wheel_at(Vec3::new(-0.8, -0.2, -1.4), false, true),
+        ];
+        let car = app
+            .world_mut()
+            .spawn((
+                RigidBody::dynamic(),
+                Collider::cuboid(0.9, 0.4, 2.0),
+                PhysicsInput {
+                    position: Vec3::new(0.0, 1.0, 0.0).into(),
+                    rotation: Default::default(),
+                },
+                Vehicle {
+                    wheels,
+                    throttle,
+                    steering,
+                    brake,
+                },
+            ))
+            .id();
+        (app, car)
+    }
+
+    fn wheel_at(at: Vec3, steers: bool, drives: bool) -> crate::components::WheelConfig {
+        let mut w = crate::components::WheelConfig::new(at.into(), 0.35);
+        w.suspension_rest_length = 0.5;
+        w.steers = steers;
+        w.drives = drives;
+        w
+    }
+
+    fn car_position(app: &App, car: Entity) -> Vec3 {
+        app.world()
+            .get::<PhysicsTransform>(car)
+            .expect("the car keeps its physics transform")
+            .position
+            .0
+    }
+
+    fn car_rotation(app: &App, car: Entity) -> Quat {
+        app.world()
+            .get::<PhysicsTransform>(car)
+            .expect("the car keeps its physics transform")
+            .rotation
+            .0
+    }
+
+    fn drive_for(app: &mut App, frames: usize) {
+        for _ in 0..frames {
+            app.update();
+        }
+    }
+
+    #[test]
+    fn throttle_drives_the_car_forward() {
+        // The headline assertion of the whole feature.
+        //
+        // The bound is METRES, deliberately. An earlier feature in this repo
+        // shipped a test whose bound was satisfied by ~2e-12 of solver settling
+        // noise and passed with the feature disabled; "it moved" has to mean
+        // moved.
+        //
+        // Measured: 14.0 m against a 1.0 m bound, versus 0.034 m for the
+        // no-throttle pair -- a ~400x separation, so neither test is anywhere
+        // near its threshold. Cutting the `engine_force` assignment in
+        // `sync_vehicles` drops this to 0.03444338 m, byte-identical to the
+        // idle run, which is what proves the distance comes from the throttle
+        // path and not from rolling or settling.
+        let (mut app, car) = car_on_flat_ground(20.0, 0.0, 0.0);
+        drive_for(&mut app, 1);
+        let start = car_position(&app, car);
+        drive_for(&mut app, 120);
+        let travelled = (car_position(&app, car) - start).length();
+        println!("throttle run travelled {travelled} m in 120 frames");
+        assert!(
+            travelled > 1.0,
+            "a car under throttle must cover real ground in two seconds; it \
+             moved {travelled} m, which is settling, not driving"
+        );
+    }
+
+    #[test]
+    fn a_car_with_no_throttle_stays_put() {
+        // The pair. Without it, an implementation that applies engine force
+        // unconditionally -- or one that ignores `drives` -- passes the test
+        // above. The tolerance covers the suspension settling onto its springs
+        // and is far below the metre the driving test demands.
+        let (mut app, car) = car_on_flat_ground(0.0, 0.0, 0.0);
+        drive_for(&mut app, 1);
+        let start = car_position(&app, car);
+        drive_for(&mut app, 120);
+        let drift = (car_position(&app, car) - start).length();
+        println!("idle run drifted {drift} m in 120 frames");
+        assert!(
+            drift < 0.25,
+            "a car with no throttle must stay where it is; it moved {drift} m"
+        );
+    }
+
+    #[test]
+    fn braking_slows_a_rolling_car() {
+        // Two runs from the same rolling start, one braking and one not. A
+        // single-run "the speed went down" test also passes on plain friction,
+        // which is why the control run is the assertion.
+        let roll = |brake: f32| {
+            let (mut app, car) = car_on_flat_ground(20.0, 0.0, 0.0);
+            drive_for(&mut app, 60);
+            {
+                let mut v = app.world_mut().get_mut::<Vehicle>(car).unwrap();
+                v.throttle = 0.0;
+                v.brake = brake;
+            }
+            drive_for(&mut app, 60);
+            let world = app.world().resource::<PhysicsWorld>();
+            world.get_linvel(car).unwrap_or(Vec3::ZERO).length()
+        };
+        let coasting = roll(0.0);
+        let braking = roll(50.0);
+        println!("coasting ended at {coasting} m/s, braking at {braking} m/s");
+        assert!(
+            braking < coasting * 0.75,
+            "braking must slow the car materially more than coasting does: \
+             coasting ended at {coasting} m/s, braking at {braking} m/s"
+        );
+    }
+
+    #[test]
+    fn steering_changes_the_heading_not_just_the_position() {
+        // Asserts on ROTATION. A car shoved sideways also changes position, so
+        // position alone does not show that steering works.
+        let (mut app, car) = car_on_flat_ground(20.0, 0.5, 0.0);
+        drive_for(&mut app, 1);
+        let start = car_rotation(&app, car);
+        drive_for(&mut app, 120);
+        let ended = car_rotation(&app, car);
+        let turned = start.angle_between(ended).to_degrees();
+        println!("steered run turned {turned} degrees");
+        assert!(
+            turned > 5.0,
+            "a steering car must actually change heading; it turned {turned} \
+             degrees, which is body roll, not steering"
+        );
+    }
+
+    #[test]
+    fn suspension_holds_the_chassis_off_the_ground() {
+        // What distinguishes working suspension from a box lying on the floor.
+        // The chassis half-height is 0.4, so resting directly on the ground
+        // would put its centre at y = 0.4; the suspension should hold it
+        // meaningfully higher.
+        let (mut app, car) = car_on_flat_ground(0.0, 0.0, 0.0);
+        drive_for(&mut app, 180);
+        let y = car_position(&app, car).y;
+        println!("chassis settled at y = {y}");
+        assert!(
+            y > 0.55,
+            "the suspension must hold the chassis clear of the ground; its \
+             centre settled at y = {y}, and 0.4 is the collider resting flat"
+        );
+    }
+
+    #[test]
+    fn a_vehicle_whose_component_is_removed_loses_its_controller() {
+        // Mirrors `sync_ragdolls`' stale sweep: without it the side table grows
+        // forever, and a re-added `Vehicle` inherits the old wheels.
+        let (mut app, car) = car_on_flat_ground(0.0, 0.0, 0.0);
+        drive_for(&mut app, 2);
+        app.world_mut().entity_mut(car).remove::<Vehicle>();
+        drive_for(&mut app, 2);
+        // Re-adding must give a fresh controller rather than reviving the old
+        // one: a stale controller holding four wheels indexed against this
+        // one-wheel config is the bug this guards.
+        app.world_mut().entity_mut(car).insert(Vehicle {
+            wheels: vec![wheel_at(Vec3::new(0.0, -0.2, 0.0), false, true)],
+            throttle: 0.0,
+            steering: 0.0,
+            brake: 0.0,
+        });
+        drive_for(&mut app, 2);
+        assert!(app.world().get::<Vehicle>(car).is_some());
     }
 }

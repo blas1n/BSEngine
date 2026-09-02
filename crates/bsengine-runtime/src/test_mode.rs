@@ -3074,4 +3074,90 @@ mod tests {
              playing its animation"
         );
     }
+
+    #[test]
+    fn the_demo_car_drives_when_its_throttle_key_is_held() {
+        // Drives the whole real path end-to-end: a held key reaches
+        // `drive.js`, which calls `Bsengine.vehicle.setThrottle`, which queues
+        // a `SetVehicleInput`, which writes the `Vehicle` component, which
+        // `sync_vehicles` feeds to the Rapier controller, whose wheel rays have
+        // to reach the ground. No crate-level test covers that chain.
+        //
+        // Pressing the key rather than writing `Vehicle.throttle` directly is
+        // load-bearing, not stylistic. The first version of this test set the
+        // field and measured 0.23 m: `drive.js` runs every frame and set the
+        // throttle straight back to 0.0, because no key was held. Writing the
+        // component fights the script that a real player drives through.
+        let run = |hold_throttle: bool| -> f32 {
+            let project_dir = format!("{}/../../games/vehicle-demo", env!("CARGO_MANIFEST_DIR"));
+            let mut app = build_test_app(&project_dir, None, false);
+            let mut frame: u64 = 0;
+
+            let car = |app: &mut App| {
+                let mut q = app
+                    .world_mut()
+                    .query::<(&bsengine_scene::Name, bevy_ecs::prelude::Entity)>();
+                q.iter(app.world())
+                    .find(|(n, _)| n.0 == "Car")
+                    .map(|(_, e)| e)
+                    .expect("the demo scene must contain a Car")
+            };
+
+            // Settle onto the suspension first, so what is measured below is
+            // driving rather than the initial drop.
+            execute_command(&mut app, &mut frame, Command::Step { frames: 30 });
+
+            let e = car(&mut app);
+            // An unregistered element type yields an empty `Vec` rather than an
+            // error, and a car with no wheels reads as "the throttle does not
+            // work" instead of as a load failure. Worth separating.
+            let wheels = app
+                .world()
+                .get::<bsengine_physics::Vehicle>(e)
+                .expect("the Car must have a Vehicle component")
+                .wheels
+                .len();
+            assert_eq!(wheels, 4, "all four authored wheels must survive the load");
+
+            if hold_throttle {
+                let (resp, _) = execute_command(
+                    &mut app,
+                    &mut frame,
+                    Command::PressKey {
+                        key: "W".to_string(),
+                    },
+                );
+                assert!(resp.ok, "PressKey should succeed: {:?}", resp.error);
+            }
+
+            let start = app
+                .world()
+                .get::<bsengine_physics::PhysicsTransform>(e)
+                .unwrap()
+                .position
+                .0;
+            execute_command(&mut app, &mut frame, Command::Step { frames: 120 });
+            let end = app
+                .world()
+                .get::<bsengine_physics::PhysicsTransform>(e)
+                .unwrap()
+                .position
+                .0;
+            (end - start).length()
+        };
+
+        let driven = run(true);
+        let coasted = run(false);
+        println!("demo car: {driven} m holding W, {coasted} m without");
+        assert!(
+            driven > 1.0,
+            "the demo car must cover real ground with the throttle key held; \
+             it moved {driven} m, which is settling, not driving"
+        );
+        assert!(
+            coasted < driven * 0.25,
+            "the distance must come from the throttle: with no key held the \
+             car moved {coasted} m against {driven} m driven"
+        );
+    }
 }

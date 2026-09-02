@@ -1185,6 +1185,20 @@ pub enum ScriptCommand {
         /// rather than one command each.
         kind: bsengine_physics::JointKind,
     },
+    /// Set one of a [`Vehicle`](bsengine_physics::Vehicle)'s three driver
+    /// inputs.
+    ///
+    /// One variant for all three setters, for the same reason
+    /// [`AttachJoint`](ScriptCommand::AttachJoint) is one variant for all three
+    /// joint kinds: the ops differ only in which field they write.
+    SetVehicleInput {
+        /// Name of the entity carrying the `Vehicle`.
+        name: String,
+        /// Which of the three inputs to write.
+        input: VehicleInput,
+        /// The value to write.
+        value: f32,
+    },
     /// Remove the joint linking two rigid bodies, if there is one.
     DetachJoint {
         /// Name of one end. Either order finds the joint.
@@ -4834,6 +4848,48 @@ fn queue_attach_joint(a: String, b: String, kind: bsengine_physics::JointKind) {
     });
 }
 
+/// Which of a vehicle's three driver inputs a
+/// [`SetVehicleInput`](ScriptCommand::SetVehicleInput) writes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VehicleInput {
+    /// Drive force, `-1.0..=1.0` scaled by the vehicle's engine force.
+    Throttle,
+    /// Steering angle, `-1.0..=1.0`.
+    Steering,
+    /// Brake force, `0.0..=1.0`.
+    Brake,
+}
+
+/// Queues one `SetVehicleInput`. Shared by the three `vehicle.set*` ops.
+fn queue_vehicle_input(name: String, input: VehicleInput, value: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetVehicleInput { name, input, value });
+    });
+}
+
+/// Queue setting a vehicle's throttle.
+///
+/// Three separate setters rather than one combined call so a script can change
+/// throttle without restating steering and brake, and so a value cannot land in
+/// the wrong input by argument order.
+#[op2(fast)]
+pub fn bsengine_vehicle_set_throttle(#[string] name: String, value: f32) {
+    queue_vehicle_input(name, VehicleInput::Throttle, value);
+}
+
+/// Queue setting a vehicle's steering.
+#[op2(fast)]
+pub fn bsengine_vehicle_set_steering(#[string] name: String, value: f32) {
+    queue_vehicle_input(name, VehicleInput::Steering, value);
+}
+
+/// Queue setting a vehicle's brake.
+#[op2(fast)]
+pub fn bsengine_vehicle_set_brake(#[string] name: String, value: f32) {
+    queue_vehicle_input(name, VehicleInput::Brake, value);
+}
+
 /// Queue welding two rigid bodies together, leaving no relative motion at all.
 ///
 /// Both anchors sit at their own body's origin, which is Rapier's own default:
@@ -5876,6 +5932,9 @@ deno_core::extension!(
         bsengine_add_force,
         bsengine_add_force_at_point,
         bsengine_reset_forces,
+        bsengine_vehicle_set_throttle,
+        bsengine_vehicle_set_steering,
+        bsengine_vehicle_set_brake,
         bsengine_joint_attach_fixed,
         bsengine_joint_attach_revolute,
         bsengine_joint_attach_spherical,
@@ -9795,6 +9854,61 @@ JSON.stringify(received)
             "object,function,function,function,function,undefined",
             "the four ops must hang off Bsengine.joint, and nothing flat should \
              exist alongside them"
+        );
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn the_three_vehicle_setters_each_queue_their_own_input() {
+        // All three in one test because the thing worth asserting is that they
+        // are DISTINCT: a copy-paste slip that pointed `setBrake` at the
+        // throttle field would still queue a command and still pass a test
+        // that only checked "something was queued".
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(
+            r#"Bsengine.vehicle.setThrottle("Car", 0.75);
+               Bsengine.vehicle.setSteering("Car", -0.25);
+               Bsengine.vehicle.setBrake("Car", 0.5);"#,
+        )
+        .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            for (input, value) in [
+                (super::VehicleInput::Throttle, 0.75_f32),
+                (super::VehicleInput::Steering, -0.25),
+                (super::VehicleInput::Brake, 0.5),
+            ] {
+                let found = buf.iter().any(|cmd| {
+                    matches!(cmd, super::ScriptCommand::SetVehicleInput { name, input: i, value: v }
+                        if name == "Car" && *i == input && (*v - value).abs() < 1e-6)
+                });
+                assert!(found, "{input:?} = {value} not in buffer: {buf:?}");
+            }
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn the_vehicle_setters_hang_off_bsengine_vehicle() {
+        // Mirrors the joint namespace test: the three ops must live under
+        // `Bsengine.vehicle`, with nothing flat alongside them.
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let shape = rt
+            .eval(
+                r#"[typeof Bsengine.vehicle,
+                    typeof Bsengine.vehicle.setThrottle,
+                    typeof Bsengine.vehicle.setSteering,
+                    typeof Bsengine.vehicle.setBrake,
+                    typeof Bsengine.setThrottle].join(",")"#,
+            )
+            .unwrap();
+        assert_eq!(
+            shape.trim(),
+            "object,function,function,function,undefined",
+            "the three setters must hang off Bsengine.vehicle, and nothing \
+             flat should exist alongside them"
         );
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

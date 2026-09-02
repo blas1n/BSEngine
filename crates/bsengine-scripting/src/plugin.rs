@@ -2339,6 +2339,28 @@ fn run_scripts(world: &mut World) {
                     pw.reset_forces(e);
                 }
             }
+            ScriptCommand::SetVehicleInput { name, input, value } => {
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                match entity.and_then(|e| world.get_mut::<bsengine_physics::Vehicle>(e)) {
+                    Some(mut v) => match input {
+                        crate::ops::VehicleInput::Throttle => v.throttle = value,
+                        crate::ops::VehicleInput::Steering => v.steering = value,
+                        crate::ops::VehicleInput::Brake => v.brake = value,
+                    },
+                    None => {
+                        // Worth a line: an input set on a name that is not a
+                        // vehicle looks exactly like a car that will not drive,
+                        // and nothing else about the call reports a problem.
+                        tracing::warn!(
+                            "[scripting] vehicle.set*('{name}'): no entity by that name has a \
+                             Vehicle, so the input was dropped"
+                        );
+                    }
+                }
+            }
             ScriptCommand::AttachJoint { a, b, kind: _ } if a == b => {
                 // A body jointed to itself is not a constraint Rapier can
                 // solve; it is always a typo.

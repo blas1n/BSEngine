@@ -1,0 +1,56 @@
+// Roadmap item 53 sub-step 1/2: a driveable car on flat ground.
+//
+// Flat deliberately. This sub-step's assertions are exact distances and
+// headings, and a slope makes "how far should it have gone" unanswerable --
+// a failure would then need splitting between the vehicle and the terrain
+// before it could be read at all. Sub-step 2/2 adds the visible wheels and
+// can put the showcase on terrain.
+//
+// No E2E recording ships with this project yet. CI replays everything matching
+// `games/*/assets/tests/*.testlog.json`, and a recording belongs with sub-step
+// 2/2's demo, once there is something worth watching. The omission is
+// deliberate, not an oversight.
+SceneDescriptor(entities: [
+    EntityDescriptor(
+        name: "Camera",
+        camera: true,
+        transform: Some((position: (12.0, 6.0, 14.0))),
+        look_at: Some((0.0, 0.5, 0.0)),
+    ),
+    EntityDescriptor(
+        name: "Sun",
+        directional_light: Some((direction: (-0.4, -0.8, -0.3), ambient: (0.25, 0.25, 0.28))),
+    ),
+    EntityDescriptor(
+        // Top face at y = 0, so the car's wheel geometry below is readable
+        // against a round number.
+        name: "Ground",
+        primitive: Some(Cube),
+        transform: Some((position: (0.0, -0.5, 0.0), scale: (200.0, 1.0, 200.0))),
+        rigidbody: Some(Static),
+        collider: Some((shape: Box(hx: 100.0, hy: 0.5, hz: 100.0), friction: 0.8)),
+    ),
+    EntityDescriptor(
+        // The chassis box is 1.8 x 0.8 x 4.0, centred at y = 1.0, so its local
+        // y spans -0.4..0.4. The wheels mount at local y = -0.2 -- INSIDE that
+        // box, where real wheels sit. That is also what makes the chassis
+        // exclusion in `PhysicsWorld::update_vehicle` matter: a ray starting
+        // inside the chassis hits it at zero distance without one.
+        //
+        // Suspension reaches rest_length + radius = 0.5 + 0.35 = 0.85 from a
+        // mount at world y = 0.8, so the wheels touch the ground at y = 0 with
+        // a little compression holding the body up.
+        //
+        // Front wheels steer, rear wheels drive: per-wheel booleans rather than
+        // a drivetrain setting, so four-wheel drive would just be four `drives`.
+        name: "Car",
+        primitive: Some(Cube),
+        transform: Some((position: (0.0, 1.0, 0.0), scale: (1.8, 0.8, 4.0))),
+        script: Some("assets/scripts/drive.js"),
+        rigidbody: Some(Dynamic),
+        collider: Some((shape: Box(hx: 0.9, hy: 0.4, hz: 2.0), friction: 0.8)),
+        components: [
+            ("bsengine_physics::components::Vehicle", "(wheels: [(connection: (0.8, -0.2, 1.4), radius: 0.35, suspension_rest_length: 0.5, steers: true, drives: false, suspension_stiffness: 30.0, damping_compression: 0.4, damping_relaxation: 0.6, friction_slip: 2.0, max_suspension_travel: 0.4), (connection: (-0.8, -0.2, 1.4), radius: 0.35, suspension_rest_length: 0.5, steers: true, drives: false, suspension_stiffness: 30.0, damping_compression: 0.4, damping_relaxation: 0.6, friction_slip: 2.0, max_suspension_travel: 0.4), (connection: (0.8, -0.2, -1.4), radius: 0.35, suspension_rest_length: 0.5, steers: false, drives: true, suspension_stiffness: 30.0, damping_compression: 0.4, damping_relaxation: 0.6, friction_slip: 2.0, max_suspension_travel: 0.4), (connection: (-0.8, -0.2, -1.4), radius: 0.35, suspension_rest_length: 0.5, steers: false, drives: true, suspension_stiffness: 30.0, damping_compression: 0.4, damping_relaxation: 0.6, friction_slip: 2.0, max_suspension_travel: 0.4)], throttle: 0.0, steering: 0.0, brake: 0.0)"),
+        ],
+    ),
+])

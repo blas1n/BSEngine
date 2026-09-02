@@ -1,0 +1,8 @@
+[project]
+name = "Vehicle Demo"
+entry_scene = "assets/scenes/main.ron"
+
+[window]
+title = "Vehicle Demo"
+width = 1280
+height = 720

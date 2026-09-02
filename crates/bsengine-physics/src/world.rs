@@ -769,8 +769,7 @@ mod tests {
         // contact for a reason that has nothing to do with the vehicle code.
         world.step(&());
 
-        let mut controller =
-            rapier3d::control::DynamicRayCastVehicleController::new(chassis_body);
+        let mut controller = rapier3d::control::DynamicRayCastVehicleController::new(chassis_body);
         let tuning = rapier3d::control::WheelTuning::default();
         controller.add_wheel(
             Vector::new(0.0, -0.2, 1.5),

@@ -1335,13 +1335,10 @@ mod tests {
             .next()
             .expect("the entity should exist")
             .id();
-        let vehicle = app
-            .world()
-            .get::<bsengine_physics::Vehicle>(entity)
-            .expect(
-                "the Vehicle component must survive deserialization -- if it is \
+        let vehicle = app.world().get::<bsengine_physics::Vehicle>(entity).expect(
+            "the Vehicle component must survive deserialization -- if it is \
                  absent, Vehicle is not registered for reflection",
-            );
+        );
         assert_eq!(
             vehicle.wheels.len(),
             2,

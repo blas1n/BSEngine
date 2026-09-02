@@ -1,6 +1,7 @@
 use bevy_app::{App, Plugin, PostUpdate};
 use bsengine_core::{AnimationPlayer, AnimationStateMachine, Time, TransitionCondition};
 use bsengine_ecs::{Query, Res};
+use bsengine_physics::Ragdoll;
 
 /// Evaluates `AnimationStateMachine` transitions in `PostUpdate` and drives the
 /// entity's `AnimationPlayer` (clip, speed, looping) and crossfade blend weight.
@@ -13,11 +14,15 @@ impl Plugin for AnimationStateMachinePlugin {
 }
 
 fn advance_state_machines(
-    mut query: Query<(&mut AnimationStateMachine, &mut AnimationPlayer)>,
+    mut query: Query<(
+        &mut AnimationStateMachine,
+        &mut AnimationPlayer,
+        Option<&mut Ragdoll>,
+    )>,
     time: Res<Time>,
 ) {
     let dt = time.delta_seconds;
-    for (mut asm, mut player) in query.iter_mut() {
+    for (mut asm, mut player, mut ragdoll) in query.iter_mut() {
         // Advance crossfade blend weight.
         if asm.blend_from.is_some() {
             asm.blend_elapsed += dt;
@@ -82,6 +87,9 @@ fn advance_state_machines(
                 player.playing = true;
                 if state.duration > 0.0 {
                     player.duration = state.duration;
+                }
+                if let Some(r) = ragdoll.as_mut() {
+                    r.active = state.ragdoll;
                 }
             }
         }
@@ -337,5 +345,96 @@ mod tests {
             .current_state
             .clone();
         assert_eq!(state, "idle");
+    }
+
+    #[test]
+    fn transitioning_into_a_ragdoll_state_activates_the_ragdoll() {
+        let mut app = make_app();
+        let mut asm = AnimationStateMachine::new("idle");
+        asm.add_state("idle", AsmState::new("idle_clip").with_duration(1.0));
+        let mut death_state = AsmState::new("death_clip").with_duration(2.0).with_looping(false);
+        death_state.ragdoll = true;
+        asm.add_state("death", death_state);
+        asm.add_transition(
+            "idle",
+            "death",
+            TransitionCondition::Trigger("die".into()),
+            0.0,
+        );
+        asm.set_trigger("die");
+        let player = AnimationPlayer::new("idle_clip").with_duration(1.0);
+        let ragdoll = bsengine_physics::Ragdoll::default();
+        app.world_mut().spawn((asm, player, ragdoll));
+        app.update();
+
+        let active = app
+            .world_mut()
+            .query::<&bsengine_physics::Ragdoll>()
+            .iter(app.world())
+            .next()
+            .unwrap()
+            .active;
+        assert!(active, "ragdoll must be active after entering a ragdoll state");
+    }
+
+    #[test]
+    fn transitioning_out_of_a_ragdoll_state_deactivates_it() {
+        let mut app = make_app();
+        let mut asm = AnimationStateMachine::new("death");
+        let mut death_state = AsmState::new("death_clip").with_duration(1.0).with_looping(false);
+        death_state.ragdoll = true;
+        asm.add_state("death", death_state);
+        asm.add_state("idle", AsmState::new("idle_clip").with_duration(1.0));
+        asm.add_transition(
+            "death",
+            "idle",
+            TransitionCondition::Trigger("revive".into()),
+            0.0,
+        );
+        asm.set_trigger("revive");
+        let player = AnimationPlayer::new("death_clip").with_duration(1.0);
+        let mut ragdoll = bsengine_physics::Ragdoll::default();
+        ragdoll.active = true;
+        app.world_mut().spawn((asm, player, ragdoll));
+        app.update();
+
+        let active = app
+            .world_mut()
+            .query::<&bsengine_physics::Ragdoll>()
+            .iter(app.world())
+            .next()
+            .unwrap()
+            .active;
+        assert!(!active, "ragdoll must be deactivated after leaving a ragdoll state");
+    }
+
+    #[test]
+    fn no_trigger_means_no_ragdoll() {
+        let mut app = make_app();
+        let mut asm = AnimationStateMachine::new("idle");
+        asm.add_state("idle", AsmState::new("idle_clip").with_duration(1.0));
+        let mut death_state = AsmState::new("death_clip").with_duration(2.0).with_looping(false);
+        death_state.ragdoll = true;
+        asm.add_state("death", death_state);
+        asm.add_transition(
+            "idle",
+            "death",
+            TransitionCondition::Trigger("die".into()),
+            0.0,
+        );
+        // No trigger set — no transition fires.
+        let player = AnimationPlayer::new("idle_clip").with_duration(1.0);
+        let ragdoll = bsengine_physics::Ragdoll::default();
+        app.world_mut().spawn((asm, player, ragdoll));
+        app.update();
+
+        let active = app
+            .world_mut()
+            .query::<&bsengine_physics::Ragdoll>()
+            .iter(app.world())
+            .next()
+            .unwrap()
+            .active;
+        assert!(!active, "ragdoll must not be activated without a trigger");
     }
 }

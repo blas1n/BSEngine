@@ -232,6 +232,7 @@ fn load_gltf_assets(
                             skin_data,
                             nodes: loaded.nodes.clone(),
                             pose_override: Vec::new(),
+                            pose_override_weight: 1.0,
                             joint_matrices: Vec::new(),
                         },
                         clip_library,

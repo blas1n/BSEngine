@@ -1253,6 +1253,7 @@ mod tests {
             },
             nodes,
             pose_override: Vec::new(),
+            pose_override_weight: 1.0,
             joint_matrices: Vec::new(),
         }
     }
@@ -1558,6 +1559,7 @@ mod tests {
                 node("Ankle", [0.0, -1.0, 0.0], Some(1)),
             ],
             pose_override: Vec::new(),
+            pose_override_weight: 1.0,
             joint_matrices: Vec::new(),
         }
     }

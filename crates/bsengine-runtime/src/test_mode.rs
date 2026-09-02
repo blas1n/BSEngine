@@ -2931,9 +2931,7 @@ mod tests {
 
         // Locate the Player entity by name.
         let player = {
-            let mut q =
-                app.world_mut()
-                    .query::<(&bsengine_scene::Name, Entity)>();
+            let mut q = app.world_mut().query::<(&bsengine_scene::Name, Entity)>();
             q.iter(app.world())
                 .find(|(n, _)| n.0 == "Player")
                 .map(|(_, e)| e)

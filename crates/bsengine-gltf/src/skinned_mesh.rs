@@ -1561,10 +1561,7 @@ mod tests {
         // Now set an override that would send the joint somewhere completely
         // different, but drive the weight to zero.
         {
-            let mut skinned = app
-                .world_mut()
-                .get_mut::<SkinnedMesh>(entity)
-                .unwrap();
+            let mut skinned = app.world_mut().get_mut::<SkinnedMesh>(entity).unwrap();
             skinned.pose_override = vec![Mat4::from_translation(Vec3::new(100.0, 0.0, 0.0))];
             skinned.pose_override_weight = 0.0;
         }
@@ -1600,10 +1597,7 @@ mod tests {
             .transform_point3(Vec3::ZERO);
 
         {
-            let mut skinned = app
-                .world_mut()
-                .get_mut::<SkinnedMesh>(entity)
-                .unwrap();
+            let mut skinned = app.world_mut().get_mut::<SkinnedMesh>(entity).unwrap();
             skinned.pose_override = vec![Mat4::from_translation(Vec3::new(10.0, 3.0, 0.0))];
             skinned.pose_override_weight = 0.5;
         }

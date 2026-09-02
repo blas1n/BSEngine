@@ -353,8 +353,7 @@ mod tests {
     #[test]
     fn an_asm_state_can_declare_itself_a_ragdoll_state() {
         // The field round-trips when present.
-        let ron =
-            r#"(clip: "death", blend: None, looping: false, speed: 1.0, duration: 0.0, ragdoll: true)"#;
+        let ron = r#"(clip: "death", blend: None, looping: false, speed: 1.0, duration: 0.0, ragdoll: true)"#;
         let s: AsmState = ron::from_str(ron).expect("must parse with `ragdoll: true`");
         assert!(s.ragdoll, "ragdoll must be true when the field is set");
         assert_eq!(s.clip, "death");

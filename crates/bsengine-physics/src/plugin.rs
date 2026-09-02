@@ -468,8 +468,7 @@ fn publish_ragdoll_pose(
         // discarded anyway, so skip it and clear the override.
         if !ragdoll.active && ragdoll.return_remaining > 0.0 {
             if ragdoll.return_duration > 0.0 {
-                skinned.pose_override_weight =
-                    ragdoll.return_remaining / ragdoll.return_duration;
+                skinned.pose_override_weight = ragdoll.return_remaining / ragdoll.return_duration;
             }
             ragdoll.return_remaining = (ragdoll.return_remaining - dt).max(0.0);
             if ragdoll.return_remaining == 0.0 {

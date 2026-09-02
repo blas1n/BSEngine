@@ -370,7 +370,9 @@ mod tests {
         let mut app = make_app();
         let mut asm = AnimationStateMachine::new("idle");
         asm.add_state("idle", AsmState::new("idle_clip").with_duration(1.0));
-        let mut death_state = AsmState::new("death_clip").with_duration(2.0).with_looping(false);
+        let mut death_state = AsmState::new("death_clip")
+            .with_duration(2.0)
+            .with_looping(false);
         death_state.ragdoll = true;
         asm.add_state("death", death_state);
         asm.add_transition(
@@ -392,14 +394,19 @@ mod tests {
             .next()
             .unwrap()
             .active;
-        assert!(active, "ragdoll must be active after entering a ragdoll state");
+        assert!(
+            active,
+            "ragdoll must be active after entering a ragdoll state"
+        );
     }
 
     #[test]
     fn transitioning_out_of_a_ragdoll_state_deactivates_it() {
         let mut app = make_app();
         let mut asm = AnimationStateMachine::new("death");
-        let mut death_state = AsmState::new("death_clip").with_duration(1.0).with_looping(false);
+        let mut death_state = AsmState::new("death_clip")
+            .with_duration(1.0)
+            .with_looping(false);
         death_state.ragdoll = true;
         asm.add_state("death", death_state);
         asm.add_state("idle", AsmState::new("idle_clip").with_duration(1.0));
@@ -423,7 +430,10 @@ mod tests {
             .next()
             .unwrap()
             .active;
-        assert!(!active, "ragdoll must be deactivated after leaving a ragdoll state");
+        assert!(
+            !active,
+            "ragdoll must be deactivated after leaving a ragdoll state"
+        );
     }
 
     #[test]
@@ -434,7 +444,9 @@ mod tests {
         // to the pre-blend behaviour.
         let mut app = make_app();
         let mut asm = AnimationStateMachine::new("death");
-        let mut death_state = AsmState::new("death_clip").with_duration(2.0).with_looping(false);
+        let mut death_state = AsmState::new("death_clip")
+            .with_duration(2.0)
+            .with_looping(false);
         death_state.ragdoll = true;
         asm.add_state("death", death_state);
         asm.add_state("idle", AsmState::new("idle_clip").with_duration(1.0));
@@ -472,7 +484,9 @@ mod tests {
         let mut app = make_app();
         let mut asm = AnimationStateMachine::new("idle");
         asm.add_state("idle", AsmState::new("idle_clip").with_duration(1.0));
-        let mut death_state = AsmState::new("death_clip").with_duration(2.0).with_looping(false);
+        let mut death_state = AsmState::new("death_clip")
+            .with_duration(2.0)
+            .with_looping(false);
         death_state.ragdoll = true;
         asm.add_state("death", death_state);
         asm.add_transition(

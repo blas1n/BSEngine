@@ -89,7 +89,25 @@ fn advance_state_machines(
                     player.duration = state.duration;
                 }
                 if let Some(r) = ragdoll.as_mut() {
-                    r.active = state.ragdoll;
+                    if state.ragdoll {
+                        // Entering a ragdoll state: activate and cancel any
+                        // in-progress return so a re-death during a blend does
+                        // not inherit a stale countdown.
+                        r.active = true;
+                        r.return_remaining = 0.0;
+                    } else {
+                        // Leaving a ragdoll state: start the blend-back timer
+                        // so physics bodies outlive the transition.  Only
+                        // bother when `active` was true and the transition has
+                        // non-zero duration -- an instant transition stays
+                        // instant and must not turn into a slow one.
+                        let was_active = r.active;
+                        r.active = false;
+                        if was_active && t.blend_duration > 0.0 {
+                            r.return_remaining = t.blend_duration;
+                            r.return_duration = t.blend_duration;
+                        }
+                    }
                 }
             }
         }
@@ -406,6 +424,47 @@ mod tests {
             .unwrap()
             .active;
         assert!(!active, "ragdoll must be deactivated after leaving a ragdoll state");
+    }
+
+    #[test]
+    fn a_zero_duration_transition_still_switches_instantly() {
+        // "Always blend" must not turn an instant transition into a slow one.
+        // A blend_duration of 0.0 must leave return_remaining at 0.0 so the
+        // next frame clears the override and snaps back to animation, identical
+        // to the pre-blend behaviour.
+        let mut app = make_app();
+        let mut asm = AnimationStateMachine::new("death");
+        let mut death_state = AsmState::new("death_clip").with_duration(2.0).with_looping(false);
+        death_state.ragdoll = true;
+        asm.add_state("death", death_state);
+        asm.add_state("idle", AsmState::new("idle_clip").with_duration(1.0));
+        // blend_duration = 0.0: an instant snap back.
+        asm.add_transition(
+            "death",
+            "idle",
+            TransitionCondition::Trigger("revive".into()),
+            0.0,
+        );
+        asm.set_trigger("revive");
+        let player = AnimationPlayer::new("death_clip").with_duration(2.0);
+        let mut ragdoll = bsengine_physics::Ragdoll::default();
+        ragdoll.active = true;
+        app.world_mut().spawn((asm, player, ragdoll));
+        app.update();
+
+        let r = app
+            .world_mut()
+            .query::<&bsengine_physics::Ragdoll>()
+            .iter(app.world())
+            .next()
+            .unwrap();
+        assert!(!r.active, "leaving a ragdoll state must deactivate it");
+        assert_eq!(
+            r.return_remaining, 0.0,
+            "a zero-duration transition must not start a return blend; \
+             return_remaining must stay 0.0, got {}",
+            r.return_remaining
+        );
     }
 
     #[test]

@@ -1022,6 +1022,24 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     // for a scene to author an override. There is a test below that fails if
     // that ever stops being true.
     app.register_type::<bsengine_physics::Ragdoll>();
+    // `Vehicle` is `bsengine-physics`'s, and here for the same reason as
+    // `Joint`/`Ragdoll`.
+    //
+    // `WheelConfig` is named for the same reason `RigidBodyType` is, and with
+    // the same caveat: `register_type` already walks type dependencies, so
+    // registering `Vehicle` brings its `Vec<WheelConfig>` element type along.
+    // Naming it is what keeps that true if `Vehicle` ever stops being the only
+    // thing referring to it -- it is NOT what makes the wheel list survive
+    // today. That was measured, not assumed: deleting the `WheelConfig` line
+    // alone leaves `a_vehicle_with_wheels_survives_scene_deserialization`
+    // passing, while deleting the `Vehicle` line makes it fail.
+    //
+    // The failure that test really guards is the unregistered-component one:
+    // the scene parses, the entity spawns, and the component is silently
+    // absent. It authors two wheels rather than `[]` because an empty Vec
+    // round-trips even when nothing about the element type is known.
+    app.register_type::<bsengine_physics::Vehicle>();
+    app.register_type::<bsengine_physics::WheelConfig>();
     app.register_type::<PhysicsBodyDesc>();
     app.register_type::<crate::types::RigidBodyDesc>();
     app.register_type::<crate::types::ColliderDesc>();
@@ -1273,6 +1291,72 @@ mod tests {
                 bsengine_physics::JointKind::Spherical
             ),
             "a bone the scene said nothing about keeps the Spherical default"
+        );
+    }
+
+    #[test]
+    fn a_vehicle_with_wheels_survives_scene_deserialization() {
+        // The wheel list must be NON-EMPTY. An empty `Vec` round-trips
+        // successfully even when nothing is known about its element type, so a
+        // test authoring `wheels: []` proves nothing about the wheels.
+        //
+        // What this actually catches, measured by deleting each registration in
+        // turn: dropping `register_type::<Vehicle>()` makes it fail, and that
+        // failure is the silent one -- the scene parses, the entity spawns, and
+        // the component is simply absent. Dropping the `WheelConfig` line alone
+        // does not, because `register_type` walks type dependencies.
+        let mut scene: crate::types::SceneDescriptor =
+            ron::from_str(r#"SceneDescriptor(entities: [EntityDescriptor(name: "Car")])"#)
+                .expect("the base scene should parse");
+        scene.entities[0].components = vec![(
+            "bsengine_physics::components::Vehicle".to_string(),
+            concat!(
+                "(wheels: [",
+                "(connection: (1.0, -0.5, 1.5), radius: 0.35, suspension_rest_length: 0.3,",
+                " steers: true, drives: true, suspension_stiffness: 30.0,",
+                " damping_compression: 0.4, damping_relaxation: 0.6,",
+                " friction_slip: 2.0, max_suspension_travel: 0.4),",
+                "(connection: (-1.0, -0.5, 1.5), radius: 0.4, suspension_rest_length: 0.3,",
+                " steers: false, drives: true, suspension_stiffness: 30.0,",
+                " damping_compression: 0.4, damping_relaxation: 0.6,",
+                " friction_slip: 2.0, max_suspension_travel: 0.4)",
+                "], throttle: 0.0, steering: 0.0, brake: 0.0)"
+            )
+            .to_string(),
+        )];
+
+        let mut app = new_app();
+        super::register_gameplay_reflect_types(&mut app);
+        super::spawn_scene_entities(app.world_mut(), &scene.entities);
+
+        let entity = app
+            .world()
+            .iter_entities()
+            .next()
+            .expect("the entity should exist")
+            .id();
+        let vehicle = app
+            .world()
+            .get::<bsengine_physics::Vehicle>(entity)
+            .expect(
+                "the Vehicle component must survive deserialization -- if it is \
+                 absent, Vehicle is not registered for reflection",
+            );
+        assert_eq!(
+            vehicle.wheels.len(),
+            2,
+            "both authored wheels must come back; a 0 here means the element \
+             type could not be deserialized and TypedReflectDeserializer \
+             silently emptied the Vec rather than erroring"
+        );
+        assert!(
+            (vehicle.wheels[0].radius - 0.35).abs() < 1e-6,
+            "the first wheel's radius must survive round-trip, got {}",
+            vehicle.wheels[0].radius
+        );
+        assert!(
+            vehicle.wheels[0].steers,
+            "the first wheel's steers flag must survive round-trip"
         );
     }
 

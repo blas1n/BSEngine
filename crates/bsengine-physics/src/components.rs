@@ -401,6 +401,75 @@ pub(crate) struct PhysicsHandles {
     pub collider_handle: ColliderHandle,
 }
 
+/// A raycast-wheel vehicle. Attach to the chassis entity, which must also have
+/// a dynamic [`RigidBody`] and a [`Collider`].
+///
+/// The wheels are raycasts, not bodies: each casts downward from its mount
+/// point and pushes the chassis up along a suspension spring. Nothing is
+/// spawned per wheel.
+#[derive(Component, Debug, Clone, Default, Reflect)]
+#[reflect(Component, Default)]
+pub struct Vehicle {
+    /// The authored wheel layout. A vehicle with no wheels never moves.
+    pub wheels: Vec<WheelConfig>,
+    /// Drive input, `-1.0..=1.0`. Negative reverses.
+    pub throttle: f32,
+    /// Steering input, `-1.0..=1.0`.
+    pub steering: f32,
+    /// Brake input, `0.0..=1.0`.
+    pub brake: f32,
+}
+
+/// One wheel's mount point and tuning.
+#[derive(Debug, Clone, Default, Reflect)]
+pub struct WheelConfig {
+    /// Mount point on the chassis, in chassis space.
+    ///
+    /// A [`ReflectVec3`] rather than a bare `glam::Vec3` for the same reason
+    /// the other reflected vectors in this file are.
+    pub connection: ReflectVec3,
+    /// Wheel radius, in metres.
+    pub radius: f32,
+    /// Suspension length at rest, in metres.
+    pub suspension_rest_length: f32,
+    /// Whether this wheel turns with the steering input.
+    pub steers: bool,
+    /// Whether this wheel receives engine force.
+    pub drives: bool,
+    /// Suspension spring stiffness.
+    pub suspension_stiffness: f32,
+    /// Damping while the suspension compresses.
+    pub damping_compression: f32,
+    /// Damping while the suspension extends.
+    pub damping_relaxation: f32,
+    /// Tire grip. Higher resists sliding.
+    pub friction_slip: f32,
+    /// Maximum suspension travel, in metres.
+    pub max_suspension_travel: f32,
+}
+
+impl WheelConfig {
+    /// A wheel at `connection` with defaults that actually drive.
+    ///
+    /// Deriving `Default` gives a zero radius and zero stiffness -- a wheel
+    /// that cannot hold a car up. These values are the starting point tuning
+    /// should move away from, not zeros.
+    pub fn new(connection: ReflectVec3, radius: f32) -> Self {
+        Self {
+            connection,
+            radius,
+            suspension_rest_length: 0.3,
+            steers: false,
+            drives: false,
+            suspension_stiffness: 30.0,
+            damping_compression: 0.4,
+            damping_relaxation: 0.6,
+            friction_slip: 2.0,
+            max_suspension_travel: 0.4,
+        }
+    }
+}
+
 /// Marks a [`RigidBody`] as a walking character, and carries what the physics
 /// engine cannot infer on its own.
 ///

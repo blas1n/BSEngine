@@ -310,12 +310,17 @@ fn sync_vehicles(
         let controller = controllers.entry(entity).or_insert_with(|| {
             let mut c = rapier3d::control::DynamicRayCastVehicleController::new(chassis);
             for wheel in &vehicle.wheels {
-                let mut tuning = rapier3d::control::WheelTuning::default();
-                tuning.suspension_stiffness = wheel.suspension_stiffness;
-                tuning.suspension_compression = wheel.damping_compression;
-                tuning.suspension_damping = wheel.damping_relaxation;
-                tuning.friction_slip = wheel.friction_slip;
-                tuning.max_suspension_travel = wheel.max_suspension_travel;
+                // `..Default::default()` for the fields `WheelConfig` does not
+                // expose (max suspension force, side friction stiffness),
+                // rather than assigning field by field after a `default()`.
+                let tuning = rapier3d::control::WheelTuning {
+                    suspension_stiffness: wheel.suspension_stiffness,
+                    suspension_compression: wheel.damping_compression,
+                    suspension_damping: wheel.damping_relaxation,
+                    friction_slip: wheel.friction_slip,
+                    max_suspension_travel: wheel.max_suspension_travel,
+                    ..Default::default()
+                };
                 let c_ws = wheel.connection.0;
                 c.add_wheel(
                     Vector::new(c_ws.x, c_ws.y, c_ws.z),

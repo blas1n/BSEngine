@@ -499,11 +499,19 @@ impl PhysicsWorld {
     /// [`cast_ray_excluding`](Self::cast_ray_excluding) exists: the rays start
     /// inside the chassis collider, so without the exclusion every wheel
     /// reports the chassis itself as the ground, at zero distance.
+    /// The timestep comes from this world's own integration parameters rather
+    /// than from the caller, because it MUST be the one [`step`](Self::step)
+    /// integrates with. `step` uses `integration_parameters.dt` (a fixed 1/60)
+    /// and ignores wall-clock time entirely, so feeding this a frame delta
+    /// computes the wheel forces for one interval while the simulation advances
+    /// by another. Measured: passing a headless app's real frame delta drove
+    /// the demo car 0.23 m where the fixed step drives it 14 m. Taking no `dt`
+    /// argument is what makes the two impossible to disagree.
     pub fn update_vehicle(
         &mut self,
         controller: &mut rapier3d::control::DynamicRayCastVehicleController,
-        dt: f32,
     ) {
+        let dt = self.integration_parameters.dt;
         let filter = QueryFilter::default().exclude_rigid_body(controller.chassis);
         let queries = self.broad_phase.as_query_pipeline_mut(
             self.narrow_phase.query_dispatcher(),
@@ -773,7 +781,7 @@ mod tests {
             &tuning,
         );
 
-        world.update_vehicle(&mut controller, 1.0 / 60.0);
+        world.update_vehicle(&mut controller);
 
         let info = *controller.wheels()[0].raycast_info();
         assert!(

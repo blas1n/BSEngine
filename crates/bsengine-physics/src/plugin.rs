@@ -283,14 +283,8 @@ const WHEEL_AXLE: Vector = Vector::new(-1.0, 0.0, 0.0);
 fn sync_vehicles(
     mut world: ResMut<PhysicsWorld>,
     mut controllers: Local<HashMap<Entity, rapier3d::control::DynamicRayCastVehicleController>>,
-    // `Option<Res<_>>` rather than `Res<_>`, matching `publish_ragdoll_pose`:
-    // a bare `Res` panics when the resource is absent, and this crate's own
-    // `new_app` test helper inserts no `Time`. Requiring it here would fail
-    // every existing physics test, none of which has a vehicle in it.
-    time: Option<Res<bsengine_core::Time>>,
     vehicles: Query<(Entity, &Vehicle)>,
 ) {
-    let dt = time.as_ref().map(|t| t.delta_seconds).unwrap_or(0.0);
     // Tear down first, matching `sync_ragdolls`. A lookup that misses covers an
     // entity that despawned and one that merely lost its `Vehicle`; neither is
     // in `vehicles` any more, and without this the table grows forever and a
@@ -348,7 +342,7 @@ fn sync_vehicles(
             w.brake = vehicle.brake;
         }
 
-        world.update_vehicle(controller, dt);
+        world.update_vehicle(controller);
     }
 }
 

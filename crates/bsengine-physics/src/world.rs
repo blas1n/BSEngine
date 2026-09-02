@@ -478,6 +478,42 @@ impl PhysicsWorld {
         self.cast_ray_filtered(origin, dir, max_dist, QueryFilter::default())
     }
 
+    /// Advances one vehicle controller against the current world, casting its
+    /// wheel rays and applying the resulting suspension, engine and brake
+    /// impulses to the chassis.
+    ///
+    /// The controller is passed in rather than stored here because it belongs
+    /// to the entity, not the world — `sync_vehicles` keeps one per vehicle.
+    /// That is also what makes the borrows compose: the query pipeline needs
+    /// the two sets mutably while the two phases are borrowed shared, which
+    /// Rust allows across *disjoint fields* but would not if the controller
+    /// were a field of `self` being borrowed mutably at the same time.
+    ///
+    /// **Call this before [`step`](Self::step).** `update_vehicle` applies
+    /// impulses, which change velocity directly, so an impulse applied after
+    /// the step has integrated does not take effect until the next frame. That
+    /// failure is quiet: the car still drives, just a frame behind, which reads
+    /// as sluggish handling rather than as a bug.
+    ///
+    /// The chassis is excluded from the wheel rays for the same reason
+    /// [`cast_ray_excluding`](Self::cast_ray_excluding) exists: the rays start
+    /// inside the chassis collider, so without the exclusion every wheel
+    /// reports the chassis itself as the ground, at zero distance.
+    pub fn update_vehicle(
+        &mut self,
+        controller: &mut rapier3d::control::DynamicRayCastVehicleController,
+        dt: f32,
+    ) {
+        let filter = QueryFilter::default().exclude_rigid_body(controller.chassis);
+        let queries = self.broad_phase.as_query_pipeline_mut(
+            self.narrow_phase.query_dispatcher(),
+            &mut self.rigid_body_set,
+            &mut self.collider_set,
+            filter,
+        );
+        controller.update_vehicle(dt, queries);
+    }
+
     /// Rebuilds `entity`'s collider shape in place, keeping the same
     /// `ColliderHandle` (so nothing referencing it, e.g. `PhysicsHandles`,
     /// needs to change) -- the first place in this engine that mutates a
@@ -689,6 +725,85 @@ impl PhysicsWorld {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_vehicle_controller_can_be_stepped_against_the_world() {
+        // Deliberately narrow: this proves the borrows compose and that a
+        // wheel ray finds the ground. Driving behaviour is `plugin.rs`'s to
+        // test, once a system is pushing inputs in.
+        let mut world = PhysicsWorld::new(9.81);
+
+        // Ground: a wide fixed box whose top face is at y = 0.
+        let ground = rapier3d::prelude::RigidBodyBuilder::fixed().build();
+        let ground_body = world.rigid_body_set.insert(ground);
+        let ground_shape = crate::plugin::make_shape(&crate::components::ColliderShape::Box {
+            half_extents: Vec3::new(50.0, 0.5, 50.0).into(),
+        });
+        let ground_collider = rapier3d::prelude::ColliderBuilder::new(ground_shape)
+            .translation(Vector::new(0.0, -0.5, 0.0))
+            .build();
+        world.add_collider(ground_collider, ground_body);
+
+        // Chassis: a dynamic box sitting a little above the ground.
+        let chassis = rapier3d::prelude::RigidBodyBuilder::dynamic()
+            .translation(Vector::new(0.0, 1.0, 0.0))
+            .build();
+        let chassis_body = world.rigid_body_set.insert(chassis);
+        let chassis_shape = crate::plugin::make_shape(&crate::components::ColliderShape::Box {
+            half_extents: Vec3::new(0.9, 0.4, 2.0).into(),
+        });
+        let chassis_collider = rapier3d::prelude::ColliderBuilder::new(chassis_shape).build();
+        world.add_collider(chassis_collider, chassis_body);
+
+        // The broad-phase BVH the wheel rays query is only rebuilt inside
+        // `step()`; colliders inserted directly are not in the tree until then.
+        // Without this the raycast finds nothing and the wheel reports no
+        // contact for a reason that has nothing to do with the vehicle code.
+        world.step(&());
+
+        let mut controller =
+            rapier3d::control::DynamicRayCastVehicleController::new(chassis_body);
+        let tuning = rapier3d::control::WheelTuning::default();
+        controller.add_wheel(
+            Vector::new(0.0, -0.2, 1.5),
+            Vector::new(0.0, -1.0, 0.0),
+            Vector::new(-1.0, 0.0, 0.0),
+            0.5,
+            0.35,
+            &tuning,
+        );
+
+        world.update_vehicle(&mut controller, 1.0 / 60.0);
+
+        let info = *controller.wheels()[0].raycast_info();
+        assert!(
+            info.is_in_contact,
+            "the wheel ray must find something beneath the chassis"
+        );
+        // `is_in_contact` alone is not enough, and that is the whole point of
+        // this assertion: with the chassis NOT excluded the ray hits the
+        // chassis from the inside and still reports contact, just at the wrong
+        // height. Checking only the flag passes either way and would certify an
+        // exclusion that is not there -- the same failure `cast_ray_excluding`
+        // describes for characters ("every character reports standing on
+        // something forever").
+        //
+        // The wheel is mounted at local y = -0.2, INSIDE the chassis box (local
+        // y spans -0.4..0.4), which is where a real wheel sits. That placement
+        // is what makes the exclusion load-bearing and is not incidental: with
+        // the wheel at exactly -0.4 the ray starts on the bottom face pointing
+        // outward, never hits the chassis, and removing the exclusion changes
+        // nothing. Measured -- the first version of this test sat at -0.4 and
+        // passed with the exclusion deleted.
+        assert!(
+            info.contact_point_ws.y.abs() < 0.05,
+            "the wheel must contact the GROUND at y = 0, not the chassis it is \
+             mounted inside; contact was at y = {} (~0.8 is the \
+             ray's own start point, meaning it hit the chassis at zero \
+             distance because the exclusion is missing)",
+            info.contact_point_ws.y
+        );
+    }
 
     #[test]
     fn set_collider_shape_changes_where_a_raycast_hits() {

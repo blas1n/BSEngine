@@ -15,3 +15,6 @@ glam.workspace = true
 # ReflectDeserialize for the type and the whole component comes back absent.
 serde.workspace = true
 egui.workspace = true
+
+[dev-dependencies]
+ron.workspace = true

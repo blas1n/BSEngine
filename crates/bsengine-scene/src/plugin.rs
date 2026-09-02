@@ -956,6 +956,17 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     // history (design-research probe that found this).
     app.register_type_data::<std::collections::HashSet<String>, bevy_reflect::ReflectDeserialize>();
     app.register_type_data::<std::collections::HashSet<String>, bevy_reflect::ReflectSerialize>();
+    // `AsmState` goes through serde rather than being structurally recursed,
+    // which is what makes `#[serde(default)]` on its fields mean anything at
+    // all. Without this, adding a field to `AsmState` silently empties the
+    // `states` map of every scene that predates it -- the character keeps
+    // loading and simply stops animating, with nothing logged. That is not
+    // hypothetical: `blend` did it to mini-arena, and `ragdoll` would have
+    // done it again. Registering it here fixes both, and the fix is only
+    // load-bearing because `a_state_machines_states_survive_deserialization`
+    // omits a defaulted field from its RON.
+    app.register_type_data::<bsengine_core::AsmState, bevy_reflect::ReflectDeserialize>();
+    app.register_type_data::<bsengine_core::AsmState, bevy_reflect::ReflectSerialize>();
     app.register_type::<bsengine_core::Tween>();
 
     // Two types that are not `bsengine_core`'s, registered here anyway, each
@@ -1904,12 +1915,21 @@ mod tests {
     fn a_state_machines_states_survive_deserialization() {
         // Guards a failure mode with no diagnostic at all.
         //
-        // Reflected deserialization requires every field of a struct to be
-        // present in the RON. When one is missing the *containing collection*
-        // comes back empty rather than erroring, so a state machine whose
-        // `states` silently became `{}` still loads, still runs, and simply
-        // never animates. Adding `AsmState::blend` did exactly that to
-        // mini-arena until its scene was updated, and no warning was printed.
+        // Structural reflected deserialization requires every field of a
+        // struct to be present in the RON. When one is missing the
+        // *containing collection* comes back empty rather than erroring, so a
+        // state machine whose `states` silently became `{}` still loads, still
+        // runs, and simply never animates. Adding `AsmState::blend` did
+        // exactly that to mini-arena until its scene was updated, and no
+        // warning was printed.
+        //
+        // `AsmState` no longer deserializes structurally -- it has
+        // `ReflectDeserialize` registered, so it goes through serde and honours
+        // `#[serde(default)]`. That is what lets the RON below omit `ragdoll`
+        // entirely. This test is the thing that fails if that registration is
+        // ever dropped, so keep the omission: writing the field out here would
+        // make the test pass either way and hand the next field-adder the same
+        // silent break.
         //
         // So this asserts on the states, not on the component being present:
         // the component is always present, which is the whole problem.
@@ -1960,6 +1980,10 @@ mod tests {
         assert!(
             results[0].states["idle"].blend.is_none(),
             "a state that names no blend tree has none"
+        );
+        assert!(
+            !results[0].states["idle"].ragdoll,
+            "a state written before ragdolls existed is not a ragdoll state"
         );
     }
 

@@ -5,7 +5,7 @@ use bevy_reflect::prelude::ReflectDefault;
 use bevy_reflect::Reflect;
 
 /// One clip's place along a [`BlendTree1D`]'s parameter axis.
-#[derive(Debug, Clone, PartialEq, Default, Reflect)]
+#[derive(Debug, Clone, PartialEq, Default, Reflect, serde::Serialize, serde::Deserialize)]
 pub struct BlendClip {
     /// Name/identifier of the animation clip.
     pub clip: String,
@@ -23,7 +23,7 @@ pub struct BlendClip {
 /// continuum rather than a set of poses: walking does not become running at a
 /// threshold, it becomes running gradually, and a crossfade between the two
 /// only looks right for the instant it is halfway.
-#[derive(Debug, Clone, PartialEq, Default, Reflect)]
+#[derive(Debug, Clone, PartialEq, Default, Reflect, serde::Serialize, serde::Deserialize)]
 pub struct BlendTree1D {
     /// Name of the float parameter driving the blend, read from
     /// [`AnimationStateMachine::params_float`].
@@ -75,7 +75,7 @@ impl BlendTree1D {
 
 /// A single named animation state within an [`AnimationStateMachine`], describing
 /// which clip plays and how, while that state is active.
-#[derive(Debug, Clone, Reflect)]
+#[derive(Debug, Clone, Reflect, serde::Serialize, serde::Deserialize)]
 pub struct AsmState {
     /// Name/identifier of the animation clip this state plays.
     ///
@@ -92,6 +92,14 @@ pub struct AsmState {
     pub speed: f32,
     /// Length of the clip, in seconds.
     pub duration: f32,
+    /// When true, entering this state activates the entity's `Ragdoll`, and
+    /// leaving it blends the skeleton back to animation.
+    ///
+    /// Optional and defaulted so every scene written before ragdolls
+    /// existed keeps parsing unchanged -- the same reason
+    /// [`blend`](AsmState::blend) is defaulted.
+    #[serde(default)]
+    pub ragdoll: bool,
 }
 
 impl AsmState {
@@ -103,6 +111,7 @@ impl AsmState {
             looping: true,
             speed: 1.0,
             duration: 0.0,
+            ragdoll: false,
         }
     }
 
@@ -325,5 +334,29 @@ mod tests {
             TransitionCondition::Trigger("a".into()),
             TransitionCondition::Trigger("b".into())
         );
+    }
+
+    #[test]
+    fn an_asm_state_without_a_ragdoll_field_still_parses() {
+        // THE test for this task. Every scene with an AnimationStateMachine
+        // predates this field, so without `#[serde(default)]` they all stop
+        // loading -- an already-shipped asset refusing to parse. Assert it
+        // rather than assuming it.
+        //
+        // The RON omits only `ragdoll`; all other fields were present in every
+        // scene written before this field was added.
+        let ron = r#"(clip: "idle", blend: None, looping: true, speed: 1.0, duration: 1.0)"#;
+        let s: AsmState = ron::from_str(ron).expect("must parse without `ragdoll`");
+        assert!(!s.ragdoll, "the default must be false, not true");
+    }
+
+    #[test]
+    fn an_asm_state_can_declare_itself_a_ragdoll_state() {
+        // The field round-trips when present.
+        let ron =
+            r#"(clip: "death", blend: None, looping: false, speed: 1.0, duration: 0.0, ragdoll: true)"#;
+        let s: AsmState = ron::from_str(ron).expect("must parse with `ragdoll: true`");
+        assert!(s.ragdoll, "ragdoll must be true when the field is set");
+        assert_eq!(s.clip, "death");
     }
 }

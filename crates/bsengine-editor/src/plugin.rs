@@ -1919,6 +1919,7 @@ fn primitive_to_str(p: &bsengine_scene::Primitive) -> String {
         bsengine_scene::Primitive::Sphere => "sphere",
         bsengine_scene::Primitive::Plane => "plane",
         bsengine_scene::Primitive::Capsule => "capsule",
+        bsengine_scene::Primitive::Cylinder => "cylinder",
     }
     .to_string()
 }
@@ -1931,6 +1932,7 @@ fn str_to_primitive(s: &str) -> Option<bsengine_scene::Primitive> {
         "sphere" => Some(bsengine_scene::Primitive::Sphere),
         "plane" => Some(bsengine_scene::Primitive::Plane),
         "capsule" => Some(bsengine_scene::Primitive::Capsule),
+        "cylinder" => Some(bsengine_scene::Primitive::Cylinder),
         _ => None,
     }
 }

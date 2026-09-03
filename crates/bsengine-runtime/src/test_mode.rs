@@ -3160,4 +3160,62 @@ mod tests {
              car moved {coasted} m against {driven} m driven"
         );
     }
+
+    #[test]
+    fn the_headless_host_resolves_a_cylinder_to_a_real_mesh() {
+        // THE test for the split-dispatch hazard.
+        //
+        // `Primitive` is mapped to a mesh in THREE separate places -- the
+        // windowed game (`bsengine-app/src/main.rs`), the editor app
+        // (`apps/bsengine-editor-app/src/main.rs`), and the headless test host
+        // (`bsengine-runtime/src/scene_systems.rs`). They are independent
+        // implementations of the same mapping. Adding a variant to some but not
+        // all means the primitive renders in one host and silently gets no mesh
+        // in another -- and this host is the one every E2E test runs in, so a
+        // gap here makes the wheels invisible to exactly the tests meant to
+        // prove they work.
+        //
+        // The compiler catches a missing match arm, but only for hosts that are
+        // actually built; this asserts the behaviour rather than trusting that.
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("assets/scenes")).unwrap();
+        std::fs::write(
+            root.join("project.toml"),
+            "[project]\nname = \"Cylinder\"\nentry_scene = \"assets/scenes/main.ron\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("assets/scenes/main.ron"),
+            r#"SceneDescriptor(entities: [
+                EntityDescriptor(name: "Camera", camera: true, transform: Some((position: (0.0, 0.0, 5.0)))),
+                EntityDescriptor(name: "Wheel", primitive: Some(Cylinder), transform: Some((position: (0.0, 0.0, 0.0)))),
+            ])"#,
+        )
+        .unwrap();
+
+        let mut app = build_test_app(root.to_str().unwrap(), None, false);
+        app.update();
+
+        let wheel = {
+            let mut q = app
+                .world_mut()
+                .query::<(&bsengine_scene::Name, bevy_ecs::prelude::Entity)>();
+            q.iter(app.world())
+                .find(|(n, _)| n.0 == "Wheel")
+                .map(|(_, e)| e)
+                .expect("the Cylinder entity must spawn")
+        };
+        let mesh = app.world().get::<bsengine_render::MeshRenderer>(wheel);
+        assert!(
+            mesh.is_some(),
+            "a Cylinder must resolve to a mesh in the HEADLESS dispatch. If this \
+             fails while the game renders cylinders fine, `Primitive::Cylinder` \
+             was added to one host's primitive->mesh match and not this one."
+        );
+        assert!(
+            mesh.unwrap().mesh_id != 0,
+            "the mesh id must be a real registered id, not the zero placeholder"
+        );
+    }
 }

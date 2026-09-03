@@ -2512,10 +2512,60 @@ globals를 노드별로 decompose/slerp/recompose로 섞음. **가중치가 `Ski
 **목표:** 레이캐스트 휠 기반 차량 물리로 운전 가능한 오브젝트를 지원한다.
 
 **완료 조건:**
-- [ ] `Vehicle` 컴포넌트 — 휠 레이캐스트 + 서스펜션(item 51 스프링 조인트 활용 가능)
-- [ ] 스크립팅으로 가속/조향/브레이크 입력 제어
-- [ ] 데모 씬에서 차량 주행 검증
-- [ ] 테스트 추가, CI 통과
+- [x] `Vehicle` 컴포넌트 — 휠 레이캐스트 + 서스펜션 (~~item 51 스프링 조인트 활용 가능~~ — 아래 참조)
+- [x] 스크립팅으로 가속/조향/브레이크 입력 제어
+- [x] 데모 씬에서 차량 주행 검증
+- [x] 테스트 추가, CI 통과
+
+**완료 (2026-09-03).** sub-step 1/2(주행)는 PR #1821, sub-step 2/2(보이는 휠 + 터레인)는 PR #1822.
+
+**위 완료조건의 "item 51 스프링 조인트 활용 가능"은 부정확했음** — item 51은 Fixed/Revolute/
+Spherical 3종만 출하했고 이 엔진에 스프링 조인트는 없음. 필요하지도 않았음: rapier3d 0.33이
+이미 `DynamicRayCastVehicleController`(Bullet `btRaycastVehicle` 포팅, feature flag 없음)를
+갖고 있고 `WheelTuning`이 서스펜션 강성/감쇠/트래블을 직접 들고 있어서 서스펜션은 조인트가
+아니라 휠 파라미터임. item 51의 "the entrance, not the plumbing"이 그대로 반복됨.
+
+`Vehicle { wheels, throttle, steering, brake, wheel_states }` + `WheelConfig`. **`steers`/`drives`가
+차량 단위 드라이브트레인 enum이 아니라 휠별 bool** — 4WD/4WS가 새 variant 없이 표현됨.
+`direction_cs`/`axle_cs`는 저작하지 않음(섀시 축 관례에서 유도). `sync_vehicles`가 컨트롤러를
+`Local` 사이드 테이블에 들고(= `sync_ragdolls` 선례), 결과를 `Vehicle.wheel_states`로 발행하면
+`sync_wheel_transforms`가 휠 자식 엔티티를 포즈함 — **컨트롤러가 `Local`이라 다른 시스템에서
+안 보이기 때문**이고, 이건 `SkinnedMesh.pose_override`와 같은 채널 모양.
+
+**`update_vehicle`은 `dt`를 인자로 받지 않음.** `step_world`는 `Time`을 아예 안 쓰고
+`integration_parameters.dt`(고정 1/60)로 적분하는데, 처음엔 벽시계 프레임 델타를 넘기고 있었음 —
+두 값이 어긋나면 조향감이 프레임레이트에 의존함. 유닛 테스트는 픽스처가 `Time`을 정확히 1/60로
+고정해 둬서 **구조적으로 못 잡았고**, 헤드리스 E2E에서만 드러남. 일반 규칙: **두 곳이 같은 값에
+합의해야 하면, 양쪽이 인자로 받지 말고 한쪽이 다른 쪽에서 읽게 할 것.**
+
+**`Primitive`에 variant를 추가하면 건드릴 곳이 7군데(6개 크레이트)** — 스펙과 플랜 둘 다 2곳으로
+적었다가 틀렸음. primitive→mesh 디스패치만 **3개**(`bsengine-app` 윈도우드,
+`bsengine-runtime` 헤드리스, **`apps/bsengine-editor-app`**). 내 조사가 `crates/`만 grep해서
+`apps/` 디렉터리를 통째로 놓쳤고 컴파일러가 찾아줌. **컴파일러가 잡아주는 곳(exhaustive match)과
+조용히 넘어가는 곳(`str_to_primitive`의 `_ => None`, `PRIMITIVE_KINDS`, 스크립팅 문자열 맵)을
+구분할 것** — 후자가 진짜 위험. 실제로 `PRIMITIVE_KINDS`가 4로 남아 에디터 드롭다운에서
+`Cylinder`가 조용히 빠질 뻔했고, 하드코딩된 `assert_eq!(len(), 4)` 하나가 유일한 방어선이었음.
+지금은 그 개수를 `Primitive`에 대한 exhaustive match에서 유도하므로 variant를 추가하면
+에디터 크레이트가 컴파일 실패함.
+
+**측정 도구가 자신 있게 틀린 사례 3건 — 전부 구현이 아니라 계측이 고장난 것이라, 대상 코드를
+아무리 들여다봐도 안 나왔을 것들:**
+1. `to_euler(YXZ).0`이 조향 0인 휠을 **정확히 π rad**로 보고 — roll이 반바퀴를 넘으면 나오는
+   분해 아티팩트. roll이 X축이므로 `rotation * X`가 roll에 불변이라 조향만 분리됨(앞 0.6000001 /
+   뒤 0).
+2. `Quat::angle_between`은 π에서 잘림 — **주행 중 휠과 제동 중 휠을 둘 다 2.9361572 rad로 보고**해
+   두 경우가 구분 불가능했음. 무제한 스칼라로는 29.27 vs 2.94.
+3. sub-step 1/2의 모든 거리 단언이 `(end - start).length()` — **방향에 무감각**. 차가 뒤로 달려도
+   물리 테스트 6개와 E2E가 전부 통과했을 것. 부호 있는 축을 단언하는 리플레이만 잡을 수 있었고,
+   실제로 차는 +Z(자기 앞바퀴 쪽)로 달리는 게 맞았음.
+
+**테스트를 사실에 맞추지 말고 사실을 확인할 것:** roll 테스트를 처음엔 "브레이크로 완전 정지"로
+썼는데 이 차는 그렇게 안 멈춤(`braking_slows_a_rolling_car`가 ~1.1 m/s로 측정). 정지를 단언하는
+건 휠에 대한 게 아니라 물리에 대해 거짓을 단언하는 것이라, 비율 비교로 바꿈. 주차 휠 허용치는
+5mm 그대로 두고 스프링이 감쇠할 때까지 기다림 — 실제 9mm 진동을 받아주려고 넓혔다면 노이즈로
+구동되는 트랜스폼을 잡아낼 능력이 사라졌을 것.
+
+67 컴포넌트 / 269 ops, 0 위반. E2E 리플레이는 이제 9개.
 
 ---
 

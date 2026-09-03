@@ -13,6 +13,9 @@
 pub mod animation;
 /// `AssetLoader` backing `LoadMode::Async` for glTF/GLB files.
 pub mod asset_loader;
+/// Two-bone inverse kinematics.
+pub mod ik;
+
 /// GLTF/GLB file parsing into mesh, image, and animation data.
 pub mod loader;
 /// The Bevy plugin that spawns loaded GLTF assets into the ECS world.

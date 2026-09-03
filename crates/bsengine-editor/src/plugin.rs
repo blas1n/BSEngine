@@ -30099,13 +30099,39 @@ mod tests {
         // dropdown -- `PrimitiveMesh` attaches through the generic Add
         // Component menu like any other component) must parse via
         // `str_to_primitive` and the parsed value must map back to the same
-        // string via `primitive_to_str`. This doesn't catch a *new*
-        // `Primitive` variant going unlisted (that gap is inherent to the
-        // circular-dependency string-boundary design — see
-        // `primitive_to_str`'s doc comment for the compile-time nudge that
-        // partially mitigates it), but it does catch drift/typos between
-        // `PRIMITIVE_KINDS` and the two conversion functions.
-        assert_eq!(bsengine_core::PRIMITIVE_KINDS.len(), 4);
+        // string via `primitive_to_str`.
+        //
+        // This used to concede that it could not catch a *new* `Primitive`
+        // variant going unlisted. It can now: `every_variant` below holds an
+        // exhaustive match, so adding a variant to `Primitive` stops this
+        // crate compiling until the variant is also added to the list, and the
+        // loop then proves it round-trips. That gap was not hypothetical --
+        // adding `Cylinder` left `PRIMITIVE_KINDS` at 4 entries, which the
+        // editor dropdown silently omits, and only the hardcoded count caught
+        // it.
+        fn every_variant() -> Vec<bsengine_scene::Primitive> {
+            use bsengine_scene::Primitive as P;
+            // Exhaustive on purpose. Do not add a `_` arm: this match failing
+            // to compile IS the guard.
+            match P::Cube {
+                P::Cube | P::Sphere | P::Plane | P::Capsule | P::Cylinder => {}
+            }
+            vec![P::Cube, P::Sphere, P::Plane, P::Capsule, P::Cylinder]
+        }
+
+        let variants = every_variant();
+        assert_eq!(
+            bsengine_core::PRIMITIVE_KINDS.len(),
+            variants.len(),
+            "every `Primitive` variant needs an entry in `PRIMITIVE_KINDS`, or              the editor's primitive dropdown silently omits it"
+        );
+        for p in &variants {
+            let name = super::primitive_to_str(p);
+            assert!(
+                bsengine_core::PRIMITIVE_KINDS.contains(&name.as_str()),
+                "`Primitive::{p:?}` maps to {name:?}, which is not in                  PRIMITIVE_KINDS"
+            );
+        }
         for &kind in &bsengine_core::PRIMITIVE_KINDS {
             let parsed = super::str_to_primitive(kind)
                 .unwrap_or_else(|| panic!("PRIMITIVE_KINDS entry {kind:?} did not parse"));

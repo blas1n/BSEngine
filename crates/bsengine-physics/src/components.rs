@@ -432,6 +432,16 @@ pub struct Vehicle {
     pub wheel_states: Vec<WheelState>,
 }
 
+/// Marks an entity as the visual for one of its parent [`Vehicle`]'s wheels.
+///
+/// Authored in a scene beside `parent:`; the index selects which entry of
+/// [`Vehicle::wheel_states`] drives this entity's transform. An index with no
+/// matching entry is skipped rather than treated as an error — a car may be
+/// authored with fewer wheel visuals than wheels.
+#[derive(Component, Debug, Clone, Copy, Default, PartialEq, Reflect)]
+#[reflect(Component, Default)]
+pub struct WheelIndex(pub usize);
+
 /// What the vehicle controller computed for one wheel this frame, published so
 /// something outside this crate can draw it.
 ///

@@ -3,7 +3,7 @@ use std::sync::Mutex;
 
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
-use bsengine_gltf::SkinnedMesh;
+use bsengine_gltf::{IkChains, SkinnedMesh};
 use glam::{Quat, Vec3};
 use rapier3d::geometry::{CollisionEvent as RapierCollisionEvent, ContactPair};
 use rapier3d::pipeline::EventHandler;
@@ -11,9 +11,9 @@ use rapier3d::prelude::*;
 
 use crate::{
     components::{
-        CharacterBody, Collider, ColliderShape, CollisionEvent, Joint, PhysicsHandles,
-        PhysicsInput, PhysicsTransform, Ragdoll, RagdollBone, RigidBody, RigidBodyType, Vehicle,
-        WheelIndex, WheelState,
+        CharacterBody, Collider, ColliderShape, CollisionEvent, FootIkGround, Joint,
+        PhysicsHandles, PhysicsInput, PhysicsTransform, Ragdoll, RagdollBone, RigidBody,
+        RigidBodyType, Vehicle, WheelIndex, WheelState,
     },
     ragdoll::{plan_bones, pose_from_bones},
     world::PhysicsWorld,
@@ -73,6 +73,11 @@ impl Plugin for PhysicsPlugin {
                 sync_wheel_transforms,
                 step_world,
                 sync_from_rapier,
+                // After `sync_from_rapier`, so the ray is cast against where
+                // bodies actually ended up this step rather than where they
+                // were before it -- the same reason `update_grounded` sits
+                // late in this chain.
+                probe_foot_ik_ground,
                 // After `sync_from_rapier`, which is what puts this step's
                 // simulated pose into `PhysicsTransform`. Read before that and
                 // the skinned mesh would trail the bodies by a frame.
@@ -662,6 +667,42 @@ fn publish_ragdoll_pose(
             .collect();
         let pose = pose_from_bones(&skinned.nodes, &plans, &bone_poses);
         skinned.pose_override = pose;
+    }
+}
+
+/// Casts a ray down from each IK chain's tip bone and puts that chain's target
+/// on the ground it finds.
+///
+/// Reads the foot position `bsengine-gltf` published last frame rather than
+/// re-deriving the pose: this crate has no clips and no globals, and one frame
+/// of lag on a foot target is imperceptible. Reaching across the other way is
+/// not an option -- `bsengine-gltf` must not depend on this crate.
+fn probe_foot_ik_ground(
+    world: Res<PhysicsWorld>,
+    mut characters: Query<(Entity, &FootIkGround, &SkinnedMesh, &mut IkChains)>,
+) {
+    for (entity, ground, skinned, mut ik) in characters.iter_mut() {
+        for (i, chain) in ik.chains.iter_mut().enumerate() {
+            let Some(&foot) = skinned.ik_tip_positions.get(i) else {
+                // No published position yet -- the skinning system has not run,
+                // or this chain names a bone the rig lacks and was skipped.
+                continue;
+            };
+
+            // Start above the foot: on a slope the animation routinely puts the
+            // foot INSIDE the hill, and a ray starting at the foot would begin
+            // below the surface and miss it entirely.
+            let origin = foot + Vec3::Y * ground.probe_height;
+            let max = ground.probe_height + ground.max_drop;
+            let Some(hit) = world.cast_ray_excluding(origin, -Vec3::Y, max, entity) else {
+                // Nothing underneath. Leave the target where it was rather than
+                // writing one: a character stepping off a ledge would otherwise
+                // have its feet yanked to wherever the ray gave up.
+                continue;
+            };
+
+            chain.target = (hit.point + Vec3::Y * ground.offset).into();
+        }
     }
 }
 
@@ -1453,6 +1494,7 @@ mod tests {
             },
             nodes,
             pose_override: Vec::new(),
+            ik_tip_positions: Vec::new(),
             pose_override_weight: 1.0,
             joint_matrices: Vec::new(),
         }
@@ -1759,6 +1801,7 @@ mod tests {
                 node("Ankle", [0.0, -1.0, 0.0], Some(1)),
             ],
             pose_override: Vec::new(),
+            ik_tip_positions: Vec::new(),
             pose_override_weight: 1.0,
             joint_matrices: Vec::new(),
         }
@@ -2344,6 +2387,187 @@ mod tests {
              (all heights = 2.0) at y ~= {expected}, but it settled at y={y} -- \
              either it fell through the collider entirely or the shape is not \
              where the height data says it should be"
+        );
+    }
+
+    // ---- Foot IK ground probe (roadmap item 54, sub-step 1/2) -------------
+
+    /// A character with one IK chain, standing over ground the caller supplies.
+    ///
+    /// The chain's tip position is published directly rather than derived from
+    /// a clip: this crate is testing the PROBE, and making it depend on the
+    /// skinning system as well would mean a failure here could be either.
+    fn character_over_ground(foot: Vec3, ground_y: f32, slope: bool) -> (App, Entity) {
+        let mut app = App::new();
+        app.add_plugins(PhysicsPlugin);
+
+        // Ground: a wide fixed box. Rotated slightly when `slope`, so the two
+        // ends sit at different heights.
+        let rot = if slope {
+            bsengine_core::ReflectQuat(Quat::from_rotation_z(0.2))
+        } else {
+            Default::default()
+        };
+        app.world_mut().spawn((
+            RigidBody::fixed(),
+            Collider::cuboid(50.0, 0.5, 50.0),
+            PhysicsInput {
+                position: Vec3::new(0.0, ground_y - 0.5, 0.0).into(),
+                rotation: rot,
+            },
+        ));
+
+        let character = app
+            .world_mut()
+            .spawn((
+                SkinnedMesh {
+                    mesh_id: 1,
+                    rest_vertices: Vec::new(),
+                    skin: Vec::new(),
+                    skin_data: bsengine_gltf::loader::SkinData {
+                        joint_node_indices: Vec::new(),
+                        inverse_bind_matrices: Vec::new(),
+                    },
+                    nodes: Vec::new(),
+                    pose_override: Vec::new(),
+                    pose_override_weight: 1.0,
+                    ik_tip_positions: vec![foot],
+                    joint_matrices: Vec::new(),
+                },
+                IkChains {
+                    chains: vec![bsengine_gltf::IkChain {
+                        root_bone: "hip".to_string(),
+                        mid_bone: "knee".to_string(),
+                        tip_bone: "foot".to_string(),
+                        target: Vec3::ZERO.into(),
+                        weight: 1.0,
+                    }],
+                },
+                FootIkGround::default(),
+            ))
+            .id();
+
+        // The broad-phase BVH the ray queries is only rebuilt inside `step()`.
+        // Without a frame first the probe finds nothing, for a reason that has
+        // nothing to do with the probe.
+        app.update();
+        (app, character)
+    }
+
+    fn chain_target(app: &App, e: Entity) -> Vec3 {
+        app.world().get::<IkChains>(e).unwrap().chains[0].target.0
+    }
+
+    #[test]
+    fn a_foot_over_ground_gets_a_target_on_the_surface() {
+        // The probe's whole job. Asserts the target sits ON the ground, not
+        // merely that it changed from the zero it started at.
+        let (mut app, e) = character_over_ground(Vec3::new(0.0, 0.2, 0.0), 0.0, false);
+        app.update();
+        let t = chain_target(&app, e);
+        println!("target landed at {t:?}");
+        assert!(
+            t.y.abs() < 0.05,
+            "the target must sit on the ground at y = 0, not at {}",
+            t.y
+        );
+    }
+
+    #[test]
+    fn a_foot_already_sunk_into_the_ground_is_still_found() {
+        // The case foot IK exists FOR. On a slope the animation routinely puts
+        // the foot inside the hill, and a probe that cast from the foot itself
+        // would start below the surface and find nothing -- silently leaving
+        // the foot buried, which is exactly the artefact this feature removes.
+        let (mut app, e) = character_over_ground(Vec3::new(0.0, -0.2, 0.0), 0.0, false);
+        app.update();
+        let t = chain_target(&app, e);
+        println!("sunk foot resolved to {t:?}");
+        assert!(
+            t.y.abs() < 0.05,
+            "a foot below the surface must still resolve onto it; got y = {}",
+            t.y
+        );
+    }
+
+    #[test]
+    fn a_foot_over_nothing_keeps_the_target_it_had() {
+        // A character walking off a ledge must not have its feet yanked to
+        // wherever the ray gave up.
+        let (mut app, e) = character_over_ground(Vec3::new(500.0, 40.0, 500.0), 0.0, false);
+        let before = chain_target(&app, e);
+        app.update();
+        let after = chain_target(&app, e);
+        assert_eq!(
+            before, after,
+            "with no ground beneath it the probe must leave the target alone"
+        );
+    }
+
+    #[test]
+    fn two_feet_at_different_places_on_a_slope_get_different_targets() {
+        // What makes this FOOT IK rather than a single global offset. On a
+        // slope the two feet must resolve to different heights; on flat ground
+        // they would not, which is why the ground is tilted here.
+        let mut app = App::new();
+        app.add_plugins(PhysicsPlugin);
+        app.world_mut().spawn((
+            RigidBody::fixed(),
+            Collider::cuboid(50.0, 0.5, 50.0),
+            PhysicsInput {
+                position: Vec3::new(0.0, -0.5, 0.0).into(),
+                rotation: bsengine_core::ReflectQuat(Quat::from_rotation_z(0.25)),
+            },
+        ));
+        let character = app
+            .world_mut()
+            .spawn((
+                SkinnedMesh {
+                    mesh_id: 1,
+                    rest_vertices: Vec::new(),
+                    skin: Vec::new(),
+                    skin_data: bsengine_gltf::loader::SkinData {
+                        joint_node_indices: Vec::new(),
+                        inverse_bind_matrices: Vec::new(),
+                    },
+                    nodes: Vec::new(),
+                    pose_override: Vec::new(),
+                    pose_override_weight: 1.0,
+                    // Two feet, two metres apart across the slope.
+                    ik_tip_positions: vec![Vec3::new(-1.0, 0.5, 0.0), Vec3::new(1.0, 0.5, 0.0)],
+                    joint_matrices: Vec::new(),
+                },
+                IkChains {
+                    chains: vec![
+                        bsengine_gltf::IkChain {
+                            tip_bone: "l_foot".to_string(),
+                            weight: 1.0,
+                            ..Default::default()
+                        },
+                        bsengine_gltf::IkChain {
+                            tip_bone: "r_foot".to_string(),
+                            weight: 1.0,
+                            ..Default::default()
+                        },
+                    ],
+                },
+                FootIkGround::default(),
+            ))
+            .id();
+        app.update();
+        app.update();
+
+        let chains = &app.world().get::<IkChains>(character).unwrap().chains;
+        let left = chains[0].target.0;
+        let right = chains[1].target.0;
+        println!("left foot target {left:?}, right foot target {right:?}");
+        assert!(
+            (left.y - right.y).abs() > 0.1,
+            "on a slope the two feet must resolve to different heights: left \
+             y = {}, right y = {}. Equal heights mean one offset is being \
+             applied to the whole character rather than per foot.",
+            left.y,
+            right.y
         );
     }
 

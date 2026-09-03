@@ -3218,4 +3218,92 @@ mod tests {
             "the mesh id must be a real registered id, not the zero placeholder"
         );
     }
+
+    #[test]
+    fn the_demo_cars_wheels_follow_its_suspension_over_terrain() {
+        // The visible half of the feature, end to end, and the reason the demo
+        // moved off flat ground: on a heightfield the four wheels sit at
+        // genuinely different heights, so the suspension visibly does its job.
+        // On a flat floor all four settle identically and this assertion could
+        // not exist.
+        //
+        // It also exercises the whole chain the crate-level tests cannot span
+        // together: the scene's `Cylinder` primitives resolve in the headless
+        // dispatch, `WheelIndex` survives reflection, the wheel raycasts reach
+        // a Rapier heightfield rather than a box, and `sync_wheel_transforms`
+        // poses the children.
+        let project_dir = format!("{}/../../games/vehicle-demo", env!("CARGO_MANIFEST_DIR"));
+        let mut app = build_test_app(&project_dir, None, false);
+        let mut frame: u64 = 0;
+
+        // Drop onto the terrain and drive a little, so the car is somewhere
+        // sloped rather than wherever it spawned.
+        execute_command(&mut app, &mut frame, Command::Step { frames: 60 });
+        let (resp, _) = execute_command(
+            &mut app,
+            &mut frame,
+            Command::PressKey {
+                key: "W".to_string(),
+            },
+        );
+        assert!(resp.ok, "PressKey should succeed: {:?}", resp.error);
+        execute_command(&mut app, &mut frame, Command::Step { frames: 120 });
+
+        let names = ["WheelFL", "WheelFR", "WheelRL", "WheelRR"];
+        let mut heights = Vec::new();
+        let mut meshed = 0;
+        for name in names {
+            let e = {
+                let mut q = app
+                    .world_mut()
+                    .query::<(&bsengine_scene::Name, bevy_ecs::prelude::Entity)>();
+                q.iter(app.world())
+                    .find(|(n, _)| n.0 == name)
+                    .map(|(_, e)| e)
+                    .unwrap_or_else(|| panic!("the demo scene must contain {name}"))
+            };
+            if app
+                .world()
+                .get::<bsengine_render::MeshRenderer>(e)
+                .is_some()
+            {
+                meshed += 1;
+            }
+            heights.push(
+                app.world()
+                    .get::<bsengine_core::Transform>(e)
+                    .expect("a wheel visual keeps its transform")
+                    .position
+                    .0
+                    .y,
+            );
+        }
+
+        println!("wheel local heights on terrain: {heights:?}");
+        assert_eq!(
+            meshed, 4,
+            "all four wheels must have resolved a Cylinder mesh; a count below \
+             four means the headless primitive dispatch does not know Cylinder"
+        );
+
+        let max = heights.iter().cloned().fold(f32::MIN, f32::max);
+        let min = heights.iter().cloned().fold(f32::MAX, f32::min);
+        let spread = max - min;
+        println!("wheel height spread {spread} m");
+        assert!(
+            spread > 0.001,
+            "on terrain the wheels must sit at different heights -- that is the \
+             suspension working. All four at {min} means they are pinned to \
+             their mounts and nothing is driving them"
+        );
+
+        // Paired: they must still hang BELOW their mounts, not float. Every
+        // mount is authored at local y = -0.2, and the suspension can only push
+        // the wheel further down from there.
+        assert!(
+            max < -0.2,
+            "a wheel must hang below its mount at y = -0.2; the highest is at \
+             {max}, which is above the chassis mount point"
+        );
+    }
 }

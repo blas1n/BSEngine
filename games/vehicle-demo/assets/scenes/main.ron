@@ -1,56 +1,89 @@
-// Roadmap item 53 sub-step 1/2: a driveable car on flat ground.
+// Roadmap item 53 sub-step 2/2: a car with visible wheels, driving on terrain.
 //
-// Flat deliberately. This sub-step's assertions are exact distances and
-// headings, and a slope makes "how far should it have gone" unanswerable --
-// a failure would then need splitting between the vehicle and the terrain
-// before it could be read at all. Sub-step 2/2 adds the visible wheels and
-// can put the showcase on terrain.
-//
-// No E2E recording ships with this project yet. CI replays everything matching
-// `games/*/assets/tests/*.testlog.json`, and a recording belongs with sub-step
-// 2/2's demo, once there is something worth watching. The omission is
-// deliberate, not an oversight.
+// Sub-step 1/2 measured exact distances on flat ground, deliberately, so a
+// failure could not be split between the vehicle and the ground under it. That
+// question is settled now, and terrain is what actually shows the feature: on a
+// heightfield the four wheels sit at genuinely different heights, so the
+// suspension visibly does its job. `the_demo_cars_wheels_follow_its_suspension_
+// over_terrain` asserts exactly that.
 SceneDescriptor(entities: [
     EntityDescriptor(
         name: "Camera",
         camera: true,
-        transform: Some((position: (12.0, 6.0, 14.0))),
-        look_at: Some((0.0, 0.5, 0.0)),
+        transform: Some((position: (14.0, 10.0, 16.0))),
+        look_at: Some((10.0, 1.0, 10.0)),
     ),
     EntityDescriptor(
         name: "Sun",
         directional_light: Some((direction: (-0.4, -0.8, -0.3), ambient: (0.25, 0.25, 0.28))),
     ),
     EntityDescriptor(
-        // Top face at y = 0, so the car's wheel geometry below is readable
-        // against a round number.
+        // Same terrain as `games/terrain-demo`, with its own copy of the
+        // assets: a cross-project asset reference is not a thing this engine
+        // supports, and sub-step 1/2 chose a separate project precisely so
+        // tuning here disturbs no other demo.
+        //
+        // A 2x2 grid of 20-unit chunks, so the car crosses a chunk seam while
+        // driving -- the wheel raycasts have to work across the boundary
+        // between two heightfield colliders, not just within one.
         name: "Ground",
-        primitive: Some(Cube),
-        transform: Some((position: (0.0, -0.5, 0.0), scale: (200.0, 1.0, 200.0))),
-        rigidbody: Some(Static),
-        collider: Some((shape: Box(hx: 100.0, hy: 0.5, hz: 100.0), friction: 0.8)),
+        transform: Some((position: (0.0, 0.0, 0.0))),
+        components: [
+            ("bsengine_scene::types::Terrain", "(heightmap_path: \"assets/terrain/heightmap.png\", chunk_count: (2, 2), chunk_size: 20.0, height_scale: 6.0, layer0_texture_path: \"assets/terrain/grass.png\", layer1_texture_path: \"assets/terrain/rock.png\", layer2_texture_path: \"assets/terrain/dirt.png\", layer3_texture_path: \"assets/terrain/snow.png\", splatmap_path: None)"),
+        ],
     ),
     EntityDescriptor(
-        // The chassis box is 1.8 x 0.8 x 4.0, centred at y = 1.0, so its local
-        // y spans -0.4..0.4. The wheels mount at local y = -0.2 -- INSIDE that
-        // box, where real wheels sit. That is also what makes the chassis
-        // exclusion in `PhysicsWorld::update_vehicle` matter: a ray starting
-        // inside the chassis hits it at zero distance without one.
+        // Chassis: 1.8 x 0.8 x 4.0, so its local y spans -0.4..0.4. The wheels
+        // mount at local y = -0.2, INSIDE that box, which is where real wheels
+        // sit and what makes `update_vehicle`'s chassis exclusion load-bearing:
+        // a ray starting inside the chassis hits it at zero distance without
+        // one. Suspension reaches 0.5 + 0.35 = 0.85 from a mount at 0.8 above
+        // the chassis origin.
         //
-        // Suspension reaches rest_length + radius = 0.5 + 0.35 = 0.85 from a
-        // mount at world y = 0.8, so the wheels touch the ground at y = 0 with
-        // a little compression holding the body up.
-        //
-        // Front wheels steer, rear wheels drive: per-wheel booleans rather than
-        // a drivetrain setting, so four-wheel drive would just be four `drives`.
+        // Spawned above the terrain and left to drop onto its springs.
         name: "Car",
         primitive: Some(Cube),
-        transform: Some((position: (0.0, 1.0, 0.0), scale: (1.8, 0.8, 4.0))),
+        transform: Some((position: (10.0, 8.0, 10.0), scale: (1.8, 0.8, 4.0))),
         script: Some("assets/scripts/drive.js"),
         rigidbody: Some(Dynamic),
         collider: Some((shape: Box(hx: 0.9, hy: 0.4, hz: 2.0), friction: 0.8)),
         components: [
             ("bsengine_physics::components::Vehicle", "(wheels: [(connection: (0.8, -0.2, 1.4), radius: 0.35, suspension_rest_length: 0.5, steers: true, drives: false, suspension_stiffness: 30.0, damping_compression: 0.4, damping_relaxation: 0.6, friction_slip: 2.0, max_suspension_travel: 0.4), (connection: (-0.8, -0.2, 1.4), radius: 0.35, suspension_rest_length: 0.5, steers: true, drives: false, suspension_stiffness: 30.0, damping_compression: 0.4, damping_relaxation: 0.6, friction_slip: 2.0, max_suspension_travel: 0.4), (connection: (0.8, -0.2, -1.4), radius: 0.35, suspension_rest_length: 0.5, steers: false, drives: true, suspension_stiffness: 30.0, damping_compression: 0.4, damping_relaxation: 0.6, friction_slip: 2.0, max_suspension_travel: 0.4), (connection: (-0.8, -0.2, -1.4), radius: 0.35, suspension_rest_length: 0.5, steers: false, drives: true, suspension_stiffness: 30.0, damping_compression: 0.4, damping_relaxation: 0.6, friction_slip: 2.0, max_suspension_travel: 0.4)], throttle: 0.0, steering: 0.0, brake: 0.0)"),
         ],
+    ),
+    // The four wheel visuals. Children of the car via `parent:`, each carrying
+    // the `WheelIndex` that selects which entry of `Vehicle.wheel_states` poses
+    // it. They are `Cylinder` primitives rotated onto the axle: the mesh is
+    // Y-aligned and a wheel spins about X, hence the z-rotation.
+    //
+    // These are visuals only -- no rigidbody, no collider. The wheels are
+    // raycasts; giving them bodies would simulate each wheel twice.
+    EntityDescriptor(
+        name: "WheelFL",
+        parent: Some("Car"),
+        primitive: Some(Cylinder),
+        transform: Some((position: (0.8, -0.2, 1.4), rotation: (0.0, 0.0, 0.7071068, 0.7071068), scale: (0.7, 0.25, 0.7))),
+        components: [("bsengine_physics::components::WheelIndex", "(0)")],
+    ),
+    EntityDescriptor(
+        name: "WheelFR",
+        parent: Some("Car"),
+        primitive: Some(Cylinder),
+        transform: Some((position: (-0.8, -0.2, 1.4), rotation: (0.0, 0.0, 0.7071068, 0.7071068), scale: (0.7, 0.25, 0.7))),
+        components: [("bsengine_physics::components::WheelIndex", "(1)")],
+    ),
+    EntityDescriptor(
+        name: "WheelRL",
+        parent: Some("Car"),
+        primitive: Some(Cylinder),
+        transform: Some((position: (0.8, -0.2, -1.4), rotation: (0.0, 0.0, 0.7071068, 0.7071068), scale: (0.7, 0.25, 0.7))),
+        components: [("bsengine_physics::components::WheelIndex", "(2)")],
+    ),
+    EntityDescriptor(
+        name: "WheelRR",
+        parent: Some("Car"),
+        primitive: Some(Cylinder),
+        transform: Some((position: (-0.8, -0.2, -1.4), rotation: (0.0, 0.0, 0.7071068, 0.7071068), scale: (0.7, 0.25, 0.7))),
+        components: [("bsengine_physics::components::WheelIndex", "(3)")],
     ),
 ])

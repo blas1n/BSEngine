@@ -1053,6 +1053,11 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     app.register_type::<bsengine_gltf::LodRequest>();
     app.register_type::<bsengine_gltf::SkinnedMesh>();
     app.register_type::<bsengine_gltf::AnimationClipLibrary>();
+    // `IkChain` is `bsengine-gltf`'s and scene-authored, so it lands here with
+    // the rest. An unregistered component is not an error -- it is silently
+    // absent, and a leg that simply never reaches for the ground looks like a
+    // solver problem rather than a missing registration.
+    app.register_type::<bsengine_gltf::IkChain>();
 
     // `Name` is this crate's own, attached by `spawn_scene_entities` to every
     // entity a scene declares. It was unregistered until now because a second

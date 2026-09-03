@@ -1,10 +1,37 @@
 use bevy_app::{App, Plugin, PostUpdate};
 use bevy_ecs::prelude::{Component, Query, ReflectComponent, Res, ResMut};
+use bevy_reflect::prelude::ReflectDefault;
 
 use crate::animation::{AnimationChannel, AnimationClip, Interpolation, KeyframeValues};
 use crate::loader::{NodeTransform, SkinData, VertexSkin};
 use bsengine_rhi_wgpu::Vertex;
 use glam::{Mat4, Quat, Vec3};
+
+/// One two-bone IK chain: three bones by name, and a world-space target the
+/// tip should reach.
+///
+/// Named rather than indexed, following `Ragdoll.joint_overrides` — a scene
+/// author writes the bone names the rig actually uses, and a name the skeleton
+/// lacks is skipped with a warning rather than silently posing the wrong joint.
+#[derive(Component, Debug, Clone, Default, bevy_reflect::Reflect)]
+#[reflect(Component, Default)]
+pub struct IkChain {
+    /// Upper bone — the hip or shoulder.
+    pub root_bone: String,
+    /// Middle bone — the knee or elbow.
+    pub mid_bone: String,
+    /// Tip bone — the foot or hand, the one driven onto the target.
+    pub tip_bone: String,
+    /// World-space position the tip should reach.
+    pub target: bsengine_core::ReflectVec3,
+    /// How much of the solved pose to apply. `0.0` leaves the animation
+    /// untouched; `1.0` puts the tip on the target.
+    ///
+    /// Exists so foot IK can blend out rather than switch off. A hard switch
+    /// pops the foot on the frame it disengages — the same artefact the ragdoll
+    /// return blend was built to avoid.
+    pub weight: f32,
+}
 
 /// Rest-pose (bind pose) geometry, skin/joint data, and node hierarchy needed
 /// to re-derive a skinned mesh's deformed vertices every frame from whichever
@@ -452,8 +479,15 @@ fn compute_global_transforms_blended(
     nodes: &[NodeTransform],
     clips: &[ClipSample<'_>],
 ) -> Vec<Mat4> {
-    let locals = compute_local_transforms_blended(nodes, clips);
-    let mut globals = locals.clone();
+    accumulate_globals(nodes, &compute_local_transforms_blended(nodes, clips))
+}
+
+/// Composes each node's global transform from its locals and its parent chain.
+///
+/// Split out of [`compute_global_transforms_blended`] because IK has to run it
+/// a second time, after writing solved rotations back into the locals.
+fn accumulate_globals(nodes: &[NodeTransform], locals: &[Mat4]) -> Vec<Mat4> {
+    let mut globals = locals.to_vec();
     for _ in 0..8 {
         for (i, node) in nodes.iter().enumerate() {
             if let Some(parent) = node.parent {
@@ -495,7 +529,93 @@ fn compute_joint_matrices_blended(
     skin: &SkinData,
     clips: &[ClipSample<'_>],
 ) -> Vec<Mat4> {
-    joint_matrices_from_globals(&compute_global_transforms_blended(nodes, clips), skin)
+    compute_joint_matrices_with_ik(nodes, skin, clips, &[])
+}
+
+/// As [`compute_joint_matrices_blended`], with IK chains applied between the
+/// global accumulation and the inverse-bind step.
+///
+/// That is the only place they can go. The chains need world positions to solve
+/// against, which do not exist until the globals are accumulated; and they must
+/// be applied before the inverse bind matrices, which is what turns globals into
+/// skinning matrices.
+fn compute_joint_matrices_with_ik(
+    nodes: &[NodeTransform],
+    skin: &SkinData,
+    clips: &[ClipSample<'_>],
+    chains: &[&IkChain],
+) -> Vec<Mat4> {
+    let mut locals = compute_local_transforms_blended(nodes, clips);
+    let mut globals = accumulate_globals(nodes, &locals);
+
+    for chain in chains {
+        if chain.weight <= 0.0 {
+            continue;
+        }
+        let (Some(root), Some(mid), Some(tip)) = (
+            node_index_by_name(nodes, &chain.root_bone),
+            node_index_by_name(nodes, &chain.mid_bone),
+            node_index_by_name(nodes, &chain.tip_bone),
+        ) else {
+            // A name the rig does not have is a scene typo. Warn once per frame
+            // rather than posing some other joint, which would look like a
+            // solver bug.
+            tracing::warn!(
+                "[ik] chain names a bone this skeleton lacks: {:?} / {:?} / {:?}",
+                chain.root_bone,
+                chain.mid_bone,
+                chain.tip_bone
+            );
+            continue;
+        };
+
+        let pos = |i: usize| globals[i].transform_point3(Vec3::ZERO);
+        let (root_rot, mid_rot) =
+            crate::ik::solve_two_bone(pos(root), pos(mid), pos(tip), chain.target.0);
+
+        // Blend toward the solved rotation rather than snapping to it, so a
+        // foot can fade in and out of IK.
+        let w = chain.weight.clamp(0.0, 1.0);
+        let root_rot = Quat::IDENTITY.slerp(root_rot, w);
+        let mid_rot = Quat::IDENTITY.slerp(mid_rot, w);
+
+        // The solver returns world-space rotations; the locals are relative to
+        // each bone's parent, so each is carried into the parent's frame before
+        // being applied.
+        apply_world_rotation(&mut locals, &globals, nodes, root, root_rot);
+        apply_world_rotation(&mut locals, &globals, nodes, mid, mid_rot);
+
+        // Re-accumulate, or the two rotated bones move and the tip — and
+        // everything below it — stays where the clip put it.
+        globals = accumulate_globals(nodes, &locals);
+    }
+
+    joint_matrices_from_globals(&globals, skin)
+}
+
+/// Rotates one node by a world-space rotation, written into its parent-relative
+/// local transform.
+fn apply_world_rotation(
+    locals: &mut [Mat4],
+    globals: &[Mat4],
+    nodes: &[NodeTransform],
+    index: usize,
+    world_rot: Quat,
+) {
+    let parent_global = nodes[index]
+        .parent
+        .map(|p| globals[p])
+        .unwrap_or(Mat4::IDENTITY);
+    let (_, parent_rot, _) = parent_global.to_scale_rotation_translation();
+    let local_delta = parent_rot.inverse() * world_rot * parent_rot;
+    let (scale, rot, translation) = locals[index].to_scale_rotation_translation();
+    locals[index] =
+        Mat4::from_scale_rotation_translation(scale, local_delta * rot, translation);
+}
+
+/// Finds a node by its glTF name.
+fn node_index_by_name(nodes: &[NodeTransform], name: &str) -> Option<usize> {
+    nodes.iter().position(|n| n.name == name)
 }
 
 /// Blends one rest-pose vertex position through up to 4 joint matrices by
@@ -769,6 +889,182 @@ mod tests {
     // ---- pose blending (roadmap item 29) ---------------------------------
 
     /// A one-node skeleton at the origin, unrotated and unscaled.
+
+    // ---- IK chains applied during skinning (roadmap item 54, sub-step 1/2) --
+
+    /// A three-node leg: hip at the origin, knee one unit down and slightly
+    /// forward, foot two units down. Each node is a joint with an identity
+    /// inverse bind matrix, so a joint matrix applied to the origin IS that
+    /// node's world position and nothing else.
+    fn leg_skeleton() -> (Vec<NodeTransform>, SkinData) {
+        let nodes = vec![
+            NodeTransform {
+                name: "hip".to_string(),
+                position: [0.0, 2.0, 0.0],
+                ..Default::default()
+            },
+            NodeTransform {
+                name: "knee".to_string(),
+                position: [0.0, -1.0, 0.3],
+                parent: Some(0),
+                ..Default::default()
+            },
+            NodeTransform {
+                name: "foot".to_string(),
+                position: [0.0, -1.0, -0.3],
+                parent: Some(1),
+                ..Default::default()
+            },
+        ];
+        let skin = SkinData {
+            joint_node_indices: vec![0, 1, 2],
+            inverse_bind_matrices: vec![Mat4::IDENTITY.to_cols_array_2d(); 3],
+        };
+        (nodes, skin)
+    }
+
+    fn chain_to(target: Vec3, weight: f32) -> IkChain {
+        IkChain {
+            root_bone: "hip".to_string(),
+            mid_bone: "knee".to_string(),
+            tip_bone: "foot".to_string(),
+            target: target.into(),
+            weight,
+        }
+    }
+
+    /// Where each joint ends up, per the matrices skinning would actually use.
+    fn joint_positions(nodes: &[NodeTransform], skin: &SkinData, chains: &[&IkChain]) -> Vec<Vec3> {
+        compute_joint_matrices_with_ik(nodes, skin, &[], chains)
+            .iter()
+            .map(|m| m.transform_point3(Vec3::ZERO))
+            .collect()
+    }
+
+    #[test]
+    fn an_ik_chain_pulls_its_tip_bone_to_the_target() {
+        // Asserted on the JOINT MATRICES -- what skinning actually consumes --
+        // not on an intermediate. A disconnected consumer looks exactly like a
+        // working producer, which is the failure shape this codebase has hit
+        // repeatedly (a ragdoll falling underneath a character that animates on
+        // as if nothing happened).
+        let (nodes, skin) = leg_skeleton();
+        let target = Vec3::new(0.3, 0.6, 0.2);
+        let chain = chain_to(target, 1.0);
+
+        let before = joint_positions(&nodes, &skin, &[]);
+        let after = joint_positions(&nodes, &skin, &[&chain]);
+
+        let err = (after[2] - target).length();
+        println!("foot moved {:?} -> {:?}, {err} m from target", before[2], after[2]);
+        assert!(
+            err < 1.0e-3,
+            "the foot joint must land on the target; it is at {:?}, {err} m \
+             away from {target:?}",
+            after[2]
+        );
+        // The hip is the chain's root and must not translate -- IK rotates, it
+        // does not move the character.
+        assert!(
+            (after[0] - before[0]).length() < 1.0e-4,
+            "the root joint must not move: {:?} -> {:?}",
+            before[0],
+            after[0]
+        );
+    }
+
+    #[test]
+    fn a_weight_of_zero_is_byte_identical_to_no_chain_at_all() {
+        // The pair. Without it, IK that is always on passes the test above.
+        // Byte-identical rather than approximate: weight 0 must not touch the
+        // rotations at all, so the two matrix sets are the same bits.
+        let (nodes, skin) = leg_skeleton();
+        let chain = chain_to(Vec3::new(0.3, 0.6, 0.2), 0.0);
+
+        let none = compute_joint_matrices_with_ik(&nodes, &skin, &[], &[]);
+        let zero = compute_joint_matrices_with_ik(&nodes, &skin, &[], &[&chain]);
+        assert_eq!(
+            none, zero,
+            "a zero-weight chain must leave the pose bit-for-bit unchanged"
+        );
+    }
+
+    #[test]
+    fn a_partial_weight_lands_between_the_animated_and_solved_poses() {
+        // The reason `weight` exists: a foot has to fade into IK rather than
+        // pop on the frame it engages. Half weight must be measurably away from
+        // BOTH endpoints -- a blend that quietly returns one of them satisfies
+        // any weaker assertion.
+        let (nodes, skin) = leg_skeleton();
+        let target = Vec3::new(0.3, 0.6, 0.2);
+
+        let animated = joint_positions(&nodes, &skin, &[])[2];
+        let solved = joint_positions(&nodes, &skin, &[&chain_to(target, 1.0)])[2];
+        let half = joint_positions(&nodes, &skin, &[&chain_to(target, 0.5)])[2];
+
+        let span = (solved - animated).length();
+        println!("animated {animated:?}, half {half:?}, solved {solved:?}");
+        assert!(
+            (half - animated).length() > span * 0.1 && (half - solved).length() > span * 0.1,
+            "half weight must sit between the animated pose {animated:?} and \
+             the solved pose {solved:?}, but landed at {half:?}"
+        );
+    }
+
+    #[test]
+    fn a_chain_naming_a_bone_the_skeleton_lacks_is_skipped() {
+        // A typo'd bone name must leave the pose alone rather than panicking or
+        // posing some other joint.
+        let (nodes, skin) = leg_skeleton();
+        let mut chain = chain_to(Vec3::new(0.3, 0.6, 0.2), 1.0);
+        chain.mid_bone = "no_such_bone".to_string();
+
+        let none = compute_joint_matrices_with_ik(&nodes, &skin, &[], &[]);
+        let typo = compute_joint_matrices_with_ik(&nodes, &skin, &[], &[&chain]);
+        assert_eq!(
+            none, typo,
+            "a chain naming a missing bone must not change the pose"
+        );
+    }
+
+    #[test]
+    fn the_bones_below_the_chain_follow_it() {
+        // The globals are re-accumulated after the solved rotations are written
+        // into the locals. Skipping that moves the two solved bones and leaves
+        // the foot where the clip put it -- which reads as a broken solver
+        // rather than a missing accumulation pass.
+        //
+        // The foot IS the tip here, so its landing on the target (asserted
+        // above) already depends on the re-accumulation. This pins the bones
+        // too: rotating them must not change their lengths.
+        let (nodes, skin) = leg_skeleton();
+        let chain = chain_to(Vec3::new(0.3, 0.6, 0.2), 1.0);
+        let before = joint_positions(&nodes, &skin, &[]);
+        let after = joint_positions(&nodes, &skin, &[&chain]);
+
+        // Compared against the rest pose's OWN lengths rather than a constant
+        // written by hand. The first version asserted 1.0 m and failed at
+        // 1.0440307 -- which is just what the local offset (0, -1, 0.3)
+        // measures. The test was wrong, not the solver, and reading the length
+        // off the rest pose is both correct and stricter: it keeps meaning
+        // "rotate, do not stretch" if the fixture ever changes.
+        let rest_upper = (before[1] - before[0]).length();
+        let rest_lower = (before[2] - before[1]).length();
+        let upper = (after[1] - after[0]).length();
+        let lower = (after[2] - after[1]).length();
+        println!("upper {rest_upper} -> {upper}, lower {rest_lower} -> {lower}");
+        assert!(
+            (upper - rest_upper).abs() < 1.0e-3,
+            "IK must rotate bones, not stretch them: upper bone went \
+             {rest_upper} m -> {upper} m"
+        );
+        assert!(
+            (lower - rest_lower).abs() < 1.0e-3,
+            "IK must rotate bones, not stretch them: lower bone went \
+             {rest_lower} m -> {lower} m"
+        );
+    }
+
     fn one_node() -> Vec<NodeTransform> {
         vec![NodeTransform {
             name: String::new(),

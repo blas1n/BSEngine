@@ -432,6 +432,45 @@ pub struct Vehicle {
     pub wheel_states: Vec<WheelState>,
 }
 
+/// Drives a character's [`IkChain`](bsengine_gltf::IkChain) targets onto
+/// whatever its feet are standing over.
+///
+/// Lives in this crate rather than beside `IkChain` because casting a ray needs
+/// `PhysicsWorld`, and `bsengine-gltf` must not depend on this crate -- the
+/// dependency runs physics -> gltf. Physics writing into a gltf-owned component
+/// is exactly what `publish_ragdoll_pose` already does with
+/// `SkinnedMesh.pose_override`.
+#[derive(Component, Debug, Clone, Copy, Reflect)]
+#[reflect(Component, Default)]
+pub struct FootIkGround {
+    /// How far below the foot to look for ground, in metres. A ray that finds
+    /// nothing within this leaves the target alone.
+    pub max_drop: f32,
+    /// How far above the surface to hold the foot, in metres. Usually the
+    /// ankle's height above the sole.
+    pub offset: f32,
+    /// How far ABOVE the foot to start the ray, in metres.
+    ///
+    /// A ray starting exactly at the foot misses ground the foot has already
+    /// sunk into, which is the common case on a slope -- the animation puts the
+    /// foot through the hill and the probe is what pulls it back out.
+    pub probe_height: f32,
+}
+
+impl Default for FootIkGround {
+    /// Defaults sized for a human-scale character.
+    ///
+    /// Deriving `Default` would give all zeros: a probe that looks nowhere,
+    /// starts nowhere, and holds the foot inside the ground.
+    fn default() -> Self {
+        Self {
+            max_drop: 1.0,
+            offset: 0.0,
+            probe_height: 0.5,
+        }
+    }
+}
+
 /// Marks an entity as the visual for one of its parent [`Vehicle`]'s wheels.
 ///
 /// Authored in a scene beside `parent:`; the index selects which entry of

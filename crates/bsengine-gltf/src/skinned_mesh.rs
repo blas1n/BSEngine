@@ -128,6 +128,18 @@ pub struct SkinnedMesh {
     /// Not reflected: see the type-level note above.
     #[reflect(ignore)]
     pub pose_override_weight: f32,
+    /// World-space position of each [`IkChains`] chain's tip bone, in chain
+    /// order, as of the last time the skinning system ran.
+    ///
+    /// Published so something outside this crate can find where a foot
+    /// actually is without re-deriving the pose. `bsengine-physics` reads it to
+    /// cast its ground probe, the same way it reads
+    /// [`pose_override`](SkinnedMesh::pose_override) -- the dependency runs
+    /// physics -> gltf, so the data has to travel in this direction.
+    ///
+    /// Runtime output, never authored, hence not reflected.
+    #[reflect(ignore)]
+    pub ik_tip_positions: Vec<Vec3>,
     /// The skinning matrix per joint as of the last time [`SkinnedMeshPlugin`]'s
     /// system ran — `global[joint_node] * inverse_bind_matrix[joint]`, in
     /// [`SkinData::joint_node_indices`] order.
@@ -558,6 +570,21 @@ fn compute_joint_matrices_with_ik(
     clips: &[ClipSample<'_>],
     chains: &[&IkChain],
 ) -> Vec<Mat4> {
+    compute_pose_with_ik(nodes, skin, clips, chains).0
+}
+
+/// As [`compute_joint_matrices_with_ik`], also returning each chain's tip bone
+/// world position.
+///
+/// Split out rather than folded in because the tips are only wanted by the
+/// system that publishes them; every test and every other caller wants the
+/// matrices alone.
+fn compute_pose_with_ik(
+    nodes: &[NodeTransform],
+    skin: &SkinData,
+    clips: &[ClipSample<'_>],
+    chains: &[&IkChain],
+) -> (Vec<Mat4>, Vec<Vec3>) {
     let mut locals = compute_local_transforms_blended(nodes, clips);
     let mut globals = accumulate_globals(nodes, &locals);
 
@@ -603,7 +630,19 @@ fn compute_joint_matrices_with_ik(
         globals = accumulate_globals(nodes, &locals);
     }
 
-    joint_matrices_from_globals(&globals, skin)
+    // Read the tips back off the FINAL globals, after every chain has been
+    // solved and re-accumulated. Reading them mid-loop would publish a foot
+    // position that a later chain then moved.
+    let tips = chains
+        .iter()
+        .map(|c| {
+            node_index_by_name(nodes, &c.tip_bone)
+                .map(|i| globals[i].transform_point3(Vec3::ZERO))
+                .unwrap_or(Vec3::ZERO)
+        })
+        .collect();
+
+    (joint_matrices_from_globals(&globals, skin), tips)
 }
 
 /// Rotates one node by a world-space rotation, written into its parent-relative
@@ -713,6 +752,10 @@ fn update_skinned_meshes(
     let mut gpu = mesh_registry.zip(queue);
 
     for (mut skinned, library, player, asm, ik) in query.iter_mut() {
+        // Set by the clip branch below; the ragdoll-override branches leave it
+        // None, and an override means physics is driving the whole skeleton
+        // anyway.
+        let mut published_tips: Option<Vec<Vec3>> = None;
         // The one branch this whole feature turns on, and the one that fails
         // silently: with the bodies built and falling but the clips still
         // sourcing the pose, the character looks completely normal while a full
@@ -740,12 +783,10 @@ fn update_skinned_meshes(
             let samples = blend_samples(clip, library, player.time, asm);
             let chains: Vec<&IkChain> =
                 ik.map(|c| c.chains.iter().collect()).unwrap_or_default();
-            compute_joint_matrices_with_ik(
-                &skinned.nodes,
-                &skinned.skin_data,
-                &samples,
-                &chains,
-            )
+            let (matrices, tips) =
+                compute_pose_with_ik(&skinned.nodes, &skinned.skin_data, &samples, &chains);
+            published_tips = Some(tips);
+            matrices
         } else if skinned.pose_override_weight >= 1.0 {
             // Override present, full weight — clips are not read at all.
             // Byte-identical to the pre-weight override path.
@@ -788,6 +829,14 @@ fn update_skinned_meshes(
                     .collect(),
             }
         };
+
+        // Publish where the IK tips ended up, so the ground probe in
+        // `bsengine-physics` can cast from the foot without re-deriving the
+        // pose. Only the clip branch produces these; under a pose override
+        // physics is already driving the whole skeleton.
+        if let Some(tips) = published_tips {
+            skinned.ik_tip_positions = tips;
+        }
 
         if let Some((mesh_registry, queue)) = gpu.as_mut() {
             let deformed: Vec<Vertex> = skinned
@@ -1533,6 +1582,7 @@ mod tests {
             },
             nodes: vec![NodeTransform::default()],
             pose_override: Vec::new(),
+            ik_tip_positions: Vec::new(),
             pose_override_weight: 1.0,
             joint_matrices: Vec::new(),
         }
@@ -1672,6 +1722,7 @@ mod tests {
                     skin_data,
                     nodes,
                     pose_override: Vec::new(),
+                    ik_tip_positions: Vec::new(),
                     pose_override_weight: 1.0,
                     joint_matrices: Vec::new(),
                 },
@@ -1808,6 +1859,7 @@ mod tests {
                     skin_data,
                     nodes,
                     pose_override: Vec::new(),
+                    ik_tip_positions: Vec::new(),
                     pose_override_weight: 1.0,
                     joint_matrices: Vec::new(),
                 },
@@ -1900,6 +1952,7 @@ mod tests {
                     },
                     nodes: one_node(),
                     pose_override: Vec::new(),
+                    ik_tip_positions: Vec::new(),
                     pose_override_weight: 1.0,
                     joint_matrices: Vec::new(),
                 },

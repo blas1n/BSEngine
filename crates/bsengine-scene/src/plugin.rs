@@ -1022,6 +1022,9 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     // for a scene to author an override. There is a test below that fails if
     // that ever stops being true.
     app.register_type::<bsengine_physics::Ragdoll>();
+    // `FootIkGround` is scene-authored on a character alongside its
+    // `IkChains`, so it needs registering for the same reason.
+    app.register_type::<bsengine_physics::FootIkGround>();
     // `Vehicle` is `bsengine-physics`'s, and here for the same reason as
     // `Joint`/`Ragdoll`.
     //

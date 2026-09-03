@@ -17,7 +17,8 @@ pub mod ragdoll;
 pub mod world;
 
 pub use components::{
-    CharacterBody, Collider, ColliderShape, CollisionEvent, Joint, JointKind, PhysicsInput,
+    CharacterBody, Collider, ColliderShape, CollisionEvent, FootIkGround, Joint, JointKind,
+    PhysicsInput,
     PhysicsTransform, Ragdoll, RaycastHit, RigidBody, RigidBodyType, Vehicle, WheelConfig,
     WheelIndex, WheelState,
 };

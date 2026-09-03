@@ -321,6 +321,78 @@ pub fn plane_vertices() -> (Vec<Vertex>, Vec<u32>) {
     (verts, idx)
 }
 
+/// A closed cylinder, Y-axis aligned, sized to match [`capsule_vertices`] so
+/// the two primitives scale alike.
+///
+/// Built as three pieces rather than by reusing the capsule's rings directly:
+/// the barrel needs horizontal normals, and each flat cap needs its own ring
+/// with a vertical normal plus a centre vertex. Sharing one ring between the
+/// barrel and a cap would average the two normals and light the rim like a
+/// sphere, which is exactly what distinguishes this from the capsule.
+pub fn cylinder_vertices() -> (Vec<Vertex>, Vec<u32>) {
+    const SLICES: u32 = 24;
+    const RADIUS: f32 = 0.25;
+    const HALF: f32 = 0.25;
+
+    let mut verts: Vec<Vertex> = Vec::new();
+    let mut idx: Vec<u32> = Vec::new();
+    let row = SLICES + 1;
+
+    // Barrel: two rings, horizontal normals.
+    for (k, y) in [(0.0f32, HALF), (1.0f32, -HALF)] {
+        for j in 0..=SLICES {
+            let theta = 2.0 * std::f32::consts::PI * j as f32 / SLICES as f32;
+            let (s, c) = theta.sin_cos();
+            verts.push(Vertex {
+                position: [RADIUS * c, y, RADIUS * s],
+                color: [1.0; 3],
+                normal: [c, 0.0, s],
+                uv: [j as f32 / SLICES as f32, k],
+            });
+        }
+    }
+    for j in 0..SLICES {
+        let a = j;
+        let b = a + row;
+        idx.extend_from_slice(&[a, b, a + 1, a + 1, b, b + 1]);
+    }
+
+    // Caps: a centre vertex then a ring, normal straight up or down.
+    for (y, ny) in [(HALF, 1.0f32), (-HALF, -1.0f32)] {
+        let centre = verts.len() as u32;
+        verts.push(Vertex {
+            position: [0.0, y, 0.0],
+            color: [1.0; 3],
+            normal: [0.0, ny, 0.0],
+            uv: [0.5, 0.5],
+        });
+        for j in 0..=SLICES {
+            let theta = 2.0 * std::f32::consts::PI * j as f32 / SLICES as f32;
+            let (s, c) = theta.sin_cos();
+            verts.push(Vertex {
+                position: [RADIUS * c, y, RADIUS * s],
+                color: [1.0; 3],
+                normal: [0.0, ny, 0.0],
+                uv: [0.5 + 0.5 * c, 0.5 + 0.5 * s],
+            });
+        }
+        // Wind each cap so it faces outward: the top fan runs one way round
+        // the ring and the bottom the other, or one of them is inside-out and
+        // vanishes under backface culling.
+        for j in 0..SLICES {
+            let a = centre + 1 + j;
+            let b = a + 1;
+            if ny > 0.0 {
+                idx.extend_from_slice(&[centre, b, a]);
+            } else {
+                idx.extend_from_slice(&[centre, a, b]);
+            }
+        }
+    }
+
+    (verts, idx)
+}
+
 /// Vertices/indices for a capsule: a cylindrical body capped with two
 /// hemispheres, built as stacked rings of vertices.
 pub fn capsule_vertices() -> (Vec<Vertex>, Vec<u32>) {
@@ -390,6 +462,60 @@ pub fn capsule_vertices() -> (Vec<Vertex>, Vec<u32>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_cylinder_has_flat_caps_where_a_capsule_bulges() {
+        // What separates this from the capsule it sits beside. A capsule's
+        // poles reach half_height + radius; every cylinder vertex must stay
+        // within half_height exactly. Copying the capsule and forgetting to
+        // replace its hemispheres passes any test that only counts vertices.
+        let (verts, _) = cylinder_vertices();
+        let max_y = verts.iter().fold(f32::MIN, |m, v| m.max(v.position[1]));
+        let min_y = verts.iter().fold(f32::MAX, |m, v| m.min(v.position[1]));
+        assert!(
+            (max_y - 0.25).abs() < 1e-6 && (min_y + 0.25).abs() < 1e-6,
+            "cylinder must span exactly +/-0.25 in Y, got {min_y}..{max_y}; a \
+             capsule would reach +/-0.5"
+        );
+
+        // And the caps must be flat discs, not domes: every vertex at an
+        // extreme Y is either the centre or on the rim, never between.
+        for v in &verts {
+            if (v.position[1].abs() - 0.25).abs() < 1e-6 {
+                let r = (v.position[0] * v.position[0] + v.position[2] * v.position[2]).sqrt();
+                assert!(
+                    r < 1e-6 || (r - 0.25).abs() < 1e-6,
+                    "a cap vertex must be the centre or on the rim, not at \
+                     radius {r} -- that is a dome"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_cylinder_indexes_every_vertex_it_emits() {
+        // Guards the index arithmetic. A wrong stride silently drops a ring or
+        // references past the end, which renders as a seam or a hole rather
+        // than failing.
+        let (verts, idx) = cylinder_vertices();
+        assert!(!idx.is_empty(), "a cylinder must emit triangles");
+        assert_eq!(idx.len() % 3, 0, "indices must form whole triangles");
+        for &i in &idx {
+            assert!(
+                (i as usize) < verts.len(),
+                "index {i} is past the {} vertices emitted",
+                verts.len()
+            );
+        }
+        let used: std::collections::HashSet<u32> = idx.iter().copied().collect();
+        assert_eq!(
+            used.len(),
+            verts.len(),
+            "every emitted vertex must be referenced; {} of {} are orphaned",
+            verts.len() - used.len(),
+            verts.len()
+        );
+    }
 
     #[test]
     fn triangle_has_three_verts() {

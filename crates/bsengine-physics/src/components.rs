@@ -418,6 +418,48 @@ pub struct Vehicle {
     pub steering: f32,
     /// Brake input, `0.0..=1.0`.
     pub brake: f32,
+    /// Per-wheel state published by the physics step, in [`wheels`] order.
+    ///
+    /// Runtime output written every frame, never authored — hence
+    /// `#[reflect(ignore)]`. A *reflected* field here would make every scene
+    /// that already authors a `Vehicle` come back with an empty `wheels` list
+    /// and no error at all, because `TypedReflectDeserializer` requires every
+    /// reflected field to be present and empties the containing collection
+    /// when one is missing.
+    ///
+    /// [`wheels`]: Vehicle::wheels
+    #[reflect(ignore)]
+    pub wheel_states: Vec<WheelState>,
+}
+
+/// Marks an entity as the visual for one of its parent [`Vehicle`]'s wheels.
+///
+/// Authored in a scene beside `parent:`; the index selects which entry of
+/// [`Vehicle::wheel_states`] drives this entity's transform. An index with no
+/// matching entry is skipped rather than treated as an error — a car may be
+/// authored with fewer wheel visuals than wheels.
+#[derive(Component, Debug, Clone, Copy, Default, PartialEq, Reflect)]
+#[reflect(Component, Default)]
+pub struct WheelIndex(pub usize);
+
+/// What the vehicle controller computed for one wheel this frame, published so
+/// something outside this crate can draw it.
+///
+/// The controller itself lives in a `Local` inside `sync_vehicles` and is
+/// invisible to every other system, which is why its results are copied out
+/// here rather than read directly. Same channel shape as
+/// `SkinnedMesh.pose_override`, which is how ragdoll physics reaches
+/// `bsengine-gltf`.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct WheelState {
+    /// Current suspension length, in metres. Shorter means more compressed.
+    pub suspension_length: f32,
+    /// Steering angle, in radians.
+    pub steering: f32,
+    /// Accumulated roll about the axle, in radians.
+    pub rotation: f32,
+    /// Whether the wheel is touching the ground.
+    pub grounded: bool,
 }
 
 /// One wheel's mount point and tuning.

@@ -8,7 +8,8 @@ use bsengine_core::{HudTexts, Transform};
 use bsengine_ecs::{Added, Commands, Entity, Query, ResMut};
 use bsengine_physics::{Collider, PhysicsInput, RigidBody};
 use bsengine_rhi_wgpu::{
-    capsule_vertices, cube_vertices, plane_vertices, sphere_vertices, GpuMeshRegistry,
+    capsule_vertices, cube_vertices, cylinder_vertices, plane_vertices, sphere_vertices,
+    GpuMeshRegistry,
 };
 use bsengine_scene::{
     spawn_scene_entities, ColliderShapeDesc, Name, PendingSceneLoad, PhysicsBodyDesc, Primitive,
@@ -117,6 +118,7 @@ pub fn resolve_primitives(
     let mut sphere_id: Option<u64> = None;
     let mut plane_id: Option<u64> = None;
     let mut capsule_id: Option<u64> = None;
+    let mut cylinder_id: Option<u64> = None;
 
     for (entity, prim) in query.iter() {
         let mesh_id = match &prim.0 {
@@ -134,6 +136,10 @@ pub fn resolve_primitives(
             }),
             Primitive::Capsule => *capsule_id.get_or_insert_with(|| {
                 let (v, i) = capsule_vertices();
+                registry.register(&v, &i)
+            }),
+            Primitive::Cylinder => *cylinder_id.get_or_insert_with(|| {
+                let (v, i) = cylinder_vertices();
                 registry.register(&v, &i)
             }),
         };

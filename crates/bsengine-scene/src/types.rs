@@ -216,6 +216,8 @@ pub enum Primitive {
     Plane,
     /// Cylinder with hemispherical caps.
     Capsule,
+    /// Flat-capped cylinder. A wheel, a pipe, a barrel.
+    Cylinder,
 }
 
 /// Marker component inserted by `ScenePlugin` for entities with `primitive: Some(...)`.

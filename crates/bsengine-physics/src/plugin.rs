@@ -13,6 +13,7 @@ use crate::{
     components::{
         CharacterBody, Collider, ColliderShape, CollisionEvent, Joint, PhysicsHandles,
         PhysicsInput, PhysicsTransform, Ragdoll, RagdollBone, RigidBody, RigidBodyType, Vehicle,
+        WheelIndex, WheelState,
     },
     ragdoll::{plan_bones, pose_from_bones},
     world::PhysicsWorld,
@@ -66,6 +67,10 @@ impl Plugin for PhysicsPlugin {
                 // frame. That failure is quiet -- the car still drives, just a
                 // frame behind, which reads as sluggish handling.
                 sync_vehicles,
+                // After `sync_vehicles`, which is what fills the wheel states
+                // this reads. Before `step_world` only incidentally -- it
+                // touches no physics, just the visuals the last step produced.
+                sync_wheel_transforms,
                 step_world,
                 sync_from_rapier,
                 // After `sync_from_rapier`, which is what puts this step's
@@ -283,7 +288,7 @@ const WHEEL_AXLE: Vector = Vector::new(-1.0, 0.0, 0.0);
 fn sync_vehicles(
     mut world: ResMut<PhysicsWorld>,
     mut controllers: Local<HashMap<Entity, rapier3d::control::DynamicRayCastVehicleController>>,
-    vehicles: Query<(Entity, &Vehicle)>,
+    mut vehicles: Query<(Entity, &mut Vehicle)>,
 ) {
     // Tear down first, matching `sync_ragdolls`. A lookup that misses covers an
     // entity that despawned and one that merely lost its `Vehicle`; neither is
@@ -298,7 +303,7 @@ fn sync_vehicles(
         controllers.remove(&entity);
     }
 
-    for (entity, vehicle) in vehicles.iter() {
+    for (entity, mut vehicle) in vehicles.iter_mut() {
         let Some(&chassis) = world.entity_body_map.get(&entity) else {
             // No body yet. `spawn_bodies` runs before this, so this is a
             // vehicle whose `RigidBody`/`Collider` are missing rather than a
@@ -348,6 +353,79 @@ fn sync_vehicles(
         }
 
         world.update_vehicle(controller);
+
+        // Copy out what the controller just computed. Sub-step 1/2 discarded
+        // all of it; this is the channel that keeps it, because the controller
+        // lives in a `Local` no other system can see.
+        //
+        // Roll is integrated here rather than read back: Rapier's `Wheel`
+        // exposes suspension, steering and contact, but not accumulated spin.
+        // `timestep()` rather than a frame delta, so the wheels turn in lockstep
+        // with the simulation that moved the car.
+        let dt = world.timestep();
+        let speed = controller.current_vehicle_speed;
+        let wheel_count = vehicle.wheels.len();
+        vehicle
+            .wheel_states
+            .resize(wheel_count, WheelState::default());
+        for i in 0..wheel_count {
+            let (Some(w), Some(radius)) = (
+                controller.wheels().get(i),
+                vehicle.wheels.get(i).map(|c| c.radius.max(1.0e-3)),
+            ) else {
+                break;
+            };
+            let info = *w.raycast_info();
+            let steering = w.steering;
+            let suspension_length = info.suspension_length;
+            let grounded = info.is_in_contact;
+            let state = &mut vehicle.wheel_states[i];
+            state.suspension_length = suspension_length;
+            state.steering = steering;
+            state.grounded = grounded;
+            state.rotation += speed / radius * dt;
+        }
+    }
+}
+
+/// Poses each wheel visual from its parent vehicle's published wheel state.
+///
+/// Reads only what `sync_vehicles` already computed — this simulates nothing.
+/// The wheels stay raycasts; giving them bodies would put them in the
+/// simulation twice.
+fn sync_wheel_transforms(
+    vehicles: Query<&Vehicle>,
+    mut wheels: Query<(
+        &bsengine_core::Parent,
+        &WheelIndex,
+        &mut bsengine_core::Transform,
+    )>,
+) {
+    for (parent, index, mut transform) in wheels.iter_mut() {
+        let Ok(vehicle) = vehicles.get(parent.0) else {
+            continue;
+        };
+        // A visual whose index outruns the wheel list is skipped, not treated
+        // as an error: a car may be authored with fewer visuals than wheels.
+        let Some(state) = vehicle.wheel_states.get(index.0) else {
+            continue;
+        };
+        let Some(cfg) = vehicle.wheels.get(index.0) else {
+            continue;
+        };
+
+        // The mount point is fixed on the chassis; the suspension decides how
+        // far below it the wheel actually sits, so the visual hangs from the
+        // mount by the current suspension length.
+        let mount = cfg.connection.0;
+        transform.position = Vec3::new(mount.x, mount.y - state.suspension_length, mount.z).into();
+
+        // Steer about the chassis up axis, then roll about the axle. Order
+        // matters: rolling first would spin the wheel about a steered axle and
+        // wobble it as it turns.
+        let steer = Quat::from_rotation_y(state.steering);
+        let roll = Quat::from_rotation_x(state.rotation);
+        transform.rotation = (steer * roll).into();
     }
 }
 
@@ -2316,6 +2394,7 @@ mod tests {
                     throttle,
                     steering,
                     brake,
+                    wheel_states: Vec::new(),
                 },
             ))
             .id();
@@ -2350,6 +2429,232 @@ mod tests {
         for _ in 0..frames {
             app.update();
         }
+    }
+
+    /// Spawns four wheel visuals as children of `car`, one per authored wheel.
+    fn attach_wheel_visuals(app: &mut App, car: Entity) -> Vec<Entity> {
+        (0..4)
+            .map(|i| {
+                app.world_mut()
+                    .spawn((
+                        bsengine_core::Parent(car),
+                        WheelIndex(i),
+                        bsengine_core::Transform::default(),
+                    ))
+                    .id()
+            })
+            .collect()
+    }
+
+    fn wheel_local(app: &App, e: Entity) -> (Vec3, Quat) {
+        let t = app
+            .world()
+            .get::<bsengine_core::Transform>(e)
+            .expect("a wheel visual keeps its transform");
+        (t.position.0, t.rotation.0)
+    }
+
+    #[test]
+    fn suspension_moves_the_wheel_and_parking_does_not() {
+        // A wheel must ride its suspension, and must NOT jitter while parked.
+        // Without the second half a wheel whose transform is rewritten with
+        // noise every frame passes the first.
+        let (mut app, car) = car_on_flat_ground(0.0, 0.0, 0.0);
+        let visuals = attach_wheel_visuals(&mut app, car);
+
+        // Dropped from y = 1.0, the car settles onto its springs: the wheel's
+        // offset below its mount has to change while that happens.
+        drive_for(&mut app, 2);
+        let early = wheel_local(&app, visuals[0]).0;
+        drive_for(&mut app, 60);
+        let settled = wheel_local(&app, visuals[0]).0;
+        let travel = (settled.y - early.y).abs();
+        println!("wheel dropped {travel} m onto its suspension");
+        assert!(
+            travel > 0.01,
+            "the wheel must ride the suspension as the car settles; it moved \
+             {travel} m, which is a transform nothing is driving"
+        );
+
+        // Now let the spring oscillation damp out before measuring stillness.
+        // A light chassis on a stiff spring is still ringing ~9mm at 60 frames,
+        // which is physics doing its job, not the transform being driven by
+        // noise -- so this waits rather than widening the bound.
+        drive_for(&mut app, 240);
+        let before = wheel_local(&app, visuals[0]).0;
+        drive_for(&mut app, 60);
+        let after = wheel_local(&app, visuals[0]).0;
+        let drift = (after.y - before.y).abs();
+        println!("parked wheel drifted {drift} m");
+        assert!(
+            drift < 0.005,
+            "a parked car's wheel must hold its height; it moved {drift} m"
+        );
+    }
+
+    #[test]
+    fn steering_turns_the_front_wheels_and_leaves_the_rear_alone() {
+        // THE load-bearing assertion of this task, and the PAIRING is the
+        // assertion. A bug that steers all four wheels passes "the front
+        // wheels turned"; a bug that steers none passes "the rear wheels did
+        // not turn". Neither half means anything by itself.
+        //
+        // `car_on_flat_ground` authors wheels 0 and 1 as `steers`, 2 and 3 as
+        // `drives`, so the split is the scene's, not this test's.
+        let (mut app, car) = car_on_flat_ground(20.0, 0.6, 0.0);
+        let visuals = attach_wheel_visuals(&mut app, car);
+        drive_for(&mut app, 30);
+
+        // Measure steering by where the AXLE ends up, not by an Euler angle.
+        // The wheel's rotation is `steer(Y) * roll(X)`, and roll about X leaves
+        // the X axis fixed -- so `rotation * X` isolates the steering exactly.
+        // Reading `to_euler(...).0` instead reports pi once roll accumulates
+        // past half a turn, which is a decomposition artefact and not yaw: the
+        // first version of this test failed with the rear wheel at exactly
+        // 3.1415927 rad while its steering was genuinely zero.
+        let axle_yaw = |q: Quat| {
+            let a = q * Vec3::X;
+            a.z.atan2(a.x).abs()
+        };
+        let front_yaw = axle_yaw(wheel_local(&app, visuals[0]).1);
+        let rear_yaw = axle_yaw(wheel_local(&app, visuals[2]).1);
+        println!("front wheel yaw {front_yaw} rad, rear wheel yaw {rear_yaw} rad");
+
+        assert!(
+            front_yaw > 0.05,
+            "a steered wheel must yaw; the front wheel is at {front_yaw} rad"
+        );
+        assert!(
+            rear_yaw < 1e-4,
+            "a non-steering wheel must NOT yaw; the rear wheel is at \
+             {rear_yaw} rad. If both are turning, steering is being applied to \
+             every wheel rather than the ones authored `steers`"
+        );
+    }
+
+    #[test]
+    fn the_wheels_roll_while_driving_and_stop_when_parked() {
+        // Roll must accumulate under throttle and hold when stopped. A wheel
+        // that spins on a parked car is as wrong as one that never turns.
+        // Measured on the published scalar, not the quaternion. Roll
+        // accumulates without bound while a quaternion wraps every 2*pi, and
+        // `Quat::angle_between` is capped at pi -- a wheel that spun several
+        // full turns reads as a small angle. The first version of this test
+        // reported 2.94 rad for a wheel that had actually rolled much further.
+        let (mut app, car) = car_on_flat_ground(20.0, 0.0, 0.0);
+        let visuals = attach_wheel_visuals(&mut app, car);
+        let roll = |app: &App| app.world().get::<Vehicle>(car).unwrap().wheel_states[0].rotation;
+        drive_for(&mut app, 60);
+        let a = roll(&app);
+        drive_for(&mut app, 60);
+        let driving_delta = (roll(&app) - a).abs();
+        println!("driving wheel turned {driving_delta} rad over 60 frames");
+        assert!(
+            driving_delta > 0.1,
+            "a driven wheel must keep rolling; it turned {driving_delta} rad"
+        );
+
+        // Brake and compare the RATE. Braking does not bring this car to a dead
+        // stop in any reasonable window -- `braking_slows_a_rolling_car`
+        // measures it still moving at ~1.1 m/s -- so asserting "stopped" would
+        // be asserting something untrue about the physics rather than about the
+        // wheels.
+        {
+            let mut v = app.world_mut().get_mut::<Vehicle>(car).unwrap();
+            v.throttle = 0.0;
+            v.brake = 500.0;
+        }
+        drive_for(&mut app, 90);
+        let b = roll(&app);
+        drive_for(&mut app, 60);
+        let braked_delta = (roll(&app) - b).abs();
+        println!("braked wheel turned {braked_delta} rad over the same 60 frames");
+        assert!(
+            braked_delta < driving_delta * 0.5,
+            "a braked wheel must roll markedly slower: {braked_delta} rad              against {driving_delta} rad while driving"
+        );
+
+        // And the visual must actually reflect that roll, not just the scalar.
+        let (_, rot) = wheel_local(&app, visuals[0]);
+        assert!(
+            rot.angle_between(Quat::IDENTITY) > 1e-3,
+            "the wheel visual must carry the accumulated roll"
+        );
+    }
+
+    #[test]
+    fn a_wheel_visual_past_the_end_of_the_wheel_list_is_skipped() {
+        // A car may be authored with fewer visuals than wheels, or more. The
+        // extra must be left alone rather than panicking on an out-of-range
+        // index.
+        let (mut app, car) = car_on_flat_ground(0.0, 0.0, 0.0);
+        let stray = app
+            .world_mut()
+            .spawn((
+                bsengine_core::Parent(car),
+                WheelIndex(99),
+                bsengine_core::Transform::default(),
+            ))
+            .id();
+        drive_for(&mut app, 10);
+        let (pos, _) = wheel_local(&app, stray);
+        assert_eq!(
+            pos,
+            Vec3::ZERO,
+            "an out-of-range wheel visual must be left untouched"
+        );
+    }
+
+    #[test]
+    fn a_driving_car_publishes_its_wheel_state() {
+        // The controller computes suspension length, steering and roll every
+        // frame, and sub-step 1/2 threw all three away. This is the channel
+        // that keeps them, so it has to carry real values.
+        //
+        // Assert the state CHANGES: a `WheelState::default()` published every
+        // frame satisfies "the field exists and has four entries", which is
+        // what a disconnected publish looks like from the outside.
+        let (mut app, car) = car_on_flat_ground(20.0, 0.3, 0.0);
+        drive_for(&mut app, 1);
+        let first = app
+            .world()
+            .get::<Vehicle>(car)
+            .unwrap()
+            .wheel_states
+            .clone();
+        assert_eq!(first.len(), 4, "one state per authored wheel");
+
+        drive_for(&mut app, 60);
+        let later = app
+            .world()
+            .get::<Vehicle>(car)
+            .unwrap()
+            .wheel_states
+            .clone();
+
+        assert!(
+            later.iter().any(|w| w.grounded),
+            "a car resting on the ground must report at least one wheel in              contact; none did, so the raycasts are not reaching the floor"
+        );
+        assert!(
+            later[0].rotation.abs() > 0.5,
+            "the wheels must accumulate roll while driving; wheel 0 turned              {} rad, which is a publish of zeros rather than real state",
+            later[0].rotation
+        );
+        // Front wheels steer, rear do not -- the layout `car_on_flat_ground`
+        // authors. This is what catches a publish that reads the wrong wheel.
+        assert!(
+            later[0].steering.abs() > 0.01 && later[2].steering.abs() < 1e-6,
+            "steering must be published per wheel and follow the authored              layout: front {} rad, rear {} rad",
+            later[0].steering,
+            later[2].steering
+        );
+        assert!(
+            later[0].suspension_length > 0.0,
+            "a grounded wheel must publish a real suspension length, got {}",
+            later[0].suspension_length
+        );
+        let _ = first;
     }
 
     #[test]
@@ -2476,6 +2781,7 @@ mod tests {
             throttle: 0.0,
             steering: 0.0,
             brake: 0.0,
+            wheel_states: Vec::new(),
         });
         drive_for(&mut app, 2);
         assert!(app.world().get::<Vehicle>(car).is_some());

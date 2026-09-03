@@ -7,8 +7,8 @@ use bsengine_gltf::GltfPlugin;
 use bsengine_input::InputPlugin;
 use bsengine_render::{MeshRenderer, RenderPlugin};
 use bsengine_rhi_wgpu::{
-    capsule_vertices, cube_vertices, plane_vertices, sphere_vertices, GpuMeshRegistry,
-    WgpuRHIPlugin,
+    capsule_vertices, cube_vertices, cylinder_vertices, plane_vertices, sphere_vertices,
+    GpuMeshRegistry, WgpuRHIPlugin,
 };
 use bsengine_scene::{Primitive, PrimitiveMesh, ScenePlugin};
 use bsengine_scripting::ScriptingPlugin;
@@ -115,6 +115,7 @@ fn resolve_primitives(
     let mut sphere_id: Option<u64> = None;
     let mut plane_id: Option<u64> = None;
     let mut capsule_id: Option<u64> = None;
+    let mut cylinder_id: Option<u64> = None;
     for (entity, prim) in query.iter() {
         let mesh_id = match &prim.0 {
             Primitive::Cube => *cube_id.get_or_insert_with(|| {
@@ -131,6 +132,10 @@ fn resolve_primitives(
             }),
             Primitive::Capsule => *capsule_id.get_or_insert_with(|| {
                 let (v, i) = capsule_vertices();
+                registry.register(&v, &i)
+            }),
+            Primitive::Cylinder => *cylinder_id.get_or_insert_with(|| {
+                let (v, i) = cylinder_vertices();
                 registry.register(&v, &i)
             }),
         };

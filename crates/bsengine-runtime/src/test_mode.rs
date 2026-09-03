@@ -3160,4 +3160,150 @@ mod tests {
              car moved {coasted} m against {driven} m driven"
         );
     }
+
+    #[test]
+    fn the_headless_host_resolves_a_cylinder_to_a_real_mesh() {
+        // THE test for the split-dispatch hazard.
+        //
+        // `Primitive` is mapped to a mesh in THREE separate places -- the
+        // windowed game (`bsengine-app/src/main.rs`), the editor app
+        // (`apps/bsengine-editor-app/src/main.rs`), and the headless test host
+        // (`bsengine-runtime/src/scene_systems.rs`). They are independent
+        // implementations of the same mapping. Adding a variant to some but not
+        // all means the primitive renders in one host and silently gets no mesh
+        // in another -- and this host is the one every E2E test runs in, so a
+        // gap here makes the wheels invisible to exactly the tests meant to
+        // prove they work.
+        //
+        // The compiler catches a missing match arm, but only for hosts that are
+        // actually built; this asserts the behaviour rather than trusting that.
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("assets/scenes")).unwrap();
+        std::fs::write(
+            root.join("project.toml"),
+            "[project]\nname = \"Cylinder\"\nentry_scene = \"assets/scenes/main.ron\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("assets/scenes/main.ron"),
+            r#"SceneDescriptor(entities: [
+                EntityDescriptor(name: "Camera", camera: true, transform: Some((position: (0.0, 0.0, 5.0)))),
+                EntityDescriptor(name: "Wheel", primitive: Some(Cylinder), transform: Some((position: (0.0, 0.0, 0.0)))),
+            ])"#,
+        )
+        .unwrap();
+
+        let mut app = build_test_app(root.to_str().unwrap(), None, false);
+        app.update();
+
+        let wheel = {
+            let mut q = app
+                .world_mut()
+                .query::<(&bsengine_scene::Name, bevy_ecs::prelude::Entity)>();
+            q.iter(app.world())
+                .find(|(n, _)| n.0 == "Wheel")
+                .map(|(_, e)| e)
+                .expect("the Cylinder entity must spawn")
+        };
+        let mesh = app.world().get::<bsengine_render::MeshRenderer>(wheel);
+        assert!(
+            mesh.is_some(),
+            "a Cylinder must resolve to a mesh in the HEADLESS dispatch. If this \
+             fails while the game renders cylinders fine, `Primitive::Cylinder` \
+             was added to one host's primitive->mesh match and not this one."
+        );
+        assert!(
+            mesh.unwrap().mesh_id != 0,
+            "the mesh id must be a real registered id, not the zero placeholder"
+        );
+    }
+
+    #[test]
+    fn the_demo_cars_wheels_follow_its_suspension_over_terrain() {
+        // The visible half of the feature, end to end, and the reason the demo
+        // moved off flat ground: on a heightfield the four wheels sit at
+        // genuinely different heights, so the suspension visibly does its job.
+        // On a flat floor all four settle identically and this assertion could
+        // not exist.
+        //
+        // It also exercises the whole chain the crate-level tests cannot span
+        // together: the scene's `Cylinder` primitives resolve in the headless
+        // dispatch, `WheelIndex` survives reflection, the wheel raycasts reach
+        // a Rapier heightfield rather than a box, and `sync_wheel_transforms`
+        // poses the children.
+        let project_dir = format!("{}/../../games/vehicle-demo", env!("CARGO_MANIFEST_DIR"));
+        let mut app = build_test_app(&project_dir, None, false);
+        let mut frame: u64 = 0;
+
+        // Drop onto the terrain and drive a little, so the car is somewhere
+        // sloped rather than wherever it spawned.
+        execute_command(&mut app, &mut frame, Command::Step { frames: 60 });
+        let (resp, _) = execute_command(
+            &mut app,
+            &mut frame,
+            Command::PressKey {
+                key: "W".to_string(),
+            },
+        );
+        assert!(resp.ok, "PressKey should succeed: {:?}", resp.error);
+        execute_command(&mut app, &mut frame, Command::Step { frames: 120 });
+
+        let names = ["WheelFL", "WheelFR", "WheelRL", "WheelRR"];
+        let mut heights = Vec::new();
+        let mut meshed = 0;
+        for name in names {
+            let e = {
+                let mut q = app
+                    .world_mut()
+                    .query::<(&bsengine_scene::Name, bevy_ecs::prelude::Entity)>();
+                q.iter(app.world())
+                    .find(|(n, _)| n.0 == name)
+                    .map(|(_, e)| e)
+                    .unwrap_or_else(|| panic!("the demo scene must contain {name}"))
+            };
+            if app
+                .world()
+                .get::<bsengine_render::MeshRenderer>(e)
+                .is_some()
+            {
+                meshed += 1;
+            }
+            heights.push(
+                app.world()
+                    .get::<bsengine_core::Transform>(e)
+                    .expect("a wheel visual keeps its transform")
+                    .position
+                    .0
+                    .y,
+            );
+        }
+
+        println!("wheel local heights on terrain: {heights:?}");
+        assert_eq!(
+            meshed, 4,
+            "all four wheels must have resolved a Cylinder mesh; a count below \
+             four means the headless primitive dispatch does not know Cylinder"
+        );
+
+        let max = heights.iter().cloned().fold(f32::MIN, f32::max);
+        let min = heights.iter().cloned().fold(f32::MAX, f32::min);
+        let spread = max - min;
+        println!("wheel height spread {spread} m");
+        assert!(
+            spread > 0.001,
+            "on terrain the wheels must sit at different heights -- that is the \
+             suspension working. All four at {min} means they are pinned to \
+             their mounts and nothing is driving them"
+        );
+
+        // Paired: they must still hang BELOW their mounts, not float. Every
+        // mount is authored at local y = -0.2, and the suspension can only push
+        // the wheel further down from there.
+        assert!(
+            max < -0.2,
+            "a wheel must hang below its mount at y = -0.2; the highest is at \
+             {max}, which is above the chassis mount point"
+        );
+    }
 }

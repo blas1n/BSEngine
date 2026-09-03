@@ -1,0 +1,58 @@
+{
+  "game": "vehicle-demo",
+  "scene": "assets/scenes/main.ron",
+  "actions": [
+    {
+      "cmd": "step",
+      "frames": 60
+    },
+    {
+      "cmd": "assert",
+      "query": {
+        "tool": "get_transform",
+        "args": {
+          "name": "Car"
+        }
+      },
+      "path": "y",
+      "op": "<",
+      "value": 7.0,
+      "label": "The car spawns at y=8 above the terrain and must fall onto it. Asserted before the drive so a car left hanging in the air fails here, rather than as an unexplained failure to move 120 frames later."
+    },
+    {
+      "cmd": "press_key",
+      "key": "W"
+    },
+    {
+      "cmd": "wait_until",
+      "query": {
+        "tool": "get_transform",
+        "args": {
+          "name": "Car"
+        }
+      },
+      "path": "z",
+      "op": ">=",
+      "value": 15.0,
+      "max_frames": 600,
+      "label": "Holding W drives the car toward its FRONT, which is +Z: the scene authors the steering wheels at z=+1.4, so the car faces +Z regardless of the camera convention elsewhere. Five metres from a spawn at z=10 is a floor -- the same drive reaches z=113 in this window -- not a tuned number. The first version of this log assumed -Z and timed out with the car 100m away in the other direction."
+    },
+    {
+      "cmd": "release_key",
+      "key": "W"
+    },
+    {
+      "cmd": "assert",
+      "query": {
+        "tool": "get_transform",
+        "args": {
+          "name": "Car"
+        }
+      },
+      "path": "y",
+      "op": ">",
+      "value": -1.0,
+      "label": "The car is still on the terrain, not through it. A wheel raycast that misses the heightfield entirely lets the chassis sink, which otherwise looks like a driving failure rather than a collision one."
+    }
+  ]
+}

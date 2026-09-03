@@ -97,6 +97,17 @@ impl PhysicsWorld {
             .insert_with_parent(coll, body_handle, &mut self.rigid_body_set)
     }
 
+    /// The fixed timestep this world integrates with, in seconds.
+    ///
+    /// [`step`](Self::step) ignores wall-clock time entirely, so anything that
+    /// has to advance in lockstep with the simulation — integrating wheel roll,
+    /// for instance — must use this rather than a frame delta. Exposed for the
+    /// same reason [`update_vehicle`](Self::update_vehicle) takes no `dt`: one
+    /// source, so nothing can disagree with the step.
+    pub fn timestep(&self) -> f32 {
+        self.integration_parameters.dt
+    }
+
     /// Returns the current gravity magnitude (m/s²), always pointing down along -Y.
     pub fn gravity(&self) -> f32 {
         -self.gravity.y

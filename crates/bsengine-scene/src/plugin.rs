@@ -1040,6 +1040,11 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     // round-trips even when nothing about the element type is known.
     app.register_type::<bsengine_physics::Vehicle>();
     app.register_type::<bsengine_physics::WheelConfig>();
+    // `WheelIndex` is authored in scenes on each wheel child, so it needs
+    // registering for the same reason `Vehicle` does: an unregistered
+    // component does not error, it is silently absent, and a wheel visual
+    // without one simply never moves.
+    app.register_type::<bsengine_physics::WheelIndex>();
     app.register_type::<PhysicsBodyDesc>();
     app.register_type::<crate::types::RigidBodyDesc>();
     app.register_type::<crate::types::ColliderDesc>();

@@ -2814,6 +2814,7 @@ fn spawn_entity(world: &mut World, params: SpawnParams) {
         "Sphere" => Primitive::Sphere,
         "Plane" => Primitive::Plane,
         "Capsule" => Primitive::Capsule,
+        "Cylinder" => Primitive::Cylinder,
         _ => Primitive::Cube,
     };
 

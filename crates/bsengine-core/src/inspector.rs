@@ -10,7 +10,7 @@ use bevy_reflect::Reflect;
 /// `str_to_primitive` (the only place these strings convert to/from the
 /// real `bsengine_scene::Primitive` enum) must stay in sync with this list
 /// — see the doc comments there, and the round-trip test that enforces it.
-pub const PRIMITIVE_KINDS: [&str; 4] = ["cube", "sphere", "plane", "capsule"];
+pub const PRIMITIVE_KINDS: [&str; 5] = ["cube", "sphere", "plane", "capsule", "cylinder"];
 
 /// Flattened, read-only snapshot of one ECS entity's editor-relevant
 /// component data, rebuilt each frame for the Inspector/Hierarchy panels.

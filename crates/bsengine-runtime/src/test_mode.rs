@@ -3306,4 +3306,153 @@ mod tests {
              {max}, which is above the chassis mount point"
         );
     }
+
+    #[test]
+    fn the_demo_foxs_feet_are_planted_on_the_surface_below_them() {
+        // The whole feature end to end, through the real headless app: the
+        // scene's `IkChains` must survive reflection, skinning must publish the
+        // tip positions, the physics probe must find ground under each foot,
+        // and the solver must put the feet there.
+        //
+        // No crate-level test spans that chain -- each one covers a link.
+        let project_dir = format!("{}/../../games/ik-demo", env!("CARGO_MANIFEST_DIR"));
+        let mut app = build_test_app(&project_dir, None, false);
+        let mut frame: u64 = 0;
+
+        // Let the glTF load and the probe run for a few frames. The probe reads
+        // the tip positions skinning published the frame before, so it needs
+        // more than one.
+        for _ in 0..90 {
+            execute_command(&mut app, &mut frame, Command::Step { frames: 1 });
+        }
+
+        let fox = {
+            let mut q = app
+                .world_mut()
+                .query::<(&bsengine_scene::Name, bevy_ecs::prelude::Entity)>();
+            q.iter(app.world())
+                .find(|(n, _)| n.0 == "Fox")
+                .map(|(_, e)| e)
+                .expect("the demo scene must contain a Fox")
+        };
+
+        // The chains have to have survived scene deserialization at all. An
+        // unregistered component is silently ABSENT rather than an error, and a
+        // fox with no chains simply never reaches for the ground -- which reads
+        // as a broken solver rather than a missing registration.
+        let chains = app
+            .world()
+            .get::<bsengine_gltf::IkChains>(fox)
+            .expect(
+                "the Fox must have IkChains -- if this is absent, IkChains is \
+                 not registered for reflection",
+            )
+            .chains
+            .clone();
+        assert_eq!(chains.len(), 4, "all four authored chains must survive");
+
+        // Skinning must have published a tip position per chain, or the probe
+        // had nothing to cast from.
+        let tips = app
+            .world()
+            .get::<bsengine_gltf::SkinnedMesh>(fox)
+            .expect("the Fox must have a SkinnedMesh once fox.glb loads")
+            .ik_tip_positions
+            .clone();
+        assert_eq!(
+            tips.len(),
+            4,
+            "skinning must publish one tip position per chain; got {}",
+            tips.len()
+        );
+
+        // And the probe must have written real targets. They start at the
+        // origin, so a target still there means the probe never found ground.
+        let targets: Vec<glam::Vec3> = chains.iter().map(|c| c.target.0).collect();
+        println!("foot targets: {targets:?}");
+        println!("foot tips:    {tips:?}");
+        assert!(
+            targets.iter().all(|t| *t != glam::Vec3::ZERO),
+            "every chain's target must have been written by the ground probe; \
+             a target still at the origin means no ground was found beneath \
+             that foot. Targets: {targets:?}"
+        );
+
+        // Each foot must be near the surface the probe found for it. This is
+        // the assertion that fails if the solver runs but does not reach.
+        for (i, (tip, target)) in tips.iter().zip(&targets).enumerate() {
+            let err = (*tip - *target).length();
+            assert!(
+                err < 0.25,
+                "foot {i} should be planted on its target: tip {tip:?} is \
+                 {err} m from target {target:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_demo_foxs_feet_sit_at_different_heights_across_the_steps() {
+        // The discontinuity case, and the reason the demo has stairs as well as
+        // a slope. The fox straddles the seam between two treads 0.25 m apart,
+        // so its feet must resolve to two distinct heights -- not a smoothed
+        // fraction of the step, and not one height for the whole character.
+        //
+        // A slope alone cannot make this assertion sharp: a correction that
+        // lags or averages still lands somewhere plausible on a continuous
+        // surface.
+        let project_dir = format!("{}/../../games/ik-demo", env!("CARGO_MANIFEST_DIR"));
+        let mut app = build_test_app(&project_dir, None, false);
+        let mut frame: u64 = 0;
+        for _ in 0..90 {
+            execute_command(&mut app, &mut frame, Command::Step { frames: 1 });
+        }
+
+        let fox = {
+            let mut q = app
+                .world_mut()
+                .query::<(&bsengine_scene::Name, bevy_ecs::prelude::Entity)>();
+            q.iter(app.world())
+                .find(|(n, _)| n.0 == "Fox")
+                .map(|(_, e)| e)
+                .expect("the demo scene must contain a Fox")
+        };
+        let heights: Vec<f32> = app
+            .world()
+            .get::<bsengine_gltf::IkChains>(fox)
+            .expect("the Fox must have IkChains")
+            .chains
+            .iter()
+            .map(|c| c.target.0.y)
+            .collect();
+
+        // Every target has to have been written first. The first version of
+        // this test asserted only on the spread and PASSED at 4.04 m -- with
+        // three targets still at the origin and one written. A spread computed
+        // over unwritten zeros measures the bug, not the feature.
+        let targets: Vec<glam::Vec3> = app
+            .world()
+            .get::<bsengine_gltf::IkChains>(fox)
+            .expect("the Fox must have IkChains")
+            .chains
+            .iter()
+            .map(|c| c.target.0)
+            .collect();
+        assert!(
+            targets.iter().all(|t| *t != glam::Vec3::ZERO),
+            "every foot must have a probed target before their heights mean \
+             anything: {targets:?}"
+        );
+
+        let max = heights.iter().cloned().fold(f32::MIN, f32::max);
+        let min = heights.iter().cloned().fold(f32::MAX, f32::min);
+        let spread = max - min;
+        println!("foot target heights {heights:?}, spread {spread} m");
+        assert!(
+            spread > 0.1,
+            "straddling a 0.25 m step, the feet must resolve to different \
+             heights; they span only {spread} m ({heights:?}). One height for \
+             every foot means a single offset is being applied to the whole \
+             character rather than a target per foot."
+        );
+    }
 }

@@ -1,0 +1,26 @@
+{
+  "game": "ik-demo",
+  "scene": "assets/scenes/main.ron",
+  "actions": [
+    {
+      "cmd": "step",
+      "frames": 90
+    },
+    {
+      "cmd": "assert",
+      "query": { "tool": "get_transform", "args": { "name": "Fox" } },
+      "path": "y",
+      "op": ">",
+      "value": 0.0,
+      "label": "The fox is still where the scene put it. Asserted before anything about feet so a fox that fell through the steps fails here, rather than as an unexplained IK result."
+    },
+    {
+      "cmd": "assert",
+      "query": { "tool": "get_transform", "args": { "name": "Step2" } },
+      "path": "y",
+      "op": ">",
+      "value": 0.3,
+      "label": "Step2's top sits at y = 0.75 and its centre at 0.375, which is the height the front feet resolve onto. If the stairs ever move, the foot heights this demo exists to show move with them, so the geometry is pinned here."
+    }
+  ]
+}

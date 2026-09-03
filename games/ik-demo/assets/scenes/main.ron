@@ -1,0 +1,82 @@
+// Roadmap item 54 sub-step 1/2: foot IK on slope and stairs.
+//
+// Both surfaces, because they test different things. A slope varies height
+// continuously, so a correction that lags or over-smooths still looks
+// plausible on it. A step is a discontinuity: either the foot lands on the
+// tread or it does not, and one foot on the tread with one on the step below
+// differ by the full step height rather than by a smoothed fraction of it.
+SceneDescriptor(entities: [
+    EntityDescriptor(
+        name: "Camera",
+        camera: true,
+        transform: Some((position: (14.0, 8.0, 16.0))),
+        look_at: Some((10.0, 1.0, 10.0)),
+    ),
+    EntityDescriptor(
+        name: "Sun",
+        directional_light: Some((direction: (-0.4, -0.8, -0.3), ambient: (0.3, 0.3, 0.33))),
+    ),
+    EntityDescriptor(
+        // The slope. Same terrain assets as games/terrain-demo, with its own
+        // copy -- cross-project asset references are not a thing this engine
+        // supports.
+        name: "Ground",
+        transform: Some((position: (0.0, 0.0, 0.0))),
+        components: [
+            ("bsengine_scene::types::Terrain", "(heightmap_path: \"assets/terrain/heightmap.png\", chunk_count: (2, 2), chunk_size: 20.0, height_scale: 6.0, layer0_texture_path: \"assets/terrain/grass.png\", layer1_texture_path: \"assets/terrain/rock.png\", layer2_texture_path: \"assets/terrain/dirt.png\", layer3_texture_path: \"assets/terrain/snow.png\", splatmap_path: None)"),
+        ],
+    ),
+    // Three steps, 0.15 m apart, built from box colliders.
+    //
+    // The rise is sized to the FOX, not to a human stair. At scale 0.02 its
+    // legs are about 0.3 m, and the first version used 0.25 m steps: with the
+    // front feet planted on the upper tread the body lifted out of the hind
+    // legs' reach, leaving them 0.228 m short of the lower one. The solver was
+    // right -- it straightens toward an unreachable target, as documented --
+    // but a demo of feet PLANTED on the ground should not ask for a step the
+    // character cannot straddle.
+    // Placed on flat-ish ground away from the terrain's own relief so the step
+    // height is the only thing varying under the character.
+    EntityDescriptor(
+        name: "Step1",
+        primitive: Some(Cube),
+        transform: Some((position: (4.0, 0.225, 4.0), scale: (4.0, 0.45, 1.5))),
+        rigidbody: Some(Static),
+        collider: Some((shape: Box(hx: 2.0, hy: 0.225, hz: 0.75), friction: 0.8)),
+    ),
+    EntityDescriptor(
+        name: "Step2",
+        primitive: Some(Cube),
+        transform: Some((position: (4.0, 0.3, 5.5), scale: (4.0, 0.6, 1.5))),
+        rigidbody: Some(Static),
+        collider: Some((shape: Box(hx: 2.0, hy: 0.3, hz: 0.75), friction: 0.8)),
+    ),
+    EntityDescriptor(
+        name: "Step3",
+        primitive: Some(Cube),
+        transform: Some((position: (4.0, 0.375, 7.0), scale: (4.0, 0.75, 1.5))),
+        rigidbody: Some(Static),
+        collider: Some((shape: Box(hx: 2.0, hy: 0.375, hz: 0.75), friction: 0.8)),
+    ),
+    EntityDescriptor(
+        // The fox, straddling the seam between Step1 and Step2 so its front and
+        // hind legs sit on treads 0.25 m apart. That is the discontinuity the
+        // stairs exist to produce.
+        //
+        // Chains use the rig's real bone names, read out of fox.glb: the hind
+        // legs are b_*Leg01 -> b_*Leg02 -> b_*Foot01, the front ones are the
+        // *Arm chains. All four are two-bone, which is what this solver handles.
+        name: "Fox",
+        gltf: Some((path: "assets/models/fox.glb")),
+        // y = 0.35 puts the rest-pose feet within a few centimetres of the
+        // treads (measured: they sit 0.08..0.71 above the entity origin), so
+        // foot IK does the small correction it is for rather than dragging a
+        // floating character down a metre. The first version placed the fox at
+        // y = 1.0 and three of its four feet could not reach the ground at all.
+        transform: Some((position: (4.0, 0.35, 5.0), scale: (0.02, 0.02, 0.02))),
+        components: [
+            ("bsengine_gltf::skinned_mesh::IkChains", "(chains: [(root_bone: \"b_LeftLeg01_015\", mid_bone: \"b_LeftLeg02_016\", tip_bone: \"b_LeftFoot01_017\", target: (0.0, 0.0, 0.0), weight: 1.0), (root_bone: \"b_RightLeg01_019\", mid_bone: \"b_RightLeg02_020\", tip_bone: \"b_RightFoot01_021\", target: (0.0, 0.0, 0.0), weight: 1.0), (root_bone: \"b_LeftUpperArm_09\", mid_bone: \"b_LeftForeArm_010\", tip_bone: \"b_LeftHand_011\", target: (0.0, 0.0, 0.0), weight: 1.0), (root_bone: \"b_RightUpperArm_06\", mid_bone: \"b_RightForeArm_07\", tip_bone: \"b_RightHand_08\", target: (0.0, 0.0, 0.0), weight: 1.0)])"),
+            ("bsengine_physics::components::FootIkGround", "(max_drop: 2.0, offset: 0.0, probe_height: 0.5)"),
+        ],
+    ),
+])

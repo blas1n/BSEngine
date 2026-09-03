@@ -661,8 +661,7 @@ fn apply_world_rotation(
     let (_, parent_rot, _) = parent_global.to_scale_rotation_translation();
     let local_delta = parent_rot.inverse() * world_rot * parent_rot;
     let (scale, rot, translation) = locals[index].to_scale_rotation_translation();
-    locals[index] =
-        Mat4::from_scale_rotation_translation(scale, local_delta * rot, translation);
+    locals[index] = Mat4::from_scale_rotation_translation(scale, local_delta * rot, translation);
 }
 
 /// Finds a node by its glTF name.
@@ -740,6 +739,8 @@ fn update_skinned_meshes(
         Option<&bsengine_core::AnimationPlayer>,
         Option<&bsengine_core::AnimationStateMachine>,
         Option<&IkChains>,
+        Option<&bsengine_core::GlobalTransform>,
+        Option<&bsengine_core::Transform>,
     )>,
     mesh_registry: Option<ResMut<bsengine_rhi_wgpu::GpuMeshRegistry>>,
     queue: Option<Res<bsengine_rhi_wgpu::GpuQueueResource>>,
@@ -751,7 +752,7 @@ fn update_skinned_meshes(
     // upload, so that half is what the GPU's absence skips.
     let mut gpu = mesh_registry.zip(queue);
 
-    for (mut skinned, library, player, asm, ik) in query.iter_mut() {
+    for (mut skinned, library, player, asm, ik, global, local) in query.iter_mut() {
         // Set by the clip branch below; the ragdoll-override branches leave it
         // None, and an override means physics is driving the whole skeleton
         // anyway.
@@ -781,11 +782,47 @@ fn update_skinned_meshes(
             // meaning depends on its own timeline would need its own clock, and
             // nothing here has one yet.
             let samples = blend_samples(clip, library, player.time, asm);
-            let chains: Vec<&IkChain> =
-                ik.map(|c| c.chains.iter().collect()).unwrap_or_default();
+            // The skeleton is solved entirely in MODEL space -- `nodes` are
+            // the glTF's own local transforms and know nothing about where the
+            // character stands. `IkChain.target` is world space, because the
+            // ground it comes from is. Without this conversion the solver aims
+            // a foot at a world coordinate expressed in model units: on the
+            // demo fox (scale 0.02) the feet sat at model y = 15 while the
+            // ground was at world y = 0, and the probe found nothing at all.
+            //
+            // `GlobalTransform` when something propagated one, the local
+            // `Transform` otherwise: propagation lives in `RenderPlugin`, which
+            // is not in every host.
+            let model_to_world = global
+                .map(|g| g.0 .0)
+                .or_else(|| {
+                    local.map(|t| {
+                        Mat4::from_scale_rotation_translation(t.scale.0, t.rotation.0, t.position.0)
+                    })
+                })
+                .unwrap_or(Mat4::IDENTITY);
+            let world_to_model = model_to_world.inverse();
+
+            let model_chains: Vec<IkChain> = ik
+                .map(|c| {
+                    c.chains
+                        .iter()
+                        .map(|chain| IkChain {
+                            target: world_to_model.transform_point3(chain.target.0).into(),
+                            ..chain.clone()
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let chains: Vec<&IkChain> = model_chains.iter().collect();
             let (matrices, tips) =
                 compute_pose_with_ik(&skinned.nodes, &skinned.skin_data, &samples, &chains);
-            published_tips = Some(tips);
+            // Published in WORLD space, which is what the ground probe needs.
+            published_tips = Some(
+                tips.iter()
+                    .map(|t| model_to_world.transform_point3(*t))
+                    .collect(),
+            );
             matrices
         } else if skinned.pose_override_weight >= 1.0 {
             // Override present, full weight — clips are not read at all.
@@ -958,8 +995,6 @@ mod tests {
 
     // ---- pose blending (roadmap item 29) ---------------------------------
 
-    /// A one-node skeleton at the origin, unrotated and unscaled.
-
     // ---- IK chains applied during skinning (roadmap item 54, sub-step 1/2) --
 
     /// A three-node leg: hip at the origin, knee one unit down and slightly
@@ -1026,7 +1061,10 @@ mod tests {
         let after = joint_positions(&nodes, &skin, &[&chain]);
 
         let err = (after[2] - target).length();
-        println!("foot moved {:?} -> {:?}, {err} m from target", before[2], after[2]);
+        println!(
+            "foot moved {:?} -> {:?}, {err} m from target",
+            before[2], after[2]
+        );
         assert!(
             err < 1.0e-3,
             "the foot joint must land on the target; it is at {:?}, {err} m \
@@ -1135,6 +1173,7 @@ mod tests {
         );
     }
 
+    /// A one-node skeleton at the origin, unrotated and unscaled.
     fn one_node() -> Vec<NodeTransform> {
         vec![NodeTransform {
             name: String::new(),
@@ -1898,7 +1937,11 @@ mod tests {
 
         let l_err = (at(3) - left_target).length();
         let r_err = (at(6) - right_target).length();
-        println!("left foot {:?} ({l_err} m off), right foot {:?} ({r_err} m off)", at(3), at(6));
+        println!(
+            "left foot {:?} ({l_err} m off), right foot {:?} ({r_err} m off)",
+            at(3),
+            at(6)
+        );
 
         assert!(
             l_err < 1.0e-3,
@@ -1914,7 +1957,6 @@ mod tests {
             at(6)
         );
     }
-
 
     /// A one-node skeleton, a clip translating that node to (0, 3, 0), and an
     /// identity inverse bind matrix — so a joint matrix reads back directly as

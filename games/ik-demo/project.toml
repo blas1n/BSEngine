@@ -1,0 +1,8 @@
+[project]
+name = "IK Demo"
+entry_scene = "assets/scenes/main.ron"
+
+[window]
+title = "IK Demo"
+width = 1280
+height = 720

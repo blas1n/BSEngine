@@ -59,7 +59,11 @@ pub fn solve_two_bone(root: Vec3, mid: Vec3, tip: Vec3, target: Vec3) -> (Quat, 
         // The chain is already straight along the aim, so the pose picks out no
         // plane. Any perpendicular will do, but it has to be stable -- leaving
         // the axis zero would make the knee unable to bend at all.
-        let seed = if aim_dir.x.abs() < 0.9 { Vec3::X } else { Vec3::Y };
+        let seed = if aim_dir.x.abs() < 0.9 {
+            Vec3::X
+        } else {
+            Vec3::Y
+        };
         aim_dir.cross(seed).normalize()
     };
 

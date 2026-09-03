@@ -11,9 +11,9 @@ use rapier3d::prelude::*;
 
 use crate::{
     components::{
-        CharacterBody, Collider, ColliderShape, CollisionEvent, Joint, PhysicsHandles,
-        PhysicsInput, PhysicsTransform, Ragdoll, RagdollBone, FootIkGround, RigidBody, RigidBodyType, Vehicle,
-        WheelIndex, WheelState,
+        CharacterBody, Collider, ColliderShape, CollisionEvent, FootIkGround, Joint,
+        PhysicsHandles, PhysicsInput, PhysicsTransform, Ragdoll, RagdollBone, RigidBody,
+        RigidBodyType, Vehicle, WheelIndex, WheelState,
     },
     ragdoll::{plan_bones, pose_from_bones},
     world::PhysicsWorld,
@@ -2390,7 +2390,6 @@ mod tests {
         );
     }
 
-
     // ---- Foot IK ground probe (roadmap item 54, sub-step 1/2) -------------
 
     /// A character with one IK chain, standing over ground the caller supplies.
@@ -2535,10 +2534,7 @@ mod tests {
                     pose_override: Vec::new(),
                     pose_override_weight: 1.0,
                     // Two feet, two metres apart across the slope.
-                    ik_tip_positions: vec![
-                        Vec3::new(-1.0, 0.5, 0.0),
-                        Vec3::new(1.0, 0.5, 0.0),
-                    ],
+                    ik_tip_positions: vec![Vec3::new(-1.0, 0.5, 0.0), Vec3::new(1.0, 0.5, 0.0)],
                     joint_matrices: Vec::new(),
                 },
                 IkChains {

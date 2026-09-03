@@ -395,7 +395,11 @@ fn sync_vehicles(
 /// simulation twice.
 fn sync_wheel_transforms(
     vehicles: Query<&Vehicle>,
-    mut wheels: Query<(&bsengine_core::Parent, &WheelIndex, &mut bsengine_core::Transform)>,
+    mut wheels: Query<(
+        &bsengine_core::Parent,
+        &WheelIndex,
+        &mut bsengine_core::Transform,
+    )>,
 ) {
     for (parent, index, mut transform) in wheels.iter_mut() {
         let Ok(vehicle) = vehicles.get(parent.0) else {
@@ -2539,9 +2543,7 @@ mod tests {
         // reported 2.94 rad for a wheel that had actually rolled much further.
         let (mut app, car) = car_on_flat_ground(20.0, 0.0, 0.0);
         let visuals = attach_wheel_visuals(&mut app, car);
-        let roll = |app: &App| {
-            app.world().get::<Vehicle>(car).unwrap().wheel_states[0].rotation
-        };
+        let roll = |app: &App| app.world().get::<Vehicle>(car).unwrap().wheel_states[0].rotation;
         drive_for(&mut app, 60);
         let a = roll(&app);
         drive_for(&mut app, 60);
@@ -2614,11 +2616,21 @@ mod tests {
         // what a disconnected publish looks like from the outside.
         let (mut app, car) = car_on_flat_ground(20.0, 0.3, 0.0);
         drive_for(&mut app, 1);
-        let first = app.world().get::<Vehicle>(car).unwrap().wheel_states.clone();
+        let first = app
+            .world()
+            .get::<Vehicle>(car)
+            .unwrap()
+            .wheel_states
+            .clone();
         assert_eq!(first.len(), 4, "one state per authored wheel");
 
         drive_for(&mut app, 60);
-        let later = app.world().get::<Vehicle>(car).unwrap().wheel_states.clone();
+        let later = app
+            .world()
+            .get::<Vehicle>(car)
+            .unwrap()
+            .wheel_states
+            .clone();
 
         assert!(
             later.iter().any(|w| w.grounded),

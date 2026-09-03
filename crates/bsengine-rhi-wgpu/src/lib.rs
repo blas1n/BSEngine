@@ -49,8 +49,7 @@ pub mod texture;
 pub mod theme;
 pub use mesh::{
     capsule_vertices, cube_vertices, cylinder_vertices, plane_vertices, sphere_vertices,
-    triangle_vertices,
-    GpuMeshRegistry, Vertex,
+    triangle_vertices, GpuMeshRegistry, Vertex,
 };
 pub use plugin::{GpuQueueResource, WgpuRHIPlugin};
 pub use surface::{

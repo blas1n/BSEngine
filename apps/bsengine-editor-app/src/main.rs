@@ -8,8 +8,7 @@ use bsengine_input::InputPlugin;
 use bsengine_render::{MeshRenderer, RenderPlugin};
 use bsengine_rhi_wgpu::{
     capsule_vertices, cube_vertices, cylinder_vertices, plane_vertices, sphere_vertices,
-    GpuMeshRegistry,
-    WgpuRHIPlugin,
+    GpuMeshRegistry, WgpuRHIPlugin,
 };
 use bsengine_scene::{Primitive, PrimitiveMesh, ScenePlugin};
 use bsengine_scripting::ScriptingPlugin;

@@ -13,6 +13,7 @@ use crate::{
     components::{
         CharacterBody, Collider, ColliderShape, CollisionEvent, Joint, PhysicsHandles,
         PhysicsInput, PhysicsTransform, Ragdoll, RagdollBone, RigidBody, RigidBodyType, Vehicle,
+        WheelState,
     },
     ragdoll::{plan_bones, pose_from_bones},
     world::PhysicsWorld,
@@ -283,7 +284,7 @@ const WHEEL_AXLE: Vector = Vector::new(-1.0, 0.0, 0.0);
 fn sync_vehicles(
     mut world: ResMut<PhysicsWorld>,
     mut controllers: Local<HashMap<Entity, rapier3d::control::DynamicRayCastVehicleController>>,
-    vehicles: Query<(Entity, &Vehicle)>,
+    mut vehicles: Query<(Entity, &mut Vehicle)>,
 ) {
     // Tear down first, matching `sync_ragdolls`. A lookup that misses covers an
     // entity that despawned and one that merely lost its `Vehicle`; neither is
@@ -298,7 +299,7 @@ fn sync_vehicles(
         controllers.remove(&entity);
     }
 
-    for (entity, vehicle) in vehicles.iter() {
+    for (entity, mut vehicle) in vehicles.iter_mut() {
         let Some(&chassis) = world.entity_body_map.get(&entity) else {
             // No body yet. `spawn_bodies` runs before this, so this is a
             // vehicle whose `RigidBody`/`Collider` are missing rather than a
@@ -348,6 +349,38 @@ fn sync_vehicles(
         }
 
         world.update_vehicle(controller);
+
+        // Copy out what the controller just computed. Sub-step 1/2 discarded
+        // all of it; this is the channel that keeps it, because the controller
+        // lives in a `Local` no other system can see.
+        //
+        // Roll is integrated here rather than read back: Rapier's `Wheel`
+        // exposes suspension, steering and contact, but not accumulated spin.
+        // `timestep()` rather than a frame delta, so the wheels turn in lockstep
+        // with the simulation that moved the car.
+        let dt = world.timestep();
+        let speed = controller.current_vehicle_speed;
+        let wheel_count = vehicle.wheels.len();
+        vehicle
+            .wheel_states
+            .resize(wheel_count, WheelState::default());
+        for i in 0..wheel_count {
+            let (Some(w), Some(radius)) = (
+                controller.wheels().get(i),
+                vehicle.wheels.get(i).map(|c| c.radius.max(1.0e-3)),
+            ) else {
+                break;
+            };
+            let info = *w.raycast_info();
+            let steering = w.steering;
+            let suspension_length = info.suspension_length;
+            let grounded = info.is_in_contact;
+            let state = &mut vehicle.wheel_states[i];
+            state.suspension_length = suspension_length;
+            state.steering = steering;
+            state.grounded = grounded;
+            state.rotation += speed / radius * dt;
+        }
     }
 }
 
@@ -2316,6 +2349,7 @@ mod tests {
                     throttle,
                     steering,
                     brake,
+                    wheel_states: Vec::new(),
                 },
             ))
             .id();
@@ -2350,6 +2384,48 @@ mod tests {
         for _ in 0..frames {
             app.update();
         }
+    }
+
+    #[test]
+    fn a_driving_car_publishes_its_wheel_state() {
+        // The controller computes suspension length, steering and roll every
+        // frame, and sub-step 1/2 threw all three away. This is the channel
+        // that keeps them, so it has to carry real values.
+        //
+        // Assert the state CHANGES: a `WheelState::default()` published every
+        // frame satisfies "the field exists and has four entries", which is
+        // what a disconnected publish looks like from the outside.
+        let (mut app, car) = car_on_flat_ground(20.0, 0.3, 0.0);
+        drive_for(&mut app, 1);
+        let first = app.world().get::<Vehicle>(car).unwrap().wheel_states.clone();
+        assert_eq!(first.len(), 4, "one state per authored wheel");
+
+        drive_for(&mut app, 60);
+        let later = app.world().get::<Vehicle>(car).unwrap().wheel_states.clone();
+
+        assert!(
+            later.iter().any(|w| w.grounded),
+            "a car resting on the ground must report at least one wheel in              contact; none did, so the raycasts are not reaching the floor"
+        );
+        assert!(
+            later[0].rotation.abs() > 0.5,
+            "the wheels must accumulate roll while driving; wheel 0 turned              {} rad, which is a publish of zeros rather than real state",
+            later[0].rotation
+        );
+        // Front wheels steer, rear do not -- the layout `car_on_flat_ground`
+        // authors. This is what catches a publish that reads the wrong wheel.
+        assert!(
+            later[0].steering.abs() > 0.01 && later[2].steering.abs() < 1e-6,
+            "steering must be published per wheel and follow the authored              layout: front {} rad, rear {} rad",
+            later[0].steering,
+            later[2].steering
+        );
+        assert!(
+            later[0].suspension_length > 0.0,
+            "a grounded wheel must publish a real suspension length, got {}",
+            later[0].suspension_length
+        );
+        let _ = first;
     }
 
     #[test]
@@ -2476,6 +2552,7 @@ mod tests {
             throttle: 0.0,
             steering: 0.0,
             brake: 0.0,
+            wheel_states: Vec::new(),
         });
         drive_for(&mut app, 2);
         assert!(app.world().get::<Vehicle>(car).is_some());

@@ -13,8 +13,12 @@ use glam::{Mat4, Quat, Vec3};
 /// Named rather than indexed, following `Ragdoll.joint_overrides` — a scene
 /// author writes the bone names the rig actually uses, and a name the skeleton
 /// lacks is skipped with a warning rather than silently posing the wrong joint.
-#[derive(Component, Debug, Clone, Default, bevy_reflect::Reflect)]
-#[reflect(Component, Default)]
+///
+/// Not a `Component` itself: a character needs one of these per limb, and an
+/// entity can hold only one of any given component. They live in a list on
+/// [`IkChains`], the same shape `Vehicle.wheels: Vec<WheelConfig>` uses for the
+/// same reason.
+#[derive(Debug, Clone, Default, bevy_reflect::Reflect)]
 pub struct IkChain {
     /// Upper bone — the hip or shoulder.
     pub root_bone: String,
@@ -31,6 +35,20 @@ pub struct IkChain {
     /// pops the foot on the frame it disengages — the same artefact the ragdoll
     /// return blend was built to avoid.
     pub weight: f32,
+}
+
+/// Every IK chain on one character.
+///
+/// A list rather than one component per chain because an entity can hold only
+/// one of any given component and a character needs one chain per limb -- the
+/// same reason `Vehicle` carries `wheels: Vec<WheelConfig>`.
+#[derive(Component, Debug, Clone, Default, bevy_reflect::Reflect)]
+#[reflect(Component, Default)]
+pub struct IkChains {
+    /// The chains, solved in order. Two chains naming the same bones fight;
+    /// the last one wins, which is a scene-authoring error rather than
+    /// something to resolve here.
+    pub chains: Vec<IkChain>,
 }
 
 /// Rest-pose (bind pose) geometry, skin/joint data, and node hierarchy needed
@@ -475,17 +493,12 @@ fn push_state_samples<'a>(
 /// rather than a proper topological sort, matching the same pattern
 /// `bsengine_core::propagate_global_transforms` already uses for parent/child
 /// Transform hierarchies in this codebase.
-fn compute_global_transforms_blended(
-    nodes: &[NodeTransform],
-    clips: &[ClipSample<'_>],
-) -> Vec<Mat4> {
-    accumulate_globals(nodes, &compute_local_transforms_blended(nodes, clips))
-}
-
-/// Composes each node's global transform from its locals and its parent chain.
 ///
-/// Split out of [`compute_global_transforms_blended`] because IK has to run it
-/// a second time, after writing solved rotations back into the locals.
+/// Called twice per skinned character when IK is in play: once to give the
+/// solver world positions to work against, and again after the solved
+/// rotations are written back into the locals, so the tip bone and everything
+/// below it follow. Skipping the second pass moves the two solved bones and
+/// leaves the foot where the clip put it.
 fn accumulate_globals(nodes: &[NodeTransform], locals: &[Mat4]) -> Vec<Mat4> {
     let mut globals = locals.to_vec();
     for _ in 0..8 {
@@ -687,6 +700,7 @@ fn update_skinned_meshes(
         Option<&AnimationClipLibrary>,
         Option<&bsengine_core::AnimationPlayer>,
         Option<&bsengine_core::AnimationStateMachine>,
+        Option<&IkChains>,
     )>,
     mesh_registry: Option<ResMut<bsengine_rhi_wgpu::GpuMeshRegistry>>,
     queue: Option<Res<bsengine_rhi_wgpu::GpuQueueResource>>,
@@ -698,7 +712,7 @@ fn update_skinned_meshes(
     // upload, so that half is what the GPU's absence skips.
     let mut gpu = mesh_registry.zip(queue);
 
-    for (mut skinned, library, player, asm) in query.iter_mut() {
+    for (mut skinned, library, player, asm, ik) in query.iter_mut() {
         // The one branch this whole feature turns on, and the one that fails
         // silently: with the bodies built and falling but the clips still
         // sourcing the pose, the character looks completely normal while a full
@@ -724,7 +738,14 @@ fn update_skinned_meshes(
             // meaning depends on its own timeline would need its own clock, and
             // nothing here has one yet.
             let samples = blend_samples(clip, library, player.time, asm);
-            compute_joint_matrices_blended(&skinned.nodes, &skinned.skin_data, &samples)
+            let chains: Vec<&IkChain> =
+                ik.map(|c| c.chains.iter().collect()).unwrap_or_default();
+            compute_joint_matrices_with_ik(
+                &skinned.nodes,
+                &skinned.skin_data,
+                &samples,
+                &chains,
+            )
         } else if skinned.pose_override_weight >= 1.0 {
             // Override present, full weight — clips are not read at all.
             // Byte-identical to the pre-weight override path.
@@ -1692,6 +1713,156 @@ mod tests {
     // `bsengine-physics`, which is the only crate that can see both ends; what
     // belongs here is that the override is honoured at all, and that its
     // absence changes nothing.
+
+    #[test]
+    fn two_ik_chains_on_one_character_both_solve_through_the_real_system() {
+        // Drives `update_skinned_meshes` itself, not the pure function beneath
+        // it. That distinction is the whole point of this test: the five tests
+        // above call `compute_joint_matrices_with_ik` with a slice, so a list
+        // of chains passes through them trivially -- and they stayed green
+        // while `IkChain` was a `Component`, which an entity can hold only ONE
+        // of. A fox has four legs. The pure-function tests could not see the
+        // defect because they never touched the ECS path production uses.
+        //
+        // Two chains, because one is exactly the case the broken shape handled
+        // correctly.
+        let mut app = bsengine_app::new_app();
+        app.insert_resource(bsengine_core::Time::default());
+        app.add_plugins(SkinnedMeshPlugin);
+
+        // Two independent legs hanging off a shared root.
+        let nodes = vec![
+            NodeTransform {
+                name: "root".to_string(),
+                ..Default::default()
+            },
+            NodeTransform {
+                name: "l_hip".to_string(),
+                position: [-0.5, 2.0, 0.0],
+                parent: Some(0),
+                ..Default::default()
+            },
+            NodeTransform {
+                name: "l_knee".to_string(),
+                position: [0.0, -1.0, 0.3],
+                parent: Some(1),
+                ..Default::default()
+            },
+            NodeTransform {
+                name: "l_foot".to_string(),
+                position: [0.0, -1.0, -0.3],
+                parent: Some(2),
+                ..Default::default()
+            },
+            NodeTransform {
+                name: "r_hip".to_string(),
+                position: [0.5, 2.0, 0.0],
+                parent: Some(0),
+                ..Default::default()
+            },
+            NodeTransform {
+                name: "r_knee".to_string(),
+                position: [0.0, -1.0, 0.3],
+                parent: Some(4),
+                ..Default::default()
+            },
+            NodeTransform {
+                name: "r_foot".to_string(),
+                position: [0.0, -1.0, -0.3],
+                parent: Some(5),
+                ..Default::default()
+            },
+        ];
+        let skin_data = SkinData {
+            joint_node_indices: (0..nodes.len()).collect(),
+            inverse_bind_matrices: vec![Mat4::IDENTITY.to_cols_array_2d(); nodes.len()],
+        };
+
+        // The system needs a clip and a player: IK is a correction applied over
+        // an animated pose, so with nothing animating it skips the entity
+        // entirely. A clip that holds the root still is enough.
+        let mut clips = std::collections::HashMap::new();
+        clips.insert(
+            "still".to_string(),
+            AnimationClip {
+                name: "still".to_string(),
+                duration: 1.0,
+                channels: vec![AnimationChannel {
+                    node_index: 0,
+                    times: vec![0.0, 1.0],
+                    values: KeyframeValues::Translations(vec![[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]),
+                    interpolation: Interpolation::Linear,
+                }],
+            },
+        );
+
+        let left_target = Vec3::new(-0.5, 0.8, 0.2);
+        let right_target = Vec3::new(0.5, 0.3, -0.2);
+        let entity = app
+            .world_mut()
+            .spawn((
+                SkinnedMesh {
+                    mesh_id: 1,
+                    rest_vertices: Vec::new(),
+                    skin: Vec::new(),
+                    skin_data,
+                    nodes,
+                    pose_override: Vec::new(),
+                    pose_override_weight: 1.0,
+                    joint_matrices: Vec::new(),
+                },
+                AnimationClipLibrary { clips },
+                bsengine_core::AnimationPlayer::new("still").with_duration(1.0),
+                IkChains {
+                    chains: vec![
+                        IkChain {
+                            root_bone: "l_hip".to_string(),
+                            mid_bone: "l_knee".to_string(),
+                            tip_bone: "l_foot".to_string(),
+                            target: left_target.into(),
+                            weight: 1.0,
+                        },
+                        IkChain {
+                            root_bone: "r_hip".to_string(),
+                            mid_bone: "r_knee".to_string(),
+                            tip_bone: "r_foot".to_string(),
+                            target: right_target.into(),
+                            weight: 1.0,
+                        },
+                    ],
+                },
+            ))
+            .id();
+
+        app.update();
+
+        let matrices = &app
+            .world()
+            .get::<SkinnedMesh>(entity)
+            .expect("the character keeps its skinned mesh")
+            .joint_matrices;
+        assert_eq!(matrices.len(), 7, "one matrix per joint");
+        let at = |i: usize| matrices[i].transform_point3(Vec3::ZERO);
+
+        let l_err = (at(3) - left_target).length();
+        let r_err = (at(6) - right_target).length();
+        println!("left foot {:?} ({l_err} m off), right foot {:?} ({r_err} m off)", at(3), at(6));
+
+        assert!(
+            l_err < 1.0e-3,
+            "the left foot must reach its own target: {:?} is {l_err} m from \
+             {left_target:?}",
+            at(3)
+        );
+        assert!(
+            r_err < 1.0e-3,
+            "the right foot must reach its own target: {:?} is {r_err} m from \
+             {right_target:?}. Both feet reaching the SAME point would mean \
+             only one chain was applied.",
+            at(6)
+        );
+    }
+
 
     /// A one-node skeleton, a clip translating that node to (0, 3, 0), and an
     /// identity inverse bind matrix — so a joint matrix reads back directly as

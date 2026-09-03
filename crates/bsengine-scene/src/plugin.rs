@@ -1057,6 +1057,7 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     // the rest. An unregistered component is not an error -- it is silently
     // absent, and a leg that simply never reaches for the ground looks like a
     // solver problem rather than a missing registration.
+    app.register_type::<bsengine_gltf::IkChains>();
     app.register_type::<bsengine_gltf::IkChain>();
 
     // `Name` is this crate's own, attached by `spawn_scene_entities` to every

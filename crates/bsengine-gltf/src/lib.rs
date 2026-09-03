@@ -29,4 +29,4 @@ pub use loader::{
     GltfImageData, GltfLoader, LoadedGltf, MeshData, NodeTransform, SkinData, VertexSkin,
 };
 pub use plugin::{GltfAsset, GltfPlugin, LodRequest};
-pub use skinned_mesh::{AnimationClipLibrary, IkChain, SkinnedMesh, SkinnedMeshPlugin};
+pub use skinned_mesh::{AnimationClipLibrary, IkChain, IkChains, SkinnedMesh, SkinnedMeshPlugin};

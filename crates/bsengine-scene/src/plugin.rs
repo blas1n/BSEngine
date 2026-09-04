@@ -89,7 +89,7 @@ impl Plugin for ScenePlugin {
         app.add_systems(
             Startup,
             (move |world: &mut World| {
-                let content = std::fs::read_to_string(&path)
+                let content = bsengine_asset::pak_source::read_to_string(&path)
                     .unwrap_or_else(|e| panic!("Failed to read scene {path}: {e}"));
                 let scene: SceneDescriptor = ron::from_str(&content)
                     .unwrap_or_else(|e| panic!("Failed to parse scene {path}: {e}"));
@@ -228,7 +228,9 @@ pub fn instantiate_prefab_from_path(
         ));
     }
 
-    let content = std::fs::read_to_string(prefab_path)
+    // Through the archive when this is a packaged build, from disk otherwise;
+    // `pak_source` documents why that is one function rather than two paths.
+    let content = bsengine_asset::pak_source::read_to_string(prefab_path)
         .map_err(|e| format!("prefab '{prefab_path}' could not be read: {e}"))?;
     let prefab: crate::types::PrefabDescriptor = ron::from_str(&content)
         .map_err(|e| format!("prefab '{prefab_path}' failed to parse: {e}"))?;

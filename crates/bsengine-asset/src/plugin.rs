@@ -84,6 +84,44 @@ fn asset_source_root() -> String {
 /// their own plugins — this only owns the types defined in this crate.
 pub struct AssetPlugin;
 
+/// Serves a packaged build's assets out of its `.pak` instead of from files.
+///
+/// # It must be added *before* [`AssetPlugin`]
+///
+/// That is the whole reason this is a separate plugin rather than a field on
+/// `AssetPlugin`. `bevy_asset::AssetPlugin::build` builds its sources there and
+/// then, so a source registered afterwards is silently ignored; registering
+/// here, from a plugin a host adds on the line above, puts the ordering
+/// requirement where somebody reading the host can see it.
+///
+/// It also keeps `AssetPlugin` a unit struct. Around eighty places across eight
+/// crates construct it — almost all of them tests that have no opinion about
+/// packaging — and giving it a field would have edited every one of them to say
+/// so.
+///
+/// Registering as the **default** source rather than a named one is what leaves
+/// every `AssetServer::load` call site alone; see [`crate::pak_reader`].
+pub struct PakAssetPlugin {
+    /// The opened archive to serve.
+    pub pak: std::sync::Arc<crate::pak::Pak>,
+    /// The project directory as the engine spells it — the same string
+    /// `bsengine_core::resolve_project_path` prepends to every asset path, and
+    /// therefore the prefix the reader has to remove to get an archive key.
+    pub project_dir: String,
+}
+
+impl Plugin for PakAssetPlugin {
+    fn build(&self, app: &mut App) {
+        let pak = self.pak.clone();
+        let project_dir = self.project_dir.clone();
+        app.register_asset_source(
+            bevy_asset::io::AssetSourceId::Default,
+            bevy_asset::io::AssetSourceBuilder::default()
+                .with_reader(move || crate::pak_reader::erased(pak.clone(), project_dir.clone())),
+        );
+    }
+}
+
 impl Plugin for AssetPlugin {
     fn build(&self, app: &mut App) {
         // bevy_asset's AssetServer::load spawns its background load task on

@@ -107,6 +107,12 @@ pub struct PackageSection {
     /// guess.
     #[serde(default)]
     pub extra_assets: Vec<String>,
+    /// Whether a build's assets are loose files or one archive.
+    ///
+    /// Defaults to loose, so upgrading the engine never changes what an
+    /// existing project's build looks like.
+    #[serde(default)]
+    pub mode: bsengine_asset::cook::PackageMode,
 }
 
 fn default_width() -> u32 {
@@ -218,7 +224,10 @@ pub fn handle_scene_load(world: &mut World) {
     let pending = world.remove_resource::<PendingSceneLoad>();
     let Some(pending) = pending else { return };
 
-    let content = match std::fs::read_to_string(&pending.path) {
+    // Through the archive when this is a packaged build, from disk otherwise.
+    // This is the site a script's `loadScene` reaches, so a second level of a
+    // packaged game arrives here and nowhere else.
+    let content = match bsengine_asset::pak_source::read_to_string(&pending.path) {
         Ok(c) => c,
         Err(e) => {
             tracing::error!("[scene] failed to read {}: {e}", pending.path);

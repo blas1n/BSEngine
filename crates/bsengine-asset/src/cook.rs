@@ -329,6 +329,33 @@ pub fn package(
             }
         }
         PackageMode::Pak => {
+            // A `.gltf` resolves its buffers and images through sibling files
+            // on disk, which an archive has none of — `bsengine-gltf`'s loader
+            // documents why a byte reader cannot replicate that. Refused here so
+            // the build fails with a sentence somebody can act on, rather than
+            // shipping and losing its meshes at run time, where a failed asset
+            // load is only a warning. `.glb` is self-contained and packs fine.
+            let unpackable: Vec<&String> = cooked
+                .assets
+                .iter()
+                .filter(|asset| extension_of(asset).is_some_and(|e| e.eq_ignore_ascii_case("gltf")))
+                .collect();
+            if !unpackable.is_empty() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "these assets cannot go in an archive because they read \
+                         sibling files from disk: {}. Convert them to .glb, or \
+                         package with --mode loose.",
+                        unpackable
+                            .iter()
+                            .map(|a| a.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                ));
+            }
+
             // Sidecars are deliberately NOT packed, though loose mode ships
             // them. They exist so the engine can recover a reference whose
             // asset has moved, and nothing moves inside a sealed archive —
@@ -875,7 +902,8 @@ mod tests {
             PackageMode::Loose,
             &exe,
             &out,
-        ).expect("package");
+        )
+        .expect("package");
 
         assert!(cooked.is_ok(), "unexpected problems: {:?}", cooked.missing);
         assert!(out.join("project.toml").is_file(), "the manifest must ship");
@@ -1005,7 +1033,7 @@ mod tests {
             &exe,
             &out,
         )
-            .expect_err("a non-empty output directory must be refused");
+        .expect_err("a non-empty output directory must be refused");
 
         assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
         assert!(
@@ -1033,7 +1061,8 @@ mod tests {
             PackageMode::Loose,
             &exe,
             &out,
-        ).expect("package");
+        )
+        .expect("package");
 
         assert!(!cooked.is_ok(), "the cook must report the missing model");
         assert!(

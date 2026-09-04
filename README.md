@@ -131,8 +131,31 @@ what that scene references. Unlike a path spelled only in a script, an entry
 here that resolves to nothing **fails** the build: this list is written on
 purpose, so a typo in it is a mistake rather than a guess.
 
-Output is a directory, not a single file. A packed single-file mode, and the
-project setting that chooses between them, is the next step.
+### Packaging modes
+
+```toml
+[package]
+mode = "pak"          # or "loose" (the default)
+```
+
+`--mode <loose|pak>` on the command line overrides the setting for one build.
+
+**`loose`** writes `assets/` as ordinary files beside the executable. Any tool
+can open them, which is what makes it the default and the mode to reach for when
+a build misbehaves.
+
+**`pak`** writes a single `game.pak` instead — an index plus the asset bytes,
+the shape Unreal, Unity and Godot all use. Fewer files to ship, and only this
+engine can read them.
+
+The build is then `exe + project.toml + game.pak`: **fewer files, but still not
+one file.** Embedding the archive into the executable, the way Godot embeds a
+`.pck`, is the route to a literal single file and is not implemented.
+
+One asset kind cannot be packed: a `.gltf` that references sibling `.bin` or
+image files resolves them through the filesystem, which an archive has none of.
+`--mode pak` fails the build and names them rather than shipping a game that
+loses its meshes at run time. A `.glb` is self-contained and packs fine.
 
 ---
 

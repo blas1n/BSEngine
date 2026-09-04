@@ -133,7 +133,9 @@ impl Pak {
                 .checked_add(*length)
                 .ok_or_else(|| invalid(format!("{path}'s length overflows")))?;
             if end > blob.len() as u64 {
-                return Err(invalid(format!("{path} points past the end of the archive")));
+                return Err(invalid(format!(
+                    "{path} points past the end of the archive"
+                )));
             }
         }
 

@@ -25,32 +25,14 @@ use crate::pak::Pak;
 /// Turns a path as `AssetServer::load` received it into the key the archive
 /// stores it under.
 ///
-/// # The rule, and why it is a rule rather than a guess
-///
-/// `bsengine_core::resolve_project_path` builds every asset path in this engine
-/// as `format!("{project_dir}/{path}")`, while the cook keys entries by the
-/// project-relative `path` alone. So this removes exactly the prefix that
-/// function added — nothing cleverer. A build run from inside itself has a
-/// project directory of `.`, which is why the `./` case is spelled out.
-///
-/// Separators are normalised because a `Path` carries whichever the caller
-/// wrote, and on Windows both appear.
-///
-/// A path that does not start with the project directory comes back normalised
-/// but otherwise untouched. Forcing it to match would invent an entry, and the
-/// archive answering for a file it does not hold is worse than a miss.
+/// Delegates to [`crate::pak_source::archive_key`] rather than repeating the
+/// rule. The two readers look into the same archive with paths built by the
+/// same function, so a second copy that drifted would mean one of them silently
+/// reading from disk -- which is a bug this feature actually shipped once, when
+/// the scene side stripped only `./` and so missed every absolute project
+/// directory.
 fn archive_key(path: &Path, project_dir: &str) -> String {
-    let text = path.to_string_lossy().replace('\\', "/");
-    let project = project_dir.replace('\\', "/");
-    let project = project.trim_end_matches('/');
-
-    let stripped = if project.is_empty() || project == "." {
-        text.strip_prefix("./").unwrap_or(&text)
-    } else {
-        text.strip_prefix(&format!("{project}/"))
-            .unwrap_or_else(|| text.strip_prefix("./").unwrap_or(&text))
-    };
-    stripped.to_string()
+    crate::pak_source::archive_key(&path.to_string_lossy(), project_dir)
 }
 
 /// Serves `bevy_asset` reads out of an opened archive.
@@ -161,11 +143,9 @@ mod tests {
     /// key is what `Pak` stores" unproven.
     #[test]
     fn a_normalised_key_finds_the_entry_it_names() {
-        let bytes = crate::pak::write_pak_bytes(&[(
-            "assets/models/fox.glb".to_string(),
-            b"mesh".to_vec(),
-        )])
-        .expect("write");
+        let bytes =
+            crate::pak::write_pak_bytes(&[("assets/models/fox.glb".to_string(), b"mesh".to_vec())])
+                .expect("write");
         let pak = Pak::from_bytes(bytes).expect("open");
 
         assert_eq!(

@@ -396,11 +396,11 @@ fn redirects(
 }
 
 /// One asset reference as a scene file spells it.
-struct Reference {
+pub(crate) struct Reference {
     /// The identity, if the reference carries one.
-    guid: Option<String>,
+    pub(crate) guid: Option<String>,
     /// The path it names.
-    path: String,
+    pub(crate) path: String,
 }
 
 /// Repoints every stale reference in every scene at where its asset now lives.
@@ -540,7 +540,7 @@ fn destination(
 /// project-relative, starting at `assets/`. Every reference in every scene is,
 /// by construction, and the guard is what keeps an entity *name* that happens to
 /// match a former path out of the rewrite.
-fn collect_references(value: &ron::Value, out: &mut Vec<Reference>) {
+pub(crate) fn collect_references(value: &ron::Value, out: &mut Vec<Reference>) {
     match value {
         ron::Value::Map(map) => {
             let field = |wanted: &str| {
@@ -575,7 +575,7 @@ fn collect_references(value: &ron::Value, out: &mut Vec<Reference>) {
 }
 
 /// Whether a string is spelled the way this crate keys an asset path.
-fn is_project_relative(text: &str) -> bool {
+pub(crate) fn is_project_relative(text: &str) -> bool {
     text.strip_prefix(ASSETS_DIR)
         .is_some_and(|rest| rest.starts_with('/'))
 }

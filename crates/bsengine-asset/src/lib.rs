@@ -43,6 +43,8 @@ pub mod identity;
 /// Chooses between synchronous (blocking, zero-latency) and asynchronous
 /// (`AssetServer`-driven) loading, plus the dispatch helper itself.
 pub mod load_mode;
+/// The `.pak` container a packaged build's assets are stored in.
+pub mod pak;
 /// Wires `bevy_asset`'s `AssetPlugin` into the app and registers this
 /// crate's own asset types.
 pub mod plugin;

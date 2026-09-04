@@ -30,6 +30,9 @@
 //! point.
 #![warn(missing_docs)]
 
+/// Collects exactly the assets a project reaches and writes a build that runs
+/// without the editor. Backs `bsengine-runtime --package`.
+pub mod cook;
 /// `AssetLoader` backing `LoadMode::Async` for `HeightmapAsset`.
 pub mod heightmap_loader;
 /// `AssetGuid` and the `.meta` sidecar that gives an asset an identity

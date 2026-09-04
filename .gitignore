@@ -504,3 +504,7 @@ crates/*/bsengine-watch-probe-*
 # so a fixture that has to be reachable *as an asset path* cannot live in the
 # temp dir. Also Drop-guarded.
 crates/*/bsengine-status-probe-*
+
+# `bsengine-runtime --package` output. Defaults to <project_dir>/dist, which
+# for the projects in this repository is inside the tree.
+dist/

@@ -25,6 +25,8 @@ pub struct ProjectManifest {
     pub window: WindowSection,
     #[serde(default)]
     pub render: RenderSection,
+    #[serde(default)]
+    pub package: PackageSection,
 }
 
 #[derive(Deserialize)]
@@ -83,6 +85,28 @@ impl Default for RenderSection {
             occlusion_culling: default_true(),
         }
     }
+}
+
+/// Packaging switches from `project.toml`'s `[package]` table.
+///
+/// Unlike [`WindowSection`] and [`RenderSection`] this one takes a plain
+/// `#[derive(Default)]`: its only field's zero value (an empty list) is exactly
+/// what an absent table should mean, so there is no field-level default for a
+/// hand-written impl to have to agree with.
+#[derive(Deserialize, Default)]
+pub struct PackageSection {
+    /// Assets to include in a build that no scene reaches.
+    ///
+    /// A path a script *builds* rather than spells is invisible to `--package`'s
+    /// static walk, and so is a file a build needs for reasons the engine knows
+    /// nothing about — the attribution notice a model's licence requires being
+    /// the usual one. Listing it here is how those get in. Each entry is
+    /// followed like any other reference, so naming a scene brings in what that
+    /// scene references, and an entry that resolves to nothing fails the build:
+    /// this list is written on purpose, so a typo in it is a mistake, not a
+    /// guess.
+    #[serde(default)]
+    pub extra_assets: Vec<String>,
 }
 
 fn default_width() -> u32 {

@@ -6,3 +6,8 @@ entry_scene = "assets/scenes/main.ron"
 title = "Mini Action Arena"
 width = 1280
 height = 720
+
+[package]
+# The fox model is CC-BY; its attribution notice has to ship with a build,
+# and nothing in the scene references a Markdown file.
+extra_assets = ["assets/models/CREDITS.md"]

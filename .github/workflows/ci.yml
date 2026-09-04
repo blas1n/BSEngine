@@ -230,3 +230,47 @@ jobs:
           rm -rf "$workdir"
           echo "replayed ${#logs[@]} recording(s)"
           exit $status
+
+      # Packages every project in the repository, not just the one
+      # `crates/bsengine-runtime/tests/package.rs` builds and replays. That
+      # test proves a packaged build *runs*; this step proves every game's
+      # references still resolve, which is the half a single project cannot
+      # cover -- a scene renamed out from under a prefab in `tilt-run` would
+      # pass the E2E test and fail here. It boots no engine, so it costs
+      # seconds.
+      - name: Package every project
+        shell: bash
+        run: |
+          bin="$CARGO_TARGET_DIR/debug/bsengine-runtime"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            bin="${bin}.exe"
+          fi
+
+          # Two levels: `games/net-2p-demo/` is a container holding `client/`
+          # and `server/`, each its own project. A `games/*/` glob alone finds
+          # neither, and would have passed silently while covering 8 of the 10.
+          projects=()
+          for manifest in games/*/project.toml games/*/*/project.toml; do
+            [ -e "$manifest" ] || continue
+            projects+=("$(dirname "$manifest")")
+          done
+          if [ "${#projects[@]}" -eq 0 ]; then
+            echo "no projects matched games/*/project.toml -- the glob is wrong"
+            exit 1
+          fi
+
+          status=0
+          for project in "${projects[@]}"; do
+            out="$(mktemp -d)/dist"
+            echo "::group::$project"
+            if "$bin" --package "$project" --out "$out"; then
+              echo "PASS $project"
+            else
+              echo "FAIL $project"
+              status=1
+            fi
+            echo "::endgroup::"
+            rm -rf "$out"
+          done
+          echo "packaged ${#projects[@]} project(s)"
+          exit $status

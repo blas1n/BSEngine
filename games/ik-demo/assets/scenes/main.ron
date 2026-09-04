@@ -98,14 +98,12 @@ SceneDescriptor(entities: [
         gltf: Some((path: "assets/models/fox.glb")),
         transform: Some((position: (6.5, 0.35, 5.0), scale: (0.02, 0.02, 0.02))),
         components: [
-            // A DIFFERENT clip from the Fox's, deliberately. Both characters
-            // are the same rig, so if both played the same animation every bone
-            // would agree by coincidence and
-            // `the_demo_target_rig_follows_the_fox`'s unmapped-bone half could
-            // not tell "kept its own pose" from "was copied wholesale". With
-            // different clips, the mapped legs must match the Fox and the
-            // unmapped bones must not.
-            ("bsengine_core::animation_player::AnimationPlayer", "(clip: \"Run\", time: 0.0, speed: 1.0, duration: 1.0, looping: true, playing: true)"),
+            // NOTE: the clip cannot be chosen here. `GltfPlugin` inserts
+            // `AnimationPlayer::new(first_clip_name)` unconditionally when the
+            // glTF finishes loading, overwriting whatever a scene authored --
+            // so `the_demo_target_rig_follows_the_fox` sets the Shadow's clip
+            // after stepping instead. Authoring it here passed standalone and
+            // failed in the full suite, purely on load timing.
             ("bsengine_gltf::skinned_mesh::RetargetSource", "(source: \"Fox\", pairs: [(\"b_LeftLeg01_015\", \"b_LeftLeg01_015\"), (\"b_LeftLeg02_016\", \"b_LeftLeg02_016\"), (\"b_RightLeg01_019\", \"b_RightLeg01_019\"), (\"b_RightLeg02_020\", \"b_RightLeg02_020\")])"),
         ],
     ),

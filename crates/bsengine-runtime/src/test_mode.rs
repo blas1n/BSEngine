@@ -3484,6 +3484,27 @@ mod tests {
         let fox = find(&mut app, "Fox");
         let shadow = find(&mut app, "Shadow");
 
+        // Put the Shadow on a DIFFERENT clip, and do it HERE rather than in the
+        // scene: `GltfPlugin` inserts `AnimationPlayer::new(first_clip_name)`
+        // unconditionally when the glTF finishes loading, so anything the scene
+        // authored is overwritten at a moment that depends on load timing.
+        //
+        // The different clip is load-bearing. Both characters are the same rig,
+        // so on the same animation every bone agrees by coincidence and the
+        // unmapped-bone assertion below cannot tell "kept its own pose" from
+        // "was copied wholesale".
+        {
+            let mut player = app
+                .world_mut()
+                .get_mut::<bsengine_core::AnimationPlayer>(shadow)
+                .expect("the Shadow gets an AnimationPlayer once fox.glb loads");
+            player.clip = "Run".to_string();
+            player.time = 0.0;
+        }
+        for _ in 0..30 {
+            execute_command(&mut app, &mut frame, Command::Step { frames: 1 });
+        }
+
         // The name must have resolved, or nothing downstream ran at all.
         let retarget = app
             .world()

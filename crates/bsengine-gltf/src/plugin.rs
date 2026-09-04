@@ -233,6 +233,7 @@ fn load_gltf_assets(
                             nodes: loaded.nodes.clone(),
                             pose_override: Vec::new(),
                             ik_tip_positions: Vec::new(),
+                            animated_locals: Vec::new(),
                             pose_override_weight: 1.0,
                             joint_matrices: Vec::new(),
                         },

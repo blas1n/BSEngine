@@ -1495,6 +1495,7 @@ mod tests {
             nodes,
             pose_override: Vec::new(),
             ik_tip_positions: Vec::new(),
+            animated_locals: Vec::new(),
             pose_override_weight: 1.0,
             joint_matrices: Vec::new(),
         }
@@ -1802,6 +1803,7 @@ mod tests {
             ],
             pose_override: Vec::new(),
             ik_tip_positions: Vec::new(),
+            animated_locals: Vec::new(),
             pose_override_weight: 1.0,
             joint_matrices: Vec::new(),
         }

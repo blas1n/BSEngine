@@ -3455,4 +3455,113 @@ mod tests {
              character rather than a target per foot."
         );
     }
+
+    #[test]
+    fn the_demo_target_rig_follows_the_fox() {
+        // End to end through the real headless app: the mapping survives
+        // reflection, `bsengine-scene` resolves the source name to an entity,
+        // skinning publishes the source's locals, and the target's MAPPED bones
+        // move with the source while its UNMAPPED bones do not.
+        //
+        // Both halves are asserted. "The target moved" alone is satisfied by a
+        // character simply playing its own clip, which this one also is.
+        let project_dir = format!("{}/../../games/ik-demo", env!("CARGO_MANIFEST_DIR"));
+        let mut app = build_test_app(&project_dir, None, false);
+        let mut frame: u64 = 0;
+        for _ in 0..90 {
+            execute_command(&mut app, &mut frame, Command::Step { frames: 1 });
+        }
+
+        let find = |app: &mut App, want: &str| {
+            let mut q = app
+                .world_mut()
+                .query::<(&bsengine_scene::Name, bevy_ecs::prelude::Entity)>();
+            q.iter(app.world())
+                .find(|(n, _)| n.0 == want)
+                .map(|(_, e)| e)
+                .unwrap_or_else(|| panic!("the demo scene must contain {want}"))
+        };
+        let fox = find(&mut app, "Fox");
+        let shadow = find(&mut app, "Shadow");
+
+        // The name must have resolved, or nothing downstream ran at all.
+        let retarget = app
+            .world()
+            .get::<bsengine_gltf::RetargetSource>(shadow)
+            .expect(
+                "Shadow must have a RetargetSource -- if absent, the component \
+                 is not registered for reflection",
+            );
+        assert!(
+            retarget.resolved == Some(fox),
+            "the source name must resolve to the Fox entity, got {:?}",
+            retarget.resolved
+        );
+        assert_eq!(retarget.pairs.len(), 4, "all four authored pairs survive");
+
+        // Compared on the published LOCALS, not on `joint_matrices`. A joint
+        // matrix folds in the whole parent chain, so it answers "where did this
+        // bone end up", while the claim under test is "did this bone receive
+        // the source's rotation" -- a bone's own local is that claim directly.
+        let joints = |app: &App, e: bevy_ecs::prelude::Entity| {
+            app.world()
+                .get::<bsengine_gltf::SkinnedMesh>(e)
+                .expect("a demo character keeps its skinned mesh")
+                .animated_locals
+                .clone()
+        };
+        let nodes_of = |app: &App, e: bevy_ecs::prelude::Entity| {
+            app.world()
+                .get::<bsengine_gltf::SkinnedMesh>(e)
+                .expect("a demo character keeps its skinned mesh")
+                .nodes
+                .clone()
+        };
+
+        let fox_joints = joints(&app, fox);
+        let shadow_joints = joints(&app, shadow);
+        let nodes = nodes_of(&app, shadow);
+        assert!(
+            !fox_joints.is_empty() && !shadow_joints.is_empty(),
+            "both characters must publish their animated locals"
+        );
+
+        // Compare bones by the direction their local rotation sends +Y.
+        let dir = |mats: &[glam::Mat4], i: usize| {
+            let (_, rot, _) = mats[i].to_scale_rotation_translation();
+            rot * glam::Vec3::Y
+        };
+        let index = |name: &str| {
+            nodes
+                .iter()
+                .position(|n| n.name == name)
+                .unwrap_or_else(|| panic!("the rig must have a bone named {name}"))
+        };
+
+        // A MAPPED bone must match the fox's.
+        let mapped = index("b_LeftLeg01_015");
+        let fox_mapped = dir(&fox_joints, mapped);
+        let shadow_mapped = dir(&shadow_joints, mapped);
+        println!("mapped bone: fox {fox_mapped:?}, shadow {shadow_mapped:?}");
+        assert!(
+            (fox_mapped - shadow_mapped).length() < 0.05,
+            "a mapped bone must follow the source: fox {fox_mapped:?} vs \
+             shadow {shadow_mapped:?}"
+        );
+
+        // An UNMAPPED bone must NOT have been touched by retargeting. The fox
+        // is running foot IK on its legs and the shadow is not, so an unmapped
+        // bone that still matched would mean retargeting copied the whole
+        // skeleton rather than the four pairs it was given.
+        let unmapped = index("b_LeftFoot01_017");
+        let fox_unmapped = dir(&fox_joints, unmapped);
+        let shadow_unmapped = dir(&shadow_joints, unmapped);
+        println!("unmapped bone: fox {fox_unmapped:?}, shadow {shadow_unmapped:?}");
+        assert!(
+            (fox_unmapped - shadow_unmapped).length() > 0.01,
+            "an unmapped bone must keep its own pose, but the shadow's \
+             {shadow_unmapped:?} matches the fox's {fox_unmapped:?} -- \
+             retargeting copied bones it was not given"
+        );
+    }
 }

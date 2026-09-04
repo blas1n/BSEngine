@@ -3484,26 +3484,32 @@ mod tests {
         let fox = find(&mut app, "Fox");
         let shadow = find(&mut app, "Shadow");
 
-        // Put the Shadow on a DIFFERENT clip, and do it HERE rather than in the
-        // scene: `GltfPlugin` inserts `AnimationPlayer::new(first_clip_name)`
-        // unconditionally when the glTF finishes loading, so anything the scene
-        // authored is overwritten at a moment that depends on load timing.
-        //
-        // The different clip is load-bearing. Both characters are the same rig,
-        // so on the same animation every bone agrees by coincidence and the
-        // unmapped-bone assertion below cannot tell "kept its own pose" from
-        // "was copied wholesale".
-        {
-            let mut player = app
-                .world_mut()
-                .get_mut::<bsengine_core::AnimationPlayer>(shadow)
-                .expect("the Shadow gets an AnimationPlayer once fox.glb loads");
-            player.clip = "Run".to_string();
-            player.time = 0.0;
-        }
-        for _ in 0..30 {
-            execute_command(&mut app, &mut frame, Command::Step { frames: 1 });
-        }
+        // The Shadow's clip is authored in the scene now that the loader
+        // respects an existing `AnimationPlayer`. This asserts that, because
+        // the whole unmapped-bone half below depends on the two characters
+        // being on different animations -- on the same clip every bone agrees
+        // by coincidence.
+        let shadow_clip = app
+            .world()
+            .get::<bsengine_core::AnimationPlayer>(shadow)
+            .expect("the Shadow must have a player")
+            .clip
+            .clone();
+        let fox_clip = app
+            .world()
+            .get::<bsengine_core::AnimationPlayer>(fox)
+            .expect("the Fox must have a player")
+            .clip
+            .clone();
+        println!("fox on {fox_clip:?}, shadow on {shadow_clip:?}");
+        assert_eq!(
+            shadow_clip, "Run",
+            "the scene-authored clip must survive the glTF load"
+        );
+        assert_eq!(
+            fox_clip, "Survey",
+            "and so must the Fox's -- both are pinned in the scene because the              loader's default clip comes from a HashMap iteration and is not              deterministic, which had the two characters playing the SAME              animation and made the unmapped-bone check below meaningless"
+        );
 
         // The name must have resolved, or nothing downstream ran at all.
         let retarget = app

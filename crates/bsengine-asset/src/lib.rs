@@ -45,6 +45,8 @@ pub mod identity;
 pub mod load_mode;
 /// The `.pak` container a packaged build's assets are stored in.
 pub mod pak;
+/// Serving a packaged build's assets to `bevy_asset` out of a `.pak`.
+pub mod pak_reader;
 /// Wires `bevy_asset`'s `AssetPlugin` into the app and registers this
 /// crate's own asset types.
 pub mod plugin;

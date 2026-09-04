@@ -1904,7 +1904,11 @@ mod tests {
 
     /// A two-bone rig whose arm binds at `rest`, with a clip that holds the arm
     /// at `animated`.
-    fn retarget_rig(prefix: &str, rest: Quat, animated: Quat) -> (SkinnedMesh, AnimationClipLibrary) {
+    fn retarget_rig(
+        prefix: &str,
+        rest: Quat,
+        animated: Quat,
+    ) -> (SkinnedMesh, AnimationClipLibrary) {
         let nodes = vec![
             NodeTransform {
                 name: format!("{prefix}_root"),

@@ -259,18 +259,23 @@ jobs:
             exit 1
           fi
 
+          # Both modes: a project can cook cleanly and still fail to pack --
+          # a .gltf that reads sibling files from disk cannot go in an archive,
+          # and `--mode pak` is what says so.
           status=0
-          for project in "${projects[@]}"; do
-            out="$(mktemp -d)/dist"
-            echo "::group::$project"
-            if "$bin" --package "$project" --out "$out"; then
-              echo "PASS $project"
-            else
-              echo "FAIL $project"
-              status=1
-            fi
-            echo "::endgroup::"
-            rm -rf "$out"
+          for mode in loose pak; do
+            for project in "${projects[@]}"; do
+              out="$(mktemp -d)/dist"
+              echo "::group::$project ($mode)"
+              if "$bin" --package "$project" --out "$out" --mode "$mode"; then
+                echo "PASS $project ($mode)"
+              else
+                echo "FAIL $project ($mode)"
+                status=1
+              fi
+              echo "::endgroup::"
+              rm -rf "$out"
+            done
           done
-          echo "packaged ${#projects[@]} project(s)"
+          echo "packaged ${#projects[@]} project(s) in 2 mode(s)"
           exit $status

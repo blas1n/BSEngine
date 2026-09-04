@@ -121,9 +121,40 @@ impl GltfLoader {
 
     /// Loads a GLTF/GLB file, parsing its meshes, textures, and animations
     /// into engine-native data.
+    ///
+    /// Reads through the filesystem, which is what lets `gltf-rs` resolve a
+    /// `.gltf`'s sibling `.bin` and image files. See
+    /// [`Self::load_full_from_slice`] for the case where there is no
+    /// filesystem to resolve against.
     pub fn load_full(path: &str) -> Result<LoadedGltf, String> {
         let (doc, buffers, raw_images) = gltf::import(path).map_err(|e| format!("gltf: {e}"))?;
+        Self::from_parts(doc, buffers, raw_images)
+    }
 
+    /// The same, from bytes already in hand.
+    ///
+    /// # When this works, and when it cannot
+    ///
+    /// Only for a **self-contained** asset — a `.glb`, or a `.gltf` whose
+    /// buffers and images are embedded as data URIs. A `.gltf` that references
+    /// sibling files has nothing to resolve them against here, and `gltf-rs`
+    /// will say so rather than silently returning a model with no geometry.
+    ///
+    /// This exists because a packaged build serves assets out of a `.pak`,
+    /// where there is no path to hand to [`Self::load_full`] at all.
+    pub fn load_full_from_slice(bytes: &[u8]) -> Result<LoadedGltf, String> {
+        let (doc, buffers, raw_images) =
+            gltf::import_slice(bytes).map_err(|e| format!("gltf: {e}"))?;
+        Self::from_parts(doc, buffers, raw_images)
+    }
+
+    /// Turns what `gltf-rs` produced into engine-native data, however it was
+    /// read.
+    fn from_parts(
+        doc: gltf::Document,
+        buffers: Vec<gltf::buffer::Data>,
+        raw_images: Vec<gltf::image::Data>,
+    ) -> Result<LoadedGltf, String> {
         let images: Vec<GltfImageData> = raw_images
             .iter()
             .map(|img| {

@@ -47,6 +47,17 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>, fast_rend
     app.insert_resource(bsengine_core::OcclusionCullingEnabled(
         manifest.render.occlusion_culling,
     ));
+    // Before `AssetPlugin`, and that ordering is the whole reason this is a
+    // separate plugin: `bevy_asset` builds its sources during that plugin's
+    // `build`, so a source registered afterwards is silently ignored -- and a
+    // silently ignored pak source means a packaged build quietly reading loose
+    // files instead of its own archive.
+    if let Some(pak) = crate::open_pak(project_dir) {
+        app.add_plugins(bsengine_asset::PakAssetPlugin {
+            pak,
+            project_dir: project_dir.to_string(),
+        });
+    }
     app.add_plugins(TimePlugin)
         .add_plugins(AssetPlugin)
         // Included here, unlike `AssetWatcherPlugin` (see main.rs's

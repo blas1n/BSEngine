@@ -228,6 +228,30 @@ pub fn cook(
     Ok(report)
 }
 
+/// What shape a build's assets take on disk.
+///
+/// A project setting rather than a fixed behaviour, matching how Unity and
+/// Unreal expose packaging: the two have genuinely different virtues, and which
+/// one a project wants is not something the engine can decide for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PackageMode {
+    /// `assets/` as ordinary files beside the executable. Inspectable with any
+    /// tool, which is what makes it both the default and the mode to fall back
+    /// to whenever a build misbehaves.
+    #[default]
+    Loose,
+    /// One [`PAK_FILE_NAME`] archive. Fewer files to ship, at the cost of
+    /// needing this engine to read them.
+    Pak,
+}
+
+/// The archive's name inside a build.
+///
+/// Fixed rather than configurable: the runtime has to find it before it has
+/// read anything that could have told it where to look.
+pub const PAK_FILE_NAME: &str = "game.pak";
+
 /// Cooks `project_dir` and writes a runnable build into `out_dir`.
 ///
 /// `runtime_exe` is the binary to ship. The caller passes it rather than this
@@ -252,6 +276,7 @@ pub fn package(
     project_dir: impl AsRef<Path>,
     entry_scene: &str,
     extra_assets: &[String],
+    mode: PackageMode,
     runtime_exe: &Path,
     out_dir: &Path,
 ) -> io::Result<CookedProject> {
@@ -290,14 +315,57 @@ pub fn package(
     })?;
     copy(runtime_exe, &out_dir.join(exe_name))?;
 
-    for asset in &cooked.assets {
-        copy(&project_dir.join(asset), &out_dir.join(asset))?;
-        // An asset without a sidecar is normal — nothing has scanned the
-        // project yet — so only one that exists and cannot be copied is worth
-        // failing on.
-        let sidecar = format!("{asset}.meta");
-        if project_dir.join(&sidecar).is_file() {
-            copy(&project_dir.join(&sidecar), &out_dir.join(&sidecar))?;
+    match mode {
+        PackageMode::Loose => {
+            for asset in &cooked.assets {
+                copy(&project_dir.join(asset), &out_dir.join(asset))?;
+                // An asset without a sidecar is normal — nothing has scanned the
+                // project yet — so only one that exists and cannot be copied is
+                // worth failing on.
+                let sidecar = format!("{asset}.meta");
+                if project_dir.join(&sidecar).is_file() {
+                    copy(&project_dir.join(&sidecar), &out_dir.join(&sidecar))?;
+                }
+            }
+        }
+        PackageMode::Pak => {
+            // A `.gltf` resolves its buffers and images through sibling files
+            // on disk, which an archive has none of — `bsengine-gltf`'s loader
+            // documents why a byte reader cannot replicate that. Refused here so
+            // the build fails with a sentence somebody can act on, rather than
+            // shipping and losing its meshes at run time, where a failed asset
+            // load is only a warning. `.glb` is self-contained and packs fine.
+            let unpackable: Vec<&String> = cooked
+                .assets
+                .iter()
+                .filter(|asset| extension_of(asset).is_some_and(|e| e.eq_ignore_ascii_case("gltf")))
+                .collect();
+            if !unpackable.is_empty() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "these assets cannot go in an archive because they read \
+                         sibling files from disk: {}. Convert them to .glb, or \
+                         package with --mode loose.",
+                        unpackable
+                            .iter()
+                            .map(|a| a.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                ));
+            }
+
+            // Sidecars are deliberately NOT packed, though loose mode ships
+            // them. They exist so the engine can recover a reference whose
+            // asset has moved, and nothing moves inside a sealed archive —
+            // every path in it was resolved by the cook that wrote it, and no
+            // rename can reach it afterwards.
+            let mut entries = Vec::with_capacity(cooked.assets.len());
+            for asset in &cooked.assets {
+                entries.push((asset.clone(), std::fs::read(project_dir.join(asset))?));
+            }
+            crate::pak::write_pak(out_dir.join(PAK_FILE_NAME), &entries)?;
         }
     }
 
@@ -827,7 +895,15 @@ mod tests {
         let exe = probe.fake_runtime();
         let out = probe.0.join("dist");
 
-        let cooked = package(&probe.0, "assets/scenes/main.ron", &[], &exe, &out).expect("package");
+        let cooked = package(
+            &probe.0,
+            "assets/scenes/main.ron",
+            &[],
+            PackageMode::Loose,
+            &exe,
+            &out,
+        )
+        .expect("package");
 
         assert!(cooked.is_ok(), "unexpected problems: {:?}", cooked.missing);
         assert!(out.join("project.toml").is_file(), "the manifest must ship");
@@ -850,6 +926,93 @@ mod tests {
         );
     }
 
+    /// The negative half is the point: if loose assets are written beside the
+    /// archive, "one archive" is not true and every later pak test could be
+    /// quietly reading those files instead.
+    #[test]
+    fn pak_mode_writes_one_archive_and_no_loose_assets() {
+        let probe = Probe::create();
+        probe.write(
+            "project.toml",
+            "[project]\nname = \"P\"\nentry_scene = \"assets/scenes/main.ron\"\n",
+        );
+        probe.write(
+            "assets/scenes/main.ron",
+            r#"(entities: [(name: "Hero", gltf: Some(Path("assets/models/hero.glb")))])"#,
+        );
+        probe.write("assets/models/hero.glb", "glb");
+        let exe = probe.fake_runtime();
+        let out = probe.0.join("dist");
+
+        let cooked = package(
+            &probe.0,
+            "assets/scenes/main.ron",
+            &[],
+            PackageMode::Pak,
+            &exe,
+            &out,
+        )
+        .expect("package");
+
+        assert!(cooked.is_ok(), "unexpected problems: {:?}", cooked.missing);
+        assert!(
+            out.join(PAK_FILE_NAME).is_file(),
+            "the archive must be written"
+        );
+        assert!(
+            out.join("project.toml").is_file(),
+            "the manifest stays loose -- it is the bootstrap"
+        );
+        assert!(
+            !out.join("assets").exists(),
+            "pak mode must not also write loose assets"
+        );
+    }
+
+    /// The archive holds exactly the collected set — the same set loose mode
+    /// ships — so the two modes cannot silently disagree about what a build
+    /// contains.
+    #[test]
+    fn the_archive_holds_exactly_the_collected_set() {
+        let probe = Probe::create();
+        probe.write(
+            "project.toml",
+            "[project]\nname = \"P\"\nentry_scene = \"assets/scenes/main.ron\"\n",
+        );
+        probe.write(
+            "assets/scenes/main.ron",
+            r#"(entities: [(name: "Hero", gltf: Some(Path("assets/models/hero.glb")))])"#,
+        );
+        probe.write("assets/models/hero.glb", "glb");
+        probe.write("assets/textures/unused.png", "png");
+        let exe = probe.fake_runtime();
+        let out = probe.0.join("dist");
+
+        let cooked = package(
+            &probe.0,
+            "assets/scenes/main.ron",
+            &[],
+            PackageMode::Pak,
+            &exe,
+            &out,
+        )
+        .expect("package");
+
+        let pak = crate::pak::Pak::open(out.join(PAK_FILE_NAME)).expect("open the archive");
+        let mut in_archive: Vec<&str> = pak.paths().collect();
+        in_archive.sort_unstable();
+        let mut collected: Vec<&str> = cooked.assets.iter().map(String::as_str).collect();
+        collected.sort_unstable();
+        assert_eq!(
+            in_archive, collected,
+            "the archive must hold exactly what the cook collected"
+        );
+        assert!(
+            !in_archive.contains(&"assets/textures/unused.png"),
+            "and nothing it did not"
+        );
+    }
+
     /// A leftover from a previous run is exactly what "only used assets"
     /// promises not to ship — and deleting a directory the caller named is not
     /// something a build command should decide to do.
@@ -862,8 +1025,15 @@ mod tests {
         std::fs::create_dir_all(&out).expect("create out");
         std::fs::write(out.join("stale.txt"), "old").expect("write stale");
 
-        let error = package(&probe.0, "assets/scenes/main.ron", &[], &exe, &out)
-            .expect_err("a non-empty output directory must be refused");
+        let error = package(
+            &probe.0,
+            "assets/scenes/main.ron",
+            &[],
+            PackageMode::Loose,
+            &exe,
+            &out,
+        )
+        .expect_err("a non-empty output directory must be refused");
 
         assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
         assert!(
@@ -884,7 +1054,15 @@ mod tests {
         let exe = probe.fake_runtime();
         let out = probe.0.join("dist");
 
-        let cooked = package(&probe.0, "assets/scenes/main.ron", &[], &exe, &out).expect("package");
+        let cooked = package(
+            &probe.0,
+            "assets/scenes/main.ron",
+            &[],
+            PackageMode::Loose,
+            &exe,
+            &out,
+        )
+        .expect("package");
 
         assert!(!cooked.is_ok(), "the cook must report the missing model");
         assert!(

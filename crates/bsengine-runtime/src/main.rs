@@ -41,14 +41,31 @@ fn main() {
 
     if first_arg == "--package" {
         let project_dir = args.next().unwrap_or_else(|| ".".to_string());
-        let out_dir = match args.next().as_deref() {
-            Some("--out") => args
-                .next()
-                .unwrap_or_else(|| panic!("--out requires a directory")),
-            Some(other) => panic!("unknown argument after project dir: {other}"),
-            None => format!("{project_dir}/dist"),
-        };
-        std::process::exit(run_package(&project_dir, &out_dir));
+        let mut out_dir = None;
+        let mut mode = None;
+        while let Some(flag) = args.next() {
+            match flag.as_str() {
+                "--out" => {
+                    out_dir = Some(
+                        args.next()
+                            .unwrap_or_else(|| panic!("--out requires a directory")),
+                    );
+                }
+                "--mode" => {
+                    let value = args
+                        .next()
+                        .unwrap_or_else(|| panic!("--mode requires loose or pak"));
+                    mode = Some(match value.as_str() {
+                        "loose" => bsengine_asset::cook::PackageMode::Loose,
+                        "pak" => bsengine_asset::cook::PackageMode::Pak,
+                        other => panic!("unknown --mode {other}; expected loose or pak"),
+                    });
+                }
+                other => panic!("unknown argument after project dir: {other}"),
+            }
+        }
+        let out_dir = out_dir.unwrap_or_else(|| format!("{project_dir}/dist"));
+        std::process::exit(run_package(&project_dir, &out_dir, mode));
     }
 
     if first_arg == "--test" {
@@ -154,7 +171,11 @@ fn run_fixup(project_dir: &str, as_json: bool) -> i32 {
 /// warning and does **not** fail the run, for the reason
 /// [`bsengine_asset::cook::ScriptMention`] records: it is a guess that a quoted
 /// string was a path, and it can as easily be dead code.
-fn run_package(project_dir: &str, out_dir: &str) -> i32 {
+fn run_package(
+    project_dir: &str,
+    out_dir: &str,
+    mode_override: Option<bsengine_asset::cook::PackageMode>,
+) -> i32 {
     bsengine_core::init_logging();
 
     let manifest_path = format!("{project_dir}/project.toml");
@@ -181,10 +202,16 @@ fn run_package(project_dir: &str, out_dir: &str) -> i32 {
         }
     };
 
+    // The flag wins over the manifest, the ordinary precedence for a build
+    // option: the setting says what this project normally produces, the flag
+    // says what this one invocation should.
+    let mode = mode_override.unwrap_or(manifest.package.mode);
+
     let cooked = match bsengine_asset::cook::package(
         project_dir,
         &manifest.project.entry_scene,
         &manifest.package.extra_assets,
+        mode,
         &exe,
         std::path::Path::new(out_dir),
     ) {
@@ -225,6 +252,31 @@ fn run_package(project_dir: &str, out_dir: &str) -> i32 {
     0
 }
 
+/// Opens `<project_dir>/game.pak` when this is a packaged build, and installs
+/// it for scene reads.
+///
+/// Returns the archive so the caller can also hand it to
+/// [`bsengine_asset::PakAssetPlugin`], which must be added **before**
+/// `AssetPlugin` — `bevy_asset` builds its sources during that plugin's
+/// `build`, so a source registered afterwards is silently ignored.
+///
+/// A missing archive is the ordinary unpackaged case and means loose files. One
+/// that is present but unreadable is not: it would leave the game reading
+/// whatever files happen to be lying around instead of the build it shipped
+/// with, so it stops here rather than degrading into a half-working game.
+fn open_pak(project_dir: &str) -> Option<std::sync::Arc<bsengine_asset::pak::Pak>> {
+    let path = std::path::Path::new(project_dir).join(bsengine_asset::cook::PAK_FILE_NAME);
+    if !path.is_file() {
+        return None;
+    }
+    let pak = std::sync::Arc::new(
+        bsengine_asset::pak::Pak::open(&path)
+            .unwrap_or_else(|e| panic!("Cannot read {}: {e}", path.display())),
+    );
+    bsengine_asset::pak_source::install(pak.clone(), project_dir);
+    Some(pak)
+}
+
 fn run_windowed(project_dir: &str) {
     let manifest_path = format!("{project_dir}/project.toml");
 
@@ -244,6 +296,17 @@ fn run_windowed(project_dir: &str) {
     app.insert_resource(bsengine_core::OcclusionCullingEnabled(
         manifest.render.occlusion_culling,
     ));
+    // Before `AssetPlugin`, and that ordering is the whole reason this is a
+    // separate plugin: `bevy_asset` builds its sources during that plugin's
+    // `build`, so a source registered afterwards is silently ignored -- and a
+    // silently ignored pak source means a packaged build quietly reading loose
+    // files instead of its own archive.
+    if let Some(pak) = open_pak(project_dir) {
+        app.add_plugins(bsengine_asset::PakAssetPlugin {
+            pak,
+            project_dir: project_dir.to_string(),
+        });
+    }
     app.add_plugins(TimePlugin)
         .add_plugins(AssetPlugin)
         // Windowed only, deliberately. `--test` builds its own app

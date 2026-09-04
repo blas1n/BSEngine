@@ -40,10 +40,24 @@ fn repo_root() -> PathBuf {
         .to_path_buf()
 }
 
-#[test]
-fn a_packaged_game_replays_its_recording_without_the_editor() {
+/// Packages `games/mini-arena` in `mode` and replays its recording against the
+/// result, returning the build so a caller can assert on its shape.
+///
+/// Shared by both modes on purpose: the two builds must be interchangeable from
+/// the game's point of view, and running them through the identical assertions
+/// is what says so.
+fn package_and_replay(mode: &str) -> Output {
+    package_and_replay_project(
+        "games/mini-arena",
+        "assets/tests/basic-playthrough.testlog.json",
+        mode,
+    )
+}
+
+/// The same, for any project and recording.
+fn package_and_replay_project(project_rel: &str, recording_rel: &str, mode: &str) -> Output {
     let root = repo_root();
-    let project = root.join("games/mini-arena");
+    let project = root.join(project_rel);
     let output = Output::new();
 
     let status = Command::new(env!("CARGO_BIN_EXE_bsengine-runtime"))
@@ -51,9 +65,14 @@ fn a_packaged_game_replays_its_recording_without_the_editor() {
         .arg(&project)
         .arg("--out")
         .arg(&output.0)
+        .arg("--mode")
+        .arg(mode)
         .status()
         .expect("run --package");
-    assert!(status.success(), "packaging mini-arena failed: {status}");
+    assert!(
+        status.success(),
+        "packaging {project_rel} as {mode} failed: {status}"
+    );
 
     // The recording is not an asset — nothing references it, and `scan`
     // excludes `assets/tests/` by name — so it is correctly absent from the
@@ -62,7 +81,7 @@ fn a_packaged_game_replays_its_recording_without_the_editor() {
         !output.0.join("assets/tests").exists(),
         "test recordings are not assets and must not ship"
     );
-    let recording = project.join("assets/tests/basic-playthrough.testlog.json");
+    let recording = project.join(recording_rel);
 
     let packaged_exe = output.0.join(
         Path::new(env!("CARGO_BIN_EXE_bsengine-runtime"))
@@ -89,9 +108,9 @@ fn a_packaged_game_replays_its_recording_without_the_editor() {
 
     assert!(
         run.status.success(),
-        "the packaged build must reproduce mini-arena's recorded playthrough, \
-         which it cannot do if the cook left out an asset the game needs to \
-         play: {}\n{log}",
+        "the {mode} build of {project_rel} must reproduce its recorded \
+         playthrough, which it cannot do if the cook left out an asset the game \
+         needs to play: {}\n{log}",
         run.status
     );
 
@@ -107,8 +126,64 @@ fn a_packaged_game_replays_its_recording_without_the_editor() {
         .collect();
     assert!(
         failures.is_empty(),
-        "the packaged build asked for {} asset(s) it did not have:\n{}",
+        "the {mode} build asked for {} asset(s) it did not have:\n{}",
         failures.len(),
         failures.join("\n")
+    );
+
+    output
+}
+
+#[test]
+fn a_packaged_game_replays_its_recording_without_the_editor() {
+    let output = package_and_replay("loose");
+    assert!(
+        output.0.join("assets").is_dir(),
+        "a loose build carries its assets as ordinary files"
+    );
+}
+
+/// The archive half.
+///
+/// The no-loose-assets assertion is the load-bearing one. Without it, a pak
+/// build that silently fell back to reading files would pass every assertion
+/// above identically — the archive could be empty, or never opened — and the
+/// whole feature would be unproven. With nothing on disk to fall back to,
+/// a passing replay can only mean the archive was read.
+#[test]
+fn a_pak_packaged_game_replays_its_recording_from_the_archive() {
+    let output = package_and_replay("pak");
+
+    assert!(
+        output.0.join("game.pak").is_file(),
+        "the build must carry an archive"
+    );
+    assert!(
+        !output.0.join("assets").exists(),
+        "a pak build must not also carry loose assets -- with them present the \
+         replay proves nothing about the archive, since it could have read the \
+         files instead"
+    );
+}
+
+/// The scene shim, which no `AssetReader` covers.
+///
+/// `tilt-run` is the only game that calls `Bsengine.loadScene`, and clearing
+/// level 1 transitions into level 2 — so this drives the *runtime* scene-load
+/// site (`scene_systems::handle_scene_load`) rather than the entry-scene one
+/// that every other test exercises. A pak build whose shim only handled the
+/// entry scene would start fine, play level 1 from the archive, and die at the
+/// transition.
+#[test]
+fn a_pak_build_loads_a_second_scene_through_the_shim() {
+    let output = package_and_replay_project(
+        "games/tilt-run",
+        "assets/tests/level1-clear.testlog.json",
+        "pak",
+    );
+
+    assert!(
+        !output.0.join("assets").exists(),
+        "nothing to fall back to, so the second scene came out of the archive"
     );
 }

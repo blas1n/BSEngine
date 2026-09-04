@@ -43,6 +43,13 @@ pub mod identity;
 /// Chooses between synchronous (blocking, zero-latency) and asynchronous
 /// (`AssetServer`-driven) loading, plus the dispatch helper itself.
 pub mod load_mode;
+/// The `.pak` container a packaged build's assets are stored in.
+pub mod pak;
+/// Serving a packaged build's assets to `bevy_asset` out of a `.pak`.
+pub mod pak_reader;
+/// Reading scene RON out of a `.pak` -- the three `std::fs` sites
+/// `pak_reader` cannot reach.
+pub mod pak_source;
 /// Wires `bevy_asset`'s `AssetPlugin` into the app and registers this
 /// crate's own asset types.
 pub mod plugin;
@@ -72,7 +79,7 @@ pub use bevy_asset::{Asset, AssetServer, Assets, Handle};
 pub use heightmap_loader::HeightmapAssetLoader;
 pub use identity::{AssetGuid, AssetIdentityPlugin, AssetIndex};
 pub use load_mode::{load, load_async, LoadMode};
-pub use plugin::AssetPlugin;
+pub use plugin::{AssetPlugin, PakAssetPlugin};
 pub use slot::{AssetSlot, Polled};
 pub use status::{AssetStatus, AssetStatusPlugin, AssetStatuses};
 pub use texture_loader::TextureAssetLoader;

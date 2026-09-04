@@ -118,6 +118,7 @@ fn load_gltf_assets(
             &GltfAsset,
             Option<&mut PendingGltf>,
             Option<&Transform>,
+            Option<&AnimationPlayer>,
         ),
         Without<MeshRenderer>,
     >,
@@ -126,7 +127,7 @@ fn load_gltf_assets(
     mut gltf_assets: ResMut<bevy_asset::Assets<LoadedGltf>>,
     asset_server: Res<bevy_asset::AssetServer>,
 ) {
-    for (entity, asset, pending, existing_transform) in query.iter_mut() {
+    for (entity, asset, pending, existing_transform, existing_player) in query.iter_mut() {
         // Request exactly once, then retain the handle. See `PendingGltf`.
         let Some(mut pending) = pending else {
             match bsengine_asset::load(
@@ -219,11 +220,45 @@ fn load_gltf_assets(
                     // AnimationPlayer::tick is a no-op whenever duration <= 0.0
                     // -- without this, the player's `time` would never
                     // advance and the clip would appear frozen forever.
-                    let duration = clip_library
-                        .clips
-                        .get(&first_clip_name)
-                        .map(|c| c.duration)
-                        .unwrap_or(0.0);
+                    let duration_of = |name: &str| {
+                        clip_library
+                            .clips
+                            .get(name)
+                            .map(|c| c.duration)
+                            .unwrap_or(0.0)
+                    };
+
+                    // A scene that authored its own `AnimationPlayer` keeps it.
+                    //
+                    // This used to insert a fresh player unconditionally, which
+                    // meant a skinned character's starting clip could not be
+                    // chosen in a scene at all: whatever was authored survived
+                    // or was clobbered depending on when the glTF finished
+                    // loading. `Transform` two lines below has always had this
+                    // guard; `AnimationPlayer` simply never got one.
+                    //
+                    // The duration is refreshed from the clip library either
+                    // way. It is the one field an author cannot know -- it
+                    // comes out of the file -- and a wrong one silently either
+                    // freezes the animation (0.0) or loops it early.
+                    let player = match existing_player {
+                        Some(authored) => {
+                            let mut p = authored.clone();
+                            if !clip_library.clips.contains_key(&p.clip) {
+                                tracing::warn!(
+                                    "[gltf] scene asked for clip {:?}, which {} does not                                      contain; falling back to {:?}",
+                                    p.clip,
+                                    asset.path,
+                                    first_clip_name
+                                );
+                                p.clip = first_clip_name.clone();
+                            }
+                            p.duration = duration_of(&p.clip);
+                            p
+                        }
+                        None => AnimationPlayer::new(first_clip_name.clone())
+                            .with_duration(duration_of(&first_clip_name)),
+                    };
                     e.insert((
                         SkinnedMesh {
                             mesh_id,
@@ -238,7 +273,7 @@ fn load_gltf_assets(
                             joint_matrices: Vec::new(),
                         },
                         clip_library,
-                        AnimationPlayer::new(first_clip_name).with_duration(duration),
+                        player,
                     ));
                 }
                 e.remove::<(GltfAsset, PendingGltf)>();
@@ -1084,6 +1119,119 @@ mod tests {
             "the id recorded at load time still holds the pre-reload geometry: \
              the rebuild never reached the GPU, so a hot reload would change \
              nothing on screen"
+        );
+    }
+
+    /// Loads the fox, optionally with an `AnimationPlayer` already on the
+    /// entity, and returns the player the loader left behind.
+    fn load_fox_with_authored_player(authored: Option<AnimationPlayer>) -> AnimationPlayer {
+        use crate::skinned_mesh::{SkinnedMesh, SkinnedMeshPlugin};
+
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../games/mini-arena/assets/models/fox.glb");
+        let path = fixture.to_str().unwrap().to_owned();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::windowed());
+        app.add_plugins(GltfPlugin);
+        app.add_plugins(SkinnedMeshPlugin);
+        insert_headless_gpu_registries(&mut app);
+
+        let mut spawned = app.world_mut().spawn(GltfAsset::new(path));
+        if let Some(p) = authored {
+            spawned.insert(p);
+        }
+        let e = spawned.id();
+
+        for _ in 0..200 {
+            app.update();
+            if app.world().get::<SkinnedMesh>(e).is_some() {
+                break;
+            }
+        }
+        app.world()
+            .get::<AnimationPlayer>(e)
+            .expect("the loader must leave a player on a skinned character")
+            .clone()
+    }
+
+    #[test]
+    fn a_scene_authored_clip_survives_the_gltf_load() {
+        // The loader used to insert `AnimationPlayer::new(first_clip_name)`
+        // unconditionally, so a skinned character's starting clip could not be
+        // chosen in a scene at all -- an authored one survived or was clobbered
+        // depending on when the load landed. That is exactly how it presented:
+        // a test that passed standalone and failed under load.
+        //
+        // `Transform` two lines below the insert has always had this guard.
+        let authored = AnimationPlayer {
+            clip: "Run".to_string(),
+            time: 0.0,
+            speed: 2.0,
+            duration: 0.0,
+            looping: false,
+            playing: true,
+        };
+        let got = load_fox_with_authored_player(Some(authored));
+
+        assert_eq!(got.clip, "Run", "the authored clip must survive the load");
+        assert_eq!(
+            got.speed, 2.0,
+            "and so must the rest of the authored player"
+        );
+        assert!(
+            !got.looping,
+            "including the fields the loader has no opinion on"
+        );
+
+        // Duration is the exception, and deliberately so: it comes out of the
+        // file, an author cannot know it, and a wrong one silently either
+        // freezes the animation (0.0, since `tick` is a no-op at <= 0.0) or
+        // loops it early. It is refreshed even though the rest is preserved.
+        assert!(
+            got.duration > 0.0,
+            "the duration must be refreshed from the clip, not left at the \
+             authored 0.0 -- `tick` is a no-op at 0.0 and the character would \
+             stand frozen"
+        );
+    }
+
+    #[test]
+    fn a_character_with_no_authored_player_still_gets_the_loaders_default() {
+        // The opposite direction. Without this, a guard that simply skipped
+        // insertion whenever anything looked present would leave unauthored
+        // characters with no player at all -- and they are the common case.
+        let got = load_fox_with_authored_player(None);
+        assert!(
+            !got.clip.is_empty(),
+            "an unauthored character must still get a clip from the file"
+        );
+        assert!(
+            got.duration > 0.0,
+            "and a usable duration, or it stands frozen"
+        );
+    }
+
+    #[test]
+    fn an_authored_clip_the_file_lacks_falls_back_and_says_so() {
+        // A typo in a scene must not present as "the character does not move".
+        let authored = AnimationPlayer {
+            clip: "NoSuchClip".to_string(),
+            time: 0.0,
+            speed: 1.0,
+            duration: 0.0,
+            looping: true,
+            playing: true,
+        };
+        let got = load_fox_with_authored_player(Some(authored));
+        assert_ne!(
+            got.clip, "NoSuchClip",
+            "a clip the file does not contain must fall back to one it does"
+        );
+        assert!(
+            got.duration > 0.0,
+            "and the fallback must be playable, not frozen at 0.0"
         );
     }
 

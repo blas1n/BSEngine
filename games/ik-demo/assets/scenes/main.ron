@@ -75,6 +75,13 @@ SceneDescriptor(entities: [
         // y = 1.0 and three of its four feet could not reach the ground at all.
         transform: Some((position: (4.0, 0.35, 5.0), scale: (0.02, 0.02, 0.02))),
         components: [
+            // Pinned explicitly, not left to the loader's default. That default
+            // is `clip_library.clips.keys().next()` over a HashMap, so which
+            // clip a character starts on is not deterministic -- the Fox landed
+            // on the same clip as the Shadow often enough to make
+            // `the_demo_target_rig_follows_the_fox` compare two characters
+            // playing the same animation.
+            ("bsengine_core::animation_player::AnimationPlayer", "(clip: \"Survey\", time: 0.0, speed: 1.0, duration: 0.0, looping: true, playing: true)"),
             ("bsengine_gltf::skinned_mesh::IkChains", "(chains: [(root_bone: \"b_LeftLeg01_015\", mid_bone: \"b_LeftLeg02_016\", tip_bone: \"b_LeftFoot01_017\", target: (0.0, 0.0, 0.0), weight: 1.0), (root_bone: \"b_RightLeg01_019\", mid_bone: \"b_RightLeg02_020\", tip_bone: \"b_RightFoot01_021\", target: (0.0, 0.0, 0.0), weight: 1.0), (root_bone: \"b_LeftUpperArm_09\", mid_bone: \"b_LeftForeArm_010\", tip_bone: \"b_LeftHand_011\", target: (0.0, 0.0, 0.0), weight: 1.0), (root_bone: \"b_RightUpperArm_06\", mid_bone: \"b_RightForeArm_07\", tip_bone: \"b_RightHand_08\", target: (0.0, 0.0, 0.0), weight: 1.0)])"),
             ("bsengine_physics::components::FootIkGround", "(max_drop: 2.0, offset: 0.0, probe_height: 0.5)"),
         ],
@@ -98,12 +105,16 @@ SceneDescriptor(entities: [
         gltf: Some((path: "assets/models/fox.glb")),
         transform: Some((position: (6.5, 0.35, 5.0), scale: (0.02, 0.02, 0.02))),
         components: [
-            // NOTE: the clip cannot be chosen here. `GltfPlugin` inserts
-            // `AnimationPlayer::new(first_clip_name)` unconditionally when the
-            // glTF finishes loading, overwriting whatever a scene authored --
-            // so `the_demo_target_rig_follows_the_fox` sets the Shadow's clip
-            // after stepping instead. Authoring it here passed standalone and
-            // failed in the full suite, purely on load timing.
+            // A DIFFERENT clip from the Fox's, deliberately: both characters
+            // are the same rig, so on the same animation every bone agrees by
+            // coincidence and `the_demo_target_rig_follows_the_fox` cannot tell
+            // "kept its own pose" from "was copied wholesale".
+            //
+            // Authoring this here only works because the loader now respects an
+            // existing `AnimationPlayer`; it used to be overwritten on load.
+            // `duration` is refreshed from the file regardless, so the 0.0 here
+            // is a placeholder rather than a claim.
+            ("bsengine_core::animation_player::AnimationPlayer", "(clip: \"Run\", time: 0.0, speed: 1.0, duration: 0.0, looping: true, playing: true)"),
             ("bsengine_gltf::skinned_mesh::RetargetSource", "(source: \"Fox\", pairs: [(\"b_LeftLeg01_015\", \"b_LeftLeg01_015\"), (\"b_LeftLeg02_016\", \"b_LeftLeg02_016\"), (\"b_RightLeg01_019\", \"b_RightLeg01_019\"), (\"b_RightLeg02_020\", \"b_RightLeg02_020\")])"),
         ],
     ),

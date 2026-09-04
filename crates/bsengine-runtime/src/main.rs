@@ -39,6 +39,18 @@ fn main() {
         std::process::exit(run_fixup(&project_dir, as_json));
     }
 
+    if first_arg == "--package" {
+        let project_dir = args.next().unwrap_or_else(|| ".".to_string());
+        let out_dir = match args.next().as_deref() {
+            Some("--out") => args
+                .next()
+                .unwrap_or_else(|| panic!("--out requires a directory")),
+            Some(other) => panic!("unknown argument after project dir: {other}"),
+            None => format!("{project_dir}/dist"),
+        };
+        std::process::exit(run_package(&project_dir, &out_dir));
+    }
+
     if first_arg == "--test" {
         let project_dir = args.next().unwrap_or_else(|| ".".to_string());
         match args.next().as_deref() {
@@ -118,6 +130,99 @@ fn run_fixup(project_dir: &str, as_json: bool) -> i32 {
     }
 
     i32::from(!report.problems.is_empty())
+}
+
+/// `--package <dir> [--out <dir>]`: collects exactly the assets the project
+/// reaches and writes a build that runs without the editor.
+///
+/// # Why this is a mode of the runtime rather than a tool of its own
+///
+/// Two reasons, and the second is the load-bearing one. It is the binary that
+/// already knows how to read a project, so a separate tool would be a second
+/// thing to keep in step with the manifest format. And the executable a build
+/// needs *is this process* — `bsengine-runtime` is the shipping runtime, so
+/// `current_exe()` is exactly the binary to copy, with nothing to locate and
+/// nothing to get wrong.
+///
+/// # Output, and the exit code
+///
+/// Exits `1` when a reference resolves to nothing, when the output directory is
+/// occupied, or when the build could not be written. Each of those is work
+/// `--package` was asked to do and did not.
+///
+/// A path spelled only in a *script* that resolves to nothing is printed as a
+/// warning and does **not** fail the run, for the reason
+/// [`bsengine_asset::cook::ScriptMention`] records: it is a guess that a quoted
+/// string was a path, and it can as easily be dead code.
+fn run_package(project_dir: &str, out_dir: &str) -> i32 {
+    bsengine_core::init_logging();
+
+    let manifest_path = format!("{project_dir}/project.toml");
+    let manifest_str = match std::fs::read_to_string(&manifest_path) {
+        Ok(text) => text,
+        Err(e) => {
+            eprintln!("package: cannot read {manifest_path} ({e})");
+            return 1;
+        }
+    };
+    let manifest: ProjectManifest = match toml::from_str(&manifest_str) {
+        Ok(manifest) => manifest,
+        Err(e) => {
+            eprintln!("package: cannot parse {manifest_path} ({e})");
+            return 1;
+        }
+    };
+
+    let exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(e) => {
+            eprintln!("package: cannot locate this executable ({e})");
+            return 1;
+        }
+    };
+
+    let cooked = match bsengine_asset::cook::package(
+        project_dir,
+        &manifest.project.entry_scene,
+        &manifest.package.extra_assets,
+        &exe,
+        std::path::Path::new(out_dir),
+    ) {
+        Ok(cooked) => cooked,
+        Err(e) => {
+            eprintln!("package: {e}");
+            return 1;
+        }
+    };
+
+    for mention in &cooked.script_mentions {
+        println!(
+            "warning: {} names {}, which resolves to nothing",
+            mention.script, mention.path
+        );
+    }
+
+    if !cooked.is_ok() {
+        for missing in &cooked.missing {
+            eprintln!(
+                "error: {} names {}, which resolves to nothing",
+                missing.referrer, missing.path
+            );
+        }
+        for problem in &cooked.problems {
+            eprintln!("error: {problem}");
+        }
+        eprintln!(
+            "package: {} unresolved reference(s) and {} unreadable file(s); \
+             nothing was written",
+            cooked.missing.len(),
+            cooked.problems.len()
+        );
+        return 1;
+    }
+
+    println!("packaged {} asset(s) into {out_dir}", cooked.assets.len());
+    0
 }
 
 fn run_windowed(project_dir: &str) {

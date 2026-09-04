@@ -91,6 +91,44 @@ cargo test --all
 
 CI runs on Ubuntu and Windows via GitHub Actions.
 
+### Packaging a build
+
+```bash
+cargo run -p bsengine-runtime -- --package games/mini-arena
+```
+
+Collects exactly the assets the project reaches from its entry scene and writes
+them, `project.toml`, and the runtime into `games/mini-arena/dist/`. Run the
+executable there with no arguments to play the game — no editor, no source tree.
+`--out <dir>` writes somewhere else; the directory must be empty or absent, since
+an asset left over from a previous build would ship with this one.
+
+Any reference in a scene or prefab that resolves to nothing fails the build, and
+is reported with the file that names it.
+
+A path a script *builds* — by concatenation, or chosen from data — cannot be seen
+by a static walk and will not be collected. Plain quoted literals are
+(`Bsengine.loadScene("assets/scenes/level2.ron")` pulls in that scene and
+everything it references); one that resolves to nothing is a warning rather than
+a failure, since a quoted string that looks like a path may be dead code or a
+deliberate probe of something absent.
+
+For those, and for a file a build needs that nothing references — a model's
+attribution notice, say — name it in `project.toml`:
+
+```toml
+[package]
+extra_assets = ["assets/models/CREDITS.md"]
+```
+
+Each entry is followed like any other reference, so listing a scene brings in
+what that scene references. Unlike a path spelled only in a script, an entry
+here that resolves to nothing **fails** the build: this list is written on
+purpose, so a typo in it is a mistake rather than a guess.
+
+Output is a directory, not a single file. A packed single-file mode, and the
+project setting that chooses between them, is the next step.
+
 ---
 
 ## Project Status

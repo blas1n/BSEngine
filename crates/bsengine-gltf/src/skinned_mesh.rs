@@ -37,6 +37,31 @@ pub struct IkChain {
     pub weight: f32,
 }
 
+/// Drives this character's skeleton from another entity's animated pose.
+///
+/// Bone pairs are explicit and name-keyed, matching `Ragdoll.joint_overrides`
+/// and [`IkChain`]. Heuristic name matching was rejected for the reason item
+/// 52's ragdoll rejected it: it depends on a rigging convention and fails
+/// silently on a different rig or non-English bone names -- and here a wrong
+/// guess produces a plausible-looking wrong pose rather than an error.
+#[derive(Component, Debug, Clone, Default, bevy_reflect::Reflect)]
+#[reflect(Component, Default)]
+pub struct RetargetSource {
+    /// Name of the entity whose pose is copied.
+    pub source: String,
+    /// The entity [`source`](RetargetSource::source) names, once something has
+    /// looked it up.
+    ///
+    /// Resolved by `bsengine-scene`, not here: this crate cannot see `Name`,
+    /// which lives there, and that crate depends on this one -- the reverse
+    /// edge would be a cycle. Same split as `Joint.body_b`.
+    #[reflect(ignore)]
+    pub resolved: Option<bevy_ecs::entity::Entity>,
+    /// `(source bone, target bone)` pairs. A target bone named by no pair keeps
+    /// its own animation.
+    pub pairs: Vec<(String, String)>,
+}
+
 /// Every IK chain on one character.
 ///
 /// A list rather than one component per chain because an entity can hold only
@@ -140,6 +165,16 @@ pub struct SkinnedMesh {
     /// Runtime output, never authored, hence not reflected.
     #[reflect(ignore)]
     pub ik_tip_positions: Vec<Vec3>,
+    /// This character's animated local transforms, as of the last time the
+    /// skinning system ran.
+    ///
+    /// Published so a retargeting character can read its source's pose. Locals
+    /// are otherwise not stored anywhere -- only `joint_matrices` are -- and a
+    /// target needs its SOURCE's, not its own.
+    ///
+    /// Runtime output, never authored, hence not reflected.
+    #[reflect(ignore)]
+    pub animated_locals: Vec<Mat4>,
     /// The skinning matrix per joint as of the last time [`SkinnedMeshPlugin`]'s
     /// system ran — `global[joint_node] * inverse_bind_matrix[joint]`, in
     /// [`SkinData::joint_node_indices`] order.
@@ -570,7 +605,7 @@ fn compute_joint_matrices_with_ik(
     clips: &[ClipSample<'_>],
     chains: &[&IkChain],
 ) -> Vec<Mat4> {
-    compute_pose_with_ik(nodes, skin, clips, chains).0
+    compute_pose_with_ik(nodes, skin, clips, chains, None).0
 }
 
 /// As [`compute_joint_matrices_with_ik`], also returning each chain's tip bone
@@ -584,8 +619,28 @@ fn compute_pose_with_ik(
     skin: &SkinData,
     clips: &[ClipSample<'_>],
     chains: &[&IkChain],
-) -> (Vec<Mat4>, Vec<Vec3>) {
+    retarget: Option<(&RetargetSource, &[NodeTransform], &[Mat4])>,
+) -> (Vec<Mat4>, Vec<Vec3>, Vec<Mat4>) {
     let mut locals = compute_local_transforms_blended(nodes, clips);
+
+    // BEFORE the globals are accumulated, and therefore before IK.
+    //
+    // The order is load-bearing, not incidental: retargeting decides the pose
+    // and IK corrects that pose against the world. Reversed, retargeting
+    // overwrites IK's correction and foot placement silently stops working --
+    // the producer/consumer failure this codebase keeps meeting, where
+    // everything upstream looks healthy. Mutation-verified: moving this after
+    // the IK loop puts the demo foot 1.83 m off its target instead of 1.2e-7.
+    if let Some((map, source_nodes, source_locals)) = retarget {
+        crate::retarget::retarget_locals(
+            nodes,
+            &mut locals,
+            source_nodes,
+            source_locals,
+            &map.pairs,
+        );
+    }
+
     let mut globals = accumulate_globals(nodes, &locals);
 
     for chain in chains {
@@ -642,7 +697,7 @@ fn compute_pose_with_ik(
         })
         .collect();
 
-    (joint_matrices_from_globals(&globals, skin), tips)
+    (joint_matrices_from_globals(&globals, skin), tips, locals)
 }
 
 /// Rotates one node by a world-space rotation, written into its parent-relative
@@ -734,11 +789,13 @@ impl Plugin for SkinnedMeshPlugin {
 
 fn update_skinned_meshes(
     mut query: Query<(
+        bevy_ecs::entity::Entity,
         &mut SkinnedMesh,
         Option<&AnimationClipLibrary>,
         Option<&bsengine_core::AnimationPlayer>,
         Option<&bsengine_core::AnimationStateMachine>,
         Option<&IkChains>,
+        Option<&RetargetSource>,
         Option<&bsengine_core::GlobalTransform>,
         Option<&bsengine_core::Transform>,
     )>,
@@ -750,13 +807,36 @@ fn update_skinned_meshes(
     // the *pose*, which a headless host still wants to be right; blending the
     // vertices is tens of thousands of products whose only consumer is the
     // upload, so that half is what the GPU's absence skips.
+    // Snapshot every character's rest pose and published locals BEFORE the
+    // mutable pass: a retargeting target reads another entity's `SkinnedMesh`
+    // while the loop below holds `&mut` on its own.
+    //
+    // Taken from THIS query immutably rather than from a second one -- Bevy
+    // rejects a `&SkinnedMesh` query alongside a `&mut SkinnedMesh` one in the
+    // same system (B0001), and `Query<&mut T>` iterates immutably too, so no
+    // `ParamSet` is needed.
+    //
+    // The snapshot is last frame's pose when the source is iterated after the
+    // target: a one-frame lag on a retargeted character, imperceptible and far
+    // cheaper than ordering the two entities.
+    let poses: std::collections::HashMap<
+        bevy_ecs::entity::Entity,
+        (Vec<NodeTransform>, Vec<Mat4>),
+    > = query
+        .iter()
+        .map(|(entity, mesh, ..)| (entity, (mesh.nodes.clone(), mesh.animated_locals.clone())))
+        .collect();
+
     let mut gpu = mesh_registry.zip(queue);
 
-    for (mut skinned, library, player, asm, ik, global, local) in query.iter_mut() {
+    for (_entity, mut skinned, library, player, asm, ik, retarget, global, local) in
+        query.iter_mut()
+    {
         // Set by the clip branch below; the ragdoll-override branches leave it
         // None, and an override means physics is driving the whole skeleton
         // anyway.
         let mut published_tips: Option<Vec<Vec3>> = None;
+        let mut published_locals: Option<Vec<Mat4>> = None;
         // The one branch this whole feature turns on, and the one that fails
         // silently: with the bodies built and falling but the clips still
         // sourcing the pose, the character looks completely normal while a full
@@ -815,8 +895,19 @@ fn update_skinned_meshes(
                 })
                 .unwrap_or_default();
             let chains: Vec<&IkChain> = model_chains.iter().collect();
-            let (matrices, tips) =
-                compute_pose_with_ik(&skinned.nodes, &skinned.skin_data, &samples, &chains);
+            let retarget_input = retarget.and_then(|r| {
+                r.resolved
+                    .and_then(|e| poses.get(&e))
+                    .map(|(nodes, locals)| (r, nodes.as_slice(), locals.as_slice()))
+            });
+            let (matrices, tips, locals) = compute_pose_with_ik(
+                &skinned.nodes,
+                &skinned.skin_data,
+                &samples,
+                &chains,
+                retarget_input,
+            );
+            published_locals = Some(locals);
             // Published in WORLD space, which is what the ground probe needs.
             published_tips = Some(
                 tips.iter()
@@ -873,6 +964,9 @@ fn update_skinned_meshes(
         // physics is already driving the whole skeleton.
         if let Some(tips) = published_tips {
             skinned.ik_tip_positions = tips;
+        }
+        if let Some(locals) = published_locals {
+            skinned.animated_locals = locals;
         }
 
         if let Some((mesh_registry, queue)) = gpu.as_mut() {
@@ -1622,6 +1716,7 @@ mod tests {
             nodes: vec![NodeTransform::default()],
             pose_override: Vec::new(),
             ik_tip_positions: Vec::new(),
+            animated_locals: Vec::new(),
             pose_override_weight: 1.0,
             joint_matrices: Vec::new(),
         }
@@ -1762,6 +1857,7 @@ mod tests {
                     nodes,
                     pose_override: Vec::new(),
                     ik_tip_positions: Vec::new(),
+                    animated_locals: Vec::new(),
                     pose_override_weight: 1.0,
                     joint_matrices: Vec::new(),
                 },
@@ -1803,6 +1899,230 @@ mod tests {
     // `bsengine-physics`, which is the only crate that can see both ends; what
     // belongs here is that the override is honoured at all, and that its
     // absence changes nothing.
+
+    // ---- Retargeting through the real system (item 54, sub-step 2/2) ------
+
+    /// A two-bone rig whose arm binds at `rest`, with a clip that holds the arm
+    /// at `animated`.
+    fn retarget_rig(
+        prefix: &str,
+        rest: Quat,
+        animated: Quat,
+    ) -> (SkinnedMesh, AnimationClipLibrary) {
+        let nodes = vec![
+            NodeTransform {
+                name: format!("{prefix}_root"),
+                ..Default::default()
+            },
+            NodeTransform {
+                name: format!("{prefix}_arm"),
+                position: [0.0, 1.0, 0.0],
+                rotation: rest.to_array(),
+                parent: Some(0),
+                ..Default::default()
+            },
+        ];
+        let mut clips = std::collections::HashMap::new();
+        clips.insert(
+            "pose".to_string(),
+            AnimationClip {
+                name: "pose".to_string(),
+                duration: 1.0,
+                channels: vec![AnimationChannel {
+                    node_index: 1,
+                    times: vec![0.0, 1.0],
+                    values: KeyframeValues::Rotations(vec![
+                        animated.to_array(),
+                        animated.to_array(),
+                    ]),
+                    interpolation: Interpolation::Linear,
+                }],
+            },
+        );
+        (
+            SkinnedMesh {
+                mesh_id: 1,
+                rest_vertices: Vec::new(),
+                skin: Vec::new(),
+                skin_data: SkinData {
+                    joint_node_indices: vec![0, 1],
+                    inverse_bind_matrices: vec![Mat4::IDENTITY.to_cols_array_2d(); 2],
+                },
+                nodes,
+                pose_override: Vec::new(),
+                pose_override_weight: 1.0,
+                ik_tip_positions: Vec::new(),
+                animated_locals: Vec::new(),
+                joint_matrices: Vec::new(),
+            },
+            AnimationClipLibrary { clips },
+        )
+    }
+
+    #[test]
+    fn a_retargeted_character_follows_its_source_through_the_real_system() {
+        // Drives `update_skinned_meshes` itself with two entities. The pure
+        // function tests cannot see the ECS wiring, and that is exactly where
+        // the last sub-step's defect lived: five green tests while the
+        // component could only ever hold one chain.
+        //
+        // Both rigs bind their arm away from identity, and differently -- with
+        // an identity source rest the delta and an absolute copy agree
+        // numerically and the test proves nothing.
+        let source_rest = Quat::from_rotation_y(0.9);
+        let target_rest = Quat::from_rotation_x(std::f32::consts::FRAC_PI_2);
+        let motion = Quat::from_rotation_z(0.6);
+
+        let mut app = bsengine_app::new_app();
+        app.insert_resource(bsengine_core::Time::default());
+        app.add_plugins(SkinnedMeshPlugin);
+
+        let (source_mesh, source_lib) = retarget_rig("s", source_rest, source_rest * motion);
+        let source = app
+            .world_mut()
+            .spawn((
+                source_mesh,
+                source_lib,
+                bsengine_core::AnimationPlayer::new("pose").with_duration(1.0),
+            ))
+            .id();
+
+        let (target_mesh, target_lib) = retarget_rig("t", target_rest, target_rest);
+        let target = app
+            .world_mut()
+            .spawn((
+                target_mesh,
+                target_lib,
+                bsengine_core::AnimationPlayer::new("pose").with_duration(1.0),
+                RetargetSource {
+                    source: "unused-in-this-test".to_string(),
+                    resolved: Some(source),
+                    pairs: vec![("s_arm".to_string(), "t_arm".to_string())],
+                },
+            ))
+            .id();
+
+        // Two frames: the first publishes the source's locals, the second lets
+        // the target read them. The one-frame lag is by design -- ordering two
+        // entities inside one query would cost more than it buys.
+        app.update();
+        app.update();
+
+        let arm = app
+            .world()
+            .get::<SkinnedMesh>(target)
+            .expect("the target keeps its skinned mesh")
+            .joint_matrices[1];
+        let (_, got_rot, _) = arm.to_scale_rotation_translation();
+        let got = got_rot * Vec3::Y;
+        let want = (target_rest * motion) * Vec3::Y;
+        let unretargeted = target_rest * Vec3::Y;
+        println!("retargeted arm {got:?}, want {want:?}, unretargeted would be {unretargeted:?}");
+
+        assert!(
+            (got - want).length() < 1.0e-4,
+            "the target's arm must receive the source's delta applied to its \
+             own rest: got {got:?}, want {want:?}"
+        );
+        assert!(
+            (got - unretargeted).length() > 0.1,
+            "and it must differ from the target's own animation ({unretargeted:?}), \
+             or this test cannot tell retargeting from doing nothing"
+        );
+    }
+
+    #[test]
+    fn retargeting_runs_before_ik_so_foot_placement_survives() {
+        // Order is the thing that fails silently here. Retargeting decides the
+        // pose; IK corrects it against the world. Run the other way round,
+        // retargeting overwrites the correction and the limb sits wherever the
+        // source's motion put it -- with everything upstream looking healthy.
+        //
+        // Both features drive the SAME limb, which is what makes the ordering
+        // observable: if retargeting ran last, the tip could not be on the IK
+        // target.
+        let source_rest = Quat::from_rotation_y(0.9);
+        let motion = Quat::from_rotation_z(0.9);
+
+        let mut app = bsengine_app::new_app();
+        app.insert_resource(bsengine_core::Time::default());
+        app.add_plugins(SkinnedMeshPlugin);
+
+        let (source_mesh, source_lib) = retarget_rig("s", source_rest, source_rest * motion);
+        let source = app
+            .world_mut()
+            .spawn((
+                source_mesh,
+                source_lib,
+                bsengine_core::AnimationPlayer::new("pose").with_duration(1.0),
+            ))
+            .id();
+
+        // A three-bone target so there is a chain for IK to solve.
+        let (nodes, skin) = leg_skeleton();
+        let mut clips = std::collections::HashMap::new();
+        clips.insert(
+            "pose".to_string(),
+            AnimationClip {
+                name: "pose".to_string(),
+                duration: 1.0,
+                channels: Vec::new(),
+            },
+        );
+        let target_pos = Vec3::new(0.3, 0.6, 0.2);
+        let target = app
+            .world_mut()
+            .spawn((
+                SkinnedMesh {
+                    mesh_id: 1,
+                    rest_vertices: Vec::new(),
+                    skin: Vec::new(),
+                    skin_data: skin,
+                    nodes,
+                    pose_override: Vec::new(),
+                    pose_override_weight: 1.0,
+                    ik_tip_positions: Vec::new(),
+                    animated_locals: Vec::new(),
+                    joint_matrices: Vec::new(),
+                },
+                AnimationClipLibrary { clips },
+                bsengine_core::AnimationPlayer::new("pose").with_duration(1.0),
+                RetargetSource {
+                    source: "unused".to_string(),
+                    resolved: Some(source),
+                    // Drives the SAME bone the IK chain roots at.
+                    pairs: vec![("s_arm".to_string(), "hip".to_string())],
+                },
+                IkChains {
+                    chains: vec![IkChain {
+                        root_bone: "hip".to_string(),
+                        mid_bone: "knee".to_string(),
+                        tip_bone: "foot".to_string(),
+                        target: target_pos.into(),
+                        weight: 1.0,
+                    }],
+                },
+            ))
+            .id();
+
+        app.update();
+        app.update();
+
+        let matrices = &app
+            .world()
+            .get::<SkinnedMesh>(target)
+            .expect("the target keeps its skinned mesh")
+            .joint_matrices;
+        let foot = matrices[2].transform_point3(Vec3::ZERO);
+        let err = (foot - target_pos).length();
+        println!("foot with retargeting AND ik: {foot:?}, {err} m from the IK target");
+        assert!(
+            err < 1.0e-3,
+            "the foot must still land on its IK target while retargeting drives \
+             the same limb: {foot:?} is {err} m from {target_pos:?}. A larger \
+             error means retargeting ran after IK and overwrote the correction."
+        );
+    }
 
     #[test]
     fn two_ik_chains_on_one_character_both_solve_through_the_real_system() {
@@ -1899,6 +2219,7 @@ mod tests {
                     nodes,
                     pose_override: Vec::new(),
                     ik_tip_positions: Vec::new(),
+                    animated_locals: Vec::new(),
                     pose_override_weight: 1.0,
                     joint_matrices: Vec::new(),
                 },
@@ -1995,6 +2316,7 @@ mod tests {
                     nodes: one_node(),
                     pose_override: Vec::new(),
                     ik_tip_positions: Vec::new(),
+                    animated_locals: Vec::new(),
                     pose_override_weight: 1.0,
                     joint_matrices: Vec::new(),
                 },

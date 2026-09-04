@@ -38,9 +38,54 @@ impl ScenePlugin {
     }
 }
 
+/// Fills in each [`RetargetSource`](bsengine_gltf::RetargetSource)'s `resolved`
+/// entity from the name a scene authored.
+///
+/// Lives here rather than in `bsengine-gltf` because only this crate can see
+/// both: `Name` is this crate's, and `bsengine-scene` depends on
+/// `bsengine-gltf`, so the reverse lookup there would be a dependency cycle.
+/// Same split as `Joint.body_b`, which a scene also authors by name.
+///
+/// Runs every frame rather than once at startup: a retargeting character can be
+/// spawned at any time, and its source may spawn after it. Already-resolved
+/// components are skipped, so the cost is a query over a usually-empty set.
+pub fn resolve_retarget_sources(
+    mut targets: bevy_ecs::prelude::Query<(&Name, &mut bsengine_gltf::RetargetSource)>,
+    named: bevy_ecs::prelude::Query<(bevy_ecs::prelude::Entity, &Name)>,
+) {
+    for (target_name, mut retarget) in targets.iter_mut() {
+        if retarget.resolved.is_some() {
+            continue;
+        }
+        let found = named
+            .iter()
+            .find(|(_, n)| n.0 == retarget.source)
+            .map(|(e, _)| e);
+        match found {
+            Some(e) => retarget.resolved = Some(e),
+            None => {
+                // Not warned every frame: the source may simply not have
+                // spawned yet, and a scene that loads its characters in any
+                // order would otherwise fill the log before settling.
+            }
+        }
+        // A character retargeting from itself is always a mistake, and the
+        // result -- an identity delta, so no visible effect -- looks exactly
+        // like retargeting that silently did not run.
+        if retarget.resolved.is_some() && retarget.source == target_name.0 {
+            tracing::warn!(
+                "[retarget] {:?} names itself as its retarget source; the pose \
+                 will not change",
+                target_name.0
+            );
+        }
+    }
+}
+
 impl Plugin for ScenePlugin {
     fn build(&self, app: &mut App) {
         let path = self.path.clone();
+        app.add_systems(bevy_app::Update, resolve_retarget_sources);
         app.add_systems(
             Startup,
             (move |world: &mut World| {
@@ -1061,6 +1106,7 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     // absent, and a leg that simply never reaches for the ground looks like a
     // solver problem rather than a missing registration.
     app.register_type::<bsengine_gltf::IkChains>();
+    app.register_type::<bsengine_gltf::RetargetSource>();
     app.register_type::<bsengine_gltf::IkChain>();
 
     // `Name` is this crate's own, attached by `spawn_scene_entities` to every

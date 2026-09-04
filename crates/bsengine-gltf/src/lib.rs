@@ -20,6 +20,9 @@ pub mod ik;
 pub mod loader;
 /// The Bevy plugin that spawns loaded GLTF assets into the ECS world.
 pub mod plugin;
+
+/// Animation retargeting between skeletons with different bone structures.
+pub mod retarget;
 /// Bind-pose geometry, skin data, and clip library for CPU-side skeletal skinning.
 pub mod skinned_mesh;
 
@@ -29,4 +32,6 @@ pub use loader::{
     GltfImageData, GltfLoader, LoadedGltf, MeshData, NodeTransform, SkinData, VertexSkin,
 };
 pub use plugin::{GltfAsset, GltfPlugin, LodRequest};
-pub use skinned_mesh::{AnimationClipLibrary, IkChain, IkChains, SkinnedMesh, SkinnedMeshPlugin};
+pub use skinned_mesh::{
+    AnimationClipLibrary, IkChain, IkChains, RetargetSource, SkinnedMesh, SkinnedMeshPlugin,
+};

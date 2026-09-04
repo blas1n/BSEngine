@@ -1495,6 +1495,7 @@ mod tests {
             nodes,
             pose_override: Vec::new(),
             ik_tip_positions: Vec::new(),
+            animated_locals: Vec::new(),
             pose_override_weight: 1.0,
             joint_matrices: Vec::new(),
         }
@@ -1802,6 +1803,7 @@ mod tests {
             ],
             pose_override: Vec::new(),
             ik_tip_positions: Vec::new(),
+            animated_locals: Vec::new(),
             pose_override_weight: 1.0,
             joint_matrices: Vec::new(),
         }
@@ -2432,6 +2434,7 @@ mod tests {
                     pose_override: Vec::new(),
                     pose_override_weight: 1.0,
                     ik_tip_positions: vec![foot],
+                    animated_locals: Vec::new(),
                     joint_matrices: Vec::new(),
                 },
                 IkChains {
@@ -2535,6 +2538,7 @@ mod tests {
                     pose_override_weight: 1.0,
                     // Two feet, two metres apart across the slope.
                     ik_tip_positions: vec![Vec3::new(-1.0, 0.5, 0.0), Vec3::new(1.0, 0.5, 0.0)],
+                    animated_locals: Vec::new(),
                     joint_matrices: Vec::new(),
                 },
                 IkChains {

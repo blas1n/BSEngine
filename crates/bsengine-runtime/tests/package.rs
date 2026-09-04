@@ -71,16 +71,44 @@ fn a_packaged_game_replays_its_recording_without_the_editor() {
     );
     assert!(packaged_exe.is_file(), "the build must carry an executable");
 
-    let status = Command::new(&packaged_exe)
+    // `current_dir` is not incidental. `bevy_asset` roots at the process
+    // working directory, not at the project directory it is handed, so a
+    // packaged build run from anywhere else looks for its textures beside
+    // whatever launched it. Running from inside the build is what a player
+    // does, and the first version of this test -- which did not -- passed
+    // while the game silently failed to load `checker.png`.
+    let run = Command::new(&packaged_exe)
+        .current_dir(&output.0)
         .arg("--test")
         .arg(&output.0)
         .arg("--replay")
         .arg(&recording)
-        .status()
+        .output()
         .expect("run the packaged build");
+    let log = String::from_utf8_lossy(&run.stderr);
+
     assert!(
-        status.success(),
+        run.status.success(),
         "the packaged build must reproduce mini-arena's recorded playthrough, \
-         which it cannot do if the cook left out an asset the game loads: {status}"
+         which it cannot do if the cook left out an asset the game needs to \
+         play: {}\n{log}",
+        run.status
+    );
+
+    // The replay alone is not enough, and this is the assertion that says so.
+    // mini-arena's recording still passes with `checker.png` missing -- nothing
+    // it does depends on that texture -- so a build that shipped without it
+    // would look fine here. What cannot be faked is the engine asking for an
+    // asset and not finding it: that is precisely the cook having left
+    // something out, whether or not the recording happens to notice.
+    let failures: Vec<&str> = log
+        .lines()
+        .filter(|line| line.contains("Path not found") || line.contains("failed to load"))
+        .collect();
+    assert!(
+        failures.is_empty(),
+        "the packaged build asked for {} asset(s) it did not have:\n{}",
+        failures.len(),
+        failures.join("\n")
     );
 }

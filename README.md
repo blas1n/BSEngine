@@ -98,10 +98,15 @@ cargo run -p bsengine-runtime -- --package games/mini-arena
 ```
 
 Collects exactly the assets the project reaches from its entry scene and writes
-them, `project.toml`, and the runtime into `games/mini-arena/dist/`. Run the
-executable there with no arguments to play the game — no editor, no source tree.
-`--out <dir>` writes somewhere else; the directory must be empty or absent, since
-an asset left over from a previous build would ship with this one.
+them, `project.toml`, and the runtime into `games/mini-arena/dist/`. `--out <dir>`
+writes somewhere else; the directory must be empty or absent, since an asset left
+over from a previous build would ship with this one.
+
+**Run the executable from inside that directory** — no arguments needed, since
+the runtime defaults its project directory to `.`. This is not just convenience:
+textures and other `AssetServer`-loaded assets resolve against the *working
+directory*, so launching the executable from elsewhere leaves the game running
+with its textures missing rather than failing outright.
 
 Any reference in a scene or prefab that resolves to nothing fails the build, and
 is reported with the file that names it.

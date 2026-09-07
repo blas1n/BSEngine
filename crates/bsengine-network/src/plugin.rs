@@ -364,7 +364,7 @@ fn network_send_system(world: &mut World) {
                 // Dropped here rather than at the receiver so the packet never
                 // exists, which is what a lossy link actually does.
                 if deliver.get(index).copied().unwrap_or(true) {
-                    if let Some(pkt) = encode_transform_batch(tick, &batch) {
+                    if let Some(pkt) = encode_transform_batch(tick, 0, &batch) {
                         let _ = session.socket.send_to(&pkt, peer);
                     }
                 }

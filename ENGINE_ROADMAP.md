@@ -2754,11 +2754,16 @@ own client-authoritative transforms"라고 명시). 클라이언트가 자기 �
 
 **sub-step 2/2 (예측+재조정) — 설계 확정, 미착수:**
 - **서버가 같은 스크립트를 돌린다**(공유 시뮬레이션). 이동이 스크립트 저작으로 남는다.
-- 구조가 유리함이 확인됨: 스크립트는 이미 `Bsengine._scripts["<entity bits>"]`로
-  **엔티티별 디스패치**되고, `isKeyDown`은 프레임당 한 번 세팅되는 thread-local 스냅샷을
-  읽는다. 서버는 예측 엔티티의 `onUpdate` 직전에 스냅샷을 그 피어의 입력으로 갈아끼우면
-  된다. ⚠️ 복원은 무조건 실행돼야 한다(`ResolvingGuard`와 같은 RAII 논리) — 안 그러면 한
-  피어의 입력이 다른 엔티티 스크립트로 샌다.
+- ⚠️ **엔티티 루프는 JS 안에 있다.** Rust는 `Bsengine._runAll(entities_json)`을
+  **프레임당 한 번** 부르고(`bsengine-scripting/src/plugin.rs:830`), 엔티티 순회는
+  `prelude.js:787`의 `_runAll` 안에서 일어난다. 스크립트가 `_scripts["<entity bits>"]`로
+  키잉된다는 것은 *등록*이 엔티티별이라는 뜻이지 *디스패치*가 Rust에서 엔티티별로
+  일어난다는 뜻이 아니다. 따라서 **Rust가 엔티티마다 입력 스냅샷을 갈아끼우는 것은
+  불가능하다** — 루프 전체가 한 번의 V8 호출 안에서 끝나고 thread-local은 그 전에 고정된다.
+- 그러므로 피어별 입력 구분은 **JS 쪽에서** 해야 한다. `_runAll`이 각 `onUpdate` 앞에
+  현재 엔티티 id를 기록하고, 입력 접근자가 그 id를 op에 넘겨 **엔티티별 입력 맵**을
+  조회하되 없으면 이 프로세스의 키보드로 폴백하는 형태. 게임 스크립트는
+  `Bsengine.isKeyDown("W")` 그대로 두고 해석만 올바른 피어로 바뀐다.
 - 필요한 것: `MSG_CLIENT_INPUT`(시퀀스 번호 포함, `MSG_CLIENT_TRANSFORM`은 예측
   엔티티에 대해 부족한 게 아니라 **틀린** 메시지가 됨), 서버의 마지막 처리 시퀀스 에코,
   클라이언트의 미확인 입력 재생.

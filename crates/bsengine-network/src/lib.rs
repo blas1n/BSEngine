@@ -31,7 +31,7 @@ mod sim;
 
 pub use config::NetworkConfig;
 pub use interpolation::{sample, SnapshotBuffers};
-pub use plugin::{NetworkPlugin, ServerTick};
+pub use plugin::{AppliedInputs, NetworkPlugin, ServerTick};
 pub use prediction::PendingInputs;
 pub use session::{NetworkRole, NetworkSession};
 pub use sim::{DelayQueue, LinkSimulator};

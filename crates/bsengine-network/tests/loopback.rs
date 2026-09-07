@@ -19,7 +19,7 @@
 use bevy_app::App;
 use bevy_ecs::prelude::*;
 use bsengine_core::{NetworkAuthority, NetworkId, Transform};
-use bsengine_network::{NetworkConfig, NetworkPlugin, NetworkSession};
+use bsengine_network::{AppliedInputs, NetworkConfig, NetworkPlugin, NetworkSession};
 use glam::Vec3;
 
 /// A server app and a client app wired to each other over loopback.
@@ -276,5 +276,81 @@ fn a_default_session_replicates_as_it_always_did() {
         (x - 42.0).abs() < 1e-3,
         "with no delay and no loss the client should sit exactly where the \
          server put it, got x={x}"
+    );
+}
+
+/// A predicted entity's owner sends **input**, never its transform.
+///
+/// The two messages are not interchangeable: a transform from the client would
+/// make it authoritative again and leave the server nothing to disagree with,
+/// which is the whole thing prediction exists to arrange.
+#[test]
+fn a_predicted_entity_sends_input_rather_than_its_transform() {
+    let mut pair = Pair::connect(NetworkConfig::default());
+
+    let peer_id = pair.client.world().resource::<NetworkSession>().my_peer_id;
+    for world in [pair.server.world_mut(), pair.client.world_mut()] {
+        world.spawn((
+            NetworkId {
+                id: 1,
+                authority: NetworkAuthority::Predicted { peer_id },
+            },
+            Transform::default(),
+        ));
+    }
+    // Something for the client to be holding, so the input is not empty.
+    pair.client
+        .world_mut()
+        .insert_resource(bsengine_core::LocalHeldKeys(vec!["W".to_string()]));
+
+    for _ in 0..4 {
+        pair.step();
+    }
+
+    let applied = pair.server.world().resource::<AppliedInputs>();
+    assert!(
+        !applied.0.is_empty(),
+        "the server must have applied at least one input for the predicted \
+         entity -- an empty map means the client sent a transform, or nothing"
+    );
+
+    let remote = pair
+        .server
+        .world()
+        .resource::<bsengine_core::RemoteHeldKeys>();
+    assert_eq!(
+        remote.0.get(&1).map(Vec::as_slice),
+        Some(["W".to_string()].as_slice()),
+        "and the keys it published for that entity are the ones the client held"
+    );
+}
+
+/// A client-authoritative entity is untouched by any of this, which is what
+/// makes the change additive rather than a migration.
+#[test]
+fn a_client_authoritative_entity_still_sends_its_transform() {
+    let mut pair = Pair::connect(NetworkConfig::default());
+
+    let peer_id = pair.client.world().resource::<NetworkSession>().my_peer_id;
+    for world in [pair.server.world_mut(), pair.client.world_mut()] {
+        world.spawn((
+            NetworkId {
+                id: 2,
+                authority: NetworkAuthority::Client { peer_id },
+            },
+            Transform {
+                position: Vec3::new(3.0, 0.0, 0.0).into(),
+                ..Default::default()
+            },
+        ));
+    }
+
+    for _ in 0..4 {
+        pair.step();
+    }
+
+    assert!(
+        pair.server.world().resource::<AppliedInputs>().0.is_empty(),
+        "a client-authoritative entity must not be feeding the input path"
     );
 }

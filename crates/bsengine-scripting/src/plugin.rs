@@ -801,6 +801,61 @@ fn find_named_pair(world: &mut World, a: &str, b: &str) -> (Option<Entity>, Opti
     found
 }
 
+/// Refreshes one entity's entry in the snapshot scripts read positions from.
+///
+/// A replay step has to see where the previous step left the entity. Without
+/// this every step of a replay reads the position the frame started at, and a
+/// three-input replay advances by one input.
+fn refresh_transform_snapshot(world: &mut World, name: &str) {
+    let found = {
+        let mut q = world.query::<(&Name, &Transform)>();
+        q.iter(world)
+            .find(|(n, _)| n.0 == name)
+            .map(|(_, t)| (t.position.0, t.rotation.0, t.scale.0))
+    };
+    if let Some(entry) = found {
+        TRANSFORM_SNAPSHOT.with(|s| {
+            s.borrow_mut().insert(name.to_string(), entry);
+        });
+    }
+}
+
+/// Applies what a replay step moved, and **discards everything else it did**.
+///
+/// # Why the rest is thrown away rather than applied
+///
+/// A replay re-derives where an entity ended up; it does not re-live the frame.
+/// The sound that played, the HUD text that changed and the prefab that spawned
+/// during the original input all already happened — re-applying them on every
+/// server correction would fire that sound again and again, and a player would
+/// literally hear their own latency. Position is the only thing a correction is
+/// reconstructing, so position is the only thing kept.
+///
+/// This is why a replay does not simply reuse `run_scripts`'s own command drain:
+/// that drain is correct for a live frame and wrong for a replayed one.
+fn apply_replayed_movement(world: &mut World, name: &str) {
+    let commands: Vec<ScriptCommand> =
+        COMMAND_BUFFER.with(|c| std::mem::take(&mut *c.borrow_mut()));
+
+    for cmd in commands {
+        if let ScriptCommand::SetPosition {
+            name: target,
+            x,
+            y,
+            z,
+        } = cmd
+        {
+            if target != name {
+                continue;
+            }
+            let mut q = world.query::<(&Name, &mut Transform)>();
+            if let Some((_, mut transform)) = q.iter_mut(world).find(|(n, _)| n.0 == target) {
+                transform.position = Vec3::new(x, y, z).into();
+            }
+        }
+    }
+}
+
 fn run_scripts(world: &mut World) {
     // In editor mode, only run scripts when Play is active
     if let Some(insp) = world.get_resource::<InspectorState>() {
@@ -857,6 +912,44 @@ fn run_scripts(world: &mut World) {
         }
     };
 
+    // Replay each correction's unacknowledged input, oldest first, *before* this
+    // frame's own scripts run, so the frame lands on a reconciled state.
+    //
+    // Each step is its own V8 call followed immediately by applying what it
+    // produced, and that is forced rather than stylistic: the script/world
+    // exchange is deferred by design — a script reads `TRANSFORM_SNAPSHOT` and
+    // writes into `COMMAND_BUFFER`, both settled once per frame. Run back to
+    // back inside one borrow, three replay steps would all read the position the
+    // frame started at and the last write would win, so the entity would advance
+    // one step instead of three. That is exactly what the exact-position test
+    // caught, and what a "did it move" assertion would have missed.
+    for (bits, name, inputs) in &replays {
+        for keys in inputs {
+            // The recorded input replaces the live keyboard for this one entity,
+            // which is what makes a replay reproduce the past rather than
+            // re-apply the present.
+            REMOTE_INPUT.with(|r| {
+                r.borrow_mut()
+                    .insert(name.clone(), keys.iter().cloned().collect())
+            });
+            refresh_transform_snapshot(world, name);
+
+            if let Some(mut rt) = world.get_non_send_resource_mut::<ScriptRuntimeResource>() {
+                let call = format!("Bsengine._runOne(\"{bits}\", \"{name}\");");
+                if let Err(e) = rt.0.exec_source(&call, "<replay>") {
+                    tracing::error!("[scripting] replay of {name} failed: {e}");
+                }
+            }
+            apply_replayed_movement(world, name);
+        }
+        // Removed unconditionally: left in place it would make this frame's live
+        // scripts read the last replayed input instead of the keyboard, which
+        // reads to a player as their controls sticking.
+        REMOTE_INPUT.with(|r| {
+            r.borrow_mut().remove(name);
+        });
+    }
+
     if let Some(mut rt) = world.get_non_send_resource_mut::<ScriptRuntimeResource>() {
         // Dispatch collision events to JS before update
         if collision_json != "[]" {
@@ -864,31 +957,6 @@ fn run_scripts(world: &mut World) {
             if let Err(e) = rt.0.exec_source(&call, "<run_collisions>") {
                 tracing::error!("[scripting] _runCollisions error: {e}");
             }
-        }
-
-        // Re-apply the input the server had not yet seen, oldest first, before
-        // this frame's own input runs -- so the frame lands on a reconciled
-        // state rather than on a stale one.
-        for (bits, name, inputs) in &replays {
-            for keys in inputs {
-                // The recorded input replaces the live keyboard for this one
-                // entity, which is what makes a replay reproduce the past
-                // instead of re-applying the present.
-                REMOTE_INPUT.with(|r| {
-                    r.borrow_mut()
-                        .insert(name.clone(), keys.iter().cloned().collect())
-                });
-                let call = format!("Bsengine._runOne(\"{bits}\", \"{name}\");");
-                if let Err(e) = rt.0.exec_source(&call, "<replay>") {
-                    tracing::error!("[scripting] replay of {name} failed: {e}");
-                }
-            }
-            // Removed unconditionally: left in place it would make this frame's
-            // live `_runAll` read the last replayed input instead of the
-            // keyboard, which reads to a player as their controls sticking.
-            REMOTE_INPUT.with(|r| {
-                r.borrow_mut().remove(name);
-            });
         }
 
         let entities_json = serde_json::to_string(&scripted).unwrap_or_else(|_| "[]".to_string());

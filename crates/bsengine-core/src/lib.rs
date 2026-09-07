@@ -51,10 +51,10 @@ pub mod nav_mesh_agent;
 /// Convex decomposition of walkable space into rectangles, and the portals
 /// between them.
 pub mod nav_poly;
-/// Networked entity identity and authority components.
 /// Resources the networking and scripting layers use to hand player input to
 /// each other, since neither crate depends on the other.
 pub mod net_input;
+/// Networked entity identity and authority components.
 pub mod network_id;
 /// Runtime switch for occlusion culling, set from `project.toml`.
 pub mod occlusion_config;

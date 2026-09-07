@@ -354,3 +354,100 @@ fn a_client_authoritative_entity_still_sends_its_transform() {
         "a client-authoritative entity must not be feeding the input path"
     );
 }
+
+/// The producer half of reconciliation: a correction for a predicted entity
+/// must actually be **emitted**, not merely applicable.
+///
+/// This test exists because its absence hid a real gap. The scripting-side
+/// tests inject a `ReplayRequest` directly and assert it is applied, so they
+/// pass whether or not anything ever produces one — a disconnected producer
+/// looks exactly like a working one from the consumer's side. Clippy's
+/// "unused variable" warning is what actually caught it, which is not a
+/// safety net anyone should rely on twice.
+#[test]
+fn a_correction_for_a_predicted_entity_is_emitted_to_the_scripting_layer() {
+    let mut pair = Pair::connect(NetworkConfig::default());
+    let peer_id = pair.client.world().resource::<NetworkSession>().my_peer_id;
+
+    // Server-side: the entity the server simulates and is authoritative over.
+    pair.server.world_mut().spawn((
+        NetworkId {
+            id: 1,
+            authority: NetworkAuthority::Predicted { peer_id },
+        },
+        Transform {
+            position: Vec3::new(9.0, 0.0, 0.0).into(),
+            ..Default::default()
+        },
+    ));
+    // Client-side: the same entity, which this peer predicts.
+    pair.client.world_mut().spawn((
+        NetworkId {
+            id: 1,
+            authority: NetworkAuthority::Predicted { peer_id },
+        },
+        Transform::default(),
+    ));
+
+    for _ in 0..4 {
+        pair.step();
+    }
+
+    let replays = pair
+        .client
+        .world()
+        .resource::<bsengine_core::PendingReplays>();
+    assert!(
+        replays.0.iter().any(|r| r.net_id == 1),
+        "the client must have been handed a correction for its predicted \
+         entity; without one, reconciliation never fires in a real game no \
+         matter how well the scripting side applies them"
+    );
+
+    // And it must be a correction, not an empty shell: the authoritative
+    // position has to be the server's.
+    let request = replays
+        .0
+        .iter()
+        .find(|r| r.net_id == 1)
+        .expect("checked above");
+    assert!(
+        (request.authoritative.position.0.x - 9.0).abs() < 1e-3,
+        "the correction must carry where the server actually says the entity \
+         is; got x={}",
+        request.authoritative.position.0.x
+    );
+}
+
+/// Paired with the above: a predicted entity must **not** also be interpolated.
+///
+/// Buffering it would fight the local prediction and hold the entity a delay in
+/// the past — the opposite of the reason it is predicted at all.
+#[test]
+fn a_predicted_entity_is_corrected_rather_than_interpolated() {
+    let mut pair = Pair::connect(NetworkConfig::default());
+    let peer_id = pair.client.world().resource::<NetworkSession>().my_peer_id;
+
+    for world in [pair.server.world_mut(), pair.client.world_mut()] {
+        world.spawn((
+            NetworkId {
+                id: 1,
+                authority: NetworkAuthority::Predicted { peer_id },
+            },
+            Transform::default(),
+        ));
+    }
+
+    for _ in 0..4 {
+        pair.step();
+    }
+
+    assert!(
+        pair.client
+            .world()
+            .resource::<bsengine_network::SnapshotBuffers>()
+            .get(1)
+            .is_none(),
+        "a predicted entity must not be in the interpolation buffer"
+    );
+}

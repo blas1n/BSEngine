@@ -130,9 +130,53 @@ fn network_receive_system(world: &mut World) {
                     let td = TransformData::from_bytes(&data[offset + 8..offset + 48]);
                     offset += 48;
 
+                    // A predicted entity this peer owns is not interpolated --
+                    // it is corrected. Interpolating it would fight the local
+                    // prediction and hold it a delay in the past, which is the
+                    // opposite of why it is predicted.
+                    let predicted_here = {
+                        let mut q = world.query::<&NetworkId>();
+                        q.iter(world).any(|nid| {
+                            nid.id == net_id
+                                && matches!(
+                                    nid.authority,
+                                    NetworkAuthority::Predicted { peer_id } if peer_id == my_peer_id
+                                )
+                        })
+                    };
+                    if predicted_here {
+                        corrections.push((net_id, td));
+                    } else {
+                        world
+                            .resource_mut::<SnapshotBuffers>()
+                            .push(net_id, tick, td);
+                    }
+                }
+
+                if !corrections.is_empty() {
+                    // Everything at or below the ack is confirmed; what is left
+                    // is what this correction has to replay.
+                    let replay: Vec<Vec<String>> = {
+                        let mut pending = world.resource_mut::<PendingInputs>();
+                        pending.retain_after(acked);
+                        pending
+                            .unacknowledged()
+                            .iter()
+                            .map(|(_, keys)| keys.clone())
+                            .collect()
+                    };
+                    let requests: Vec<bsengine_core::ReplayRequest> = corrections
+                        .into_iter()
+                        .map(|(net_id, td)| bsengine_core::ReplayRequest {
+                            net_id,
+                            authoritative: td.to_transform(),
+                            replay: replay.clone(),
+                        })
+                        .collect();
                     world
-                        .resource_mut::<SnapshotBuffers>()
-                        .push(net_id, tick, td);
+                        .resource_mut::<bsengine_core::PendingReplays>()
+                        .0
+                        .extend(requests);
                 }
             }
             MSG_CLIENT_INPUT => {

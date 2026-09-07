@@ -121,9 +121,10 @@ mod tests {
     use glam::Vec3;
 
     fn at(x: f32) -> TransformData {
-        let mut t = Transform::default();
-        t.position = Vec3::new(x, 0.0, 0.0).into();
-        TransformData::from_transform(&t)
+        TransformData::from_transform(&Transform {
+            position: Vec3::new(x, 0.0, 0.0).into(),
+            ..Default::default()
+        })
     }
 
     fn buffer() -> Vec<(u32, TransformData)> {

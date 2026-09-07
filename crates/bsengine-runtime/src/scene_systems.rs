@@ -578,10 +578,9 @@ mod network_section_tests {
     /// trap `WindowSection`'s doc comment records.
     #[test]
     fn an_empty_network_table_matches_an_absent_one() {
-        let manifest: ProjectManifest = toml::from_str(
-            "[project]\nname = \"t\"\nentry_scene = \"s.ron\"\n[network]\n",
-        )
-        .expect("parse");
+        let manifest: ProjectManifest =
+            toml::from_str("[project]\nname = \"t\"\nentry_scene = \"s.ron\"\n[network]\n")
+                .expect("parse");
 
         assert_eq!(manifest.network.aoi_radius, None);
         assert_eq!(manifest.network.interpolation_delay_ticks, 0);

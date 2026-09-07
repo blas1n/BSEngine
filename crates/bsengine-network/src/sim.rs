@@ -154,11 +154,7 @@ mod tests {
         queue.advance();
         assert!(queue.due().is_empty(), "not one frame later");
         queue.advance();
-        assert_eq!(
-            queue.due(),
-            vec![b"hello".to_vec()],
-            "on the second frame"
-        );
+        assert_eq!(queue.due(), vec![b"hello".to_vec()], "on the second frame");
         assert!(queue.is_empty(), "and it is not delivered twice");
     }
 

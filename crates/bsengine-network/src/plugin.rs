@@ -5,13 +5,13 @@ use bsengine_core::{NetworkAuthority, NetworkId, Transform};
 use crate::{
     config::NetworkConfig,
     interpolation::{sample, SnapshotBuffers},
-    sim::LinkSimulator,
     packet::{
         decode_batch_tick, encode_client_transform, encode_transform_batch, TransformData,
         BATCH_HEADER_LEN, MSG_CLIENT_TRANSFORM, MSG_DISCONNECT, MSG_HELLO, MSG_HELLO_ACK,
         MSG_TRANSFORM_BATCH,
     },
     session::{NetworkRole, NetworkSession},
+    sim::LinkSimulator,
 };
 
 /// Bevy plugin that wires up the UDP send/receive systems for entity transform replication.
@@ -118,7 +118,9 @@ fn network_receive_system(world: &mut World) {
                     let td = TransformData::from_bytes(&data[offset + 8..offset + 48]);
                     offset += 48;
 
-                    world.resource_mut::<SnapshotBuffers>().push(net_id, tick, td);
+                    world
+                        .resource_mut::<SnapshotBuffers>()
+                        .push(net_id, tick, td);
                 }
             }
             MSG_CLIENT_TRANSFORM => {
@@ -300,11 +302,16 @@ fn network_send_system(world: &mut World) {
         server_tick.0
     };
 
-    let (radius, loss, seed) = world
-        .get_resource::<NetworkConfig>()
-        .map_or((None, 0.0, 0), |config| {
-            (config.aoi_radius, config.simulated_loss, config.simulator_seed)
-        });
+    let (radius, loss, seed) =
+        world
+            .get_resource::<NetworkConfig>()
+            .map_or((None, 0.0, 0), |config| {
+                (
+                    config.aoi_radius,
+                    config.simulated_loss,
+                    config.simulator_seed,
+                )
+            });
 
     // Decided up front, one roll per peer this frame, because the borrow of
     // `session` below is immutable and holds for the rest of the function.
@@ -412,10 +419,6 @@ mod tests {
     /// also what a peer with no entity of its own gets.
     #[test]
     fn no_radius_sends_everything() {
-        assert!(within_interest(
-            Vec3::ZERO,
-            Vec3::new(1e6, 0.0, 0.0),
-            None
-        ));
+        assert!(within_interest(Vec3::ZERO, Vec3::new(1e6, 0.0, 0.0), None));
     }
 }

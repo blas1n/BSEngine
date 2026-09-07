@@ -12,3 +12,12 @@ bevy_app       = { workspace = true }
 bevy_ecs       = { workspace = true }
 glam           = { workspace = true }
 tracing        = { workspace = true }
+
+[dev-dependencies]
+# The loopback tests build a real server App and a real client App in one
+# process, so they need the app and component crates the plugin only sees
+# through its own dependencies.
+bsengine-core = { workspace = true }
+bevy_app      = { workspace = true }
+bevy_ecs      = { workspace = true }
+glam          = { workspace = true }

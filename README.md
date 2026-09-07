@@ -159,6 +159,45 @@ loses its meshes at run time. A `.glb` is self-contained and packs fine.
 
 ---
 
+## Networking
+
+```toml
+[network]
+aoi_radius = 50.0               # omit for no limit
+interpolation_delay_ticks = 3   # 0 renders the newest snapshot immediately
+simulated_latency_frames = 0    # testing only
+simulated_loss = 0.0            # testing only, 0.0..=1.0
+simulator_seed = 0              # fixed, so a run reproduces
+```
+
+Every default reproduces the engine's earlier behaviour, so a project that says
+nothing about networking behaves as it did.
+
+**`interpolation_delay_ticks` is a cost, not a free win.** Remote entities are
+rendered that many server ticks *in the past*, which is what buys smooth motion
+when packets arrive unevenly. Set it to `0` and a remote entity snaps to each
+snapshot as it lands — perfect on a perfect link, visibly stuttery on a real one.
+
+Past the newest snapshot it holds, and does not extrapolate. A remote entity
+whose updates stop **freezes** rather than gliding on along its last heading:
+that reads as the network problem it is, where a guess that overshoots would
+snap backwards when the truth arrived.
+
+**`aoi_radius` stops updates, it does not hide entities.** An entity outside a
+peer's radius stays wherever that peer last saw it. A peer with no entity of its
+own receives everything, since there is no position to measure interest from.
+
+The two `simulated_*` settings exist to test the two above, and are off by
+default. They are also the only way to observe either: on a perfect link an
+interpolated position and the newest snapshot agree on every frame.
+
+**Not implemented:** client-side prediction and server reconciliation. A client
+today is authoritative over its own entities and sends their transforms, so the
+server never disagrees with it about them. Making the server authoritative — per
+entity, opt-in — is the next step.
+
+---
+
 ## Project Status
 
 Active development. Infrastructure is stable; rendering and editor layers are the current focus.

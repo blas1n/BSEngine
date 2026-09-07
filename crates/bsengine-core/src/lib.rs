@@ -90,6 +90,9 @@ pub mod skybox;
 pub mod taa;
 /// Frame and elapsed-time resource driven by the app's main loop.
 pub mod time;
+/// Cutscene sequencing: a `Timeline` asset of camera/animation/event tracks,
+/// the `TimelinePlayer` that plays one, and the pure evaluation both use.
+pub mod timeline;
 /// Simple countdown timer component.
 pub mod timer;
 /// HDR-to-LDR tone mapping post-process settings.
@@ -149,6 +152,10 @@ pub use shield::Shield;
 pub use skybox::{Skybox, SkyboxPath, SkyboxProjection};
 pub use taa::Taa;
 pub use time::Time;
+pub use timeline::{
+    animations_between, evaluate, events_between, AnimationKey, CameraKey, CameraPose, EventKey,
+    ShotCut, Timeline, TimelinePlayer, Track,
+};
 pub use timer::Timer;
 pub use tone_map::{ToneMap, ToneMappingMode};
 pub use transform::Transform;

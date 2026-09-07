@@ -4,8 +4,9 @@ use bsengine_core::{NetworkAuthority, NetworkId, Transform};
 
 use crate::{
     packet::{
-        encode_client_transform, encode_transform_batch, TransformData, MSG_CLIENT_TRANSFORM,
-        MSG_DISCONNECT, MSG_HELLO, MSG_HELLO_ACK, MSG_TRANSFORM_BATCH,
+        decode_batch_tick, encode_client_transform, encode_transform_batch, TransformData,
+        BATCH_HEADER_LEN, MSG_CLIENT_TRANSFORM, MSG_DISCONNECT, MSG_HELLO, MSG_HELLO_ACK,
+        MSG_TRANSFORM_BATCH,
     },
     session::{NetworkRole, NetworkSession},
 };
@@ -13,8 +14,18 @@ use crate::{
 /// Bevy plugin that wires up the UDP send/receive systems for entity transform replication.
 pub struct NetworkPlugin;
 
+/// The server's simulation frame counter, stamped into every batch it sends.
+///
+/// Counts sends rather than reading a clock, so the number a client receives and
+/// the number a test expects are the same one. Wraps rather than saturating: a
+/// `u32` of 60Hz frames is over two years, and a counter that stopped moving
+/// would silently freeze every client's interpolation.
+#[derive(bevy_ecs::prelude::Resource, Default, Debug)]
+pub struct ServerTick(pub u32);
+
 impl Plugin for NetworkPlugin {
     fn build(&self, app: &mut App) {
+        app.init_resource::<ServerTick>();
         app.add_systems(Update, network_receive_system);
         app.add_systems(Update, network_send_system.after(network_receive_system));
     }
@@ -73,11 +84,11 @@ fn network_receive_system(world: &mut World) {
             }
             MSG_TRANSFORM_BATCH => {
                 // Client: apply server-broadcast transform snapshot.
-                if data.len() < 2 {
+                let Some(_tick) = decode_batch_tick(&data) else {
                     continue;
-                }
+                };
                 let count = data[1] as usize;
-                let mut offset = 2;
+                let mut offset = BATCH_HEADER_LEN;
                 for _ in 0..count {
                     if offset + 48 > data.len() {
                         break;
@@ -142,6 +153,14 @@ fn network_send_system(world: &mut World) {
             .collect()
     };
 
+    // Bumped before the session borrow: `session` is held immutably for the
+    // rest of this function, so the resource cannot be taken mutably later.
+    let tick = {
+        let mut server_tick = world.resource_mut::<ServerTick>();
+        server_tick.0 = server_tick.0.wrapping_add(1);
+        server_tick.0
+    };
+
     let Some(session) = world.get_resource::<NetworkSession>() else {
         return;
     };
@@ -155,7 +174,7 @@ fn network_send_system(world: &mut World) {
                 .iter()
                 .map(|(id, _, t)| (*id, TransformData::from_transform(t)))
                 .collect();
-            if let Some(pkt) = encode_transform_batch(&batch) {
+            if let Some(pkt) = encode_transform_batch(tick, &batch) {
                 for peer in &session.peers {
                     let _ = session.socket.send_to(&pkt, peer);
                 }

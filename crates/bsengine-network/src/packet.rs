@@ -8,7 +8,7 @@ pub const MSG_CLIENT_TRANSFORM: u8 = 0x04;
 pub const MSG_DISCONNECT: u8 = 0x05;
 
 /// 40-byte transform snapshot sent over the wire.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct TransformData {
     pub px: f32,
     pub py: f32,
@@ -93,15 +93,34 @@ pub fn encode_disconnect() -> [u8; 1] {
     [MSG_DISCONNECT]
 }
 
-/// Encode a batch of (net_id, transform) pairs. Returns None if empty.
-pub fn encode_transform_batch(entries: &[(u64, TransformData)]) -> Option<Vec<u8>> {
+/// Bytes before the first entry in a [`MSG_TRANSFORM_BATCH`]: the tag, the entry
+/// count, and the server tick the snapshot was taken on.
+pub const BATCH_HEADER_LEN: usize = 1 + 1 + 4;
+
+/// The server simulation frame a batch was taken on, or `None` if the packet is
+/// too short to hold one.
+///
+/// A tick rather than a wall-clock timestamp: two peers' clocks are unrelated,
+/// and this engine already advances on a fixed timestep, so a tick means the
+/// same thing in both processes and a test can state it exactly. Synchronising
+/// clocks instead would be its own project.
+pub fn decode_batch_tick(packet: &[u8]) -> Option<u32> {
+    packet
+        .get(2..6)
+        .map(|b| u32::from_le_bytes(b.try_into().expect("4 bytes")))
+}
+
+/// Encode a batch of (net_id, transform) pairs taken on server tick `tick`.
+/// Returns None if empty.
+pub fn encode_transform_batch(tick: u32, entries: &[(u64, TransformData)]) -> Option<Vec<u8>> {
     if entries.is_empty() {
         return None;
     }
     let count = entries.len().min(255) as u8;
-    let mut pkt = Vec::with_capacity(2 + count as usize * 48);
+    let mut pkt = Vec::with_capacity(BATCH_HEADER_LEN + count as usize * 48);
     pkt.push(MSG_TRANSFORM_BATCH);
     pkt.push(count);
+    pkt.extend_from_slice(&tick.to_le_bytes());
     for (net_id, td) in &entries[..count as usize] {
         pkt.extend_from_slice(&net_id.to_le_bytes());
         pkt.extend_from_slice(&td.to_bytes());
@@ -146,17 +165,34 @@ mod tests {
 
     #[test]
     fn transform_batch_empty_returns_none() {
-        assert!(encode_transform_batch(&[]).is_none());
+        assert!(encode_transform_batch(0, &[]).is_none());
+    }
+
+    /// Without a tick a snapshot cannot be placed on a timeline at all, so
+    /// interpolation is impossible before this exists.
+    #[test]
+    fn transform_batch_carries_the_server_tick() {
+        let td = TransformData::from_transform(&Transform::default());
+        let pkt = encode_transform_batch(7, &[(1u64, td)]).expect("batch");
+
+        assert_eq!(pkt[0], MSG_TRANSFORM_BATCH);
+        assert_eq!(decode_batch_tick(&pkt), Some(7));
+        assert_eq!(pkt.len(), BATCH_HEADER_LEN + 48);
+    }
+
+    #[test]
+    fn a_truncated_batch_yields_no_tick_rather_than_a_wrong_one() {
+        assert_eq!(decode_batch_tick(&[MSG_TRANSFORM_BATCH, 1]), None);
     }
 
     #[test]
     fn transform_batch_roundtrip_count() {
         let td = TransformData::from_transform(&Transform::default());
         let entries = vec![(1u64, td), (2u64, td)];
-        let pkt = encode_transform_batch(&entries).unwrap();
+        let pkt = encode_transform_batch(0, &entries).unwrap();
         assert_eq!(pkt[0], MSG_TRANSFORM_BATCH);
         assert_eq!(pkt[1], 2);
-        assert_eq!(pkt.len(), 2 + 2 * 48);
+        assert_eq!(pkt.len(), BATCH_HEADER_LEN + 2 * 48);
     }
 
     #[test]

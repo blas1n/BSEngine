@@ -52,6 +52,9 @@ pub mod nav_mesh_agent;
 /// between them.
 pub mod nav_poly;
 /// Networked entity identity and authority components.
+/// Resources the networking and scripting layers use to hand player input to
+/// each other, since neither crate depends on the other.
+pub mod net_input;
 pub mod network_id;
 /// Runtime switch for occlusion culling, set from `project.toml`.
 pub mod occlusion_config;
@@ -127,6 +130,7 @@ pub use logging::init_logging;
 pub use material::{Material, TexturePath};
 pub use nav_mesh::NavMesh;
 pub use nav_mesh_agent::{NavAgentState, NavMeshAgent};
+pub use net_input::{LocalHeldKeys, RemoteHeldKeys};
 pub use network_id::{NetworkAuthority, NetworkId};
 pub use occlusion_config::OcclusionCullingEnabled;
 pub use parent::Parent;

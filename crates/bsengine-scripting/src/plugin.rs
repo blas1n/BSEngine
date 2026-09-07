@@ -28,11 +28,12 @@ use crate::ops::{
     MATERIAL_METALLIC_SNAPSHOT, MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
     MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
     MOUSE_PRESSED_SNAPSHOT, NAV_SNAPSHOT, NETWORK_ID_SNAPSHOT, NETWORK_STATE_SNAPSHOT,
-    PARENT_SNAPSHOT, PAUSED_SNAPSHOT, PHYSICS_WORLD_PTR, PROJECT_DIR, RESTITUTION_SNAPSHOT,
-    SAVE_DATA_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT,
-    SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT,
-    TIME_ELAPSED_SNAPSHOT, TONE_MAP_SNAPSHOT, TRANSFORM_SNAPSHOT, TWEEN_SNAPSHOT,
-    UI_CLICKED_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
+    PARENT_SNAPSHOT, PAUSED_SNAPSHOT, PHYSICS_WORLD_PTR, PROJECT_DIR, REMOTE_INPUT,
+    REMOTE_INPUT_PREVIOUS, RESTITUTION_SNAPSHOT, SAVE_DATA_SNAPSHOT, SCREEN_SIZE_SNAPSHOT,
+    SHIELD_SNAPSHOT, SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, TIMER_SNAPSHOT,
+    TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TONE_MAP_SNAPSHOT, TRANSFORM_SNAPSHOT,
+    TWEEN_SNAPSHOT, UI_CLICKED_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT,
+    WORLD_TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -3167,6 +3168,38 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
     if let Some(ss) = world.get_resource::<ScreenSize>() {
         SCREEN_SIZE_SNAPSHOT.with(|s| *s.borrow_mut() = (ss.width, ss.height));
     }
+    // Published for `bsengine-network`, which sends it as this peer's input but
+    // cannot convert key codes to names itself -- that conversion lives here and
+    // stays in one place.
+    let held_now: Vec<String> = key_snapshot.iter().cloned().collect();
+    world.insert_resource(bsengine_core::LocalHeldKeys(held_now));
+
+    // Remote input replaces the keyboard for entities somebody else drives. The
+    // previous frame's map is rolled forward first so just-pressed and
+    // just-released can be derived rather than transmitted.
+    let remote_by_id = world
+        .get_resource::<bsengine_core::RemoteHeldKeys>()
+        .map(|r| r.0.clone())
+        .unwrap_or_default();
+    let remote_by_name: HashMap<String, HashSet<String>> = if remote_by_id.is_empty() {
+        HashMap::new()
+    } else {
+        let mut q = world.query::<(&Name, &bsengine_core::NetworkId)>();
+        q.iter(world)
+            .filter_map(|(name, nid)| {
+                remote_by_id
+                    .get(&nid.id)
+                    .map(|keys| (name.0.clone(), keys.iter().cloned().collect()))
+            })
+            .collect()
+    };
+    REMOTE_INPUT.with(|current| {
+        REMOTE_INPUT_PREVIOUS.with(|previous| {
+            *previous.borrow_mut() = current.borrow().clone();
+        });
+        *current.borrow_mut() = remote_by_name;
+    });
+
     KEY_SNAPSHOT.with(|k| *k.borrow_mut() = key_snapshot);
     KEY_JUST_PRESSED_SNAPSHOT.with(|k| *k.borrow_mut() = key_just_pressed);
     KEY_JUST_RELEASED_SNAPSHOT.with(|k| *k.borrow_mut() = key_just_released);
@@ -3658,6 +3691,7 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
                 NetworkAuthority::Server => (0u32, String::new()),
                 NetworkAuthority::Client { peer_id } => (1u32, peer_id.to_string()),
                 NetworkAuthority::Local => (2u32, String::new()),
+                NetworkAuthority::Predicted { peer_id } => (3u32, peer_id.to_string()),
             };
             map.insert(name.0.clone(), (nid.id.to_string(), auth_kind, peer_id_str));
         }

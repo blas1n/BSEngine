@@ -307,6 +307,17 @@ fn run_windowed(project_dir: &str) {
             project_dir: project_dir.to_string(),
         });
     }
+    // From `project.toml`'s `[network]` table. Inserted before the plugins so
+    // `NetworkPlugin`'s `init_resource` finds it already present and leaves it
+    // alone -- registering it afterwards would overwrite the project's settings
+    // with defaults, and silently, since every default is a working value.
+    app.insert_resource(bsengine_network::NetworkConfig {
+        aoi_radius: manifest.network.aoi_radius,
+        interpolation_delay_ticks: manifest.network.interpolation_delay_ticks,
+        simulated_latency_frames: manifest.network.simulated_latency_frames,
+        simulated_loss: manifest.network.simulated_loss,
+        simulator_seed: manifest.network.simulator_seed,
+    });
     app.add_plugins(TimePlugin)
         .add_plugins(AssetPlugin)
         // Windowed only, deliberately. `--test` builds its own app

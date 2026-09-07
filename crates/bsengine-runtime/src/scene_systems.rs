@@ -27,6 +27,8 @@ pub struct ProjectManifest {
     pub render: RenderSection,
     #[serde(default)]
     pub package: PackageSection,
+    #[serde(default)]
+    pub network: NetworkSection,
 }
 
 #[derive(Deserialize)]
@@ -113,6 +115,36 @@ pub struct PackageSection {
     /// existing project's build looks like.
     #[serde(default)]
     pub mode: bsengine_asset::cook::PackageMode,
+}
+
+/// Replication switches from `project.toml`'s `[network]` table.
+///
+/// Unlike [`WindowSection`] this takes a derived `Default`, and that is correct
+/// rather than lazy: every field's `#[serde(default)]` is its type's zero value,
+/// so "table absent" and "table present but empty" already agree. `WindowSection`
+/// needs a hand-written impl only because its defaults are not zeros.
+///
+/// Every zero here reproduces the engine's pre-item-56 behaviour: no interest
+/// limit, no interpolation delay, no simulated latency or loss.
+#[derive(Deserialize, Default)]
+pub struct NetworkSection {
+    /// Radius around a peer's own entity within which it receives updates.
+    /// Absent means no limit.
+    #[serde(default)]
+    pub aoi_radius: Option<f32>,
+    /// Server ticks behind the newest snapshot that remote entities render.
+    /// This is the cost of smooth motion, written as a number.
+    #[serde(default)]
+    pub interpolation_delay_ticks: u32,
+    /// Frames to hold every packet, for exercising the engine under latency.
+    #[serde(default)]
+    pub simulated_latency_frames: u32,
+    /// Fraction of packets to drop, for exercising it under loss.
+    #[serde(default)]
+    pub simulated_loss: f32,
+    /// Seed for the drop sequence, so a run is reproducible.
+    #[serde(default)]
+    pub simulator_seed: u64,
 }
 
 fn default_width() -> u32 {
@@ -505,5 +537,53 @@ mod tests {
         )
         .unwrap();
         assert!(!m.render.occlusion_culling);
+    }
+}
+
+#[cfg(test)]
+mod network_section_tests {
+    use super::ProjectManifest;
+
+    /// The property that lets an existing project upgrade without noticing:
+    /// an absent `[network]` table must mean exactly today's behaviour.
+    #[test]
+    fn an_absent_network_table_changes_nothing() {
+        let manifest: ProjectManifest =
+            toml::from_str("[project]\nname = \"t\"\nentry_scene = \"s.ron\"\n").expect("parse");
+
+        assert_eq!(manifest.network.aoi_radius, None, "no interest limit");
+        assert_eq!(
+            manifest.network.interpolation_delay_ticks, 0,
+            "the newest snapshot renders immediately"
+        );
+        assert_eq!(manifest.network.simulated_loss, 0.0, "the simulator is off");
+    }
+
+    /// Paired with the above: without this, a section that silently ignored the
+    /// file would pass the absent-table test perfectly.
+    #[test]
+    fn a_present_network_table_is_read() {
+        let manifest: ProjectManifest = toml::from_str(
+            "[project]\nname = \"t\"\nentry_scene = \"s.ron\"\n\
+             [network]\naoi_radius = 25.0\ninterpolation_delay_ticks = 3\nsimulated_loss = 0.25\n",
+        )
+        .expect("parse");
+
+        assert_eq!(manifest.network.aoi_radius, Some(25.0));
+        assert_eq!(manifest.network.interpolation_delay_ticks, 3);
+        assert_eq!(manifest.network.simulated_loss, 0.25);
+    }
+
+    /// A present-but-empty table must behave as an absent one, which is the
+    /// trap `WindowSection`'s doc comment records.
+    #[test]
+    fn an_empty_network_table_matches_an_absent_one() {
+        let manifest: ProjectManifest = toml::from_str(
+            "[project]\nname = \"t\"\nentry_scene = \"s.ron\"\n[network]\n",
+        )
+        .expect("parse");
+
+        assert_eq!(manifest.network.aoi_radius, None);
+        assert_eq!(manifest.network.interpolation_delay_ticks, 0);
     }
 }

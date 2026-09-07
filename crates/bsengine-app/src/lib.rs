@@ -34,6 +34,9 @@ pub mod terrain_brush;
 pub mod terrain_chunking;
 /// `TimePlugin`: ticks the `Time` resource once per frame.
 pub mod time;
+/// `TimelinePlugin`: plays `Timeline` cutscenes -- camera, animation and event
+/// tracks -- against the world.
+pub mod timeline_playback;
 /// `TimerPlugin`: ticks `Timer` components once per frame.
 pub mod timer;
 /// `TweenPlugin`: advances `Tween` components and applies them to `Transform`.
@@ -50,6 +53,7 @@ pub use shield::ShieldPlugin;
 pub use terrain::TerrainPlugin;
 pub use terrain_brush::TerrainBrushPlugin;
 pub use time::TimePlugin;
+pub use timeline_playback::{TimelineEvents, TimelinePlugin};
 pub use timer::TimerPlugin;
 pub use tween::TweenPlugin;
 

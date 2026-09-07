@@ -23,6 +23,9 @@ bsengine-editor.workspace = true
 bsengine-scene.workspace = true
 bsengine-physics.workspace = true
 bsengine-asset.workspace = true
+# Timelines are RON, read through `bsengine_asset::pak_source` so they work in
+# a packaged build as well as a source tree.
+ron.workspace = true
 glam.workspace = true
 # The terrain brush tool (terrain_brush.rs) decodes/encodes splatmap PNGs
 # directly at commit/preview time (the splatmap has no dedicated

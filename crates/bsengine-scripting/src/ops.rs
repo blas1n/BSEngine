@@ -1514,6 +1514,29 @@ thread_local! {
         RefCell::new(HashMap::new());
     pub(crate) static WORLD_TRANSFORM_SNAPSHOT: RefCell<HashMap<String, (Vec3, Quat, Vec3)>> =
         RefCell::new(HashMap::new());
+    /// Held keys per entity **name**, for entities whose input arrives over the
+    /// network rather than from this process's keyboard.
+    ///
+    /// Keyed by name because that is how every other entity-addressing op in
+    /// this file works — no op takes entity bits, and inventing a second
+    /// addressing scheme for this one feature would be a second thing to keep
+    /// in step.
+    ///
+    /// An entity absent from this map has no remote owner, and the local
+    /// keyboard answers for it. **That fallback is what keeps every existing
+    /// single-player script working unchanged**, and it is why introducing this
+    /// map changes no behaviour on its own.
+    pub(crate) static REMOTE_INPUT: RefCell<HashMap<String, HashSet<String>>> =
+        RefCell::new(HashMap::new());
+    /// The same, as of the previous frame, so just-pressed and just-released can
+    /// be **derived** rather than transmitted.
+    ///
+    /// Deriving keeps the wire to one set per frame and makes the three states
+    /// consistent by construction. Three independently transmitted sets can
+    /// disagree — a key reported both just-pressed and not held — and a script
+    /// reading two of them would see a frame that never happened.
+    pub(crate) static REMOTE_INPUT_PREVIOUS: RefCell<HashMap<String, HashSet<String>>> =
+        RefCell::new(HashMap::new());
     pub(crate) static KEY_SNAPSHOT: RefCell<HashSet<String>> =
         RefCell::new(HashSet::new());
     pub(crate) static KEY_JUST_PRESSED_SNAPSHOT: RefCell<HashSet<String>> =
@@ -2577,20 +2600,57 @@ pub fn bsengine_multiply_scale(#[string] name: String, sx: f32, sy: f32, sz: f32
 
 /// Check whether a keyboard key was pressed this frame.
 #[op2(fast)]
-pub fn bsengine_is_key_pressed(#[string] key: String) -> bool {
-    KEY_SNAPSHOT.with(|k| k.borrow().contains(&key))
+pub fn bsengine_is_key_pressed(#[string] entity: String, #[string] key: String) -> bool {
+    key_pressed_for(&entity, &key)
+}
+
+/// Whether `key` is held for the entity a script is currently running for.
+///
+/// Falls back to this process's keyboard when the entity has no remote input,
+/// which is every entity in a single-player game.
+pub(crate) fn key_pressed_for(entity: &str, key: &str) -> bool {
+    REMOTE_INPUT.with(|remote| match remote.borrow().get(entity) {
+        Some(held) => held.contains(key),
+        None => KEY_SNAPSHOT.with(|k| k.borrow().contains(key)),
+    })
+}
+
+/// Whether `key` was held for `entity` on the previous frame.
+fn was_held_for(entity: &str, key: &str) -> bool {
+    REMOTE_INPUT_PREVIOUS.with(|previous| {
+        previous
+            .borrow()
+            .get(entity)
+            .is_some_and(|held| held.contains(key))
+    })
+}
+
+/// Whether `key` went down this frame for that entity.
+pub(crate) fn key_down_for(entity: &str, key: &str) -> bool {
+    REMOTE_INPUT.with(|remote| match remote.borrow().get(entity) {
+        Some(held) => held.contains(key) && !was_held_for(entity, key),
+        None => KEY_JUST_PRESSED_SNAPSHOT.with(|k| k.borrow().contains(key)),
+    })
+}
+
+/// Whether `key` came up this frame for that entity.
+pub(crate) fn key_up_for(entity: &str, key: &str) -> bool {
+    REMOTE_INPUT.with(|remote| match remote.borrow().get(entity) {
+        Some(held) => !held.contains(key) && was_held_for(entity, key),
+        None => KEY_JUST_RELEASED_SNAPSHOT.with(|k| k.borrow().contains(key)),
+    })
 }
 
 /// Check whether a keyboard key is currently held down.
 #[op2(fast)]
-pub fn bsengine_is_key_down(#[string] key: String) -> bool {
-    KEY_JUST_PRESSED_SNAPSHOT.with(|k| k.borrow().contains(&key))
+pub fn bsengine_is_key_down(#[string] entity: String, #[string] key: String) -> bool {
+    key_down_for(&entity, &key)
 }
 
 /// Check whether a keyboard key was released this frame.
 #[op2(fast)]
-pub fn bsengine_is_key_up(#[string] key: String) -> bool {
-    KEY_JUST_RELEASED_SNAPSHOT.with(|k| k.borrow().contains(&key))
+pub fn bsengine_is_key_up(#[string] entity: String, #[string] key: String) -> bool {
+    key_up_for(&entity, &key)
 }
 
 /// Get the names of all named entities, as a JSON array string.
@@ -6072,6 +6132,91 @@ pub const BOOTSTRAP_JS: &str = include_str!("js/prelude.js");
 #[cfg(test)]
 mod tests {
     use crate::runtime::ScriptRuntime;
+
+    mod remote_input {
+        use crate::ops::{
+            key_down_for, key_pressed_for, key_up_for, KEY_JUST_PRESSED_SNAPSHOT,
+            KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, REMOTE_INPUT, REMOTE_INPUT_PREVIOUS,
+        };
+        use std::collections::HashSet;
+
+        fn set(keys: &[&str]) -> HashSet<String> {
+            keys.iter().map(|k| (*k).to_string()).collect()
+        }
+
+        fn clear() {
+            REMOTE_INPUT.with(|r| r.borrow_mut().clear());
+            REMOTE_INPUT_PREVIOUS.with(|r| r.borrow_mut().clear());
+            KEY_SNAPSHOT.with(|k| k.borrow_mut().clear());
+            KEY_JUST_PRESSED_SNAPSHOT.with(|k| k.borrow_mut().clear());
+            KEY_JUST_RELEASED_SNAPSHOT.with(|k| k.borrow_mut().clear());
+        }
+
+        /// The fallback, which is what keeps every existing single-player script
+        /// working. Without it this change would break every game in the repo.
+        #[test]
+        fn an_entity_with_no_remote_input_reads_this_process_keyboard() {
+            clear();
+            KEY_SNAPSHOT.with(|k| *k.borrow_mut() = set(&["W"]));
+            KEY_JUST_PRESSED_SNAPSHOT.with(|k| *k.borrow_mut() = set(&["W"]));
+
+            assert!(key_pressed_for("Player", "W"));
+            assert!(key_down_for("Player", "W"));
+        }
+
+        /// The substitution, and the leak it must not have.
+        #[test]
+        fn an_entity_with_remote_input_reads_that_instead_of_the_keyboard() {
+            clear();
+            KEY_SNAPSHOT.with(|k| *k.borrow_mut() = set(&["W"]));
+            REMOTE_INPUT.with(|r| r.borrow_mut().insert("Remote".into(), set(&["S"])));
+
+            assert!(key_pressed_for("Remote", "S"), "the peer's key answers");
+            assert!(
+                !key_pressed_for("Remote", "W"),
+                "and this process's keyboard must not leak in -- otherwise a                  server operator holding W would drive every client's player"
+            );
+        }
+
+        /// The assertion that catches a map keyed or restored wrongly.
+        #[test]
+        fn two_entities_with_remote_input_do_not_see_each_others() {
+            clear();
+            REMOTE_INPUT.with(|r| {
+                let mut map = r.borrow_mut();
+                map.insert("One".into(), set(&["A"]));
+                map.insert("Two".into(), set(&["D"]));
+            });
+
+            assert!(key_pressed_for("One", "A") && !key_pressed_for("One", "D"));
+            assert!(key_pressed_for("Two", "D") && !key_pressed_for("Two", "A"));
+        }
+
+        /// Just-pressed is derived from the previous frame rather than sent, so
+        /// held-and-pressed can never disagree. A key held on both frames is
+        /// *not* newly pressed.
+        #[test]
+        fn just_pressed_is_derived_from_the_previous_frame() {
+            clear();
+            REMOTE_INPUT_PREVIOUS.with(|r| r.borrow_mut().insert("P".into(), set(&["W"])));
+            REMOTE_INPUT.with(|r| r.borrow_mut().insert("P".into(), set(&["W", "A"])));
+
+            assert!(!key_down_for("P", "W"), "held on both frames is not new");
+            assert!(key_down_for("P", "A"), "newly held is");
+            assert!(key_pressed_for("P", "W"), "and both are held");
+        }
+
+        /// The other end of the derivation, so a release is observable at all.
+        #[test]
+        fn just_released_is_derived_from_the_previous_frame() {
+            clear();
+            REMOTE_INPUT_PREVIOUS.with(|r| r.borrow_mut().insert("P".into(), set(&["W"])));
+            REMOTE_INPUT.with(|r| r.borrow_mut().insert("P".into(), set(&[])));
+
+            assert!(key_up_for("P", "W"));
+            assert!(!key_pressed_for("P", "W"));
+        }
+    }
 
     /// Evaluates `expr` against a runtime with the prelude loaded.
     fn eval_js(expr: &str) -> String {

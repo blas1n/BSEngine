@@ -28,6 +28,10 @@ tracing.workspace = true
 
 [dev-dependencies]
 bsengine-app.workspace = true
+# The prediction tests spawn a named, networked entity and drive a real
+# movement script over it, which needs `Name` and `glam` directly.
+bsengine-scene.workspace = true
+glam.workspace = true
 # The hot-reload tests drive a real `AssetWatcherPlugin` over a real project
 # directory that has to be removed afterwards even when a test panics, and
 # `ProbeDir`/`unique` are what the watcher's own tests use for exactly that —

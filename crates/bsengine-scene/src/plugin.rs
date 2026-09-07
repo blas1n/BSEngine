@@ -1460,6 +1460,57 @@ mod tests {
     }
 
     #[test]
+    fn net_2p_demos_players_are_actually_replicated() {
+        // Until this scene authored `NetworkId`, the send system's
+        // `(&NetworkId, &Transform)` query matched nothing and the networking
+        // demo replicated **nothing** -- both players moved on their own local
+        // clock and it would have looked identical with the network unplugged.
+        //
+        // `NetworkId` goes in through the generic reflected `components:` list,
+        // which is the path that fails *silently*: the scene parses, the entity
+        // spawns, and the component is simply absent. So this asserts the
+        // component is there and carries the authority the file says, not just
+        // that the file parses.
+        //
+        // Reads the real scene, because the point is to fail when someone edits
+        // it.
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .expect("workspace root is two levels above crates/bsengine-scene");
+        let text = std::fs::read_to_string(root.join("games/net-2p-demo/server/scene.ron"))
+            .expect("net-2p-demo's server scene should be readable");
+        let scene: crate::types::SceneDescriptor =
+            ron::from_str(&text).expect("net-2p-demo's server scene should parse");
+
+        let mut app = new_app();
+        super::register_gameplay_reflect_types(&mut app);
+        super::spawn_scene_entities(app.world_mut(), &scene.entities);
+
+        let mut query = app
+            .world_mut()
+            .query::<(&crate::Name, &bsengine_core::NetworkId)>();
+        let found: Vec<(String, bsengine_core::NetworkAuthority)> = query
+            .iter(app.world())
+            .map(|(name, nid)| (name.0.clone(), nid.authority))
+            .collect();
+
+        assert_eq!(
+            found.len(),
+            3,
+            "all three players must carry a NetworkId; without it the demo              replicates nothing. Found {found:?}"
+        );
+        assert!(
+            found.iter().any(|(name, authority)| name == "PredictedPlayer"
+                && matches!(
+                    authority,
+                    bsengine_core::NetworkAuthority::Predicted { peer_id: 1 }
+                )),
+            "the predicted player must be server-simulated from peer 1's input;              a Client authority here would mean nothing to reconcile. Found {found:?}"
+        );
+    }
+
+    #[test]
     fn a_scene_texture_reference_becomes_a_texture_path_component() {
         // Parsing the field proves nothing on its own: the resolved path has to
         // reach the entity, because that component is the only thing the loader

@@ -191,10 +191,40 @@ The two `simulated_*` settings exist to test the two above, and are off by
 default. They are also the only way to observe either: on a perfect link an
 interpolated position and the newest snapshot agree on every frame.
 
-**Not implemented:** client-side prediction and server reconciliation. A client
-today is authoritative over its own entities and sends their transforms, so the
-server never disagrees with it about them. Making the server authoritative — per
-entity, opt-in — is the next step.
+### Prediction
+
+An entity can opt in to being **server-simulated with client-side prediction**,
+per entity, through its `NetworkId`:
+
+```ron
+components: [
+    ("bsengine_core::network_id::NetworkId", "(id: 3, authority: Predicted(peer_id: 1))"),
+],
+```
+
+The difference from `Client(peer_id: 1)` is who decides. `Client` means that peer
+simulates the entity and reports where it is — the server takes its word, so the
+two can never disagree. `Predicted` means the peer applies its own input
+immediately so the entity feels responsive, while the **server** decides what
+actually happened; when they disagree the server wins.
+
+**Both peers run the entity's movement script.** That is the point of the design:
+one movement rule rather than one per side that could drift apart.
+`Bsengine.isKeyPressed` reads the input of whichever entity the script is running
+for, so on the server it sees that client's keys and not the keyboard of the
+machine hosting the game.
+
+**The cost:** a correction re-runs that movement script once per input the server
+had not yet acknowledged — bounded by latency, not by scene size. A replay
+re-derives *position only* and deliberately discards everything else the script
+did: the sound that played during the original input already played, and firing
+it again on every correction would make a player hear their own latency.
+
+Server authority is also the precondition for any anti-cheat. With `Client`
+authority a peer can simply state its position.
+
+**Not implemented:** lag compensation — rewinding the server to a client's view
+for hit detection.
 
 ---
 

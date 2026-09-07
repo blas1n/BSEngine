@@ -19,7 +19,7 @@
 use bevy_app::App;
 use bevy_ecs::prelude::*;
 use bsengine_core::{NetworkAuthority, NetworkId, Transform};
-use bsengine_network::{NetworkConfig, NetworkPlugin, NetworkSession};
+use bsengine_network::{AppliedInputs, NetworkConfig, NetworkPlugin, NetworkSession};
 use glam::Vec3;
 
 /// A server app and a client app wired to each other over loopback.
@@ -276,5 +276,178 @@ fn a_default_session_replicates_as_it_always_did() {
         (x - 42.0).abs() < 1e-3,
         "with no delay and no loss the client should sit exactly where the \
          server put it, got x={x}"
+    );
+}
+
+/// A predicted entity's owner sends **input**, never its transform.
+///
+/// The two messages are not interchangeable: a transform from the client would
+/// make it authoritative again and leave the server nothing to disagree with,
+/// which is the whole thing prediction exists to arrange.
+#[test]
+fn a_predicted_entity_sends_input_rather_than_its_transform() {
+    let mut pair = Pair::connect(NetworkConfig::default());
+
+    let peer_id = pair.client.world().resource::<NetworkSession>().my_peer_id;
+    for world in [pair.server.world_mut(), pair.client.world_mut()] {
+        world.spawn((
+            NetworkId {
+                id: 1,
+                authority: NetworkAuthority::Predicted { peer_id },
+            },
+            Transform::default(),
+        ));
+    }
+    // Something for the client to be holding, so the input is not empty.
+    pair.client
+        .world_mut()
+        .insert_resource(bsengine_core::LocalHeldKeys(vec!["W".to_string()]));
+
+    for _ in 0..4 {
+        pair.step();
+    }
+
+    let applied = pair.server.world().resource::<AppliedInputs>();
+    assert!(
+        !applied.0.is_empty(),
+        "the server must have applied at least one input for the predicted \
+         entity -- an empty map means the client sent a transform, or nothing"
+    );
+
+    let remote = pair
+        .server
+        .world()
+        .resource::<bsengine_core::RemoteHeldKeys>();
+    assert_eq!(
+        remote.0.get(&1).map(Vec::as_slice),
+        Some(["W".to_string()].as_slice()),
+        "and the keys it published for that entity are the ones the client held"
+    );
+}
+
+/// A client-authoritative entity is untouched by any of this, which is what
+/// makes the change additive rather than a migration.
+#[test]
+fn a_client_authoritative_entity_still_sends_its_transform() {
+    let mut pair = Pair::connect(NetworkConfig::default());
+
+    let peer_id = pair.client.world().resource::<NetworkSession>().my_peer_id;
+    for world in [pair.server.world_mut(), pair.client.world_mut()] {
+        world.spawn((
+            NetworkId {
+                id: 2,
+                authority: NetworkAuthority::Client { peer_id },
+            },
+            Transform {
+                position: Vec3::new(3.0, 0.0, 0.0).into(),
+                ..Default::default()
+            },
+        ));
+    }
+
+    for _ in 0..4 {
+        pair.step();
+    }
+
+    assert!(
+        pair.server.world().resource::<AppliedInputs>().0.is_empty(),
+        "a client-authoritative entity must not be feeding the input path"
+    );
+}
+
+/// The producer half of reconciliation: a correction for a predicted entity
+/// must actually be **emitted**, not merely applicable.
+///
+/// This test exists because its absence hid a real gap. The scripting-side
+/// tests inject a `ReplayRequest` directly and assert it is applied, so they
+/// pass whether or not anything ever produces one — a disconnected producer
+/// looks exactly like a working one from the consumer's side. Clippy's
+/// "unused variable" warning is what actually caught it, which is not a
+/// safety net anyone should rely on twice.
+#[test]
+fn a_correction_for_a_predicted_entity_is_emitted_to_the_scripting_layer() {
+    let mut pair = Pair::connect(NetworkConfig::default());
+    let peer_id = pair.client.world().resource::<NetworkSession>().my_peer_id;
+
+    // Server-side: the entity the server simulates and is authoritative over.
+    pair.server.world_mut().spawn((
+        NetworkId {
+            id: 1,
+            authority: NetworkAuthority::Predicted { peer_id },
+        },
+        Transform {
+            position: Vec3::new(9.0, 0.0, 0.0).into(),
+            ..Default::default()
+        },
+    ));
+    // Client-side: the same entity, which this peer predicts.
+    pair.client.world_mut().spawn((
+        NetworkId {
+            id: 1,
+            authority: NetworkAuthority::Predicted { peer_id },
+        },
+        Transform::default(),
+    ));
+
+    for _ in 0..4 {
+        pair.step();
+    }
+
+    let replays = pair
+        .client
+        .world()
+        .resource::<bsengine_core::PendingReplays>();
+    assert!(
+        replays.0.iter().any(|r| r.net_id == 1),
+        "the client must have been handed a correction for its predicted \
+         entity; without one, reconciliation never fires in a real game no \
+         matter how well the scripting side applies them"
+    );
+
+    // And it must be a correction, not an empty shell: the authoritative
+    // position has to be the server's.
+    let request = replays
+        .0
+        .iter()
+        .find(|r| r.net_id == 1)
+        .expect("checked above");
+    assert!(
+        (request.authoritative.position.0.x - 9.0).abs() < 1e-3,
+        "the correction must carry where the server actually says the entity \
+         is; got x={}",
+        request.authoritative.position.0.x
+    );
+}
+
+/// Paired with the above: a predicted entity must **not** also be interpolated.
+///
+/// Buffering it would fight the local prediction and hold the entity a delay in
+/// the past — the opposite of the reason it is predicted at all.
+#[test]
+fn a_predicted_entity_is_corrected_rather_than_interpolated() {
+    let mut pair = Pair::connect(NetworkConfig::default());
+    let peer_id = pair.client.world().resource::<NetworkSession>().my_peer_id;
+
+    for world in [pair.server.world_mut(), pair.client.world_mut()] {
+        world.spawn((
+            NetworkId {
+                id: 1,
+                authority: NetworkAuthority::Predicted { peer_id },
+            },
+            Transform::default(),
+        ));
+    }
+
+    for _ in 0..4 {
+        pair.step();
+    }
+
+    assert!(
+        pair.client
+            .world()
+            .resource::<bsengine_network::SnapshotBuffers>()
+            .get(1)
+            .is_none(),
+        "a predicted entity must not be in the interpolation buffer"
     );
 }

@@ -6,10 +6,12 @@ use crate::{
     config::NetworkConfig,
     interpolation::{sample, SnapshotBuffers},
     packet::{
-        decode_batch_tick, encode_client_transform, encode_transform_batch, TransformData,
-        BATCH_HEADER_LEN, MSG_CLIENT_TRANSFORM, MSG_DISCONNECT, MSG_HELLO, MSG_HELLO_ACK,
+        decode_batch_ack, decode_batch_tick, decode_client_input, encode_client_input,
+        encode_client_transform, encode_transform_batch, TransformData, BATCH_HEADER_LEN,
+        MSG_CLIENT_INPUT, MSG_CLIENT_TRANSFORM, MSG_DISCONNECT, MSG_HELLO, MSG_HELLO_ACK,
         MSG_TRANSFORM_BATCH,
     },
+    prediction::PendingInputs,
     session::{NetworkRole, NetworkSession},
     sim::LinkSimulator,
 };
@@ -33,6 +35,10 @@ impl Plugin for NetworkPlugin {
         app.init_resource::<SnapshotBuffers>();
         app.init_resource::<NetworkConfig>();
         app.init_resource::<SimulatedLink>();
+        app.init_resource::<PendingInputs>();
+        app.init_resource::<bsengine_core::RemoteHeldKeys>();
+        app.init_resource::<AppliedInputs>();
+        app.init_resource::<bsengine_core::PendingReplays>();
         app.add_systems(Update, network_receive_system);
         // Between receive and send: it consumes what receive buffered, and a
         // client's own send must not read a transform this just wrote for a
@@ -107,6 +113,12 @@ fn network_receive_system(world: &mut World) {
                 let Some(tick) = decode_batch_tick(&data) else {
                     continue;
                 };
+                // What the server had applied for this peer when it took the
+                // snapshot. Everything at or below it is confirmed; everything
+                // above it is still this client's to replay.
+                let acked = decode_batch_ack(&data).unwrap_or(0);
+                let my_peer_id = world.resource::<NetworkSession>().my_peer_id;
+                let mut corrections: Vec<(u64, TransformData)> = Vec::new();
                 let count = data[1] as usize;
                 let mut offset = BATCH_HEADER_LEN;
                 for _ in 0..count {
@@ -118,10 +130,73 @@ fn network_receive_system(world: &mut World) {
                     let td = TransformData::from_bytes(&data[offset + 8..offset + 48]);
                     offset += 48;
 
-                    world
-                        .resource_mut::<SnapshotBuffers>()
-                        .push(net_id, tick, td);
+                    // A predicted entity this peer owns is not interpolated --
+                    // it is corrected. Interpolating it would fight the local
+                    // prediction and hold it a delay in the past, which is the
+                    // opposite of why it is predicted.
+                    let predicted_here = {
+                        let mut q = world.query::<&NetworkId>();
+                        q.iter(world).any(|nid| {
+                            nid.id == net_id
+                                && matches!(
+                                    nid.authority,
+                                    NetworkAuthority::Predicted { peer_id } if peer_id == my_peer_id
+                                )
+                        })
+                    };
+                    if predicted_here {
+                        corrections.push((net_id, td));
+                    } else {
+                        world
+                            .resource_mut::<SnapshotBuffers>()
+                            .push(net_id, tick, td);
+                    }
                 }
+
+                if !corrections.is_empty() {
+                    // Everything at or below the ack is confirmed; what is left
+                    // is what this correction has to replay.
+                    let replay: Vec<Vec<String>> = {
+                        let mut pending = world.resource_mut::<PendingInputs>();
+                        pending.retain_after(acked);
+                        pending
+                            .unacknowledged()
+                            .iter()
+                            .map(|(_, keys)| keys.clone())
+                            .collect()
+                    };
+                    let requests: Vec<bsengine_core::ReplayRequest> = corrections
+                        .into_iter()
+                        .map(|(net_id, td)| bsengine_core::ReplayRequest {
+                            net_id,
+                            authoritative: td.to_transform(),
+                            replay: replay.clone(),
+                        })
+                        .collect();
+                    world
+                        .resource_mut::<bsengine_core::PendingReplays>()
+                        .0
+                        .extend(requests);
+                }
+            }
+            MSG_CLIENT_INPUT => {
+                // Server: a predicted entity's owner reporting what it holds.
+                // Published for the scripting layer, which runs that entity's
+                // own movement script against it -- so the server simulates a
+                // remote player by the same code the player runs, rather than
+                // by a second implementation that could disagree with it.
+                let Some((net_id, sequence, keys)) = decode_client_input(&data) else {
+                    continue;
+                };
+
+                world
+                    .resource_mut::<bsengine_core::RemoteHeldKeys>()
+                    .0
+                    .insert(net_id, keys);
+                world
+                    .resource_mut::<AppliedInputs>()
+                    .0
+                    .insert(net_id, sequence);
             }
             MSG_CLIENT_TRANSFORM => {
                 // Server: apply client-authoritative transform.
@@ -153,6 +228,13 @@ fn network_receive_system(world: &mut World) {
         }
     }
 }
+
+/// The last input sequence the server has applied, per replicated entity.
+///
+/// Echoed back in that peer's transform batch so the client knows which of its
+/// inputs the authoritative state already accounts for.
+#[derive(Resource, Default, Debug)]
+pub struct AppliedInputs(pub std::collections::HashMap<u64, u32>);
 
 /// The simulated link this process sends through.
 ///
@@ -294,6 +376,20 @@ fn network_send_system(world: &mut World) {
             .collect()
     };
 
+    // Read before the session borrow, for the same reason the tick is bumped
+    // there: `session` is held immutably for the rest of this function.
+    let held_keys: Vec<String> = world
+        .get_resource::<bsengine_core::LocalHeldKeys>()
+        .map(|keys| keys.0.clone())
+        .unwrap_or_default();
+    let input_sequence = {
+        let mut pending = world.resource_mut::<PendingInputs>();
+        pending.next_sequence()
+    };
+    // Set below if this frame actually sent input, so an unacknowledged-input
+    // buffer only grows for input that is genuinely in flight.
+    let mut sent_input = false;
+
     // Bumped before the session borrow: `session` is held immutably for the
     // rest of this function, so the resource cannot be taken mutably later.
     let tick = {
@@ -301,6 +397,14 @@ fn network_send_system(world: &mut World) {
         server_tick.0 = server_tick.0.wrapping_add(1);
         server_tick.0
     };
+
+    // Per-peer: which of that peer's inputs the server has already applied.
+    // Read here, before the session borrow, like everything else this function
+    // needs from the world.
+    let applied: std::collections::HashMap<u64, u32> = world
+        .get_resource::<AppliedInputs>()
+        .map(|a| a.0.clone())
+        .unwrap_or_default();
 
     let (radius, loss, seed) =
         world
@@ -345,8 +449,19 @@ fn network_send_system(world: &mut World) {
                     .iter()
                     .find(|(_, authority, _)| {
                         matches!(authority, NetworkAuthority::Client { peer_id: owner } if *owner == peer_id)
+                            || matches!(authority, NetworkAuthority::Predicted { peer_id: owner } if *owner == peer_id)
                     })
                     .map(|(_, _, t)| t.position.0);
+
+                // The ack this peer needs is for the entity *it* drives, which
+                // is the same one interest is measured from.
+                let peer_ack = entities
+                    .iter()
+                    .find(|(_, authority, _)| {
+                        matches!(authority, NetworkAuthority::Predicted { peer_id: owner } if *owner == peer_id)
+                    })
+                    .and_then(|(net_id, _, _)| applied.get(net_id).copied())
+                    .unwrap_or(0);
 
                 let batch: Vec<(u64, TransformData)> = entities
                     .iter()
@@ -364,7 +479,7 @@ fn network_send_system(world: &mut World) {
                 // Dropped here rather than at the receiver so the packet never
                 // exists, which is what a lossy link actually does.
                 if deliver.get(index).copied().unwrap_or(true) {
-                    if let Some(pkt) = encode_transform_batch(tick, &batch) {
+                    if let Some(pkt) = encode_transform_batch(tick, peer_ack, &batch) {
                         let _ = session.socket.send_to(&pkt, peer);
                     }
                 }
@@ -374,12 +489,33 @@ fn network_send_system(world: &mut World) {
             let server = *server_addr;
             let my_id = session.my_peer_id;
             for (net_id, authority, t) in &entities {
-                if matches!(authority, NetworkAuthority::Client { peer_id } if *peer_id == my_id) {
-                    let pkt = encode_client_transform(*net_id, TransformData::from_transform(t));
-                    let _ = session.socket.send_to(&pkt, server);
+                match authority {
+                    // Client-authoritative: unchanged. This peer decides where
+                    // the entity is and says so.
+                    NetworkAuthority::Client { peer_id } if *peer_id == my_id => {
+                        let pkt =
+                            encode_client_transform(*net_id, TransformData::from_transform(t));
+                        let _ = session.socket.send_to(&pkt, server);
+                    }
+                    // Predicted: send what was *pressed*, never where the entity
+                    // ended up. Sending the transform here would make the client
+                    // authoritative again and there would be nothing left to
+                    // reconcile -- the two messages are not interchangeable.
+                    NetworkAuthority::Predicted { peer_id } if *peer_id == my_id => {
+                        let pkt = encode_client_input(*net_id, input_sequence, &held_keys);
+                        let _ = session.socket.send_to(&pkt, server);
+                        sent_input = true;
+                    }
+                    _ => {}
                 }
             }
         }
+    }
+
+    if sent_input {
+        world
+            .resource_mut::<PendingInputs>()
+            .record(input_sequence, held_keys);
     }
 }
 

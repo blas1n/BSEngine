@@ -13,6 +13,25 @@ pub enum NetworkAuthority {
         /// Id of the peer that owns this entity.
         peer_id: u64,
     },
+    /// A specific client owns this entity's **input**, and the **server**
+    /// simulates it from that input.
+    ///
+    /// # How this differs from [`Self::Client`], and why the difference matters
+    ///
+    /// `Client` means the client simulates and reports the result: the server
+    /// takes its word for where the entity is, so the two can never disagree and
+    /// there is nothing to reconcile. `Predicted` means the client applies its
+    /// own input immediately so the entity feels responsive, while the *server*
+    /// decides what actually happened — and when the two disagree, the server
+    /// wins and the client replays whatever input the server had not yet seen.
+    ///
+    /// Prediction and reconciliation are only meaningful against this variant.
+    /// Server authority is also the precondition for any anti-cheat: with
+    /// `Client`, a peer can simply state its position.
+    Predicted {
+        /// Id of the peer whose input drives this entity.
+        peer_id: u64,
+    },
     /// No network replication — local-only entity.
     Local,
 }

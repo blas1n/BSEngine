@@ -179,9 +179,14 @@ var Bsengine = {
     addRotationEuler: (name, a, b, c) => { const [x, y, z] = _xyz(a, b, c); Deno.core.ops.bsengine_add_rotation_euler(name, x, y, z); },
     addScale: (name, a, b, c) => { const [x, y, z] = _xyz(a, b, c); Deno.core.ops.bsengine_add_scale(name, x, y, z); },
     multiplyScale: (name, a, b, c) => { const [x, y, z] = _xyz(a, b, c); Deno.core.ops.bsengine_multiply_scale(name, x, y, z); },
-    isKeyPressed:   (key)                  => Deno.core.ops.bsengine_is_key_pressed(key),
-    isKeyDown:      (key)                  => Deno.core.ops.bsengine_is_key_down(key),
-    isKeyUp:        (key)                  => Deno.core.ops.bsengine_is_key_up(key),
+    // Each takes the entity whose script is running, so a server simulating a
+    // remote player's movement reads *that peer's* input rather than the
+    // keyboard of the machine it happens to be running on. `_currentEntity` is
+    // set by `_runAll` around every dispatch; see there for why this cannot be
+    // done from Rust.
+    isKeyPressed:   (key)                  => Deno.core.ops.bsengine_is_key_pressed(Bsengine._currentEntity, key),
+    isKeyDown:      (key)                  => Deno.core.ops.bsengine_is_key_down(Bsengine._currentEntity, key),
+    isKeyUp:        (key)                  => Deno.core.ops.bsengine_is_key_up(Bsengine._currentEntity, key),
     pause:          ()                     => Deno.core.ops.bsengine_pause(),
     resume:         ()                     => Deno.core.ops.bsengine_resume(),
     isPaused:       ()                     => Deno.core.ops.bsengine_is_paused(),
@@ -724,6 +729,16 @@ var Bsengine = {
     // Per-entity script registry. Keys are entity bit-IDs (strings).
     _scripts: {},
 
+    // The name of the entity whose `onUpdate` is running right now, so the
+    // input accessors can ask for *its* input instead of for "the keyboard".
+    //
+    // It lives here rather than in Rust because Rust cannot see individual
+    // entities during dispatch: it calls `_runAll` once per frame and the loop
+    // below is the only place that knows which entity is next. Empty means "no
+    // script is running", for which every accessor falls back to the local
+    // keyboard.
+    _currentEntity: "",
+
     // --- Messaging ---
     _messageHandlers: {},
 
@@ -783,6 +798,26 @@ var Bsengine = {
         return v ? Math.sqrt(v.x*v.x+v.y*v.y+v.z*v.z) : 0;
     },
 
+    // Runs one entity's `onUpdate`, for replaying a predicted entity's input
+    // after a server correction. Deliberately does *not* tick timers or
+    // dispatch input events the way `_runAll` does: a replay re-applies input
+    // that already happened, and firing its events again would double every
+    // key-press handler in the game.
+    _runOne(id, name) {
+        const s = this._scripts[id];
+        if (!s || !s.onUpdate) {
+            return;
+        }
+        this._currentEntity = name;
+        try {
+            s.onUpdate(name);
+        } catch (e) {
+            this.log(`[${name}] onUpdate error during replay: ${e}`);
+        } finally {
+            this._currentEntity = "";
+        }
+    },
+
     // Called each frame by the engine with [[id, name], ...] for all scripted entities.
     _runAll(entities) {
         this._tickTimers();
@@ -792,10 +827,17 @@ var Bsengine = {
         for (const [id, name] of entities) {
             const s = this._scripts[id];
             if (s && s.onUpdate) {
+                this._currentEntity = name;
                 try {
                     s.onUpdate(name);
                 } catch (e) {
                     this.log(`[${name}] onUpdate error: ${e}`);
+                } finally {
+                    // Cleared on every exit, a throwing script included. A
+                    // leaked name would make the *next* entity read this one's
+                    // input, which produces no error and reads as a gameplay
+                    // bug rather than as the plumbing mistake it is.
+                    this._currentEntity = "";
                 }
             }
         }

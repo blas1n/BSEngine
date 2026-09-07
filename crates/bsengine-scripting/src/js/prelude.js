@@ -798,6 +798,26 @@ var Bsengine = {
         return v ? Math.sqrt(v.x*v.x+v.y*v.y+v.z*v.z) : 0;
     },
 
+    // Runs one entity's `onUpdate`, for replaying a predicted entity's input
+    // after a server correction. Deliberately does *not* tick timers or
+    // dispatch input events the way `_runAll` does: a replay re-applies input
+    // that already happened, and firing its events again would double every
+    // key-press handler in the game.
+    _runOne(id, name) {
+        const s = this._scripts[id];
+        if (!s || !s.onUpdate) {
+            return;
+        }
+        this._currentEntity = name;
+        try {
+            s.onUpdate(name);
+        } catch (e) {
+            this.log(`[${name}] onUpdate error during replay: ${e}`);
+        } finally {
+            this._currentEntity = "";
+        }
+    },
+
     // Called each frame by the engine with [[id, name], ...] for all scripted entities.
     _runAll(entities) {
         this._tickTimers();

@@ -818,6 +818,45 @@ fn run_scripts(world: &mut World) {
 
     let (scripted, collision_json) = collect_world_snapshots(world);
 
+    // Server corrections for predicted entities, taken before the V8 borrow
+    // below because applying the authoritative transform needs `&mut World`.
+    //
+    // Drained rather than read: a correction left in place would be applied
+    // again next frame and move the entity twice.
+    let replays: Vec<(String, String, Vec<Vec<String>>)> = {
+        let requests = world
+            .get_resource_mut::<bsengine_core::PendingReplays>()
+            .map(|mut r| std::mem::take(&mut r.0))
+            .unwrap_or_default();
+        if requests.is_empty() {
+            Vec::new()
+        } else {
+            let by_net_id: HashMap<u64, (String, String)> = {
+                let mut q = world.query::<(Entity, &Name, &bsengine_core::NetworkId)>();
+                q.iter(world)
+                    .map(|(entity, name, nid)| {
+                        (nid.id, (entity.to_bits().to_string(), name.0.clone()))
+                    })
+                    .collect()
+            };
+            let mut prepared = Vec::new();
+            for request in requests {
+                let Some((bits, name)) = by_net_id.get(&request.net_id).cloned() else {
+                    continue;
+                };
+                // The snap. Everything the replay does after this is the client
+                // re-deriving what it had already predicted, from a state the
+                // server agrees with.
+                let entity = Entity::from_bits(bits.parse::<u64>().unwrap_or(0));
+                if let Some(mut transform) = world.get_mut::<Transform>(entity) {
+                    *transform = request.authoritative.clone();
+                }
+                prepared.push((bits, name, request.replay));
+            }
+            prepared
+        }
+    };
+
     if let Some(mut rt) = world.get_non_send_resource_mut::<ScriptRuntimeResource>() {
         // Dispatch collision events to JS before update
         if collision_json != "[]" {
@@ -825,6 +864,31 @@ fn run_scripts(world: &mut World) {
             if let Err(e) = rt.0.exec_source(&call, "<run_collisions>") {
                 tracing::error!("[scripting] _runCollisions error: {e}");
             }
+        }
+
+        // Re-apply the input the server had not yet seen, oldest first, before
+        // this frame's own input runs -- so the frame lands on a reconciled
+        // state rather than on a stale one.
+        for (bits, name, inputs) in &replays {
+            for keys in inputs {
+                // The recorded input replaces the live keyboard for this one
+                // entity, which is what makes a replay reproduce the past
+                // instead of re-applying the present.
+                REMOTE_INPUT.with(|r| {
+                    r.borrow_mut()
+                        .insert(name.clone(), keys.iter().cloned().collect())
+                });
+                let call = format!("Bsengine._runOne(\"{bits}\", \"{name}\");");
+                if let Err(e) = rt.0.exec_source(&call, "<replay>") {
+                    tracing::error!("[scripting] replay of {name} failed: {e}");
+                }
+            }
+            // Removed unconditionally: left in place it would make this frame's
+            // live `_runAll` read the last replayed input instead of the
+            // keyboard, which reads to a player as their controls sticking.
+            REMOTE_INPUT.with(|r| {
+                r.borrow_mut().remove(name);
+            });
         }
 
         let entities_json = serde_json::to_string(&scripted).unwrap_or_else(|_| "[]".to_string());

@@ -38,3 +38,32 @@ pub struct LocalHeldKeys(pub Vec<String>);
 /// this addition invisible to them.
 #[derive(Resource, Default, Debug, Clone)]
 pub struct RemoteHeldKeys(pub HashMap<u64, Vec<String>>);
+
+/// One predicted entity that needs correcting, and the input to re-apply.
+///
+/// # Why a request rather than a direct call
+///
+/// The networking layer is what learns that a correction is due, but replaying
+/// means **re-running the entity's movement script**, and only the scripting
+/// layer can do that. Neither crate depends on the other, so the correction
+/// travels as data through here — the same route the input takes in the other
+/// direction.
+#[derive(Debug, Clone)]
+pub struct ReplayRequest {
+    /// Which entity, by network id.
+    pub net_id: u64,
+    /// Where the server says it actually was, as of the last input it applied.
+    pub authoritative: crate::Transform,
+    /// The inputs the server had not yet seen, oldest first, to re-apply on top.
+    ///
+    /// Empty means the server has caught up with everything sent, in which case
+    /// the correction is just the snap.
+    pub replay: Vec<Vec<String>>,
+}
+
+/// Corrections waiting for the scripting layer to apply.
+///
+/// Drained every frame. A correction left here would be applied twice and move
+/// the entity twice as far, so draining is not optional bookkeeping.
+#[derive(Resource, Default, Debug, Clone)]
+pub struct PendingReplays(pub Vec<ReplayRequest>);

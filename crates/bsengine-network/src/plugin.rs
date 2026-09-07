@@ -6,9 +6,10 @@ use crate::{
     config::NetworkConfig,
     interpolation::{sample, SnapshotBuffers},
     packet::{
-        decode_batch_tick, decode_client_input, encode_client_input, encode_client_transform,
-        encode_transform_batch, TransformData, BATCH_HEADER_LEN, MSG_CLIENT_INPUT,
-        MSG_CLIENT_TRANSFORM, MSG_DISCONNECT, MSG_HELLO, MSG_HELLO_ACK, MSG_TRANSFORM_BATCH,
+        decode_batch_ack, decode_batch_tick, decode_client_input, encode_client_input,
+        encode_client_transform, encode_transform_batch, TransformData, BATCH_HEADER_LEN,
+        MSG_CLIENT_INPUT, MSG_CLIENT_TRANSFORM, MSG_DISCONNECT, MSG_HELLO, MSG_HELLO_ACK,
+        MSG_TRANSFORM_BATCH,
     },
     prediction::PendingInputs,
     session::{NetworkRole, NetworkSession},
@@ -37,6 +38,7 @@ impl Plugin for NetworkPlugin {
         app.init_resource::<PendingInputs>();
         app.init_resource::<bsengine_core::RemoteHeldKeys>();
         app.init_resource::<AppliedInputs>();
+        app.init_resource::<bsengine_core::PendingReplays>();
         app.add_systems(Update, network_receive_system);
         // Between receive and send: it consumes what receive buffered, and a
         // client's own send must not read a transform this just wrote for a
@@ -111,6 +113,12 @@ fn network_receive_system(world: &mut World) {
                 let Some(tick) = decode_batch_tick(&data) else {
                     continue;
                 };
+                // What the server had applied for this peer when it took the
+                // snapshot. Everything at or below it is confirmed; everything
+                // above it is still this client's to replay.
+                let acked = decode_batch_ack(&data).unwrap_or(0);
+                let my_peer_id = world.resource::<NetworkSession>().my_peer_id;
+                let mut corrections: Vec<(u64, TransformData)> = Vec::new();
                 let count = data[1] as usize;
                 let mut offset = BATCH_HEADER_LEN;
                 for _ in 0..count {

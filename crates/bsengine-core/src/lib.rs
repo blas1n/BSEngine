@@ -130,7 +130,7 @@ pub use logging::init_logging;
 pub use material::{Material, TexturePath};
 pub use nav_mesh::NavMesh;
 pub use nav_mesh_agent::{NavAgentState, NavMeshAgent};
-pub use net_input::{LocalHeldKeys, RemoteHeldKeys};
+pub use net_input::{LocalHeldKeys, PendingReplays, RemoteHeldKeys, ReplayRequest};
 pub use network_id::{NetworkAuthority, NetworkId};
 pub use occlusion_config::OcclusionCullingEnabled;
 pub use parent::Parent;

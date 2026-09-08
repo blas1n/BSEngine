@@ -34,6 +34,14 @@ pub struct TimelinePanel {
     path_buffer: String,
     /// Playhead position, in seconds.
     time: f32,
+    /// A path the user opened explicitly, which outranks the selection until
+    /// a different timeline entity is selected.
+    explicit_path: Option<PathBuf>,
+    /// The selection this panel last saw, so it can tell a *change* of
+    /// selection from the same entity staying selected.
+    last_selected_id: Option<u64>,
+    /// What the last open did, shown in the toolbar.
+    status: Option<String>,
 
     /// Where each track's lane was drawn, rebuilt every frame.
     ///
@@ -63,6 +71,9 @@ impl Default for TimelinePanel {
             path: None,
             path_buffer: String::new(),
             time: 0.0,
+            explicit_path: None,
+            last_selected_id: None,
+            status: None,
             last_lane_rects: Vec::new(),
             last_key_positions: HashMap::new(),
             last_lane_area: egui::Rect::NOTHING,
@@ -110,6 +121,75 @@ impl TimelinePanel {
     /// The playhead position, in seconds.
     pub fn time(&self) -> f32 {
         self.time
+    }
+
+    /// Loads `path`, replacing whatever was shown.
+    ///
+    /// Errors are values, not panics: the path box is user input, and a
+    /// mistyped path must show a status line rather than take the editor
+    /// down.
+    fn load(&mut self, path: impl Into<PathBuf>) -> Result<(), String> {
+        let path = path.into();
+        let text = std::fs::read_to_string(&path)
+            .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+        let timeline: Timeline =
+            ron::from_str(&text).map_err(|e| format!("cannot parse {}: {e}", path.display()))?;
+        self.time = self.time.clamp(0.0, timeline.duration);
+        self.timeline = Some(timeline);
+        self.path = Some(path);
+        Ok(())
+    }
+
+    /// Opens `path` as the **Open** button would.
+    ///
+    /// Exists for the panel's own tests, which drive the precedence rule
+    /// without having to type into an egui text field.
+    #[cfg(test)]
+    fn open_for_test(&mut self, path: &std::path::Path) {
+        self.explicit_path = Some(path.to_path_buf());
+        if let Err(e) = self.load(path) {
+            self.status = Some(e);
+        }
+    }
+
+    /// Resolves which timeline should be shown this frame.
+    ///
+    /// An explicitly opened path wins and keeps winning; selecting a
+    /// *different* entity that has a `TimelinePlayer` clears it and resumes
+    /// following the selection. Selecting an entity **without** one leaves
+    /// the opened file alone rather than blanking the panel, because "I
+    /// clicked a light" is not a request to close the cutscene I was
+    /// looking at.
+    fn resolve_source(&mut self, ctx: &EditorPanelContext) {
+        let selected_path = ctx
+            .insp
+            .reflected_components
+            .iter()
+            .find(|(type_path, _)| type_path == "bsengine_core::timeline::TimelinePlayer")
+            .and_then(|(_, value)| {
+                value
+                    .as_any()
+                    .downcast_ref::<bsengine_core::timeline::TimelinePlayer>()
+                    .map(|p| PathBuf::from(&p.timeline))
+            });
+
+        let selection_changed = ctx.insp.selected_id != self.last_selected_id;
+        self.last_selected_id = ctx.insp.selected_id;
+        if selection_changed && selected_path.is_some() {
+            self.explicit_path = None;
+        }
+
+        let Some(wanted) = self.explicit_path.clone().or(selected_path) else {
+            return;
+        };
+        if self.path.as_deref() == Some(wanted.as_path()) {
+            return;
+        }
+        if let Err(e) = self.load(&wanted) {
+            self.status = Some(e);
+            self.timeline = None;
+            self.path = None;
+        }
     }
 
     /// The loaded timeline's duration, or `0.0` when nothing is loaded.
@@ -249,7 +329,41 @@ impl EditorPanel for TimelinePanel {
         "Timeline".to_string()
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _ctx: &mut EditorPanelContext) {
+    fn ui(&mut self, ui: &mut egui::Ui, ctx: &mut EditorPanelContext) {
+        self.resolve_source(ctx);
+
+        let mut open_clicked = false;
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut self.path_buffer)
+                    .hint_text("assets/timelines/intro.ron")
+                    .desired_width(260.0_f32),
+            );
+            open_clicked = ui
+                .button(format!("{} Open", egui_phosphor::regular::FOLDER_OPEN))
+                .clicked();
+            ui.label(format!("t = {:.2} / {:.2}", self.time, self.duration()));
+        });
+        if let Some(status) = &self.status {
+            ui.label(status.clone());
+        }
+
+        // The text field is read only when Open is clicked, so a half-typed
+        // path never becomes the loaded path.
+        if open_clicked {
+            let path = PathBuf::from(self.path_buffer.trim());
+            self.explicit_path = Some(path.clone());
+            match self.load(&path) {
+                Ok(()) => self.status = Some(format!("opened {}", path.display())),
+                Err(e) => {
+                    self.status = Some(e);
+                    self.timeline = None;
+                    self.path = None;
+                }
+            }
+        }
+
+        ui.separator();
         self.draw_tracks(ui);
     }
 }
@@ -394,6 +508,124 @@ mod tests {
                 modifiers: egui::Modifiers::default(),
             }])
         }
+    }
+
+    /// Writes a timeline to a temp file so the entry-path tests drive the
+    /// real parse rather than a hand-built value.
+    struct TimelineFile(std::path::PathBuf);
+
+    impl Drop for TimelineFile {
+        fn drop(&mut self) {
+            std::fs::remove_file(&self.0).ok();
+        }
+    }
+
+    fn write_timeline(timeline: &Timeline) -> TimelineFile {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static N: AtomicU32 = AtomicU32::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "bsengine-timeline-panel-{}-{}.ron",
+            std::process::id(),
+            N.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::write(&path, ron::to_string(timeline).expect("serialise")).expect("write");
+        TimelineFile(path)
+    }
+
+    /// An empty timeline, which draws zero lanes -- so a test can tell "the
+    /// other file loaded" from "the four-track file loaded" by lane count
+    /// alone.
+    fn empty_timeline() -> Timeline {
+        Timeline {
+            duration: 1.0,
+            tracks: Vec::new(),
+        }
+    }
+
+    /// Makes `id` the selection and gives it a `TimelinePlayer` naming
+    /// `path`, the way the editor populates `reflected_components` for the
+    /// selected entity.
+    fn select_timeline_entity(h: &mut Harness, id: u64, name: &str, path: &std::path::Path) {
+        h.insp.selected_id = Some(id);
+        h.insp.reflected_components = vec![(
+            "bsengine_core::timeline::TimelinePlayer".to_string(),
+            Box::new(bsengine_core::timeline::TimelinePlayer {
+                timeline: path.to_string_lossy().to_string(),
+                time: 0.0,
+                playing: false,
+                speed: 1.0,
+            }) as Box<dyn bevy_reflect::Reflect>,
+        )];
+        h.entities_snapshot = vec![InspectorEntityInfo {
+            id,
+            name: Some(name.to_string()),
+            ..Default::default()
+        }];
+    }
+
+    #[test]
+    fn selecting_an_entity_opens_its_timeline() {
+        let file = write_timeline(&four_track_timeline());
+        let mut h = Harness::new(empty_timeline());
+        select_timeline_entity(&mut h, 7, "Director", &file.0);
+        h.settle();
+
+        assert_eq!(
+            h.panel.last_lane_rects.len(),
+            4,
+            "selecting an entity with a TimelinePlayer must load the timeline \
+             it names"
+        );
+    }
+
+    /// An explicitly opened path wins over the selection, and keeps winning
+    /// while the same entity stays selected.
+    #[test]
+    fn an_explicitly_opened_path_overrides_the_selection() {
+        let selected = write_timeline(&empty_timeline());
+        let opened = write_timeline(&four_track_timeline());
+        let mut h = Harness::new(empty_timeline());
+        select_timeline_entity(&mut h, 7, "Director", &selected.0);
+        h.settle();
+        assert_eq!(
+            h.panel.last_lane_rects.len(),
+            0,
+            "the selection's timeline has no tracks"
+        );
+
+        h.panel.open_for_test(&opened.0);
+        h.settle();
+
+        assert_eq!(
+            h.panel.last_lane_rects.len(),
+            4,
+            "the opened path must win over the still-selected entity"
+        );
+    }
+
+    /// Paired with the above: selecting a *different* entity that has a
+    /// `TimelinePlayer` clears the override. Without this the override would
+    /// be a trap -- the panel would keep showing a stale file forever -- and
+    /// the test above alone cannot tell the difference.
+    #[test]
+    fn selecting_another_timeline_entity_clears_the_override() {
+        let opened = write_timeline(&four_track_timeline());
+        let other = write_timeline(&empty_timeline());
+        let mut h = Harness::new(empty_timeline());
+
+        h.panel.open_for_test(&opened.0);
+        h.settle();
+        assert_eq!(h.panel.last_lane_rects.len(), 4);
+
+        select_timeline_entity(&mut h, 9, "OtherDirector", &other.0);
+        h.settle();
+
+        assert_eq!(
+            h.panel.last_lane_rects.len(),
+            0,
+            "selecting a different entity with a TimelinePlayer must resume \
+             following the selection"
+        );
     }
 
     #[test]

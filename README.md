@@ -266,6 +266,25 @@ Bsengine.timeline.eventFired("intro_over");   // true only on the frame it fires
 
 `games/cutscene-demo` is a working example. See it before writing one.
 
+### The Timeline panel
+
+The editor's **Timeline** panel draws a timeline's tracks and scrubs it.
+Selecting an entity with a `TimelinePlayer` opens the timeline it names; the
+path box opens any `.ron` file, and keeps winning until a different timeline
+entity is selected.
+
+**Preview** (off by default) turns the viewport into the cutscene camera at the
+playhead and poses the entities the animation tracks name. It is off by default
+because silently taking over the viewport would be surprising. It restores every
+animation it touched when you turn it off — the opposite of the runtime's rule,
+deliberately, because looking at a cutscene must not be a way to edit the scene.
+The camera is never restored because it is never changed: the preview overrides
+the editor's own view rather than moving the scene's camera entity.
+
+The panel does not yet edit or save; keyframe editing is the next piece of work.
+Event tracks are drawn but have no effect here, since the editor runs no
+gameplay scripts to receive them.
+
 ### The four track kinds
 
 **`Camera`** moves the camera smoothly between keys. Keys carry `look_at` rather

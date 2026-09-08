@@ -13,6 +13,8 @@ pub mod profiler;
 pub mod reflect_ui;
 /// The Shader Graph panel: a node editor for `bsengine-shadergraph` graphs.
 pub mod shadergraph;
+/// The Timeline panel: draws a cutscene's tracks and scrubs its playhead.
+pub mod timeline;
 /// The Viewport panel: renders the 3D scene plus gizmo overlays.
 pub mod viewport;
 
@@ -26,4 +28,5 @@ pub use inspector::InspectorPanel;
 pub use profiler::ProfilerPanel;
 pub use reflect_ui::draw_reflect_ui;
 pub use shadergraph::ShaderGraphPanel;
+pub use timeline::TimelinePanel;
 pub use viewport::ViewportPanel;

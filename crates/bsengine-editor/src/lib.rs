@@ -28,6 +28,9 @@ pub mod prefab_watcher;
 /// The MCP-facing data model: `EditorSnapshot`, `EntityInfo`, `EditorCommand`,
 /// `ReflectCommand`, and the shared resources the editor bridge reads/writes.
 pub mod snapshot;
+/// Applies the editor Timeline panel's cutscene preview, and restores what
+/// it replaced when the preview ends.
+pub mod timeline_preview;
 
 pub use plugin::EditorPlugin;
 pub use prefab_watcher::PrefabWatcherPlugin;

@@ -281,9 +281,37 @@ deliberately, because looking at a cutscene must not be a way to edit the scene.
 The camera is never restored because it is never changed: the preview overrides
 the editor's own view rather than moving the scene's camera entity.
 
-The panel does not yet edit or save; keyframe editing is the next piece of work.
-Event tracks are drawn but have no effect here, since the editor runs no
-gameplay scripts to receive them.
+### Editing
+
+Click a key to select it, drag it along the time axis to retime it, and use the
+strip below the tracks to edit its values. **Add Key** inserts at the playhead —
+a camera key captures the editor camera's current position and target, so
+framing a shot and pressing Add is the whole gesture. **Add Track** picks a
+kind; **Delete Key** and **Delete Track** act on the selection. **Undo** and
+**Redo** are panel buttons, **Save** writes the file, and **Revert** re-reads
+it. A timeline with unsaved edits will not be swapped out from under you by
+changing the selection — Save, Revert or Discard first.
+
+Four things worth knowing before you rely on it:
+
+- **Ctrl+Z does not undo timeline edits.** It is the editor's scene undo and
+  keeps that meaning everywhere; the timeline's history is its own, on the
+  panel's Undo and Redo buttons. Sharing one shortcut between two histories
+  would mean two consumers of one flag, and that failure is silent.
+- **Saving loses comments that sit between tracks.** RON has no comments in its
+  data model, so re-serialising drops them. The block *above* the data is
+  preserved verbatim, which keeps the part that says why a file exists — but a
+  comment beside a particular track does not survive the first Save.
+- **Saving reformats.** The writer expands each key across several lines, so a
+  compactly hand-written file grows: `games/cutscene-demo`'s `intro.ron` goes
+  from about 25 lines to about 48. Type names are kept (`Timeline(`, `Camera(`,
+  `CameraKey(`), so the result still says what it is.
+- **Saving leaves the asset's `.meta` sidecar stale** until the project is next
+  run, because the sidecar records a hash of the file's bytes. That is expected;
+  a scan regenerates it.
+
+Event tracks are drawn and editable but have no effect in the editor, which runs
+no gameplay scripts to receive events.
 
 ### The four track kinds
 

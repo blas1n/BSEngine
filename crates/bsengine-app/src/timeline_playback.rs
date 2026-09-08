@@ -210,7 +210,7 @@ fn start_clip(world: &mut World, entity_name: &str, clip: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bsengine_core::{CameraKey, EventKey, ShotCut, Track};
+    use bsengine_core::{AnimationKey, CameraKey, EventKey, ShotCut, Track};
 
     /// Writes a timeline to a temp file and returns its path, so the test drives
     /// the **real** load path (`pak_source` + RON) rather than a hand-built
@@ -394,6 +394,87 @@ mod tests {
             app.world().resource::<TimelineEvents>().0.is_empty(),
             "and is gone the next frame, rather than repeating for the rest of \
              the cutscene"
+        );
+    }
+
+    /// An `Animation` key restarts the named entity's clip when the playhead
+    /// crosses it — and, paired below, leaves a later key alone.
+    ///
+    /// `animations_between` being right proves nothing about this: it is a pure
+    /// function in another crate, and a `start_clip` wired to nothing would
+    /// still let every one of its tests pass. That is the shape of failure this
+    /// PR already hit twice — a producer with no consumer looks exactly like a
+    /// working one from the producer's side.
+    #[test]
+    fn an_animation_key_starts_the_clip_on_the_named_entity() {
+        let timeline = Timeline {
+            duration: 6.0,
+            tracks: vec![Track::Animation {
+                entity: "Subject".to_string(),
+                keys: vec![
+                    AnimationKey {
+                        time: 0.5,
+                        clip: "Survey".to_string(),
+                    },
+                    AnimationKey {
+                        time: 5.0,
+                        clip: "Bow".to_string(),
+                    },
+                ],
+            }],
+        };
+        let (mut app, _file, _camera) = app_with(&timeline, 1.0);
+        // Mid-clip and paused, so "Survey"/0.0/playing cannot be what it already
+        // was.
+        let subject = app
+            .world_mut()
+            .spawn((
+                Name("Subject".to_string()),
+                AnimationPlayer {
+                    clip: "Idle".to_string(),
+                    time: 3.0,
+                    playing: false,
+                    ..AnimationPlayer::new("Idle")
+                },
+            ))
+            .id();
+
+        app.update();
+
+        let player = app
+            .world()
+            .get::<AnimationPlayer>(subject)
+            .expect("subject keeps its player")
+            .clone();
+        assert_eq!(
+            player.clip, "Survey",
+            "the key at t=0.5 is inside the first frame's 0..1s step"
+        );
+        assert!(player.playing, "and starting a clip means playing it");
+        assert!(
+            player.time.abs() < 1e-6,
+            "from the beginning, not from wherever the previous clip was: got {}",
+            player.time
+        );
+        assert_ne!(
+            player.clip, "Bow",
+            "the t=5.0 key is still five seconds out; a start_clip that ignored \
+             the interval and applied the whole track would land here"
+        );
+
+        // Four more seconds puts the playhead at 5.0 and the second key inside
+        // the step. Without this the test could not tell a working interval
+        // query from one that fires only once and stops.
+        for _ in 0..4 {
+            app.update();
+        }
+        assert_eq!(
+            app.world()
+                .get::<AnimationPlayer>(subject)
+                .expect("subject keeps its player")
+                .clip,
+            "Bow",
+            "the later key fires when the playhead reaches it"
         );
     }
 

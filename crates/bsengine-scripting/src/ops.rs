@@ -3020,7 +3020,7 @@ pub fn bsengine_is_timeline_playing(#[string] name: String) -> bool {
 /// after it happened -- or miss it entirely if something else drained first.
 #[op2(fast)]
 pub fn bsengine_timeline_event_fired(#[string] name: String) -> bool {
-    TIMELINE_SNAPSHOT.with(|s| s.borrow().1.iter().any(|fired| *fired == name))
+    TIMELINE_SNAPSHOT.with(|s| s.borrow().1.contains(&name))
 }
 
 /// Queue pausing an entity's currently playing animation.

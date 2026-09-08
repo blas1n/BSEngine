@@ -1860,8 +1860,41 @@ fn update_editor_camera(
             dist * pitch.sin(),
             dist * yaw.sin() * pitch.cos(),
         );
-    let view = glam::Mat4::look_at_rh(eye, target, glam::Vec3::Y);
-    let proj = glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_4, aspect, 0.1, 1000.0);
+    // The Timeline panel's preview replaces the orbit camera's answer here
+    // rather than writing `editor_view_proj` itself. This system assigns it
+    // unconditionally every frame, so a second writer would simply race it --
+    // and the orbit parameters above are deliberately left untouched, which is
+    // what makes ending a preview return the user to exactly the viewpoint
+    // they had instead of stranding the camera at the cutscene.
+    let preview_camera = insp
+        .timeline_preview
+        .as_ref()
+        .and_then(|p| p.camera.clone());
+
+    let (eye, view, proj) = match preview_camera {
+        Some(camera) => {
+            let eye = glam::Vec3::from(camera.position);
+            let rotation = glam::Quat::from_array(camera.rotation);
+            let fov = camera
+                .fov_y_degrees
+                .map_or(std::f32::consts::FRAC_PI_4, |d| d.to_radians());
+            // The engine's cameras look down -Z, the convention
+            // `CameraPose::rotation` builds against.
+            let forward = rotation * glam::Vec3::NEG_Z;
+            let up = rotation * glam::Vec3::Y;
+            (
+                eye,
+                glam::Mat4::look_at_rh(eye, eye + forward, up),
+                glam::Mat4::perspective_rh(fov, aspect, 0.1, 1000.0),
+            )
+        }
+        None => (
+            eye,
+            glam::Mat4::look_at_rh(eye, target, glam::Vec3::Y),
+            glam::Mat4::perspective_rh(std::f32::consts::FRAC_PI_4, aspect, 0.1, 1000.0),
+        ),
+    };
+
     insp.editor_view_proj = Some((proj * view).to_cols_array_2d());
     insp.editor_proj = proj.to_cols_array_2d();
     insp.editor_cam_pos = eye.to_array();
@@ -29976,6 +30009,72 @@ mod tests {
         app.add_plugins(McpPlugin);
         app.add_plugins(EditorPlugin);
         app.update();
+    }
+
+    /// A preview request must take over the editor's view-projection, and the
+    /// orbit state must win when there is none.
+    ///
+    /// Both halves are needed: "the view-projection changed" on its own is
+    /// satisfied by an override that is always on, which would make the
+    /// editor camera unusable and still pass.
+    #[test]
+    fn a_preview_request_overrides_the_orbit_camera() {
+        use bsengine_core::{PreviewCamera, TimelinePreview};
+
+        let mut app = new_app();
+        app.insert_resource({
+            // Field-by-field rather than functional-update syntax:
+            // `InspectorState` has a private field, so `..Default::default()`
+            // is barred outside `bsengine-core`.
+            let mut insp = InspectorState::default();
+            insp.editor_mode = true;
+            insp.viewport_size = [800.0, 600.0];
+            insp
+        });
+        app.add_systems(bevy_app::Update, super::update_editor_camera);
+
+        app.update();
+        let orbit = app
+            .world()
+            .resource::<InspectorState>()
+            .editor_view_proj
+            .expect("the orbit camera always publishes one");
+
+        app.world_mut()
+            .resource_mut::<InspectorState>()
+            .timeline_preview = Some(TimelinePreview {
+            camera: Some(PreviewCamera {
+                position: [100.0, 50.0, 25.0],
+                rotation: [0.0, 0.0, 0.0, 1.0],
+                fov_y_degrees: None,
+            }),
+            clips: Vec::new(),
+        });
+        app.update();
+        let previewing = app
+            .world()
+            .resource::<InspectorState>()
+            .editor_view_proj
+            .expect("still published while previewing");
+        assert_ne!(
+            orbit, previewing,
+            "a preview request must take over the editor's view-projection"
+        );
+
+        app.world_mut()
+            .resource_mut::<InspectorState>()
+            .timeline_preview = None;
+        app.update();
+        let restored = app
+            .world()
+            .resource::<InspectorState>()
+            .editor_view_proj
+            .expect("published again once preview ends");
+        assert_eq!(
+            orbit, restored,
+            "clearing the preview must return the user to the orbit viewpoint \
+             they had, not leave the camera stranded at the cutscene"
+        );
     }
 
     #[test]

@@ -7,6 +7,7 @@
 
 use bsengine_core::editor_panel::{EditorPanel, EditorPanelContext};
 use bsengine_core::timeline::{Timeline, Track};
+use bsengine_core::{PreviewCamera, TimelinePreview};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -42,6 +43,13 @@ pub struct TimelinePanel {
     last_selected_id: Option<u64>,
     /// What the last open did, shown in the toolbar.
     status: Option<String>,
+    /// Whether the panel is publishing a preview request.
+    ///
+    /// Off by default. Silently turning the viewport into a cutscene camera
+    /// because a panel happens to be open would be surprising -- and an off
+    /// switch is also a measurement instrument, since it is what lets a test
+    /// assert that the orbit camera wins when preview is off.
+    preview: bool,
 
     /// Where each track's lane was drawn, rebuilt every frame.
     ///
@@ -74,6 +82,7 @@ impl Default for TimelinePanel {
             explicit_path: None,
             last_selected_id: None,
             status: None,
+            preview: false,
             last_lane_rects: Vec::new(),
             last_key_positions: HashMap::new(),
             last_lane_area: egui::Rect::NOTHING,
@@ -190,6 +199,63 @@ impl TimelinePanel {
             self.timeline = None;
             self.path = None;
         }
+    }
+
+    /// Builds this frame's preview request from the playhead.
+    ///
+    /// A cut resolves against the entity snapshot rather than against the
+    /// timeline, because a shot names an ordinary entity and its pose lives
+    /// in the scene. The snapshot's rotation is euler degrees in `XYZ` order
+    /// (`bsengine_editor`'s `plugin.rs:76`), so the inverse used here is the
+    /// same pairing that file uses to write a rotation back.
+    fn build_preview(&self, ctx: &EditorPanelContext) -> Option<TimelinePreview> {
+        let timeline = self.timeline.as_ref()?;
+        let at = bsengine_core::timeline::evaluate(timeline, self.time);
+
+        let camera = if let Some(shot) = &at.shot {
+            ctx.entities_snapshot
+                .iter()
+                .find(|e| e.name.as_deref() == Some(shot.as_str()))
+                .map(|e| {
+                    let rot = e.rotation.unwrap_or([0.0; 3]);
+                    let quat = glam::Quat::from_euler(
+                        glam::EulerRot::XYZ,
+                        rot[0].to_radians(),
+                        rot[1].to_radians(),
+                        rot[2].to_radians(),
+                    );
+                    PreviewCamera {
+                        position: e.position.unwrap_or([0.0; 3]),
+                        rotation: quat.to_array(),
+                        fov_y_degrees: e.camera_fov,
+                    }
+                })
+        } else {
+            at.camera.as_ref().map(|c| PreviewCamera {
+                position: c.position,
+                rotation: c.rotation().to_array(),
+                fov_y_degrees: None,
+            })
+        };
+
+        // The most recent animation key at or before the playhead, per track,
+        // with the time reached *within* that clip. Scrubbing asks what this
+        // instant looks like, so the clip time is how long the clip has been
+        // running by now.
+        let mut clips = Vec::new();
+        for track in &timeline.tracks {
+            if let Track::Animation { entity, keys } = track {
+                if let Some(key) = keys
+                    .iter()
+                    .filter(|k| k.time <= self.time)
+                    .max_by(|a, b| a.time.total_cmp(&b.time))
+                {
+                    clips.push((entity.clone(), key.clip.clone(), self.time - key.time));
+                }
+            }
+        }
+
+        Some(TimelinePreview { camera, clips })
     }
 
     /// The loaded timeline's duration, or `0.0` when nothing is loaded.
@@ -342,6 +408,7 @@ impl EditorPanel for TimelinePanel {
             open_clicked = ui
                 .button(format!("{} Open", egui_phosphor::regular::FOLDER_OPEN))
                 .clicked();
+            ui.checkbox(&mut self.preview, "Preview");
             ui.label(format!("t = {:.2} / {:.2}", self.time, self.duration()));
         });
         if let Some(status) = &self.status {
@@ -365,6 +432,14 @@ impl EditorPanel for TimelinePanel {
 
         ui.separator();
         self.draw_tracks(ui);
+
+        // Republished every frame while previewing, and cleared the moment it
+        // is not, so a stale request cannot outlive the toggle.
+        ctx.insp.timeline_preview = if self.preview {
+            self.build_preview(ctx)
+        } else {
+            None
+        };
     }
 }
 
@@ -561,6 +636,45 @@ mod tests {
             name: Some(name.to_string()),
             ..Default::default()
         }];
+    }
+
+    /// With Preview on, the panel publishes the pose `evaluate` gives for the
+    /// playhead.
+    #[test]
+    fn preview_publishes_the_camera_pose_for_the_playhead() {
+        let mut h = Harness::new(four_track_timeline());
+        h.panel.preview = true;
+        h.settle();
+
+        let y = h.panel.last_lane_rects[0].center().y;
+        let x = h.panel.time_to_x(3.0);
+        h.press(egui::pos2(x, y));
+        h.drag_to(egui::pos2(x, y));
+        h.release(egui::pos2(x, y));
+        h.draw();
+
+        let preview = h.insp.timeline_preview.clone().expect("a preview request");
+        let camera = preview.camera.expect("a camera pose");
+        // Half way along a 0..12 dolly over 6 seconds.
+        assert!(
+            (camera.position[0] - 6.0).abs() < 0.2,
+            "expected x near 6.0 at t=3.0, got {}",
+            camera.position[0]
+        );
+    }
+
+    /// Paired with the above: Preview off must publish nothing at all.
+    /// Without this, a panel that always previews passes the test above.
+    #[test]
+    fn preview_off_publishes_nothing() {
+        let mut h = Harness::new(four_track_timeline());
+        h.panel.preview = false;
+        h.settle();
+
+        assert!(
+            h.insp.timeline_preview.is_none(),
+            "preview is off, so the panel must publish no request"
+        );
     }
 
     #[test]

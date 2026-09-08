@@ -2808,33 +2808,40 @@ own client-authoritative transforms"라고 명시). 클라이언트가 자기 �
 
 **완료 조건:**
 - [x] `Timeline` 에셋 — 트랙(카메라/애니메이션/이벤트) + 키프레임 — sub-step 1/2, [#1830](https://github.com/blas1n/BSEngine/pull/1830)
-- [ ] 에디터에서 타임라인 편집 UI(트랙 뷰, 스크러빙) — 트랙 뷰·스크러빙·미리보기는
-  sub-step 2/2a([#1831](https://github.com/blas1n/BSEngine/pull/1831))로 완료.
-  **키프레임 편집/저장(2/2b)만 남았고, 그게 로드맵 전체에서 남은 유일한 항목이다.**
+- [x] 에디터에서 타임라인 편집 UI(트랙 뷰, 스크러빙) — 트랙 뷰·스크러빙·미리보기는
+  sub-step 2/2a([#1831](https://github.com/blas1n/BSEngine/pull/1831)),
+  키프레임 편집·저장은 sub-step 2/2b([#1832](https://github.com/blas1n/BSEngine/pull/1832))
 - [x] 스크립팅으로 타임라인 재생 트리거 — sub-step 1/2
 - [x] 데모(짧은 컷신)로 검증 — `games/cutscene-demo`, 11번째 E2E 녹화
 - [x] 테스트 추가, CI 통과 — sub-step 1/2 범위
 
-**sub-step 2/2b(키프레임 편집 + 저장)를 시작하기 전에 알아야 할 것 — 2/2a에서 이미
-만들어 둔 것들이다:**
+**item 57 완료. 이로써 ENGINE_ROADMAP의 모든 번호 항목(1~57)이 완료됐고, 남은 미체크
+박스는 item 55의 '단일 실행 파일' 하나뿐이며 그건 의도적으로 범위 밖에 둔 것이다**
+(패키징은 `exe + project.toml + game.pak`까지 출하했고, 아카이브를 실행 파일에 임베드하는
+것은 하지 않기로 했다).
+
+**타임라인 패널을 이어서 건드릴 사람이 알아야 할 것:**
 - 패널은 `crates/bsengine-rhi-wgpu/src/panels/timeline.rs`, dock id는 `"timeline"`
   (출하됐으므로 **불변** — 바꾸면 저장된 레이아웃이 조용히 탭을 버린다). 기본 레이아웃엔
   없고 Window 메뉴가 레지스트리 키를 열거해 띄운다(셰이더 그래프와 동일).
-- **히트테스트용 지오메트리는 이미 노출돼 있다**: `time_to_x`/`x_to_time`(왕복 검증됨),
-  `last_lane_rects`, `last_key_positions`(`(트랙 인덱스, 키 인덱스)` → `Pos2`). 키 드래그는
-  마지막 것에 히트테스트하면 되고, 새로 노출할 게 없다.
-- 로딩은 `load()`, 진입로 우선순위는 `resolve_source()`에 있다. 저장은 `path`(로드된 파일)
-  를 쓰고 `path_buffer`(입력 중인 텍스트)를 쓰면 안 된다 — 둘이 갈라져 있는 이유가 그것.
-- ⚠️ **`scrubbing_never_writes_to_the_timeline_file`이 2/2a의 경계를 박아 놓은 테스트다.**
-  2/2b는 이 테스트를 *의도적으로* 다시 써야 한다(스크럽은 여전히 안 쓰고, 저장만 쓴다).
-  그냥 지우지 말 것 — 지운다면 그게 곧 "쓰기 경로가 생겼다"는 사실의 기록이어야 한다.
-- ⚠️ **egui 테스트 하니스의 프레임 규칙**(`shadergraph.rs`에서 물려받음): press는 *이전*
-  프레임 rect에 히트테스트되므로 `settle()`이 두 프레임을 돈다. `is_decidedly_dragging`이
-  `!any_pressed()`를 요구하므로 **press는 자기 프레임 단독**이어야 하고, `drag_to()`가
-  `dragged()`가 처음 참이 되는 프레임이다. 키 드래그는 이 규칙 위에서만 동작한다.
+- ⚠️ **드래그는 `interact_pointer_pos()`가 아니라 `press_origin()`으로 잡아야 한다.**
+  egui는 눌린 채로 포인터가 *처음 움직인* 프레임에 drag_started를 보고하므로, 그 시점의
+  interact 위치는 이미 목적지로 가 있다. 이걸 몰라서 2/2b의 모든 키 드래그가 조용히
+  실패했다. `shadergraph.rs`에 같은 주석이 이미 있었다.
+- ⚠️ **키 이동은 remove-retime-reinsert다.** 정렬 불변식을 매 프레임 유지하면서 동시에
+  드래그가 쥐고 있던 인덱스를 갱신해준다. assign-then-sort로 바꾸면 드래그가 엉뚱한 키를
+  쥐고, 시간이 같은 키가 둘이면 복구 자체가 불가능하다.
+- ⚠️ **저장은 인라인 주석을 잃고 파일을 약 2배로 늘린다**(intro.ron 25줄 → 48줄).
+  `Timeline(` 같은 타입 이름은 `struct_names(true)`로 지킨다 — 기본값은 그걸 버려서
+  파일이 자기가 뭔지 말하지 않게 된다. **테스트로는 안 잡힌다**(전부 같은 직렬화기를
+  왕복하므로). 실제 출력을 눈으로 봐야 보인다.
+- Ctrl+Z는 **씬 undo**다. 타임라인 undo는 패널 버튼 전용이고, `request_undo`(소비자가
+  이미 하나 있는 전역 플래그)를 건드리지 않는다 — 소비자가 둘이 되면 실패가 조용해진다.
 - 미리보기는 `InspectorState.timeline_preview`로 나가고, 카메라는
   `update_editor_camera` 안에서, 애니메이션은 `bsengine-editor/src/timeline_preview.rs`
   에서 소비한다. 스케줄링 제약은 **하나도 없다** — 그대로 두는 게 좋다.
+- 범위 밖으로 남긴 것: 키 다중 선택/박스 선택, 복사·붙여넣기, 그리드 스냅, 시간축 줌,
+  트랙 순서 변경.
 
 ---
 

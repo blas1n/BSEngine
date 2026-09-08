@@ -2808,26 +2808,33 @@ own client-authoritative transforms"라고 명시). 클라이언트가 자기 �
 
 **완료 조건:**
 - [x] `Timeline` 에셋 — 트랙(카메라/애니메이션/이벤트) + 키프레임 — sub-step 1/2, [#1830](https://github.com/blas1n/BSEngine/pull/1830)
-- [ ] 에디터에서 타임라인 편집 UI(트랙 뷰, 스크러빙) — **sub-step 2/2, 남은 유일한 항목**
+- [ ] 에디터에서 타임라인 편집 UI(트랙 뷰, 스크러빙) — 트랙 뷰·스크러빙·미리보기는
+  sub-step 2/2a([#1831](https://github.com/blas1n/BSEngine/pull/1831))로 완료.
+  **키프레임 편집/저장(2/2b)만 남았고, 그게 로드맵 전체에서 남은 유일한 항목이다.**
 - [x] 스크립팅으로 타임라인 재생 트리거 — sub-step 1/2
 - [x] 데모(짧은 컷신)로 검증 — `games/cutscene-demo`, 11번째 E2E 녹화
 - [x] 테스트 추가, CI 통과 — sub-step 1/2 범위
 
-**sub-step 2/2를 시작하기 전에 알아야 할 것 (1/2에서 실제로 확인한 사실):**
-- `Timeline`과 순수 함수 `evaluate(timeline, time)`는 **`bsengine-core`**에 있다. 이게
-  에디터 패널을 가능하게 하는 조건이다 — `bsengine-app`은 `bsengine-rhi-wgpu`의
-  **dev-dependency 전용**이라 패널이 `LoadedTimelines`를 런타임에 쓸 수 없다.
-- `ron`은 이미 패널 크레이트의 런타임 의존성이다(item 50 sub-step 2/2에서 셰이더 그래프
-  패널이 `.ron`을 직접 열고 저장하느라 승격됨). 이번엔 `Cargo.toml` 변경이 필요 없다.
-- **에디터 앱은 `bsengine-app` 게임플레이 플러그인을 하나도 등록하지 않는다** —
-  `TimelinePlugin`도 `TerrainPlugin`도 없다. 저작 호스트지 시뮬레이션 호스트가 아니므로,
-  스크러빙은 재생 시스템을 돌리는 게 아니라 `evaluate`를 직접 호출해야 한다.
-- ⚠️ **트랙 뷰는 거의 전부 painter-drawn이다** — 레인은 `Shape::Rect`, 키는 원/다이아몬드,
-  플레이헤드는 선. 갤리를 걷는 기존 헬퍼는 이 중 아무것도 못 찾는다. 이 프로젝트는
-  하드코딩된 클릭 좌표를 금지하므로(item 50), `shadergraph.rs`의 `last_port_positions`와
-  같은 것을 **처음부터** 노출해야 한다. 좌표를 그대로 노출하는 것보다 **시간↔x 매핑**을
-  노출하는 쪽이 낫다: 테스트가 `time_to_x(2.5)`에서 눌러 플레이헤드가 2.5초를 읽는지
-  왕복 검사할 수 있고, 그게 실제로 틀릴 수 있는 바로 그 부분이다.
+**sub-step 2/2b(키프레임 편집 + 저장)를 시작하기 전에 알아야 할 것 — 2/2a에서 이미
+만들어 둔 것들이다:**
+- 패널은 `crates/bsengine-rhi-wgpu/src/panels/timeline.rs`, dock id는 `"timeline"`
+  (출하됐으므로 **불변** — 바꾸면 저장된 레이아웃이 조용히 탭을 버린다). 기본 레이아웃엔
+  없고 Window 메뉴가 레지스트리 키를 열거해 띄운다(셰이더 그래프와 동일).
+- **히트테스트용 지오메트리는 이미 노출돼 있다**: `time_to_x`/`x_to_time`(왕복 검증됨),
+  `last_lane_rects`, `last_key_positions`(`(트랙 인덱스, 키 인덱스)` → `Pos2`). 키 드래그는
+  마지막 것에 히트테스트하면 되고, 새로 노출할 게 없다.
+- 로딩은 `load()`, 진입로 우선순위는 `resolve_source()`에 있다. 저장은 `path`(로드된 파일)
+  를 쓰고 `path_buffer`(입력 중인 텍스트)를 쓰면 안 된다 — 둘이 갈라져 있는 이유가 그것.
+- ⚠️ **`scrubbing_never_writes_to_the_timeline_file`이 2/2a의 경계를 박아 놓은 테스트다.**
+  2/2b는 이 테스트를 *의도적으로* 다시 써야 한다(스크럽은 여전히 안 쓰고, 저장만 쓴다).
+  그냥 지우지 말 것 — 지운다면 그게 곧 "쓰기 경로가 생겼다"는 사실의 기록이어야 한다.
+- ⚠️ **egui 테스트 하니스의 프레임 규칙**(`shadergraph.rs`에서 물려받음): press는 *이전*
+  프레임 rect에 히트테스트되므로 `settle()`이 두 프레임을 돈다. `is_decidedly_dragging`이
+  `!any_pressed()`를 요구하므로 **press는 자기 프레임 단독**이어야 하고, `drag_to()`가
+  `dragged()`가 처음 참이 되는 프레임이다. 키 드래그는 이 규칙 위에서만 동작한다.
+- 미리보기는 `InspectorState.timeline_preview`로 나가고, 카메라는
+  `update_editor_camera` 안에서, 애니메이션은 `bsengine-editor/src/timeline_preview.rs`
+  에서 소비한다. 스케줄링 제약은 **하나도 없다** — 그대로 두는 게 좋다.
 
 ---
 

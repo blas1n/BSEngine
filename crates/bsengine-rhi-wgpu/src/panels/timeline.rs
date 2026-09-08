@@ -867,15 +867,16 @@ mod tests {
         );
     }
 
-    /// The boundary this sub-step is defined by. Editing and saving are
-    /// sub-step 2/2b; until then a scrub must not be able to reach the file.
+    /// Only Save writes. Scrubbing and previewing still must not, which was
+    /// 2/2a's whole boundary -- this is that test rewritten rather than
+    /// deleted, so the guarantee narrowed on purpose instead of lapsing.
     ///
     /// Asserts the bytes rather than the modification time, because a write
-    /// that happens to produce identical content is still a write path that
-    /// should not exist yet -- and mtime granularity is coarse enough on some
-    /// filesystems to miss a fast one.
+    /// that happens to produce identical content is still a write path, and
+    /// mtime granularity is coarse enough on some filesystems to miss a fast
+    /// one.
     #[test]
-    fn scrubbing_never_writes_to_the_timeline_file() {
+    fn only_saving_writes_to_the_timeline_file() {
         let file = write_timeline(&four_track_timeline());
         let before = std::fs::read(&file.0).expect("read back");
 
@@ -892,10 +893,18 @@ mod tests {
             h.release(egui::pos2(x, y));
         }
 
-        let after = std::fs::read(&file.0).expect("read back");
         assert_eq!(
-            before, after,
-            "sub-step 2/2a is read-only: scrubbing must not touch the file"
+            before,
+            std::fs::read(&file.0).expect("read back"),
+            "scrubbing and previewing must still not touch the file"
+        );
+
+        h.panel.save().expect("save");
+        assert_ne!(
+            before,
+            std::fs::read(&file.0).expect("read back"),
+            "and Save must actually write -- otherwise the assertion above \
+             passes for a panel with no write path at all"
         );
     }
 

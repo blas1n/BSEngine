@@ -24,7 +24,7 @@ use bevy_app::{App, Plugin, Update};
 use bevy_ecs::prelude::*;
 use bsengine_core::{
     animations_between, evaluate, events_between, AnimationPlayer, Camera, Time, Timeline,
-    TimelinePlayer, Transform,
+    TimelineEvents, TimelinePlayer, Transform,
 };
 use bsengine_scene::Name;
 
@@ -69,14 +69,6 @@ impl LoadedTimelines {
         self.by_path.get(path).and_then(Option::as_ref)
     }
 }
-
-/// Timeline events fired this frame, for scripts to read.
-///
-/// Cleared at the start of every playback pass, so an event is visible for
-/// exactly the frame it happened on. A queue that accumulated would make a
-/// script see the cutscene's ending long after it ended.
-#[derive(Resource, Default, Debug)]
-pub struct TimelineEvents(pub Vec<String>);
 
 /// Advances every playing [`TimelinePlayer`] and applies what its timeline says.
 pub struct TimelinePlugin;

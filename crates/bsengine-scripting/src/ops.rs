@@ -831,6 +831,16 @@ pub enum ScriptCommand {
         /// Name of the animation clip to play.
         clip: String,
     },
+    /// Start (or restart from the beginning) an entity's timeline.
+    PlayTimeline {
+        /// Name of the entity carrying the `TimelinePlayer`.
+        name: String,
+    },
+    /// Stop an entity's timeline where it is.
+    StopTimeline {
+        /// Name of the entity carrying the `TimelinePlayer`.
+        name: String,
+    },
     /// Pause an entity's currently playing animation.
     PauseAnimation {
         /// Name of the entity to modify.
@@ -1526,6 +1536,14 @@ thread_local! {
     /// keyboard answers for it. **That fallback is what keeps every existing
     /// single-player script working unchanged**, and it is why introducing this
     /// map changes no behaviour on its own.
+    /// Whether each named entity's timeline is playing, and the events its
+    /// timeline fired this frame.
+    ///
+    /// Events live here rather than in a queue a script drains, so a script
+    /// sees a cutscene's beat on the frame it happens and never afterwards --
+    /// the same reason `TimelineEvents` is cleared every pass.
+    pub(crate) static TIMELINE_SNAPSHOT: RefCell<(HashMap<String, bool>, Vec<String>)> =
+        RefCell::new((HashMap::new(), Vec::new()));
     pub(crate) static REMOTE_INPUT: RefCell<HashMap<String, HashSet<String>>> =
         RefCell::new(HashMap::new());
     /// The same, as of the previous frame, so just-pressed and just-released can
@@ -2975,6 +2993,34 @@ pub fn bsengine_play_animation(#[string] name: String, #[string] clip: String) {
         c.borrow_mut()
             .push(ScriptCommand::PlayAnimation { name, clip })
     });
+}
+
+/// Queue starting an entity's timeline from the beginning.
+#[op2(fast)]
+pub fn bsengine_play_timeline(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::PlayTimeline { name }));
+}
+
+/// Queue stopping an entity's timeline where it stands.
+#[op2(fast)]
+pub fn bsengine_stop_timeline(#[string] name: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::StopTimeline { name }));
+}
+
+/// Whether an entity's timeline is currently advancing.
+#[op2(fast)]
+pub fn bsengine_is_timeline_playing(#[string] name: String) -> bool {
+    TIMELINE_SNAPSHOT.with(|s| s.borrow().0.get(&name).copied().unwrap_or(false))
+}
+
+/// Whether the named timeline event fired **this frame**.
+///
+/// Deliberately a this-frame question rather than a drainable queue: a cutscene
+/// beat is a moment, and a script that polled a queue would see the ending long
+/// after it happened -- or miss it entirely if something else drained first.
+#[op2(fast)]
+pub fn bsengine_timeline_event_fired(#[string] name: String) -> bool {
+    TIMELINE_SNAPSHOT.with(|s| s.borrow().1.iter().any(|fired| *fired == name))
 }
 
 /// Queue pausing an entity's currently playing animation.
@@ -5911,6 +5957,10 @@ deno_core::extension!(
         bsengine_set_camera_near,
         bsengine_set_camera_far,
         bsengine_play_animation,
+        bsengine_play_timeline,
+        bsengine_stop_timeline,
+        bsengine_is_timeline_playing,
+        bsengine_timeline_event_fired,
         bsengine_pause_animation,
         bsengine_resume_animation,
         bsengine_reset_animation,

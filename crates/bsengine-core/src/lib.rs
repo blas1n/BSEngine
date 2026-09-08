@@ -154,7 +154,7 @@ pub use taa::Taa;
 pub use time::Time;
 pub use timeline::{
     animations_between, evaluate, events_between, AnimationKey, CameraKey, CameraPose, EventKey,
-    ShotCut, Timeline, TimelinePlayer, Track,
+    ShotCut, Timeline, TimelineEvents, TimelinePlayer, Track,
 };
 pub use timer::Timer;
 pub use tone_map::{ToneMap, ToneMappingMode};

@@ -133,6 +133,21 @@ impl Default for TimelinePlayer {
     }
 }
 
+/// Timeline events fired this frame.
+///
+/// # Why this lives in core
+///
+/// `bsengine-app` produces it (it runs the timeline) and `bsengine-scripting`
+/// consumes it (a script asks whether a beat happened). Neither crate depends on
+/// the other and neither should, so they meet here — the same route
+/// [`crate::net_input`] uses for player input, and for the same reason.
+///
+/// Cleared every playback pass, so an event is visible for exactly the frame it
+/// happened on. A queue that accumulated would let a script see a cutscene's
+/// ending long after it ended.
+#[derive(bevy_ecs::prelude::Resource, Default, Debug, Clone)]
+pub struct TimelineEvents(pub Vec<String>);
+
 /// Where the camera should be, as of some instant.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CameraPose {

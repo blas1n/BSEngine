@@ -968,6 +968,7 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     app.register_type::<bsengine_core::Lifetime>();
     app.register_type::<bsengine_core::LightProbeVolume>();
     app.register_type::<bsengine_core::NetworkId>();
+    app.register_type::<bsengine_core::TimelinePlayer>();
     app.register_type::<bsengine_core::PrefabInstance>();
     app.register_type::<bsengine_core::PrefabInstanceBaseline>();
     app.register_type::<bsengine_core::SaveData>();

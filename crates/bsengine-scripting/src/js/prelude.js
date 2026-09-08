@@ -597,6 +597,18 @@ var Bsengine = {
         setBrake:    (name, v) => Deno.core.ops.bsengine_vehicle_set_brake(name, v),
     },
 
+    // Cutscenes. `play` restarts from the beginning, because "play the intro"
+    // meaning "resume wherever it was left" is the surprising reading.
+    // `eventFired` asks about *this frame*, not about a queue: a beat is a
+    // moment, and a queue would let a script see the ending long after it
+    // happened.
+    timeline: {
+        play:       (name) => Deno.core.ops.bsengine_play_timeline(name),
+        stop:       (name) => Deno.core.ops.bsengine_stop_timeline(name),
+        isPlaying:  (name) => Deno.core.ops.bsengine_is_timeline_playing(name),
+        eventFired: (name) => Deno.core.ops.bsengine_timeline_event_fired(name),
+    },
+
     loadScene:      (path)                 => Deno.core.ops.bsengine_load_scene(path),
 
     save:           (path)                 => Deno.core.ops.bsengine_save_game(path ?? 'save.json'),

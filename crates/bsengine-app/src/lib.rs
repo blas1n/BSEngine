@@ -53,7 +53,7 @@ pub use shield::ShieldPlugin;
 pub use terrain::TerrainPlugin;
 pub use terrain_brush::TerrainBrushPlugin;
 pub use time::TimePlugin;
-pub use timeline_playback::{TimelineEvents, TimelinePlugin};
+pub use timeline_playback::TimelinePlugin;
 pub use timer::TimerPlugin;
 pub use tween::TweenPlugin;
 

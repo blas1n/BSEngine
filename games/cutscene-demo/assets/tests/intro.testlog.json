@@ -80,6 +80,19 @@
       "label": "Bounded on both sides: the cut is exact, so a camera merely 'somewhere past the dolly' is not the same as one at the shot."
     },
     {
+      "cmd": "assert",
+      "query": {
+        "tool": "get_hud_text",
+        "args": {
+          "id": "playing"
+        }
+      },
+      "path": "",
+      "op": "==",
+      "value": "yes",
+      "label": "isPlaying while the cutscene is mid-flight. Paired with the reading after the stop below: 'no' at the end proves nothing on its own, since a timeline that never started also reads 'no'."
+    },
+    {
       "cmd": "step",
       "frames": 140
     },
@@ -95,6 +108,19 @@
       "op": "==",
       "value": "intro complete",
       "label": "The event track fired at t=5.5 and the script saw it on that frame. This is the only assertion covering the event path end to end -- script trigger, playback, and eventFired."
+    },
+    {
+      "cmd": "assert",
+      "query": {
+        "tool": "get_hud_text",
+        "args": {
+          "id": "playing"
+        }
+      },
+      "path": "",
+      "op": "==",
+      "value": "no",
+      "label": "And the stop the script issued on that same frame took effect. Paired with the 'yes' above, which is what rules out a timeline that simply never started."
     }
   ]
 }

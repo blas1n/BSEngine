@@ -14,4 +14,10 @@ function onUpdate(name) {
         Bsengine.setHudText("cutscene", "intro complete");
         Bsengine.timeline.stop(name);
     }
+
+    // Reported every frame so the recording can read it both during the
+    // cutscene and after the stop above. Without the second reading nothing
+    // observes that stopping took effect -- `stop` would be a call the demo
+    // makes and never checks.
+    Bsengine.setHudText("playing", Bsengine.timeline.isPlaying(name) ? "yes" : "no");
 }

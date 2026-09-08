@@ -450,6 +450,206 @@ impl TimelinePanel {
         }
     }
 
+    /// Adds a key to the selected key's track, at the playhead.
+    ///
+    /// A camera key takes the editor camera's position and target, which are
+    /// exactly a `CameraKey`'s `position` and `look_at` -- so framing a shot
+    /// and pressing Add is the whole gesture. The other kinds have no such
+    /// source and start empty, which reads as incomplete rather than plausibly
+    /// wrong.
+    fn add_key(&mut self, insp: &bsengine_core::InspectorState) {
+        use bsengine_core::timeline::{AnimationKey, CameraKey, EventKey, ShotCut};
+
+        let Some((track_index, _)) = self.selected_key else {
+            self.status = Some("select a key first, to say which track".to_string());
+            return;
+        };
+        self.push_undo();
+        let time = self.time;
+        let (cam_pos, cam_target) = (insp.editor_cam_pos, insp.cam_target);
+        let Some(track) = self
+            .timeline
+            .as_mut()
+            .and_then(|t| t.tracks.get_mut(track_index))
+        else {
+            return;
+        };
+        let at = match track {
+            Track::Camera { keys } => {
+                let at = keys.partition_point(|k| k.time <= time);
+                keys.insert(
+                    at,
+                    CameraKey {
+                        time,
+                        position: cam_pos,
+                        look_at: cam_target,
+                    },
+                );
+                at
+            }
+            Track::CameraShot { cuts } => {
+                let at = cuts.partition_point(|k| k.time <= time);
+                cuts.insert(
+                    at,
+                    ShotCut {
+                        time,
+                        entity: String::new(),
+                    },
+                );
+                at
+            }
+            Track::Animation { keys, .. } => {
+                let at = keys.partition_point(|k| k.time <= time);
+                keys.insert(
+                    at,
+                    AnimationKey {
+                        time,
+                        clip: String::new(),
+                    },
+                );
+                at
+            }
+            Track::Event { keys } => {
+                let at = keys.partition_point(|k| k.time <= time);
+                keys.insert(
+                    at,
+                    EventKey {
+                        time,
+                        name: String::new(),
+                    },
+                );
+                at
+            }
+        };
+        self.selected_key = Some((track_index, at));
+        self.dirty = true;
+    }
+
+    /// Removes the selected key.
+    fn delete_selected(&mut self) {
+        let Some((track_index, key_index)) = self.selected_key else {
+            return;
+        };
+        self.push_undo();
+        if let Some(track) = self
+            .timeline
+            .as_mut()
+            .and_then(|t| t.tracks.get_mut(track_index))
+        {
+            match track {
+                Track::Camera { keys } if key_index < keys.len() => {
+                    keys.remove(key_index);
+                }
+                Track::CameraShot { cuts } if key_index < cuts.len() => {
+                    cuts.remove(key_index);
+                }
+                Track::Animation { keys, .. } if key_index < keys.len() => {
+                    keys.remove(key_index);
+                }
+                Track::Event { keys } if key_index < keys.len() => {
+                    keys.remove(key_index);
+                }
+                _ => {}
+            }
+        }
+        self.selected_key = None;
+        self.dirty = true;
+    }
+
+    /// Appends a track.
+    fn add_track(&mut self, track: Track) {
+        self.push_undo();
+        if let Some(timeline) = self.timeline.as_mut() {
+            timeline.tracks.push(track);
+        }
+        self.dirty = true;
+    }
+
+    /// Removes a track, and clears the selection, which named a track index
+    /// that may no longer mean the same track.
+    fn delete_track(&mut self, index: usize) {
+        self.push_undo();
+        if let Some(timeline) = self.timeline.as_mut() {
+            if index < timeline.tracks.len() {
+                timeline.tracks.remove(index);
+            }
+        }
+        self.selected_key = None;
+        self.dirty = true;
+    }
+
+    /// Draws editors for the selected key's fields.
+    ///
+    /// Ordinary widgets in their own strip rather than floating over the
+    /// painter-drawn canvas: no coordinate arithmetic, and their labels are
+    /// reachable by the galley-walking test helper, which cannot see a rect or
+    /// a circle.
+    fn draw_value_strip(&mut self, ui: &mut egui::Ui) {
+        self.value_strip_shown = false;
+        let Some((track_index, key_index)) = self.selected_key else {
+            return;
+        };
+        // Both `self` writes happen before the mutable borrow below is taken:
+        // setting a field on `self` while `track` is alive is a borrow error,
+        // and that borrow lives until its last use inside the closure.
+        if self
+            .timeline
+            .as_ref()
+            .and_then(|t| t.tracks.get(track_index))
+            .is_none()
+        {
+            return;
+        }
+        self.value_strip_shown = true;
+        ui.separator();
+
+        let mut changed = false;
+        let Some(track) = self
+            .timeline
+            .as_mut()
+            .and_then(|t| t.tracks.get_mut(track_index))
+        else {
+            return;
+        };
+        ui.horizontal(|ui| match track {
+            Track::Camera { keys } if key_index < keys.len() => {
+                let key = &mut keys[key_index];
+                ui.label("position");
+                for a in key.position.iter_mut() {
+                    changed |= ui.add(egui::DragValue::new(a).speed(0.05_f32)).changed();
+                }
+                ui.label("look at");
+                for a in key.look_at.iter_mut() {
+                    changed |= ui.add(egui::DragValue::new(a).speed(0.05_f32)).changed();
+                }
+            }
+            Track::CameraShot { cuts } if key_index < cuts.len() => {
+                ui.label("entity");
+                changed |= ui
+                    .add(egui::TextEdit::singleline(&mut cuts[key_index].entity))
+                    .changed();
+            }
+            Track::Animation { keys, entity } if key_index < keys.len() => {
+                ui.label("entity");
+                changed |= ui.add(egui::TextEdit::singleline(entity)).changed();
+                ui.label("clip");
+                changed |= ui
+                    .add(egui::TextEdit::singleline(&mut keys[key_index].clip))
+                    .changed();
+            }
+            Track::Event { keys } if key_index < keys.len() => {
+                ui.label("name");
+                changed |= ui
+                    .add(egui::TextEdit::singleline(&mut keys[key_index].name))
+                    .changed();
+            }
+            _ => {}
+        });
+        if changed {
+            self.dirty = true;
+        }
+    }
+
     /// Saves and clears the dirty flag.
     ///
     /// Separate from [`TimelinePanel::save`] so `save` stays a pure write with
@@ -535,6 +735,92 @@ impl TimelinePanel {
     fn set_duration_for_test(&mut self, duration: f32) {
         if let Some(t) = self.timeline.as_mut() {
             t.duration = duration;
+        }
+    }
+
+    #[cfg(test)]
+    fn add_key_for_test(&mut self, insp: &bsengine_core::InspectorState) {
+        self.add_key(insp);
+    }
+
+    #[cfg(test)]
+    fn delete_selected_for_test(&mut self) {
+        self.delete_selected();
+    }
+
+    #[cfg(test)]
+    fn add_track_for_test(&mut self, track: Track) {
+        self.add_track(track);
+    }
+
+    #[cfg(test)]
+    fn delete_track_for_test(&mut self, index: usize) {
+        self.delete_track(index);
+    }
+
+    #[cfg(test)]
+    fn set_time_for_test(&mut self, time: f32) {
+        self.time = time;
+    }
+
+    #[cfg(test)]
+    fn select_for_test(&mut self, track: usize, key: usize) {
+        self.selected_key = Some((track, key));
+    }
+
+    /// A camera key's authored values, for the capture test.
+    #[cfg(test)]
+    fn camera_key_values_for_test(&self, track: usize, key: usize) -> ([f32; 3], [f32; 3]) {
+        match self.timeline.as_ref().and_then(|t| t.tracks.get(track)) {
+            Some(Track::Camera { keys }) => (keys[key].position, keys[key].look_at),
+            _ => panic!("track {track} is not a camera track"),
+        }
+    }
+
+    /// An event key's name, for the empty-add and value tests.
+    #[cfg(test)]
+    fn event_name_for_test(&self, track: usize, key: usize) -> String {
+        match self.timeline.as_ref().and_then(|t| t.tracks.get(track)) {
+            Some(Track::Event { keys }) => keys[key].name.clone(),
+            _ => panic!("track {track} is not an event track"),
+        }
+    }
+
+    /// Edits the selected camera key's position, standing in for the drag the
+    /// value strip's `DragValue` performs.
+    #[cfg(test)]
+    fn set_camera_position_for_test(&mut self, position: [f32; 3]) {
+        let Some((t, k)) = self.selected_key else {
+            return;
+        };
+        if let Some(Track::Camera { keys }) =
+            self.timeline.as_mut().and_then(|tl| tl.tracks.get_mut(t))
+        {
+            keys[k].position = position;
+            self.dirty = true;
+        }
+    }
+
+    /// Edits the selected shot key's entity, standing in for typing into the
+    /// value strip's `TextEdit`.
+    #[cfg(test)]
+    fn set_shot_entity_for_test(&mut self, entity: &str) {
+        let Some((t, k)) = self.selected_key else {
+            return;
+        };
+        if let Some(Track::CameraShot { cuts }) =
+            self.timeline.as_mut().and_then(|tl| tl.tracks.get_mut(t))
+        {
+            cuts[k].entity = entity.to_string();
+            self.dirty = true;
+        }
+    }
+
+    #[cfg(test)]
+    fn shot_entity_for_test(&self, track: usize, key: usize) -> String {
+        match self.timeline.as_ref().and_then(|t| t.tracks.get(track)) {
+            Some(Track::CameraShot { cuts }) => cuts[key].entity.clone(),
+            _ => panic!("track {track} is not a shot track"),
         }
     }
 
@@ -831,8 +1117,54 @@ impl EditorPanel for TimelinePanel {
             }
         }
 
+        // The editing row. In `ui` rather than `draw_tracks` because the
+        // camera capture needs `ctx.insp`, which `draw_tracks` has no access
+        // to.
+        ui.horizontal(|ui| {
+            let has_selection = self.selected_key.is_some();
+            if ui
+                .add_enabled(has_selection, egui::Button::new("Add Key"))
+                .clicked()
+            {
+                self.add_key(ctx.insp);
+            }
+            if ui
+                .add_enabled(has_selection, egui::Button::new("Delete Key"))
+                .clicked()
+            {
+                self.delete_selected();
+            }
+            ui.menu_button("Add Track", |ui| {
+                let kinds: [(&str, Track); 4] = [
+                    ("Camera", Track::Camera { keys: Vec::new() }),
+                    ("Shots", Track::CameraShot { cuts: Vec::new() }),
+                    (
+                        "Animation",
+                        Track::Animation {
+                            entity: String::new(),
+                            keys: Vec::new(),
+                        },
+                    ),
+                    ("Events", Track::Event { keys: Vec::new() }),
+                ];
+                for (label, track) in kinds {
+                    if ui.button(label).clicked() {
+                        self.add_track(track);
+                        ui.close_menu();
+                        break;
+                    }
+                }
+            });
+            if let Some((track, _)) = self.selected_key {
+                if ui.button("Delete Track").clicked() {
+                    self.delete_track(track);
+                }
+            }
+        });
+
         ui.separator();
         self.draw_tracks(ui);
+        self.draw_value_strip(ui);
 
         // Republished every frame while previewing, and cleared the moment it
         // is not, so a stale request cannot outlive the toggle.
@@ -1327,6 +1659,159 @@ mod tests {
             saved.contains("Camera(") && saved.contains("CameraKey("),
             "variant and key type names too, got:\n{saved}"
         );
+    }
+
+    /// A new camera key carries the editor camera's pose -- "frame the shot,
+    /// then add a key" -- rather than a key at the origin to be retyped.
+    #[test]
+    fn adding_a_camera_key_captures_the_editor_camera() {
+        let mut h = Harness::new(four_track_timeline());
+        h.insp.editor_cam_pos = [3.0, 4.0, 5.0];
+        h.insp.cam_target = [1.0, 2.0, 3.0];
+        h.settle();
+
+        h.panel.select_for_test(0, 0);
+        h.panel.set_time_for_test(2.0);
+        let insp = std::mem::take(&mut h.insp);
+        h.panel.add_key_for_test(&insp);
+        h.insp = insp;
+
+        let (position, look_at) = h.panel.camera_key_values_for_test(0, 1);
+        assert_eq!(position, [3.0, 4.0, 5.0], "not zeros -- the editor camera");
+        assert_eq!(look_at, [1.0, 2.0, 3.0]);
+        assert!((h.panel.key_time_for_test(0, 1) - 2.0).abs() < 1e-6);
+    }
+
+    /// The gap the coverage audit predicted: only the camera kind had an
+    /// add-key test. A non-camera key arrives empty at the playhead, which is
+    /// visibly incomplete rather than plausibly wrong.
+    #[test]
+    fn adding_an_event_key_arrives_empty_at_the_playhead() {
+        let mut h = Harness::new(four_track_timeline());
+        h.settle();
+
+        h.panel.select_for_test(3, 0);
+        h.panel.set_time_for_test(2.0);
+        let insp = std::mem::take(&mut h.insp);
+        h.panel.add_key_for_test(&insp);
+        h.insp = insp;
+
+        assert_eq!(h.panel.key_times_for_test(3).len(), 2);
+        assert!((h.panel.key_time_for_test(3, 0) - 2.0).abs() < 1e-6);
+        assert_eq!(
+            h.panel.event_name_for_test(3, 0),
+            "",
+            "an added event key has no name until one is typed"
+        );
+    }
+
+    /// Delete removes the selected key, and the *right* one.
+    #[test]
+    fn deleting_removes_the_selected_key() {
+        let mut h = Harness::new(four_track_timeline());
+        h.settle();
+        assert_eq!(h.panel.key_times_for_test(0).len(), 2);
+
+        h.panel.select_for_test(0, 0);
+        h.panel.delete_selected_for_test();
+
+        let times = h.panel.key_times_for_test(0);
+        assert_eq!(times.len(), 1);
+        assert!(
+            (times[0] - 6.0).abs() < 1e-6,
+            "the key at 0.0 was selected, so 6.0 is what must be left: {times:?}"
+        );
+    }
+
+    /// Paired: deleting with nothing selected removes nothing.
+    #[test]
+    fn deleting_with_no_selection_removes_nothing() {
+        let mut h = Harness::new(four_track_timeline());
+        h.settle();
+        h.panel.delete_selected_for_test();
+        assert_eq!(h.panel.key_times_for_test(0).len(), 2);
+    }
+
+    /// Adding a track adds a lane, and the new track is empty.
+    #[test]
+    fn adding_a_track_adds_an_empty_lane() {
+        let mut h = Harness::new(four_track_timeline());
+        h.settle();
+        assert_eq!(h.panel.last_lane_rects.len(), 4);
+
+        h.panel
+            .add_track_for_test(Track::Event { keys: Vec::new() });
+        h.settle();
+
+        assert_eq!(h.panel.last_lane_rects.len(), 5);
+        assert!(h.panel.key_times_for_test(4).is_empty());
+    }
+
+    /// Deleting a track removes its lane and re-indexes the keys after it --
+    /// track indices shift, and `last_key_positions` is keyed by them.
+    #[test]
+    fn deleting_a_track_reindexes_the_remaining_keys() {
+        let mut h = Harness::new(four_track_timeline());
+        h.settle();
+
+        // Track 1 is the single-cut shot track; deleting it must slide the
+        // animation track from index 2 to 1.
+        h.panel.delete_track_for_test(1);
+        h.settle();
+
+        assert_eq!(h.panel.last_lane_rects.len(), 3);
+        assert!(
+            (h.panel.key_time_for_test(1, 0) - 0.5).abs() < 1e-6,
+            "the animation key at 0.5 should now be track 1"
+        );
+        assert!(
+            h.panel.last_key_positions.contains_key(&(1, 0)),
+            "recorded positions must be re-keyed to the new indices"
+        );
+        assert!(
+            !h.panel.last_key_positions.contains_key(&(3, 0)),
+            "and the old fourth track must be gone"
+        );
+    }
+
+    /// The value strip edits the selected key in place.
+    #[test]
+    fn editing_a_shot_entity_changes_the_key() {
+        let mut h = Harness::new(four_track_timeline());
+        h.settle();
+        h.panel.select_for_test(1, 0);
+
+        h.panel.set_shot_entity_for_test("NewShot");
+
+        assert_eq!(h.panel.shot_entity_for_test(1, 0), "NewShot");
+        assert!(h.panel.is_dirty(), "a value edit is an edit");
+    }
+
+    /// The second gap the audit predicted: only the shot kind had a value
+    /// test. A camera key's position is editable too.
+    #[test]
+    fn editing_a_camera_position_changes_the_key() {
+        let mut h = Harness::new(four_track_timeline());
+        h.settle();
+        h.panel.select_for_test(0, 0);
+
+        h.panel.set_camera_position_for_test([7.0, 8.0, 9.0]);
+
+        assert_eq!(h.panel.camera_key_values_for_test(0, 0).0, [7.0, 8.0, 9.0]);
+        assert!(h.panel.is_dirty());
+    }
+
+    /// Paired: the strip draws nothing when no key is selected, so it cannot
+    /// edit something the user is not pointing at.
+    #[test]
+    fn the_value_strip_is_absent_without_a_selection() {
+        let mut h = Harness::new(four_track_timeline());
+        h.settle();
+        assert!(!h.panel.value_strip_shown());
+
+        h.panel.select_for_test(1, 0);
+        h.settle();
+        assert!(h.panel.value_strip_shown());
     }
 
     /// An edit marks the panel dirty and the selection can no longer pull the

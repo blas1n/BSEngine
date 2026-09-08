@@ -2218,6 +2218,14 @@ impl Plugin for EditorPlugin {
         app.register_type::<bsengine_core::ReflectQuat>();
         app.add_systems(Update, update_editor_snapshot);
         app.add_systems(Update, update_editor_camera);
+        // No ordering constraint. The Timeline panel publishes during egui and
+        // this consumes on the following frame -- one frame of lag, the same
+        // the terrain brush already lives with, and imperceptible while
+        // dragging a playhead.
+        app.add_systems(
+            Update,
+            crate::timeline_preview::apply_timeline_preview_animation,
+        );
         app.add_systems(Update, populate_inspector.after(update_editor_snapshot));
         app.add_systems(Update, populate_reflected_component_snapshot);
         app.add_systems(

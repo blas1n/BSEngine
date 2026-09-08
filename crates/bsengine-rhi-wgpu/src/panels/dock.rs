@@ -80,6 +80,9 @@ pub fn ensure_builtin_panels(
     map.entry("shadergraph".to_string()).or_insert_with(|| {
         Box::new(crate::panels::ShaderGraphPanel::default()) as Box<dyn EditorPanel>
     });
+    map.entry("timeline".to_string()).or_insert_with(|| {
+        Box::new(crate::panels::TimelinePanel::default()) as Box<dyn EditorPanel>
+    });
 }
 
 /// Loads a previously saved layout. Returns `None` if the file doesn't

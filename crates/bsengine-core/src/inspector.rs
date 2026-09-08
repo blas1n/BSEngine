@@ -424,6 +424,42 @@ pub struct TerrainBrushStroke {
     pub world_pos: [f32; 3],
 }
 
+/// The camera pose the Timeline panel wants previewed this frame.
+///
+/// Carried as a quaternion rather than the euler degrees
+/// [`InspectorEntityInfo`] uses, because the value usually comes straight
+/// from `crate::timeline::CameraPose::rotation()` and a round trip through
+/// euler angles would be a lossy step with nothing to gain.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PreviewCamera {
+    /// World-space camera position.
+    pub position: [f32; 3],
+    /// World-space camera orientation, as `[x, y, z, w]`.
+    pub rotation: [f32; 4],
+    /// Vertical field of view in degrees, when the previewed shot names one.
+    /// `None` leaves the editor camera's own field of view alone.
+    pub fov_y_degrees: Option<f32>,
+}
+
+/// What the Timeline panel wants previewed this frame, or absent when the
+/// panel's **Preview** toggle is off.
+///
+/// A plain [`InspectorState`] field rather than an [`InspectorCmd`] because
+/// this is continuous per-frame state, not a one-shot undoable action -- the
+/// same reasoning that put the terrain brush's drag deltas here. The panel
+/// republishes it every frame it is previewing, so a stale request cannot
+/// outlive the panel that made it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TimelinePreview {
+    /// Where the cutscene camera is at the playhead, if the timeline has a
+    /// camera or shot track. Applied by overriding the editor's
+    /// view-projection, so the scene's own camera entity is never touched.
+    pub camera: Option<PreviewCamera>,
+    /// `(entity name, clip name, time within the clip)` for every animation
+    /// track whose most recent key is at or before the playhead.
+    pub clips: Vec<(String, String, f32)>,
+}
+
 /// Editor-side resource holding the current entity snapshot, selection,
 /// pending edit commands, and all viewport/gizmo/camera UI state.
 #[derive(Resource)]
@@ -506,6 +542,12 @@ pub struct InspectorState {
     // Which viewport gizmo is active for the selected entity.
     /// Which viewport gizmo (translate/rotate) is currently active.
     pub gizmo_mode: GizmoMode,
+
+    /// What the Timeline panel wants previewed this frame; `None` when no
+    /// preview is active. Written by the panel, consumed by
+    /// `bsengine_editor`'s `update_editor_camera` (the camera half) and
+    /// `apply_timeline_preview_animation` (the animation half).
+    pub timeline_preview: Option<TimelinePreview>,
 
     // Terrain brush tool state. See `TerrainBrushKind`/`TerrainBrushSettings`/
     // `TerrainBrushStroke` above for the full picture.
@@ -601,6 +643,7 @@ impl Default for InspectorState {
             editor_proj: [[0.0; 4]; 4],
             editor_cam_pos: [0.0; 3],
             gizmo_mode: GizmoMode::Translate,
+            timeline_preview: None,
             terrain_brush_active: false,
             terrain_brush_settings: TerrainBrushSettings::default(),
             terrain_pick: None,

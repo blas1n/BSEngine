@@ -123,8 +123,8 @@ pub use follow::{Follow, LookAt};
 pub use global_transform::GlobalTransform;
 pub use hud_texts::HudTexts;
 pub use inspector::{
-    EditorPlayState, GizmoMode, InspectorCmd, InspectorEntityInfo, InspectorState,
-    TerrainBrushKind, TerrainBrushSettings, TerrainBrushStroke, PRIMITIVE_KINDS,
+    EditorPlayState, GizmoMode, InspectorCmd, InspectorEntityInfo, InspectorState, PreviewCamera,
+    TerrainBrushKind, TerrainBrushSettings, TerrainBrushStroke, TimelinePreview, PRIMITIVE_KINDS,
 };
 pub use lifetime::Lifetime;
 pub use light::{DirectionalLight, PointLight, SpotLight};

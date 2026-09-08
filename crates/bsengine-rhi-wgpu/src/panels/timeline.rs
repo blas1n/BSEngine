@@ -33,6 +33,14 @@ pub struct TimelinePanel {
     /// file -- the same split `ShaderGraphPanel` uses, and for the same
     /// reason.
     path_buffer: String,
+    /// The comment block that preceded the data in the file as loaded,
+    /// re-emitted verbatim on save.
+    ///
+    /// RON has no comments in its data model, so a parse-and-reserialise loses
+    /// them. `games/cutscene-demo/assets/timelines/intro.ron` carries five
+    /// lines explaining why the demo is shaped as it is, and keeping those is
+    /// worth more than the inline ones this cannot keep.
+    leading_comments: String,
     /// Playhead position, in seconds.
     time: f32,
     /// A path the user opened explicitly, which outranks the selection until
@@ -78,6 +86,7 @@ impl Default for TimelinePanel {
             timeline: None,
             path: None,
             path_buffer: String::new(),
+            leading_comments: String::new(),
             time: 0.0,
             explicit_path: None,
             last_selected_id: None,
@@ -143,9 +152,28 @@ impl TimelinePanel {
             .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
         let timeline: Timeline =
             ron::from_str(&text).map_err(|e| format!("cannot parse {}: {e}", path.display()))?;
+
+        // The maximal prefix of blank and `//` lines. A rule about lines
+        // rather than a RON parse, so it cannot fail on a file it does not
+        // understand.
+        let mut prefix = String::new();
+        for line in text.lines() {
+            let trimmed = line.trim_start();
+            if trimmed.is_empty() || trimmed.starts_with("//") {
+                prefix.push_str(line);
+                prefix.push('\n');
+            } else {
+                break;
+            }
+        }
+        while prefix.ends_with("\n\n") {
+            prefix.pop();
+        }
+
         self.time = self.time.clamp(0.0, timeline.duration);
         self.timeline = Some(timeline);
         self.path = Some(path);
+        self.leading_comments = prefix;
         Ok(())
     }
 
@@ -256,6 +284,56 @@ impl TimelinePanel {
         }
 
         Some(TimelinePreview { camera, clips })
+    }
+
+    /// Writes the timeline back to the file it was loaded from.
+    ///
+    /// Writes `path`, never `path_buffer`: the two are separate precisely so a
+    /// half-typed name in the text box cannot become the file that is written.
+    ///
+    /// Pretty rather than compact for the reason `ShaderGraphPanel::save`
+    /// records -- these are committed assets, and one long line is
+    /// unreviewable in a diff.
+    ///
+    /// # Errors
+    ///
+    /// Returns a message when nothing is open, when serialisation fails, or
+    /// when the write fails. A save that cannot happen must show a status line
+    /// rather than take the editor down.
+    pub fn save(&self) -> Result<(), String> {
+        let path = self
+            .path
+            .as_ref()
+            .ok_or_else(|| "no timeline is open to save to".to_string())?;
+        let timeline = self
+            .timeline
+            .as_ref()
+            .ok_or_else(|| "no timeline is open to save to".to_string())?;
+        // `struct_names(true)` keeps the leading `Timeline(` that hand-written
+        // files carry. The default drops it, and a file that opens with a bare
+        // `(` no longer says what it is -- which matters more here than for
+        // `.shadergraph.ron`, whose committed form never had the name.
+        let body = ron::ser::to_string_pretty(
+            timeline,
+            ron::ser::PrettyConfig::default().struct_names(true),
+        )
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+        let text = format!("{}{body}", self.leading_comments);
+        std::fs::write(path, text).map_err(|e| format!("{}: {e}", path.display()))
+    }
+
+    /// The loaded timeline's duration, for the round-trip test.
+    #[cfg(test)]
+    fn duration_for_test(&self) -> f32 {
+        self.duration()
+    }
+
+    /// Sets the duration, for the round-trip test.
+    #[cfg(test)]
+    fn set_duration_for_test(&mut self, duration: f32) {
+        if let Some(t) = self.timeline.as_mut() {
+            t.duration = duration;
+        }
     }
 
     /// The loaded timeline's duration, or `0.0` when nothing is loaded.
@@ -818,6 +896,104 @@ mod tests {
         assert_eq!(
             before, after,
             "sub-step 2/2a is read-only: scrubbing must not touch the file"
+        );
+    }
+
+    /// Saving writes the data back so a reload sees it. The round trip is what
+    /// exercises save and load together -- asserting on the written text alone
+    /// would pass for a file that cannot be parsed back.
+    #[test]
+    fn saving_then_loading_round_trips_the_timeline() {
+        let file = write_timeline(&four_track_timeline());
+        let mut h = Harness::new(empty_timeline());
+        h.panel.open_for_test(&file.0);
+        h.settle();
+
+        h.panel.set_duration_for_test(9.5);
+        h.panel.save().expect("save");
+
+        let mut reloaded = Harness::new(empty_timeline());
+        reloaded.panel.open_for_test(&file.0);
+        reloaded.settle();
+        assert!(
+            (reloaded.panel.duration_for_test() - 9.5).abs() < 1e-6,
+            "expected the saved 9.5, got {}",
+            reloaded.panel.duration_for_test()
+        );
+    }
+
+    /// A hand-written timeline's leading comments survive a save. RON has no
+    /// comments in its data model, so without this they vanish the first time
+    /// anyone presses Save on a committed asset.
+    #[test]
+    fn saving_keeps_the_leading_comment_block() {
+        let file = write_timeline(&four_track_timeline());
+        let original = std::fs::read_to_string(&file.0).expect("read");
+        std::fs::write(
+            &file.0,
+            format!("// why this cutscene exists\n// second line\n{original}"),
+        )
+        .expect("write");
+
+        let mut h = Harness::new(empty_timeline());
+        h.panel.open_for_test(&file.0);
+        h.settle();
+        h.panel.save().expect("save");
+
+        let saved = std::fs::read_to_string(&file.0).expect("read back");
+        assert!(
+            saved.starts_with("// why this cutscene exists\n// second line\n"),
+            "the leading comments must come back verbatim, got:\n{saved}"
+        );
+    }
+
+    /// Paired with the above: a file with no leading comments must not gain
+    /// any. Without this, an implementation that always writes a header passes
+    /// the test above.
+    #[test]
+    fn saving_a_file_without_comments_invents_none() {
+        let file = write_timeline(&four_track_timeline());
+        let mut h = Harness::new(empty_timeline());
+        h.panel.open_for_test(&file.0);
+        h.settle();
+        h.panel.save().expect("save");
+
+        let saved = std::fs::read_to_string(&file.0).expect("read back");
+        assert!(
+            !saved.starts_with("//"),
+            "nothing was there to preserve, got:\n{saved}"
+        );
+    }
+
+    /// Saving with nothing open is an error value, not a panic. The button is
+    /// disabled in that state, but a disabled button is a UI fact and this is
+    /// the guarantee.
+    #[test]
+    fn saving_with_no_file_open_is_an_error() {
+        let panel = TimelinePanel::default();
+        assert!(panel.save().is_err());
+    }
+
+    /// A saved file still names its types, so it stays as readable as the
+    /// hand-written one it replaces. `PrettyConfig::default()` drops struct
+    /// names, which turns `Timeline(` into a bare `(` -- still parseable, but
+    /// a file that no longer says what it is.
+    #[test]
+    fn a_saved_timeline_still_names_its_types() {
+        let file = write_timeline(&four_track_timeline());
+        let mut h = Harness::new(empty_timeline());
+        h.panel.open_for_test(&file.0);
+        h.settle();
+        h.panel.save().expect("save");
+
+        let saved = std::fs::read_to_string(&file.0).expect("read back");
+        assert!(
+            saved.contains("Timeline("),
+            "the struct name must survive, got:\n{saved}"
+        );
+        assert!(
+            saved.contains("Camera(") && saved.contains("CameraKey("),
+            "variant and key type names too, got:\n{saved}"
         );
     }
 

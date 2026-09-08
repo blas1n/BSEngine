@@ -20,6 +20,51 @@ const LANE_HEIGHT: f32 = 26.0;
 /// Radius of a drawn keyframe marker, in points.
 const KEY_RADIUS: f32 = 5.0;
 
+/// What a press grabbed, decided once and held for the whole drag.
+///
+/// egui reports a drag as started on the frame *after* the press, by which
+/// time the pointer may well have left the key -- so the decision cannot be
+/// re-made per frame. `ShaderGraphPanel` holds node and wire drags the same
+/// way.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Grab {
+    /// The playhead.
+    Scrub,
+    /// A key, by `(track index, key index)`. The index is updated whenever a
+    /// move re-sorts the track, so it always names the key under the pointer.
+    Key { track: usize, key: usize },
+}
+
+/// Moves one key to `new_time`, keeping the track ordered by time, and returns
+/// the index it ended up at.
+///
+/// Remove-retime-reinsert rather than assign-then-sort: it keeps the sort
+/// invariant true on every frame of a drag *and* hands back the moved key's
+/// new index, which is what lets the drag keep hold of the right key when a
+/// move crosses a neighbour. Sorting afterwards would leave the caller
+/// guessing which entry is now theirs, and two keys sharing a time makes that
+/// guess unresolvable.
+fn move_key(track: &mut Track, index: usize, new_time: f32) -> usize {
+    macro_rules! retime {
+        ($keys:expr) => {{
+            if index >= $keys.len() {
+                return index;
+            }
+            let mut key = $keys.remove(index);
+            key.time = new_time;
+            let at = $keys.partition_point(|k| k.time <= new_time);
+            $keys.insert(at, key);
+            at
+        }};
+    }
+    match track {
+        Track::Camera { keys } => retime!(keys),
+        Track::CameraShot { cuts } => retime!(cuts),
+        Track::Animation { keys, .. } => retime!(keys),
+        Track::Event { keys } => retime!(keys),
+    }
+}
+
 /// The Timeline panel: a track view over a cutscene, with a scrubbable
 /// playhead.
 pub struct TimelinePanel {
@@ -51,6 +96,24 @@ pub struct TimelinePanel {
     last_selected_id: Option<u64>,
     /// What the last open did, shown in the toolbar.
     status: Option<String>,
+    /// The key the value strip edits and Delete removes, as
+    /// `(track index, key index)`.
+    selected_key: Option<(usize, usize)>,
+    /// What the in-progress drag grabbed, if one is in progress.
+    dragging: Option<Grab>,
+    /// Whether the loaded timeline has unsaved edits.
+    dirty: bool,
+    /// Timelines as they were before each edit, most recent last.
+    ///
+    /// Whole clones rather than diffs: `Timeline` is a small value type, so
+    /// there is no patch machinery here to get wrong. The editor's own undo
+    /// stack holds `EditorSnapshot`s -- entity and scene state -- and a
+    /// timeline is an asset that is not in them, so the two cannot merge.
+    undo_stack: Vec<Timeline>,
+    /// Timelines undone, for redo. Cleared by any fresh edit.
+    redo_stack: Vec<Timeline>,
+    /// Whether the value strip drew this frame.
+    value_strip_shown: bool,
     /// Whether the panel is publishing a preview request.
     ///
     /// Off by default. Silently turning the viewport into a cutscene camera
@@ -87,6 +150,12 @@ impl Default for TimelinePanel {
             path: None,
             path_buffer: String::new(),
             leading_comments: String::new(),
+            selected_key: None,
+            dragging: None,
+            dirty: false,
+            undo_stack: Vec::new(),
+            redo_stack: Vec::new(),
+            value_strip_shown: false,
             time: 0.0,
             explicit_path: None,
             last_selected_id: None,
@@ -286,6 +355,84 @@ impl TimelinePanel {
         Some(TimelinePreview { camera, clips })
     }
 
+    /// The currently selected key.
+    ///
+    /// Public because the panel's tests assert on selection, and this project
+    /// forbids reaching selection through hardcoded click coordinates.
+    pub fn selected_key(&self) -> Option<(usize, usize)> {
+        self.selected_key
+    }
+
+    /// Whether there are unsaved edits.
+    ///
+    /// Public so tests assert the dirty guard's precondition rather than
+    /// inferring it from behaviour.
+    pub fn is_dirty(&self) -> bool {
+        self.dirty
+    }
+
+    /// How many undo steps are available.
+    ///
+    /// Public so a test can assert a drag produced *one* entry, which is the
+    /// property that separates a correct push-once rule from a stack full of
+    /// near-identical frames.
+    pub fn undo_depth(&self) -> usize {
+        self.undo_stack.len()
+    }
+
+    /// Whether the value strip drew for the current selection.
+    ///
+    /// Public because the strip is conditional and a test must be able to
+    /// assert it stayed away.
+    pub fn value_strip_shown(&self) -> bool {
+        self.value_strip_shown
+    }
+
+    /// The key drawn nearest `pos`, if one is within grabbing distance.
+    ///
+    /// Uses the positions recorded last frame -- the same set the tests press
+    /// at -- so a click that looks like it is on a key is one.
+    fn key_at(&self, pos: egui::Pos2) -> Option<(usize, usize)> {
+        let grab = KEY_RADIUS * 2.0_f32;
+        self.last_key_positions
+            .iter()
+            .filter(|(_, p)| p.distance(pos) <= grab)
+            .min_by(|a, b| a.1.distance(pos).total_cmp(&b.1.distance(pos)))
+            .map(|(k, _)| *k)
+    }
+
+    /// Records the current timeline as an undo point.
+    ///
+    /// Call once per *interaction*, not per frame: a drag spans many frames,
+    /// and pushing on each would bury one edit under dozens of identical
+    /// states so that a single Undo appeared to do nothing.
+    fn push_undo(&mut self) {
+        if let Some(t) = self.timeline.clone() {
+            self.undo_stack.push(t);
+            self.redo_stack.clear();
+        }
+    }
+
+    /// Steps back one edit.
+    pub fn undo(&mut self) {
+        if let (Some(previous), Some(current)) = (self.undo_stack.pop(), self.timeline.clone()) {
+            self.redo_stack.push(current);
+            self.timeline = Some(previous);
+            self.dirty = true;
+            self.selected_key = None;
+        }
+    }
+
+    /// Steps forward one undone edit.
+    pub fn redo(&mut self) {
+        if let (Some(next), Some(current)) = (self.redo_stack.pop(), self.timeline.clone()) {
+            self.undo_stack.push(current);
+            self.timeline = Some(next);
+            self.dirty = true;
+            self.selected_key = None;
+        }
+    }
+
     /// Writes the timeline back to the file it was loaded from.
     ///
     /// Writes `path`, never `path_buffer`: the two are separate precisely so a
@@ -334,6 +481,23 @@ impl TimelinePanel {
         if let Some(t) = self.timeline.as_mut() {
             t.duration = duration;
         }
+    }
+
+    /// One key's time. For tests, which must not reach into the timeline.
+    #[cfg(test)]
+    fn key_time_for_test(&self, track: usize, key: usize) -> f32 {
+        self.key_times_for_test(track)[key]
+    }
+
+    /// Every key time in a track, in stored order -- so a test can assert the
+    /// order itself and not merely the values.
+    #[cfg(test)]
+    fn key_times_for_test(&self, track: usize) -> Vec<f32> {
+        self.timeline
+            .as_ref()
+            .and_then(|t| t.tracks.get(track))
+            .map(Self::track_key_times)
+            .unwrap_or_default()
     }
 
     /// The loaded timeline's duration, or `0.0` when nothing is loaded.
@@ -449,8 +613,52 @@ impl TimelinePanel {
             egui::pos2(full.right(), lanes_top + lanes_height),
         );
         let response = ui.allocate_rect(scrub_area, egui::Sense::click_and_drag());
-        if let Some(pointer) = response.interact_pointer_pos() {
-            self.time = self.x_to_time(pointer.x);
+
+        // Decide once what the press grabbed, and push a single undo point for
+        // the whole drag -- not per frame, which would bury the edit.
+        if response.drag_started() || response.clicked() {
+            // The press origin, not `interact_pointer_pos()`: egui reports a
+            // drag as started on the frame the pointer first *moved* while
+            // held, and by then the interact position has advanced to where it
+            // moved to. Grabbing there misses the key whenever the first frame
+            // of movement exceeds the grab radius -- which is every drag worth
+            // making. `ShaderGraphPanel` grabs ports the same way.
+            let press = ui
+                .ctx()
+                .input(|i| i.pointer.press_origin())
+                .or_else(|| response.interact_pointer_pos());
+            let grabbed = press.and_then(|p| self.key_at(p));
+            self.selected_key = grabbed;
+            if grabbed.is_some() {
+                self.push_undo();
+            }
+            self.dragging = Some(match grabbed {
+                Some((track, key)) => Grab::Key { track, key },
+                None => Grab::Scrub,
+            });
+        }
+
+        if let (Some(grab), Some(pointer)) = (self.dragging, response.interact_pointer_pos()) {
+            let t = self.x_to_time(pointer.x);
+            match grab {
+                Grab::Scrub => self.time = t,
+                Grab::Key { track, key } => {
+                    if let Some(tr) = self
+                        .timeline
+                        .as_mut()
+                        .and_then(|tl| tl.tracks.get_mut(track))
+                    {
+                        let now = move_key(tr, key, t);
+                        self.dragging = Some(Grab::Key { track, key: now });
+                        self.selected_key = Some((track, now));
+                        self.dirty = true;
+                    }
+                }
+            }
+        }
+
+        if response.drag_stopped() {
+            self.dragging = None;
         }
 
         let playhead_x = self.time_to_x(self.time);
@@ -1003,6 +1211,218 @@ mod tests {
         assert!(
             saved.contains("Camera(") && saved.contains("CameraKey("),
             "variant and key type names too, got:\n{saved}"
+        );
+    }
+
+    /// Clicking a key selects it; the value strip and Delete act on the
+    /// selection, so it is its own state rather than a derived one.
+    #[test]
+    fn clicking_a_key_selects_it() {
+        let mut h = Harness::new(four_track_timeline());
+        h.settle();
+
+        let pos = h.panel.last_key_positions[&(2, 0)];
+        h.press(pos);
+        h.release(pos);
+        h.draw();
+
+        assert_eq!(h.panel.selected_key(), Some((2, 0)));
+    }
+
+    /// Paired: clicking empty lane space clears it, so Delete is only live
+    /// while something is actually pointed at.
+    #[test]
+    fn clicking_empty_space_clears_the_selection() {
+        let mut h = Harness::new(four_track_timeline());
+        h.settle();
+
+        let pos = h.panel.last_key_positions[&(2, 0)];
+        h.press(pos);
+        h.release(pos);
+        h.draw();
+        assert!(h.panel.selected_key().is_some());
+
+        let empty = egui::pos2(
+            h.panel.time_to_x(4.7),
+            h.panel.last_lane_rects[3].center().y,
+        );
+        h.press(empty);
+        h.release(empty);
+        h.draw();
+
+        assert_eq!(h.panel.selected_key(), None);
+    }
+
+    /// Dragging a key moves it to the dragged time.
+    #[test]
+    fn dragging_a_key_moves_it() {
+        let mut h = Harness::new(four_track_timeline());
+        h.settle();
+
+        let from = h.panel.last_key_positions[&(2, 0)];
+        let to = egui::pos2(h.panel.time_to_x(4.0), from.y);
+        h.press(from);
+        h.drag_to(to);
+        h.release(to);
+        h.draw();
+
+        assert!(
+            (h.panel.key_time_for_test(2, 0) - 4.0).abs() < 0.05,
+            "expected 4.0, got {}",
+            h.panel.key_time_for_test(2, 0)
+        );
+    }
+
+    /// Paired: a press that is not on a key scrubs instead and leaves every
+    /// key where it was. Without this, "the key moved" passes for an
+    /// implementation that moves a key on any press anywhere.
+    #[test]
+    fn dragging_empty_space_scrubs_and_moves_no_key() {
+        let mut h = Harness::new(four_track_timeline());
+        h.settle();
+        let before = h.panel.key_time_for_test(2, 0);
+
+        let y = h.panel.last_lane_rects[3].center().y;
+        let from = egui::pos2(h.panel.time_to_x(1.0), y);
+        let to = egui::pos2(h.panel.time_to_x(4.0), y);
+        h.press(from);
+        h.drag_to(to);
+        h.release(to);
+        h.draw();
+
+        assert!(
+            (h.panel.time() - 4.0).abs() < 0.05,
+            "it should have scrubbed"
+        );
+        assert!(
+            (h.panel.key_time_for_test(2, 0) - before).abs() < 1e-6,
+            "no key may move"
+        );
+    }
+
+    /// Dragging a key past its neighbour keeps the track sorted. `evaluate`
+    /// and `events_between` read keys in order, so an out-of-order track is
+    /// silently wrong rather than loudly broken.
+    #[test]
+    fn dragging_a_key_past_its_neighbour_keeps_the_track_sorted() {
+        // A fixture whose keys can actually cross. `four_track_timeline`'s
+        // camera keys sit at 0.0 and 6.0 with a duration of 6.0, so the clamp
+        // stops the first from ever passing the second -- a test built on it
+        // stays green even when the sorted insert is replaced by an assignment
+        // in place. Mutation testing is what exposed that; the assertion was
+        // broad and the case was too narrow to reach it.
+        let crossable = Timeline {
+            duration: 6.0,
+            tracks: vec![Track::Camera {
+                keys: vec![
+                    CameraKey {
+                        time: 1.0,
+                        position: [0.0, 0.0, 0.0],
+                        look_at: [0.0, 0.0, -1.0],
+                    },
+                    CameraKey {
+                        time: 3.0,
+                        position: [1.0, 0.0, 0.0],
+                        look_at: [0.0, 0.0, -1.0],
+                    },
+                ],
+            }],
+        };
+        let mut h = Harness::new(crossable);
+        h.settle();
+
+        // Drag the key at 1.0 to 5.0, which is past the one at 3.0.
+        let from = h.panel.last_key_positions[&(0, 0)];
+        let to = egui::pos2(h.panel.time_to_x(5.0), from.y);
+        h.press(from);
+        h.drag_to(to);
+        h.release(to);
+        h.draw();
+
+        let times = h.panel.key_times_for_test(0);
+        assert!(
+            times.windows(2).all(|w| w[0] <= w[1]),
+            "track 0 is out of order: {times:?}"
+        );
+        assert!(
+            times.iter().any(|t| (t - 5.0).abs() < 0.05),
+            "the dragged key should be at 5.0: {times:?}"
+        );
+    }
+
+    /// Undo restores the timeline as it was before the edit; redo re-applies.
+    #[test]
+    fn undo_restores_the_previous_timeline_and_redo_reapplies() {
+        let mut h = Harness::new(four_track_timeline());
+        h.settle();
+        let before = h.panel.key_time_for_test(2, 0);
+
+        let from = h.panel.last_key_positions[&(2, 0)];
+        let to = egui::pos2(h.panel.time_to_x(4.0), from.y);
+        h.press(from);
+        h.drag_to(to);
+        h.release(to);
+        h.draw();
+        let after = h.panel.key_time_for_test(2, 0);
+        assert!((after - before).abs() > 0.5, "the edit must have happened");
+
+        h.panel.undo();
+        assert!((h.panel.key_time_for_test(2, 0) - before).abs() < 1e-6);
+
+        h.panel.redo();
+        assert!((h.panel.key_time_for_test(2, 0) - after).abs() < 1e-6);
+    }
+
+    /// Undo with nothing to undo is a no-op, not a panic.
+    #[test]
+    fn undo_with_an_empty_stack_does_nothing() {
+        let mut h = Harness::new(four_track_timeline());
+        h.settle();
+        let before = h.panel.key_times_for_test(0);
+
+        h.panel.undo();
+        h.panel.redo();
+
+        assert_eq!(h.panel.key_times_for_test(0), before);
+    }
+
+    /// A drag spanning many frames is one edit, so one Undo returns the key to
+    /// where it started -- not to some point midway through the drag.
+    ///
+    /// The single-frame undo test above cannot see this: with a push on every
+    /// frame it still passes, because its drag has only one frame to push on.
+    #[test]
+    fn a_multi_frame_drag_is_a_single_undo_step() {
+        let mut h = Harness::new(four_track_timeline());
+        h.settle();
+        let before = h.panel.key_time_for_test(2, 0);
+
+        let from = h.panel.last_key_positions[&(2, 0)];
+        h.press(from);
+        for t in [1.5_f32, 2.5, 3.5, 4.5] {
+            let x = h.panel.time_to_x(t);
+            h.drag_to(egui::pos2(x, from.y));
+        }
+        let end = h.panel.time_to_x(4.5);
+        h.release(egui::pos2(end, from.y));
+        h.draw();
+        assert!(
+            (h.panel.key_time_for_test(2, 0) - before).abs() > 0.5,
+            "the drag must have moved the key"
+        );
+
+        h.panel.undo();
+
+        assert!(
+            (h.panel.key_time_for_test(2, 0) - before).abs() < 1e-6,
+            "one undo must return the key to where the drag started, got {} \
+             (a push-per-frame stack would land it midway)",
+            h.panel.key_time_for_test(2, 0)
+        );
+        assert_eq!(
+            h.panel.undo_depth(),
+            0,
+            "a drag is one edit, so it leaves exactly one entry behind"
         );
     }
 

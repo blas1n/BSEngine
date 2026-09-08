@@ -3,7 +3,7 @@ use bsengine_asset::{AssetIdentityPlugin, AssetPlugin, AssetStatusPlugin, AssetW
 use bsengine_core::{Camera, DirectionalLight, GlobalTransform, InspectorState, Transform};
 use bsengine_ecs::{Added, Commands, Entity, Query, ResMut};
 use bsengine_editor::EditorPlugin;
-use bsengine_gltf::GltfPlugin;
+use bsengine_gltf::{GltfPlugin, SkinnedMeshPlugin};
 use bsengine_input::InputPlugin;
 use bsengine_render::{MeshRenderer, RenderPlugin};
 use bsengine_rhi_wgpu::{
@@ -85,6 +85,14 @@ fn main() {
         })
         .add_plugins(InputPlugin)
         .add_plugins(GltfPlugin)
+        // Without this nothing poses a skeleton: `update_skinned_meshes` is
+        // registered only by `SkinnedMeshPlugin`, so before this line every
+        // skinned character in the editor rendered in its bind pose and never
+        // moved. The Timeline panel's animation preview depends on it, but the
+        // fix is not timeline-specific -- it is the same class of bug as
+        // `TerrainPlugin` (item 44) and `TimelinePlugin` (item 57 sub-step 1/2)
+        // being absent from a host that needed them.
+        .add_plugins(SkinnedMeshPlugin)
         .add_plugins(RenderPlugin)
         .add_plugins(EditorPlugin)
         .add_plugins(ScriptingPlugin { project_dir })

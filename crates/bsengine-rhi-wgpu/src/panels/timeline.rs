@@ -217,9 +217,25 @@ impl TimelinePanel {
             }
         }
 
-        ui.allocate_rect(
-            egui::Rect::from_min_max(full.min, egui::pos2(full.right(), lanes_top + lanes_height)),
-            egui::Sense::hover(),
+        // One interaction region covering the ruler and every lane, so a
+        // press anywhere on the time axis scrubs. Allocated after the lanes
+        // are laid out, so `last_lane_area` is already the rect being mapped.
+        let scrub_area = egui::Rect::from_min_max(
+            egui::pos2(lane_left, full.top()),
+            egui::pos2(full.right(), lanes_top + lanes_height),
+        );
+        let response = ui.allocate_rect(scrub_area, egui::Sense::click_and_drag());
+        if let Some(pointer) = response.interact_pointer_pos() {
+            self.time = self.x_to_time(pointer.x);
+        }
+
+        let playhead_x = self.time_to_x(self.time);
+        painter.line_segment(
+            [
+                egui::pos2(playhead_x, full.top()),
+                egui::pos2(playhead_x, lanes_top + lanes_height),
+            ],
+            egui::Stroke::new(2.0_f32, visuals.error_fg_color),
         );
     }
 }
@@ -390,6 +406,97 @@ mod tests {
             4,
             "one lane per track -- each Animation track names exactly one \
              entity, so lanes map 1:1 to tracks"
+        );
+    }
+
+    /// The central claim, and a round trip rather than a one-way check: press
+    /// where the panel says 2.5s is, and the playhead must read 2.5s back.
+    ///
+    /// A one-way assertion ("the playhead moved right") passes for any
+    /// mapping that is merely monotonic, including one off by a constant or
+    /// scaled wrongly -- which is exactly how a time axis goes wrong.
+    #[test]
+    fn pressing_at_a_time_puts_the_playhead_at_that_time() {
+        let mut h = Harness::new(four_track_timeline());
+        h.settle();
+
+        let target = 2.5;
+        let x = h.panel.time_to_x(target);
+        let y = h.panel.last_lane_rects[0].center().y;
+        h.press(egui::pos2(x, y));
+        h.drag_to(egui::pos2(x, y));
+        h.release(egui::pos2(x, y));
+
+        assert!(
+            (h.panel.time() - target).abs() < 0.05,
+            "pressed at time_to_x({target}) but the playhead reads {}",
+            h.panel.time()
+        );
+    }
+
+    /// Paired with the above: a different press must land somewhere
+    /// different, or a panel that hardcodes 2.5 passes.
+    #[test]
+    fn a_different_press_gives_a_different_time() {
+        let mut h = Harness::new(four_track_timeline());
+        h.settle();
+
+        let y = h.panel.last_lane_rects[0].center().y;
+        let x1 = h.panel.time_to_x(1.0);
+        h.press(egui::pos2(x1, y));
+        h.drag_to(egui::pos2(x1, y));
+        h.release(egui::pos2(x1, y));
+        let first = h.panel.time();
+
+        let x2 = h.panel.time_to_x(4.0);
+        h.press(egui::pos2(x2, y));
+        h.drag_to(egui::pos2(x2, y));
+        h.release(egui::pos2(x2, y));
+        let second = h.panel.time();
+
+        assert!(
+            (first - 1.0).abs() < 0.05 && (second - 4.0).abs() < 0.05,
+            "expected 1.0 then 4.0, got {first} then {second}"
+        );
+    }
+
+    /// Dragging past the right edge parks the playhead at the duration
+    /// rather than running off the timeline.
+    #[test]
+    fn dragging_past_the_end_clamps_to_the_duration() {
+        let mut h = Harness::new(four_track_timeline());
+        h.settle();
+
+        let y = h.panel.last_lane_rects[0].center().y;
+        let start = h.panel.time_to_x(3.0);
+        h.press(egui::pos2(start, y));
+        h.drag_to(egui::pos2(h.screen_rect.right() + 500.0, y));
+        h.release(egui::pos2(h.screen_rect.right() + 500.0, y));
+
+        assert!(
+            (h.panel.time() - 6.0).abs() < 1e-3,
+            "expected the 6.0s duration, got {}",
+            h.panel.time()
+        );
+    }
+
+    /// And past the left edge clamps to zero -- the other side, because a
+    /// clamp implemented on one end only passes the test above.
+    #[test]
+    fn dragging_before_the_start_clamps_to_zero() {
+        let mut h = Harness::new(four_track_timeline());
+        h.settle();
+
+        let y = h.panel.last_lane_rects[0].center().y;
+        let start = h.panel.time_to_x(3.0);
+        h.press(egui::pos2(start, y));
+        h.drag_to(egui::pos2(h.screen_rect.left() - 500.0, y));
+        h.release(egui::pos2(h.screen_rect.left() - 500.0, y));
+
+        assert!(
+            h.panel.time().abs() < 1e-3,
+            "expected 0.0, got {}",
+            h.panel.time()
         );
     }
 

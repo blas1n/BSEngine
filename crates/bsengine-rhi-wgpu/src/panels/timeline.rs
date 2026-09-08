@@ -663,6 +663,53 @@ mod tests {
         );
     }
 
+    /// A cut resolves against the scene, not the timeline: the pose comes
+    /// from the named entity's snapshot entry, including its field of view.
+    ///
+    /// Bounded on both sides. "Past where the dolly was" is not the same
+    /// claim as "at the shot", and only the upper bound rules out a preview
+    /// that simply kept dollying.
+    #[test]
+    fn a_cut_previews_the_shot_entitys_pose() {
+        let mut h = Harness::new(four_track_timeline());
+        h.entities_snapshot = vec![InspectorEntityInfo {
+            id: 1,
+            name: Some("CloseUpShot".to_string()),
+            position: Some([1.5, 1.2, 2.5]),
+            rotation: Some([0.0, 0.0, 0.0]),
+            camera_fov: Some(35.0),
+            ..Default::default()
+        }];
+        h.panel.preview = true;
+        h.settle();
+
+        let y = h.panel.last_lane_rects[0].center().y;
+        let x = h.panel.time_to_x(4.0); // past the cut at 3.5
+        h.press(egui::pos2(x, y));
+        h.drag_to(egui::pos2(x, y));
+        h.release(egui::pos2(x, y));
+        h.draw();
+
+        let camera = h
+            .insp
+            .timeline_preview
+            .clone()
+            .expect("a preview request")
+            .camera
+            .expect("a camera pose");
+        assert!(
+            (camera.position[0] - 1.5).abs() < 1e-3,
+            "expected the shot entity's x=1.5, got {} -- the dolly would be \
+             past x=8 by now",
+            camera.position[0]
+        );
+        assert_eq!(
+            camera.fov_y_degrees,
+            Some(35.0),
+            "a shot carries its own field of view"
+        );
+    }
+
     /// Paired with the above: Preview off must publish nothing at all.
     /// Without this, a panel that always previews passes the test above.
     #[test]
@@ -739,6 +786,38 @@ mod tests {
             0,
             "selecting a different entity with a TimelinePlayer must resume \
              following the selection"
+        );
+    }
+
+    /// The boundary this sub-step is defined by. Editing and saving are
+    /// sub-step 2/2b; until then a scrub must not be able to reach the file.
+    ///
+    /// Asserts the bytes rather than the modification time, because a write
+    /// that happens to produce identical content is still a write path that
+    /// should not exist yet -- and mtime granularity is coarse enough on some
+    /// filesystems to miss a fast one.
+    #[test]
+    fn scrubbing_never_writes_to_the_timeline_file() {
+        let file = write_timeline(&four_track_timeline());
+        let before = std::fs::read(&file.0).expect("read back");
+
+        let mut h = Harness::new(empty_timeline());
+        h.panel.open_for_test(&file.0);
+        h.panel.preview = true;
+        h.settle();
+
+        let y = h.panel.last_lane_rects[0].center().y;
+        for t in [0.5_f32, 2.5, 4.0, 5.9] {
+            let x = h.panel.time_to_x(t);
+            h.press(egui::pos2(x, y));
+            h.drag_to(egui::pos2(x, y));
+            h.release(egui::pos2(x, y));
+        }
+
+        let after = std::fs::read(&file.0).expect("read back");
+        assert_eq!(
+            before, after,
+            "sub-step 2/2a is read-only: scrubbing must not touch the file"
         );
     }
 

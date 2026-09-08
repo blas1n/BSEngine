@@ -86,6 +86,13 @@ fn play_timelines(world: &mut World) {
         .get_resource::<Time>()
         .map_or(0.0, |t| t.delta_seconds);
 
+    // A `TimelinePlayer` names its timeline the way a scene names any asset --
+    // project-relative -- so it resolves the same way everything else does.
+    // Reading the raw string instead works only when the process happens to be
+    // running from inside the project, which a unit test using an absolute
+    // temp path never notices and a real game always does.
+    let project_dir = world.get_resource::<bsengine_core::ProjectDir>().cloned();
+
     // (entity, path, previous time, new time), collected before anything is
     // written so the world is not borrowed while it is being mutated.
     let advanced: Vec<(Entity, String, f32, f32)> = {
@@ -107,9 +114,10 @@ fn play_timelines(world: &mut World) {
     }
 
     for (_entity, path, previous, now) in advanced {
+        let resolved = bsengine_core::resolve_project_path(project_dir.as_ref(), &path);
         let Some(timeline) = ({
             let mut loaded = world.resource_mut::<LoadedTimelines>();
-            loaded.get(&path).cloned()
+            loaded.get(&resolved).cloned()
         }) else {
             continue;
         };

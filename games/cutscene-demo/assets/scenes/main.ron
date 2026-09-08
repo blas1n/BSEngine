@@ -1,0 +1,42 @@
+SceneDescriptor(entities: [
+    EntityDescriptor(
+        name: "Camera",
+        camera: true,
+        camera_fov: Some(60.0),
+        transform: Some((position: (0.0, 3.0, 10.0))),
+        look_at: Some((0.0, 0.5, 0.0)),
+    ),
+    EntityDescriptor(
+        name: "Sun",
+        directional_light: Some((direction: (-0.4, -0.8, -0.4), color: (1.0, 0.95, 0.85), ambient: (0.2, 0.2, 0.22))),
+    ),
+    EntityDescriptor(
+        name: "Ground",
+        primitive: Some(Cube),
+        transform: Some((position: (0.0, -0.5, 0.0), scale: (20.0, 1.0, 20.0))),
+        color: Some((0.25, 0.28, 0.22)),
+    ),
+    EntityDescriptor(
+        // What the cutscene is about. The animation track starts a clip on it.
+        name: "Subject",
+        gltf: Some("assets/models/fox.glb"),
+        transform: Some((position: (0.0, 0.0, 0.0), scale: (0.02, 0.02, 0.02))),
+    ),
+    EntityDescriptor(
+        // A viewpoint, not a camera: the engine renders exactly one camera, so a
+        // cut copies this entity's transform onto it rather than switching to it.
+        name: "CloseUpShot",
+        transform: Some((position: (1.5, 1.2, 2.5))),
+        look_at: Some((0.0, 0.6, 0.0)),
+    ),
+    EntityDescriptor(
+        // Owns the cutscene. Not playing until the script says so -- a timeline
+        // that started on scene load would take the camera before the player
+        // did anything.
+        name: "Director",
+        script: Some("assets/scripts/director.js"),
+        components: [
+            ("bsengine_core::timeline::TimelinePlayer", "(timeline: \"assets/timelines/intro.ron\", time: 0.0, playing: false, speed: 1.0)"),
+        ],
+    ),
+])

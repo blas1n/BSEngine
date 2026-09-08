@@ -1,9 +1,12 @@
 //! The Timeline panel: draws a `Timeline`'s tracks, scrubs its playhead, and
 //! publishes a preview request for the editor to apply.
 //!
-//! Read-only with respect to disk. Editing and saving are sub-step 2/2b, and
-//! that boundary is enforced by a test rather than by intent -- see
-//! `scrubbing_never_writes_to_the_timeline_file`.
+//! Edits it too: keys move, are added and deleted, tracks come and go, and
+//! Save writes the file back.
+//!
+//! **Only Save writes.** Scrubbing, previewing and undo never touch the disk,
+//! which is enforced by a test rather than by intent -- see
+//! `only_saving_writes_to_the_timeline_file`.
 
 use bsengine_core::editor_panel::{EditorPanel, EditorPanelContext};
 use bsengine_core::timeline::{Timeline, Track};
@@ -133,8 +136,8 @@ pub struct TimelinePanel {
     /// Where each key was drawn, keyed by `(track index, key index)`.
     ///
     /// Public for the same reason as [`TimelinePanel::last_lane_rects`]; a
-    /// key is a `Shape::Circle`. This is also what sub-step 2/2b's key
-    /// dragging will hit-test against.
+    /// key is a `Shape::Circle`. It is also what key dragging hit-tests
+    /// against, via `key_at`.
     pub last_key_positions: HashMap<(usize, usize), egui::Pos2>,
     /// The lane area's rectangle, which the time/x mapping maps against.
     last_lane_area: egui::Rect,
@@ -243,6 +246,13 @@ impl TimelinePanel {
         self.timeline = Some(timeline);
         self.path = Some(path);
         self.leading_comments = prefix;
+        // A different file's history is not this file's, and a freshly loaded
+        // file has nothing unsaved. This is also what makes `revert` complete:
+        // it is just `load` again.
+        self.undo_stack.clear();
+        self.redo_stack.clear();
+        self.selected_key = None;
+        self.dirty = false;
         Ok(())
     }
 
@@ -289,6 +299,13 @@ impl TimelinePanel {
             return;
         };
         if self.path.as_deref() == Some(wanted.as_path()) {
+            return;
+        }
+        // Unsaved edits outrank the selection. Not auto-save, which would
+        // change a committed asset behind the user's back; not silent discard,
+        // which is the data loss this exists to prevent.
+        if self.dirty {
+            self.status = Some("unsaved changes -- Save, Revert or Discard first".to_string());
             return;
         }
         if let Err(e) = self.load(&wanted) {
@@ -433,6 +450,44 @@ impl TimelinePanel {
         }
     }
 
+    /// Saves and clears the dirty flag.
+    ///
+    /// Separate from [`TimelinePanel::save`] so `save` stays a pure write with
+    /// no state change, which is what lets the boundary test call it without
+    /// perturbing anything else.
+    ///
+    /// # Errors
+    ///
+    /// As [`TimelinePanel::save`].
+    pub fn save_and_clear(&mut self) -> Result<(), String> {
+        self.save()?;
+        self.dirty = false;
+        Ok(())
+    }
+
+    /// Re-reads the open file, discarding unsaved edits.
+    ///
+    /// Until Save, the file on disk *is* the last saved state, so revert is
+    /// simply load again -- and load already clears the dirty flag and both
+    /// undo stacks.
+    ///
+    /// # Errors
+    ///
+    /// As [`TimelinePanel::load`], plus a message when nothing is open.
+    pub fn revert(&mut self) -> Result<(), String> {
+        let path = self
+            .path
+            .clone()
+            .ok_or_else(|| "no timeline is open to revert".to_string())?;
+        self.load(path)
+    }
+
+    /// Gives up unsaved edits so the panel can follow the selection again.
+    fn discard(&mut self) {
+        self.dirty = false;
+        self.path = None;
+    }
+
     /// Writes the timeline back to the file it was loaded from.
     ///
     /// Writes `path`, never `path_buffer`: the two are separate precisely so a
@@ -481,6 +536,16 @@ impl TimelinePanel {
         if let Some(t) = self.timeline.as_mut() {
             t.duration = duration;
         }
+    }
+
+    #[cfg(test)]
+    fn discard_for_test(&mut self) {
+        self.discard();
+    }
+
+    #[cfg(test)]
+    fn mark_dirty_for_test(&mut self) {
+        self.dirty = true;
     }
 
     /// One key's time. For tests, which must not reach into the timeline.
@@ -695,7 +760,57 @@ impl EditorPanel for TimelinePanel {
                 .button(format!("{} Open", egui_phosphor::regular::FOLDER_OPEN))
                 .clicked();
             ui.checkbox(&mut self.preview, "Preview");
-            ui.label(format!("t = {:.2} / {:.2}", self.time, self.duration()));
+            if ui
+                .add_enabled(
+                    self.path.is_some(),
+                    egui::Button::new(format!("{} Save", egui_phosphor::regular::FLOPPY_DISK)),
+                )
+                .clicked()
+            {
+                self.status = Some(match self.save_and_clear() {
+                    Ok(()) => "saved".to_string(),
+                    Err(e) => e,
+                });
+            }
+            if ui
+                .add_enabled(
+                    self.path.is_some() && self.dirty,
+                    egui::Button::new("Revert"),
+                )
+                .clicked()
+            {
+                if let Err(e) = self.revert() {
+                    self.status = Some(e);
+                }
+            }
+            if ui
+                .add_enabled(self.dirty, egui::Button::new("Discard"))
+                .clicked()
+            {
+                self.discard();
+            }
+            if ui
+                .add_enabled(!self.undo_stack.is_empty(), egui::Button::new("Undo"))
+                .clicked()
+            {
+                self.undo();
+            }
+            if ui
+                .add_enabled(!self.redo_stack.is_empty(), egui::Button::new("Redo"))
+                .clicked()
+            {
+                self.redo();
+            }
+            ui.label(format!("t = {:.2}", self.time));
+            if let Some(timeline) = self.timeline.as_mut() {
+                ui.label("duration");
+                if ui
+                    .add(egui::DragValue::new(&mut timeline.duration).speed(0.1_f32))
+                    .changed()
+                {
+                    self.dirty = true;
+                }
+            }
         });
         if let Some(status) = &self.status {
             ui.label(status.clone());
@@ -1212,6 +1327,107 @@ mod tests {
             saved.contains("Camera(") && saved.contains("CameraKey("),
             "variant and key type names too, got:\n{saved}"
         );
+    }
+
+    /// An edit marks the panel dirty and the selection can no longer pull the
+    /// file out from under it, so a stray click cannot discard work.
+    #[test]
+    fn a_dirty_panel_refuses_to_follow_the_selection() {
+        let edited = write_timeline(&four_track_timeline());
+        let other = write_timeline(&empty_timeline());
+        let mut h = Harness::new(empty_timeline());
+        h.panel.open_for_test(&edited.0);
+        h.settle();
+
+        let from = h.panel.last_key_positions[&(2, 0)];
+        let to = egui::pos2(h.panel.time_to_x(4.0), from.y);
+        h.press(from);
+        h.drag_to(to);
+        h.release(to);
+        h.draw();
+        assert!(h.panel.is_dirty(), "an edit must mark the panel dirty");
+
+        select_timeline_entity(&mut h, 9, "OtherDirector", &other.0);
+        h.settle();
+
+        assert_eq!(
+            h.panel.last_lane_rects.len(),
+            4,
+            "the edited timeline must still be shown, not silently replaced"
+        );
+    }
+
+    /// Paired: Discard gives up the edits and lets the switch happen. Without
+    /// it the guard would be a trap with no way out.
+    #[test]
+    fn discarding_lets_the_selection_switch() {
+        let edited = write_timeline(&four_track_timeline());
+        let other = write_timeline(&empty_timeline());
+        let mut h = Harness::new(empty_timeline());
+        h.panel.open_for_test(&edited.0);
+        h.settle();
+
+        let from = h.panel.last_key_positions[&(2, 0)];
+        let to = egui::pos2(h.panel.time_to_x(4.0), from.y);
+        h.press(from);
+        h.drag_to(to);
+        h.release(to);
+        h.draw();
+
+        select_timeline_entity(&mut h, 9, "OtherDirector", &other.0);
+        h.settle();
+        h.panel.discard_for_test();
+        h.settle();
+
+        assert_eq!(
+            h.panel.last_lane_rects.len(),
+            0,
+            "after discarding, the selection's timeline is shown"
+        );
+    }
+
+    /// Saving clears dirty -- otherwise the guard would keep refusing after
+    /// the work was safely on disk.
+    #[test]
+    fn saving_clears_dirty() {
+        let file = write_timeline(&four_track_timeline());
+        let mut h = Harness::new(empty_timeline());
+        h.panel.open_for_test(&file.0);
+        h.settle();
+        h.panel.set_duration_for_test(2.0);
+        h.panel.mark_dirty_for_test();
+        assert!(h.panel.is_dirty());
+
+        h.panel.save_and_clear().expect("save");
+
+        assert!(!h.panel.is_dirty());
+    }
+
+    /// Revert re-reads the file, throwing away unsaved edits.
+    #[test]
+    fn revert_restores_the_file_on_disk() {
+        let file = write_timeline(&four_track_timeline());
+        let mut h = Harness::new(empty_timeline());
+        h.panel.open_for_test(&file.0);
+        h.settle();
+        let before = h.panel.key_time_for_test(2, 0);
+
+        let from = h.panel.last_key_positions[&(2, 0)];
+        let to = egui::pos2(h.panel.time_to_x(4.0), from.y);
+        h.press(from);
+        h.drag_to(to);
+        h.release(to);
+        h.draw();
+        assert!(h.panel.is_dirty());
+
+        h.panel.revert().expect("revert");
+
+        assert!(
+            (h.panel.key_time_for_test(2, 0) - before).abs() < 1e-6,
+            "revert must restore the key's time"
+        );
+        assert!(!h.panel.is_dirty(), "revert leaves nothing unsaved");
+        assert_eq!(h.panel.undo_depth(), 0, "and no history from the old file");
     }
 
     /// Clicking a key selects it; the value strip and Delete act on the

@@ -1,0 +1,25 @@
+// A six-second cutscene exercising every track kind and both camera modes.
+//
+// Kept deliberately small and free of competing scripts: mini-arena's camera is
+// script-driven every frame, so a timeline there would race the script's write
+// and the demo would depend on system order rather than on the timeline.
+Timeline(
+    duration: 6.0,
+    tracks: [
+        // A dolly: the camera swings around the subject.
+        Camera(keys: [
+            (time: 0.0, position: (0.0, 3.0, 10.0), look_at: (0.0, 0.5, 0.0)),
+            (time: 3.0, position: (9.0, 4.0, 4.0), look_at: (0.0, 0.5, 0.0)),
+        ]),
+        // Then a hard cut to a fixed viewpoint.
+        CameraShot(cuts: [
+            (time: 3.5, entity: "CloseUpShot"),
+        ]),
+        Animation(entity: "Subject", keys: [
+            (time: 0.5, clip: "Survey"),
+        ]),
+        Event(keys: [
+            (time: 5.5, name: "intro_over"),
+        ]),
+    ],
+)

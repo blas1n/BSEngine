@@ -1,0 +1,8 @@
+[project]
+name = "Cutscene Demo"
+entry_scene = "assets/scenes/main.ron"
+
+[window]
+title = "Cutscene Demo"
+width = 1280
+height = 720

@@ -372,6 +372,7 @@ fn run_windowed(project_dir: &str) {
         .add_plugins(GltfPlugin)
         .add_plugins(SkinnedMeshPlugin)
         .add_plugins(AnimationPlugin)
+        .add_plugins(bsengine_app::TimelinePlugin)
         .add_plugins(AnimationStateMachinePlugin)
         .add_plugins(NavMeshPlugin)
         // Both of these count something down each frame, and neither was

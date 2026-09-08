@@ -228,6 +228,83 @@ for hit detection.
 
 ---
 
+## Cutscenes
+
+A `Timeline` is a RON asset of tracks over a duration:
+
+```ron
+Timeline(
+    duration: 6.0,
+    tracks: [
+        Camera(keys: [
+            (time: 0.0, position: (0.0, 3.0, 10.0), look_at: (0.0, 0.5, 0.0)),
+            (time: 3.0, position: (9.0, 4.0, 4.0), look_at: (0.0, 0.5, 0.0)),
+        ]),
+        CameraShot(cuts: [(time: 3.5, entity: "CloseUpShot")]),
+        Animation(entity: "Subject", keys: [(time: 0.5, clip: "Survey")]),
+        Event(keys: [(time: 5.5, name: "intro_over")]),
+    ],
+)
+```
+
+An entity plays one by carrying a `TimelinePlayer`:
+
+```ron
+components: [
+    ("bsengine_core::timeline::TimelinePlayer", "(timeline: \"assets/timelines/intro.ron\", time: 0.0, playing: false, speed: 1.0)"),
+],
+```
+
+and a script drives it:
+
+```js
+Bsengine.timeline.play(name);      // always from the beginning
+Bsengine.timeline.stop(name);
+Bsengine.timeline.isPlaying(name);
+Bsengine.timeline.eventFired("intro_over");   // true only on the frame it fires
+```
+
+`games/cutscene-demo` is a working example. See it before writing one.
+
+### The four track kinds
+
+**`Camera`** moves the camera smoothly between keys. Keys carry `look_at` rather
+than a rotation, because that is what composing a shot actually involves; the
+direction is interpolated and the orientation rebuilt from it, so a camera
+tracking a subject keeps pointing at it between keys instead of drifting off and
+snapping back.
+
+**`CameraShot`** cuts. A cut wins over a dolly at the instant it lands — a cut is
+a statement about that frame, and blending into one is not a cut.
+
+**`Animation`** starts a clip on a named entity. **`Event`** fires a name for
+scripts.
+
+### What to know before relying on it
+
+**A shot names an ordinary entity, not a camera.** The engine renders exactly one
+camera — whichever `Camera` component the renderer reaches first — so a cut
+*copies* the named entity's transform and FOV onto that camera rather than
+switching to it. A shot entity needs no `Camera` of its own.
+
+**A timeline writes only the entities it names.** Everything else keeps
+simulating, so playing one is not a global mode. The corollary is that a timeline
+driving an entity a script also drives every frame is a race: give a cutscene its
+own entities, or stop the script.
+
+**Stopping does not restore anything.** Whatever the timeline moved stays where
+it was left. Restoring would need a snapshot of arbitrary components and would
+surprise the common case — a cutscene that exists to move the player somewhere.
+
+**Events are per-frame, not queued.** `eventFired` answers about the current
+frame only, so a script has to be looking on the frame a beat lands. This is
+deliberate: a queue would let a script see the ending long after it happened.
+
+**Not implemented:** an editor track view and scrubbing, blending between
+overlapping timelines, sub-timelines, and audio tracks.
+
+---
+
 ## Project Status
 
 Active development. Infrastructure is stable; rendering and editor layers are the current focus.

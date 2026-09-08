@@ -30,10 +30,10 @@ use crate::ops::{
     MOUSE_PRESSED_SNAPSHOT, NAV_SNAPSHOT, NETWORK_ID_SNAPSHOT, NETWORK_STATE_SNAPSHOT,
     PARENT_SNAPSHOT, PAUSED_SNAPSHOT, PHYSICS_WORLD_PTR, PROJECT_DIR, REMOTE_INPUT,
     REMOTE_INPUT_PREVIOUS, RESTITUTION_SNAPSHOT, SAVE_DATA_SNAPSHOT, SCREEN_SIZE_SNAPSHOT,
-    SHIELD_SNAPSHOT, SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, TIMER_SNAPSHOT,
-    TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TONE_MAP_SNAPSHOT, TRANSFORM_SNAPSHOT,
-    TWEEN_SNAPSHOT, UI_CLICKED_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT,
-    WORLD_TRANSFORM_SNAPSHOT,
+    SHIELD_SNAPSHOT, SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT,
+    TIMELINE_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT,
+    TONE_MAP_SNAPSHOT, TRANSFORM_SNAPSHOT, TWEEN_SNAPSHOT, UI_CLICKED_SNAPSHOT, VELOCITY_SNAPSHOT,
+    VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -1327,6 +1327,38 @@ fn run_scripts(world: &mut World) {
                 if let Some(e) = entity {
                     if let Some(mut cam) = world.get_mut::<Camera>(e) {
                         cam.far = value;
+                    }
+                }
+            }
+            ScriptCommand::PlayTimeline { name } => {
+                use bsengine_core::TimelinePlayer;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut player) = world.get_mut::<TimelinePlayer>(e) {
+                        // From the beginning, because "play the intro" meaning
+                        // "resume wherever it was left" is the surprising
+                        // reading -- and a cutscene replayed from its middle
+                        // shows a camera already somewhere unexplained.
+                        player.time = 0.0;
+                        player.playing = true;
+                    }
+                }
+            }
+            ScriptCommand::StopTimeline { name } => {
+                use bsengine_core::TimelinePlayer;
+                let entity = {
+                    let mut q = world.query::<(Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(e) = entity {
+                    if let Some(mut player) = world.get_mut::<TimelinePlayer>(e) {
+                        // Left where it is, not rewound: see
+                        // `bsengine_app::timeline_playback` for why stopping
+                        // does not restore.
+                        player.playing = false;
                     }
                 }
             }
@@ -3331,6 +3363,22 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
         });
         *current.borrow_mut() = remote_by_name;
     });
+
+    // Timeline playback state and the events fired this frame, for
+    // `Bsengine.timeline.*`. Read from the app layer's resources, which are
+    // absent in a headless scripting-only app -- hence the defaults rather than
+    // an unwrap.
+    let timeline_playing: HashMap<String, bool> = {
+        let mut q = world.query::<(&Name, &bsengine_core::TimelinePlayer)>();
+        q.iter(world)
+            .map(|(name, player)| (name.0.clone(), player.playing))
+            .collect()
+    };
+    let timeline_events: Vec<String> = world
+        .get_resource::<bsengine_core::TimelineEvents>()
+        .map(|e| e.0.clone())
+        .unwrap_or_default();
+    TIMELINE_SNAPSHOT.with(|s| *s.borrow_mut() = (timeline_playing, timeline_events));
 
     KEY_SNAPSHOT.with(|k| *k.borrow_mut() = key_snapshot);
     KEY_JUST_PRESSED_SNAPSHOT.with(|k| *k.borrow_mut() = key_just_pressed);

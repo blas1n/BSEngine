@@ -1,0 +1,126 @@
+{
+  "game": "cutscene-demo",
+  "scene": "assets/scenes/main.ron",
+  "actions": [
+    {
+      "cmd": "step",
+      "frames": 2
+    },
+    {
+      "cmd": "assert",
+      "query": {
+        "tool": "get_transform",
+        "args": {
+          "name": "Camera"
+        }
+      },
+      "path": "x",
+      "op": "<",
+      "value": 0.5,
+      "label": "The dolly's first key is x=0, so the camera starts there. Asserted before anything moves, so a camera already elsewhere fails here rather than as an unexplained wrong position later."
+    },
+    {
+      "cmd": "step",
+      "frames": 100
+    },
+    {
+      "cmd": "assert",
+      "query": {
+        "tool": "get_transform",
+        "args": {
+          "name": "Camera"
+        }
+      },
+      "path": "x",
+      "op": ">",
+      "value": 2.0,
+      "label": "About 1.7s into a 3s dolly from x=0 to x=9. Paired with the bound below: 'it moved' alone would pass for a camera that jumped straight to the end."
+    },
+    {
+      "cmd": "assert",
+      "query": {
+        "tool": "get_transform",
+        "args": {
+          "name": "Camera"
+        }
+      },
+      "path": "x",
+      "op": "<",
+      "value": 8.0,
+      "label": "And it must not already be at the dolly's last key, which is what says the movement is interpolated rather than a jump."
+    },
+    {
+      "cmd": "step",
+      "frames": 140
+    },
+    {
+      "cmd": "assert",
+      "query": {
+        "tool": "get_transform",
+        "args": {
+          "name": "Camera"
+        }
+      },
+      "path": "x",
+      "op": ">",
+      "value": 1.4,
+      "label": "Past t=3.5 the cut has landed and the camera sits at CloseUpShot (x=1.5). This is the shot's position, not the dolly's -- the dolly would have carried it past x=9 by now, so this bound distinguishes them."
+    },
+    {
+      "cmd": "assert",
+      "query": {
+        "tool": "get_transform",
+        "args": {
+          "name": "Camera"
+        }
+      },
+      "path": "x",
+      "op": "<",
+      "value": 1.6,
+      "label": "Bounded on both sides: the cut is exact, so a camera merely 'somewhere past the dolly' is not the same as one at the shot."
+    },
+    {
+      "cmd": "assert",
+      "query": {
+        "tool": "get_hud_text",
+        "args": {
+          "id": "playing"
+        }
+      },
+      "path": "",
+      "op": "==",
+      "value": "yes",
+      "label": "isPlaying while the cutscene is mid-flight. Paired with the reading after the stop below: 'no' at the end proves nothing on its own, since a timeline that never started also reads 'no'."
+    },
+    {
+      "cmd": "step",
+      "frames": 140
+    },
+    {
+      "cmd": "assert",
+      "query": {
+        "tool": "get_hud_text",
+        "args": {
+          "id": "cutscene"
+        }
+      },
+      "path": "",
+      "op": "==",
+      "value": "intro complete",
+      "label": "The event track fired at t=5.5 and the script saw it on that frame. This is the only assertion covering the event path end to end -- script trigger, playback, and eventFired."
+    },
+    {
+      "cmd": "assert",
+      "query": {
+        "tool": "get_hud_text",
+        "args": {
+          "id": "playing"
+        }
+      },
+      "path": "",
+      "op": "==",
+      "value": "no",
+      "label": "And the stop the script issued on that same frame took effect. Paired with the 'yes' above, which is what rules out a timeline that simply never started."
+    }
+  ]
+}

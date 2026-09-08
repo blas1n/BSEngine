@@ -157,6 +157,7 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>, fast_rend
         // the character stays in "locomotion" forever in headless mode while
         // the same scene transitions correctly when windowed.
         .add_plugins(AnimationPlugin)
+        .add_plugins(bsengine_app::TimelinePlugin)
         .add_plugins(AnimationStateMachinePlugin)
         .add_plugins(NavMeshPlugin)
         // Same two as the windowed runtime, and for the reason item 11/12

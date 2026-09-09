@@ -2238,6 +2238,255 @@ mod tests {
         }
     }
 
+    /// What one scale-sweep sample measured.
+    #[derive(Debug, Clone, Copy)]
+    struct ScaleSample {
+        /// Entities the generated scene asked for.
+        spawned: usize,
+        draw_calls: u64,
+        triangles: u64,
+        occluded_count: u64,
+        /// Recorded for the findings table and **never asserted on** -- CI runs
+        /// on shared runners whose load varies enough to flake any threshold,
+        /// and a flaky performance gate teaches people to ignore red.
+        cpu_frame_time_ms: f64,
+    }
+
+    /// Writes a temp project whose scene holds `n` entities on a 3D grid in
+    /// front of the camera.
+    ///
+    /// **What the `n` entities are**, because "we measured 2,000 entities" means
+    /// nothing without it: the five `Primitive` variants cycling in order (Cube,
+    /// Sphere, Plane, Capsule, Cylinder), each unit-scaled, with a colour that
+    /// varies down the cycle. No glTF and no textures -- this phase isolates the
+    /// renderer's per-entity cost, and an authored level is where mesh variety
+    /// and skinning belong.
+    ///
+    /// Placement is a deterministic grid (no RNG -- a run has to reproduce)
+    /// spanning x in [-28, 28], y in [-15, 15], z in [-30, -90]. Those x/y
+    /// bounds are sized for the **near** plane at z = -30, and the frustum only
+    /// widens with depth, so every entity sits inside it at every layer. That is
+    /// load-bearing: an entity outside the frustum is culled before the
+    /// draw-call list is built, so an out-of-frustum grid would measure nothing
+    /// at all while still reporting a number.
+    fn write_scale_project(root: &std::path::Path, n: usize) {
+        use std::fmt::Write as _;
+
+        std::fs::create_dir_all(root.join("assets/scenes")).unwrap();
+        std::fs::write(
+            root.join("project.toml"),
+            "[project]\nname = \"Scale Sweep\"\nentry_scene = \"assets/scenes/main.ron\"\n",
+        )
+        .unwrap();
+
+        let mut scene = String::from(
+            r#"SceneDescriptor(entities: [
+    EntityDescriptor(
+        name: "Camera",
+        camera: true,
+        transform: Some((position: (0.0, 0.0, 0.0))),
+    ),
+    EntityDescriptor(
+        name: "Sun",
+        directional_light: Some((direction: (-0.4, -0.8, -0.4), ambient: (0.2, 0.2, 0.2))),
+    ),
+"#,
+        );
+
+        // A roughly cubic grid, so growing n spreads across all three axes
+        // rather than marching off into the distance.
+        let side = (n as f64).cbrt().ceil().max(1.0) as usize;
+        const PRIMITIVES: [&str; 5] = ["Cube", "Sphere", "Plane", "Capsule", "Cylinder"];
+        for i in 0..n {
+            let ix = i % side;
+            let iy = (i / side) % side;
+            let iz = i / (side * side);
+            let denom = side.saturating_sub(1).max(1) as f32;
+            let x = -28.0 + 56.0 * (ix as f32 / denom);
+            let y = -15.0 + 30.0 * (iy as f32 / denom);
+            let z = -30.0 - 60.0 * (iz as f32 / denom);
+            let primitive = PRIMITIVES[i % PRIMITIVES.len()];
+            let shade = (i % 5) as f32 / 5.0;
+            writeln!(
+                scene,
+                "    EntityDescriptor(name: \"E{i}\", primitive: Some({primitive}), \
+                 transform: Some((position: ({x:.2}, {y:.2}, {z:.2}))), \
+                 color: Some(({shade:.2}, 0.5, 0.8))),"
+            )
+            .unwrap();
+        }
+        scene.push_str("])\n");
+        std::fs::write(root.join("assets/scenes/main.ron"), scene).unwrap();
+    }
+
+    /// Builds a scene of `n` entities, renders until it has settled, and reads
+    /// one sample.
+    ///
+    /// `step_until_meshes_ready` is what makes "n entities actually spawned" a
+    /// checked fact rather than an assumption: it panics if they never appear.
+    fn measure_scale(n: usize) -> ScaleSample {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        write_scale_project(root, n);
+
+        // `fast_render: false` is load-bearing, not a default. `true` is the CI
+        // replay fast-path, which renders the shadow, SSAO and bloom passes as
+        // clear-only -- exactly the passes whose cost grows with scene size.
+        // Measuring with it on would measure a fraction of the real work and
+        // then report that fraction as the engine's ceiling.
+        let mut app = build_test_app(root.to_str().unwrap(), None, false);
+        step_until_meshes_ready(&mut app, n);
+
+        let stats = crate::test_query::run_query(app.world_mut(), "get_frame_stats", &json!({}))
+            .expect("get_frame_stats should succeed once RenderPlugin has drawn a frame");
+        ScaleSample {
+            spawned: n,
+            draw_calls: stats["draw_calls"]
+                .as_u64()
+                .expect("draw_calls as a number"),
+            triangles: stats["triangles"].as_u64().expect("triangles as a number"),
+            occluded_count: stats["occluded_count"]
+                .as_u64()
+                .expect("occluded_count as a number"),
+            cpu_frame_time_ms: stats["cpu_frame_time_ms"].as_f64().unwrap_or(0.0),
+        }
+    }
+
+    /// A 500-entity scene renders every entity it was given.
+    ///
+    /// **No timing is asserted here, deliberately.** CI runs on shared runners
+    /// whose load varies enough that any frame-time threshold would flake, and a
+    /// flaky performance gate teaches people to ignore red. Only structural
+    /// numbers are checked; the timings are for the findings table that
+    /// `scale_sweep_table` below produces.
+    ///
+    /// 500 is chosen to sit *below* the renderer's `MAX_OBJECTS` ceiling of
+    /// 1024, so this test is about whether a scene twenty times larger than
+    /// anything in `games/` draws at all. What happens *above* the ceiling is
+    /// `entities_past_the_renderers_object_cap_are_silently_dropped` below.
+    #[test]
+    fn a_five_hundred_entity_scene_renders_every_entity() {
+        let sample = measure_scale(500);
+
+        assert_eq!(sample.spawned, 500);
+        assert!(
+            sample.draw_calls > 0,
+            "nothing was drawn at all -- the grid is probably outside the frustum, \
+             which would make every other number here meaningless"
+        );
+        assert!(
+            sample.draw_calls >= sample.spawned as u64,
+            "500 entities produced only {} draw calls -- below MAX_OBJECTS every \
+             entity should still get drawn (each one twice, main pass and shadow \
+             pass), so a shortfall here means something is dropping geometry well \
+             before the documented ceiling",
+            sample.draw_calls
+        );
+        assert!(
+            sample.triangles > 0,
+            "a frame with {} draw calls but no triangles means the meshes never \
+             resolved into real geometry",
+            sample.draw_calls
+        );
+    }
+
+    /// **The scale experiment's headline finding, pinned so it cannot surprise
+    /// anyone again.**
+    ///
+    /// `bsengine-rhi-wgpu`'s `MAX_OBJECTS` is 1024 (`surface.rs:1163`) — the
+    /// model uniform buffer holds 1024 slots of `MODEL_STRIDE` 256 bytes. Past
+    /// that, `render_frame` clamps with `.min(MAX_OBJECTS)` and terrain chunks
+    /// `break`. **Nothing warns.** A 2,000-entity scene and a 5,000-entity scene
+    /// therefore render byte-identically, and a user authoring either sees a
+    /// little over a thousand of their objects with no diagnostic at all.
+    ///
+    /// Measured 2026-09-09: N=2000 and N=5000 both reported 2053 draw calls and
+    /// 818,993 triangles, against 1005 / 399,605 at N=500.
+    ///
+    /// This test asserts the *silence*, not the number. If someone raises
+    /// `MAX_OBJECTS` or adds a warning, it should fail and send them to update
+    /// `docs/BSENGINE_VS_UNITY_UNREAL.md`'s 규모 axis — that is the point of
+    /// pinning it.
+    #[test]
+    #[ignore = "measurement: two large scenes, slow on a software rasteriser"]
+    fn entities_past_the_renderers_object_cap_are_silently_dropped() {
+        let over = measure_scale(2000);
+        let far_over = measure_scale(5000);
+
+        // Each drawn entity contributes two calls (main pass and shadow pass),
+        // so an *uncapped* 2,000-entity scene would report about 4,005. It
+        // reports 2053 = 2 * 1024 + 5, which is the cap showing through rather
+        // than "fewer calls than entities" -- the naive comparison against
+        // `spawned` is satisfied by the capped number too, and would have
+        // passed while measuring nothing.
+        assert!(
+            over.draw_calls < 2 * over.spawned as u64,
+            "2000 entities produced {} draw calls, at or above the ~{} an uncapped \
+             two-pass render would give -- if every entity now draws, MAX_OBJECTS \
+             has been raised and this test plus the 규모 axis of \
+             docs/BSENGINE_VS_UNITY_UNREAL.md both need updating",
+            over.draw_calls,
+            2 * over.spawned
+        );
+        assert_eq!(
+            (over.draw_calls, over.triangles),
+            (far_over.draw_calls, far_over.triangles),
+            "2000 and 5000 entities should render identically once both exceed \
+             MAX_OBJECTS -- differing counts mean the cap moved or became \
+             load-dependent"
+        );
+    }
+
+    /// The pair for the assertion above. At a handful of well-separated
+    /// entities there is almost nothing to hide behind anything else, so draw
+    /// calls should track the entity count rather than fall below it.
+    ///
+    /// Without this, any "draw_calls is low" claim about the 500-entity scene is
+    /// satisfied just as well by a renderer that drops most of what it is given
+    /// -- a sparse control is what separates working culling from over-culling.
+    #[test]
+    fn a_tiny_scene_draws_at_least_one_call_per_entity() {
+        let sample = measure_scale(8);
+
+        assert_eq!(sample.spawned, 8);
+        assert!(
+            sample.draw_calls >= sample.spawned as u64,
+            "8 well-separated entities produced only {} draw calls -- if entities \
+             this sparse are being dropped, any measurement of a denser scene is \
+             measuring over-culling rather than working culling",
+            sample.draw_calls
+        );
+    }
+
+    /// The sweep. Prints a table across N and asserts nothing.
+    ///
+    /// `#[ignore]`d because 5,000 entities on CI's software rasteriser would
+    /// dominate the suite, and because its output is a measurement for a human
+    /// to read rather than a gate. Run it with:
+    ///
+    /// ```text
+    /// cargo test -p bsengine-runtime scale_sweep_table -- --ignored --nocapture
+    /// ```
+    ///
+    /// ⚠️ The numbers describe **coloured primitives with no textures, no
+    /// skinning and one directional light**. They are not a general claim about
+    /// scenes, and reading them as one is the trap this comment exists to block.
+    #[test]
+    #[ignore = "measurement, not a gate: run with --ignored --nocapture"]
+    fn scale_sweep_table() {
+        println!(
+            "{:>7} {:>12} {:>12} {:>10} {:>10}",
+            "N", "draw_calls", "triangles", "occluded", "cpu_ms"
+        );
+        for n in [100_usize, 500, 2000, 5000] {
+            let s = measure_scale(n);
+            println!(
+                "{:>7} {:>12} {:>12} {:>10} {:>10.3}",
+                s.spawned, s.draw_calls, s.triangles, s.occluded_count, s.cpu_frame_time_ms
+            );
+        }
+    }
+
     /// Task 9, and the measured proof the whole occlusion feature exists to
     /// produce: the profiler must show draw calls actually dropping, and it
     /// must show the objects that were never hidden still being drawn.

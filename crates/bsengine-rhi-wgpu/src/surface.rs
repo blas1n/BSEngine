@@ -1160,7 +1160,49 @@ fn fs_capture_sky(in: SkyOut) -> @location(0) vec4<f32> {
 "#;
 
 pub(crate) const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
-const MAX_OBJECTS: usize = 1024;
+/// Says so, once, when a frame had more objects than [`MAX_OBJECTS`] can hold.
+///
+/// The ceiling's silence was worse than its height. Before PR #1833 measured
+/// it, a 2,000-object scene rendered a little over a thousand of its objects
+/// and reported nothing at all -- the author's only clue was that things were
+/// missing from the picture. A cap is a reasonable engineering limit; an
+/// invisible one is a bug in disguise.
+///
+/// Warned once per process rather than per frame, because a scene that exceeds
+/// the cap exceeds it every frame and the message would otherwise bury every
+/// other line in the log.
+fn warn_if_truncated(what: &str, wanted: usize) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static WARNED: AtomicBool = AtomicBool::new(false);
+
+    if wanted <= MAX_OBJECTS {
+        return;
+    }
+    if WARNED.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    tracing::warn!(
+        "{what}: {wanted} objects exceeds MAX_OBJECTS ({MAX_OBJECTS}); \
+         {} were not drawn. Everything past the cap is skipped, so the scene \
+         on screen is not the scene you authored.",
+        wanted - MAX_OBJECTS
+    );
+}
+
+/// How many objects one frame can draw.
+///
+/// This is a **buffer capacity, not a hardware limit**. The 16 KiB
+/// `max_uniform_buffer_binding_size` applies to the *bound range* — one
+/// `ModelUniformData` — not to the whole buffer, and `max_buffer_size` is
+/// 256 MiB, so the value is ours to choose. It was 1024 (a 256 KB buffer)
+/// until PR #1833's scale sweep measured that scenes past it were being
+/// silently truncated: 2,000 and 5,000 objects rendered byte-identically.
+///
+/// 16384 is headroom rather than a target. At the ~7µs per draw call that
+/// sweep measured, 16384 objects is already about 115ms a frame, so the cap
+/// now sits well beyond anything usable and `warn_if_truncated` covers whoever
+/// still reaches it.
+const MAX_OBJECTS: usize = 16384;
 const MODEL_STRIDE: u64 = 256;
 // view_proj(64) + light_view_proj(64) + cam_pos(12) + pad(4) = 144
 const CAMERA_UNIFORM_SIZE: u64 = 144;
@@ -4274,6 +4316,17 @@ impl WgpuSurface {
         self.queue
             .write_buffer(&self.light_buffer, 0, bytemuck::cast_slice(&[light_data]));
 
+        // Staged into one buffer and written once, rather than a `write_buffer`
+        // per object. PR #1833's sweep measured that call pattern at 6.2µs per
+        // object -- 31ms of a 70ms frame at 5,000 objects, 44% of it. Batching
+        // recovers all of it: the bulk version measured 39.0ms against 39.2ms
+        // for disabling the writes entirely, so the cost was per-call overhead
+        // rather than moving the data.
+        //
+        // Sized to the actual object count, not `MAX_OBJECTS`, so a small scene
+        // does not allocate for a large one.
+        let staged_count = draw_calls.len().min(MAX_OBJECTS);
+        let mut staging = vec![0u8; staged_count * MODEL_STRIDE as usize];
         for (i, (_, model, _, mat, _)) in draw_calls.iter().enumerate() {
             if i >= MAX_OBJECTS {
                 break;
@@ -4289,12 +4342,14 @@ impl WgpuSurface {
                 base_color: mat.base_color.to_array(),
                 opacity: mat.opacity,
             };
-            self.queue.write_buffer(
-                &self.model_buffer,
-                i as u64 * MODEL_STRIDE,
-                bytemuck::cast_slice(&[data]),
-            );
+            let base = i * MODEL_STRIDE as usize;
+            staging[base..base + std::mem::size_of::<ModelUniformData>()]
+                .copy_from_slice(bytemuck::cast_slice(&[data]));
         }
+        if !staging.is_empty() {
+            self.queue.write_buffer(&self.model_buffer, 0, &staging);
+        }
+        warn_if_truncated("draw calls", draw_calls.len());
 
         // --- light probe bake ---
         // Here, after the light and model uniforms are written and before the

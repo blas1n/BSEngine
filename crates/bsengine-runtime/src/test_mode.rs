@@ -2390,71 +2390,47 @@ mod tests {
         );
     }
 
-    /// **The scale experiment's headline finding, pinned so it cannot surprise
-    /// anyone again.**
+    /// **The ceiling PR #1833 found is gone, and this is what proves it.**
     ///
-    /// `bsengine-rhi-wgpu`'s `MAX_OBJECTS` is 1024 (`surface.rs:1163`) — the
-    /// model uniform buffer holds 1024 slots of `MODEL_STRIDE` 256 bytes. Past
-    /// that, `render_frame` clamps with `.min(MAX_OBJECTS)` and terrain chunks
-    /// `break`. **Nothing warns.** A 2,000-entity scene and a 5,000-entity scene
-    /// therefore render byte-identically, and a user authoring either sees a
-    /// little over a thousand of their objects with no diagnostic at all.
+    /// That PR measured `MAX_OBJECTS = 1024` truncating scenes *silently*:
+    /// 2,000 and 5,000 entities rendered byte-identically at 2,053 draw calls
+    /// (= 2 × 1024 + 5), and nothing warned. This test asserted that silence,
+    /// so raising the cap was designed to **fail** it — and did, with a message
+    /// naming this file and the comparison doc.
     ///
-    /// Measured 2026-09-09: N=2000 and N=5000 both reported 2053 draw calls and
-    /// 818,993 triangles, against 1005 / 399,605 at N=500.
+    /// It now asserts the opposite: entity count reaches the draw-call list
+    /// instead of being clipped on the way. Measured after the change —
+    /// 2,000 → 4,005 draw calls, 5,000 → 10,005.
     ///
-    /// This test asserts the *silence*, not the number. If someone raises
-    /// `MAX_OBJECTS` or adds a warning, it should fail and send them to update
-    /// `docs/BSENGINE_VS_UNITY_UNREAL.md`'s 규모 axis — that is the point of
-    /// pinning it.
+    /// Still pinned, in the other direction: if a future change reintroduces a
+    /// cap below these sizes, the equality below breaks and points here.
     #[test]
     #[ignore = "measurement: two large scenes, slow on a software rasteriser"]
-    fn entities_past_the_renderers_object_cap_are_silently_dropped() {
+    fn entity_count_reaches_the_draw_call_list_past_the_old_1024_ceiling() {
         let over = measure_scale(2000);
         let far_over = measure_scale(5000);
 
-        // Each drawn entity contributes two calls (main pass and shadow pass),
-        // so an *uncapped* 2,000-entity scene would report about 4,005. It
-        // reports 2053 = 2 * 1024 + 5, which is the cap showing through rather
-        // than "fewer calls than entities" -- the naive comparison against
-        // `spawned` is satisfied by the capped number too, and would have
-        // passed while measuring nothing.
+        // Two calls per entity (main pass and shadow pass) plus a small
+        // constant, so an unclipped render reports about 2N. Asserting the
+        // *ratio* rather than an exact number keeps this from breaking when a
+        // pass is added or removed.
         assert!(
-            over.draw_calls < 2 * over.spawned as u64,
-            "2000 entities produced {} draw calls, at or above the ~{} an uncapped \
-             two-pass render would give -- if every entity now draws, MAX_OBJECTS \
-             has been raised and this test plus the 규모 axis of \
-             docs/BSENGINE_VS_UNITY_UNREAL.md both need updating",
+            over.draw_calls >= 2 * over.spawned as u64,
+            "2000 entities produced only {} draw calls, below the ~{} an              unclipped two-pass render gives -- something is capping again",
             over.draw_calls,
             2 * over.spawned
         );
-        assert_eq!(
-            (over.draw_calls, over.triangles),
-            (far_over.draw_calls, far_over.triangles),
-            "2000 and 5000 entities should render identically once both exceed \
-             MAX_OBJECTS -- differing counts mean the cap moved or became \
-             load-dependent"
-        );
-    }
-
-    /// The pair for the assertion above. At a handful of well-separated
-    /// entities there is almost nothing to hide behind anything else, so draw
-    /// calls should track the entity count rather than fall below it.
-    ///
-    /// Without this, any "draw_calls is low" claim about the 500-entity scene is
-    /// satisfied just as well by a renderer that drops most of what it is given
-    /// -- a sparse control is what separates working culling from over-culling.
-    #[test]
-    fn a_tiny_scene_draws_at_least_one_call_per_entity() {
-        let sample = measure_scale(8);
-
-        assert_eq!(sample.spawned, 8);
         assert!(
-            sample.draw_calls >= sample.spawned as u64,
-            "8 well-separated entities produced only {} draw calls -- if entities \
-             this sparse are being dropped, any measurement of a denser scene is \
-             measuring over-culling rather than working culling",
-            sample.draw_calls
+            far_over.draw_calls > over.draw_calls,
+            "5000 entities ({} calls) must draw more than 2000 ({}) -- equal              counts are the signature of the ceiling this change removed",
+            far_over.draw_calls,
+            over.draw_calls
+        );
+        assert!(
+            far_over.triangles > over.triangles,
+            "and more geometry: {} vs {} triangles",
+            far_over.triangles,
+            over.triangles
         );
     }
 

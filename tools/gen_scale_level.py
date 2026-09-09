@@ -13,9 +13,13 @@ the repo's own docs claim but nobody ever measured:
   FOXES   glTF skinned characters animating at once -- the comparison doc has
           said "CPU skinning is deliberately for 1~2 characters" since its
           first version, unmeasured
-  POINTS  point lights, filling MAX_POINT_LIGHTS = 8 (surface.rs:6); each
-          shadow-caster is a six-face cube render
-  SPOTS   spot lights, filling MAX_SPOT_LIGHTS = 8 (surface.rs:7)
+  POINTS  point lights. Each casts shadows as a SIX-FACE CUBE RENDER, and
+          measurement showed that is the single dominant cost in this level:
+          one costs ~18ms, and filling MAX_POINT_LIGHTS = 8 (surface.rs:6)
+          took the frame to 165ms (~6 FPS). Shipped at 1 so the demo is
+          playable; raise it to 8 to reproduce that measurement.
+  SPOTS   spot lights, MAX_SPOT_LIGHTS = 8 (surface.rs:7). Measured nearly
+          free next to point lights -- no cube render.
 
 Set FOXES = 0 or POINTS = SPOTS = 0 and regenerate to isolate a cost. That is
 the measurement this level exists for, not a debugging aid.
@@ -25,8 +29,8 @@ from pathlib import Path
 
 PROPS = 1200
 FOXES = 20
-POINTS = 8
-SPOTS = 8
+POINTS = 1
+SPOTS = 6
 
 # Terrain: 4x4 chunks of 40 = 160x160, growing from the origin in the positive
 # direction (it does not centre on it), so the middle is (80, _, 80).

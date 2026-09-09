@@ -4607,7 +4607,43 @@ impl WgpuSurface {
             };
             let total_point_shadow_passes = active_lights.len() * 6;
             let mut point_shadow_pass_counter = 0usize;
-            for (light_idx, _pl) in active_lights.iter().enumerate() {
+            for (light_idx, pl) in active_lights.iter().enumerate() {
+                // Which objects can possibly cast into *this* light, decided
+                // once per light rather than once per face -- the answer is the
+                // same for all six, since the test is a distance to the light's
+                // centre and not to any one face.
+                //
+                // Before this, every camera-visible object was drawn into all
+                // six faces of every light with no light-side test at all. A
+                // 1,231-entity level with one `range: 45` point light issued
+                // 6,333 draw calls, most of them geometry that could not reach
+                // the light; `games/scale-level` measured that at ~18ms per
+                // point light, and filling MAX_POINT_LIGHTS took the frame to
+                // 165ms.
+                //
+                // Conservative in the same direction item 46's occlusion
+                // culling is: the sphere radius is *added* to the range, so a
+                // borderline object is kept. Culling a caster that should have
+                // cast is a visible bug (a missing shadow); keeping one that
+                // could not is only wasted work.
+                let light_pos = glam::Vec3::from(pl.position);
+                let castable: Vec<usize> = draw_calls
+                    .iter()
+                    .enumerate()
+                    .take(MAX_OBJECTS)
+                    .filter_map(|(i, (mesh_id, model, _, _, _))| {
+                        let (local_center, local_radius) = registry.get_bounds(*mesh_id)?;
+                        let center = (*model * local_center.extend(1.0)).truncate();
+                        let max_scale = model
+                            .x_axis
+                            .truncate()
+                            .length()
+                            .max(model.y_axis.truncate().length())
+                            .max(model.z_axis.truncate().length());
+                        let world_radius = local_radius * max_scale.max(1.0);
+                        (center.distance(light_pos) <= pl.range + world_radius).then_some(i)
+                    })
+                    .collect();
                 for face in 0..6usize {
                     let is_first_point_shadow_pass = point_shadow_pass_counter == 0;
                     let is_last_point_shadow_pass =
@@ -4662,13 +4698,15 @@ impl WgpuSurface {
                         &self.point_shadow_bind_group,
                         &[uniform_offset],
                     );
-                    for (i, (mesh_id, _, _, _, _)) in draw_calls.iter().enumerate() {
-                        if i >= MAX_OBJECTS {
-                            break;
-                        }
-                        let Some(mesh) = registry.get(*mesh_id) else {
+                    for &i in &castable {
+                        let Some(mesh) = registry.get(draw_calls[i].0) else {
                             continue;
                         };
+                        // `i` is the index into `draw_calls`, not a position
+                        // within `castable` -- that index *is* the model
+                        // uniform's dynamic offset, and using a filtered
+                        // position would hand every object someone else's
+                        // transform.
                         let offset = (i as u64 * MODEL_STRIDE) as u32;
                         point_shadow_pass.set_bind_group(1, &self.model_bind_group, &[offset]);
                         point_shadow_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));

@@ -1,0 +1,36 @@
+{
+  "game": "scale-level",
+  "scene": "assets/scenes/main.ron",
+  "actions": [
+    {
+      "cmd": "step",
+      "frames": 300
+    },
+    {
+      "cmd": "assert",
+      "query": {
+        "tool": "get_transform",
+        "args": {
+          "name": "Player"
+        }
+      },
+      "path": "y",
+      "op": "<",
+      "value": 13.0,
+      "label": "The player spawns at y=14 and must fall. Asserted first, because a player still at spawn height means physics never ran."
+    },
+    {
+      "cmd": "assert",
+      "query": {
+        "tool": "get_transform",
+        "args": {
+          "name": "Player"
+        }
+      },
+      "path": "y",
+      "op": ">",
+      "value": 0.0,
+      "label": "And it must land rather than keep falling. Bounded on both sides: 'it fell' alone is satisfied by a player dropping through the terrain forever -- which is exactly what happened while the Terrain entity had no explicit transform, and the engine said nothing about it."
+    }
+  ]
+}

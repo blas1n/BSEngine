@@ -1,0 +1,52 @@
+// The playable minimum: terrain, a light, a player, a camera.
+//
+// Task 2 replaces this file with `tools/gen_scale_level.py`'s output. It exists
+// by hand first because a level that will not load is far harder to debug at
+// 1,500 entities than at five.
+SceneDescriptor(entities: [
+    EntityDescriptor(
+        name: "Camera",
+        camera: true,
+        transform: Some((position: (80.0, 30.0, 130.0))),
+        look_at: Some((80.0, 0.0, 80.0)),
+    ),
+    EntityDescriptor(
+        name: "Sun",
+        directional_light: Some((direction: (-0.4, -0.8, -0.3), color: (1.0, 0.97, 0.9), ambient: (0.22, 0.22, 0.26))),
+    ),
+    EntityDescriptor(
+        // 4x4 chunks of 40 units = a 160x160 world, four times terrain-demo's
+        // span. The size is deliberate: props need somewhere to go, and LOD
+        // only means anything when there is a view distance long enough for
+        // things to be far away.
+        name: "Ground",
+        // The identity transform is load-bearing, not decoration: without an
+        // explicit `transform:` the Terrain component generates no chunks and
+        // no collider, and says nothing about it. A player dropped onto such a
+        // terrain free-falls forever. terrain-demo carries the same line.
+        transform: Some((position: (0.0, 0.0, 0.0))),
+        components: [
+            ("bsengine_scene::types::Terrain", "(heightmap_path: \"assets/terrain/heightmap.png\", chunk_count: (4, 4), chunk_size: 40.0, height_scale: 8.0, layer0_texture_path: \"assets/terrain/grass.png\", layer1_texture_path: \"assets/terrain/rock.png\", layer2_texture_path: \"assets/terrain/dirt.png\", layer3_texture_path: \"assets/terrain/snow.png\", splatmap_path: None)"),
+        ],
+    ),
+    EntityDescriptor(
+        // Terrain spans 0..160 on both axes -- it grows from the origin in the
+        // positive direction rather than centring on it, the same way
+        // terrain-demo's 40x40 spans 0..40 (hence that demo's camera looking at
+        // (20, 2, 20)). So the middle is (80, _, 80); spawning at (0, _, 0) put
+        // the player on the very corner and it fell straight past the edge.
+        //
+        // Starts above the surface so it drops onto it rather than spawning
+        // inside, which would leave the character controller resolving a
+        // penetration on frame one.
+        name: "Player",
+        gltf: Some("assets/models/fox.glb"),
+        transform: Some((position: (80.0, 14.0, 80.0), scale: (0.02, 0.02, 0.02))),
+        rigidbody: Some(Dynamic),
+        collider: Some((shape: Capsule(half_height: 0.5, radius: 0.35), friction: 0.3)),
+        script: Some("assets/scripts/player.js"),
+        components: [
+            ("bsengine_physics::components::CharacterBody", "(ground_check_distance: 0.2, max_slope_deg: 50.0, grounded: false)"),
+        ],
+    ),
+])

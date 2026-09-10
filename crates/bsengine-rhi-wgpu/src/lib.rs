@@ -19,6 +19,8 @@ pub mod gizmo;
 /// Image-based lighting: cubemap helpers, the BRDF integration LUT, and the
 /// environment preprocessing passes.
 pub mod ibl;
+/// Grouping draw calls into instanced batches.
+pub mod instancing;
 /// GPU mesh generation and the mesh registry.
 pub mod mesh;
 /// Minimal glTF parsing + a small dedicated render pipeline for the Asset

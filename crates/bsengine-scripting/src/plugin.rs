@@ -2959,9 +2959,16 @@ fn start_pending_sounds(world: &mut World) {
             // which is the normal state before a listener exists. Falling back
             // keeps the sound audible during scene load rather than dropping
             // it; it is simply not positional for that moment.
+            // Recorded for every play, including the fallback cases below, so
+            // routing is assertable: a dropped sound and a Master-routed sound
+            // are otherwise both "no error".
+            let bus = entry.bus.as_deref();
+            audio.note_sound_bus(entry.id, bus);
             let started = match emitter_entity {
-                Some(e) => audio.play_at(e, data.clone()).or_else(|| audio.play(data)),
-                None => audio.play(data),
+                Some(e) => audio
+                    .play_at_on_bus(e, bus, data.clone())
+                    .or_else(|| audio.play_on_bus(bus, data)),
+                None => audio.play_on_bus(bus, data),
             };
             if let Some(mut handle) = started {
                 // A `pauseSound` that arrived while this play was still queued

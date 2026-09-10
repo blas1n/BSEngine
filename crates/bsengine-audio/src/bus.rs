@@ -8,6 +8,191 @@
 
 use serde::Deserialize;
 
+/// One DSP effect in a bus's chain.
+///
+/// Every variant maps to a `kira` effect builder that already exists upstream —
+/// this crate writes no DSP. Defaults mirror kira's own `Default` impls exactly
+/// (read from its source), so omitting a field gives what kira would have given
+/// rather than a number invented here.
+///
+/// Units are in the field names (`attack_ms`, `gain_db`) because RON has no
+/// `Duration` literal, and a bare `attack: 0.01` invites a 1000x error that no
+/// test would catch — both values parse.
+///
+/// kira's `volume_control` is deliberately absent: [`Bus::volume_db`] already
+/// *is* a volume control on that track, and this crate's `lib.rs` records
+/// removing a redundant second path rather than leaving two ways to do one
+/// thing.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub enum BusEffect {
+    /// Reverberation.
+    Reverb {
+        /// How much signal is fed back, 0.0 to 1.0.
+        #[serde(default = "reverb_feedback")]
+        feedback: f64,
+        /// High-frequency damping, 0.0 to 1.0.
+        #[serde(default = "reverb_damping")]
+        damping: f64,
+        /// Stereo spread, 0.0 to 1.0.
+        #[serde(default = "one")]
+        stereo_width: f64,
+        /// Dry/wet balance: 0.0 dry, 1.0 wet.
+        #[serde(default = "half")]
+        mix: f32,
+    },
+    /// A resonant filter — the effect occlusion will later drive.
+    Filter {
+        /// Which frequencies to remove.
+        #[serde(default)]
+        mode: FilterMode,
+        /// Corner frequency in hertz.
+        #[serde(default = "filter_cutoff")]
+        cutoff: f64,
+        /// Resonance at the cutoff.
+        #[serde(default)]
+        resonance: f64,
+        /// Dry/wet balance: 0.0 dry, 1.0 wet.
+        #[serde(default = "one_f32")]
+        mix: f32,
+    },
+    /// Dynamic range compression.
+    Compressor {
+        /// Level above which gain starts being reduced, in decibels.
+        #[serde(default)]
+        threshold: f64,
+        /// Compression ratio; 1.0 is no compression.
+        #[serde(default = "one")]
+        ratio: f64,
+        /// How quickly compression engages, in milliseconds.
+        #[serde(default = "compressor_attack_ms")]
+        attack_ms: f64,
+        /// How quickly compression releases, in milliseconds.
+        #[serde(default = "compressor_release_ms")]
+        release_ms: f64,
+        /// Gain applied after compression, in decibels.
+        #[serde(default)]
+        makeup_gain_db: f32,
+        /// Dry/wet balance: 0.0 dry, 1.0 wet.
+        #[serde(default = "one_f32")]
+        mix: f32,
+    },
+    /// An echo.
+    Delay {
+        /// Time between repeats, in milliseconds.
+        #[serde(default = "delay_ms")]
+        delay_ms: f64,
+        /// Level of each repeat relative to the last, in decibels.
+        #[serde(default = "delay_feedback_db")]
+        feedback_db: f32,
+        /// Dry/wet balance: 0.0 dry, 1.0 wet.
+        #[serde(default = "half")]
+        mix: f32,
+    },
+    /// Waveshaping distortion.
+    Distortion {
+        /// Which waveshaping curve to use.
+        #[serde(default)]
+        kind: DistortionKind,
+        /// Gain applied before the curve, in decibels.
+        #[serde(default)]
+        drive_db: f32,
+        /// Dry/wet balance: 0.0 dry, 1.0 wet.
+        #[serde(default = "one_f32")]
+        mix: f32,
+    },
+    /// A single parametric EQ band.
+    ///
+    /// The only effect with no defaults: kira's `EqFilterBuilder::new` takes
+    /// all four positionally, so there is no upstream default to mirror and
+    /// inventing one here would be exactly the drift the other variants avoid.
+    EqFilter {
+        /// Which band shape to apply.
+        kind: EqFilterKind,
+        /// Centre or corner frequency in hertz.
+        frequency: f64,
+        /// Gain applied to the band, in decibels.
+        gain_db: f32,
+        /// Bandwidth control; higher is narrower.
+        q: f64,
+    },
+    /// Static stereo placement for the whole bus.
+    Panning {
+        /// -1.0 hard left, 0.0 centre, 1.0 hard right.
+        #[serde(default)]
+        panning: f32,
+    },
+}
+
+/// Which frequencies a [`BusEffect::Filter`] removes. Mirrors kira's `FilterMode`.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+pub enum FilterMode {
+    /// Removes frequencies above the cutoff.
+    #[default]
+    LowPass,
+    /// Removes frequencies above and below the cutoff.
+    BandPass,
+    /// Removes frequencies below the cutoff.
+    HighPass,
+    /// Removes frequencies around the cutoff.
+    Notch,
+}
+
+/// Which waveshaping curve a [`BusEffect::Distortion`] uses. Mirrors kira's
+/// `DistortionKind`.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+pub enum DistortionKind {
+    /// Clamps hard at the signal limits.
+    #[default]
+    HardClip,
+    /// Eases towards the limits instead of clamping.
+    SoftClip,
+}
+
+/// Which band shape a [`BusEffect::EqFilter`] applies. Mirrors kira's
+/// `EqFilterKind`.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+pub enum EqFilterKind {
+    /// Adjusts frequencies around the given frequency.
+    Bell,
+    /// Adjusts the given frequency and everything below it.
+    LowShelf,
+    /// Adjusts the given frequency and everything above it.
+    HighShelf,
+}
+
+// serde needs functions for non-zero defaults. Each value is kira's own,
+// read from its `Default` impls rather than chosen here.
+fn one() -> f64 {
+    1.0
+}
+fn one_f32() -> f32 {
+    1.0
+}
+fn half() -> f32 {
+    0.5
+}
+fn reverb_feedback() -> f64 {
+    0.9
+}
+fn reverb_damping() -> f64 {
+    0.1
+}
+fn filter_cutoff() -> f64 {
+    1000.0
+}
+fn compressor_attack_ms() -> f64 {
+    10.0
+}
+fn compressor_release_ms() -> f64 {
+    100.0
+}
+fn delay_ms() -> f64 {
+    500.0
+}
+fn delay_feedback_db() -> f32 {
+    -6.0
+}
+
 /// One declared mixer bus.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct Bus {
@@ -21,6 +206,15 @@ pub struct Bus {
     /// Volume of this bus in decibels, matching `setSoundVolume`'s unit
     /// rather than introducing a second one.
     pub volume_db: f32,
+    /// DSP effects applied to this bus, in order.
+    ///
+    /// `#[serde(default)]` so every layout written before effects existed
+    /// keeps parsing with the field absent. Note this is plain serde through
+    /// `ron::from_str`, not the scene/`bevy_reflect` path where `default` is
+    /// inert — a distinction close enough to a known hazard here that
+    /// `a_bus_with_no_effects_field_parses` asserts it rather than trusting it.
+    #[serde(default)]
+    pub effects: Vec<BusEffect>,
 }
 
 /// A parsed and validated `buses.ron`.
@@ -313,6 +507,155 @@ mod tests {
         let l = layout("BusLayout(buses: [])");
         assert!(l.creation_order().is_empty());
         assert!(l.problems().is_empty());
+    }
+
+    /// A layout written before effects existed must still parse.
+    ///
+    /// Asserted rather than reasoned about: this repo has a recorded hazard
+    /// that `#[serde(default)]` is inert on the scene/`bevy_reflect` path.
+    /// `BusLayout` is plain serde through `ron::from_str`, where it works --
+    /// but the distinction is close enough to be worth a test rather than a
+    /// belief.
+    #[test]
+    fn a_bus_with_no_effects_field_parses() {
+        let l = layout(r#"BusLayout(buses: [Bus(name: "sfx", parent: None, volume_db: -6.0)])"#);
+        assert!(
+            l.get("sfx").unwrap().effects.is_empty(),
+            "an absent effects field must mean an empty chain, not a parse error"
+        );
+        assert!(l.problems().is_empty());
+    }
+
+    #[test]
+    fn an_effect_chain_keeps_its_authored_order() {
+        // Order is the contract: a chain is applied front to back, so Filter
+        // then Reverb is not the same sound as Reverb then Filter.
+        let l = layout(
+            r#"BusLayout(buses: [Bus(name: "sfx", parent: None, volume_db: 0.0, effects: [
+                Filter(mode: HighPass, cutoff: 800.0, resonance: 0.25, mix: 0.75),
+                Reverb(feedback: 0.5, damping: 0.25, stereo_width: 0.125, mix: 0.0625),
+            ])])"#,
+        );
+        let fx = &l.get("sfx").unwrap().effects;
+        assert_eq!(fx.len(), 2);
+        assert!(
+            matches!(fx[0], BusEffect::Filter { .. }),
+            "Filter was authored first; got {:?}",
+            fx[0]
+        );
+        assert!(
+            matches!(fx[1], BusEffect::Reverb { .. }),
+            "Reverb was authored second; got {:?}",
+            fx[1]
+        );
+    }
+
+    /// Every field a *different* value, so a mapping that reads the wrong one
+    /// cannot read as correct. This is the assertion the parameter-swap
+    /// mutation exists to trip.
+    #[test]
+    fn every_parameter_lands_in_its_own_field() {
+        let l = layout(
+            r#"BusLayout(buses: [Bus(name: "b", parent: None, volume_db: 0.0, effects: [
+                Reverb(feedback: 0.5, damping: 0.25, stereo_width: 0.125, mix: 0.0625),
+            ])])"#,
+        );
+        match &l.get("b").unwrap().effects[0] {
+            BusEffect::Reverb {
+                feedback,
+                damping,
+                stereo_width,
+                mix,
+            } => {
+                assert_eq!(*feedback, 0.5);
+                assert_eq!(*damping, 0.25);
+                assert_eq!(*stereo_width, 0.125);
+                assert_eq!(*mix, 0.0625);
+            }
+            other => panic!("expected Reverb, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn omitted_effect_parameters_take_kiras_defaults() {
+        // Not values chosen here -- kira's own, read from its Default impls.
+        let l = layout(
+            r#"BusLayout(buses: [Bus(name: "b", parent: None, volume_db: 0.0, effects: [
+                Reverb(),
+                Delay(),
+            ])])"#,
+        );
+        let fx = &l.get("b").unwrap().effects;
+        match &fx[0] {
+            BusEffect::Reverb {
+                feedback,
+                damping,
+                stereo_width,
+                mix,
+            } => {
+                assert_eq!(
+                    (*feedback, *damping, *stereo_width, *mix),
+                    (0.9, 0.1, 1.0, 0.5)
+                );
+            }
+            other => panic!("expected Reverb, got {other:?}"),
+        }
+        match &fx[1] {
+            BusEffect::Delay {
+                delay_ms,
+                feedback_db,
+                mix,
+            } => {
+                assert_eq!((*delay_ms, *feedback_db, *mix), (500.0, -6.0, 0.5));
+            }
+            other => panic!("expected Delay, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_unknown_effect_name_is_a_parse_error() {
+        // Loud rather than silently dropped: a typo'd effect that vanished
+        // would leave an author wondering why their bus sounds dry.
+        assert!(BusLayout::from_ron(
+            r#"BusLayout(buses: [Bus(name: "b", parent: None, volume_db: 0.0, effects: [
+                Flanger(depth: 1.0),
+            ])])"#
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn eq_filter_requires_all_four_parameters() {
+        // The one effect with no defaults, because kira's own constructor
+        // takes all four positionally.
+        let l = layout(
+            r#"BusLayout(buses: [Bus(name: "b", parent: None, volume_db: 0.0, effects: [
+                EqFilter(kind: LowShelf, frequency: 220.0, gain_db: -4.0, q: 0.7),
+            ])])"#,
+        );
+        match &l.get("b").unwrap().effects[0] {
+            BusEffect::EqFilter {
+                kind,
+                frequency,
+                gain_db,
+                q,
+            } => {
+                assert_eq!(*kind, EqFilterKind::LowShelf);
+                assert_eq!(*frequency, 220.0);
+                assert_eq!(*gain_db, -4.0);
+                assert_eq!(*q, 0.7);
+            }
+            other => panic!("expected EqFilter, got {other:?}"),
+        }
+        assert!(
+            BusLayout::from_ron(
+                r#"BusLayout(buses: [Bus(name: "b", parent: None, volume_db: 0.0, effects: [
+                    EqFilter(kind: Bell, frequency: 220.0),
+                ])])"#
+            )
+            .is_err(),
+            "a missing required EqFilter parameter must be an error, not a silent default"
+        );
     }
 
     #[test]

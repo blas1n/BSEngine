@@ -83,3 +83,35 @@ fn frame_stats_history_caps_at_its_capacity() {
         bsengine_rhi_wgpu::profiler::FRAME_STATS_HISTORY_CAPACITY
     );
 }
+
+#[test]
+fn objects_drawn_counts_every_instance_even_when_draw_calls_batch_them() {
+    // Two cubes: the same mesh at two different positions. Whatever
+    // batching does to `draw_calls`, `objects_drawn` must still see two
+    // objects per pass -- a drop there would mean something stopped being
+    // drawn, which is a bug, not an optimisation.
+    let mut h = Harness::new();
+    let cube = h.cube();
+    h.render(&Scene {
+        draws: vec![
+            Draw::new(cube, Vec3::new(-1.5, 0.0, 0.0)),
+            Draw::new(cube, Vec3::new(1.5, 0.0, 0.0)),
+        ],
+        ..Scene::default()
+    });
+
+    let stats = h.frame_stats();
+    assert!(
+        stats.objects_drawn >= 4,
+        "two cubes go through the opaque pass and the directional shadow pass, \
+         so at least 4 objects are drawn; got {}",
+        stats.objects_drawn
+    );
+    assert!(
+        stats.objects_drawn >= stats.draw_calls,
+        "objects_drawn={} cannot be below draw_calls={}: batching can only \
+         make draw calls fewer than objects, never more",
+        stats.objects_drawn,
+        stats.draw_calls
+    );
+}

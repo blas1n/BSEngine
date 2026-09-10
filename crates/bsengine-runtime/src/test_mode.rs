@@ -2547,10 +2547,20 @@ mod tests {
         let on_occluded = on_stats["occluded_count"]
             .as_u64()
             .expect("get_frame_stats should report occluded_count as a number");
+        // Objects, not draw calls. The shadow passes are instanced, so
+        // entities sharing a mesh collapse into one draw call -- a
+        // draw-call count says nothing about how many entities survived
+        // the cull, which is what this test is actually about.
+        let on_objects = on_stats["objects_drawn"]
+            .as_u64()
+            .expect("get_frame_stats should report objects_drawn as a number");
         let on_draws = on_stats["draw_calls"]
             .as_u64()
             .expect("get_frame_stats should report draw_calls as a number");
-        println!("occlusion ON : occluded_count={on_occluded} draw_calls={on_draws}");
+        println!(
+            "occlusion ON : occluded_count={on_occluded} objects_drawn={on_objects} \
+             draw_calls={on_draws}"
+        );
 
         assert!(
             on_occluded > 0,
@@ -2563,22 +2573,28 @@ mod tests {
              actually hidden, so something visible was culled"
         );
         assert!(
-            on_draws < mesh_entity_count as u64,
-            "occlusion culling must measurably cut the frame's work: draw_calls={on_draws} \
+            on_objects < mesh_entity_count as u64,
+            "occlusion culling must measurably cut the frame's work: objects_drawn={on_objects} \
              is not even below the {mesh_entity_count} mesh entities in the scene, and each \
-             drawn entity costs two draw calls (shadow + opaque) before post-processing is \
+             drawn entity costs two drawn objects (shadow + opaque) before post-processing is \
              counted at all"
         );
         // THE regression assertion. Each surviving entity contributes two
-        // draw calls, so the {beside} entities beside the wall plus the
-        // wall itself put a floor under `draw_calls` that an
+        // drawn objects, so the {beside} entities beside the wall plus the
+        // wall itself put a floor under `objects_drawn` that an
         // over-culling implementation would fall straight through.
+        //
+        // This counts objects rather than draw calls because the shadow
+        // passes are instanced: entities sharing a mesh collapse into one
+        // draw call, so a draw-call floor would be violated by a perfectly
+        // correct implementation. `objects_drawn` measures what this test
+        // has always been about -- how many entities survived the cull.
         let visible_floor = 2 * (beside_count as u64 + 1);
         assert!(
-            on_draws >= visible_floor,
-            "over-cull: draw_calls={on_draws} is below the {visible_floor} that the wall \
+            on_objects >= visible_floor,
+            "over-cull: objects_drawn={on_objects} is below the {visible_floor} that the wall \
              and the {beside_count} entities standing clear of it must produce on their \
-             own (two draw calls each: shadow pass + opaque pass). Something that was \
+             own (two drawn objects each: shadow pass + opaque pass). Something that was \
              plainly visible got culled, which is a rendering bug, not an optimization"
         );
 
@@ -2598,10 +2614,16 @@ mod tests {
         let off_occluded = off_stats["occluded_count"]
             .as_u64()
             .expect("get_frame_stats should report occluded_count as a number");
+        let off_objects = off_stats["objects_drawn"]
+            .as_u64()
+            .expect("get_frame_stats should report objects_drawn as a number");
         let off_draws = off_stats["draw_calls"]
             .as_u64()
             .expect("get_frame_stats should report draw_calls as a number");
-        println!("occlusion OFF: occluded_count={off_occluded} draw_calls={off_draws}");
+        println!(
+            "occlusion OFF: occluded_count={off_occluded} objects_drawn={off_objects} \
+             draw_calls={off_draws}"
+        );
 
         assert_eq!(
             off_occluded, 0,
@@ -2609,20 +2631,24 @@ mod tests {
              path: with the identical scene it still reported occluded_count={off_occluded}"
         );
         assert!(
-            off_draws >= 2 * mesh_entity_count as u64,
+            off_objects >= 2 * mesh_entity_count as u64,
             "with culling off every one of the {mesh_entity_count} mesh entities must be \
-             drawn twice (shadow + opaque), i.e. at least {} draw calls, but the profiler \
-             reported {off_draws} -- if the full count is not restored then phase 1's drop \
+             drawn twice (shadow + opaque), i.e. at least {} drawn objects, but the profiler \
+             reported {off_objects} -- if the full count is not restored then phase 1's drop \
              was not attributable to occlusion",
             2 * mesh_entity_count
         );
         assert_eq!(
-            off_draws - on_draws,
+            off_objects - on_objects,
             2 * on_occluded,
             "the whole difference between the two runs should be exactly the culled \
-             entities' own draw calls: {on_occluded} culled x 2 passes each. Got \
-             off={off_draws}, on={on_draws}. Anything else means the toggle changed \
-             something beyond occlusion, or the two runs did not render the same scene"
+             entities' own drawn objects: {on_occluded} culled x 2 passes each. Got \
+             off={off_objects}, on={on_objects}. Anything else means the toggle changed \
+             something beyond occlusion, or the two runs did not render the same scene.\n\
+             \n\
+             This counts objects, not draw calls: with the shadow passes instanced, \
+             removing N entities of a shared mesh removes 2N objects but often zero draw \
+             calls, so the draw-call difference carries no information about culling."
         );
     }
 

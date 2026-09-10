@@ -714,70 +714,125 @@ fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
 }
 "#;
 
-const SHADOW_WGSL: &str = r#"
-struct CameraUniform {
-    view_proj: mat4x4<f32>,
-    light_view_proj: mat4x4<f32>,
-};
-@group(0) @binding(0) var<uniform> camera: CameraUniform;
-
-struct ModelUniform {
+/// The instanced shadow shaders' view of the model buffer.
+///
+/// `_tail` is load-bearing: a WGSL array's stride is its element size, and
+/// this array aliases the very buffer the main pass reads as a uniform at
+/// `MODEL_STRIDE` (256). `ModelUniformData` is 112 bytes, and
+/// 112 + 9 * 16 = 256, so the padding is what keeps the two views agreeing
+/// on where object N begins.
+const INSTANCED_MODEL_DECL: &str = r#"
+struct ModelEntry {
     model: mat4x4<f32>,
+    metallic: f32,
+    roughness: f32,
+    _p0: f32,
+    _p1: f32,
+    emissive: vec3<f32>,
+    _p2: f32,
+    base_color: vec3<f32>,
+    opacity: f32,
+    _tail: array<vec4<f32>, 9>,
 };
-@group(1) @binding(0) var<uniform> model_data: ModelUniform;
-
-struct VertIn {
-    @location(0) pos: vec3<f32>,
-    @location(1) col: vec3<f32>,
-    @location(2) normal: vec3<f32>,
-    @location(3) uv: vec2<f32>,
-}
-
-@vertex
-fn vs_shadow(in: VertIn) -> @builtin(position) vec4<f32> {
-    let world = model_data.model * vec4<f32>(in.pos, 1.0);
-    return camera.light_view_proj * world;
-}
+@group(1) @binding(0) var<storage, read> models: array<ModelEntry>;
+@group(1) @binding(1) var<storage, read> slots: array<u32>;
 "#;
 
-const POINT_SHADOW_WGSL: &str = r#"
-struct ShadowUniform {
-    view_proj: mat4x4<f32>,
-    light_pos: vec3<f32>,
-};
-@group(0) @binding(0) var<uniform> shadow_uniform: ShadowUniform;
-
+/// The per-object shadow shaders' view, used on adapters without
+/// `DownlevelFlags::VERTEX_STORAGE`.
+const UNIFORM_MODEL_DECL: &str = r#"
 struct ModelUniform {
     model: mat4x4<f32>,
 };
 @group(1) @binding(0) var<uniform> model_data: ModelUniform;
+"#;
 
-struct VertIn {
+/// How an instanced shadow shader reaches its instance's model matrix.
+const INSTANCED_MODEL_FETCH: &str = "models[slots[in.instance]].model";
+
+/// How a per-object shadow shader reaches its object's model matrix.
+const UNIFORM_MODEL_FETCH: &str = "model_data.model";
+
+/// Picks the model declaration and access expression for a shadow shader.
+fn model_access(instanced: bool) -> (&'static str, &'static str) {
+    if instanced {
+        (INSTANCED_MODEL_DECL, INSTANCED_MODEL_FETCH)
+    } else {
+        (UNIFORM_MODEL_DECL, UNIFORM_MODEL_FETCH)
+    }
+}
+
+/// Directional shadow depth pass.
+///
+/// Built from one body with only the model access substituted, so the
+/// instanced and per-object variants cannot drift apart.
+fn shadow_wgsl(instanced: bool) -> String {
+    let (decl, fetch) = model_access(instanced);
+    format!(
+        r#"
+struct CameraUniform {{
+    view_proj: mat4x4<f32>,
+    light_view_proj: mat4x4<f32>,
+}};
+@group(0) @binding(0) var<uniform> camera: CameraUniform;
+{decl}
+struct VertIn {{
+    @builtin(instance_index) instance: u32,
     @location(0) pos: vec3<f32>,
     @location(1) col: vec3<f32>,
     @location(2) normal: vec3<f32>,
     @location(3) uv: vec2<f32>,
-}
-struct VertOut {
-    @builtin(position) clip_pos: vec4<f32>,
-    @location(0) world_pos: vec3<f32>,
-}
+}}
 
 @vertex
-fn vs_point_shadow(in: VertIn) -> VertOut {
+fn vs_shadow(in: VertIn) -> @builtin(position) vec4<f32> {{
+    let world = {fetch} * vec4<f32>(in.pos, 1.0);
+    return camera.light_view_proj * world;
+}}
+"#
+    )
+}
+
+/// Point shadow pass: distance-to-light rendered into one cube face.
+fn point_shadow_wgsl(instanced: bool) -> String {
+    let (decl, fetch) = model_access(instanced);
+    format!(
+        r#"
+struct ShadowUniform {{
+    view_proj: mat4x4<f32>,
+    light_pos: vec3<f32>,
+}};
+@group(0) @binding(0) var<uniform> shadow_uniform: ShadowUniform;
+{decl}
+struct VertIn {{
+    @builtin(instance_index) instance: u32,
+    @location(0) pos: vec3<f32>,
+    @location(1) col: vec3<f32>,
+    @location(2) normal: vec3<f32>,
+    @location(3) uv: vec2<f32>,
+}}
+struct VertOut {{
+    @builtin(position) clip_pos: vec4<f32>,
+    @location(0) world_pos: vec3<f32>,
+}}
+
+@vertex
+fn vs_point_shadow(in: VertIn) -> VertOut {{
     var out: VertOut;
-    let world = model_data.model * vec4<f32>(in.pos, 1.0);
+    let world = {fetch} * vec4<f32>(in.pos, 1.0);
     out.clip_pos = shadow_uniform.view_proj * world;
     out.world_pos = world.xyz;
     return out;
-}
+}}
 
 @fragment
-fn fs_point_shadow(in: VertOut) -> @location(0) vec4<f32> {
+fn fs_point_shadow(in: VertOut) -> @location(0) vec4<f32> {{
     let dist = length(in.world_pos - shadow_uniform.light_pos);
     return vec4<f32>(dist, 0.0, 0.0, 1.0);
+}}
+"#
+    )
 }
-"#;
 
 const SKYBOX_WGSL: &str = r#"
 const PI: f32 = 3.14159265358979323846;
@@ -1204,6 +1259,60 @@ fn warn_if_truncated(what: &str, wanted: usize) {
 /// still reaches it.
 const MAX_OBJECTS: usize = 16384;
 const MODEL_STRIDE: u64 = 256;
+
+/// How many instance slots one frame can hold across all of its passes.
+///
+/// A slot is a `u32` index into the model buffer. Like [`MAX_OBJECTS`] this
+/// is a **buffer capacity, not a hardware limit**: 1 Mi slots is 4 MiB,
+/// far under `downlevel_defaults()`'s 128 MiB storage-binding ceiling.
+///
+/// It is much larger than `MAX_OBJECTS` on purpose. A frame holds one slot
+/// list for the directional pass plus one per point light, and each list
+/// is padded to a dynamic-offset boundary, so the slot total legitimately
+/// runs to several times the object count.
+const MAX_SLOTS: usize = 1 << 20;
+
+/// How many bytes of the slot array one batch's binding can see.
+///
+/// A dynamically-offset binding is a *window*, not the whole buffer: wgpu
+/// requires `offset + window <= buffer_size`, so binding the full buffer
+/// (`size: None`) makes every non-zero offset a validation error, while
+/// binding too small a window makes `slots[1]` an out-of-bounds read --
+/// which WGSL clamps to index 0, silently handing every instance the
+/// batch's first transform.
+///
+/// One batch can hold at most `MAX_OBJECTS` slots, so that is the window.
+/// [`SLOT_BUFFER_BYTES`] adds it as headroom past `MAX_SLOTS` so any
+/// in-range `slot_base` can be offset to.
+const SLOT_WINDOW_BYTES: u64 = MAX_OBJECTS as u64 * std::mem::size_of::<u32>() as u64;
+
+/// Size of the slot buffer: [`MAX_SLOTS`] usable slots plus one window of
+/// headroom, so the highest usable offset still has a full window behind it.
+const SLOT_BUFFER_BYTES: u64 =
+    MAX_SLOTS as u64 * std::mem::size_of::<u32>() as u64 + SLOT_WINDOW_BYTES;
+
+/// Warns once per process when a frame needs more instance slots than
+/// [`MAX_SLOTS`].
+///
+/// Separate from [`warn_if_truncated`] because that one's threshold is
+/// `MAX_OBJECTS`; reusing it here would fire on ordinary frames, since a
+/// frame legitimately holds far more slots than objects.
+fn warn_if_slots_truncated(wanted: usize) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static WARNED: AtomicBool = AtomicBool::new(false);
+
+    if wanted <= MAX_SLOTS {
+        return;
+    }
+    if WARNED.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    tracing::warn!(
+        "instance slots: {wanted} exceeds MAX_SLOTS ({MAX_SLOTS}); some objects \
+         were not drawn into shadow maps this frame, so shadows on screen are \
+         not the shadows the scene calls for.",
+    );
+}
 // view_proj(64) + light_view_proj(64) + cam_pos(12) + pad(4) = 144
 const CAMERA_UNIFORM_SIZE: u64 = 144;
 // inv_vp mat4x4<f32> = 64 bytes
@@ -1913,6 +2022,12 @@ pub struct WgpuSurface {
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     model_buffer: wgpu::Buffer,
+    /// Per-batch lists of model-buffer slots, read by the instanced
+    /// shadow shaders through a dynamic offset.
+    slot_buffer: wgpu::Buffer,
+    /// The shadow passes' storage-array view of `model_buffer`, plus
+    /// `slot_buffer`. Bound once per batch instead of once per object.
+    model_storage_bind_group: wgpu::BindGroup,
     model_bind_group: wgpu::BindGroup,
     light_buffer: wgpu::Buffer,
     light_bind_group: wgpu::BindGroup,
@@ -2034,6 +2149,10 @@ pub struct WgpuSurface {
     /// `wgpu::Features::TIMESTAMP_QUERY`. Set once at construction; every
     /// other `timestamp_*` field is `Some` iff this is `true`.
     timestamp_supported: bool,
+    /// Whether this adapter can read storage buffers in the vertex
+    /// stage, and therefore whether the shadow passes batch their draws
+    /// instead of issuing one per object.
+    instancing_supported: bool,
     /// GPU timestamp query set `render_frame` writes begin/end pass
     /// boundaries into, when `timestamp_supported`.
     timestamp_query_set: Option<wgpu::QuerySet>,
@@ -2087,7 +2206,7 @@ impl WgpuSurface {
             .create_surface(window.clone())
             .map_err(|e| e.to_string())?;
 
-        let (adapter, device, queue, timestamp_supported) =
+        let (adapter, device, queue, timestamp_supported, instancing_supported) =
             Self::request_device(&instance, Some(&surface)).await?;
 
         let size = window.inner_size();
@@ -2121,6 +2240,7 @@ impl WgpuSurface {
             },
             false,
             timestamp_supported,
+            instancing_supported,
         )
     }
 
@@ -2135,7 +2255,7 @@ impl WgpuSurface {
             backends: wgpu::Backends::all(),
             ..Default::default()
         });
-        let (_adapter, device, queue, timestamp_supported) =
+        let (_adapter, device, queue, timestamp_supported, instancing_supported) =
             Self::request_device(&instance, None).await?;
         let texture = crate::output::create_offscreen_texture(&device, width, height);
         Self::build(
@@ -2148,6 +2268,7 @@ impl WgpuSurface {
             },
             fast_render,
             timestamp_supported,
+            instancing_supported,
         )
     }
 
@@ -2196,6 +2317,15 @@ impl WgpuSurface {
         self.fast_render
     }
 
+    /// Whether the shadow passes batch objects sharing a mesh into one
+    /// instanced draw, rather than issuing one draw call each.
+    ///
+    /// False only on an adapter without `DownlevelFlags::VERTEX_STORAGE`,
+    /// where the instanced pipelines cannot be created at all.
+    pub fn is_instancing_supported(&self) -> bool {
+        self.instancing_supported
+    }
+
     /// This renderer's GPU device, for callers that must put resources on the
     /// same device -- a `GpuMeshRegistry`, for one.
     pub fn device_arc(&self) -> Arc<wgpu::Device> {
@@ -2219,7 +2349,16 @@ impl WgpuSurface {
     async fn request_device(
         instance: &wgpu::Instance,
         compatible_surface: Option<&wgpu::Surface<'static>>,
-    ) -> Result<(wgpu::Adapter, Arc<wgpu::Device>, Arc<wgpu::Queue>, bool), String> {
+    ) -> Result<
+        (
+            wgpu::Adapter,
+            Arc<wgpu::Device>,
+            Arc<wgpu::Queue>,
+            bool,
+            bool,
+        ),
+        String,
+    > {
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::None,
@@ -2230,6 +2369,19 @@ impl WgpuSurface {
             .ok_or("No adapter found")?;
 
         let timestamp_supported = adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY);
+        // Storage buffers in the vertex stage are an adapter capability,
+        // not something `required_limits` can ask for, and a pipeline whose
+        // vertex shader reads storage fails at *creation* where it is
+        // missing -- so this has to be decided before the shadow pipelines
+        // are built, not at draw time.
+        //
+        // Every backend this engine ships to supports it (there is no
+        // wasm/WebGL target), but the flag is real and not ours to
+        // guarantee, so it is checked rather than assumed.
+        let instancing_supported = adapter
+            .get_downlevel_capabilities()
+            .flags
+            .contains(wgpu::DownlevelFlags::VERTEX_STORAGE);
         let required_features = if timestamp_supported {
             wgpu::Features::TIMESTAMP_QUERY
         } else {
@@ -2254,6 +2406,7 @@ impl WgpuSurface {
             Arc::new(device),
             Arc::new(queue),
             timestamp_supported,
+            instancing_supported,
         ))
     }
 
@@ -2268,9 +2421,10 @@ impl WgpuSurface {
             backends: wgpu::Backends::all(),
             ..Default::default()
         });
-        let (_adapter, device, queue, _timestamp_supported) = Self::request_device(&instance, None)
-            .await
-            .expect("headless device for test");
+        let (_adapter, device, queue, _timestamp_supported, _instancing_supported) =
+            Self::request_device(&instance, None)
+                .await
+                .expect("headless device for test");
         (device, queue)
     }
 
@@ -2286,6 +2440,7 @@ impl WgpuSurface {
         output: crate::output::Output,
         fast_render: bool,
         timestamp_supported: bool,
+        instancing_supported: bool,
     ) -> Result<Self, String> {
         let format = output.format();
         let width = output.width();
@@ -2356,7 +2511,14 @@ impl WgpuSurface {
         let model_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("model uniform"),
             size: MODEL_STRIDE * MAX_OBJECTS as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            // STORAGE as well as UNIFORM. The main, transparent, terrain
+            // and probe passes read this through a dynamic-offset uniform
+            // binding; the instanced shadow passes read the whole thing as
+            // an array. Same bytes, same 256-byte stride, two views -- so
+            // nothing about how the buffer is filled has to change.
+            usage: wgpu::BufferUsages::UNIFORM
+                | wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         let model_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -2385,6 +2547,73 @@ impl WgpuSurface {
                     size: wgpu::BufferSize::new(std::mem::size_of::<ModelUniformData>() as u64),
                 }),
             }],
+        });
+
+        // Slot array: for each instanced batch, the model-buffer slot of
+        // every object in it. One frame-wide array holds every pass's
+        // lists back to back, so a frame costs one upload; each batch
+        // reaches its own list through a dynamic offset.
+        let slot_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("instance slots"),
+            size: SLOT_BUFFER_BYTES,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        // The shadow passes' view of the same model buffer: an array
+        // indexed by this instance's slot, rather than one dynamically
+        // offset struct. Vertex stage only -- the shadow shaders have no
+        // fragment-stage use for model data, which is precisely why they
+        // can move to storage while MESH_WGSL cannot.
+        let model_storage_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("model storage bgl"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: wgpu::BufferSize::new(MODEL_STRIDE),
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: true,
+                        min_binding_size: wgpu::BufferSize::new(SLOT_WINDOW_BYTES),
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let model_storage_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("model storage bg"),
+            layout: &model_storage_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: model_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &slot_buffer,
+                        offset: 0,
+                        // An explicit window, not `None`. `None` binds
+                        // the whole buffer, and wgpu then rejects every
+                        // non-zero dynamic offset as an overrun. Too small
+                        // a window is worse: `slots[1]` becomes an
+                        // out-of-bounds read, WGSL clamps it to index 0,
+                        // and every instance silently gets the batch's
+                        // first transform -- no validation error, no
+                        // warning, just every shadow stacked in one place.
+                        size: wgpu::BufferSize::new(SLOT_WINDOW_BYTES),
+                    }),
+                },
+            ],
         });
 
         let light_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -2764,12 +2993,23 @@ impl WgpuSurface {
 
         let shadow_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("shadow shader"),
-            source: wgpu::ShaderSource::Wgsl(SHADOW_WGSL.into()),
+            source: wgpu::ShaderSource::Wgsl(shadow_wgsl(instancing_supported).into()),
         });
         let shadow_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("shadow pipeline layout"),
-                bind_group_layouts: &[&camera_bgl, &model_bgl],
+                // The ONLY two pipeline layouts that change. The main,
+                // transparent, terrain and probe pipelines keep model_bgl,
+                // which is what keeps MESH_WGSL's @group(1) contract -- and
+                // every custom shader that copies it -- untouched.
+                bind_group_layouts: &[
+                    &camera_bgl,
+                    if instancing_supported {
+                        &model_storage_bgl
+                    } else {
+                        &model_bgl
+                    },
+                ],
                 push_constant_ranges: &[],
             });
         let shadow_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -2806,12 +3046,19 @@ impl WgpuSurface {
 
         let point_shadow_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("point shadow shader"),
-            source: wgpu::ShaderSource::Wgsl(POINT_SHADOW_WGSL.into()),
+            source: wgpu::ShaderSource::Wgsl(point_shadow_wgsl(instancing_supported).into()),
         });
         let point_shadow_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("point shadow pipeline layout"),
-                bind_group_layouts: &[&point_shadow_uniform_bgl, &model_bgl],
+                bind_group_layouts: &[
+                    &point_shadow_uniform_bgl,
+                    if instancing_supported {
+                        &model_storage_bgl
+                    } else {
+                        &model_bgl
+                    },
+                ],
                 push_constant_ranges: &[],
             });
         let point_shadow_pipeline =
@@ -3293,6 +3540,8 @@ impl WgpuSurface {
             camera_buffer,
             camera_bind_group,
             model_buffer,
+            slot_buffer,
+            model_storage_bind_group,
             model_bind_group,
             light_buffer,
             light_bind_group,
@@ -3350,6 +3599,7 @@ impl WgpuSurface {
             last_saved_layout_json: None,
             fast_render,
             timestamp_supported,
+            instancing_supported,
             timestamp_query_set,
             timestamp_resolve_buffer,
             timestamp_readback_buffer,
@@ -4386,6 +4636,9 @@ impl WgpuSurface {
         // `mesh_thumbnail.rs`'s `render_thumbnail` can run mid-frame and
         // must never inflate this frame's `FrameStats`.
         let mut frame_draw_calls: u32 = 0;
+        // Objects, as distinct from draw calls: an instanced pass submits
+        // many objects per call, so these two diverge once batching is on.
+        let mut frame_objects_drawn: u32 = 0;
         let mut frame_triangles: u64 = 0;
 
         // GPU pass-timing bookkeeping for the profiler (see `next_timed_pass`
@@ -4519,6 +4772,84 @@ impl WgpuSurface {
             );
         }
 
+        // --- instanced batch building ---
+        //
+        // Every pass's slot lists live in one array, built before any pass
+        // is encoded so the whole frame costs a single upload. The
+        // directional pass's list goes first, then one per active point
+        // light. Each batch reaches its own list through a dynamic offset.
+        let active_lights: Vec<_> = light.point_lights.iter().take(MAX_POINT_LIGHTS).collect();
+        let mut frame_slots: Vec<u32> = Vec::new();
+        // Gated on `fast_render` because that mode clears the directional
+        // shadow map without drawing into it. The point-shadow passes are
+        // not gated, and neither is their batching below.
+        let directional_batches = if self.instancing_supported && !self.fast_render {
+            let indices: Vec<usize> = (0..draw_calls.len().min(MAX_OBJECTS)).collect();
+            crate::instancing::build_batches(&indices, draw_calls, &mut frame_slots)
+        } else {
+            Vec::new()
+        };
+
+        // Which objects can possibly cast into each light, decided once per
+        // light rather than once per face -- the answer is the same for all
+        // six, since the test is a distance to the light's centre and not to
+        // any one face.
+        //
+        // Before this, every camera-visible object was drawn into all six
+        // faces of every light with no light-side test at all. A
+        // 1,231-entity level with one `range: 45` point light issued 6,333
+        // draw calls, most of them geometry that could not reach the light;
+        // `games/scale-level` measured that at ~18ms per point light, and
+        // filling MAX_POINT_LIGHTS took the frame to 165ms.
+        //
+        // Conservative in the same direction item 46's occlusion culling is:
+        // the sphere radius is *added* to the range, so a borderline object
+        // is kept. Culling a caster that should have cast is a visible bug
+        // (a missing shadow); keeping one that could not is only wasted work.
+        let point_castable: Vec<Vec<usize>> = active_lights
+            .iter()
+            .map(|pl| {
+                let light_pos = glam::Vec3::from(pl.position);
+                draw_calls
+                    .iter()
+                    .enumerate()
+                    .take(MAX_OBJECTS)
+                    .filter_map(|(i, (mesh_id, model, _, _, _))| {
+                        let (local_center, local_radius) = registry.get_bounds(*mesh_id)?;
+                        let center = (*model * local_center.extend(1.0)).truncate();
+                        let max_scale = model
+                            .x_axis
+                            .truncate()
+                            .length()
+                            .max(model.y_axis.truncate().length())
+                            .max(model.z_axis.truncate().length());
+                        let world_radius = local_radius * max_scale.max(1.0);
+                        (center.distance(light_pos) <= pl.range + world_radius).then_some(i)
+                    })
+                    .collect()
+            })
+            .collect();
+        // One batch list per light, shared by all six of its cube faces.
+        let mut point_batches: Vec<Vec<crate::instancing::Batch>> = Vec::new();
+        if self.instancing_supported {
+            for castable in &point_castable {
+                point_batches.push(crate::instancing::build_batches(
+                    castable,
+                    draw_calls,
+                    &mut frame_slots,
+                ));
+            }
+        }
+        if !frame_slots.is_empty() {
+            let staged = frame_slots.len().min(MAX_SLOTS);
+            self.queue.write_buffer(
+                &self.slot_buffer,
+                0,
+                bytemuck::cast_slice(&frame_slots[..staged]),
+            );
+            warn_if_slots_truncated(frame_slots.len());
+        }
+
         // --- shadow pass ---
         // In fast_render mode this still clears the shadow map to depth=1.0
         // (max distance -- "nothing occludes anything"), which reads as
@@ -4547,28 +4878,56 @@ impl WgpuSurface {
             if !self.fast_render {
                 shadow_pass.set_pipeline(&self.shadow_pipeline);
                 shadow_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-                for (i, (mesh_id, _, _, _, _)) in draw_calls.iter().enumerate() {
-                    if i >= MAX_OBJECTS {
-                        break;
+                if self.instancing_supported {
+                    for batch in &directional_batches {
+                        // One registry lookup per batch, where the
+                        // per-object path needed one per object.
+                        let Some(mesh) = registry.get(batch.mesh_id) else {
+                            continue;
+                        };
+                        shadow_pass.set_bind_group(
+                            1,
+                            &self.model_storage_bind_group,
+                            &[batch.slot_base * std::mem::size_of::<u32>() as u32],
+                        );
+                        shadow_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                        shadow_pass.set_index_buffer(
+                            mesh.index_buffer.slice(..),
+                            wgpu::IndexFormat::Uint32,
+                        );
+                        shadow_pass.draw_indexed(0..mesh.index_count, 0, 0..batch.count);
+                        frame_draw_calls += 1;
+                        frame_objects_drawn += batch.count;
+                        // Triangles are per instance, so batching must not
+                        // deflate this the way it deflates draw calls.
+                        frame_triangles += (mesh.index_count / 3) as u64 * batch.count as u64;
                     }
-                    let Some(mesh) = registry.get(*mesh_id) else {
-                        continue;
-                    };
-                    let offset = (i as u64 * MODEL_STRIDE) as u32;
-                    shadow_pass.set_bind_group(1, &self.model_bind_group, &[offset]);
-                    shadow_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                    shadow_pass
-                        .set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                    shadow_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
-                    frame_draw_calls += 1;
-                    frame_triangles += (mesh.index_count / 3) as u64;
+                } else {
+                    for (i, (mesh_id, _, _, _, _)) in draw_calls.iter().enumerate() {
+                        if i >= MAX_OBJECTS {
+                            break;
+                        }
+                        let Some(mesh) = registry.get(*mesh_id) else {
+                            continue;
+                        };
+                        let offset = (i as u64 * MODEL_STRIDE) as u32;
+                        shadow_pass.set_bind_group(1, &self.model_bind_group, &[offset]);
+                        shadow_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                        shadow_pass.set_index_buffer(
+                            mesh.index_buffer.slice(..),
+                            wgpu::IndexFormat::Uint32,
+                        );
+                        shadow_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                        frame_draw_calls += 1;
+                        frame_objects_drawn += 1;
+                        frame_triangles += (mesh.index_count / 3) as u64;
+                    }
                 }
             }
         }
 
         // --- point light shadow passes (linear-distance cube arrays) ---
         {
-            let active_lights: Vec<_> = light.point_lights.iter().take(MAX_POINT_LIGHTS).collect();
             for (light_idx, pl) in active_lights.iter().enumerate() {
                 let view_projs = point_light_face_view_projs(pl.position, pl.range);
                 for (face, vp) in view_projs.iter().enumerate() {
@@ -4607,43 +4966,11 @@ impl WgpuSurface {
             };
             let total_point_shadow_passes = active_lights.len() * 6;
             let mut point_shadow_pass_counter = 0usize;
-            for (light_idx, pl) in active_lights.iter().enumerate() {
-                // Which objects can possibly cast into *this* light, decided
-                // once per light rather than once per face -- the answer is the
-                // same for all six, since the test is a distance to the light's
-                // centre and not to any one face.
-                //
-                // Before this, every camera-visible object was drawn into all
-                // six faces of every light with no light-side test at all. A
-                // 1,231-entity level with one `range: 45` point light issued
-                // 6,333 draw calls, most of them geometry that could not reach
-                // the light; `games/scale-level` measured that at ~18ms per
-                // point light, and filling MAX_POINT_LIGHTS took the frame to
-                // 165ms.
-                //
-                // Conservative in the same direction item 46's occlusion
-                // culling is: the sphere radius is *added* to the range, so a
-                // borderline object is kept. Culling a caster that should have
-                // cast is a visible bug (a missing shadow); keeping one that
-                // could not is only wasted work.
-                let light_pos = glam::Vec3::from(pl.position);
-                let castable: Vec<usize> = draw_calls
-                    .iter()
-                    .enumerate()
-                    .take(MAX_OBJECTS)
-                    .filter_map(|(i, (mesh_id, model, _, _, _))| {
-                        let (local_center, local_radius) = registry.get_bounds(*mesh_id)?;
-                        let center = (*model * local_center.extend(1.0)).truncate();
-                        let max_scale = model
-                            .x_axis
-                            .truncate()
-                            .length()
-                            .max(model.y_axis.truncate().length())
-                            .max(model.z_axis.truncate().length());
-                        let world_radius = local_radius * max_scale.max(1.0);
-                        (center.distance(light_pos) <= pl.range + world_radius).then_some(i)
-                    })
-                    .collect();
+            for (light_idx, _pl) in active_lights.iter().enumerate() {
+                // Both computed once per light, above, and shared by all six
+                // of this light's cube faces: the range cull is a distance to
+                // the light's centre, so it gives the same answer per face.
+                let castable = &point_castable[light_idx];
                 for face in 0..6usize {
                     let is_first_point_shadow_pass = point_shadow_pass_counter == 0;
                     let is_last_point_shadow_pass =
@@ -4698,25 +5025,49 @@ impl WgpuSurface {
                         &self.point_shadow_bind_group,
                         &[uniform_offset],
                     );
-                    for &i in &castable {
-                        let Some(mesh) = registry.get(draw_calls[i].0) else {
-                            continue;
-                        };
-                        // `i` is the index into `draw_calls`, not a position
-                        // within `castable` -- that index *is* the model
-                        // uniform's dynamic offset, and using a filtered
-                        // position would hand every object someone else's
-                        // transform.
-                        let offset = (i as u64 * MODEL_STRIDE) as u32;
-                        point_shadow_pass.set_bind_group(1, &self.model_bind_group, &[offset]);
-                        point_shadow_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                        point_shadow_pass.set_index_buffer(
-                            mesh.index_buffer.slice(..),
-                            wgpu::IndexFormat::Uint32,
-                        );
-                        point_shadow_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
-                        frame_draw_calls += 1;
-                        frame_triangles += (mesh.index_count / 3) as u64;
+                    if self.instancing_supported {
+                        for batch in &point_batches[light_idx] {
+                            let Some(mesh) = registry.get(batch.mesh_id) else {
+                                continue;
+                            };
+                            point_shadow_pass.set_bind_group(
+                                1,
+                                &self.model_storage_bind_group,
+                                &[batch.slot_base * std::mem::size_of::<u32>() as u32],
+                            );
+                            point_shadow_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                            point_shadow_pass.set_index_buffer(
+                                mesh.index_buffer.slice(..),
+                                wgpu::IndexFormat::Uint32,
+                            );
+                            point_shadow_pass.draw_indexed(0..mesh.index_count, 0, 0..batch.count);
+                            frame_draw_calls += 1;
+                            frame_objects_drawn += batch.count;
+                            frame_triangles += (mesh.index_count / 3) as u64 * batch.count as u64;
+                        }
+                    } else {
+                        for &i in castable {
+                            let Some(mesh) = registry.get(draw_calls[i].0) else {
+                                continue;
+                            };
+                            // `i` is the index into `draw_calls`, not a position
+                            // within `castable` -- that index *is* the model
+                            // uniform's dynamic offset, and using a filtered
+                            // position would hand every object someone else's
+                            // transform. `build_batches` carries the same
+                            // invariant for the instanced path above.
+                            let offset = (i as u64 * MODEL_STRIDE) as u32;
+                            point_shadow_pass.set_bind_group(1, &self.model_bind_group, &[offset]);
+                            point_shadow_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                            point_shadow_pass.set_index_buffer(
+                                mesh.index_buffer.slice(..),
+                                wgpu::IndexFormat::Uint32,
+                            );
+                            point_shadow_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                            frame_draw_calls += 1;
+                            frame_objects_drawn += 1;
+                            frame_triangles += (mesh.index_count / 3) as u64;
+                        }
                     }
                     point_shadow_pass_counter += 1;
                 }
@@ -4801,6 +5152,7 @@ impl WgpuSurface {
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
                 frame_draw_calls += 1;
+                frame_objects_drawn += 1;
                 frame_triangles += (mesh.index_count / 3) as u64;
             }
 
@@ -4888,6 +5240,7 @@ impl WgpuSurface {
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
                 frame_draw_calls += 1;
+                frame_objects_drawn += 1;
                 frame_triangles += (mesh.index_count / 3) as u64;
                 terrain_slot += 1;
             }
@@ -4930,6 +5283,7 @@ impl WgpuSurface {
             sky_pass.set_bind_group(1, &sky.texture_bg, &[]);
             sky_pass.draw(0..3, 0..1);
             frame_draw_calls += 1;
+            frame_objects_drawn += 1;
             frame_triangles += 1;
         }
 
@@ -4989,6 +5343,7 @@ impl WgpuSurface {
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
                 frame_draw_calls += 1;
+                frame_objects_drawn += 1;
                 frame_triangles += (mesh.index_count / 3) as u64;
             }
         }
@@ -5006,6 +5361,7 @@ impl WgpuSurface {
                 &self.default_texture_bind_group,
             );
             frame_draw_calls += particle_draw_calls;
+            frame_objects_drawn += particle_draw_calls;
             frame_triangles += particle_triangles;
         }
 
@@ -5024,6 +5380,7 @@ impl WgpuSurface {
             self.post_process
                 .apply(&mut encoder, &view, self.fast_render);
         frame_draw_calls += pp_draw_calls;
+        frame_objects_drawn += pp_draw_calls;
         frame_triangles += pp_triangles;
 
         // UI + HUD overlay via egui (always on in editor mode)
@@ -5659,6 +6016,7 @@ impl WgpuSurface {
             gpu_pass_times_ms,
             gpu_timestamps_supported: self.timestamp_supported,
             draw_calls: frame_draw_calls,
+            objects_drawn: frame_objects_drawn,
             triangles: frame_triangles,
             occluded_count,
             texture_memory_bytes: crate::profiler::texture_memory_bytes(),
@@ -6391,16 +6749,50 @@ mod tests {
         );
     }
 
+    /// Both shadow shaders, in both variants.
+    ///
+    /// The per-object variant only ever runs on an adapter without
+    /// `VERTEX_STORAGE`, which cannot be simulated here -- so compiling it
+    /// is the only coverage it can have, and worth keeping for that
+    /// reason: without this, a typo in the fallback branch would ship
+    /// undetected.
     #[test]
     fn shadow_shader_compiles() {
         let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
-        let _module = WgpuSurface::compile_shader(&device, SHADOW_WGSL);
+        let _instanced = WgpuSurface::compile_shader(&device, &shadow_wgsl(true));
+        let _per_object = WgpuSurface::compile_shader(&device, &shadow_wgsl(false));
     }
 
     #[test]
     fn point_shadow_shader_compiles() {
         let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
-        let _module = WgpuSurface::compile_shader(&device, POINT_SHADOW_WGSL);
+        let _instanced = WgpuSurface::compile_shader(&device, &point_shadow_wgsl(true));
+        let _per_object = WgpuSurface::compile_shader(&device, &point_shadow_wgsl(false));
+    }
+
+    /// The instanced model struct must be exactly `MODEL_STRIDE` bytes.
+    ///
+    /// It aliases the same buffer the main pass reads as a uniform at that
+    /// stride, so if the two disagree every instance past the first reads
+    /// a transform straddling two objects. Naga will not catch that -- the
+    /// shader is valid either way -- so the size is asserted here.
+    #[test]
+    fn instanced_model_entry_matches_the_uniform_stride() {
+        let fields = std::mem::size_of::<ModelUniformData>() as u64;
+        let tail_vec4s = INSTANCED_MODEL_DECL
+            .split("array<vec4<f32>, ")
+            .nth(1)
+            .and_then(|rest| rest.split('>').next())
+            .and_then(|n| n.parse::<u64>().ok())
+            .expect("_tail should be declared as array<vec4<f32>, N>");
+        assert_eq!(
+            fields + tail_vec4s * 16,
+            MODEL_STRIDE,
+            "ModelEntry is {fields} bytes of fields plus {tail_vec4s} vec4s of \
+             padding, which does not add up to MODEL_STRIDE ({MODEL_STRIDE}). \
+             The storage array and the uniform view would disagree about where \
+             object N begins."
+        );
     }
 
     #[test]

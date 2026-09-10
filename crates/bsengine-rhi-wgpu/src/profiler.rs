@@ -149,6 +149,13 @@ pub struct FrameStats {
     pub gpu_timestamps_supported: bool,
     /// Number of draw calls issued this frame.
     pub draw_calls: u32,
+    /// Number of objects drawn this frame.
+    ///
+    /// Separate from [`Self::draw_calls`] because instanced passes submit
+    /// many objects per draw call. This answers "how much did the frame
+    /// draw", while `draw_calls` answers "how many API calls did that
+    /// cost". Where a pass is not instanced the two rise together.
+    pub objects_drawn: u32,
     /// Number of triangles submitted this frame.
     pub triangles: u64,
     /// Number of entities dropped this frame by occlusion culling --

@@ -1204,6 +1204,41 @@ fn warn_if_truncated(what: &str, wanted: usize) {
 /// still reaches it.
 const MAX_OBJECTS: usize = 16384;
 const MODEL_STRIDE: u64 = 256;
+
+/// How many instance slots one frame can hold across all of its passes.
+///
+/// A slot is a `u32` index into the model buffer. Like [`MAX_OBJECTS`] this
+/// is a **buffer capacity, not a hardware limit**: 1 Mi slots is 4 MiB,
+/// far under `downlevel_defaults()`'s 128 MiB storage-binding ceiling.
+///
+/// It is much larger than `MAX_OBJECTS` on purpose. A frame holds one slot
+/// list for the directional pass plus one per point light, and each list
+/// is padded to a dynamic-offset boundary, so the slot total legitimately
+/// runs to several times the object count.
+const MAX_SLOTS: usize = 1 << 20;
+
+/// Warns once per process when a frame needs more instance slots than
+/// [`MAX_SLOTS`].
+///
+/// Separate from [`warn_if_truncated`] because that one's threshold is
+/// `MAX_OBJECTS`; reusing it here would fire on ordinary frames, since a
+/// frame legitimately holds far more slots than objects.
+fn warn_if_slots_truncated(wanted: usize) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static WARNED: AtomicBool = AtomicBool::new(false);
+
+    if wanted <= MAX_SLOTS {
+        return;
+    }
+    if WARNED.swap(true, Ordering::Relaxed) {
+        return;
+    }
+    tracing::warn!(
+        "instance slots: {wanted} exceeds MAX_SLOTS ({MAX_SLOTS}); some objects \
+         were not drawn into shadow maps this frame, so shadows on screen are \
+         not the shadows the scene calls for.",
+    );
+}
 // view_proj(64) + light_view_proj(64) + cam_pos(12) + pad(4) = 144
 const CAMERA_UNIFORM_SIZE: u64 = 144;
 // inv_vp mat4x4<f32> = 64 bytes
@@ -1913,6 +1948,12 @@ pub struct WgpuSurface {
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     model_buffer: wgpu::Buffer,
+    /// Per-batch lists of model-buffer slots, read by the instanced
+    /// shadow shaders through a dynamic offset.
+    slot_buffer: wgpu::Buffer,
+    /// The shadow passes' storage-array view of `model_buffer`, plus
+    /// `slot_buffer`. Bound once per batch instead of once per object.
+    model_storage_bind_group: wgpu::BindGroup,
     model_bind_group: wgpu::BindGroup,
     light_buffer: wgpu::Buffer,
     light_bind_group: wgpu::BindGroup,
@@ -2386,7 +2427,14 @@ impl WgpuSurface {
         let model_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("model uniform"),
             size: MODEL_STRIDE * MAX_OBJECTS as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            // STORAGE as well as UNIFORM. The main, transparent, terrain
+            // and probe passes read this through a dynamic-offset uniform
+            // binding; the instanced shadow passes read the whole thing as
+            // an array. Same bytes, same 256-byte stride, two views -- so
+            // nothing about how the buffer is filled has to change.
+            usage: wgpu::BufferUsages::UNIFORM
+                | wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         let model_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -2415,6 +2463,67 @@ impl WgpuSurface {
                     size: wgpu::BufferSize::new(std::mem::size_of::<ModelUniformData>() as u64),
                 }),
             }],
+        });
+
+        // Slot array: for each instanced batch, the model-buffer slot of
+        // every object in it. One frame-wide array holds every pass's
+        // lists back to back, so a frame costs one upload; each batch
+        // reaches its own list through a dynamic offset.
+        let slot_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("instance slots"),
+            size: (MAX_SLOTS * std::mem::size_of::<u32>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        // The shadow passes' view of the same model buffer: an array
+        // indexed by this instance's slot, rather than one dynamically
+        // offset struct. Vertex stage only -- the shadow shaders have no
+        // fragment-stage use for model data, which is precisely why they
+        // can move to storage while MESH_WGSL cannot.
+        let model_storage_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("model storage bgl"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: wgpu::BufferSize::new(MODEL_STRIDE),
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: true,
+                        min_binding_size: wgpu::BufferSize::new(
+                            std::mem::size_of::<u32>() as u64
+                        ),
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let model_storage_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("model storage bg"),
+            layout: &model_storage_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: model_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &slot_buffer,
+                        offset: 0,
+                        size: wgpu::BufferSize::new(std::mem::size_of::<u32>() as u64),
+                    }),
+                },
+            ],
         });
 
         let light_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -3323,6 +3432,8 @@ impl WgpuSurface {
             camera_buffer,
             camera_bind_group,
             model_buffer,
+            slot_buffer,
+            model_storage_bind_group,
             model_bind_group,
             light_buffer,
             light_bind_group,

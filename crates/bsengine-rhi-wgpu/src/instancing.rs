@@ -72,7 +72,7 @@ pub fn build_batches(
         let list = &groups[&mesh_id];
         // Pad to the next dynamic-offset boundary. The padding slots are
         // never read: `count` bounds the instance range of the draw.
-        while slots.len() % SLOT_ALIGNMENT as usize != 0 {
+        while !slots.len().is_multiple_of(SLOT_ALIGNMENT as usize) {
             slots.push(0);
         }
         let slot_base = slots.len() as u32;

@@ -374,3 +374,76 @@ fn each_instance_of_a_shared_mesh_casts_its_own_shadow() {
          {delta_a} with A alone but only {delta_both_a} with both"
     );
 }
+
+/// The point-shadow half of [`each_instance_of_a_shared_mesh_casts_its_own_shadow`].
+///
+/// Found by enumerating this feature's surface and asking which items had a
+/// consumer-side assertion. The `slots[0u]` mutation breaks *both* shadow
+/// shaders, but only the directional test above caught it -- so breaking
+/// only the point-shadow fetch would have gone unnoticed. The two passes
+/// batch independently (the point pass batches a per-light culled subset,
+/// the directional pass batches everything), so one test cannot stand in
+/// for the other.
+#[test]
+fn each_instance_casts_its_own_point_light_shadow() {
+    let mut h = Harness::new();
+    let plane = h.plane();
+    let cube = h.cube();
+    let camera_pos = Vec3::new(0.0, 6.0, 7.0);
+
+    let a = Vec3::new(-2.0, 2.0, 0.0);
+    let b = Vec3::new(2.0, 2.0, 0.0);
+
+    // Directional light off entirely, so only the point light can brighten
+    // anything and only its cube shadow map can darken it.
+    let light = || Light {
+        color: Vec3::ZERO,
+        ambient: Vec3::splat(0.02),
+        points: vec![PointLight {
+            position: Vec3::new(0.0, 6.0, 0.0),
+            color: Vec3::ONE,
+            intensity: 90.0,
+            range: 40.0,
+        }],
+        ..Light::default()
+    };
+    let scene = |draws: Vec<Draw>| Scene {
+        draws,
+        light: light(),
+        camera_pos,
+        ..Scene::default()
+    };
+
+    let empty = h.render(&scene(vec![]));
+    let cubes_only = h.render(&scene(vec![Draw::new(cube, a), Draw::new(cube, b)]));
+    let silhouette: Vec<bool> = (0..(empty.width * empty.height))
+        .map(|i| {
+            let (x, y) = (i % empty.width, i / empty.width);
+            empty.at(x, y) != cubes_only.at(x, y)
+        })
+        .collect();
+
+    let open = h.render(&scene(vec![floor(plane)]));
+    let only_b = h.render(&scene(vec![floor(plane), Draw::new(cube, b)]));
+    let both = h.render(&scene(vec![
+        floor(plane),
+        Draw::new(cube, a),
+        Draw::new(cube, b),
+    ]));
+
+    let (delta_b, bx, by) = biggest_darkening_off_the_caster(&open, &only_b, &silhouette);
+    assert!(
+        delta_b > 20.0,
+        "sanity: one cube under a point light must cast a visible shadow before this \
+         test can say anything about two; strongest darkening was {delta_b} at ({bx}, {by})"
+    );
+
+    let delta_both = open.luma(bx, by) - both.luma(bx, by);
+    assert!(
+        delta_both > delta_b * 0.5,
+        "B's point-light shadow vanished when A was added: floor at ({bx}, {by}) darkened \
+         by {delta_b} with B alone but only {delta_both} with both cubes. The point-shadow \
+         pass batches same-mesh casters into one instanced draw per cube face -- this is \
+         what it looks like when every instance reads the same slot"
+    );
+}

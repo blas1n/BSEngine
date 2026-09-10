@@ -714,70 +714,125 @@ fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
 }
 "#;
 
-const SHADOW_WGSL: &str = r#"
-struct CameraUniform {
-    view_proj: mat4x4<f32>,
-    light_view_proj: mat4x4<f32>,
-};
-@group(0) @binding(0) var<uniform> camera: CameraUniform;
-
-struct ModelUniform {
+/// The instanced shadow shaders' view of the model buffer.
+///
+/// `_tail` is load-bearing: a WGSL array's stride is its element size, and
+/// this array aliases the very buffer the main pass reads as a uniform at
+/// `MODEL_STRIDE` (256). `ModelUniformData` is 112 bytes, and
+/// 112 + 9 * 16 = 256, so the padding is what keeps the two views agreeing
+/// on where object N begins.
+const INSTANCED_MODEL_DECL: &str = r#"
+struct ModelEntry {
     model: mat4x4<f32>,
+    metallic: f32,
+    roughness: f32,
+    _p0: f32,
+    _p1: f32,
+    emissive: vec3<f32>,
+    _p2: f32,
+    base_color: vec3<f32>,
+    opacity: f32,
+    _tail: array<vec4<f32>, 9>,
 };
-@group(1) @binding(0) var<uniform> model_data: ModelUniform;
-
-struct VertIn {
-    @location(0) pos: vec3<f32>,
-    @location(1) col: vec3<f32>,
-    @location(2) normal: vec3<f32>,
-    @location(3) uv: vec2<f32>,
-}
-
-@vertex
-fn vs_shadow(in: VertIn) -> @builtin(position) vec4<f32> {
-    let world = model_data.model * vec4<f32>(in.pos, 1.0);
-    return camera.light_view_proj * world;
-}
+@group(1) @binding(0) var<storage, read> models: array<ModelEntry>;
+@group(1) @binding(1) var<storage, read> slots: array<u32>;
 "#;
 
-const POINT_SHADOW_WGSL: &str = r#"
-struct ShadowUniform {
-    view_proj: mat4x4<f32>,
-    light_pos: vec3<f32>,
-};
-@group(0) @binding(0) var<uniform> shadow_uniform: ShadowUniform;
-
+/// The per-object shadow shaders' view, used on adapters without
+/// `DownlevelFlags::VERTEX_STORAGE`.
+const UNIFORM_MODEL_DECL: &str = r#"
 struct ModelUniform {
     model: mat4x4<f32>,
 };
 @group(1) @binding(0) var<uniform> model_data: ModelUniform;
+"#;
 
-struct VertIn {
+/// How an instanced shadow shader reaches its instance's model matrix.
+const INSTANCED_MODEL_FETCH: &str = "models[slots[in.instance]].model";
+
+/// How a per-object shadow shader reaches its object's model matrix.
+const UNIFORM_MODEL_FETCH: &str = "model_data.model";
+
+/// Picks the model declaration and access expression for a shadow shader.
+fn model_access(instanced: bool) -> (&'static str, &'static str) {
+    if instanced {
+        (INSTANCED_MODEL_DECL, INSTANCED_MODEL_FETCH)
+    } else {
+        (UNIFORM_MODEL_DECL, UNIFORM_MODEL_FETCH)
+    }
+}
+
+/// Directional shadow depth pass.
+///
+/// Built from one body with only the model access substituted, so the
+/// instanced and per-object variants cannot drift apart.
+fn shadow_wgsl(instanced: bool) -> String {
+    let (decl, fetch) = model_access(instanced);
+    format!(
+        r#"
+struct CameraUniform {{
+    view_proj: mat4x4<f32>,
+    light_view_proj: mat4x4<f32>,
+}};
+@group(0) @binding(0) var<uniform> camera: CameraUniform;
+{decl}
+struct VertIn {{
+    @builtin(instance_index) instance: u32,
     @location(0) pos: vec3<f32>,
     @location(1) col: vec3<f32>,
     @location(2) normal: vec3<f32>,
     @location(3) uv: vec2<f32>,
-}
-struct VertOut {
-    @builtin(position) clip_pos: vec4<f32>,
-    @location(0) world_pos: vec3<f32>,
-}
+}}
 
 @vertex
-fn vs_point_shadow(in: VertIn) -> VertOut {
+fn vs_shadow(in: VertIn) -> @builtin(position) vec4<f32> {{
+    let world = {fetch} * vec4<f32>(in.pos, 1.0);
+    return camera.light_view_proj * world;
+}}
+"#
+    )
+}
+
+/// Point shadow pass: distance-to-light rendered into one cube face.
+fn point_shadow_wgsl(instanced: bool) -> String {
+    let (decl, fetch) = model_access(instanced);
+    format!(
+        r#"
+struct ShadowUniform {{
+    view_proj: mat4x4<f32>,
+    light_pos: vec3<f32>,
+}};
+@group(0) @binding(0) var<uniform> shadow_uniform: ShadowUniform;
+{decl}
+struct VertIn {{
+    @builtin(instance_index) instance: u32,
+    @location(0) pos: vec3<f32>,
+    @location(1) col: vec3<f32>,
+    @location(2) normal: vec3<f32>,
+    @location(3) uv: vec2<f32>,
+}}
+struct VertOut {{
+    @builtin(position) clip_pos: vec4<f32>,
+    @location(0) world_pos: vec3<f32>,
+}}
+
+@vertex
+fn vs_point_shadow(in: VertIn) -> VertOut {{
     var out: VertOut;
-    let world = model_data.model * vec4<f32>(in.pos, 1.0);
+    let world = {fetch} * vec4<f32>(in.pos, 1.0);
     out.clip_pos = shadow_uniform.view_proj * world;
     out.world_pos = world.xyz;
     return out;
-}
+}}
 
 @fragment
-fn fs_point_shadow(in: VertOut) -> @location(0) vec4<f32> {
+fn fs_point_shadow(in: VertOut) -> @location(0) vec4<f32> {{
     let dist = length(in.world_pos - shadow_uniform.light_pos);
     return vec4<f32>(dist, 0.0, 0.0, 1.0);
+}}
+"#
+    )
 }
-"#;
 
 const SKYBOX_WGSL: &str = r#"
 const PI: f32 = 3.14159265358979323846;
@@ -2275,7 +2330,16 @@ impl WgpuSurface {
     async fn request_device(
         instance: &wgpu::Instance,
         compatible_surface: Option<&wgpu::Surface<'static>>,
-    ) -> Result<(wgpu::Adapter, Arc<wgpu::Device>, Arc<wgpu::Queue>, bool, bool), String> {
+    ) -> Result<
+        (
+            wgpu::Adapter,
+            Arc<wgpu::Device>,
+            Arc<wgpu::Queue>,
+            bool,
+            bool,
+        ),
+        String,
+    > {
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::None,
@@ -2338,9 +2402,10 @@ impl WgpuSurface {
             backends: wgpu::Backends::all(),
             ..Default::default()
         });
-        let (_adapter, device, queue, _timestamp_supported) = Self::request_device(&instance, None)
-            .await
-            .expect("headless device for test");
+        let (_adapter, device, queue, _timestamp_supported, _instancing_supported) =
+            Self::request_device(&instance, None)
+                .await
+                .expect("headless device for test");
         (device, queue)
     }
 
@@ -2499,9 +2564,7 @@ impl WgpuSurface {
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Storage { read_only: true },
                         has_dynamic_offset: true,
-                        min_binding_size: wgpu::BufferSize::new(
-                            std::mem::size_of::<u32>() as u64
-                        ),
+                        min_binding_size: wgpu::BufferSize::new(std::mem::size_of::<u32>() as u64),
                     },
                     count: None,
                 },
@@ -2903,12 +2966,23 @@ impl WgpuSurface {
 
         let shadow_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("shadow shader"),
-            source: wgpu::ShaderSource::Wgsl(SHADOW_WGSL.into()),
+            source: wgpu::ShaderSource::Wgsl(shadow_wgsl(instancing_supported).into()),
         });
         let shadow_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("shadow pipeline layout"),
-                bind_group_layouts: &[&camera_bgl, &model_bgl],
+                // The ONLY two pipeline layouts that change. The main,
+                // transparent, terrain and probe pipelines keep model_bgl,
+                // which is what keeps MESH_WGSL's @group(1) contract -- and
+                // every custom shader that copies it -- untouched.
+                bind_group_layouts: &[
+                    &camera_bgl,
+                    if instancing_supported {
+                        &model_storage_bgl
+                    } else {
+                        &model_bgl
+                    },
+                ],
                 push_constant_ranges: &[],
             });
         let shadow_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -2945,12 +3019,19 @@ impl WgpuSurface {
 
         let point_shadow_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("point shadow shader"),
-            source: wgpu::ShaderSource::Wgsl(POINT_SHADOW_WGSL.into()),
+            source: wgpu::ShaderSource::Wgsl(point_shadow_wgsl(instancing_supported).into()),
         });
         let point_shadow_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("point shadow pipeline layout"),
-                bind_group_layouts: &[&point_shadow_uniform_bgl, &model_bgl],
+                bind_group_layouts: &[
+                    &point_shadow_uniform_bgl,
+                    if instancing_supported {
+                        &model_storage_bgl
+                    } else {
+                        &model_bgl
+                    },
+                ],
                 push_constant_ranges: &[],
             });
         let point_shadow_pipeline =
@@ -6545,16 +6626,50 @@ mod tests {
         );
     }
 
+    /// Both shadow shaders, in both variants.
+    ///
+    /// The per-object variant only ever runs on an adapter without
+    /// `VERTEX_STORAGE`, which cannot be simulated here -- so compiling it
+    /// is the only coverage it can have, and worth keeping for that
+    /// reason: without this, a typo in the fallback branch would ship
+    /// undetected.
     #[test]
     fn shadow_shader_compiles() {
         let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
-        let _module = WgpuSurface::compile_shader(&device, SHADOW_WGSL);
+        let _instanced = WgpuSurface::compile_shader(&device, &shadow_wgsl(true));
+        let _per_object = WgpuSurface::compile_shader(&device, &shadow_wgsl(false));
     }
 
     #[test]
     fn point_shadow_shader_compiles() {
         let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
-        let _module = WgpuSurface::compile_shader(&device, POINT_SHADOW_WGSL);
+        let _instanced = WgpuSurface::compile_shader(&device, &point_shadow_wgsl(true));
+        let _per_object = WgpuSurface::compile_shader(&device, &point_shadow_wgsl(false));
+    }
+
+    /// The instanced model struct must be exactly `MODEL_STRIDE` bytes.
+    ///
+    /// It aliases the same buffer the main pass reads as a uniform at that
+    /// stride, so if the two disagree every instance past the first reads
+    /// a transform straddling two objects. Naga will not catch that -- the
+    /// shader is valid either way -- so the size is asserted here.
+    #[test]
+    fn instanced_model_entry_matches_the_uniform_stride() {
+        let fields = std::mem::size_of::<ModelUniformData>() as u64;
+        let tail_vec4s = INSTANCED_MODEL_DECL
+            .split("array<vec4<f32>, ")
+            .nth(1)
+            .and_then(|rest| rest.split('>').next())
+            .and_then(|n| n.parse::<u64>().ok())
+            .expect("_tail should be declared as array<vec4<f32>, N>");
+        assert_eq!(
+            fields + tail_vec4s * 16,
+            MODEL_STRIDE,
+            "ModelEntry is {fields} bytes of fields plus {tail_vec4s} vec4s of \
+             padding, which does not add up to MODEL_STRIDE ({MODEL_STRIDE}). \
+             The storage array and the uniform view would disagree about where \
+             object N begins."
+        );
     }
 
     #[test]

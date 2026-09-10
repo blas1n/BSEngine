@@ -4386,6 +4386,9 @@ impl WgpuSurface {
         // `mesh_thumbnail.rs`'s `render_thumbnail` can run mid-frame and
         // must never inflate this frame's `FrameStats`.
         let mut frame_draw_calls: u32 = 0;
+        // Objects, as distinct from draw calls: an instanced pass submits
+        // many objects per call, so these two diverge once batching is on.
+        let mut frame_objects_drawn: u32 = 0;
         let mut frame_triangles: u64 = 0;
 
         // GPU pass-timing bookkeeping for the profiler (see `next_timed_pass`
@@ -4561,6 +4564,7 @@ impl WgpuSurface {
                         .set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                     shadow_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
                     frame_draw_calls += 1;
+                    frame_objects_drawn += 1;
                     frame_triangles += (mesh.index_count / 3) as u64;
                 }
             }
@@ -4716,6 +4720,7 @@ impl WgpuSurface {
                         );
                         point_shadow_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
                         frame_draw_calls += 1;
+                        frame_objects_drawn += 1;
                         frame_triangles += (mesh.index_count / 3) as u64;
                     }
                     point_shadow_pass_counter += 1;
@@ -4801,6 +4806,7 @@ impl WgpuSurface {
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
                 frame_draw_calls += 1;
+                frame_objects_drawn += 1;
                 frame_triangles += (mesh.index_count / 3) as u64;
             }
 
@@ -4888,6 +4894,7 @@ impl WgpuSurface {
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
                 frame_draw_calls += 1;
+                frame_objects_drawn += 1;
                 frame_triangles += (mesh.index_count / 3) as u64;
                 terrain_slot += 1;
             }
@@ -4930,6 +4937,7 @@ impl WgpuSurface {
             sky_pass.set_bind_group(1, &sky.texture_bg, &[]);
             sky_pass.draw(0..3, 0..1);
             frame_draw_calls += 1;
+            frame_objects_drawn += 1;
             frame_triangles += 1;
         }
 
@@ -4989,6 +4997,7 @@ impl WgpuSurface {
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
                 frame_draw_calls += 1;
+                frame_objects_drawn += 1;
                 frame_triangles += (mesh.index_count / 3) as u64;
             }
         }
@@ -5006,6 +5015,7 @@ impl WgpuSurface {
                 &self.default_texture_bind_group,
             );
             frame_draw_calls += particle_draw_calls;
+            frame_objects_drawn += particle_draw_calls;
             frame_triangles += particle_triangles;
         }
 
@@ -5024,6 +5034,7 @@ impl WgpuSurface {
             self.post_process
                 .apply(&mut encoder, &view, self.fast_render);
         frame_draw_calls += pp_draw_calls;
+        frame_objects_drawn += pp_draw_calls;
         frame_triangles += pp_triangles;
 
         // UI + HUD overlay via egui (always on in editor mode)
@@ -5659,6 +5670,7 @@ impl WgpuSurface {
             gpu_pass_times_ms,
             gpu_timestamps_supported: self.timestamp_supported,
             draw_calls: frame_draw_calls,
+            objects_drawn: frame_objects_drawn,
             triangles: frame_triangles,
             occluded_count,
             texture_memory_bytes: crate::profiler::texture_memory_bytes(),

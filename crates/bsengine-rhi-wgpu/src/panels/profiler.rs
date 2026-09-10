@@ -72,8 +72,8 @@ impl EditorPanel for ProfilerPanel {
             latest.cpu_frame_time_ms
         ));
         ui.label(format!(
-            "Draw calls: {}   Triangles: {}   Occluded: {}",
-            latest.draw_calls, latest.triangles, latest.occluded_count
+            "Draw calls: {}   Objects: {}   Triangles: {}   Occluded: {}",
+            latest.draw_calls, latest.objects_drawn, latest.triangles, latest.occluded_count
         ));
         ui.label(format!(
             "Texture memory: {:.1} MB ({} textures)",

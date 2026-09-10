@@ -1,6 +1,6 @@
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
-use bsengine_core::Transform;
+use bsengine_core::{ProjectDir, Transform};
 
 use crate::spatial::{AudioEmitter, AudioListener};
 use crate::world::AudioWorld;
@@ -35,6 +35,10 @@ impl Plugin for AudioPlugin {
         // Listener first: an emitter's spatial track is created *linked to* a
         // listener, so on the very first frame the ears have to exist before
         // any source can be attached to them.
+        // Startup, not Update: the layout is authored data, read once. A
+        // system that re-applied it every frame would stomp any runtime
+        // setBusVolume straight back to the authored value.
+        app.add_systems(Startup, load_bus_layout);
         app.add_systems(Update, (sync_listener, sync_emitters).chain());
     }
 }
@@ -66,6 +70,39 @@ fn sync_emitters(
 ) {
     for (entity, transform) in query.iter() {
         audio.set_emitter_position(entity, transform.position.0);
+    }
+}
+
+/// Loads `<project>/assets/audio/buses.ron` if it exists.
+///
+/// Discovery is by convention rather than configuration — one project-wide
+/// layout at a known path, as Godot does with `default_bus_layout.tres` — so
+/// a manifest and an asset cannot disagree about where buses live, and no
+/// `project.toml` change is needed.
+///
+/// A project with no such file keeps today's behaviour exactly: every sound
+/// plays on Master. That is what lets this land without editing a single
+/// existing game or E2E recording.
+fn load_bus_layout(mut audio: ResMut<AudioWorld>, project_dir: Option<Res<ProjectDir>>) {
+    let Some(project_dir) = project_dir else {
+        return;
+    };
+    let path = std::path::Path::new(&project_dir.0).join("assets/audio/buses.ron");
+    if !path.is_file() {
+        return;
+    }
+    let src = match std::fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!("[audio] cannot read {}: {e}", path.display());
+            return;
+        }
+    };
+    match crate::bus::BusLayout::from_ron(&src) {
+        Ok(layout) => audio.apply_bus_layout(&layout),
+        // Reported, not fatal: a malformed mixer file should not stop a game
+        // from starting, but it must never be silent about it either.
+        Err(e) => tracing::warn!("[audio] cannot parse {}: {e}", path.display()),
     }
 }
 
@@ -182,5 +219,96 @@ mod tests {
             Transform::from_position(Vec3::ZERO),
         ));
         app.update();
+    }
+}
+
+#[cfg(test)]
+mod bus_loading_tests {
+    use super::*;
+    use bsengine_app::new_app;
+
+    /// A project directory containing a bus layout at the conventional path.
+    fn project_with_layout(src: &str) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::create_dir_all(dir.path().join("assets/audio")).expect("mkdir");
+        std::fs::write(dir.path().join("assets/audio/buses.ron"), src).expect("write");
+        dir
+    }
+
+    fn app_for(dir: &tempfile::TempDir) -> App {
+        let mut app = new_app();
+        app.insert_resource(AudioWorld::silent());
+        app.insert_resource(ProjectDir(dir.path().to_string_lossy().into_owned()));
+        app.add_plugins(AudioPlugin);
+        app
+    }
+
+    #[test]
+    fn a_project_with_a_layout_gets_its_buses() {
+        let dir = project_with_layout(
+            r#"BusLayout(buses: [
+                Bus(name: "music", parent: None,        volume_db:  0.0),
+                Bus(name: "sfx",   parent: None,        volume_db: -6.0),
+                Bus(name: "ui",    parent: Some("sfx"), volume_db: -3.0),
+            ])"#,
+        );
+        let mut app = app_for(&dir);
+        app.update();
+
+        let audio = app.world().resource::<AudioWorld>();
+        assert_eq!(audio.bus_volume("sfx"), Some(-6.0));
+        assert_eq!(
+            audio.bus_volume("ui"),
+            Some(-3.0),
+            "distinct volumes, so reading the wrong bus cannot look correct"
+        );
+        assert_eq!(audio.bus_parent("ui"), Some(Some("sfx".to_string())));
+    }
+
+    #[test]
+    fn a_project_with_no_layout_still_runs() {
+        // The feature is additive: every existing game has no buses.ron and
+        // must behave exactly as before. This is what keeps the 12 committed
+        // E2E recordings valid.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut app = app_for(&dir);
+        app.update();
+
+        assert_eq!(app.world().resource::<AudioWorld>().bus_volume("sfx"), None);
+    }
+
+    #[test]
+    fn a_malformed_layout_is_survivable() {
+        let dir = project_with_layout("this is not ron at all");
+        let mut app = app_for(&dir);
+        app.update();
+
+        assert_eq!(
+            app.world().resource::<AudioWorld>().bus_volume("sfx"),
+            None,
+            "a broken mixer file must not stop the game from starting"
+        );
+    }
+
+    #[test]
+    fn the_layout_is_loaded_once_not_every_frame() {
+        let dir = project_with_layout(
+            r#"BusLayout(buses: [Bus(name: "sfx", parent: None, volume_db: -6.0)])"#,
+        );
+        let mut app = app_for(&dir);
+        app.update();
+        // A runtime change has to survive the next frames. Re-applying the
+        // authored file every frame would stomp it straight back to -6.
+        app.world_mut()
+            .resource_mut::<AudioWorld>()
+            .set_bus_volume("sfx", -20.0);
+        app.update();
+        app.update();
+
+        assert_eq!(
+            app.world().resource::<AudioWorld>().bus_volume("sfx"),
+            Some(-20.0),
+            "the layout is authored data loaded once, not re-applied every frame"
+        );
     }
 }

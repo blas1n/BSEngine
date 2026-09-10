@@ -272,3 +272,105 @@ fn a_point_light_is_blocked_by_an_occluder() {
         occluded.at(x, y)
     );
 }
+
+/// Which pixels either cube covers, for the two-caster test below.
+///
+/// Same idea as [`cube_silhouette`], but for both positions at once, so a
+/// "the floor got darker" reading can never be satisfied by a cube merely
+/// standing in front of the floor.
+fn two_cube_silhouette(h: &mut Harness, cube: u64, a: Vec3, b: Vec3) -> Vec<bool> {
+    let empty = h.render(&Scene {
+        light: sun_from_above(),
+        camera_pos: CAMERA,
+        ..Scene::default()
+    });
+    let cubes_only = h.render(&Scene {
+        draws: vec![Draw::new(cube, a), Draw::new(cube, b)],
+        light: sun_from_above(),
+        camera_pos: CAMERA,
+        ..Scene::default()
+    });
+    (0..(empty.width * empty.height))
+        .map(|i| {
+            let (x, y) = (i % empty.width, i / empty.width);
+            empty.at(x, y) != cubes_only.at(x, y)
+        })
+        .collect()
+}
+
+/// Two objects of the *same mesh* each cast a shadow in their own place.
+///
+/// **This is the only test that can see a wrong instance-to-slot mapping.**
+/// The shadow passes batch objects sharing a mesh into one instanced draw,
+/// and every instance looks up its own transform through a slot array. If
+/// that lookup is wrong -- if every instance reads the batch's first slot --
+/// then all the cubes cast one shadow stacked in one place.
+///
+/// Nothing else in the suite notices. Draw-call counts are identical either
+/// way, so the instancing statistics tests are blind to it by construction,
+/// and every other shadow test here uses a single caster, where "the batch's
+/// first slot" and "my slot" are the same thing. Running that mutation
+/// against the whole crate left all 19 suites green before this test existed.
+///
+/// The two frames it compares are chosen so the mutation cannot hide:
+/// `only_b` has one cube, so its batch has one slot and even a broken lookup
+/// finds the right transform; `both` has two, where a broken lookup drops B's
+/// shadow onto A. So B's shadow is measured in a frame that is correct
+/// regardless, then required to still be there in the frame that is not.
+#[test]
+fn each_instance_of_a_shared_mesh_casts_its_own_shadow() {
+    let mut h = Harness::new();
+    let plane = h.plane();
+    let cube = h.cube();
+
+    let a = Vec3::new(-2.5, 3.0, 0.0);
+    let b = Vec3::new(2.5, 3.0, 0.0);
+    let scene = |draws: Vec<Draw>| Scene {
+        draws,
+        light: sun_from_above(),
+        camera_pos: CAMERA,
+        ..Scene::default()
+    };
+
+    let mask = two_cube_silhouette(&mut h, cube, a, b);
+    let open = h.render(&scene(vec![floor(plane)]));
+    let only_b = h.render(&scene(vec![floor(plane), Draw::new(cube, b)]));
+    let both = h.render(&scene(vec![
+        floor(plane),
+        Draw::new(cube, a),
+        Draw::new(cube, b),
+    ]));
+
+    // Where B's shadow falls, established in the one-cube frame.
+    let (delta_b, bx, by) = biggest_darkening_off_the_caster(&open, &only_b, &mask);
+    assert!(
+        delta_b > 40.0,
+        "sanity: one cube on its own must cast a visible shadow before this test \
+         can say anything about two. Strongest darkening was {delta_b} at ({bx}, {by})"
+    );
+
+    // ...and it must still be there when A is added beside it.
+    let delta_both = open.luma(bx, by) - both.luma(bx, by);
+    assert!(
+        delta_both > delta_b * 0.5,
+        "B's shadow vanished when A was added: the floor at ({bx}, {by}) darkened by \
+         {delta_b} with B alone but only {delta_both} with both cubes. Both cubes share \
+         a mesh, so they batch into one instanced shadow draw -- this is what it looks \
+         like when every instance reads the same slot and they all cast A's shadow"
+    );
+
+    // And the paired direction: A's shadow must be there too, so a bug that
+    // dropped B's onto A cannot pass by symmetry.
+    let only_a = h.render(&scene(vec![floor(plane), Draw::new(cube, a)]));
+    let (delta_a, ax, ay) = biggest_darkening_off_the_caster(&open, &only_a, &mask);
+    assert!(
+        delta_a > 40.0,
+        "sanity: cube A alone must cast a visible shadow; got {delta_a} at ({ax}, {ay})"
+    );
+    let delta_both_a = open.luma(ax, ay) - both.luma(ax, ay);
+    assert!(
+        delta_both_a > delta_a * 0.5,
+        "A's shadow vanished when B was added: floor at ({ax}, {ay}) darkened by \
+         {delta_a} with A alone but only {delta_both_a} with both"
+    );
+}

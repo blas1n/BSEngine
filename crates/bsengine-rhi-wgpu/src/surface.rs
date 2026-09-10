@@ -1272,6 +1272,25 @@ const MODEL_STRIDE: u64 = 256;
 /// runs to several times the object count.
 const MAX_SLOTS: usize = 1 << 20;
 
+/// How many bytes of the slot array one batch's binding can see.
+///
+/// A dynamically-offset binding is a *window*, not the whole buffer: wgpu
+/// requires `offset + window <= buffer_size`, so binding the full buffer
+/// (`size: None`) makes every non-zero offset a validation error, while
+/// binding too small a window makes `slots[1]` an out-of-bounds read --
+/// which WGSL clamps to index 0, silently handing every instance the
+/// batch's first transform.
+///
+/// One batch can hold at most `MAX_OBJECTS` slots, so that is the window.
+/// [`SLOT_BUFFER_BYTES`] adds it as headroom past `MAX_SLOTS` so any
+/// in-range `slot_base` can be offset to.
+const SLOT_WINDOW_BYTES: u64 = MAX_OBJECTS as u64 * std::mem::size_of::<u32>() as u64;
+
+/// Size of the slot buffer: [`MAX_SLOTS`] usable slots plus one window of
+/// headroom, so the highest usable offset still has a full window behind it.
+const SLOT_BUFFER_BYTES: u64 =
+    MAX_SLOTS as u64 * std::mem::size_of::<u32>() as u64 + SLOT_WINDOW_BYTES;
+
 /// Warns once per process when a frame needs more instance slots than
 /// [`MAX_SLOTS`].
 ///
@@ -2536,7 +2555,7 @@ impl WgpuSurface {
         // reaches its own list through a dynamic offset.
         let slot_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("instance slots"),
-            size: (MAX_SLOTS * std::mem::size_of::<u32>()) as u64,
+            size: SLOT_BUFFER_BYTES,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -2564,7 +2583,7 @@ impl WgpuSurface {
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Storage { read_only: true },
                         has_dynamic_offset: true,
-                        min_binding_size: wgpu::BufferSize::new(std::mem::size_of::<u32>() as u64),
+                        min_binding_size: wgpu::BufferSize::new(SLOT_WINDOW_BYTES),
                     },
                     count: None,
                 },
@@ -2583,7 +2602,15 @@ impl WgpuSurface {
                     resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                         buffer: &slot_buffer,
                         offset: 0,
-                        size: wgpu::BufferSize::new(std::mem::size_of::<u32>() as u64),
+                        // An explicit window, not `None`. `None` binds
+                        // the whole buffer, and wgpu then rejects every
+                        // non-zero dynamic offset as an overrun. Too small
+                        // a window is worse: `slots[1]` becomes an
+                        // out-of-bounds read, WGSL clamps it to index 0,
+                        // and every instance silently gets the batch's
+                        // first transform -- no validation error, no
+                        // warning, just every shadow stacked in one place.
+                        size: wgpu::BufferSize::new(SLOT_WINDOW_BYTES),
                     }),
                 },
             ],

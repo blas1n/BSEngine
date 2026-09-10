@@ -2034,6 +2034,10 @@ pub struct WgpuSurface {
     /// `wgpu::Features::TIMESTAMP_QUERY`. Set once at construction; every
     /// other `timestamp_*` field is `Some` iff this is `true`.
     timestamp_supported: bool,
+    /// Whether this adapter can read storage buffers in the vertex
+    /// stage, and therefore whether the shadow passes batch their draws
+    /// instead of issuing one per object.
+    instancing_supported: bool,
     /// GPU timestamp query set `render_frame` writes begin/end pass
     /// boundaries into, when `timestamp_supported`.
     timestamp_query_set: Option<wgpu::QuerySet>,
@@ -2087,7 +2091,7 @@ impl WgpuSurface {
             .create_surface(window.clone())
             .map_err(|e| e.to_string())?;
 
-        let (adapter, device, queue, timestamp_supported) =
+        let (adapter, device, queue, timestamp_supported, instancing_supported) =
             Self::request_device(&instance, Some(&surface)).await?;
 
         let size = window.inner_size();
@@ -2121,6 +2125,7 @@ impl WgpuSurface {
             },
             false,
             timestamp_supported,
+            instancing_supported,
         )
     }
 
@@ -2135,7 +2140,7 @@ impl WgpuSurface {
             backends: wgpu::Backends::all(),
             ..Default::default()
         });
-        let (_adapter, device, queue, timestamp_supported) =
+        let (_adapter, device, queue, timestamp_supported, instancing_supported) =
             Self::request_device(&instance, None).await?;
         let texture = crate::output::create_offscreen_texture(&device, width, height);
         Self::build(
@@ -2148,6 +2153,7 @@ impl WgpuSurface {
             },
             fast_render,
             timestamp_supported,
+            instancing_supported,
         )
     }
 
@@ -2196,6 +2202,15 @@ impl WgpuSurface {
         self.fast_render
     }
 
+    /// Whether the shadow passes batch objects sharing a mesh into one
+    /// instanced draw, rather than issuing one draw call each.
+    ///
+    /// False only on an adapter without `DownlevelFlags::VERTEX_STORAGE`,
+    /// where the instanced pipelines cannot be created at all.
+    pub fn is_instancing_supported(&self) -> bool {
+        self.instancing_supported
+    }
+
     /// This renderer's GPU device, for callers that must put resources on the
     /// same device -- a `GpuMeshRegistry`, for one.
     pub fn device_arc(&self) -> Arc<wgpu::Device> {
@@ -2219,7 +2234,7 @@ impl WgpuSurface {
     async fn request_device(
         instance: &wgpu::Instance,
         compatible_surface: Option<&wgpu::Surface<'static>>,
-    ) -> Result<(wgpu::Adapter, Arc<wgpu::Device>, Arc<wgpu::Queue>, bool), String> {
+    ) -> Result<(wgpu::Adapter, Arc<wgpu::Device>, Arc<wgpu::Queue>, bool, bool), String> {
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::None,
@@ -2230,6 +2245,19 @@ impl WgpuSurface {
             .ok_or("No adapter found")?;
 
         let timestamp_supported = adapter.features().contains(wgpu::Features::TIMESTAMP_QUERY);
+        // Storage buffers in the vertex stage are an adapter capability,
+        // not something `required_limits` can ask for, and a pipeline whose
+        // vertex shader reads storage fails at *creation* where it is
+        // missing -- so this has to be decided before the shadow pipelines
+        // are built, not at draw time.
+        //
+        // Every backend this engine ships to supports it (there is no
+        // wasm/WebGL target), but the flag is real and not ours to
+        // guarantee, so it is checked rather than assumed.
+        let instancing_supported = adapter
+            .get_downlevel_capabilities()
+            .flags
+            .contains(wgpu::DownlevelFlags::VERTEX_STORAGE);
         let required_features = if timestamp_supported {
             wgpu::Features::TIMESTAMP_QUERY
         } else {
@@ -2254,6 +2282,7 @@ impl WgpuSurface {
             Arc::new(device),
             Arc::new(queue),
             timestamp_supported,
+            instancing_supported,
         ))
     }
 
@@ -2286,6 +2315,7 @@ impl WgpuSurface {
         output: crate::output::Output,
         fast_render: bool,
         timestamp_supported: bool,
+        instancing_supported: bool,
     ) -> Result<Self, String> {
         let format = output.format();
         let width = output.width();
@@ -3350,6 +3380,7 @@ impl WgpuSurface {
             last_saved_layout_json: None,
             fast_render,
             timestamp_supported,
+            instancing_supported,
             timestamp_query_set,
             timestamp_resolve_buffer,
             timestamp_readback_buffer,

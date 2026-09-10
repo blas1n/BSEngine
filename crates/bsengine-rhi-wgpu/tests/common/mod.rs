@@ -657,6 +657,14 @@ struct VertOut {{
             .expect("render() should have populated frame stats")
     }
 
+    /// Whether this adapter can run the instanced shadow path. A suite that
+    /// means to exercise instancing should assert this first: on an adapter
+    /// without `VERTEX_STORAGE` the per-object fallback runs instead, and
+    /// draw-call assertions would silently be measuring that.
+    pub fn instancing_supported(&self) -> bool {
+        self.surface.is_instancing_supported()
+    }
+
     /// Shared handle to the rolling frame-stats history.
     pub fn frame_stats_history(
         &self,

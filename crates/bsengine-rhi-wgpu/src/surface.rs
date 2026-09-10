@@ -4745,6 +4745,84 @@ impl WgpuSurface {
             );
         }
 
+        // --- instanced batch building ---
+        //
+        // Every pass's slot lists live in one array, built before any pass
+        // is encoded so the whole frame costs a single upload. The
+        // directional pass's list goes first, then one per active point
+        // light. Each batch reaches its own list through a dynamic offset.
+        let active_lights: Vec<_> = light.point_lights.iter().take(MAX_POINT_LIGHTS).collect();
+        let mut frame_slots: Vec<u32> = Vec::new();
+        // Gated on `fast_render` because that mode clears the directional
+        // shadow map without drawing into it. The point-shadow passes are
+        // not gated, and neither is their batching below.
+        let directional_batches = if self.instancing_supported && !self.fast_render {
+            let indices: Vec<usize> = (0..draw_calls.len().min(MAX_OBJECTS)).collect();
+            crate::instancing::build_batches(&indices, draw_calls, &mut frame_slots)
+        } else {
+            Vec::new()
+        };
+
+        // Which objects can possibly cast into each light, decided once per
+        // light rather than once per face -- the answer is the same for all
+        // six, since the test is a distance to the light's centre and not to
+        // any one face.
+        //
+        // Before this, every camera-visible object was drawn into all six
+        // faces of every light with no light-side test at all. A
+        // 1,231-entity level with one `range: 45` point light issued 6,333
+        // draw calls, most of them geometry that could not reach the light;
+        // `games/scale-level` measured that at ~18ms per point light, and
+        // filling MAX_POINT_LIGHTS took the frame to 165ms.
+        //
+        // Conservative in the same direction item 46's occlusion culling is:
+        // the sphere radius is *added* to the range, so a borderline object
+        // is kept. Culling a caster that should have cast is a visible bug
+        // (a missing shadow); keeping one that could not is only wasted work.
+        let point_castable: Vec<Vec<usize>> = active_lights
+            .iter()
+            .map(|pl| {
+                let light_pos = glam::Vec3::from(pl.position);
+                draw_calls
+                    .iter()
+                    .enumerate()
+                    .take(MAX_OBJECTS)
+                    .filter_map(|(i, (mesh_id, model, _, _, _))| {
+                        let (local_center, local_radius) = registry.get_bounds(*mesh_id)?;
+                        let center = (*model * local_center.extend(1.0)).truncate();
+                        let max_scale = model
+                            .x_axis
+                            .truncate()
+                            .length()
+                            .max(model.y_axis.truncate().length())
+                            .max(model.z_axis.truncate().length());
+                        let world_radius = local_radius * max_scale.max(1.0);
+                        (center.distance(light_pos) <= pl.range + world_radius).then_some(i)
+                    })
+                    .collect()
+            })
+            .collect();
+        // One batch list per light, shared by all six of its cube faces.
+        let mut point_batches: Vec<Vec<crate::instancing::Batch>> = Vec::new();
+        if self.instancing_supported {
+            for castable in &point_castable {
+                point_batches.push(crate::instancing::build_batches(
+                    castable,
+                    draw_calls,
+                    &mut frame_slots,
+                ));
+            }
+        }
+        if !frame_slots.is_empty() {
+            let staged = frame_slots.len().min(MAX_SLOTS);
+            self.queue.write_buffer(
+                &self.slot_buffer,
+                0,
+                bytemuck::cast_slice(&frame_slots[..staged]),
+            );
+            warn_if_slots_truncated(frame_slots.len());
+        }
+
         // --- shadow pass ---
         // In fast_render mode this still clears the shadow map to depth=1.0
         // (max distance -- "nothing occludes anything"), which reads as
@@ -4773,29 +4851,56 @@ impl WgpuSurface {
             if !self.fast_render {
                 shadow_pass.set_pipeline(&self.shadow_pipeline);
                 shadow_pass.set_bind_group(0, &self.camera_bind_group, &[]);
-                for (i, (mesh_id, _, _, _, _)) in draw_calls.iter().enumerate() {
-                    if i >= MAX_OBJECTS {
-                        break;
+                if self.instancing_supported {
+                    for batch in &directional_batches {
+                        // One registry lookup per batch, where the
+                        // per-object path needed one per object.
+                        let Some(mesh) = registry.get(batch.mesh_id) else {
+                            continue;
+                        };
+                        shadow_pass.set_bind_group(
+                            1,
+                            &self.model_storage_bind_group,
+                            &[batch.slot_base * std::mem::size_of::<u32>() as u32],
+                        );
+                        shadow_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                        shadow_pass.set_index_buffer(
+                            mesh.index_buffer.slice(..),
+                            wgpu::IndexFormat::Uint32,
+                        );
+                        shadow_pass.draw_indexed(0..mesh.index_count, 0, 0..batch.count);
+                        frame_draw_calls += 1;
+                        frame_objects_drawn += batch.count;
+                        // Triangles are per instance, so batching must not
+                        // deflate this the way it deflates draw calls.
+                        frame_triangles += (mesh.index_count / 3) as u64 * batch.count as u64;
                     }
-                    let Some(mesh) = registry.get(*mesh_id) else {
-                        continue;
-                    };
-                    let offset = (i as u64 * MODEL_STRIDE) as u32;
-                    shadow_pass.set_bind_group(1, &self.model_bind_group, &[offset]);
-                    shadow_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                    shadow_pass
-                        .set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                    shadow_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
-                    frame_draw_calls += 1;
-                    frame_objects_drawn += 1;
-                    frame_triangles += (mesh.index_count / 3) as u64;
+                } else {
+                    for (i, (mesh_id, _, _, _, _)) in draw_calls.iter().enumerate() {
+                        if i >= MAX_OBJECTS {
+                            break;
+                        }
+                        let Some(mesh) = registry.get(*mesh_id) else {
+                            continue;
+                        };
+                        let offset = (i as u64 * MODEL_STRIDE) as u32;
+                        shadow_pass.set_bind_group(1, &self.model_bind_group, &[offset]);
+                        shadow_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                        shadow_pass.set_index_buffer(
+                            mesh.index_buffer.slice(..),
+                            wgpu::IndexFormat::Uint32,
+                        );
+                        shadow_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                        frame_draw_calls += 1;
+                        frame_objects_drawn += 1;
+                        frame_triangles += (mesh.index_count / 3) as u64;
+                    }
                 }
             }
         }
 
         // --- point light shadow passes (linear-distance cube arrays) ---
         {
-            let active_lights: Vec<_> = light.point_lights.iter().take(MAX_POINT_LIGHTS).collect();
             for (light_idx, pl) in active_lights.iter().enumerate() {
                 let view_projs = point_light_face_view_projs(pl.position, pl.range);
                 for (face, vp) in view_projs.iter().enumerate() {
@@ -4834,43 +4939,11 @@ impl WgpuSurface {
             };
             let total_point_shadow_passes = active_lights.len() * 6;
             let mut point_shadow_pass_counter = 0usize;
-            for (light_idx, pl) in active_lights.iter().enumerate() {
-                // Which objects can possibly cast into *this* light, decided
-                // once per light rather than once per face -- the answer is the
-                // same for all six, since the test is a distance to the light's
-                // centre and not to any one face.
-                //
-                // Before this, every camera-visible object was drawn into all
-                // six faces of every light with no light-side test at all. A
-                // 1,231-entity level with one `range: 45` point light issued
-                // 6,333 draw calls, most of them geometry that could not reach
-                // the light; `games/scale-level` measured that at ~18ms per
-                // point light, and filling MAX_POINT_LIGHTS took the frame to
-                // 165ms.
-                //
-                // Conservative in the same direction item 46's occlusion
-                // culling is: the sphere radius is *added* to the range, so a
-                // borderline object is kept. Culling a caster that should have
-                // cast is a visible bug (a missing shadow); keeping one that
-                // could not is only wasted work.
-                let light_pos = glam::Vec3::from(pl.position);
-                let castable: Vec<usize> = draw_calls
-                    .iter()
-                    .enumerate()
-                    .take(MAX_OBJECTS)
-                    .filter_map(|(i, (mesh_id, model, _, _, _))| {
-                        let (local_center, local_radius) = registry.get_bounds(*mesh_id)?;
-                        let center = (*model * local_center.extend(1.0)).truncate();
-                        let max_scale = model
-                            .x_axis
-                            .truncate()
-                            .length()
-                            .max(model.y_axis.truncate().length())
-                            .max(model.z_axis.truncate().length());
-                        let world_radius = local_radius * max_scale.max(1.0);
-                        (center.distance(light_pos) <= pl.range + world_radius).then_some(i)
-                    })
-                    .collect();
+            for (light_idx, _pl) in active_lights.iter().enumerate() {
+                // Both computed once per light, above, and shared by all six
+                // of this light's cube faces: the range cull is a distance to
+                // the light's centre, so it gives the same answer per face.
+                let castable = &point_castable[light_idx];
                 for face in 0..6usize {
                     let is_first_point_shadow_pass = point_shadow_pass_counter == 0;
                     let is_last_point_shadow_pass =
@@ -4925,26 +4998,49 @@ impl WgpuSurface {
                         &self.point_shadow_bind_group,
                         &[uniform_offset],
                     );
-                    for &i in &castable {
-                        let Some(mesh) = registry.get(draw_calls[i].0) else {
-                            continue;
-                        };
-                        // `i` is the index into `draw_calls`, not a position
-                        // within `castable` -- that index *is* the model
-                        // uniform's dynamic offset, and using a filtered
-                        // position would hand every object someone else's
-                        // transform.
-                        let offset = (i as u64 * MODEL_STRIDE) as u32;
-                        point_shadow_pass.set_bind_group(1, &self.model_bind_group, &[offset]);
-                        point_shadow_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                        point_shadow_pass.set_index_buffer(
-                            mesh.index_buffer.slice(..),
-                            wgpu::IndexFormat::Uint32,
-                        );
-                        point_shadow_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
-                        frame_draw_calls += 1;
-                        frame_objects_drawn += 1;
-                        frame_triangles += (mesh.index_count / 3) as u64;
+                    if self.instancing_supported {
+                        for batch in &point_batches[light_idx] {
+                            let Some(mesh) = registry.get(batch.mesh_id) else {
+                                continue;
+                            };
+                            point_shadow_pass.set_bind_group(
+                                1,
+                                &self.model_storage_bind_group,
+                                &[batch.slot_base * std::mem::size_of::<u32>() as u32],
+                            );
+                            point_shadow_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                            point_shadow_pass.set_index_buffer(
+                                mesh.index_buffer.slice(..),
+                                wgpu::IndexFormat::Uint32,
+                            );
+                            point_shadow_pass.draw_indexed(0..mesh.index_count, 0, 0..batch.count);
+                            frame_draw_calls += 1;
+                            frame_objects_drawn += batch.count;
+                            frame_triangles += (mesh.index_count / 3) as u64 * batch.count as u64;
+                        }
+                    } else {
+                        for &i in castable {
+                            let Some(mesh) = registry.get(draw_calls[i].0) else {
+                                continue;
+                            };
+                            // `i` is the index into `draw_calls`, not a position
+                            // within `castable` -- that index *is* the model
+                            // uniform's dynamic offset, and using a filtered
+                            // position would hand every object someone else's
+                            // transform. `build_batches` carries the same
+                            // invariant for the instanced path above.
+                            let offset = (i as u64 * MODEL_STRIDE) as u32;
+                            point_shadow_pass.set_bind_group(1, &self.model_bind_group, &[offset]);
+                            point_shadow_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                            point_shadow_pass.set_index_buffer(
+                                mesh.index_buffer.slice(..),
+                                wgpu::IndexFormat::Uint32,
+                            );
+                            point_shadow_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                            frame_draw_calls += 1;
+                            frame_objects_drawn += 1;
+                            frame_triangles += (mesh.index_count / 3) as u64;
+                        }
                     }
                     point_shadow_pass_counter += 1;
                 }

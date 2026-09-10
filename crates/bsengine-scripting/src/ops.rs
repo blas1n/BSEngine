@@ -958,6 +958,13 @@ pub enum ScriptCommand {
         /// that misroutes it.
         bus: Option<String>,
     },
+    /// Set a mixer bus's volume in decibels.
+    SetBusVolume {
+        /// Name of the bus.
+        bus: String,
+        /// New volume in decibels.
+        db: f32,
+    },
     /// Stop a playing sound.
     StopSound {
         /// Identifier of the sound or UI widget to target.
@@ -1689,6 +1696,12 @@ thread_local! {
 
     // sound id → playback state string ("playing", "pausing", "paused", etc.)
     pub(crate) static SOUND_STATE_SNAPSHOT: RefCell<HashMap<u32, String>> =
+        RefCell::new(HashMap::new());
+
+    // mixer bus name → volume in dB, so `getBusVolume` can answer on a thread
+    // with no `World`. Same mechanism as `SOUND_STATE_SNAPSHOT`; a second one
+    // would be a second source of truth.
+    pub(crate) static BUS_VOLUME_SNAPSHOT: RefCell<HashMap<String, f32>> =
         RefCell::new(HashMap::new());
 
     // sound id → playback position in seconds
@@ -5466,6 +5479,25 @@ pub fn bsengine_get_sound_position(id: u32) -> f64 {
     SOUND_POSITION_SNAPSHOT.with(|s| s.borrow().get(&id).copied().unwrap_or(0.0))
 }
 
+/// Queue setting a mixer bus's volume, in decibels.
+///
+/// This is what an options-menu "SFX volume" slider compiles to: one call
+/// changes every sound on that bus, present and future, which is precisely
+/// what per-sound [`bsengine_set_sound_volume`] cannot do.
+#[op2(fast)]
+pub fn bsengine_set_bus_volume(#[string] bus: String, db: f32) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SetBusVolume { bus, db }));
+}
+
+/// Read a mixer bus's volume in decibels, or NaN if there is no such bus.
+///
+/// NaN rather than an `Option` because `#[op2(fast)]` returns plain scalars;
+/// the prelude turns it into `null`.
+#[op2(fast)]
+pub fn bsengine_get_bus_volume(#[string] bus: String) -> f32 {
+    BUS_VOLUME_SNAPSHOT.with(|s| s.borrow().get(&bus).copied().unwrap_or(f32::NAN))
+}
+
 /// What [`bsengine_get_asset_status`] answers for a path nothing ever asked
 /// for. Every other answer is one of the three below, so this one — and only
 /// this one — means "no engine ever looked".
@@ -6108,6 +6140,8 @@ deno_core::extension!(
         bsengine_seek_sound,
         bsengine_get_sound_state,
         bsengine_get_sound_position,
+        bsengine_set_bus_volume,
+        bsengine_get_bus_volume,
         bsengine_get_asset_status,
         bsengine_set_hud_text,
         bsengine_clear_hud_text,
@@ -7936,6 +7970,49 @@ JSON.stringify(received)
             assert!(found, "positional PlaySound not in buffer");
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_bus_volume_reaches_the_command_buffer() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setBusVolume("sfx", -12.5);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetBusVolume { bus, db }
+                    if bus == "sfx" && (*db - -12.5).abs() < 1e-6)
+            });
+            assert!(found, "setBusVolume did not reach the command buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn get_bus_volume_reads_the_snapshot_and_reports_unknown_as_null() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::BUS_VOLUME_SNAPSHOT.with(|s| {
+            // Distinct values: equal ones would let a bug that reads the wrong
+            // bus look correct.
+            s.borrow_mut().insert("sfx".to_string(), -6.0);
+            s.borrow_mut().insert("music".to_string(), -1.5);
+        });
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getBusVolume("sfx"))"#).unwrap(),
+            "-6"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getBusVolume("music"))"#)
+                .unwrap(),
+            "-1.5"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getBusVolume("nope"))"#).unwrap(),
+            "null",
+            "an unknown bus must read as null, not NaN and not 0"
+        );
+        super::BUS_VOLUME_SNAPSHOT.with(|s| s.borrow_mut().clear());
     }
 
     #[test]

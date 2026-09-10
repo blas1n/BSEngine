@@ -527,6 +527,12 @@ var Bsengine = {
     seekSound:            (id, pos)     => Deno.core.ops.bsengine_seek_sound(id, pos),
     getSoundState:        (id)          => Deno.core.ops.bsengine_get_sound_state(id),
     getSoundPosition:     (id)          => Deno.core.ops.bsengine_get_sound_position(id),
+    setBusVolume:         (bus, db)     => Deno.core.ops.bsengine_set_bus_volume(bus, db),
+    getBusVolume:         (bus)         => {
+        // NaN is the op's "no such bus"; null is what a script expects.
+        const v = Deno.core.ops.bsengine_get_bus_volume(bus);
+        return Number.isNaN(v) ? null : v;
+    },
     // What became of an asset load, as "loaded" | "loading" |
     // "failed: <reason>" | "unknown". "unknown" means nothing ever asked for
     // that path -- deliberately *not* the same answer as a failure, so a

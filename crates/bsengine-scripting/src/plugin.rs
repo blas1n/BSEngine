@@ -185,6 +185,8 @@ struct PendingSound {
     /// for a non-positional play. Resolved to an entity when the sound
     /// actually starts, not now, because the entity may not exist yet.
     emitter: Option<String>,
+    /// Mixer bus this play was requested on, or `None` for Master.
+    bus: Option<String>,
 }
 
 /// Plays requested before their sound finished loading.
@@ -2081,6 +2083,7 @@ fn run_scripts(world: &mut World) {
                 volume,
                 loop_,
                 emitter,
+                bus,
             } => {
                 let project_dir = world
                     .get_resource::<ProjectDir>()
@@ -2171,6 +2174,7 @@ fn run_scripts(world: &mut World) {
                         loop_,
                         paused: false,
                         emitter,
+                        bus,
                     });
                 }
             }

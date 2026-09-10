@@ -950,6 +950,13 @@ pub enum ScriptCommand {
         /// [`bsengine_get_sound_position`]), which is why this names an entity
         /// rather than coordinates.
         emitter: Option<String>,
+        /// Name of the mixer bus to play on; empty for Master.
+        ///
+        /// A name matching no bus is reported and falls back to Master rather
+        /// than dropping the sound: silence is the worst failure mode in
+        /// audio, and a typo that mutes a sound is harder to diagnose than one
+        /// that misroutes it.
+        bus: Option<String>,
     },
     /// Stop a playing sound.
     StopSound {
@@ -5325,7 +5332,12 @@ pub fn bsengine_set_cursor_locked(locked: bool) {
 
 /// Queue starting playback of a sound.
 #[op2(fast)]
-pub fn bsengine_play_sound(#[string] path: String, volume: f32, loop_: bool) -> u32 {
+pub fn bsengine_play_sound(
+    #[string] path: String,
+    volume: f32,
+    loop_: bool,
+    #[string] bus: String,
+) -> u32 {
     let id = SOUND_ID_COUNTER.with(|c| {
         let id = *c.borrow();
         *c.borrow_mut() = id + 1;
@@ -5338,6 +5350,9 @@ pub fn bsengine_play_sound(#[string] path: String, volume: f32, loop_: bool) -> 
             volume,
             loop_,
             emitter: None,
+            // Empty means unspecified: `#[op2(fast)]` cannot take an
+            // `Option<String>`, so the prelude passes "" for an omitted bus.
+            bus: (!bus.is_empty()).then_some(bus),
         });
     });
     id
@@ -5358,6 +5373,7 @@ pub fn bsengine_play_sound_3d(
     #[string] path: String,
     volume: f32,
     loop_: bool,
+    #[string] bus: String,
 ) -> u32 {
     let id = SOUND_ID_COUNTER.with(|c| {
         let id = *c.borrow();
@@ -5371,6 +5387,7 @@ pub fn bsengine_play_sound_3d(
             volume,
             loop_,
             emitter: Some(entity),
+            bus: (!bus.is_empty()).then_some(bus),
         });
     });
     id
@@ -7917,6 +7934,40 @@ JSON.stringify(received)
                         && emitter.as_deref() == Some("Enemy"))
             });
             assert!(found, "positional PlaySound not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn a_named_bus_reaches_the_play_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.playSound("a.wav", { bus: "sfx" });"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::PlaySound { bus, .. }
+                    if bus.as_deref() == Some("sfx"))
+            });
+            assert!(found, "the bus option did not reach the command");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn an_omitted_bus_is_none_not_a_default_name() {
+        // The paired direction. Without it, an implementation that hardcodes
+        // Some("sfx") passes the test above.
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.playSound("a.wav");"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::PlaySound { bus, .. } if bus.is_none()),
+            );
+            assert!(found, "an omitted bus must be None, meaning Master");
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

@@ -508,12 +508,15 @@ var Bsengine = {
     playSound:      (path, opts) => {
         const v = (opts && opts.volume !== undefined) ? opts.volume : 1.0;
         const l = (opts && opts.loop) ? true : false;
-        return Deno.core.ops.bsengine_play_sound(path, v, l);
+        // "" means unspecified: the op cannot take an Option<String>.
+        const b = (opts && opts.bus !== undefined) ? opts.bus : "";
+        return Deno.core.ops.bsengine_play_sound(path, v, l, b);
     },
     playSound3D:    (entity, path, opts) => {
         const v = (opts && opts.volume !== undefined) ? opts.volume : 1.0;
         const l = (opts && opts.loop) ? true : false;
-        return Deno.core.ops.bsengine_play_sound_3d(entity, path, v, l);
+        const b = (opts && opts.bus !== undefined) ? opts.bus : "";
+        return Deno.core.ops.bsengine_play_sound_3d(entity, path, v, l, b);
     },
     stopSound:      (id)                   => Deno.core.ops.bsengine_stop_sound(id),
     pauseSound:     (id)                   => Deno.core.ops.bsengine_pause_sound(id),

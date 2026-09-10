@@ -19,6 +19,8 @@
 
 /// Decoded audio sample data asset ([`AudioSourceAsset`]) and its loader.
 pub mod audio_source;
+/// The authored mixer bus layout ([`BusLayout`]) and its validation.
+pub mod bus;
 /// The Bevy [`AudioPlugin`], which inserts the [`AudioWorld`] resource.
 pub mod plugin;
 /// Positional audio: the [`AudioListener`]/[`AudioEmitter`] components and
@@ -28,6 +30,7 @@ pub mod spatial;
 pub mod world;
 
 pub use audio_source::{load_audio_source, AudioSourceAsset, AudioSourceLoader};
+pub use bus::{Bus, BusLayout};
 pub use plugin::AudioPlugin;
 pub use spatial::{AudioEmitter, AudioListener};
 pub use world::AudioWorld;

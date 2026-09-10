@@ -12,6 +12,8 @@ bevy_app         = { workspace = true }
 bevy_asset       = { workspace = true }
 bevy_ecs         = { workspace = true }
 bevy_reflect     = { workspace = true }
+ron              = { workspace = true }
+serde            = { workspace = true }
 kira             = { workspace = true }
 mint             = { workspace = true }
 glam             = { workspace = true }
@@ -20,3 +22,4 @@ tracing          = { workspace = true }
 [dev-dependencies]
 bsengine-app  = { workspace = true }
 bsengine-asset = { workspace = true }
+tempfile      = "3"

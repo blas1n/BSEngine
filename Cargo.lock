@@ -871,6 +871,9 @@ dependencies = [
  "glam 0.29.3",
  "kira",
  "mint",
+ "ron",
+ "serde",
+ "tempfile",
  "tracing",
 ]
 

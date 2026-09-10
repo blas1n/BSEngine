@@ -18,22 +18,22 @@ use glam::{EulerRot, Quat, Vec3};
 use crate::ops::{
     render_asset_status, ScriptCommand, SpawnParams, AMBIENT_OCCLUSION_SNAPSHOT,
     ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT, ANIMATION_SNAPSHOT, ASM_STATE_SNAPSHOT,
-    ASSET_STATUS_SNAPSHOT, BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, CHILDREN_SNAPSHOT,
-    COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COMMAND_BUFFER, ENTITY_NAMES_SNAPSHOT,
-    ENTITY_NAME_MAP, FOLLOW_SNAPSHOT, FRICTION_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
-    GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
-    GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, KEY_JUST_PRESSED_SNAPSHOT,
-    KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT,
-    LOOK_AT_SNAPSHOT, MASS_SNAPSHOT, MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT,
-    MATERIAL_METALLIC_SNAPSHOT, MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT,
-    MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT,
-    MOUSE_PRESSED_SNAPSHOT, NAV_SNAPSHOT, NETWORK_ID_SNAPSHOT, NETWORK_STATE_SNAPSHOT,
-    PARENT_SNAPSHOT, PAUSED_SNAPSHOT, PHYSICS_WORLD_PTR, PROJECT_DIR, REMOTE_INPUT,
-    REMOTE_INPUT_PREVIOUS, RESTITUTION_SNAPSHOT, SAVE_DATA_SNAPSHOT, SCREEN_SIZE_SNAPSHOT,
-    SHIELD_SNAPSHOT, SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT,
-    TIMELINE_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT,
-    TONE_MAP_SNAPSHOT, TRANSFORM_SNAPSHOT, TWEEN_SNAPSHOT, UI_CLICKED_SNAPSHOT, VELOCITY_SNAPSHOT,
-    VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
+    ASSET_STATUS_SNAPSHOT, BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, BUS_VOLUME_SNAPSHOT,
+    CHILDREN_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COMMAND_BUFFER,
+    ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, FOLLOW_SNAPSHOT, FRICTION_SNAPSHOT,
+    GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT, GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT,
+    GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT,
+    KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, LIFETIME_SNAPSHOT,
+    LINEAR_DAMPING_SNAPSHOT, LOOK_AT_SNAPSHOT, MASS_SNAPSHOT, MATERIAL_COLOR_SNAPSHOT,
+    MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT, MATERIAL_ROUGHNESS_SNAPSHOT,
+    MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT,
+    MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, NAV_SNAPSHOT, NETWORK_ID_SNAPSHOT,
+    NETWORK_STATE_SNAPSHOT, PARENT_SNAPSHOT, PAUSED_SNAPSHOT, PHYSICS_WORLD_PTR, PROJECT_DIR,
+    REMOTE_INPUT, REMOTE_INPUT_PREVIOUS, RESTITUTION_SNAPSHOT, SAVE_DATA_SNAPSHOT,
+    SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT,
+    SOUND_STATE_SNAPSHOT, TIMELINE_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT,
+    TIME_ELAPSED_SNAPSHOT, TONE_MAP_SNAPSHOT, TRANSFORM_SNAPSHOT, TWEEN_SNAPSHOT,
+    UI_CLICKED_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -185,6 +185,8 @@ struct PendingSound {
     /// for a non-positional play. Resolved to an entity when the sound
     /// actually starts, not now, because the entity may not exist yet.
     emitter: Option<String>,
+    /// Mixer bus this play was requested on, or `None` for Master.
+    bus: Option<String>,
 }
 
 /// Plays requested before their sound finished loading.
@@ -2081,6 +2083,7 @@ fn run_scripts(world: &mut World) {
                 volume,
                 loop_,
                 emitter,
+                bus,
             } => {
                 let project_dir = world
                     .get_resource::<ProjectDir>()
@@ -2171,7 +2174,13 @@ fn run_scripts(world: &mut World) {
                         loop_,
                         paused: false,
                         emitter,
+                        bus,
                     });
+                }
+            }
+            ScriptCommand::SetBusVolume { bus, db } => {
+                if let Some(mut audio) = world.get_resource_mut::<AudioWorld>() {
+                    audio.set_bus_volume(&bus, db);
                 }
             }
             ScriptCommand::StopSound { id } => {
@@ -2955,9 +2964,16 @@ fn start_pending_sounds(world: &mut World) {
             // which is the normal state before a listener exists. Falling back
             // keeps the sound audible during scene load rather than dropping
             // it; it is simply not positional for that moment.
+            // Recorded for every play, including the fallback cases below, so
+            // routing is assertable: a dropped sound and a Master-routed sound
+            // are otherwise both "no error".
+            let bus = entry.bus.as_deref();
+            audio.note_sound_bus(entry.id, bus);
             let started = match emitter_entity {
-                Some(e) => audio.play_at(e, data.clone()).or_else(|| audio.play(data)),
-                None => audio.play(data),
+                Some(e) => audio
+                    .play_at_on_bus(e, bus, data.clone())
+                    .or_else(|| audio.play_on_bus(bus, data)),
+                None => audio.play_on_bus(bus, data),
             };
             if let Some(mut handle) = started {
                 // A `pauseSound` that arrived while this play was still queued
@@ -3559,6 +3575,13 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
         }
         SOUND_STATE_SNAPSHOT.with(|s| *s.borrow_mut() = states);
         SOUND_POSITION_SNAPSHOT.with(|s| *s.borrow_mut() = positions);
+        // Buses come from `AudioWorld` rather than from kira handles, so this
+        // is populated on a machine with no audio device too.
+        let bus_volumes: HashMap<String, f32> = world
+            .get_resource::<AudioWorld>()
+            .map(|a| a.bus_volumes().into_iter().collect())
+            .unwrap_or_default();
+        BUS_VOLUME_SNAPSHOT.with(|s| *s.borrow_mut() = bus_volumes);
     }
     {
         // Mirrors `AssetStatuses` wholesale for `Bsengine.getAssetStatus`,

@@ -508,12 +508,15 @@ var Bsengine = {
     playSound:      (path, opts) => {
         const v = (opts && opts.volume !== undefined) ? opts.volume : 1.0;
         const l = (opts && opts.loop) ? true : false;
-        return Deno.core.ops.bsengine_play_sound(path, v, l);
+        // "" means unspecified: the op cannot take an Option<String>.
+        const b = (opts && opts.bus !== undefined) ? opts.bus : "";
+        return Deno.core.ops.bsengine_play_sound(path, v, l, b);
     },
     playSound3D:    (entity, path, opts) => {
         const v = (opts && opts.volume !== undefined) ? opts.volume : 1.0;
         const l = (opts && opts.loop) ? true : false;
-        return Deno.core.ops.bsengine_play_sound_3d(entity, path, v, l);
+        const b = (opts && opts.bus !== undefined) ? opts.bus : "";
+        return Deno.core.ops.bsengine_play_sound_3d(entity, path, v, l, b);
     },
     stopSound:      (id)                   => Deno.core.ops.bsengine_stop_sound(id),
     pauseSound:     (id)                   => Deno.core.ops.bsengine_pause_sound(id),
@@ -524,6 +527,12 @@ var Bsengine = {
     seekSound:            (id, pos)     => Deno.core.ops.bsengine_seek_sound(id, pos),
     getSoundState:        (id)          => Deno.core.ops.bsengine_get_sound_state(id),
     getSoundPosition:     (id)          => Deno.core.ops.bsengine_get_sound_position(id),
+    setBusVolume:         (bus, db)     => Deno.core.ops.bsengine_set_bus_volume(bus, db),
+    getBusVolume:         (bus)         => {
+        // NaN is the op's "no such bus"; null is what a script expects.
+        const v = Deno.core.ops.bsengine_get_bus_volume(bus);
+        return Number.isNaN(v) ? null : v;
+    },
     // What became of an asset load, as "loaded" | "loading" |
     // "failed: <reason>" | "unknown". "unknown" means nothing ever asked for
     // that path -- deliberately *not* the same answer as a failure, so a

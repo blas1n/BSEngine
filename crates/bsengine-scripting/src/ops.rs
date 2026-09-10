@@ -950,6 +950,20 @@ pub enum ScriptCommand {
         /// [`bsengine_get_sound_position`]), which is why this names an entity
         /// rather than coordinates.
         emitter: Option<String>,
+        /// Name of the mixer bus to play on; empty for Master.
+        ///
+        /// A name matching no bus is reported and falls back to Master rather
+        /// than dropping the sound: silence is the worst failure mode in
+        /// audio, and a typo that mutes a sound is harder to diagnose than one
+        /// that misroutes it.
+        bus: Option<String>,
+    },
+    /// Set a mixer bus's volume in decibels.
+    SetBusVolume {
+        /// Name of the bus.
+        bus: String,
+        /// New volume in decibels.
+        db: f32,
     },
     /// Stop a playing sound.
     StopSound {
@@ -1682,6 +1696,12 @@ thread_local! {
 
     // sound id → playback state string ("playing", "pausing", "paused", etc.)
     pub(crate) static SOUND_STATE_SNAPSHOT: RefCell<HashMap<u32, String>> =
+        RefCell::new(HashMap::new());
+
+    // mixer bus name → volume in dB, so `getBusVolume` can answer on a thread
+    // with no `World`. Same mechanism as `SOUND_STATE_SNAPSHOT`; a second one
+    // would be a second source of truth.
+    pub(crate) static BUS_VOLUME_SNAPSHOT: RefCell<HashMap<String, f32>> =
         RefCell::new(HashMap::new());
 
     // sound id → playback position in seconds
@@ -5325,7 +5345,12 @@ pub fn bsengine_set_cursor_locked(locked: bool) {
 
 /// Queue starting playback of a sound.
 #[op2(fast)]
-pub fn bsengine_play_sound(#[string] path: String, volume: f32, loop_: bool) -> u32 {
+pub fn bsengine_play_sound(
+    #[string] path: String,
+    volume: f32,
+    loop_: bool,
+    #[string] bus: String,
+) -> u32 {
     let id = SOUND_ID_COUNTER.with(|c| {
         let id = *c.borrow();
         *c.borrow_mut() = id + 1;
@@ -5338,6 +5363,9 @@ pub fn bsengine_play_sound(#[string] path: String, volume: f32, loop_: bool) -> 
             volume,
             loop_,
             emitter: None,
+            // Empty means unspecified: `#[op2(fast)]` cannot take an
+            // `Option<String>`, so the prelude passes "" for an omitted bus.
+            bus: (!bus.is_empty()).then_some(bus),
         });
     });
     id
@@ -5358,6 +5386,7 @@ pub fn bsengine_play_sound_3d(
     #[string] path: String,
     volume: f32,
     loop_: bool,
+    #[string] bus: String,
 ) -> u32 {
     let id = SOUND_ID_COUNTER.with(|c| {
         let id = *c.borrow();
@@ -5371,6 +5400,7 @@ pub fn bsengine_play_sound_3d(
             volume,
             loop_,
             emitter: Some(entity),
+            bus: (!bus.is_empty()).then_some(bus),
         });
     });
     id
@@ -5447,6 +5477,25 @@ pub fn bsengine_get_sound_state(id: u32) -> String {
 #[op2(fast)]
 pub fn bsengine_get_sound_position(id: u32) -> f64 {
     SOUND_POSITION_SNAPSHOT.with(|s| s.borrow().get(&id).copied().unwrap_or(0.0))
+}
+
+/// Queue setting a mixer bus's volume, in decibels.
+///
+/// This is what an options-menu "SFX volume" slider compiles to: one call
+/// changes every sound on that bus, present and future, which is precisely
+/// what per-sound [`bsengine_set_sound_volume`] cannot do.
+#[op2(fast)]
+pub fn bsengine_set_bus_volume(#[string] bus: String, db: f32) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SetBusVolume { bus, db }));
+}
+
+/// Read a mixer bus's volume in decibels, or NaN if there is no such bus.
+///
+/// NaN rather than an `Option` because `#[op2(fast)]` returns plain scalars;
+/// the prelude turns it into `null`.
+#[op2(fast)]
+pub fn bsengine_get_bus_volume(#[string] bus: String) -> f32 {
+    BUS_VOLUME_SNAPSHOT.with(|s| s.borrow().get(&bus).copied().unwrap_or(f32::NAN))
 }
 
 /// What [`bsengine_get_asset_status`] answers for a path nothing ever asked
@@ -6091,6 +6140,8 @@ deno_core::extension!(
         bsengine_seek_sound,
         bsengine_get_sound_state,
         bsengine_get_sound_position,
+        bsengine_set_bus_volume,
+        bsengine_get_bus_volume,
         bsengine_get_asset_status,
         bsengine_set_hud_text,
         bsengine_clear_hud_text,
@@ -7917,6 +7968,104 @@ JSON.stringify(received)
                         && emitter.as_deref() == Some("Enemy"))
             });
             assert!(found, "positional PlaySound not in buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn a_named_bus_reaches_the_3d_play_command_too() {
+        // Found by the coverage sweep: playSound carried a bus test and
+        // playSound3D did not. They are separate op signatures, so one cannot
+        // stand in for the other -- exactly the one-of-a-pair gap the previous
+        // PR shipped with.
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.playSound3D("Enemy", "a.wav", { bus: "sfx" });"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::PlaySound { bus, emitter, .. }
+                    if bus.as_deref() == Some("sfx") && emitter.as_deref() == Some("Enemy"))
+            });
+            assert!(found, "playSound3D lost the bus, the emitter, or both");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_bus_volume_reaches_the_command_buffer() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setBusVolume("sfx", -12.5);"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetBusVolume { bus, db }
+                    if bus == "sfx" && (*db - -12.5).abs() < 1e-6)
+            });
+            assert!(found, "setBusVolume did not reach the command buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn get_bus_volume_reads_the_snapshot_and_reports_unknown_as_null() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::BUS_VOLUME_SNAPSHOT.with(|s| {
+            // Distinct values: equal ones would let a bug that reads the wrong
+            // bus look correct.
+            s.borrow_mut().insert("sfx".to_string(), -6.0);
+            s.borrow_mut().insert("music".to_string(), -1.5);
+        });
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getBusVolume("sfx"))"#).unwrap(),
+            "-6"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getBusVolume("music"))"#)
+                .unwrap(),
+            "-1.5"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getBusVolume("nope"))"#).unwrap(),
+            "null",
+            "an unknown bus must read as null, not NaN and not 0"
+        );
+        super::BUS_VOLUME_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn a_named_bus_reaches_the_play_command() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.playSound("a.wav", { bus: "sfx" });"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::PlaySound { bus, .. }
+                    if bus.as_deref() == Some("sfx"))
+            });
+            assert!(found, "the bus option did not reach the command");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn an_omitted_bus_is_none_not_a_default_name() {
+        // The paired direction. Without it, an implementation that hardcodes
+        // Some("sfx") passes the test above.
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.playSound("a.wav");"#).unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(
+                |cmd| matches!(cmd, super::ScriptCommand::PlaySound { bus, .. } if bus.is_none()),
+            );
+            assert!(found, "an omitted bus must be None, meaning Master");
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }

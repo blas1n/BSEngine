@@ -6,11 +6,24 @@ use glam::{Quat, Vec3};
 use kira::{
     listener::ListenerHandle,
     sound::static_sound::{StaticSoundData, StaticSoundHandle},
-    track::{SpatialTrackBuilder, SpatialTrackHandle},
-    AudioManager, AudioManagerSettings, DefaultBackend, Tween,
+    track::{SpatialTrackBuilder, SpatialTrackHandle, TrackBuilder, TrackHandle},
+    AudioManager, AudioManagerSettings, Decibels, DefaultBackend, Tween,
 };
 
 use crate::spatial::{to_mint_quat, to_mint_vec};
+
+/// One live mixer bus.
+///
+/// `handle` is the only part that needs an audio device. `parent` and
+/// `volume_db` are recorded on every machine, so the mixer stays observable
+/// where there is no device at all — see
+/// [`last_listener_pose`](AudioWorld::last_listener_pose) for why that is not
+/// optional.
+struct BusState {
+    parent: Option<String>,
+    volume_db: f32,
+    handle: Option<TrackHandle>,
+}
 
 /// ECS resource wrapping the `kira` audio manager; `None` if audio backend init failed.
 #[derive(Resource)]
@@ -23,6 +36,12 @@ pub struct AudioWorld {
     emitters: HashMap<Entity, SpatialTrackHandle>,
     last_listener_pose: Option<(Vec3, Quat)>,
     last_emitter_positions: HashMap<Entity, Vec3>,
+    /// Live mixer buses, in creation order: every bus after its parent.
+    ///
+    /// A `Vec` rather than a `HashMap` because creation order is load-bearing
+    /// (a child sub-track is created on its parent's handle) and because the
+    /// count is small enough that a linear lookup is not worth a second index.
+    buses: Vec<(String, BusState)>,
 }
 
 impl Default for AudioWorld {
@@ -59,7 +78,92 @@ impl AudioWorld {
             emitters: HashMap::new(),
             last_listener_pose: None,
             last_emitter_positions: HashMap::new(),
+            buses: Vec::new(),
         }
+    }
+
+    /// Rebuilds the mixer from an authored layout, replacing any previous one.
+    ///
+    /// Buses are created parents-first, which is exactly what
+    /// [`BusLayout::creation_order`](crate::bus::BusLayout::creation_order)
+    /// guarantees: a child sub-track is created *on* its parent's handle, so
+    /// the parent must already exist.
+    pub fn apply_bus_layout(&mut self, layout: &crate::bus::BusLayout) {
+        for problem in layout.problems() {
+            tracing::warn!("{problem}");
+        }
+        // Dropping the old handles tears down the old tracks.
+        self.buses.clear();
+        for bus in layout.creation_order() {
+            let handle = self.create_bus_track(bus.parent.as_deref(), bus.volume_db);
+            self.buses.push((
+                bus.name.clone(),
+                BusState {
+                    parent: bus.parent.clone(),
+                    volume_db: bus.volume_db,
+                    handle,
+                },
+            ));
+        }
+    }
+
+    /// Creates one bus's kira track under `parent`, or under Master when
+    /// `parent` is `None`.
+    ///
+    /// Returns `None` without a backend, which is the ordinary state on a
+    /// machine with no audio device rather than an error.
+    fn create_bus_track(&mut self, parent: Option<&str>, volume_db: f32) -> Option<TrackHandle> {
+        let builder = TrackBuilder::new().volume(Decibels(volume_db));
+        match parent {
+            None => self.manager.as_mut()?.add_sub_track(builder).ok(),
+            Some(name) => {
+                let slot = self.buses.iter_mut().find(|(n, _)| n == name)?;
+                slot.1.handle.as_mut()?.add_sub_track(builder).ok()
+            }
+        }
+    }
+
+    /// The declared volume of a bus in decibels, or `None` if there is no such
+    /// bus.
+    pub fn bus_volume(&self, name: &str) -> Option<f32> {
+        self.buses
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, b)| b.volume_db)
+    }
+
+    /// The bus a bus feeds into.
+    ///
+    /// `Some(None)` means "feeds Master"; `None` means there is no such bus.
+    pub fn bus_parent(&self, name: &str) -> Option<Option<String>> {
+        self.buses
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, b)| b.parent.clone())
+    }
+
+    /// Every bus's name and volume, for the scripting snapshot.
+    pub fn bus_volumes(&self) -> Vec<(String, f32)> {
+        self.buses
+            .iter()
+            .map(|(name, b)| (name.clone(), b.volume_db))
+            .collect()
+    }
+
+    /// Sets a bus's volume in decibels. Returns whether the bus existed.
+    ///
+    /// This is what an options-menu volume slider drives: it changes every
+    /// sound on the bus, present and future, which per-sound volume cannot do.
+    pub fn set_bus_volume(&mut self, name: &str, db: f32) -> bool {
+        let Some((_, bus)) = self.buses.iter_mut().find(|(n, _)| n == name) else {
+            tracing::warn!("[audio] setBusVolume named unknown bus '{name}'");
+            return false;
+        };
+        bus.volume_db = db;
+        if let Some(handle) = bus.handle.as_mut() {
+            handle.set_volume(Decibels(db), Tween::default());
+        }
+        true
     }
 
     /// Returns whether the audio backend initialized successfully and can play sounds.
@@ -155,5 +259,106 @@ impl AudioWorld {
     /// [`last_listener_pose`](Self::last_listener_pose) for why this exists.
     pub fn last_emitter_position(&self, entity: Entity) -> Option<Vec3> {
         self.last_emitter_positions.get(&entity).copied()
+    }
+}
+
+#[cfg(test)]
+mod bus_tests {
+    use super::*;
+    use crate::bus::BusLayout;
+
+    /// Two top-level buses at *different* volumes, plus a real parent link.
+    ///
+    /// Every detail is load-bearing. Equal volumes would let a bug that
+    /// returns the wrong bus's volume read as correct, and without a parent
+    /// link nothing distinguishes a tree from a flat list.
+    fn fixture() -> BusLayout {
+        BusLayout::from_ron(
+            r#"BusLayout(buses: [
+                Bus(name: "music", parent: None,        volume_db:  0.0),
+                Bus(name: "sfx",   parent: None,        volume_db: -6.0),
+                Bus(name: "ui",    parent: Some("sfx"), volume_db: -3.0),
+            ])"#,
+        )
+        .expect("fixture parses")
+    }
+
+    /// `silent()` on purpose: this is the state every Windows CI runner is in,
+    /// and the state in which the mixer must still be observable.
+    #[test]
+    fn bus_state_is_recorded_without_an_audio_backend() {
+        let mut world = AudioWorld::silent();
+        world.apply_bus_layout(&fixture());
+
+        assert_eq!(world.bus_volume("music"), Some(0.0));
+        assert_eq!(world.bus_volume("sfx"), Some(-6.0));
+        assert_eq!(world.bus_volume("ui"), Some(-3.0));
+        assert_eq!(world.bus_parent("ui"), Some(Some("sfx".to_string())));
+        assert_eq!(
+            world.bus_parent("sfx"),
+            Some(None),
+            "top-level feeds Master"
+        );
+        assert_eq!(world.bus_volume("nope"), None);
+    }
+
+    #[test]
+    fn setting_a_bus_volume_changes_only_that_bus() {
+        let mut world = AudioWorld::silent();
+        world.apply_bus_layout(&fixture());
+        assert!(world.set_bus_volume("sfx", -20.0));
+
+        assert_eq!(world.bus_volume("sfx"), Some(-20.0));
+        assert_eq!(
+            world.bus_volume("ui"),
+            Some(-3.0),
+            "a child's own volume is its own; changing the parent must not rewrite it"
+        );
+        assert_eq!(world.bus_volume("music"), Some(0.0));
+    }
+
+    #[test]
+    fn setting_an_unknown_bus_volume_is_reported_as_failure() {
+        let mut world = AudioWorld::silent();
+        world.apply_bus_layout(&fixture());
+        assert!(
+            !world.set_bus_volume("nope", -20.0),
+            "an unknown bus must report failure rather than silently succeeding"
+        );
+        assert_eq!(world.bus_volume("nope"), None);
+    }
+
+    #[test]
+    fn a_layout_replaces_the_previous_one() {
+        let mut world = AudioWorld::silent();
+        world.apply_bus_layout(&fixture());
+        world.apply_bus_layout(
+            &BusLayout::from_ron(
+                r#"BusLayout(buses: [Bus(name: "only", parent: None, volume_db: -1.0)])"#,
+            )
+            .expect("parses"),
+        );
+        assert_eq!(world.bus_volume("only"), Some(-1.0));
+        assert_eq!(
+            world.bus_volume("sfx"),
+            None,
+            "the previous layout's buses must be gone, not merged"
+        );
+    }
+
+    #[test]
+    fn bus_volumes_reports_every_bus_for_the_scripting_snapshot() {
+        let mut world = AudioWorld::silent();
+        world.apply_bus_layout(&fixture());
+        let mut got = world.bus_volumes();
+        got.sort_by(|a, b| a.0.cmp(&b.0));
+        assert_eq!(
+            got,
+            vec![
+                ("music".to_string(), 0.0),
+                ("sfx".to_string(), -6.0),
+                ("ui".to_string(), -3.0),
+            ]
+        );
     }
 }

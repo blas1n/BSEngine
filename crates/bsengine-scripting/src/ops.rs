@@ -7973,6 +7973,27 @@ JSON.stringify(received)
     }
 
     #[test]
+    fn a_named_bus_reaches_the_3d_play_command_too() {
+        // Found by the coverage sweep: playSound carried a bus test and
+        // playSound3D did not. They are separate op signatures, so one cannot
+        // stand in for the other -- exactly the one-of-a-pair gap the previous
+        // PR shipped with.
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.playSound3D("Enemy", "a.wav", { bus: "sfx" });"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::PlaySound { bus, emitter, .. }
+                    if bus.as_deref() == Some("sfx") && emitter.as_deref() == Some("Enemy"))
+            });
+            assert!(found, "playSound3D lost the bus, the emitter, or both");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
     fn set_bus_volume_reaches_the_command_buffer() {
         let mut rt = ScriptRuntime::new_with_ops();
         rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();

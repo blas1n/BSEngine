@@ -958,6 +958,15 @@ pub enum ScriptCommand {
         /// that misroutes it.
         bus: Option<String>,
     },
+    /// Set an exposed effect parameter by its authored name.
+    SetAudioParam {
+        /// Name declared in `buses.ron`.
+        name: String,
+        /// New value, clamped to the authored range.
+        value: f64,
+        /// How long the change takes, in milliseconds.
+        tween_ms: f32,
+    },
     /// Set a mixer bus's volume in decibels.
     SetBusVolume {
         /// Name of the bus.
@@ -1702,6 +1711,11 @@ thread_local! {
     // with no `World`. Same mechanism as `SOUND_STATE_SNAPSHOT`; a second one
     // would be a second source of truth.
     pub(crate) static BUS_VOLUME_SNAPSHOT: RefCell<HashMap<String, f32>> =
+        RefCell::new(HashMap::new());
+
+    // exposed effect parameter name → current value. Same mechanism again;
+    // a third one would be a third source of truth.
+    pub(crate) static AUDIO_PARAM_SNAPSHOT: RefCell<HashMap<String, f64>> =
         RefCell::new(HashMap::new());
 
     // sound id → playback position in seconds
@@ -5498,6 +5512,36 @@ pub fn bsengine_get_bus_volume(#[string] bus: String) -> f32 {
     BUS_VOLUME_SNAPSHOT.with(|s| s.borrow().get(&bus).copied().unwrap_or(f32::NAN))
 }
 
+/// Queue setting an effect parameter the mixer declared as exposed.
+///
+/// This is the runtime half of the mixer: `buses.ron` names which parameters a
+/// script may reach, and this moves one. The value is clamped to the authored
+/// range, and `tween_ms` is how long it takes — 0 for an immediate jump.
+///
+/// Unity's exposed-parameter model. Addressing by name rather than by position
+/// in an effect chain means reordering a chain cannot silently re-point a
+/// script at a different parameter.
+#[op2(fast)]
+pub fn bsengine_set_audio_param(#[string] name: String, value: f64, tween_ms: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetAudioParam {
+            name,
+            value,
+            tween_ms,
+        })
+    });
+}
+
+/// Read an exposed effect parameter's current value, or NaN if no parameter of
+/// that name was declared.
+///
+/// NaN rather than an `Option` because `#[op2(fast)]` returns plain scalars;
+/// the prelude turns it into `null`.
+#[op2(fast)]
+pub fn bsengine_get_audio_param(#[string] name: String) -> f64 {
+    AUDIO_PARAM_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(f64::NAN))
+}
+
 /// What [`bsengine_get_asset_status`] answers for a path nothing ever asked
 /// for. Every other answer is one of the three below, so this one — and only
 /// this one — means "no engine ever looked".
@@ -6142,6 +6186,8 @@ deno_core::extension!(
         bsengine_get_sound_position,
         bsengine_set_bus_volume,
         bsengine_get_bus_volume,
+        bsengine_set_audio_param,
+        bsengine_get_audio_param,
         bsengine_get_asset_status,
         bsengine_set_hud_text,
         bsengine_clear_hud_text,
@@ -7991,6 +8037,71 @@ JSON.stringify(received)
             assert!(found, "playSound3D lost the bus, the emitter, or both");
         });
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn set_audio_param_reaches_the_command_buffer() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setAudioParam("muffle", 500.0, 250.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetAudioParam { name, value, tween_ms }
+                    if name == "muffle"
+                        && (*value - 500.0).abs() < 1e-9
+                        && (*tween_ms - 250.0).abs() < 1e-6)
+            });
+            assert!(found, "setAudioParam did not reach the command buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn an_omitted_tween_is_an_immediate_change() {
+        // The paired direction: without it, a prelude that dropped the
+        // argument entirely would pass the test above.
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.setAudioParam("muffle", 500.0);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetAudioParam { tween_ms, .. }
+                    if *tween_ms == 0.0)
+            });
+            assert!(found, "an omitted tween must mean 0, not NaN or undefined");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn get_audio_param_reads_the_snapshot_and_reports_unknown_as_null() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::AUDIO_PARAM_SNAPSHOT.with(|s| {
+            // Distinct values so reading the wrong one cannot look correct.
+            s.borrow_mut().insert("muffle".to_string(), 500.0);
+            s.borrow_mut().insert("wet".to_string(), 0.25);
+        });
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getAudioParam("muffle"))"#)
+                .unwrap(),
+            "500"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getAudioParam("wet"))"#).unwrap(),
+            "0.25"
+        );
+        assert_eq!(
+            rt.eval(r#"String(Bsengine.getAudioParam("nope"))"#)
+                .unwrap(),
+            "null",
+            "an undeclared parameter must read as null, not NaN and not 0"
+        );
+        super::AUDIO_PARAM_SNAPSHOT.with(|s| s.borrow_mut().clear());
     }
 
     #[test]

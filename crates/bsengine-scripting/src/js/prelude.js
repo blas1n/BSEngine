@@ -567,11 +567,60 @@ var Bsengine = {
     // UI widgets — immediate-mode overlay (egui-backed)
     // Each call sets or replaces the widget with the given id.
     ui: {
-        setLabel:       (id, text, x, y, fontSize)          => Deno.core.ops.bsengine_ui_set_label(id, String(text), x, y, fontSize ?? 20),
-        setButton:      (id, label, x, y, width, height)    => Deno.core.ops.bsengine_ui_set_button(id, label, x, y, width, height),
-        setPanel:       (id, title, x, y, width, height)    => Deno.core.ops.bsengine_ui_set_panel(id, title ?? '', x, y, width, height),
-        setTextInput:   (id, hint, x, y, width)             => Deno.core.ops.bsengine_ui_set_text_input(id, hint ?? '', x, y, width),
-        setProgressBar: (id, x, y, width, height, fraction) => Deno.core.ops.bsengine_ui_set_progress_bar(id, x, y, width, height, fraction),
+        // Anchor presets, as Unity's inspector grid offers them. (0,0) is the
+        // top-left corner and (1,1) the bottom-right, matching Unity, Unreal
+        // and Godot alike. Equal min and max is a point; different values
+        // stretch, and then the offsets read as insets.
+        ANCHORS: {
+            'top-left':      [0.0, 0.0, 0.0, 0.0],
+            'top-center':    [0.5, 0.0, 0.5, 0.0],
+            'top-right':     [1.0, 0.0, 1.0, 0.0],
+            'center-left':   [0.0, 0.5, 0.0, 0.5],
+            'center':        [0.5, 0.5, 0.5, 0.5],
+            'center-right':  [1.0, 0.5, 1.0, 0.5],
+            'bottom-left':   [0.0, 1.0, 0.0, 1.0],
+            'bottom-center': [0.5, 1.0, 0.5, 1.0],
+            'bottom-right':  [1.0, 1.0, 1.0, 1.0],
+            'stretch-horizontal': [0.0, 0.0, 1.0, 0.0],
+            'stretch-vertical':   [0.0, 0.0, 0.0, 1.0],
+            'stretch':            [0.0, 0.0, 1.0, 1.0],
+        },
+        // Applies `opts.anchor` if there is one. A preset name or a raw
+        // [minX, minY, maxX, maxY]. An unknown name is reported rather than
+        // silently ignored: a typo'd preset that did nothing would look like
+        // a broken anchor system.
+        _applyAnchor: (id, opts) => {
+            if (!opts || opts.anchor === undefined) return;
+            const a = opts.anchor;
+            const v = Array.isArray(a) ? a : Bsengine.ui.ANCHORS[a];
+            if (v === undefined) {
+                throw new Error(
+                    'unknown UI anchor "' + a + '"; expected one of ' +
+                    Object.keys(Bsengine.ui.ANCHORS).join(', ') +
+                    ' or [minX, minY, maxX, maxY]');
+            }
+            Deno.core.ops.bsengine_ui_set_anchor(id, v[0], v[1], v[2], v[3]);
+        },
+        setLabel:       (id, text, x, y, fontSize, opts) => {
+            Deno.core.ops.bsengine_ui_set_label(id, String(text), x, y, fontSize ?? 20);
+            Bsengine.ui._applyAnchor(id, opts);
+        },
+        setButton:      (id, label, x, y, width, height, opts) => {
+            Deno.core.ops.bsengine_ui_set_button(id, label, x, y, width, height);
+            Bsengine.ui._applyAnchor(id, opts);
+        },
+        setPanel:       (id, title, x, y, width, height, opts) => {
+            Deno.core.ops.bsengine_ui_set_panel(id, title ?? '', x, y, width, height);
+            Bsengine.ui._applyAnchor(id, opts);
+        },
+        setTextInput:   (id, hint, x, y, width, opts) => {
+            Deno.core.ops.bsengine_ui_set_text_input(id, hint ?? '', x, y, width);
+            Bsengine.ui._applyAnchor(id, opts);
+        },
+        setProgressBar: (id, x, y, width, height, fraction, opts) => {
+            Deno.core.ops.bsengine_ui_set_progress_bar(id, x, y, width, height, fraction);
+            Bsengine.ui._applyAnchor(id, opts);
+        },
         remove:         (id)                                => Deno.core.ops.bsengine_ui_remove_widget(id),
         clear:          ()                                  => Deno.core.ops.bsengine_ui_clear(),
         isClicked:      (id)                                => Deno.core.ops.bsengine_ui_is_clicked(id),

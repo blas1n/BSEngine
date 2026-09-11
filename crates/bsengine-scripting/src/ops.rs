@@ -1105,6 +1105,19 @@ pub enum ScriptCommand {
         /// `true` to pause, `false` to resume.
         paused: bool,
     },
+    /// Set an existing UI widget's anchor.
+    SetUiAnchor {
+        /// Widget to anchor.
+        id: String,
+        /// Left edge, normalised.
+        min_x: f32,
+        /// Top edge, normalised.
+        min_y: f32,
+        /// Right edge, normalised.
+        max_x: f32,
+        /// Bottom edge, normalised.
+        max_y: f32,
+    },
     /// Remove a UI widget by id.
     RemoveUiWidget {
         /// Identifier of the sound or UI widget to target.
@@ -5694,6 +5707,34 @@ pub fn bsengine_ui_set_label(
     });
 }
 
+/// Queue setting an existing widget's anchor.
+///
+/// Normalised 0..1, `(0,0)` top-left and `(1,1)` bottom-right — the same
+/// convention Unity, Unreal and Godot all use. Equal min and max on an axis is
+/// a point anchor; different values stretch.
+///
+/// A separate op rather than five more arguments on every setter: the prelude
+/// issues this straight after the widget's own command, and commands are
+/// applied in order.
+#[op2(fast)]
+pub fn bsengine_ui_set_anchor(
+    #[string] id: String,
+    min_x: f32,
+    min_y: f32,
+    max_x: f32,
+    max_y: f32,
+) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetUiAnchor {
+            id,
+            min_x,
+            min_y,
+            max_x,
+            max_y,
+        })
+    });
+}
+
 /// Queue creating or updating a UI button.
 #[op2(fast)]
 pub fn bsengine_ui_set_button(
@@ -6192,6 +6233,7 @@ deno_core::extension!(
         bsengine_set_hud_text,
         bsengine_clear_hud_text,
         bsengine_ui_set_label,
+        bsengine_ui_set_anchor,
         bsengine_ui_set_button,
         bsengine_ui_set_panel,
         bsengine_ui_set_text_input,
@@ -8145,6 +8187,103 @@ JSON.stringify(received)
             "an unknown bus must read as null, not NaN and not 0"
         );
         super::BUS_VOLUME_SNAPSHOT.with(|s| s.borrow_mut().clear());
+    }
+
+    #[test]
+    fn a_preset_anchor_reaches_the_command_buffer() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(
+            r#"Bsengine.ui.setButton("quit", "Quit", -110, -50, 100, 40, { anchor: "bottom-right" });"#,
+        )
+        .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetUiAnchor { id, min_x, min_y, max_x, max_y }
+                    if id == "quit" && *min_x == 1.0 && *min_y == 1.0 && *max_x == 1.0 && *max_y == 1.0)
+            });
+            assert!(found, "the bottom-right preset did not reach the command buffer");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn a_stretch_preset_sets_a_different_min_and_max() {
+        // Distinguishes a stretch from a point: a preset table that returned
+        // the same value for both would pass the test above.
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(
+            r#"Bsengine.ui.setProgressBar("hp", 20, 20, -40, 24, 0.7, { anchor: "stretch-horizontal" });"#,
+        )
+        .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetUiAnchor { min_x, max_x, min_y, max_y, .. }
+                    if *min_x == 0.0 && *max_x == 1.0 && *min_y == *max_y)
+            });
+            assert!(found, "stretch-horizontal must differ on x and match on y");
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn a_widget_with_no_anchor_option_queues_no_anchor_command() {
+        // The paired direction, and the backwards-compatibility claim: every
+        // call written before anchors existed must behave exactly as before.
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(r#"Bsengine.ui.setLabel("score", "0", 10, 10);"#)
+            .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert!(
+                !buf.iter()
+                    .any(|cmd| matches!(cmd, super::ScriptCommand::SetUiAnchor { .. })),
+                "an unanchored widget must queue no anchor command at all"
+            );
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn a_raw_anchor_array_is_accepted() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(
+            r#"Bsengine.ui.setPanel("p", "", 0, 0, 10, 10, { anchor: [0.25, 0.5, 0.75, 0.5] });"#,
+        )
+        .unwrap();
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            let found = buf.iter().any(|cmd| {
+                matches!(cmd, super::ScriptCommand::SetUiAnchor { min_x, min_y, max_x, max_y, .. }
+                    if *min_x == 0.25 && *min_y == 0.5 && *max_x == 0.75 && *max_y == 0.5)
+            });
+            assert!(
+                found,
+                "a raw [minX, minY, maxX, maxY] must be passed through"
+            );
+        });
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+    }
+
+    #[test]
+    fn an_unknown_anchor_preset_throws_rather_than_doing_nothing() {
+        // A typo'd preset that silently did nothing would look exactly like a
+        // broken anchor system, which is far harder to diagnose than an error.
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let err = rt
+            .eval(r#"Bsengine.ui.setLabel("l", "x", 0, 0, 20, { anchor: "bottom-rihgt" });"#)
+            .expect_err("a typo'd preset must throw");
+        assert!(
+            format!("{err}").contains("bottom-rihgt"),
+            "the error must quote the bad name; got {err}"
+        );
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     }
 
     #[test]

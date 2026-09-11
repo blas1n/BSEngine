@@ -8,6 +8,168 @@
 
 use serde::Deserialize;
 
+/// A numeric effect parameter: a fixed number, or one a script can change at
+/// runtime by name.
+///
+/// ```ron
+/// Filter(cutoff: 2000.0)                                          // fixed
+/// Filter(cutoff: (name: "muffle", min: 200.0, max: 20000.0, initial: 2000.0))
+/// ```
+///
+/// This is Unity's exposed-parameter model: the author picks which parameters
+/// a script may reach and names them, rather than the script addressing an
+/// effect by position. Godot addresses by chain index, which silently
+/// re-points every name when the chain is reordered; naming at the parameter
+/// cannot be misaddressed at all.
+///
+/// `min`/`max` are required because kira clamps a modulated value to the
+/// mapping's input range. They are the guard rail: a script that sets a cutoff
+/// of -5 gets `min`, not an undefined filter.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Param {
+    /// A constant, written as a bare number.
+    Fixed(f64),
+    /// A value a script sets by name, clamped to `min..=max`.
+    Exposed {
+        /// Name scripts use with `Bsengine.setAudioParam`.
+        name: String,
+        /// Lowest value the parameter can take.
+        min: f64,
+        /// Highest value the parameter can take.
+        max: f64,
+        /// Value before any script sets it.
+        initial: f64,
+    },
+}
+
+impl Param {
+    /// The value this parameter starts at, whichever form it takes.
+    pub fn initial(&self) -> f64 {
+        match self {
+            Self::Fixed(v) => *v,
+            Self::Exposed { initial, .. } => *initial,
+        }
+    }
+
+    /// The name a script reaches this parameter by, if it is exposed.
+    pub fn exposed_name(&self) -> Option<&str> {
+        match self {
+            Self::Fixed(_) => None,
+            Self::Exposed { name, .. } => Some(name),
+        }
+    }
+
+    /// The range an exposed value is clamped to.
+    pub fn range(&self) -> Option<(f64, f64)> {
+        match self {
+            Self::Fixed(_) => None,
+            Self::Exposed { min, max, .. } => Some((*min, *max)),
+        }
+    }
+}
+
+impl From<f64> for Param {
+    fn from(v: f64) -> Self {
+        Self::Fixed(v)
+    }
+}
+
+const PARAM_EXPECTING: &str = "a number such as 2000.0, or an exposed parameter such as \
+     (name: \"muffle\", min: 200.0, max: 20000.0, initial: 2000.0)";
+
+/// Hand-written rather than `#[serde(untagged)]`, for the reason `AssetRef` in
+/// `bsengine-scene` is: untagged parses both forms correctly under `ron` 0.8,
+/// but every failure — an unknown field, a missing `max`, a typo'd `name` —
+/// collapses to "data did not match any variant", and an unknown field
+/// alongside valid ones is *silently dropped*. In a mixer file that means a
+/// parameter quietly not being exposed, which surfaces much later as "why does
+/// my script do nothing".
+impl<'de> Deserialize<'de> for Param {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_any(ParamVisitor)
+    }
+}
+
+struct ParamVisitor;
+
+#[derive(Deserialize)]
+#[serde(field_identifier, rename_all = "lowercase")]
+enum ParamField {
+    Name,
+    Min,
+    Max,
+    Initial,
+}
+
+impl<'de> serde::de::Visitor<'de> for ParamVisitor {
+    type Value = Param;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str(PARAM_EXPECTING)
+    }
+
+    fn visit_f64<E: serde::de::Error>(self, v: f64) -> Result<Param, E> {
+        Ok(Param::Fixed(v))
+    }
+
+    fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<Param, E> {
+        Ok(Param::Fixed(v as f64))
+    }
+
+    fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<Param, E> {
+        Ok(Param::Fixed(v as f64))
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<Param, A::Error> {
+        use serde::de::Error as _;
+        let mut name: Option<String> = None;
+        let mut min: Option<f64> = None;
+        let mut max: Option<f64> = None;
+        let mut initial: Option<f64> = None;
+        while let Some(key) = map.next_key::<ParamField>()? {
+            match key {
+                ParamField::Name => {
+                    if name.is_some() {
+                        return Err(A::Error::duplicate_field("name"));
+                    }
+                    name = Some(map.next_value()?);
+                }
+                ParamField::Min => {
+                    if min.is_some() {
+                        return Err(A::Error::duplicate_field("min"));
+                    }
+                    min = Some(map.next_value()?);
+                }
+                ParamField::Max => {
+                    if max.is_some() {
+                        return Err(A::Error::duplicate_field("max"));
+                    }
+                    max = Some(map.next_value()?);
+                }
+                ParamField::Initial => {
+                    if initial.is_some() {
+                        return Err(A::Error::duplicate_field("initial"));
+                    }
+                    initial = Some(map.next_value()?);
+                }
+            }
+        }
+        let name = name.ok_or_else(|| A::Error::missing_field("name"))?;
+        let min = min.ok_or_else(|| A::Error::missing_field("min"))?;
+        let max = max.ok_or_else(|| A::Error::missing_field("max"))?;
+        // `initial` defaults to `min` rather than being required: a parameter
+        // whose starting value is its floor is the common case (a muffle that
+        // starts off), and requiring it adds noise to every declaration.
+        let initial = initial.unwrap_or(min);
+        Ok(Param::Exposed {
+            name,
+            min,
+            max,
+            initial,
+        })
+    }
+}
+
 /// One DSP effect in a bus's chain.
 ///
 /// Every variant maps to a `kira` effect builder that already exists upstream —
@@ -29,16 +191,16 @@ pub enum BusEffect {
     Reverb {
         /// How much signal is fed back, 0.0 to 1.0.
         #[serde(default = "reverb_feedback")]
-        feedback: f64,
+        feedback: Param,
         /// High-frequency damping, 0.0 to 1.0.
         #[serde(default = "reverb_damping")]
-        damping: f64,
+        damping: Param,
         /// Stereo spread, 0.0 to 1.0.
         #[serde(default = "one")]
-        stereo_width: f64,
+        stereo_width: Param,
         /// Dry/wet balance: 0.0 dry, 1.0 wet.
         #[serde(default = "half")]
-        mix: f32,
+        mix: Param,
     },
     /// A resonant filter — the effect occlusion will later drive.
     Filter {
@@ -47,46 +209,51 @@ pub enum BusEffect {
         mode: FilterMode,
         /// Corner frequency in hertz.
         #[serde(default = "filter_cutoff")]
-        cutoff: f64,
+        cutoff: Param,
         /// Resonance at the cutoff.
-        #[serde(default)]
-        resonance: f64,
+        #[serde(default = "zero")]
+        resonance: Param,
         /// Dry/wet balance: 0.0 dry, 1.0 wet.
-        #[serde(default = "one_f32")]
-        mix: f32,
+        #[serde(default = "one")]
+        mix: Param,
     },
     /// Dynamic range compression.
     Compressor {
         /// Level above which gain starts being reduced, in decibels.
-        #[serde(default)]
-        threshold: f64,
+        #[serde(default = "zero")]
+        threshold: Param,
         /// Compression ratio; 1.0 is no compression.
         #[serde(default = "one")]
-        ratio: f64,
+        ratio: Param,
         /// How quickly compression engages, in milliseconds.
         #[serde(default = "compressor_attack_ms")]
-        attack_ms: f64,
+        attack_ms: Param,
         /// How quickly compression releases, in milliseconds.
         #[serde(default = "compressor_release_ms")]
-        release_ms: f64,
+        release_ms: Param,
         /// Gain applied after compression, in decibels.
-        #[serde(default)]
-        makeup_gain_db: f32,
+        #[serde(default = "zero")]
+        makeup_gain_db: Param,
         /// Dry/wet balance: 0.0 dry, 1.0 wet.
-        #[serde(default = "one_f32")]
-        mix: f32,
+        #[serde(default = "one")]
+        mix: Param,
     },
     /// An echo.
     Delay {
         /// Time between repeats, in milliseconds.
+        ///
+        /// The one effect parameter that cannot be exposed to scripts: kira's
+        /// `DelayBuilder::delay_time` takes a plain `Duration`, not a `Value`,
+        /// so there is nothing for a modulator to drive. Stated here rather
+        /// than left to be discovered.
         #[serde(default = "delay_ms")]
         delay_ms: f64,
         /// Level of each repeat relative to the last, in decibels.
         #[serde(default = "delay_feedback_db")]
-        feedback_db: f32,
+        feedback_db: Param,
         /// Dry/wet balance: 0.0 dry, 1.0 wet.
         #[serde(default = "half")]
-        mix: f32,
+        mix: Param,
     },
     /// Waveshaping distortion.
     Distortion {
@@ -94,11 +261,11 @@ pub enum BusEffect {
         #[serde(default)]
         kind: DistortionKind,
         /// Gain applied before the curve, in decibels.
-        #[serde(default)]
-        drive_db: f32,
+        #[serde(default = "zero")]
+        drive_db: Param,
         /// Dry/wet balance: 0.0 dry, 1.0 wet.
-        #[serde(default = "one_f32")]
-        mix: f32,
+        #[serde(default = "one")]
+        mix: Param,
     },
     /// A single parametric EQ band.
     ///
@@ -109,17 +276,17 @@ pub enum BusEffect {
         /// Which band shape to apply.
         kind: EqFilterKind,
         /// Centre or corner frequency in hertz.
-        frequency: f64,
+        frequency: Param,
         /// Gain applied to the band, in decibels.
-        gain_db: f32,
+        gain_db: Param,
         /// Bandwidth control; higher is narrower.
-        q: f64,
+        q: Param,
     },
     /// Static stereo placement for the whole bus.
     Panning {
         /// -1.0 hard left, 0.0 centre, 1.0 hard right.
-        #[serde(default)]
-        panning: f32,
+        #[serde(default = "zero")]
+        panning: Param,
     },
 }
 
@@ -162,35 +329,35 @@ pub enum EqFilterKind {
 
 // serde needs functions for non-zero defaults. Each value is kira's own,
 // read from its `Default` impls rather than chosen here.
-fn one() -> f64 {
-    1.0
+fn zero() -> Param {
+    Param::Fixed(0.0)
 }
-fn one_f32() -> f32 {
-    1.0
+fn one() -> Param {
+    Param::Fixed(1.0)
 }
-fn half() -> f32 {
-    0.5
+fn half() -> Param {
+    Param::Fixed(0.5)
 }
-fn reverb_feedback() -> f64 {
-    0.9
+fn reverb_feedback() -> Param {
+    Param::Fixed(0.9)
 }
-fn reverb_damping() -> f64 {
-    0.1
+fn reverb_damping() -> Param {
+    Param::Fixed(0.1)
 }
-fn filter_cutoff() -> f64 {
-    1000.0
+fn filter_cutoff() -> Param {
+    Param::Fixed(1000.0)
 }
-fn compressor_attack_ms() -> f64 {
-    10.0
+fn compressor_attack_ms() -> Param {
+    Param::Fixed(10.0)
 }
-fn compressor_release_ms() -> f64 {
-    100.0
+fn compressor_release_ms() -> Param {
+    Param::Fixed(100.0)
 }
 fn delay_ms() -> f64 {
     500.0
 }
-fn delay_feedback_db() -> f32 {
-    -6.0
+fn delay_feedback_db() -> Param {
+    Param::Fixed(-6.0)
 }
 
 /// One declared mixer bus.
@@ -567,10 +734,10 @@ mod tests {
                 stereo_width,
                 mix,
             } => {
-                assert_eq!(*feedback, 0.5);
-                assert_eq!(*damping, 0.25);
-                assert_eq!(*stereo_width, 0.125);
-                assert_eq!(*mix, 0.0625);
+                assert_eq!(*feedback, Param::Fixed(0.5));
+                assert_eq!(*damping, Param::Fixed(0.25));
+                assert_eq!(*stereo_width, Param::Fixed(0.125));
+                assert_eq!(*mix, Param::Fixed(0.0625));
             }
             other => panic!("expected Reverb, got {other:?}"),
         }
@@ -594,7 +761,12 @@ mod tests {
                 mix,
             } => {
                 assert_eq!(
-                    (*feedback, *damping, *stereo_width, *mix),
+                    (
+                        feedback.initial(),
+                        damping.initial(),
+                        stereo_width.initial(),
+                        mix.initial()
+                    ),
                     (0.9, 0.1, 1.0, 0.5)
                 );
             }
@@ -606,10 +778,97 @@ mod tests {
                 feedback_db,
                 mix,
             } => {
-                assert_eq!((*delay_ms, *feedback_db, *mix), (500.0, -6.0, 0.5));
+                assert_eq!(
+                    (*delay_ms, feedback_db.initial(), mix.initial()),
+                    (500.0, -6.0, 0.5)
+                );
             }
             other => panic!("expected Delay, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn a_parameter_can_be_written_as_a_bare_number_or_exposed() {
+        let l = layout(
+            r#"BusLayout(buses: [Bus(name: "b", parent: None, volume_db: 0.0, effects: [
+                Filter(
+                    cutoff: (name: "muffle", min: 200.0, max: 20000.0, initial: 2000.0),
+                    resonance: 0.25,
+                ),
+            ])])"#,
+        );
+        match &l.get("b").unwrap().effects[0] {
+            BusEffect::Filter {
+                cutoff, resonance, ..
+            } => {
+                assert_eq!(cutoff.exposed_name(), Some("muffle"));
+                assert_eq!(cutoff.range(), Some((200.0, 20000.0)));
+                assert_eq!(cutoff.initial(), 2000.0);
+                assert_eq!(
+                    *resonance,
+                    Param::Fixed(0.25),
+                    "a bare number beside an exposed one must still be fixed"
+                );
+                assert_eq!(
+                    resonance.exposed_name(),
+                    None,
+                    "a fixed parameter has no name for a script to reach"
+                );
+            }
+            other => panic!("expected Filter, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_exposed_parameter_defaults_its_initial_to_min() {
+        // The common case is a parameter that starts at its floor -- a muffle
+        // that starts off -- so requiring `initial` would be noise.
+        let l = layout(
+            r#"BusLayout(buses: [Bus(name: "b", parent: None, volume_db: 0.0, effects: [
+                Filter(cutoff: (name: "m", min: 500.0, max: 20000.0)),
+            ])])"#,
+        );
+        match &l.get("b").unwrap().effects[0] {
+            BusEffect::Filter { cutoff, .. } => assert_eq!(cutoff.initial(), 500.0),
+            other => panic!("expected Filter, got {other:?}"),
+        }
+    }
+
+    /// A malformed exposure must name what it accepts.
+    ///
+    /// This is why `Param` hand-writes `Deserialize` instead of using
+    /// `#[serde(untagged)]`: untagged parses both forms correctly, but a
+    /// missing field collapses to "data did not match any variant" and an
+    /// unknown field beside valid ones is *silently dropped* -- which in a
+    /// mixer file means a parameter quietly not being exposed.
+    #[test]
+    fn a_malformed_exposed_parameter_says_what_it_expected() {
+        let err = BusLayout::from_ron(
+            r#"BusLayout(buses: [Bus(name: "b", parent: None, volume_db: 0.0, effects: [
+                Filter(cutoff: (name: "m", min: 200.0)),
+            ])])"#,
+        )
+        .expect_err("a missing `max` must be an error");
+        let text = err.to_string();
+        assert!(
+            text.contains("max"),
+            "the error must name the missing field; got {text}"
+        );
+    }
+
+    #[test]
+    fn an_unknown_field_in_an_exposure_is_reported_not_dropped() {
+        let err = BusLayout::from_ron(
+            r#"BusLayout(buses: [Bus(name: "b", parent: None, volume_db: 0.0, effects: [
+                Filter(cutoff: (name: "m", min: 200.0, max: 2000.0, wobble: 3.0)),
+            ])])"#,
+        )
+        .expect_err("an unknown field must be an error, not silently dropped");
+        let text = err.to_string();
+        assert!(
+            text.contains("wobble") || text.to_lowercase().contains("unknown"),
+            "the error must point at the unknown field; got {text}"
+        );
     }
 
     #[test]
@@ -641,9 +900,9 @@ mod tests {
                 q,
             } => {
                 assert_eq!(*kind, EqFilterKind::LowShelf);
-                assert_eq!(*frequency, 220.0);
-                assert_eq!(*gain_db, -4.0);
-                assert_eq!(*q, 0.7);
+                assert_eq!(frequency.initial(), 220.0);
+                assert_eq!(gain_db.initial(), -4.0);
+                assert_eq!(q.initial(), 0.7);
             }
             other => panic!("expected EqFilter, got {other:?}"),
         }

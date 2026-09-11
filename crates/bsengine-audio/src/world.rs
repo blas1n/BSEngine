@@ -25,20 +25,25 @@ use crate::spatial::{to_mint_quat, to_mint_vec};
 /// is what makes the *parameter routing* observable rather than merely
 /// non-panicking. Mutation-testing showed why that matters — swapping
 /// `feedback` and `damping` inside a monolithic mapping failed no test at all.
-fn reverb_builder(feedback: f64, damping: f64, stereo_width: f64, mix: f32) -> ReverbBuilder {
+fn reverb_builder(
+    feedback: Value<f64>,
+    damping: Value<f64>,
+    stereo_width: Value<f64>,
+    mix: Value<Mix>,
+) -> ReverbBuilder {
     ReverbBuilder::new()
         .feedback(feedback)
         .damping(damping)
         .stereo_width(stereo_width)
-        .mix(Mix(mix))
+        .mix(mix)
 }
 
 /// Builds kira's filter from authored parameters.
 fn filter_builder(
     mode: crate::bus::FilterMode,
-    cutoff: f64,
-    resonance: f64,
-    mix: f32,
+    cutoff: Value<f64>,
+    resonance: Value<f64>,
+    mix: Value<Mix>,
 ) -> FilterBuilder {
     use crate::bus::FilterMode as M;
     FilterBuilder::new()
@@ -50,14 +55,14 @@ fn filter_builder(
         })
         .cutoff(cutoff)
         .resonance(resonance)
-        .mix(Mix(mix))
+        .mix(mix)
 }
 
 /// Builds kira's distortion from authored parameters.
 fn distortion_builder(
     kind: crate::bus::DistortionKind,
-    drive_db: f32,
-    mix: f32,
+    drive_db: Value<Decibels>,
+    mix: Value<Mix>,
 ) -> DistortionBuilder {
     use crate::bus::DistortionKind as K;
     DistortionBuilder::new()
@@ -65,13 +70,13 @@ fn distortion_builder(
             K::HardClip => kira::effect::distortion::DistortionKind::HardClip,
             K::SoftClip => kira::effect::distortion::DistortionKind::SoftClip,
         })
-        .drive(Decibels(drive_db))
-        .mix(Mix(mix))
+        .drive(drive_db)
+        .mix(mix)
 }
 
 /// Builds kira's panning control from an authored position.
-fn panning_builder(panning: f32) -> PanningControlBuilder {
-    PanningControlBuilder(Panning(panning).into())
+fn panning_builder(panning: Value<Panning>) -> PanningControlBuilder {
+    PanningControlBuilder(panning)
 }
 
 /// Attaches an authored effect chain to a track builder, in order.
@@ -84,74 +89,191 @@ fn panning_builder(panning: f32) -> PanningControlBuilder {
 /// This crate writes no DSP. Every arm hands parameters to a `kira` builder
 /// that already exists upstream; the conversions are `Mix`, `Decibels`,
 /// `Panning` and milliseconds-to-`Duration`.
-fn with_effects(mut builder: TrackBuilder, effects: &[crate::bus::BusEffect]) -> TrackBuilder {
-    use crate::bus::{BusEffect, EqFilterKind};
-    use std::time::Duration;
-
-    for effect in effects {
-        builder = match effect {
-            BusEffect::Reverb {
-                feedback,
-                damping,
-                stereo_width,
-                mix,
-            } => builder.with_effect(reverb_builder(*feedback, *damping, *stereo_width, *mix)),
-            BusEffect::Filter {
-                mode,
-                cutoff,
-                resonance,
-                mix,
-            } => builder.with_effect(filter_builder(*mode, *cutoff, *resonance, *mix)),
-            BusEffect::Compressor {
-                threshold,
-                ratio,
-                attack_ms,
-                release_ms,
-                makeup_gain_db,
-                mix,
-            } => builder.with_effect(
-                CompressorBuilder::new()
-                    .threshold(*threshold)
-                    .ratio(*ratio)
-                    .attack_duration(Duration::from_secs_f64(attack_ms / 1000.0))
-                    .release_duration(Duration::from_secs_f64(release_ms / 1000.0))
-                    .makeup_gain(Decibels(*makeup_gain_db))
-                    .mix(Mix(*mix)),
-            ),
-            BusEffect::Delay {
-                delay_ms,
-                feedback_db,
-                mix,
-            } => builder.with_effect(
-                DelayBuilder::new()
-                    .delay_time(Duration::from_secs_f64(delay_ms / 1000.0))
-                    .feedback(Decibels(*feedback_db))
-                    .mix(Mix(*mix)),
-            ),
-            BusEffect::Distortion {
-                kind,
-                drive_db,
-                mix,
-            } => builder.with_effect(distortion_builder(*kind, *drive_db, *mix)),
-            BusEffect::EqFilter {
-                kind,
-                frequency,
-                gain_db,
-                q,
-            } => builder.with_effect(EqFilterBuilder::new(
-                match kind {
-                    EqFilterKind::Bell => kira::effect::eq_filter::EqFilterKind::Bell,
-                    EqFilterKind::LowShelf => kira::effect::eq_filter::EqFilterKind::LowShelf,
-                    EqFilterKind::HighShelf => kira::effect::eq_filter::EqFilterKind::HighShelf,
-                },
-                *frequency,
-                Decibels(*gain_db),
-                *q,
-            )),
-            BusEffect::Panning { panning } => builder.with_effect(panning_builder(*panning)),
+impl AudioWorld {
+    /// Turns an authored [`Param`](crate::bus::Param) into a kira value,
+    /// registering a tweener for an exposed one.
+    ///
+    /// Generic in the output type because kira's parameters are variously
+    /// `f64`, `Decibels`, `Mix`, `Panning` and `Duration`, and all of them need
+    /// the same treatment: one tweener carrying the *real* number, mapped
+    /// identity so a script sets 2000 Hz rather than 0.37.
+    ///
+    /// kira clamps to `input_range`, which is what makes the authored
+    /// `min`/`max` a guard rail rather than decoration — a script asking for a
+    /// negative cutoff gets `min`, not an undefined filter.
+    fn resolve<T: kira::Tweenable>(
+        &mut self,
+        param: &crate::bus::Param,
+        to: impl Fn(f64) -> T,
+    ) -> Value<T> {
+        let crate::bus::Param::Exposed {
+            name,
+            min,
+            max,
+            initial,
+        } = param
+        else {
+            return Value::Fixed(to(param.initial()));
         };
+        // Recorded whether or not a backend exists: without a device there is
+        // no tweener at all, and a test asserting through one would be
+        // asserting on nothing.
+        self.last_param_values
+            .entry(name.clone())
+            .or_insert((*initial, *min, *max));
+        let id = match self.audio_params.get(name) {
+            Some(handle) => handle.id(),
+            None => {
+                let Some(manager) = self.manager.as_mut() else {
+                    return Value::Fixed(to(*initial));
+                };
+                let Ok(handle) = manager.add_modulator(TweenerBuilder {
+                    initial_value: *initial,
+                }) else {
+                    return Value::Fixed(to(*initial));
+                };
+                let id = handle.id();
+                self.audio_params.insert(name.clone(), handle);
+                id
+            }
+        };
+        Value::FromModulator {
+            id,
+            mapping: Mapping {
+                input_range: (*min, *max),
+                output_range: (to(*min), to(*max)),
+                easing: Easing::Linear,
+            },
+        }
     }
-    builder
+
+    /// Attaches an authored effect chain to a track builder, in order.
+    ///
+    /// A method rather than a free function because resolving an exposed
+    /// parameter may create a modulator, which needs the manager.
+    ///
+    /// This crate writes no DSP. Every arm hands values to a `kira` builder
+    /// that already exists upstream.
+    fn with_effects(
+        &mut self,
+        mut builder: TrackBuilder,
+        effects: &[crate::bus::BusEffect],
+    ) -> TrackBuilder {
+        use crate::bus::{BusEffect, EqFilterKind};
+        use std::time::Duration;
+
+        let db = |v: f64| Decibels(v as f32);
+        let mix = |v: f64| Mix(v as f32);
+        let pan = |v: f64| Panning(v as f32);
+        let ms = |v: f64| Duration::from_secs_f64((v / 1000.0).max(0.0));
+
+        for effect in effects {
+            builder = match effect {
+                BusEffect::Reverb {
+                    feedback,
+                    damping,
+                    stereo_width,
+                    mix: m,
+                } => {
+                    let f = self.resolve(feedback, |v| v);
+                    let d = self.resolve(damping, |v| v);
+                    let w = self.resolve(stereo_width, |v| v);
+                    let m = self.resolve(m, mix);
+                    builder.with_effect(reverb_builder(f, d, w, m))
+                }
+                BusEffect::Filter {
+                    mode,
+                    cutoff,
+                    resonance,
+                    mix: m,
+                } => {
+                    let c = self.resolve(cutoff, |v| v);
+                    let r = self.resolve(resonance, |v| v);
+                    let m = self.resolve(m, mix);
+                    builder.with_effect(filter_builder(*mode, c, r, m))
+                }
+                BusEffect::Compressor {
+                    threshold,
+                    ratio,
+                    attack_ms,
+                    release_ms,
+                    makeup_gain_db,
+                    mix: m,
+                } => {
+                    let t = self.resolve(threshold, |v| v);
+                    let ra = self.resolve(ratio, |v| v);
+                    let a = self.resolve(attack_ms, ms);
+                    let re = self.resolve(release_ms, ms);
+                    let g = self.resolve(makeup_gain_db, db);
+                    let m = self.resolve(m, mix);
+                    builder.with_effect(
+                        CompressorBuilder::new()
+                            .threshold(t)
+                            .ratio(ra)
+                            .attack_duration(a)
+                            .release_duration(re)
+                            .makeup_gain(g)
+                            .mix(m),
+                    )
+                }
+                BusEffect::Delay {
+                    delay_ms,
+                    feedback_db,
+                    mix: m,
+                } => {
+                    let fb = self.resolve(feedback_db, db);
+                    let m = self.resolve(m, mix);
+                    builder.with_effect(
+                        DelayBuilder::new()
+                            // The one parameter that is a plain number here:
+                            // kira's `delay_time` takes a `Duration`, not a
+                            // `Value`, so there is nothing to modulate.
+                            .delay_time(ms(*delay_ms))
+                            .feedback(fb)
+                            .mix(m),
+                    )
+                }
+                BusEffect::Distortion {
+                    kind,
+                    drive_db,
+                    mix: m,
+                } => {
+                    let d = self.resolve(drive_db, db);
+                    let m = self.resolve(m, mix);
+                    builder.with_effect(distortion_builder(*kind, d, m))
+                }
+                BusEffect::EqFilter {
+                    kind,
+                    frequency,
+                    gain_db,
+                    q,
+                } => {
+                    let f = self.resolve(frequency, |v| v);
+                    let g = self.resolve(gain_db, db);
+                    let q = self.resolve(q, |v| v);
+                    builder.with_effect(EqFilterBuilder::new(
+                        match kind {
+                            EqFilterKind::Bell => kira::effect::eq_filter::EqFilterKind::Bell,
+                            EqFilterKind::LowShelf => {
+                                kira::effect::eq_filter::EqFilterKind::LowShelf
+                            }
+                            EqFilterKind::HighShelf => {
+                                kira::effect::eq_filter::EqFilterKind::HighShelf
+                            }
+                        },
+                        f,
+                        g,
+                        q,
+                    ))
+                }
+                BusEffect::Panning { panning } => {
+                    let p = self.resolve(panning, pan);
+                    builder.with_effect(panning_builder(p))
+                }
+            };
+        }
+        builder
+    }
 }
 
 /// One live mixer bus.
@@ -202,6 +324,19 @@ pub struct AudioWorld {
     /// track map is empty there, so moving one track or all of them looks
     /// identical. Mutation-testing found exactly that hole.
     last_track_positions: HashMap<(Entity, Option<String>), Vec3>,
+    /// One tweener per *exposed* effect parameter, keyed by its authored name.
+    ///
+    /// Unity's exposed-parameter model: the author names which parameters a
+    /// script may reach, and the name is the whole address — nothing here
+    /// depends on an effect's position in a chain, so reordering a chain
+    /// cannot silently re-point a name.
+    audio_params: HashMap<String, TweenerHandle>,
+    /// The last value set for each exposed parameter, and its clamp range.
+    ///
+    /// Recorded whether or not a backend exists, for the same reason every
+    /// other observable in this file is: without a device there is no tweener
+    /// at all, and a test asserting through one would pass on nothing.
+    last_param_values: HashMap<String, (f64, f64, f64)>,
     /// Per-emitter occlusion settings: `(cutoff_hz, volume_db)`.
     ///
     /// Recorded before the track is built, because the filter has to be
@@ -270,6 +405,8 @@ impl AudioWorld {
             last_listener_pose: None,
             last_emitter_positions: HashMap::new(),
             last_track_positions: HashMap::new(),
+            audio_params: HashMap::new(),
+            last_param_values: HashMap::new(),
             occlusion_config: HashMap::new(),
             occlusion_tweeners: HashMap::new(),
             last_occlusion: HashMap::new(),
@@ -315,7 +452,7 @@ impl AudioWorld {
         volume_db: f32,
         effects: &[crate::bus::BusEffect],
     ) -> Option<TrackHandle> {
-        let builder = with_effects(TrackBuilder::new().volume(Decibels(volume_db)), effects);
+        let builder = self.with_effects(TrackBuilder::new().volume(Decibels(volume_db)), effects);
         match parent {
             None => self.manager.as_mut()?.add_sub_track(builder).ok(),
             Some(name) => {
@@ -554,6 +691,45 @@ impl AudioWorld {
     /// The occlusion settings recorded for an emitter, if it occludes.
     pub fn occlusion_config_of(&self, entity: Entity) -> Option<(f32, f32)> {
         self.occlusion_config.get(&entity).copied()
+    }
+
+    /// Sets an exposed effect parameter by name. Returns whether it exists.
+    ///
+    /// This is the thing #1838 deferred: kira's effect handles have almost no
+    /// setters, so a parameter is changed by moving the modulator it was bound
+    /// to when its track was built.
+    pub fn set_audio_param(&mut self, name: &str, value: f64, tween_ms: f32) -> bool {
+        let Some((current, min, max)) = self.last_param_values.get_mut(name) else {
+            tracing::warn!("[audio] setAudioParam named unknown parameter '{name}'");
+            return false;
+        };
+        let clamped = value.clamp(*min, *max);
+        *current = clamped;
+        if let Some(tweener) = self.audio_params.get_mut(name) {
+            tweener.set(
+                clamped,
+                Tween {
+                    duration: std::time::Duration::from_secs_f32((tween_ms / 1000.0).max(0.0)),
+                    ..Default::default()
+                },
+            );
+        }
+        true
+    }
+
+    /// The last value set for an exposed parameter, or `None` if no parameter
+    /// of that name was declared.
+    pub fn audio_param(&self, name: &str) -> Option<f64> {
+        self.last_param_values.get(name).map(|(v, _, _)| *v)
+    }
+
+    /// Every exposed parameter's name and current value, for the scripting
+    /// snapshot.
+    pub fn audio_params(&self) -> Vec<(String, f64)> {
+        self.last_param_values
+            .iter()
+            .map(|(name, (v, _, _))| (name.clone(), *v))
+            .collect()
     }
 
     /// Sets how occluded an emitter is: 0.0 clear, 1.0 fully occluded.
@@ -872,46 +1048,48 @@ mod bus_tests {
     /// eighth effect without mapping it is a compile error in this test.
     #[test]
     fn every_effect_variant_maps_onto_a_kira_builder() {
-        use crate::bus::{BusEffect, DistortionKind, EqFilterKind, FilterMode};
+        use crate::bus::{BusEffect, DistortionKind, EqFilterKind, FilterMode, Param};
 
         let all = vec![
             BusEffect::Reverb {
-                feedback: 0.5,
-                damping: 0.25,
-                stereo_width: 0.125,
-                mix: 0.0625,
+                feedback: Param::Fixed(0.5),
+                damping: Param::Fixed(0.25),
+                stereo_width: Param::Fixed(0.125),
+                mix: Param::Fixed(0.0625),
             },
             BusEffect::Filter {
                 mode: FilterMode::Notch,
-                cutoff: 800.0,
-                resonance: 0.25,
-                mix: 0.75,
+                cutoff: Param::Fixed(800.0),
+                resonance: Param::Fixed(0.25),
+                mix: Param::Fixed(0.75),
             },
             BusEffect::Compressor {
-                threshold: -12.0,
-                ratio: 4.0,
-                attack_ms: 5.0,
-                release_ms: 250.0,
-                makeup_gain_db: 3.0,
-                mix: 0.9,
+                threshold: Param::Fixed(-12.0),
+                ratio: Param::Fixed(4.0),
+                attack_ms: Param::Fixed(5.0),
+                release_ms: Param::Fixed(250.0),
+                makeup_gain_db: Param::Fixed(3.0),
+                mix: Param::Fixed(0.9),
             },
             BusEffect::Delay {
                 delay_ms: 125.0,
-                feedback_db: -9.0,
-                mix: 0.3,
+                feedback_db: Param::Fixed(-9.0),
+                mix: Param::Fixed(0.3),
             },
             BusEffect::Distortion {
                 kind: DistortionKind::SoftClip,
-                drive_db: 6.0,
-                mix: 0.8,
+                drive_db: Param::Fixed(6.0),
+                mix: Param::Fixed(0.8),
             },
             BusEffect::EqFilter {
                 kind: EqFilterKind::HighShelf,
-                frequency: 4000.0,
-                gain_db: -3.0,
-                q: 1.2,
+                frequency: Param::Fixed(4000.0),
+                gain_db: Param::Fixed(-3.0),
+                q: Param::Fixed(1.2),
             },
-            BusEffect::Panning { panning: -0.5 },
+            BusEffect::Panning {
+                panning: Param::Fixed(-0.5),
+            },
         ];
         assert_eq!(
             all.len(),
@@ -921,11 +1099,12 @@ mod bus_tests {
 
         // The assertion is that this runs at all: a panic or an unhandled
         // variant is the failure this catches.
-        let _builder = with_effects(TrackBuilder::new(), &all);
+        let mut world = AudioWorld::silent();
+        let _builder = world.with_effects(TrackBuilder::new(), &all);
 
         // And each one on its own, so a panic names the culprit.
         for effect in &all {
-            let _ = with_effects(TrackBuilder::new(), std::slice::from_ref(effect));
+            let _ = world.with_effects(TrackBuilder::new(), std::slice::from_ref(effect));
         }
     }
 
@@ -944,7 +1123,12 @@ mod bus_tests {
     #[test]
     fn reverb_parameters_reach_their_own_kira_fields() {
         assert_eq!(
-            reverb_builder(0.5, 0.25, 0.125, 0.0625),
+            reverb_builder(
+                Value::Fixed(0.5),
+                Value::Fixed(0.25),
+                Value::Fixed(0.125),
+                Value::Fixed(Mix(0.0625)),
+            ),
             ReverbBuilder::new()
                 .feedback(0.5)
                 .damping(0.25)
@@ -958,7 +1142,12 @@ mod bus_tests {
     fn filter_parameters_reach_their_own_kira_fields() {
         use crate::bus::FilterMode;
         assert_eq!(
-            filter_builder(FilterMode::Notch, 800.0, 0.25, 0.75),
+            filter_builder(
+                FilterMode::Notch,
+                Value::Fixed(800.0),
+                Value::Fixed(0.25),
+                Value::Fixed(Mix(0.75)),
+            ),
             FilterBuilder::new()
                 .mode(kira::effect::filter::FilterMode::Notch)
                 .cutoff(800.0)
@@ -969,8 +1158,18 @@ mod bus_tests {
         // And the mode really is translated, not defaulted: LowPass is kira's
         // default, so only a non-default mode proves the match arm runs.
         assert_ne!(
-            filter_builder(FilterMode::HighPass, 800.0, 0.25, 0.75),
-            filter_builder(FilterMode::LowPass, 800.0, 0.25, 0.75),
+            filter_builder(
+                FilterMode::HighPass,
+                Value::Fixed(800.0),
+                Value::Fixed(0.25),
+                Value::Fixed(Mix(0.75))
+            ),
+            filter_builder(
+                FilterMode::LowPass,
+                Value::Fixed(800.0),
+                Value::Fixed(0.25),
+                Value::Fixed(Mix(0.75))
+            ),
             "FilterMode is being ignored"
         );
     }
@@ -979,7 +1178,11 @@ mod bus_tests {
     fn distortion_parameters_reach_their_own_kira_fields() {
         use crate::bus::DistortionKind;
         assert_eq!(
-            distortion_builder(DistortionKind::SoftClip, 6.0, 0.8),
+            distortion_builder(
+                DistortionKind::SoftClip,
+                Value::Fixed(Decibels(6.0)),
+                Value::Fixed(Mix(0.8)),
+            ),
             DistortionBuilder::new()
                 .kind(kira::effect::distortion::DistortionKind::SoftClip)
                 .drive(Decibels(6.0))
@@ -987,8 +1190,16 @@ mod bus_tests {
             "a parameter reached the wrong kira field"
         );
         assert_ne!(
-            distortion_builder(DistortionKind::HardClip, 6.0, 0.8),
-            distortion_builder(DistortionKind::SoftClip, 6.0, 0.8),
+            distortion_builder(
+                DistortionKind::HardClip,
+                Value::Fixed(Decibels(6.0)),
+                Value::Fixed(Mix(0.8))
+            ),
+            distortion_builder(
+                DistortionKind::SoftClip,
+                Value::Fixed(Decibels(6.0)),
+                Value::Fixed(Mix(0.8))
+            ),
             "DistortionKind is being ignored"
         );
     }
@@ -996,13 +1207,90 @@ mod bus_tests {
     #[test]
     fn panning_reaches_its_own_kira_field() {
         assert_eq!(
-            panning_builder(-0.5),
+            panning_builder(Value::Fixed(Panning(-0.5))),
             PanningControlBuilder(Panning(-0.5).into())
         );
         assert_ne!(
-            panning_builder(-0.5),
-            panning_builder(0.5),
+            panning_builder(Value::Fixed(Panning(-0.5))),
+            panning_builder(Value::Fixed(Panning(0.5))),
             "panning is being ignored"
+        );
+    }
+
+    /// An exposed parameter is registered when its bus is built, and settable
+    /// by name afterwards.
+    ///
+    /// Runs against `silent()` — the state every Windows CI runner is in — so
+    /// what is asserted is the bookkeeping, not kira's modulator.
+    #[test]
+    fn an_exposed_parameter_is_registered_and_settable() {
+        let mut world = AudioWorld::silent();
+        world.apply_bus_layout(
+            &BusLayout::from_ron(
+                r#"BusLayout(buses: [Bus(name: "sfx", parent: None, volume_db: 0.0, effects: [
+                    Filter(cutoff: (name: "muffle", min: 200.0, max: 20000.0, initial: 2000.0)),
+                ])])"#,
+            )
+            .expect("parses"),
+        );
+
+        assert_eq!(
+            world.audio_param("muffle"),
+            Some(2000.0),
+            "the parameter starts at its authored initial"
+        );
+        assert!(world.set_audio_param("muffle", 500.0, 0.0));
+        assert_eq!(world.audio_param("muffle"), Some(500.0));
+    }
+
+    #[test]
+    fn setting_an_exposed_parameter_clamps_to_its_authored_range() {
+        // kira clamps a modulated value to the mapping's input range, so the
+        // authored min/max are a guard rail. This asserts the same bound on
+        // the recorded value, which is what a script reads back.
+        let mut world = AudioWorld::silent();
+        world.apply_bus_layout(
+            &BusLayout::from_ron(
+                r#"BusLayout(buses: [Bus(name: "sfx", parent: None, volume_db: 0.0, effects: [
+                    Filter(cutoff: (name: "muffle", min: 200.0, max: 20000.0, initial: 2000.0)),
+                ])])"#,
+            )
+            .expect("parses"),
+        );
+
+        world.set_audio_param("muffle", -5.0, 0.0);
+        assert_eq!(world.audio_param("muffle"), Some(200.0), "clamped to min");
+        world.set_audio_param("muffle", 1.0e9, 0.0);
+        assert_eq!(world.audio_param("muffle"), Some(20000.0), "clamped to max");
+    }
+
+    #[test]
+    fn an_unknown_parameter_name_is_reported_as_failure() {
+        let mut world = AudioWorld::silent();
+        assert!(
+            !world.set_audio_param("nope", 1.0, 0.0),
+            "an unknown name must report failure rather than silently succeeding"
+        );
+        assert_eq!(world.audio_param("nope"), None);
+    }
+
+    #[test]
+    fn a_fixed_parameter_registers_no_name() {
+        // The paired direction: without it, an implementation that exposed
+        // every parameter regardless would pass the tests above.
+        let mut world = AudioWorld::silent();
+        world.apply_bus_layout(
+            &BusLayout::from_ron(
+                r#"BusLayout(buses: [Bus(name: "sfx", parent: None, volume_db: 0.0, effects: [
+                    Filter(cutoff: 2000.0, resonance: 0.5),
+                ])])"#,
+            )
+            .expect("parses"),
+        );
+        assert!(
+            world.audio_params().is_empty(),
+            "a chain of fixed parameters must expose nothing, got {:?}",
+            world.audio_params()
         );
     }
 

@@ -18,9 +18,9 @@ use glam::{EulerRot, Quat, Vec3};
 use crate::ops::{
     render_asset_status, ScriptCommand, SpawnParams, AMBIENT_OCCLUSION_SNAPSHOT,
     ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT, ANIMATION_SNAPSHOT, ASM_STATE_SNAPSHOT,
-    ASSET_STATUS_SNAPSHOT, BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, BUS_VOLUME_SNAPSHOT,
-    CHILDREN_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COMMAND_BUFFER,
-    ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, FOLLOW_SNAPSHOT, FRICTION_SNAPSHOT,
+    ASSET_STATUS_SNAPSHOT, AUDIO_PARAM_SNAPSHOT, BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS,
+    BUS_VOLUME_SNAPSHOT, CHILDREN_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT,
+    COMMAND_BUFFER, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, FOLLOW_SNAPSHOT, FRICTION_SNAPSHOT,
     GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT, GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT,
     GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT,
     KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, LIFETIME_SNAPSHOT,
@@ -2178,6 +2178,15 @@ fn run_scripts(world: &mut World) {
                     });
                 }
             }
+            ScriptCommand::SetAudioParam {
+                name,
+                value,
+                tween_ms,
+            } => {
+                if let Some(mut audio) = world.get_resource_mut::<AudioWorld>() {
+                    audio.set_audio_param(&name, value, tween_ms);
+                }
+            }
             ScriptCommand::SetBusVolume { bus, db } => {
                 if let Some(mut audio) = world.get_resource_mut::<AudioWorld>() {
                     audio.set_bus_volume(&bus, db);
@@ -3582,6 +3591,11 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
             .map(|a| a.bus_volumes().into_iter().collect())
             .unwrap_or_default();
         BUS_VOLUME_SNAPSHOT.with(|s| *s.borrow_mut() = bus_volumes);
+        let audio_params: HashMap<String, f64> = world
+            .get_resource::<AudioWorld>()
+            .map(|a| a.audio_params().into_iter().collect())
+            .unwrap_or_default();
+        AUDIO_PARAM_SNAPSHOT.with(|s| *s.borrow_mut() = audio_params);
     }
     {
         // Mirrors `AssetStatuses` wholesale for `Bsengine.getAssetStatus`,

@@ -528,6 +528,13 @@ var Bsengine = {
     getSoundState:        (id)          => Deno.core.ops.bsengine_get_sound_state(id),
     getSoundPosition:     (id)          => Deno.core.ops.bsengine_get_sound_position(id),
     setBusVolume:         (bus, db)     => Deno.core.ops.bsengine_set_bus_volume(bus, db),
+    setAudioParam:        (name, value, tweenMs) =>
+        Deno.core.ops.bsengine_set_audio_param(name, value, tweenMs === undefined ? 0.0 : tweenMs),
+    getAudioParam:        (name)        => {
+        // NaN is the op's "no such parameter"; null is what a script expects.
+        const v = Deno.core.ops.bsengine_get_audio_param(name);
+        return Number.isNaN(v) ? null : v;
+    },
     getBusVolume:         (bus)         => {
         // NaN is the op's "no such bus"; null is what a script expects.
         const v = Deno.core.ops.bsengine_get_bus_volume(bus);

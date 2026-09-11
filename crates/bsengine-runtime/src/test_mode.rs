@@ -2138,6 +2138,167 @@ mod tests {
     /// set either way. Called twice against the same directory: the second
     /// call rewrites only `project.toml`, so the scene the two runs render
     /// is byte-identical and the toggle is the single variable.
+    /// Writes a project with a listener, an emitter, and optionally a solid
+    /// wall standing between them.
+    ///
+    /// The emitter carries a collider of its own on purpose: a ray cast from
+    /// the emitter's position would hit it first, so this fixture is what
+    /// proves the exclusion works. Without a collider on the source the
+    /// self-hit bug is unobservable and the test passes for the wrong reason.
+    fn write_audio_occlusion_project(root: &std::path::Path, wall: bool) {
+        std::fs::create_dir_all(root.join("assets/scenes")).unwrap();
+        std::fs::write(
+            root.join("project.toml"),
+            "[project]\nname = \"Audio Occlusion\"\nentry_scene = \"assets/scenes/main.ron\"\n",
+        )
+        .unwrap();
+
+        // Listener at the origin, emitter 20 units down -Z, wall halfway
+        // between them. Both listener and emitter carry static bodies so the
+        // ray has something of their own to wrongly hit.
+        let wall_entity = if wall {
+            r#"    EntityDescriptor(
+        name: "Wall",
+        primitive: Some(Cube),
+        transform: Some((position: (0.0, 0.0, -10.0))),
+        rigidbody: Some(Static),
+        collider: Some((shape: Box(hx: 5.0, hy: 5.0, hz: 0.5))),
+    ),
+"#
+        } else {
+            ""
+        };
+        let scene = format!(
+            r#"SceneDescriptor(entities: [
+    EntityDescriptor(
+        name: "Ears",
+        transform: Some((position: (0.0, 0.0, 0.0))),
+        rigidbody: Some(Static),
+        collider: Some((shape: Box(hx: 0.5, hy: 0.5, hz: 0.5))),
+        components: [
+            ("bsengine_audio::spatial::AudioListener", "()"),
+        ],
+    ),
+    EntityDescriptor(
+        name: "Source",
+        transform: Some((position: (0.0, 0.0, -20.0))),
+        rigidbody: Some(Static),
+        collider: Some((shape: Box(hx: 0.5, hy: 0.5, hz: 0.5))),
+        components: [
+            ("bsengine_audio::spatial::AudioEmitter", "(spatialization_strength: 1.0)"),
+            ("bsengine_audio::spatial::AudioOcclusion", "(cutoff_hz: 800.0, volume_db: -6.0, interpolation_ms: 200.0)"),
+        ],
+    ),
+{wall_entity}])
+"#
+        );
+        std::fs::write(root.join("assets/scenes/main.ron"), scene).unwrap();
+    }
+
+    /// Reads the occlusion the audio world recorded for the named entity.
+    fn occlusion_of(app: &mut App, name: &str) -> Option<f32> {
+        let entity = {
+            let mut q = app
+                .world_mut()
+                .query::<(bevy_ecs::prelude::Entity, &bsengine_scene::Name)>();
+            q.iter(app.world())
+                .find(|(_, n)| n.0 == name)
+                .map(|(e, _)| e)
+        }?;
+        app.world()
+            .resource::<bsengine_audio::AudioWorld>()
+            .occlusion_of(entity)
+    }
+
+    /// A wall between the ears and a source muffles it; without the wall it is
+    /// clear.
+    ///
+    /// The pair is the point. "Occluded with a wall" alone is satisfied by an
+    /// implementation that reports everything occluded — which is exactly what
+    /// a self-hit on the emitter's own collider produces, and it would sound
+    /// like a broken filter rather than a broken ray.
+    #[test]
+    fn a_wall_between_the_ears_and_a_source_occludes_it() {
+        let dir = tempfile::tempdir().unwrap();
+        write_audio_occlusion_project(dir.path(), true);
+        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
+        for _ in 0..8 {
+            app.update();
+        }
+        assert_eq!(
+            occlusion_of(&mut app, "Source"),
+            Some(1.0),
+            "a 10x10 wall standing between the listener and the source must occlude it"
+        );
+    }
+
+    #[test]
+    fn a_source_with_nothing_in_the_way_is_not_occluded() {
+        let dir = tempfile::tempdir().unwrap();
+        write_audio_occlusion_project(dir.path(), false);
+        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
+        for _ in 0..8 {
+            app.update();
+        }
+        assert_eq!(
+            occlusion_of(&mut app, "Source"),
+            Some(0.0),
+            "with a clear line of sight the source must not be occluded -- a source that \
+             occludes itself on its own collider, or on the listener's, reports 1.0 here \
+             and sounds permanently muffled"
+        );
+    }
+
+    /// An emitter without `AudioOcclusion` is never ray-cast at all.
+    ///
+    /// Off-unless-asked-for is the behaviour both reference engines ship, and
+    /// it is what keeps the cost proportional to the emitters that opted in.
+    #[test]
+    fn an_emitter_without_the_component_is_never_occluded() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("assets/scenes")).unwrap();
+        std::fs::write(
+            dir.path().join("project.toml"),
+            "[project]\nname = \"No Occlusion\"\nentry_scene = \"assets/scenes/main.ron\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("assets/scenes/main.ron"),
+            r#"SceneDescriptor(entities: [
+    EntityDescriptor(
+        name: "Ears",
+        transform: Some((position: (0.0, 0.0, 0.0))),
+        components: [("bsengine_audio::spatial::AudioListener", "()")],
+    ),
+    EntityDescriptor(
+        name: "Source",
+        transform: Some((position: (0.0, 0.0, -20.0))),
+        rigidbody: Some(Static),
+        collider: Some((shape: Box(hx: 0.5, hy: 0.5, hz: 0.5))),
+        components: [("bsengine_audio::spatial::AudioEmitter", "(spatialization_strength: 1.0)")],
+    ),
+    EntityDescriptor(
+        name: "Wall",
+        primitive: Some(Cube),
+        transform: Some((position: (0.0, 0.0, -10.0))),
+        rigidbody: Some(Static),
+        collider: Some((shape: Box(hx: 5.0, hy: 5.0, hz: 0.5))),
+    ),
+])
+"#,
+        )
+        .unwrap();
+        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
+        for _ in 0..8 {
+            app.update();
+        }
+        assert_eq!(
+            occlusion_of(&mut app, "Source"),
+            None,
+            "an emitter with no AudioOcclusion must never be ray-cast, wall or no wall"
+        );
+    }
+
     fn write_occlusion_project(root: &std::path::Path, occlusion_culling: bool) {
         use std::fmt::Write as _;
 

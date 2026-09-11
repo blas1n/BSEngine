@@ -2,7 +2,7 @@ use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bsengine_core::{ProjectDir, Transform};
 
-use crate::spatial::{AudioEmitter, AudioListener};
+use crate::spatial::{AudioEmitter, AudioListener, AudioOcclusion};
 use crate::world::AudioWorld;
 
 /// Registers the [`AudioWorld`] resource and keeps positional audio in step
@@ -32,6 +32,7 @@ impl Plugin for AudioPlugin {
         // headless `--test` app, so the two cannot drift.
         app.register_type::<AudioListener>();
         app.register_type::<AudioEmitter>();
+        app.register_type::<AudioOcclusion>();
         // Listener first: an emitter's spatial track is created *linked to* a
         // listener, so on the very first frame the ears have to exist before
         // any source can be attached to them.
@@ -66,9 +67,16 @@ fn sync_listener(mut audio: ResMut<AudioWorld>, query: Query<&Transform, With<Au
 /// Pushes every [`AudioEmitter`] entity's position into [`AudioWorld`].
 fn sync_emitters(
     mut audio: ResMut<AudioWorld>,
-    query: Query<(Entity, &Transform), With<AudioEmitter>>,
+    query: Query<(Entity, &Transform, Option<&AudioOcclusion>), With<AudioEmitter>>,
 ) {
-    for (entity, transform) in query.iter() {
+    for (entity, transform, occlusion) in query.iter() {
+        // Config before position: the low-pass filter is attached when the
+        // spatial track is *created*, and set_emitter_position is what creates
+        // it, so declaring occlusion afterwards would build the track without
+        // a filter and leave the emitter permanently unmuffled.
+        if let Some(o) = occlusion {
+            audio.set_occlusion_config(entity, o.cutoff_hz, o.volume_db);
+        }
         audio.set_emitter_position(entity, transform.position.0);
     }
 }

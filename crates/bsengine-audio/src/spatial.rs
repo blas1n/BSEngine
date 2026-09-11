@@ -103,3 +103,44 @@ mod tests {
         assert_eq!(AudioEmitter::default().spatialization_strength, 1.0);
     }
 }
+
+/// Makes an emitter's sound muffle and quieten when something solid stands
+/// between it and the listener.
+///
+/// **A separate component rather than fields on [`AudioEmitter`], deliberately.**
+/// Scene components are deserialised by `bevy_reflect`, which requires every
+/// reflected field to be present in the RON; a missing one does not error, it
+/// silently empties the containing collection. `games/mini-arena` authors
+/// `AudioEmitter(spatialization_strength: 1.0)`, so adding fields there would
+/// have broken it quietly. Nothing authors this type yet, so it cannot break
+/// anything — and "occluded only if the component is present" is also how
+/// Unreal ships occlusion: off unless asked for.
+///
+/// The defaults mirror Unreal's occlusion settings, which is where the names
+/// come from too.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Reflect)]
+#[reflect(Component, Default)]
+pub struct AudioOcclusion {
+    /// Low-pass cutoff in hertz applied when fully occluded. Lower is more
+    /// muffled. Unreal calls this `OcclusionLowPassFilterFrequency`.
+    pub cutoff_hz: f32,
+    /// Volume in decibels applied when fully occluded, relative to unoccluded.
+    pub volume_db: f32,
+    /// How long the change takes, in milliseconds.
+    ///
+    /// This is what stops a sound flickering when the ray grazes an edge, and
+    /// it is how both reference engines solve that — Unreal calls it
+    /// `OcclusionInterpolationTime`. Smoothing rather than hysteresis: a
+    /// half-occluded frame moves the value part-way instead of toggling.
+    pub interpolation_ms: f32,
+}
+
+impl Default for AudioOcclusion {
+    fn default() -> Self {
+        Self {
+            cutoff_hz: 800.0,
+            volume_db: -6.0,
+            interpolation_ms: 200.0,
+        }
+    }
+}

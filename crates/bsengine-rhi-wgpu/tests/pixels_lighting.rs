@@ -3,8 +3,10 @@
 //! These are the tests that found the bug they now guard. The shadow
 //! comparison sampler asked for `GreaterEqual` while the shadow pass writes
 //! ordinary forward-Z depth, so `shadow_factor` returned 0 for every fragment
-//! inside the shadow frustum -- and since the light matrix centres a 60-unit
-//! box on the origin, that was every object in every game here. The sun
+//! inside the shadow frustum -- and since the light matrix at the time centred
+//! a 60-unit box on the world origin, that was every object in every game
+//! here. (That box is gone: the frustum now follows the camera. The bug it
+//! helped hide is what these tests still guard.) The sun
 //! contributed nothing to any frame ever rendered, and no shadow was ever
 //! drawn.
 //!
@@ -23,7 +25,12 @@ use glam::Vec3;
 
 /// A big flat floor at the origin.
 fn floor(mesh: u64) -> Draw {
-    Draw::new(mesh, Vec3::ZERO).scaled(Vec3::new(20.0, 1.0, 20.0), Vec3::ZERO)
+    floor_at(mesh, Vec3::ZERO)
+}
+
+/// The same floor, centred anywhere.
+fn floor_at(mesh: u64, origin: Vec3) -> Draw {
+    Draw::new(mesh, origin).scaled(Vec3::new(20.0, 1.0, 20.0), origin)
 }
 
 /// A shallow camera, so a shadow lands beside its caster rather than being
@@ -130,32 +137,75 @@ fn the_sun_lights_a_surface_facing_it() {
     );
 }
 
-#[test]
-fn an_occluder_darkens_floor_it_does_not_cover() {
+/// The strongest darkening a cube casts onto floor it does not cover, with
+/// the whole fixture — floor, cube and camera — placed at `origin`.
+///
+/// Parameterised by position because that is the property at stake. The
+/// directional shadow frustum used to be a fixed box on the world origin, so
+/// this measurement was only ever taken where it happened to work. Taking the
+/// identical measurement somewhere else is what tells a shadow that follows
+/// the camera from one that does not.
+fn darkening_beside_a_caster(origin: Vec3) -> (f32, u32, u32, Pixels, Pixels) {
     let mut h = Harness::new();
     let plane = h.plane();
     let cube = h.cube();
-    let silhouette = cube_silhouette(&mut h, cube);
-
-    let open = h.render(&Scene {
-        draws: vec![floor(plane)],
+    let caster = || Draw::new(cube, origin + Vec3::new(0.0, 3.0, 0.0));
+    let scene = |draws: Vec<Draw>| Scene {
+        draws,
         light: sun_from_above(),
-        camera_pos: CAMERA,
+        camera_pos: origin + CAMERA,
+        look_at: origin,
         ..Scene::default()
-    });
-    let occluded = h.render(&Scene {
-        draws: vec![floor(plane), Draw::new(cube, Vec3::new(0.0, 3.0, 0.0))],
-        light: sun_from_above(),
-        camera_pos: CAMERA,
-        ..Scene::default()
-    });
+    };
 
+    // Which pixels the cube itself covers, so "the floor got darker" cannot be
+    // satisfied by the cube merely standing in front of it.
+    let empty = h.render(&scene(vec![]));
+    let cube_only = h.render(&scene(vec![caster()]));
+    let silhouette: Vec<bool> = (0..(empty.width * empty.height))
+        .map(|i| {
+            let (x, y) = (i % empty.width, i / empty.width);
+            empty.at(x, y) != cube_only.at(x, y)
+        })
+        .collect();
+
+    let open = h.render(&scene(vec![floor_at(plane, origin)]));
+    let occluded = h.render(&scene(vec![floor_at(plane, origin), caster()]));
     let (delta, x, y) = biggest_darkening_off_the_caster(&open, &occluded, &silhouette);
+    (delta, x, y, open, occluded)
+}
+
+#[test]
+fn an_occluder_darkens_floor_it_does_not_cover() {
+    let (delta, x, y, open, occluded) = darkening_beside_a_caster(Vec3::ZERO);
     assert!(
         delta > 60.0,
         "the cube should darken floor it is not standing in front of; the strongest \
          darkening away from its silhouette was {delta} at ({x}, {y}), open {:?} \
          occluded {:?}",
+        open.at(x, y),
+        occluded.at(x, y)
+    );
+}
+
+/// The defect that prompted the camera-following fit, at the level of pixels.
+///
+/// The shadow frustum was a 60-unit box centred on `Vec3::ZERO`, so a caster
+/// standing outside it cast nothing at all. `games/scale-level` is authored
+/// across x = 0..152 and most of it fell outside — the shipped demo had no
+/// directional shadows over four fifths of its length, at any resolution.
+#[test]
+fn a_caster_far_from_the_world_origin_still_shadows() {
+    // Beyond the old box by a wide margin, and inside the range the level
+    // actually uses.
+    let origin = Vec3::new(140.0, 0.0, -60.0);
+    let (delta, x, y, open, occluded) = darkening_beside_a_caster(origin);
+    assert!(
+        delta > 60.0,
+        "a cube at {origin:?} should shadow the floor exactly as one at the world \
+         origin does; the strongest darkening away from its silhouette was only \
+         {delta} at ({x}, {y}), open {:?} occluded {:?}. Near-zero here means the \
+         shadow frustum did not follow the camera.",
         open.at(x, y),
         occluded.at(x, y)
     );

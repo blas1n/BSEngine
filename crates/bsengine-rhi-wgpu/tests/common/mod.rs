@@ -593,7 +593,7 @@ struct VertOut {{
             .render_frame(
                 view_proj,
                 scene.camera_pos,
-                light_view_proj(scene.light.direction),
+                light_view_proj(scene.light.direction, view_proj),
                 sky_vp_inv,
                 &draw_calls,
                 &[],
@@ -675,25 +675,16 @@ struct VertOut {{
     }
 }
 
-/// The directional shadow map's view-projection.
+/// The directional shadow map's view-projection: the engine's own, not a
+/// copy of it.
 ///
-/// This is the same calculation as `compute_light_view_proj` in
-/// `bsengine-render`. That function is private, and `bsengine-rhi-wgpu` does
-/// not depend on `bsengine-render` -- the dependency runs the other way -- so
-/// it is repeated here.
-///
-/// Worth being clear about what that costs: the shadow tests prove that the
-/// shadow pipeline darkens what *this* matrix says is occluded. They do not
-/// prove the runtime picks a good matrix.
-pub fn light_view_proj(light_dir: Vec3) -> Mat4 {
-    let dir = light_dir.normalize();
-    let up = if dir.y.abs() < 0.999 {
-        Vec3::Y
-    } else {
-        Vec3::Z
-    };
-    let eye = -dir * 50.0;
-    let view = Mat4::look_at_rh(eye, Vec3::ZERO, up);
-    let proj = Mat4::orthographic_rh(-30.0, 30.0, -30.0, 30.0, 0.1, 200.0);
-    proj * view
+/// This used to be a reimplementation, because the calculation lived in
+/// `bsengine-render` and the dependency runs the other way. Its comment was
+/// candid about the cost -- "the shadow tests prove that the shadow pipeline
+/// darkens what *this* matrix says is occluded. They do not prove the runtime
+/// picks a good matrix." The calculation now lives in this crate, so that
+/// caveat is retired: these tests render with the matrix the game renders
+/// with.
+pub fn light_view_proj(light_dir: Vec3, camera_view_proj: Mat4) -> Mat4 {
+    bsengine_rhi_wgpu::shadow::directional_light_view_proj(light_dir, camera_view_proj)
 }

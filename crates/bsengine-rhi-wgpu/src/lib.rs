@@ -43,6 +43,8 @@ pub mod profiler;
 /// Spherical-harmonic (L2) projection, irradiance evaluation and trilinear
 /// blending for light probes.
 pub mod sh;
+/// Fitting the directional shadow map's frustum to the camera.
+pub mod shadow;
 /// Swapchain/frame lifecycle and the main scene render pass.
 pub mod surface;
 pub mod taa_jitter;

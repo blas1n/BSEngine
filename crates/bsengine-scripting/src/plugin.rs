@@ -2299,6 +2299,7 @@ fn run_scripts(world: &mut World) {
                         x,
                         y,
                         font_size,
+                        anchor: bsengine_core::UiAnchor::default(),
                     });
                 }
             }
@@ -2318,6 +2319,7 @@ fn run_scripts(world: &mut World) {
                         y,
                         width,
                         height,
+                        anchor: bsengine_core::UiAnchor::default(),
                     });
                 }
             }
@@ -2337,6 +2339,7 @@ fn run_scripts(world: &mut World) {
                         y,
                         width,
                         height,
+                        anchor: bsengine_core::UiAnchor::default(),
                     });
                 }
             }
@@ -2354,6 +2357,7 @@ fn run_scripts(world: &mut World) {
                         x,
                         y,
                         width,
+                        anchor: bsengine_core::UiAnchor::default(),
                     });
                 }
             }
@@ -2373,11 +2377,37 @@ fn run_scripts(world: &mut World) {
                         width,
                         height,
                         fraction,
+                        anchor: bsengine_core::UiAnchor::default(),
                     });
                 }
             }
             ScriptCommand::SetPaused { paused } => {
                 world.insert_resource(bsengine_core::PauseState { paused });
+            }
+            ScriptCommand::SetUiAnchor {
+                id,
+                min_x,
+                min_y,
+                max_x,
+                max_y,
+            } => {
+                if let Some(mut ui) = world.get_resource_mut::<UiState>() {
+                    // Applied to an existing widget, which the prelude
+                    // guarantees by issuing this straight after the widget's
+                    // own command. A miss means the script anchored an id it
+                    // never created.
+                    if !ui.set_anchor(
+                        &id,
+                        bsengine_core::UiAnchor {
+                            min_x,
+                            min_y,
+                            max_x,
+                            max_y,
+                        },
+                    ) {
+                        tracing::warn!("[ui] setAnchor named unknown widget '{id}'");
+                    }
+                }
             }
             ScriptCommand::RemoveUiWidget { id } => {
                 if let Some(mut ui) = world.get_resource_mut::<UiState>() {

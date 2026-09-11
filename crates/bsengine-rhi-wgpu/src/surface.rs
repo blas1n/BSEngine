@@ -5471,7 +5471,15 @@ impl WgpuSurface {
                     }
                 }
 
-                // Interactive UI widgets
+                // Interactive UI widgets.
+                //
+                // Every widget's anchor is resolved against the live screen
+                // size first, so the positions below are already pixels. The
+                // resolution itself lives in `bsengine_core::UiAnchor` — pure
+                // arithmetic with no GPU, window or egui, which is what lets
+                // every anchoring rule be tested headlessly.
+                let screen_w = self.output.width() as f32;
+                let screen_h = self.output.height() as f32;
                 for widget in &ui_state.widgets {
                     use bsengine_core::UiWidget;
                     match widget {
@@ -5481,9 +5489,14 @@ impl WgpuSurface {
                             x,
                             y,
                             font_size,
+                            anchor,
                         } => {
+                            // A label has no authored size, so only its
+                            // position is anchored; egui sizes it to its text.
+                            let (px, py, _, _) =
+                                anchor.resolve(*x, *y, 0.0, 0.0, screen_w, screen_h);
                             egui::Area::new(egui::Id::new(id.as_str()))
-                                .fixed_pos(egui::pos2(*x, *y))
+                                .fixed_pos(egui::pos2(px, py))
                                 .show(ctx, |ui| {
                                     ui.label(egui::RichText::new(text.as_str()).size(*font_size));
                                 });
@@ -5495,13 +5508,16 @@ impl WgpuSurface {
                             y,
                             width,
                             height,
+                            anchor,
                         } => {
+                            let (px, py, pw, ph) =
+                                anchor.resolve(*x, *y, *width, *height, screen_w, screen_h);
                             egui::Area::new(egui::Id::new(id.as_str()))
-                                .fixed_pos(egui::pos2(*x, *y))
+                                .fixed_pos(egui::pos2(px, py))
                                 .show(ctx, |ui| {
                                     if ui
                                         .add_sized(
-                                            egui::vec2(*width, *height),
+                                            egui::vec2(pw, ph),
                                             egui::Button::new(label.as_str()),
                                         )
                                         .clicked()
@@ -5517,11 +5533,14 @@ impl WgpuSurface {
                             y,
                             width,
                             height,
+                            anchor,
                         } => {
+                            let (px, py, pw, ph) =
+                                anchor.resolve(*x, *y, *width, *height, screen_w, screen_h);
                             egui::Window::new(title.as_str())
                                 .id(egui::Id::new(id.as_str()))
-                                .fixed_pos(egui::pos2(*x, *y))
-                                .fixed_size(egui::vec2(*width, *height))
+                                .fixed_pos(egui::pos2(px, py))
+                                .fixed_size(egui::vec2(pw, ph))
                                 .collapsible(false)
                                 .resizable(false)
                                 .show(ctx, |_ui| {});
@@ -5532,15 +5551,20 @@ impl WgpuSurface {
                             x,
                             y,
                             width,
+                            anchor,
                         } => {
+                            // Height 0: a single-line field sizes itself
+                            // vertically, so only its width is anchored.
+                            let (px, py, pw, _) =
+                                anchor.resolve(*x, *y, *width, 0.0, screen_w, screen_h);
                             let text_val = new_text_values.entry(id.clone()).or_default();
                             egui::Area::new(egui::Id::new(id.as_str()))
-                                .fixed_pos(egui::pos2(*x, *y))
+                                .fixed_pos(egui::pos2(px, py))
                                 .show(ctx, |ui| {
                                     ui.add(
                                         egui::TextEdit::singleline(text_val)
                                             .hint_text(hint.as_str())
-                                            .desired_width(*width),
+                                            .desired_width(pw),
                                     );
                                 });
                         }
@@ -5550,13 +5574,16 @@ impl WgpuSurface {
                             y,
                             width,
                             height,
+                            anchor,
                             ..
                         } => {
+                            let (px, py, pw, ph) =
+                                anchor.resolve(*x, *y, *width, *height, screen_w, screen_h);
                             egui::Area::new(egui::Id::new(id.as_str()))
-                                .fixed_pos(egui::pos2(*x, *y))
+                                .fixed_pos(egui::pos2(px, py))
                                 .show(ctx, |ui| {
                                     ui.allocate_exact_size(
-                                        egui::vec2(*width, *height),
+                                        egui::vec2(pw, ph),
                                         egui::Sense::hover(),
                                     );
                                 });
@@ -5568,12 +5595,15 @@ impl WgpuSurface {
                             width,
                             height,
                             fraction,
+                            anchor,
                         } => {
+                            let (px, py, pw, ph) =
+                                anchor.resolve(*x, *y, *width, *height, screen_w, screen_h);
                             egui::Area::new(egui::Id::new(id.as_str()))
-                                .fixed_pos(egui::pos2(*x, *y))
+                                .fixed_pos(egui::pos2(px, py))
                                 .show(ctx, |ui| {
                                     ui.add_sized(
-                                        egui::vec2(*width, *height),
+                                        egui::vec2(pw, ph),
                                         egui::ProgressBar::new(*fraction),
                                     );
                                 });

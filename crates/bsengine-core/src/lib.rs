@@ -160,7 +160,7 @@ pub use timer::Timer;
 pub use tone_map::{ToneMap, ToneMappingMode};
 pub use transform::Transform;
 pub use tween::{EasingFn, RepeatMode, Tween, TweenTarget};
-pub use ui_state::{UiState, UiWidget};
+pub use ui_state::{UiAnchor, UiState, UiWidget};
 pub use visible::Visible;
 pub use volumetric_fog::VolumetricFog;
 

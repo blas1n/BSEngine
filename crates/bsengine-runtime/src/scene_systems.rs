@@ -166,7 +166,13 @@ pub fn register_scene_systems(app: &mut App) {
     )
     .add_systems(Update, handle_scene_load)
     .add_systems(Update, resolve_primitives.after(handle_scene_load))
-    .add_systems(Update, resolve_physics_bodies.after(resolve_primitives));
+    .add_systems(Update, resolve_physics_bodies.after(resolve_primitives))
+    // After the emitters have been positioned for this frame, so the ray is
+    // cast against where things actually are rather than where they were.
+    .add_systems(
+        Update,
+        crate::audio_occlusion::update_audio_occlusion.after(resolve_physics_bodies),
+    );
 }
 
 pub fn resolve_primitives(

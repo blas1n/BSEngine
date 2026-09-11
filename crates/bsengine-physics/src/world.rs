@@ -484,6 +484,38 @@ impl PhysicsWorld {
         self.cast_ray_filtered(origin, dir, max_dist, filter)
     }
 
+    /// Cast a ray ignoring **two** entities' own bodies.
+    ///
+    /// Audio occlusion needs this: the ray runs from an emitter to the
+    /// listener, and both ends may carry a collider. Excluding only one leaves
+    /// the other to be hit at point-blank range, which reports every sound in
+    /// the scene as occluded — a failure that sounds like a broken filter
+    /// rather than a broken ray, and so is hard to attribute.
+    ///
+    /// Stopping the ray short of the far end instead is not equivalent: how
+    /// short would have to exceed that body's half-extent, which the caster
+    /// does not know.
+    pub fn cast_ray_excluding_pair(
+        &self,
+        origin: Vec3,
+        dir: Vec3,
+        max_dist: f32,
+        a: Entity,
+        b: Entity,
+    ) -> Option<RaycastHit> {
+        let handles: Vec<_> = [a, b]
+            .iter()
+            .filter_map(|e| self.entity_body_map.get(e).copied())
+            .collect();
+        let predicate = |_: ColliderHandle, collider: &Collider| {
+            collider
+                .parent()
+                .is_none_or(|parent| !handles.contains(&parent))
+        };
+        let filter = QueryFilter::default().predicate(&predicate);
+        self.cast_ray_filtered(origin, dir, max_dist, filter)
+    }
+
     /// Cast a ray into the physics world. Returns hit info or None.
     pub fn cast_ray(&self, origin: Vec3, dir: Vec3, max_dist: f32) -> Option<RaycastHit> {
         self.cast_ray_filtered(origin, dir, max_dist, QueryFilter::default())

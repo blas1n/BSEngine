@@ -9,9 +9,11 @@ use kira::{
         reverb::ReverbBuilder,
     },
     listener::ListenerHandle,
+    modulator::tweener::{TweenerBuilder, TweenerHandle},
     sound::static_sound::{StaticSoundData, StaticSoundHandle},
     track::{SpatialTrackBuilder, SpatialTrackHandle, TrackBuilder, TrackHandle},
-    AudioManager, AudioManagerSettings, Decibels, DefaultBackend, Mix, Panning, Tween,
+    AudioManager, AudioManagerSettings, Decibels, DefaultBackend, Easing, Mapping, Mix, Panning,
+    Tween, Value,
 };
 
 use crate::spatial::{to_mint_quat, to_mint_vec};
@@ -200,6 +202,26 @@ pub struct AudioWorld {
     /// track map is empty there, so moving one track or all of them looks
     /// identical. Mutation-testing found exactly that hole.
     last_track_positions: HashMap<(Entity, Option<String>), Vec3>,
+    /// Per-emitter occlusion settings: `(cutoff_hz, volume_db)`.
+    ///
+    /// Recorded before the track is built, because the filter has to be
+    /// attached at *creation* — `SpatialTrackBuilder::with_effect` — and its
+    /// cutoff has to bind to a modulator that already exists.
+    occlusion_config: HashMap<Entity, (f32, f32)>,
+    /// One tweener per occluding emitter, driving both its filter cutoff and
+    /// its volume from a single 0..1 "how occluded" value.
+    ///
+    /// One modulator rather than two because both parameters map from the same
+    /// number: `set_occlusion` is then a single `set`, and kira's own tween is
+    /// the interpolation — which is how Unreal solves occlusion flicker
+    /// (`OcclusionInterpolationTime`) rather than hand-rolled hysteresis.
+    occlusion_tweeners: HashMap<Entity, TweenerHandle>,
+    /// How occluded each emitter last was, 0.0 clear to 1.0 fully occluded.
+    ///
+    /// Recorded whether or not a backend exists — on a machine with no audio
+    /// device the tweener above does not exist at all, and this is the only
+    /// observable the occlusion decision has.
+    last_occlusion: HashMap<Entity, f32>,
     /// Which bus each sound id was routed to, with an unknown name already
     /// resolved to Master. Recorded regardless of backend, for the same reason
     /// `last_listener_pose` is.
@@ -248,6 +270,9 @@ impl AudioWorld {
             last_listener_pose: None,
             last_emitter_positions: HashMap::new(),
             last_track_positions: HashMap::new(),
+            occlusion_config: HashMap::new(),
+            occlusion_tweeners: HashMap::new(),
+            last_occlusion: HashMap::new(),
             last_sound_buses: HashMap::new(),
             buses: Vec::new(),
         }
@@ -446,7 +471,33 @@ impl AudioWorld {
         let Some(listener_id) = self.listener.as_ref().map(|l| l.id()) else {
             return;
         };
-        let builder = SpatialTrackBuilder::new();
+        // Both the cutoff and the volume map from one tweener, so a single
+        // `set_occlusion` moves them together. Unoccluded (0.0) is 20 kHz and
+        // 0 dB — audibly untouched — and fully occluded (1.0) is whatever the
+        // `AudioOcclusion` component asked for.
+        let builder = match (
+            self.occlusion_config.get(&entity).copied(),
+            self.occlusion_tweeners.get(&entity).map(|t| t.id()),
+        ) {
+            (Some((cutoff_hz, volume_db)), Some(id)) => SpatialTrackBuilder::new()
+                .volume(Value::FromModulator {
+                    id,
+                    mapping: Mapping {
+                        input_range: (0.0, 1.0),
+                        output_range: (Decibels(0.0), Decibels(volume_db)),
+                        easing: Easing::Linear,
+                    },
+                })
+                .with_effect(FilterBuilder::new().cutoff(Value::FromModulator {
+                    id,
+                    mapping: Mapping {
+                        input_range: (0.0, 1.0),
+                        output_range: (20_000.0, cutoff_hz as f64),
+                        easing: Easing::Linear,
+                    },
+                })),
+            _ => SpatialTrackBuilder::new(),
+        };
         let created = match bus {
             None => self.manager.as_mut().and_then(|m| {
                 m.add_spatial_sub_track(listener_id, to_mint_vec(position), builder)
@@ -473,6 +524,75 @@ impl AudioWorld {
         self.last_track_positions
             .get(&(entity, bus.map(str::to_string)))
             .copied()
+    }
+
+    /// Declares that an emitter occludes, and how.
+    ///
+    /// Must be called before the emitter's spatial track is created: the
+    /// low-pass filter is attached at track creation and its cutoff binds to a
+    /// modulator, so both have to exist first. `sync_emitters` calls this each
+    /// frame for every entity carrying `AudioOcclusion`, which makes the
+    /// ordering automatic.
+    pub fn set_occlusion_config(&mut self, entity: Entity, cutoff_hz: f32, volume_db: f32) {
+        let changed = self.occlusion_config.insert(entity, (cutoff_hz, volume_db))
+            != Some((cutoff_hz, volume_db));
+        if !changed {
+            return;
+        }
+        // A tweener is only useful with a backend; without one the config is
+        // still recorded so the decision half stays observable.
+        if self.occlusion_tweeners.contains_key(&entity) {
+            return;
+        }
+        if let Some(manager) = self.manager.as_mut() {
+            if let Ok(tweener) = manager.add_modulator(TweenerBuilder { initial_value: 0.0 }) {
+                self.occlusion_tweeners.insert(entity, tweener);
+            }
+        }
+    }
+
+    /// The occlusion settings recorded for an emitter, if it occludes.
+    pub fn occlusion_config_of(&self, entity: Entity) -> Option<(f32, f32)> {
+        self.occlusion_config.get(&entity).copied()
+    }
+
+    /// Sets how occluded an emitter is: 0.0 clear, 1.0 fully occluded.
+    ///
+    /// This is the seam between the two halves of occlusion. Deciding *whether*
+    /// something is in the way needs physics, which this crate deliberately
+    /// does not depend on — that half lives in `bsengine-runtime`, which has
+    /// both. What happens to the sound lives here.
+    ///
+    /// `amount` is clamped, and the change is tweened over
+    /// `interpolation_ms`, so a value that moves every frame does not click.
+    pub fn set_occlusion(&mut self, entity: Entity, amount: f32, interpolation_ms: f32) {
+        let amount = amount.clamp(0.0, 1.0);
+        self.last_occlusion.insert(entity, amount);
+        if let Some(tweener) = self.occlusion_tweeners.get_mut(&entity) {
+            tweener.set(
+                amount as f64,
+                Tween {
+                    duration: std::time::Duration::from_secs_f32(
+                        (interpolation_ms / 1000.0).max(0.0),
+                    ),
+                    ..Default::default()
+                },
+            );
+        }
+    }
+
+    /// How occluded an emitter last was, or `None` if it was never set.
+    pub fn occlusion_of(&self, entity: Entity) -> Option<f32> {
+        self.last_occlusion.get(&entity).copied()
+    }
+
+    /// Whether this emitter has a live occlusion tweener.
+    ///
+    /// Always `false` without an audio backend, which is why
+    /// [`occlusion_of`](Self::occlusion_of) and not this is what tests assert
+    /// on.
+    pub fn has_occlusion_tweener(&self, entity: Entity) -> bool {
+        self.occlusion_tweeners.contains_key(&entity)
     }
 
     /// Buses this entity has emitter tracks on, in the order they were first
@@ -558,6 +678,9 @@ impl AudioWorld {
         self.emitters.retain(|(e, _), _| *e != entity);
         self.emitter_order.retain(|(e, _)| *e != entity);
         self.last_track_positions.retain(|(e, _), _| *e != entity);
+        self.occlusion_config.remove(&entity);
+        self.occlusion_tweeners.remove(&entity);
+        self.last_occlusion.remove(&entity);
         self.last_emitter_positions.remove(&entity);
     }
 

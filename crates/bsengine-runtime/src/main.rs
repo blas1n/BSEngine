@@ -18,6 +18,7 @@ use bsengine_scene::ScenePlugin;
 use bsengine_scripting::ScriptingPlugin;
 use bsengine_window::{WindowDescriptor, WindowPlugin};
 
+mod audio_occlusion;
 mod scene_systems;
 mod test_mode;
 mod test_protocol;

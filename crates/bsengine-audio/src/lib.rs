@@ -32,7 +32,7 @@ pub mod world;
 pub use audio_source::{load_audio_source, AudioSourceAsset, AudioSourceLoader};
 pub use bus::{Bus, BusLayout};
 pub use plugin::AudioPlugin;
-pub use spatial::{AudioEmitter, AudioListener};
+pub use spatial::{AudioEmitter, AudioListener, AudioOcclusion};
 pub use world::AudioWorld;
 
 #[cfg(test)]

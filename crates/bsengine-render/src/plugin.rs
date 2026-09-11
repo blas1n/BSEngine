@@ -42,21 +42,6 @@ fn sphere_visible_in_frustum(view_proj: Mat4, world_center: Vec3, world_radius: 
     true
 }
 
-/// Computes an orthographic view-projection from the light's direction for shadow mapping.
-/// Uses rh_zo (0..1 depth) to match wgpu's depth buffer convention.
-fn compute_light_view_proj(light_dir: Vec3) -> Mat4 {
-    let dir = light_dir.normalize();
-    let up = if dir.y.abs() < 0.999 {
-        Vec3::Y
-    } else {
-        Vec3::Z
-    };
-    let eye = -dir * 50.0;
-    let view = Mat4::look_at_rh(eye, Vec3::ZERO, up);
-    let proj = Mat4::orthographic_rh(-30.0, 30.0, -30.0, 30.0, 0.1, 200.0);
-    proj * view
-}
-
 fn spot_light_entry(sl: &SpotLight, gt: Option<&GlobalTransform>, t: &Transform) -> SpotLightEntry {
     let pos = gt
         .map(|g| g.to_matrix().w_axis.truncate())
@@ -955,7 +940,14 @@ fn render_frame(
         })
         .collect();
 
-    let light_view_proj = compute_light_view_proj(light.direction);
+    // Fitted to the camera, not to the world origin. `unjittered_view_proj`
+    // rather than the jittered matrix: a sub-pixel TAA offset must not shift
+    // the shadow map's texel grid, which is snapped precisely to stop it
+    // moving.
+    let light_view_proj = bsengine_rhi_wgpu::shadow::directional_light_view_proj(
+        light.direction,
+        unjittered_view_proj,
+    );
     let tex_reg_ref = tex_registry.as_deref();
 
     match surface.0.render_frame(
@@ -2082,25 +2074,6 @@ mod tests {
 
         assert!((entry.inner_angle - 45_f32.to_radians()).abs() < 1e-6);
         assert!((entry.outer_angle - 60_f32.to_radians()).abs() < 1e-6);
-    }
-
-    #[test]
-    fn light_view_proj_is_invertible() {
-        use super::compute_light_view_proj;
-        let dir = Vec3::new(-0.4, -0.8, -0.4).normalize();
-        let vp = compute_light_view_proj(dir);
-        assert!(
-            vp.determinant().abs() > 1e-6,
-            "light VP should be invertible"
-        );
-    }
-
-    #[test]
-    fn light_view_proj_up_axis_does_not_degenerate() {
-        use super::compute_light_view_proj;
-        // straight-down light — should pick Z as up without NaN/zero-det
-        let vp = compute_light_view_proj(Vec3::new(0.0, -1.0, 0.0));
-        assert!(vp.determinant().abs() > 1e-6);
     }
 
     #[test]

@@ -1332,7 +1332,13 @@ const _: () = assert!(
 );
 // Vertex stride: position(12) + color(12) + normal(12) + uv(8) = 44 bytes
 const VERTEX_STRIDE: u64 = 44;
-const SHADOW_MAP_SIZE: u32 = 2048;
+/// Edge length of the directional shadow map, in texels.
+///
+/// `pub(crate)` because [`crate::shadow`] fits the light's frustum to the
+/// camera and snaps it to whole texels of *this* texture. A second copy of the
+/// number over there would not fail loudly when the two drifted apart — the
+/// shadows would quietly start shimmering again.
+pub(crate) const SHADOW_MAP_SIZE: u32 = 2048;
 /// Deliberately much smaller than `SHADOW_MAP_SIZE` — at this size, 48 layers
 /// (`MAX_POINT_LIGHTS` * 6 faces) of `R32Float` is ~48 MiB; at 2048 it would be
 /// ~768 MiB, unreasonable for a secondary shadow feature.

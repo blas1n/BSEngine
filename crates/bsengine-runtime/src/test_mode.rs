@@ -2738,6 +2738,12 @@ mod tests {
             "occluded_count={on_occluded} exceeds the {hidden_count} entities that are \
              actually hidden, so something visible was culled"
         );
+        // How many drawn objects one entity accounts for: the opaque pass plus
+        // one directional shadow pass per cascade. Declared once, here, because
+        // three separate assertions below need it and each of them previously
+        // spelled it as a literal `2` -- which was right until cascades and
+        // then silently wrong in three places at once.
+        let passes_per_entity = 1 + bsengine_core::shadow_config::DEFAULT_CASCADES as u64;
         assert!(
             on_objects < mesh_entity_count as u64,
             "occlusion culling must measurably cut the frame's work: objects_drawn={on_objects} \
@@ -2755,7 +2761,10 @@ mod tests {
         // draw call, so a draw-call floor would be violated by a perfectly
         // correct implementation. `objects_drawn` measures what this test
         // has always been about -- how many entities survived the cull.
-        let visible_floor = 2 * (beside_count as u64 + 1);
+        // Was `2 * (...)`, which after cascades became a floor far below the
+        // real figure -- an assertion that still passed but had stopped being
+        // tight enough to catch the over-culling it exists for.
+        let visible_floor = passes_per_entity * (beside_count as u64 + 1);
         assert!(
             on_objects >= visible_floor,
             "over-cull: objects_drawn={on_objects} is below the {visible_floor} that the wall \
@@ -2796,11 +2805,6 @@ mod tests {
             "`[render] occlusion_culling = false` in project.toml must reach the render \
              path: with the identical scene it still reported occluded_count={off_occluded}"
         );
-        // One opaque pass plus one directional shadow pass per cascade. This
-        // was a literal 2 until cascades arrived, which made the number wrong
-        // on both platforms at once; derived from the cascade count so it
-        // tracks the default instead of needing to be re-guessed.
-        let passes_per_entity = 1 + bsengine_core::shadow_config::DEFAULT_CASCADES as u64;
         assert!(
             off_objects >= passes_per_entity * mesh_entity_count as u64,
             "with culling off every one of the {mesh_entity_count} mesh entities must be \

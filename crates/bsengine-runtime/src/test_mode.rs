@@ -2742,12 +2742,12 @@ mod tests {
             on_objects < mesh_entity_count as u64,
             "occlusion culling must measurably cut the frame's work: objects_drawn={on_objects} \
              is not even below the {mesh_entity_count} mesh entities in the scene, and each \
-             drawn entity costs two drawn objects (shadow + opaque) before post-processing is \
-             counted at all"
+             drawn entity costs {passes_per_entity} drawn objects (opaque plus one per shadow \
+             cascade) before post-processing is counted at all"
         );
-        // THE regression assertion. Each surviving entity contributes two
-        // drawn objects, so the {beside} entities beside the wall plus the
-        // wall itself put a floor under `objects_drawn` that an
+        // THE regression assertion. Each surviving entity contributes
+        // `passes_per_entity` drawn objects, so the {beside} entities beside
+        // the wall plus the wall itself put a floor under `objects_drawn` that an
         // over-culling implementation would fall straight through.
         //
         // This counts objects rather than draw calls because the shadow
@@ -2796,21 +2796,28 @@ mod tests {
             "`[render] occlusion_culling = false` in project.toml must reach the render \
              path: with the identical scene it still reported occluded_count={off_occluded}"
         );
+        // One opaque pass plus one directional shadow pass per cascade. This
+        // was a literal 2 until cascades arrived, which made the number wrong
+        // on both platforms at once; derived from the cascade count so it
+        // tracks the default instead of needing to be re-guessed.
+        let passes_per_entity = 1 + bsengine_core::shadow_config::DEFAULT_CASCADES as u64;
         assert!(
-            off_objects >= 2 * mesh_entity_count as u64,
+            off_objects >= passes_per_entity * mesh_entity_count as u64,
             "with culling off every one of the {mesh_entity_count} mesh entities must be \
-             drawn twice (shadow + opaque), i.e. at least {} drawn objects, but the profiler \
-             reported {off_objects} -- if the full count is not restored then phase 1's drop \
-             was not attributable to occlusion",
-            2 * mesh_entity_count
+             drawn once per pass it appears in ({passes_per_entity}: opaque plus one per \
+             shadow cascade), i.e. at least {} drawn objects, but the profiler reported \
+             {off_objects} -- if the full count is not restored then phase 1's drop was \
+             not attributable to occlusion",
+            passes_per_entity * mesh_entity_count as u64
         );
         assert_eq!(
             off_objects - on_objects,
-            2 * on_occluded,
+            passes_per_entity * on_occluded,
             "the whole difference between the two runs should be exactly the culled \
-             entities' own drawn objects: {on_occluded} culled x 2 passes each. Got \
-             off={off_objects}, on={on_objects}. Anything else means the toggle changed \
-             something beyond occlusion, or the two runs did not render the same scene.\n\
+             entities' own drawn objects: {on_occluded} culled x {passes_per_entity} \
+             passes each. Got off={off_objects}, on={on_objects}. Anything else means \
+             the toggle changed something beyond occlusion, or the two runs did not \
+             render the same scene.\n\
              \n\
              This counts objects, not draw calls: with the shadow passes instanced, \
              removing N entities of a shared mesh removes 2N objects but often zero draw \

@@ -146,6 +146,7 @@ fn the_sun_lights_a_surface_facing_it() {
 /// identical measurement somewhere else is what tells a shadow that follows
 /// the camera from one that does not.
 fn darkening_beside_a_caster(origin: Vec3) -> (f32, u32, u32, Pixels, Pixels) {
+    let cam_offset = CAMERA;
     let mut h = Harness::new();
     let plane = h.plane();
     let cube = h.cube();
@@ -153,7 +154,7 @@ fn darkening_beside_a_caster(origin: Vec3) -> (f32, u32, u32, Pixels, Pixels) {
     let scene = |draws: Vec<Draw>| Scene {
         draws,
         light: sun_from_above(),
-        camera_pos: origin + CAMERA,
+        camera_pos: origin + cam_offset,
         look_at: origin,
         ..Scene::default()
     };
@@ -185,6 +186,128 @@ fn an_occluder_darkens_floor_it_does_not_cover() {
          occluded {:?}",
         open.at(x, y),
         occluded.at(x, y)
+    );
+}
+
+/// A caster far enough away to fall in a later cascade must still shadow.
+///
+/// This is the test that makes cascade *selection* observable. At the default
+/// 200-unit shadow distance, clamped to this harness's 100-unit camera, the
+/// boundaries sit at 6.25, 25, 56.25 and 100 units — so a caster ~80 units
+/// down the view axis belongs to the last cascade. A shader that ignored the
+/// split and always sampled cascade 0 would find this fragment far outside
+/// that cascade's map and report it lit, with no shadow at all.
+///
+/// Written because exactly that mutation passed all seven of the other tests
+/// in this file: every one of them places its camera 7 units from its caster,
+/// where cascade 0 happens to be the right answer.
+///
+/// The fixture is deliberately not the shared one. Its first version reused
+/// `darkening_beside_a_caster` with a distant camera and measured a darkening
+/// of 1 — not because cascades were broken (it failed with a single cascade
+/// too) but because a unit cube 80 units away covers a handful of pixels and
+/// its straight-down shadow falls entirely inside the silhouette the
+/// measurement masks out. A big caster and an angled sun put the shadow
+/// somewhere a test can see it.
+#[test]
+fn a_distant_caster_is_shadowed_by_a_later_cascade() {
+    let mut h = Harness::new();
+    let plane = h.plane();
+    let cube = h.cube();
+
+    // Angled so the shadow lands beside the caster rather than under it, and
+    // large so both cover real pixels at this range.
+    let sun = || Light {
+        direction: Vec3::new(-0.45, -1.0, 0.0).normalize(),
+        ambient: Vec3::splat(0.05),
+        ..Light::default()
+    };
+    let camera_pos = Vec3::new(0.0, 40.0, 70.0);
+    let at = Vec3::new(0.0, 8.0, 0.0);
+    let caster = || Draw::new(cube, at).scaled(Vec3::splat(6.0), at);
+    let scene = |draws: Vec<Draw>| Scene {
+        draws,
+        light: sun(),
+        camera_pos,
+        look_at: Vec3::ZERO,
+        ..Scene::default()
+    };
+
+    let empty = h.render(&scene(vec![]));
+    let cube_only = h.render(&scene(vec![caster()]));
+    let silhouette: Vec<bool> = (0..(empty.width * empty.height))
+        .map(|i| {
+            let (x, y) = (i % empty.width, i / empty.width);
+            empty.at(x, y) != cube_only.at(x, y)
+        })
+        .collect();
+
+    let open = h.render(&scene(vec![floor(plane)]));
+    let occluded = h.render(&scene(vec![floor(plane), caster()]));
+    let (delta, x, y) = biggest_darkening_off_the_caster(&open, &occluded, &silhouette);
+    assert!(
+        delta > 30.0,
+        "a caster ~80 units from the camera falls in the last cascade and must \
+         still shadow the floor beside it; the strongest darkening away from its \
+         silhouette was only {delta} at ({x}, {y}), open {:?} occluded {:?}. \
+         Near-zero here means the shader sampled a cascade that does not cover \
+         this depth.",
+        open.at(x, y),
+        occluded.at(x, y)
+    );
+}
+
+/// The cascade cross-fade must change what is drawn.
+///
+/// Neighbouring cascades have different texel densities, so an unfaded
+/// boundary reads as a step in shadow sharpness at a fixed distance from the
+/// player. The fade is the engine's default (following Unreal, where Unity and
+/// Godot both default it off), so something has to observe that it runs at all
+/// — otherwise the setting, the uniform field and the shader's `mix` are all
+/// dead code that no test would notice.
+///
+/// A large caster spanning a boundary, rendered with the fade off and on: the
+/// two frames must differ somewhere.
+#[test]
+fn the_cascade_cross_fade_changes_the_image() {
+    let mut h = Harness::new();
+    let plane = h.plane();
+    let cube = h.cube();
+    let sun = || Light {
+        direction: Vec3::new(-0.45, -1.0, 0.0).normalize(),
+        ambient: Vec3::splat(0.05),
+        ..Light::default()
+    };
+    // Long and low, so the caster's shadow stretches across a cascade
+    // boundary rather than sitting inside one cascade.
+    let camera_pos = Vec3::new(0.0, 12.0, 60.0);
+    let at = Vec3::new(0.0, 6.0, 0.0);
+    let scene = |blend: f32| Scene {
+        draws: vec![
+            floor(plane),
+            Draw::new(cube, at).scaled(Vec3::new(4.0, 4.0, 30.0), at),
+        ],
+        light: sun(),
+        camera_pos,
+        look_at: Vec3::ZERO,
+        shadow_blend: blend,
+        ..Scene::default()
+    };
+
+    let hard = h.render(&scene(0.0));
+    let faded = h.render(&scene(0.5));
+    let differing = (0..(hard.width * hard.height))
+        .filter(|i| {
+            let (x, y) = (i % hard.width, i / hard.width);
+            (hard.luma(x, y) - faded.luma(x, y)).abs() > 2.0
+        })
+        .count();
+    assert!(
+        differing > 0,
+        "turning the cascade cross-fade from 0 to 0.5 must change some pixel; \
+         not one of {} differed by more than 2 luma, which means the blend \
+         branch never runs",
+        hard.width * hard.height
     );
 }
 

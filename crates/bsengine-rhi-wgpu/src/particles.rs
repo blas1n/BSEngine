@@ -247,9 +247,13 @@ impl ParticleRenderer {
 const PARTICLE_WGSL: &str = r#"
 struct CameraUniform {
     view_proj: mat4x4<f32>,
-    light_view_proj: mat4x4<f32>,
+    cascade_view_proj: array<mat4x4<f32>, 4>,
     cam_pos: vec3<f32>,
     time: f32,
+    cam_forward: vec3<f32>,
+    cascade_blend: f32,
+    cascade_splits: vec4<f32>,
+    cascade_count: u32,
 };
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
 @group(1) @binding(0) var t_diffuse: texture_2d<f32>;

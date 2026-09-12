@@ -82,6 +82,7 @@ pub mod reflect_validate;
 pub mod save_data;
 /// Current window/render-target size resource.
 pub mod screen_size;
+pub mod shadow_config;
 /// Depletable shield/absorb-damage component.
 pub mod shield;
 /// Skybox background component and its projection mode.
@@ -148,6 +149,7 @@ pub use reflect_mat4::ReflectMat4;
 pub use reflect_validate::{ReflectValidate, Validate};
 pub use save_data::SaveData;
 pub use screen_size::ScreenSize;
+pub use shadow_config::ShadowSettings;
 pub use shield::Shield;
 pub use skybox::{Skybox, SkyboxPath, SkyboxProjection};
 pub use taa::Taa;

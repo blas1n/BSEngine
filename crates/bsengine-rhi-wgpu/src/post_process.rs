@@ -108,7 +108,7 @@ fn fs_fog(in: FullscreenOut) -> @location(0) vec4<f32> {
 const FROXEL_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 
 /// Size of [`FogUniform`], in bytes. See the test of the same name.
-const FOG_UNIFORM_SIZE: u64 = 352;
+const FOG_UNIFORM_SIZE: u64 = 576;
 
 /// Compute workgroup edge, matching the `@workgroup_size(8, 8, 1)` in both
 /// froxel shaders. The dispatch counts are derived from it.
@@ -135,7 +135,7 @@ fn froxel_wgsl_preamble() -> String {
 const FOG_UNIFORM_STRUCT_WGSL: &str = r#"
 struct FogUniform {
     inv_view_proj: mat4x4<f32>,
-    light_view_proj: mat4x4<f32>,
+    cascade_view_proj: array<mat4x4<f32>, 4>,
     prev_view_proj: mat4x4<f32>,
     prev_inv_view_proj: mat4x4<f32>,
     camera_pos: vec3<f32>,
@@ -147,11 +147,14 @@ struct FogUniform {
     fog_color: vec3<f32>,
     anisotropy: f32,
     prev_camera_pos: vec3<f32>,
-    pad0: f32,
+    cascade_blend: f32,
     enabled: u32,
     frame_index: u32,
     history_valid: u32,
-    pad1: f32,
+    cascade_count: u32,
+    cascade_splits: vec4<f32>,
+    cam_forward: vec3<f32>,
+    pad0: f32,
 }
 "#;
 
@@ -361,7 +364,7 @@ struct LightUniform {
     _pad4: f32,
     spot_lights: array<SpotLightEntry, 8>,
 }
-@group(2) @binding(0) var shadow_map: texture_depth_2d;
+@group(2) @binding(0) var shadow_map: texture_depth_2d_array;
 @group(2) @binding(1) var shadow_sampler: sampler_comparison;
 @group(2) @binding(2) var point_shadow_map: texture_2d_array<f32>;
 @group(2) @binding(3) var<uniform> lights: LightUniform;
@@ -416,8 +419,8 @@ fn henyey_greenstein(cos_theta: f32, g_in: f32) -> f32 {
 // is the point -- a froxel and a surface at one world position have to agree
 // about whether they are in shadow, or the beams will not line up with the
 // shadows the geometry casts.
-fn directional_shadow_factor(world_pos: vec3<f32>) -> f32 {
-    let lsp = fog.light_view_proj * vec4<f32>(world_pos, 1.0);
+fn fog_cascade_sample(world_pos: vec3<f32>, vp: mat4x4<f32>, layer: i32) -> f32 {
+    let lsp = vp * vec4<f32>(world_pos, 1.0);
     let proj = lsp.xyz / lsp.w;
     let uv = proj.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5, 0.5);
     let depth = proj.z;
@@ -425,7 +428,43 @@ fn directional_shadow_factor(world_pos: vec3<f32>) -> f32 {
         || depth < 0.0 || depth > 1.0) {
         return 1.0;
     }
-    return textureSampleCompareLevel(shadow_map, shadow_sampler, uv, depth - 0.003);
+    return textureSampleCompareLevel(shadow_map, shadow_sampler, uv, layer, depth - 0.003);
+}
+
+// Cascade selection, and it has to be the *same* selection the scene shader
+// makes. The alignment this file has always been careful about now depends on
+// two things agreeing rather than one: a froxel that picked a different
+// cascade than the surface behind it would sample a map of a different texel
+// density, and the beams would part company with the shadows at exactly the
+// boundaries where cascades change.
+fn fog_cascade_for(view_depth: f32) -> i32 {
+    var layer = 0;
+    if (view_depth >= fog.cascade_splits.x) { layer = 1; }
+    if (view_depth >= fog.cascade_splits.y) { layer = 2; }
+    if (view_depth >= fog.cascade_splits.z) { layer = 3; }
+    return min(layer, i32(fog.cascade_count) - 1);
+}
+fn fog_cascade_far(layer: i32) -> f32 {
+    if (layer == 0) { return fog.cascade_splits.x; }
+    if (layer == 1) { return fog.cascade_splits.y; }
+    if (layer == 2) { return fog.cascade_splits.z; }
+    return fog.cascade_splits.w;
+}
+fn directional_shadow_factor(world_pos: vec3<f32>) -> f32 {
+    let view_depth = dot(world_pos - fog.camera_pos, fog.cam_forward);
+    let layer = fog_cascade_for(view_depth);
+    var lit = fog_cascade_sample(world_pos, fog.cascade_view_proj[layer], layer);
+    let last = i32(fog.cascade_count) - 1;
+    if (fog.cascade_blend > 0.0 && layer < last) {
+        let far = fog_cascade_far(layer);
+        let band = far * fog.cascade_blend;
+        if (band > 0.0 && view_depth > far - band) {
+            let t = clamp((view_depth - (far - band)) / band, 0.0, 1.0);
+            let next = fog_cascade_sample(world_pos, fog.cascade_view_proj[layer + 1], layer + 1);
+            lit = mix(lit, next, t);
+        }
+    }
+    return lit;
 }
 
 // Verbatim port of the scene shader's `point_shadow_factor` (surface.rs) --
@@ -1126,14 +1165,14 @@ pub struct TaaCameraGpu {
 pub struct FogUniform {
     /// Inverse view-projection, to turn a froxel into a world position.
     pub inv_view_proj: [[f32; 4]; 4],
-    /// The directional shadow map's view-projection -- the same matrix the
-    /// scene shader's camera uniform carries as `light_view_proj`.
+    /// The directional shadow cascades -- the same matrices the scene
+    /// shader's camera uniform carries.
     ///
-    /// It lives here rather than being read out of the shared light uniform
-    /// because it is not in there: on the scene side it belongs to the *camera*
-    /// uniform, next to `view_proj`, and this pass already carries its own
-    /// camera matrices for the same reason (they are the jittered ones).
-    pub light_view_proj: [[f32; 4]; 4],
+    /// They live here rather than being read out of the shared light uniform
+    /// because they are not in there: on the scene side they belong to the
+    /// *camera* uniform, next to `view_proj`, and this pass already carries its
+    /// own camera matrices for the same reason (they are the jittered ones).
+    pub cascade_view_proj: [[[f32; 4]; 4]; crate::shadow::MAX_CASCADES],
     /// The PREVIOUS frame's view-projection, used to find where a froxel's world
     /// position sat in the previous frame's volume.
     ///
@@ -1163,8 +1202,10 @@ pub struct FogUniform {
     /// The PREVIOUS frame's camera position, the origin the reprojection ray is
     /// measured from.
     pub prev_camera_pos: [f32; 3],
-    /// Padding to the 16-byte uniform stride. See `fog_uniform_size`.
-    pub _pad0: f32,
+    /// Cross-fade width at each cascade boundary, matching the scene
+    /// shader's. Took a padding slot, so the struct grew only by the cascade
+    /// data itself.
+    pub cascade_blend: f32,
     /// Nonzero to run the fog passes at all.
     pub enabled: u32,
     /// The frame counter driving the injection pass's depth dither; see
@@ -1184,8 +1225,17 @@ pub struct FogUniform {
     /// caller puts here is overwritten. It is a field of this struct rather than
     /// a separate uniform because the injection shader reads it per froxel.
     pub history_valid: u32,
+    /// How many of [`FogUniform::cascade_view_proj`] are live. Took the other
+    /// padding slot.
+    pub cascade_count: u32,
+    /// Far distance of each cascade; entries past `cascade_count` sit beyond
+    /// any reachable depth.
+    pub cascade_splits: [f32; 4],
+    /// The camera's forward axis, so a froxel measures depth along the axis
+    /// the cascades were sliced along -- the same one the scene shader uses.
+    pub cam_forward: [f32; 3],
     /// Padding to the 16-byte uniform stride. See `fog_uniform_size`.
-    pub _pad1: f32,
+    pub _pad0: f32,
 }
 
 /// The scene's shadow resources, borrowed for the froxel injection pass's
@@ -1584,7 +1634,10 @@ impl PostProcessState {
                     visibility: wgpu::ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Depth,
-                        view_dimension: wgpu::TextureViewDimension::D2,
+                        // The directional shadow map, now one layer per
+                        // cascade. (The scene depth buffer's own layout, above,
+                        // stays D2 -- it is a different texture.)
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
                         multisampled: false,
                     },
                     count: None,
@@ -3386,7 +3439,13 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
                 device,
                 &wgpu::TextureDescriptor {
                     label: Some("test shadow map"),
-                    size: one,
+                    // One layer per cascade, matching the real shadow map: the
+                    // fog pass binds whatever the surface hands it, and the
+                    // layout now demands an array.
+                    size: wgpu::Extent3d {
+                        depth_or_array_layers: bsengine_core::shadow_config::MAX_CASCADES as u32,
+                        ..one
+                    },
                     mip_level_count: 1,
                     sample_count: 1,
                     dimension: wgpu::TextureDimension::D2,
@@ -3396,7 +3455,10 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
                     view_formats: &[],
                 },
             );
-            let shadow_view = shadow_texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let shadow_view = shadow_texture.create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2Array),
+                ..Default::default()
+            });
             let shadow_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
                 label: Some("test shadow comparison sampler"),
                 compare: Some(wgpu::CompareFunction::LessEqual),
@@ -3581,8 +3643,11 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
                 inv_view_proj: glam::Mat4::perspective_rh(1.0, 1.0, 0.1, 100.0)
                     .inverse()
                     .to_cols_array_2d(),
-                light_view_proj: glam::Mat4::orthographic_rh(-30.0, 30.0, -30.0, 30.0, 0.1, 200.0)
-                    .to_cols_array_2d(),
+                cascade_view_proj: [glam::Mat4::orthographic_rh(
+                    -30.0, 30.0, -30.0, 30.0, 0.1, 200.0,
+                )
+                .to_cols_array_2d();
+                    bsengine_core::shadow_config::MAX_CASCADES],
                 prev_view_proj: glam::Mat4::perspective_rh(1.0, 1.0, 0.1, 100.0).to_cols_array_2d(),
                 prev_inv_view_proj: glam::Mat4::perspective_rh(1.0, 1.0, 0.1, 100.0)
                     .inverse()
@@ -3596,11 +3661,14 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
                 fog_color: [0.5, 0.6, 0.7],
                 anisotropy: 0.3,
                 prev_camera_pos: [0.0, 0.0, 0.0],
-                _pad0: 0.0,
+                cascade_blend: 0.0,
                 enabled: 1,
                 frame_index: 0,
                 history_valid: 0,
-                _pad1: 0.0,
+                cascade_count: 1,
+                cascade_splits: [f32::MAX; 4],
+                cam_forward: [0.0, 0.0, -1.0],
+                _pad0: 0.0,
             },
         );
         assert!(pp.fog_enabled, "a nonzero `enabled` must arm the dispatch");
@@ -3631,11 +3699,12 @@ fn cs_probe(@builtin(global_invocation_id) gid: vec3<u32>) {
         }
 
         device.poll(wgpu::Maintain::Wait);
+        let err = pollster::block_on(device.pop_error_scope());
         assert!(
-            pollster::block_on(device.pop_error_scope()).is_none(),
+            err.is_none(),
             "the froxel injection and integration passes must record cleanly; \
              a validation error here means the pipeline layouts, the bind \
-             groups, or the storage-texture formats disagree with the WGSL"
+             groups, or the storage-texture formats disagree with the WGSL: {err:?}"
         );
     }
 

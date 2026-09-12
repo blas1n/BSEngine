@@ -180,6 +180,13 @@ pub struct Scene {
     pub light: Light,
     pub camera_pos: Vec3,
     pub look_at: Vec3,
+    /// Cross-fade width at each cascade boundary, as a fraction of that
+    /// cascade's far distance.
+    ///
+    /// Exposed so a test can render the same scene with and without the fade
+    /// and compare. Without an override the blend is whatever the engine
+    /// defaults to, and nothing observes whether the shader's mix runs at all.
+    pub shadow_blend: f32,
     pub bloom: Option<bsengine_core::Bloom>,
     pub tone_map: Option<bsengine_core::ToneMap>,
     pub ssao: Option<bsengine_core::AmbientOcclusion>,
@@ -212,6 +219,7 @@ impl Default for Scene {
             light: Light::default(),
             camera_pos: Vec3::new(0.0, 0.0, 5.0),
             look_at: Vec3::ZERO,
+            shadow_blend: bsengine_core::shadow_config::DEFAULT_CASCADE_BLEND,
             bloom: None,
             tone_map: None,
             ssao: None,
@@ -387,9 +395,13 @@ impl Harness {
             r#"
 struct CameraUniform {{
     view_proj: mat4x4<f32>,
-    light_view_proj: mat4x4<f32>,
+    cascade_view_proj: array<mat4x4<f32>, 4>,
     cam_pos: vec3<f32>,
     time: f32,
+    cam_forward: vec3<f32>,
+    cascade_blend: f32,
+    cascade_splits: vec4<f32>,
+    cascade_count: u32,
 }};
 struct ModelUniform {{
     model: mat4x4<f32>,
@@ -593,7 +605,7 @@ struct VertOut {{
             .render_frame(
                 view_proj,
                 scene.camera_pos,
-                light_view_proj(scene.light.direction, view_proj),
+                &light_view_proj(scene.light.direction, view_proj, scene.shadow_blend),
                 sky_vp_inv,
                 &draw_calls,
                 &[],
@@ -685,6 +697,17 @@ struct VertOut {{
 /// picks a good matrix." The calculation now lives in this crate, so that
 /// caveat is retired: these tests render with the matrix the game renders
 /// with.
-pub fn light_view_proj(light_dir: Vec3, camera_view_proj: Mat4) -> Mat4 {
-    bsengine_rhi_wgpu::shadow::directional_light_view_proj(light_dir, camera_view_proj)
+pub fn light_view_proj(
+    light_dir: Vec3,
+    camera_view_proj: Mat4,
+    blend: f32,
+) -> bsengine_rhi_wgpu::shadow::DirectionalCascades {
+    let s = bsengine_core::ShadowSettings::default();
+    bsengine_rhi_wgpu::shadow::DirectionalCascades::new(
+        light_dir,
+        camera_view_proj,
+        s.distance,
+        s.cascades,
+        blend,
+    )
 }

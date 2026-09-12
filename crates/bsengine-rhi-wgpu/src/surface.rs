@@ -24,9 +24,13 @@ const MAX_SPOT_LIGHTS: u32 = 8u;
 const PI: f32 = 3.14159265358979323846;
 struct CameraUniform {
     view_proj: mat4x4<f32>,
-    light_view_proj: mat4x4<f32>,
+    cascade_view_proj: array<mat4x4<f32>, 4>,
     cam_pos: vec3<f32>,
     time: f32,
+    cam_forward: vec3<f32>,
+    cascade_blend: f32,
+    cascade_splits: vec4<f32>,
+    cascade_count: u32,
 };
 struct ModelUniform {
     model: mat4x4<f32>,
@@ -84,7 +88,7 @@ struct LightUniform {
 @group(3) @binding(0) var t_diffuse: texture_2d<f32>;
 @group(3) @binding(1) var s_diffuse: sampler;
 @group(2) @binding(1) var shadow_sampler: sampler_comparison;
-@group(2) @binding(2) var shadow_map: texture_depth_2d;
+@group(2) @binding(2) var shadow_map: texture_depth_2d_array;
 @group(2) @binding(4) var point_shadow_map: texture_2d_array<f32>;
 // Image-based lighting. These are always bound -- with 1x1 dummies when no
 // skybox is loaded -- because a bind group layout cannot vary per frame;
@@ -132,7 +136,6 @@ struct VertOut {
     @location(1) world_normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
     @location(3) world_pos: vec3<f32>,
-    @location(4) light_space_pos: vec4<f32>,
 }
 @vertex
 fn vs_main(in: VertIn) -> VertOut {
@@ -148,17 +151,57 @@ fn vs_main(in: VertIn) -> VertOut {
     );
     out.world_normal = normalize(normal_matrix * in.normal);
     out.uv = in.uv;
-    out.light_space_pos = camera.light_view_proj * world_pos4;
     return out;
 }
-fn shadow_factor(lsp: vec4<f32>) -> f32 {
+// One cascade's lookup. Returns 1.0 (fully lit) outside the cascade, which is
+// what lets the caller fall through to a wider one.
+fn shadow_sample(world_pos: vec3<f32>, vp: mat4x4<f32>, layer: i32) -> f32 {
+    let lsp = vp * vec4<f32>(world_pos, 1.0);
     let proj = lsp.xyz / lsp.w;
     let uv = proj.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5, 0.5);
     let depth = proj.z;
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || depth < 0.0 || depth > 1.0) {
         return 1.0;
     }
-    return textureSampleCompare(shadow_map, shadow_sampler, uv, depth - 0.003);
+    return textureSampleCompare(shadow_map, shadow_sampler, uv, layer, depth - 0.003);
+}
+// Which cascade covers this fragment, chosen by distance along the view axis --
+// the same axis the cascades were sliced along. Radial distance would disagree
+// at the screen edges and could name a cascade whose slice does not contain
+// the point.
+fn cascade_for(view_depth: f32) -> i32 {
+    var layer = 0;
+    if (view_depth >= camera.cascade_splits.x) { layer = 1; }
+    if (view_depth >= camera.cascade_splits.y) { layer = 2; }
+    if (view_depth >= camera.cascade_splits.z) { layer = 3; }
+    return min(layer, i32(camera.cascade_count) - 1);
+}
+fn cascade_far(layer: i32) -> f32 {
+    if (layer == 0) { return camera.cascade_splits.x; }
+    if (layer == 1) { return camera.cascade_splits.y; }
+    if (layer == 2) { return camera.cascade_splits.z; }
+    return camera.cascade_splits.w;
+}
+fn shadow_factor(world_pos: vec3<f32>) -> f32 {
+    let view_depth = dot(world_pos - camera.cam_pos, camera.cam_forward);
+    let layer = cascade_for(view_depth);
+    var lit = shadow_sample(world_pos, camera.cascade_view_proj[layer], layer);
+    // Fade across the boundary rather than switching hard. Neighbouring
+    // cascades have different texel densities, so the seam is visible as a
+    // step in shadow sharpness without this. Unreal fades by default; Unity
+    // and Godot default it off, and `cascade_blend = 0` reproduces their hard
+    // edge exactly.
+    let last = i32(camera.cascade_count) - 1;
+    if (camera.cascade_blend > 0.0 && layer < last) {
+        let far = cascade_far(layer);
+        let band = far * camera.cascade_blend;
+        if (band > 0.0 && view_depth > far - band) {
+            let t = clamp((view_depth - (far - band)) / band, 0.0, 1.0);
+            let next = shadow_sample(world_pos, camera.cascade_view_proj[layer + 1], layer + 1);
+            lit = mix(lit, next, t);
+        }
+    }
+    return lit;
 }
 // Linear-distance cube shadow lookup: `to_frag` is the direction from the
 // light to the fragment (world-space, unnormalized). Selects the cube face
@@ -337,7 +380,7 @@ fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
     let roughness = max(model_data.roughness, 0.04);
     let f0 = mix(vec3<f32>(0.04, 0.04, 0.04), albedo, metallic);
     let n_dot_v = max(dot(n, v), 0.0001);
-    let lit = shadow_factor(in.light_space_pos);
+    let lit = shadow_factor(in.world_pos);
 
     var lo = vec3<f32>(0.0, 0.0, 0.0);
     {
@@ -451,9 +494,13 @@ const PI: f32 = 3.14159265358979323846;
 const TILE_SIZE: f32 = 2.0;
 struct CameraUniform {
     view_proj: mat4x4<f32>,
-    light_view_proj: mat4x4<f32>,
+    cascade_view_proj: array<mat4x4<f32>, 4>,
     cam_pos: vec3<f32>,
     time: f32,
+    cam_forward: vec3<f32>,
+    cascade_blend: f32,
+    cascade_splits: vec4<f32>,
+    cascade_count: u32,
 };
 struct ModelUniform {
     model: mat4x4<f32>,
@@ -515,7 +562,7 @@ struct LightUniform {
 @group(3) @binding(4) var t_weight: texture_2d<f32>;
 @group(3) @binding(5) var s_terrain: sampler;
 @group(2) @binding(1) var shadow_sampler: sampler_comparison;
-@group(2) @binding(2) var shadow_map: texture_depth_2d;
+@group(2) @binding(2) var shadow_map: texture_depth_2d_array;
 @group(2) @binding(4) var point_shadow_map: texture_2d_array<f32>;
 
 struct VertIn {
@@ -530,7 +577,6 @@ struct VertOut {
     @location(1) world_normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
     @location(3) world_pos: vec3<f32>,
-    @location(4) light_space_pos: vec4<f32>,
 }
 @vertex
 fn vs_main(in: VertIn) -> VertOut {
@@ -546,17 +592,57 @@ fn vs_main(in: VertIn) -> VertOut {
     );
     out.world_normal = normalize(normal_matrix * in.normal);
     out.uv = in.uv;
-    out.light_space_pos = camera.light_view_proj * world_pos4;
     return out;
 }
-fn shadow_factor(lsp: vec4<f32>) -> f32 {
+// One cascade's lookup. Returns 1.0 (fully lit) outside the cascade, which is
+// what lets the caller fall through to a wider one.
+fn shadow_sample(world_pos: vec3<f32>, vp: mat4x4<f32>, layer: i32) -> f32 {
+    let lsp = vp * vec4<f32>(world_pos, 1.0);
     let proj = lsp.xyz / lsp.w;
     let uv = proj.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5, 0.5);
     let depth = proj.z;
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || depth < 0.0 || depth > 1.0) {
         return 1.0;
     }
-    return textureSampleCompare(shadow_map, shadow_sampler, uv, depth - 0.003);
+    return textureSampleCompare(shadow_map, shadow_sampler, uv, layer, depth - 0.003);
+}
+// Which cascade covers this fragment, chosen by distance along the view axis --
+// the same axis the cascades were sliced along. Radial distance would disagree
+// at the screen edges and could name a cascade whose slice does not contain
+// the point.
+fn cascade_for(view_depth: f32) -> i32 {
+    var layer = 0;
+    if (view_depth >= camera.cascade_splits.x) { layer = 1; }
+    if (view_depth >= camera.cascade_splits.y) { layer = 2; }
+    if (view_depth >= camera.cascade_splits.z) { layer = 3; }
+    return min(layer, i32(camera.cascade_count) - 1);
+}
+fn cascade_far(layer: i32) -> f32 {
+    if (layer == 0) { return camera.cascade_splits.x; }
+    if (layer == 1) { return camera.cascade_splits.y; }
+    if (layer == 2) { return camera.cascade_splits.z; }
+    return camera.cascade_splits.w;
+}
+fn shadow_factor(world_pos: vec3<f32>) -> f32 {
+    let view_depth = dot(world_pos - camera.cam_pos, camera.cam_forward);
+    let layer = cascade_for(view_depth);
+    var lit = shadow_sample(world_pos, camera.cascade_view_proj[layer], layer);
+    // Fade across the boundary rather than switching hard. Neighbouring
+    // cascades have different texel densities, so the seam is visible as a
+    // step in shadow sharpness without this. Unreal fades by default; Unity
+    // and Godot default it off, and `cascade_blend = 0` reproduces their hard
+    // edge exactly.
+    let last = i32(camera.cascade_count) - 1;
+    if (camera.cascade_blend > 0.0 && layer < last) {
+        let far = cascade_far(layer);
+        let band = far * camera.cascade_blend;
+        if (band > 0.0 && view_depth > far - band) {
+            let t = clamp((view_depth - (far - band)) / band, 0.0, 1.0);
+            let next = shadow_sample(world_pos, camera.cascade_view_proj[layer + 1], layer + 1);
+            lit = mix(lit, next, t);
+        }
+    }
+    return lit;
 }
 fn point_shadow_factor(light_index: u32, to_frag: vec3<f32>) -> f32 {
     let ax = abs(to_frag.x);
@@ -649,7 +735,7 @@ fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
     let roughness = max(model_data.roughness, 0.04);
     let f0 = mix(vec3<f32>(0.04, 0.04, 0.04), albedo, metallic);
     let n_dot_v = max(dot(n, v), 0.0001);
-    let lit = shadow_factor(in.light_space_pos);
+    let lit = shadow_factor(in.world_pos);
 
     var lo = vec3<f32>(0.0, 0.0, 0.0);
     {
@@ -770,11 +856,10 @@ fn shadow_wgsl(instanced: bool) -> String {
     let (decl, fetch) = model_access(instanced);
     format!(
         r#"
-struct CameraUniform {{
-    view_proj: mat4x4<f32>,
+struct CascadeUniform {{
     light_view_proj: mat4x4<f32>,
 }};
-@group(0) @binding(0) var<uniform> camera: CameraUniform;
+@group(0) @binding(0) var<uniform> cascade: CascadeUniform;
 {decl}
 struct VertIn {{
     @builtin(instance_index) instance: u32,
@@ -787,7 +872,7 @@ struct VertIn {{
 @vertex
 fn vs_shadow(in: VertIn) -> @builtin(position) vec4<f32> {{
     let world = {fetch} * vec4<f32>(in.pos, 1.0);
-    return camera.light_view_proj * world;
+    return cascade.light_view_proj * world;
 }}
 "#
     )
@@ -903,7 +988,7 @@ struct CaptureUniform {
     light_view_proj: mat4x4<f32>,
     inv_view_proj: mat4x4<f32>,
     probe_pos: vec3<f32>,
-    _pad: f32,
+    cascade_layer: u32,
 };
 struct ModelUniform {
     model: mat4x4<f32>,
@@ -956,7 +1041,7 @@ struct LightUniform {
 @group(1) @binding(0) var<uniform> model_data: ModelUniform;
 @group(2) @binding(0) var<uniform> light: LightUniform;
 @group(2) @binding(1) var shadow_sampler: sampler_comparison;
-@group(2) @binding(2) var shadow_map: texture_depth_2d;
+@group(2) @binding(2) var shadow_map: texture_depth_2d_array;
 @group(2) @binding(4) var point_shadow_map: texture_2d_array<f32>;
 // Bindings 3 and 5..8 of group 2 exist in the layout (the point-shadow
 // sampler and the three IBL resources) and are deliberately NOT declared
@@ -977,7 +1062,6 @@ struct VertOut {
     @location(1) world_normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
     @location(3) world_pos: vec3<f32>,
-    @location(4) light_space_pos: vec4<f32>,
 }
 @vertex
 fn vs_capture(in: VertIn) -> VertOut {
@@ -993,17 +1077,24 @@ fn vs_capture(in: VertIn) -> VertOut {
     );
     out.world_normal = normalize(normal_matrix * in.normal);
     out.uv = in.uv;
-    out.light_space_pos = capture.light_view_proj * world_pos4;
     return out;
 }
-fn shadow_factor(lsp: vec4<f32>) -> f32 {
+// One cascade's lookup. Returns 1.0 (fully lit) outside the cascade, which is
+// what lets the caller fall through to a wider one.
+fn shadow_sample(world_pos: vec3<f32>, vp: mat4x4<f32>, layer: i32) -> f32 {
+    let lsp = vp * vec4<f32>(world_pos, 1.0);
     let proj = lsp.xyz / lsp.w;
     let uv = proj.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5, 0.5);
     let depth = proj.z;
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || depth < 0.0 || depth > 1.0) {
         return 1.0;
     }
-    return textureSampleCompare(shadow_map, shadow_sampler, uv, depth - 0.003);
+    return textureSampleCompare(shadow_map, shadow_sampler, uv, layer, depth - 0.003);
+}
+fn shadow_factor(world_pos: vec3<f32>) -> f32 {
+    // One cascade, named by the CPU (the widest one), because a probe capture
+    // has no camera whose view axis the cascade split would be measured along.
+    return shadow_sample(world_pos, capture.light_view_proj, i32(capture.cascade_layer));
 }
 fn point_shadow_factor(light_index: u32, to_frag: vec3<f32>) -> f32 {
     let ax = abs(to_frag.x);
@@ -1087,7 +1178,7 @@ fn fs_capture(in: VertOut) -> @location(0) vec4<f32> {
     let roughness = max(model_data.roughness, 0.04);
     let f0 = mix(vec3<f32>(0.04, 0.04, 0.04), albedo, metallic);
     let n_dot_v = max(dot(n, v), 0.0001);
-    let lit = shadow_factor(in.light_space_pos);
+    let lit = shadow_factor(in.world_pos);
 
     var lo = vec3<f32>(0.0, 0.0, 0.0);
     {
@@ -1177,7 +1268,7 @@ struct CaptureUniform {
     light_view_proj: mat4x4<f32>,
     inv_view_proj: mat4x4<f32>,
     probe_pos: vec3<f32>,
-    _pad: f32,
+    cascade_layer: u32,
 };
 @group(0) @binding(0) var<uniform> capture: CaptureUniform;
 @group(1) @binding(0) var t_sky: texture_2d<f32>;
@@ -1313,8 +1404,28 @@ fn warn_if_slots_truncated(wanted: usize) {
          not the shadows the scene calls for.",
     );
 }
-// view_proj(64) + light_view_proj(64) + cam_pos(12) + pad(4) = 144
-const CAMERA_UNIFORM_SIZE: u64 = 144;
+// view_proj(64) + cascade_view_proj(4*64=256) + cam_pos(12)+time(4) +
+// cam_forward(12)+cascade_blend(4) + cascade_splits(16) + cascade_count(4)+pad(12) = 384
+const CAMERA_UNIFORM_SIZE: u64 = 384;
+
+/// Per-cascade dynamic-offset stride for `cascade_uniform_buffer`, following
+/// the same 256-byte convention as `POINT_SHADOW_STRIDE` (the payload is one
+/// 64-byte matrix; 256 satisfies wgpu's minimum uniform offset alignment on
+/// every backend).
+const CASCADE_STRIDE: u64 = 256;
+
+/// Profiler labels for the directional shadow passes.
+///
+/// One name per cascade rather than one shared name, so the profiler panel
+/// reports what each cascade costs. Reusing a single label across four passes
+/// would fold them into one row and make a four-cascade frame look like the
+/// one-pass frame it replaced.
+const CASCADE_PASS_NAMES: [&str; crate::shadow::MAX_CASCADES] = [
+    "directional_shadow_c0",
+    "directional_shadow_c1",
+    "directional_shadow_c2",
+    "directional_shadow_c3",
+];
 // inv_vp mat4x4<f32> = 64 bytes
 const SKY_UNIFORM_SIZE: u64 = 64;
 // direction(16) + color(16) + ambient+count(16) + 8×PointLightGpu(48=384) +
@@ -1332,13 +1443,34 @@ const _: () = assert!(
 );
 // Vertex stride: position(12) + color(12) + normal(12) + uv(8) = 44 bytes
 const VERTEX_STRIDE: u64 = 44;
-/// Edge length of the directional shadow map, in texels.
+/// Edge length of one directional shadow cascade, in texels.
+///
+/// 1024 across [`crate::shadow::MAX_CASCADES`] layers is 4 x 1024 x 1024 x 4
+/// bytes of Depth32Float -- exactly the 16 MiB the single 2048-square map cost
+/// before cascades. **The total is deliberately unchanged.**
+///
+/// That is not a free choice, it is the one two of the three reference engines
+/// make: Unity's shadow atlas and Godot's `directional_shadow_size` are both a
+/// fixed total divided among the cascades, while Unreal allocates each cascade
+/// at full resolution. Keeping the total fixed still buys the near field a
+/// large density win, because the near cascade covers a few units instead of
+/// the whole shadow distance.
+///
+/// It was first written as 2048 per cascade, which is 67 MiB. Raising it back
+/// is a VRAM decision, not a tuning knob.
+///
+/// (Concurrent GPU tests on this machine do fail intermittently with "Not
+/// enough memory left", in a different test each run. That was initially read
+/// as evidence for this constant, but `master` reproduces it without cascades
+/// at all, so it is a pre-existing limit of the test environment and *not* a
+/// reason for the number chosen here. The reason is the engine precedent
+/// above.)
 ///
 /// `pub(crate)` because [`crate::shadow`] fits the light's frustum to the
 /// camera and snaps it to whole texels of *this* texture. A second copy of the
 /// number over there would not fail loudly when the two drifted apart — the
 /// shadows would quietly start shimmering again.
-pub(crate) const SHADOW_MAP_SIZE: u32 = 2048;
+pub(crate) const SHADOW_MAP_SIZE: u32 = 1024;
 /// Deliberately much smaller than `SHADOW_MAP_SIZE` — at this size, 48 layers
 /// (`MAX_POINT_LIGHTS` * 6 faces) of `R32Float` is ~48 MiB; at 2048 it would be
 /// ~768 MiB, unreasonable for a secondary shadow feature.
@@ -1469,12 +1601,39 @@ fn probe_positions(params: &ProbeVolumeParams) -> Vec<Vec3> {
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct CameraUniformData {
     view_proj: [[f32; 4]; 4],
-    light_view_proj: [[f32; 4]; 4],
+    /// One view-projection per cascade. Always `MAX_CASCADES` entries, of
+    /// which `cascade_count` are live — a uniform array has to be a fixed
+    /// size, and the shader clamps its layer index to the live count.
+    cascade_view_proj: [[[f32; 4]; 4]; crate::shadow::MAX_CASCADES],
     cam_pos: [f32; 3],
     /// Seconds elapsed since app startup — was an unused padding field
     /// (`cam_pos: vec3<f32>` needs 16-byte alignment; this fills the
     /// remaining 4 bytes), now exposed to shaders as `camera.time`.
     time: f32,
+    /// The camera's forward axis, so the fragment stage can measure depth
+    /// along the axis the cascades were sliced along. Radial distance from
+    /// `cam_pos` would disagree at the screen edges.
+    cam_forward: [f32; 3],
+    /// Width of the cross-fade at each cascade boundary, as a fraction of
+    /// that cascade's far distance. Zero is a hard switch.
+    cascade_blend: f32,
+    /// Far distance of each cascade. Entries past `cascade_count` are set
+    /// beyond any reachable depth so the shader's comparison chain falls
+    /// through to the last live cascade without needing to know the count.
+    cascade_splits: [f32; 4],
+    cascade_count: u32,
+    _pad: [u32; 3],
+}
+
+/// One cascade's light matrix, bound per shadow pass through a dynamic offset.
+///
+/// Separate from [`CameraUniformData`] because the shadow pass needs to be told
+/// *which* cascade it is rendering, and a pass cannot index an array by
+/// anything but a binding offset.
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct CascadeUniformData {
+    light_view_proj: [[f32; 4]; 4],
 }
 
 /// Material parameters uploaded per draw call.
@@ -1539,7 +1698,9 @@ struct ProbeCaptureUniformData {
     inv_view_proj: [[f32; 4]; 4],
     /// The probe's world position, which is this capture's eye point.
     probe_pos: [f32; 3],
-    _pad: f32,
+    /// Which shadow-map layer this capture samples. A probe has no camera to
+    /// measure a cascade split along, so the CPU nominates one.
+    cascade_layer: u32,
 }
 
 // The dynamic offset of face `n` is `n * PROBE_CAPTURE_STRIDE`, so a struct
@@ -2047,6 +2208,11 @@ pub struct WgpuSurface {
     shadow_pipeline: wgpu::RenderPipeline,
     _shadow_map_texture: crate::profiler::TrackedTexture,
     shadow_map_view: wgpu::TextureView,
+    /// One single-layer view per cascade, to render into. A render pass
+    /// attaches exactly one layer and so cannot use the array view above.
+    shadow_cascade_views: Vec<wgpu::TextureView>,
+    cascade_uniform_buffer: wgpu::Buffer,
+    cascade_bind_group: wgpu::BindGroup,
     // No longer underscore-prefixed: the two shadow samplers and the point
     // shadow array view are read back whenever `light_bind_group` is rebuilt.
     shadow_comparison_sampler: wgpu::Sampler,
@@ -2652,7 +2818,10 @@ impl WgpuSurface {
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Depth,
-                        view_dimension: wgpu::TextureViewDimension::D2,
+                        // An array since cascades: one layer per cascade. The
+                        // layout has to say so as well as the shader, or bind
+                        // time fails with a dimension mismatch.
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
                         multisampled: false,
                     },
                     count: None,
@@ -2797,7 +2966,11 @@ impl WgpuSurface {
                 size: wgpu::Extent3d {
                     width: SHADOW_MAP_SIZE,
                     height: SHADOW_MAP_SIZE,
-                    depth_or_array_layers: 1,
+                    // Always the maximum, not the configured count: the
+                    // texture is built once here, while the count comes from
+                    // project settings that can differ per run. At 2048 square
+                    // this is 4 x 16 MiB of Depth32Float.
+                    depth_or_array_layers: crate::shadow::MAX_CASCADES as u32,
                 },
                 mip_level_count: 1,
                 sample_count: 1,
@@ -2808,8 +2981,25 @@ impl WgpuSurface {
                 view_formats: &[],
             },
         );
-        let shadow_map_view =
-            shadow_map_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        // Two kinds of view: one array view the lighting shaders sample, and
+        // one single-layer view per cascade to render into. A render pass
+        // attaches exactly one layer, so it cannot use the array view.
+        let shadow_map_view = shadow_map_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: Some("shadow map array view"),
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
+        let shadow_cascade_views: Vec<wgpu::TextureView> = (0..crate::shadow::MAX_CASCADES)
+            .map(|i| {
+                shadow_map_texture.create_view(&wgpu::TextureViewDescriptor {
+                    label: Some("shadow cascade view"),
+                    dimension: Some(wgpu::TextureViewDimension::D2),
+                    base_array_layer: i as u32,
+                    array_layer_count: Some(1),
+                    ..Default::default()
+                })
+            })
+            .collect();
 
         let shadow_comparison_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("shadow comparison sampler"),
@@ -2879,6 +3069,44 @@ impl WgpuSurface {
             mag_filter: wgpu::FilterMode::Nearest,
             min_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
+        });
+
+        let cascade_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("cascade uniform"),
+            size: CASCADE_STRIDE * crate::shadow::MAX_CASCADES as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let cascade_uniform_bgl =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("cascade uniform bgl"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: true,
+                        min_binding_size: wgpu::BufferSize::new(std::mem::size_of::<
+                            CascadeUniformData,
+                        >() as u64),
+                    },
+                    count: None,
+                }],
+            });
+        let cascade_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("cascade uniform bg"),
+            layout: &cascade_uniform_bgl,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &cascade_uniform_buffer,
+                    offset: 0,
+                    // A window, not the whole buffer. `size: None` binds
+                    // everything and makes wgpu reject every non-zero dynamic
+                    // offset; too small silently reads the wrong cascade.
+                    size: wgpu::BufferSize::new(std::mem::size_of::<CascadeUniformData>() as u64),
+                }),
+            }],
         });
 
         let point_shadow_uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -3009,7 +3237,10 @@ impl WgpuSurface {
                 // which is what keeps MESH_WGSL's @group(1) contract -- and
                 // every custom shader that copies it -- untouched.
                 bind_group_layouts: &[
-                    &camera_bgl,
+                    // Not `camera_bgl`: the shadow pass is encoded once per
+                    // cascade and each needs its own matrix, which a dynamic
+                    // offset supplies and a shared camera uniform cannot.
+                    &cascade_uniform_bgl,
                     if instancing_supported {
                         &model_storage_bgl
                     } else {
@@ -3558,6 +3789,9 @@ impl WgpuSurface {
             shadow_pipeline,
             _shadow_map_texture: shadow_map_texture,
             shadow_map_view,
+            shadow_cascade_views,
+            cascade_uniform_buffer,
+            cascade_bind_group,
             shadow_comparison_sampler,
             point_shadow_pipeline,
             _point_shadow_color_texture: point_shadow_color_texture,
@@ -4123,12 +4357,13 @@ impl WgpuSurface {
     fn capture_probes(
         &self,
         encoder: &mut wgpu::CommandEncoder,
-        light_view_proj: Mat4,
+        cascades: &crate::shadow::DirectionalCascades,
         draw_calls: &[(u64, Mat4, Option<u64>, MaterialParams, Option<String>)],
         registry: &GpuMeshRegistry,
         tex_registry: Option<&crate::texture::GpuTextureRegistry>,
         positions: &[Vec3],
     ) {
+        let (light_view_proj, cascade_layer) = cascades.widest();
         let probe_count = positions.len().min(bsengine_core::MAX_PROBES);
         if probe_count == 0 {
             return;
@@ -4150,7 +4385,7 @@ impl WgpuSurface {
                     light_view_proj: light_view_proj.to_cols_array_2d(),
                     inv_view_proj: sky_vp_invs[face].to_cols_array_2d(),
                     probe_pos: position.to_array(),
-                    _pad: 0.0,
+                    cascade_layer,
                 };
                 self.queue.write_buffer(
                     &self.probe_capture_uniform_buffer,
@@ -4355,7 +4590,7 @@ impl WgpuSurface {
     /// per frame.
     fn bake_probes(
         &self,
-        light_view_proj: Mat4,
+        cascades: &crate::shadow::DirectionalCascades,
         draw_calls: &[(u64, Mat4, Option<u64>, MaterialParams, Option<String>)],
         registry: &GpuMeshRegistry,
         tex_registry: Option<&crate::texture::GpuTextureRegistry>,
@@ -4371,7 +4606,7 @@ impl WgpuSurface {
                 });
             self.capture_probes(
                 &mut encoder,
-                light_view_proj,
+                cascades,
                 draw_calls,
                 registry,
                 tex_registry,
@@ -4442,7 +4677,7 @@ impl WgpuSurface {
         &mut self,
         view_proj: Mat4,
         cam_pos: Vec3,
-        light_view_proj: Mat4,
+        cascades: &crate::shadow::DirectionalCascades,
         sky_vp_inv: Option<Mat4>,
         draw_calls: &[(u64, Mat4, Option<u64>, MaterialParams, Option<String>)],
         terrain_draw_calls: &[(u64, Mat4, [u64; 4], u64)],
@@ -4494,12 +4729,54 @@ impl WgpuSurface {
         // for why the offset goes where it does.
         let raster_view_proj = jittered_view_proj(view_proj, cam_proj, jitter_clip);
 
+        let cascade_count = cascades
+            .view_projs
+            .len()
+            .clamp(1, crate::shadow::MAX_CASCADES);
+        let mut cascade_view_proj =
+            [Mat4::IDENTITY.to_cols_array_2d(); crate::shadow::MAX_CASCADES];
+        // Unused entries sit past any depth the shader can compute, so its
+        // comparison chain falls through to the last live cascade without
+        // having to branch on the count.
+        let mut cascade_splits = [f32::MAX; 4];
+        for i in 0..cascade_count {
+            cascade_view_proj[i] = cascades.view_projs[i].to_cols_array_2d();
+            cascade_splits[i] = cascades.splits.get(i).copied().unwrap_or(f32::MAX);
+        }
+        // The camera's forward axis, recovered from the view-projection: the
+        // third row of the inverse rotation. Cascades are sliced along this
+        // axis, so the fragment stage has to measure along it too.
+        let cam_forward = {
+            let inv = raster_view_proj.inverse();
+            let near = inv * glam::Vec4::new(0.0, 0.0, 0.0, 1.0);
+            let far = inv * glam::Vec4::new(0.0, 0.0, 1.0, 1.0);
+            (far.truncate() / far.w - near.truncate() / near.w).normalize_or(Vec3::NEG_Z)
+        };
         let camera_data = CameraUniformData {
             view_proj: raster_view_proj.to_cols_array_2d(),
-            light_view_proj: light_view_proj.to_cols_array_2d(),
+            cascade_view_proj,
             cam_pos: cam_pos.to_array(),
             time: elapsed_seconds,
+            cam_forward: cam_forward.to_array(),
+            cascade_blend: cascades.blend,
+            cascade_splits,
+            cascade_count: cascade_count as u32,
+            _pad: [0; 3],
         };
+        // Every cascade's matrix staged before a single pass is encoded.
+        // `queue.write_buffer` is ordered against submits, not passes, so
+        // rewriting one slot between passes of this encoder would hand every
+        // cascade the last value written -- the same trap the point-shadow
+        // loop documents.
+        for (i, vp) in cascades.view_projs.iter().take(cascade_count).enumerate() {
+            self.queue.write_buffer(
+                &self.cascade_uniform_buffer,
+                i as u64 * CASCADE_STRIDE,
+                bytemuck::cast_slice(&[CascadeUniformData {
+                    light_view_proj: vp.to_cols_array_2d(),
+                }]),
+            );
+        }
         self.queue
             .write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[camera_data]));
 
@@ -4627,13 +4904,7 @@ impl WgpuSurface {
         // colour that wall used to bleed onto it. That is the accepted cost of
         // baking once, which is what item 48 asked for.
         if self.baked_probe_volume != volume_to_bake {
-            self.bake_probes(
-                light_view_proj,
-                draw_calls,
-                registry,
-                tex_registry,
-                volume_to_bake,
-            );
+            self.bake_probes(cascades, draw_calls, registry, tex_registry, volume_to_bake);
             self.baked_probe_volume = volume_to_bake;
         }
 
@@ -4737,11 +5008,18 @@ impl WgpuSurface {
                     // unjittered one would read depth a fraction of a pixel
                     // off its own reconstruction.
                     inv_view_proj: raster_view_proj.inverse().to_cols_array_2d(),
-                    // The same matrix the shadow pass below rasterises with and
-                    // the scene shader tests surfaces against. Sharing it is
-                    // what lets a froxel and a surface at one world position
-                    // agree about whether they are in shadow.
-                    light_view_proj: light_view_proj.to_cols_array_2d(),
+                    // The same matrices the shadow passes below rasterise
+                    // with and the scene shader tests surfaces against, plus
+                    // the splits and forward axis it selects between them by.
+                    // Sharing all of it is what lets a froxel and a surface at
+                    // one world position agree about whether they are in
+                    // shadow -- with cascades that means agreeing on *which*
+                    // map to ask, not merely on one matrix.
+                    cascade_view_proj,
+                    cascade_splits,
+                    cascade_count: cascade_count as u32,
+                    cascade_blend: cascades.blend,
+                    cam_forward: cam_forward.to_array(),
                     // The *unjittered* pair, unlike `inv_view_proj` above and
                     // for the same reason `TaaCameraGpu` uses unjittered
                     // matrices: reprojection has to follow the camera, and
@@ -4765,7 +5043,6 @@ impl WgpuSurface {
                     fog_color: active_fog.map(|f| *f.color).unwrap_or(Vec3::ONE).to_array(),
                     anisotropy: active_fog.map(|f| f.anisotropy).unwrap_or(0.0),
                     prev_camera_pos: self.prev_camera_pos.to_array(),
-                    _pad0: 0.0,
                     enabled: u32::from(active_fog.is_some()),
                     // Unconditional, unlike `jitter_clip`: the depth dither is
                     // not part of TAA and runs on every foggy frame.
@@ -4773,7 +5050,7 @@ impl WgpuSurface {
                     // Stamped by `update_fog` from the ping-pong's own state;
                     // see `FogUniform::history_valid`.
                     history_valid: 0,
-                    _pad1: 0.0,
+                    _pad0: 0.0,
                 },
             );
         }
@@ -4862,12 +5139,14 @@ impl WgpuSurface {
         // fully lit, but skips redrawing every object into it. See the
         // design doc for why clearing (not skipping the pass outright) is
         // required for correctness.
-        {
+        // One pass per cascade. Every cascade's uniform was staged above,
+        // before this loop, for the write_buffer ordering reason noted there.
+        for (cascade, pass_name) in CASCADE_PASS_NAMES.iter().enumerate().take(cascade_count) {
             let mut shadow_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("shadow pass"),
                 color_attachments: &[],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.shadow_map_view,
+                    view: &self.shadow_cascade_views[cascade],
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,
@@ -4875,7 +5154,7 @@ impl WgpuSurface {
                     stencil_ops: None,
                 }),
                 timestamp_writes: self.next_timed_pass(
-                    "directional_shadow",
+                    pass_name,
                     &mut gpu_pass_index,
                     &mut gpu_pass_names,
                 ),
@@ -4883,7 +5162,11 @@ impl WgpuSurface {
             });
             if !self.fast_render {
                 shadow_pass.set_pipeline(&self.shadow_pipeline);
-                shadow_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+                shadow_pass.set_bind_group(
+                    0,
+                    &self.cascade_bind_group,
+                    &[(cascade as u64 * CASCADE_STRIDE) as u32],
+                );
                 if self.instancing_supported {
                     for batch in &directional_batches {
                         // One registry lookup per batch, where the
@@ -6576,21 +6859,26 @@ mod tests {
     fn camera_uniform_data_time_field_at_correct_byte_offset() {
         let data = CameraUniformData {
             view_proj: [[0.0; 4]; 4],
-            light_view_proj: [[0.0; 4]; 4],
+            cascade_view_proj: [[[0.0; 4]; 4]; crate::shadow::MAX_CASCADES],
             cam_pos: [1.0, 2.0, 3.0],
             time: 42.5,
+            cam_forward: [0.0, 0.0, -1.0],
+            cascade_blend: 0.0,
+            cascade_splits: [f32::MAX; 4],
+            cascade_count: 1,
+            _pad: [0; 3],
         };
         assert_eq!(
             std::mem::size_of::<CameraUniformData>(),
             CAMERA_UNIFORM_SIZE as usize
         );
         let bytes = bytemuck::bytes_of(&data);
-        // view_proj(64) + light_view_proj(64) + cam_pos(12) = 140, time starts at 140... but
-        // cam_pos:vec3<f32> requires 16-byte alignment in the uniform buffer layout this struct
-        // mirrors, so time actually lands at offset 140 within this Rust repr(C) struct (no
-        // padding is inserted by Rust here since f32 has 4-byte alignment) -- what matters for
-        // the GPU is CAMERA_UNIFORM_SIZE staying 144 and this field being the last 4 bytes.
-        let time_bytes = &bytes[140..144];
+        // view_proj(64) + cascade_view_proj(4*64=256) + cam_pos(12) = 332, so `time`
+        // occupies 332..336. The offset moved when the cascade array landed between
+        // `view_proj` and `cam_pos`; the point of pinning it is unchanged -- WGSL
+        // computes this offset from the struct the shaders declare, and a Rust struct
+        // that disagrees would feed `camera.time` whatever happens to sit there.
+        let time_bytes = &bytes[332..336];
         assert_eq!(f32::from_ne_bytes(time_bytes.try_into().unwrap()), 42.5);
     }
 
@@ -7145,10 +7433,16 @@ mod tests {
             self.surface.capture_probes(
                 &mut encoder,
                 // No shadow map has been rendered, and the directional light
-                // is black anyway; any matrix that keeps `shadow_factor`'s
-                // lookup in range would do.
-                Mat4::orthographic_rh(-20.0, 20.0, -20.0, 20.0, 0.1, 60.0)
-                    * Mat4::look_at_rh(Vec3::new(0.0, 20.0, 0.0), Vec3::ZERO, Vec3::Z),
+                // is black anyway; any fit that keeps the shadow lookup in
+                // range would do.
+                &crate::shadow::DirectionalCascades::new(
+                    Vec3::new(0.0, -1.0, 0.0),
+                    Mat4::perspective_rh(1.0, 1.0, 0.1, 60.0)
+                        * Mat4::look_at_rh(Vec3::new(0.0, 20.0, 0.0), Vec3::ZERO, Vec3::Z),
+                    60.0,
+                    1,
+                    0.0,
+                ),
                 &self.draw_calls,
                 &self.registry,
                 None,
@@ -7170,7 +7464,13 @@ mod tests {
             self.surface.render_frame(
                 Mat4::IDENTITY,
                 Vec3::new(0.0, 0.0, 5.0),
-                Mat4::IDENTITY,
+                &crate::shadow::DirectionalCascades::new(
+                    Vec3::new(0.0, -1.0, 0.0),
+                    Mat4::IDENTITY,
+                    bsengine_core::shadow_config::DEFAULT_SHADOW_DISTANCE,
+                    bsengine_core::shadow_config::DEFAULT_CASCADES,
+                    0.0,
+                ),
                 None,
                 &self.draw_calls,
                 &[],

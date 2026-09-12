@@ -47,6 +47,11 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>, fast_rend
     app.insert_resource(bsengine_core::OcclusionCullingEnabled(
         manifest.render.occlusion_culling,
     ));
+    app.insert_resource(bsengine_core::ShadowSettings {
+        distance: manifest.render.shadow_distance,
+        cascades: manifest.render.shadow_cascades,
+        blend: manifest.render.shadow_cascade_blend,
+    });
     // Before `AssetPlugin`, and that ordering is the whole reason this is a
     // separate plugin: `bevy_asset` builds its sources during that plugin's
     // `build`, so a source registered afterwards is silently ignored -- and a

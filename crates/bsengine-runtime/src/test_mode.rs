@@ -47,6 +47,11 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>, fast_rend
     app.insert_resource(bsengine_core::OcclusionCullingEnabled(
         manifest.render.occlusion_culling,
     ));
+    app.insert_resource(bsengine_core::ShadowSettings {
+        distance: manifest.render.shadow_distance,
+        cascades: manifest.render.shadow_cascades,
+        blend: manifest.render.shadow_cascade_blend,
+    });
     // Before `AssetPlugin`, and that ordering is the whole reason this is a
     // separate plugin: `bevy_asset` builds its sources during that plugin's
     // `build`, so a source registered afterwards is silently ignored -- and a
@@ -2733,16 +2738,22 @@ mod tests {
             "occluded_count={on_occluded} exceeds the {hidden_count} entities that are \
              actually hidden, so something visible was culled"
         );
+        // How many drawn objects one entity accounts for: the opaque pass plus
+        // one directional shadow pass per cascade. Declared once, here, because
+        // three separate assertions below need it and each of them previously
+        // spelled it as a literal `2` -- which was right until cascades and
+        // then silently wrong in three places at once.
+        let passes_per_entity = 1 + bsengine_core::shadow_config::DEFAULT_CASCADES as u64;
         assert!(
             on_objects < mesh_entity_count as u64,
             "occlusion culling must measurably cut the frame's work: objects_drawn={on_objects} \
              is not even below the {mesh_entity_count} mesh entities in the scene, and each \
-             drawn entity costs two drawn objects (shadow + opaque) before post-processing is \
-             counted at all"
+             drawn entity costs {passes_per_entity} drawn objects (opaque plus one per shadow \
+             cascade) before post-processing is counted at all"
         );
-        // THE regression assertion. Each surviving entity contributes two
-        // drawn objects, so the {beside} entities beside the wall plus the
-        // wall itself put a floor under `objects_drawn` that an
+        // THE regression assertion. Each surviving entity contributes
+        // `passes_per_entity` drawn objects, so the {beside} entities beside
+        // the wall plus the wall itself put a floor under `objects_drawn` that an
         // over-culling implementation would fall straight through.
         //
         // This counts objects rather than draw calls because the shadow
@@ -2750,7 +2761,10 @@ mod tests {
         // draw call, so a draw-call floor would be violated by a perfectly
         // correct implementation. `objects_drawn` measures what this test
         // has always been about -- how many entities survived the cull.
-        let visible_floor = 2 * (beside_count as u64 + 1);
+        // Was `2 * (...)`, which after cascades became a floor far below the
+        // real figure -- an assertion that still passed but had stopped being
+        // tight enough to catch the over-culling it exists for.
+        let visible_floor = passes_per_entity * (beside_count as u64 + 1);
         assert!(
             on_objects >= visible_floor,
             "over-cull: objects_drawn={on_objects} is below the {visible_floor} that the wall \
@@ -2792,20 +2806,22 @@ mod tests {
              path: with the identical scene it still reported occluded_count={off_occluded}"
         );
         assert!(
-            off_objects >= 2 * mesh_entity_count as u64,
+            off_objects >= passes_per_entity * mesh_entity_count as u64,
             "with culling off every one of the {mesh_entity_count} mesh entities must be \
-             drawn twice (shadow + opaque), i.e. at least {} drawn objects, but the profiler \
-             reported {off_objects} -- if the full count is not restored then phase 1's drop \
-             was not attributable to occlusion",
-            2 * mesh_entity_count
+             drawn once per pass it appears in ({passes_per_entity}: opaque plus one per \
+             shadow cascade), i.e. at least {} drawn objects, but the profiler reported \
+             {off_objects} -- if the full count is not restored then phase 1's drop was \
+             not attributable to occlusion",
+            passes_per_entity * mesh_entity_count as u64
         );
         assert_eq!(
             off_objects - on_objects,
-            2 * on_occluded,
+            passes_per_entity * on_occluded,
             "the whole difference between the two runs should be exactly the culled \
-             entities' own drawn objects: {on_occluded} culled x 2 passes each. Got \
-             off={off_objects}, on={on_objects}. Anything else means the toggle changed \
-             something beyond occlusion, or the two runs did not render the same scene.\n\
+             entities' own drawn objects: {on_occluded} culled x {passes_per_entity} \
+             passes each. Got off={off_objects}, on={on_objects}. Anything else means \
+             the toggle changed something beyond occlusion, or the two runs did not \
+             render the same scene.\n\
              \n\
              This counts objects, not draw calls: with the shadow passes instanced, \
              removing N entities of a shared mesh removes 2N objects but often zero draw \

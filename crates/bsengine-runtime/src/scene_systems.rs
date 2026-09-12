@@ -75,6 +75,28 @@ pub struct RenderSection {
     /// matching frustum culling, which has always run unconditionally.
     #[serde(default = "default_true")]
     pub occlusion_culling: bool,
+    /// How far from the camera directional shadows are drawn, in world units.
+    #[serde(default = "default_shadow_distance")]
+    pub shadow_distance: f32,
+    /// How many cascades to split that distance across, 1 to 4.
+    #[serde(default = "default_shadow_cascades")]
+    pub shadow_cascades: usize,
+    /// Cross-fade width at each cascade boundary, as a fraction of that
+    /// cascade's far distance. 0 switches hard, as Unity and Godot do.
+    #[serde(default = "default_cascade_blend")]
+    pub shadow_cascade_blend: f32,
+}
+
+fn default_shadow_distance() -> f32 {
+    bsengine_core::shadow_config::DEFAULT_SHADOW_DISTANCE
+}
+
+fn default_shadow_cascades() -> usize {
+    bsengine_core::shadow_config::DEFAULT_CASCADES
+}
+
+fn default_cascade_blend() -> f32 {
+    bsengine_core::shadow_config::DEFAULT_CASCADE_BLEND
 }
 
 // Same rule as `WindowSection` above, and for the same reason: because
@@ -85,6 +107,9 @@ impl Default for RenderSection {
     fn default() -> Self {
         Self {
             occlusion_culling: default_true(),
+            shadow_distance: default_shadow_distance(),
+            shadow_cascades: default_shadow_cascades(),
+            shadow_cascade_blend: default_cascade_blend(),
         }
     }
 }
@@ -533,6 +558,46 @@ mod tests {
         assert!(
             absent.render.occlusion_culling,
             "occlusion culling defaults to on"
+        );
+        // The same three-way agreement for the shadow fields, and against the
+        // *same* constants `ShadowSettings::default()` uses -- if these drifted
+        // apart, a project that spelled out the defaults would render
+        // differently from one that omitted them.
+        let d = bsengine_core::ShadowSettings::default();
+        for (label, m) in [("absent", &absent), ("empty", &empty)] {
+            assert_eq!(
+                m.render.shadow_distance, d.distance,
+                "[render] {label}: shadow_distance must fall back to the same \
+                 default ShadowSettings uses"
+            );
+            assert_eq!(m.render.shadow_cascades, d.cascades, "[render] {label}");
+            assert_eq!(m.render.shadow_cascade_blend, d.blend, "[render] {label}");
+        }
+    }
+
+    /// Every shadow field must actually be read from the file.
+    ///
+    /// Asserted with values distinct from the defaults in every field, because
+    /// a field that silently fell back to its default would be indistinguishable
+    /// from one that parsed correctly if the fixture happened to use the default
+    /// value.
+    #[test]
+    fn render_section_reads_every_shadow_field() {
+        let d = bsengine_core::ShadowSettings::default();
+        let m: super::ProjectManifest = toml::from_str(
+            "[project]\nname = \"t\"\nentry_scene = \"s.ron\"\n[render]\n\
+             shadow_distance = 75.5\nshadow_cascades = 2\nshadow_cascade_blend = 0.25\n",
+        )
+        .unwrap();
+        assert_eq!(m.render.shadow_distance, 75.5);
+        assert_eq!(m.render.shadow_cascades, 2);
+        assert_eq!(m.render.shadow_cascade_blend, 0.25);
+        assert!(
+            m.render.shadow_distance != d.distance
+                && m.render.shadow_cascades != d.cascades
+                && m.render.shadow_cascade_blend != d.blend,
+            "the fixture must differ from the defaults in every field or this \
+             test cannot tell parsing from falling back"
         );
     }
 

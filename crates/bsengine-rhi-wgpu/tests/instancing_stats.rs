@@ -74,11 +74,18 @@ fn batching_does_not_reduce_the_number_of_objects_drawn() {
     });
     let four = h.frame_stats();
 
+    // One opaque object plus one per cascade, because a caster is rasterised
+    // into every cascade's map. Derived from the cascade count rather than
+    // written as a literal: the number changed from 2 to 5 when cascades
+    // landed, and a literal would have to be re-guessed every time the default
+    // count moves instead of tracking it.
+    let per_cube = 1 + bsengine_core::shadow_config::DEFAULT_CASCADES as u32;
     assert_eq!(
         four.objects_drawn - one.objects_drawn,
-        6,
+        3 * per_cube,
         "three extra cubes each add one opaque object and one directional-shadow \
-         object, so objects_drawn must rise by 6 (one={}, four={})",
+         object per cascade, so objects_drawn must rise by {} (one={}, four={})",
+        3 * per_cube,
         one.objects_drawn,
         four.objects_drawn
     );

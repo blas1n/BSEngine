@@ -584,7 +584,7 @@ fn render_frame(
     // `ParamSet` comment names this same remedy, "the same treatment applied
     // one level down (a tuple ...)". The query is read-only and touches no
     // component the `ParamSet` writes, so it conflicts with nothing.
-    (occlusion_enabled, mut occlusion_buf, mut taa_frame_index, probe_volumes): (
+    (occlusion_enabled, mut occlusion_buf, mut taa_frame_index, probe_volumes, shadow_settings): (
         Option<Res<bsengine_core::OcclusionCullingEnabled>>,
         Local<crate::occlusion::OcclusionBuffer>,
         Local<u32>,
@@ -593,6 +593,7 @@ fn render_frame(
             &Transform,
             Option<&GlobalTransform>,
         )>,
+        Option<Res<bsengine_core::ShadowSettings>>,
     ),
 ) {
     let (Some(mut surface), Some(registry)) = (surface, registry) else {
@@ -944,16 +945,24 @@ fn render_frame(
     // rather than the jittered matrix: a sub-pixel TAA offset must not shift
     // the shadow map's texel grid, which is snapped precisely to stop it
     // moving.
-    let light_view_proj = bsengine_rhi_wgpu::shadow::directional_light_view_proj(
+    //
+    // An absent `ShadowSettings` means the defaults, matching how
+    // `OcclusionCullingEnabled` is read above: the editor and every test that
+    // builds an app directly insert neither.
+    let shadow = shadow_settings.as_deref().copied().unwrap_or_default();
+    let cascades = bsengine_rhi_wgpu::shadow::DirectionalCascades::new(
         light.direction,
         unjittered_view_proj,
+        shadow.distance,
+        shadow.cascades,
+        shadow.blend,
     );
     let tex_reg_ref = tex_registry.as_deref();
 
     match surface.0.render_frame(
         view_proj,
         cam_pos,
-        light_view_proj,
+        &cascades,
         sky_vp_inv,
         &draw_calls,
         &terrain_draw_calls,

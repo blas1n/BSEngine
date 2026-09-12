@@ -40,10 +40,17 @@ fn a_terrain_draw_call_does_not_panic_alongside_regular_draw_calls() {
     let terrain_draw_calls = vec![(mesh_id, Mat4::IDENTITY, layer_ids, weight_id)];
 
     let ui_state = bsengine_core::UiState::default();
+    let cascades = bsengine_rhi_wgpu::shadow::DirectionalCascades::new(
+        Vec3::new(0.0, -1.0, 0.0),
+        Mat4::IDENTITY,
+        bsengine_core::shadow_config::DEFAULT_SHADOW_DISTANCE,
+        bsengine_core::shadow_config::DEFAULT_CASCADES,
+        bsengine_core::shadow_config::DEFAULT_CASCADE_BLEND,
+    );
     let result = surface.render_frame(
         Mat4::IDENTITY,
         Vec3::new(0.0, 0.0, 5.0),
-        Mat4::IDENTITY,
+        &cascades,
         None,
         &[],
         &terrain_draw_calls,

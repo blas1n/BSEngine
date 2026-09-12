@@ -1420,6 +1420,14 @@ const CASCADE_STRIDE: u64 = 256;
 /// reports what each cascade costs. Reusing a single label across four passes
 /// would fold them into one row and make a four-cascade frame look like the
 /// one-pass frame it replaced.
+///
+/// This does spend 4 of [`MAX_TIMED_PASSES`]'s 16 slots where the single
+/// directional pass spent 1, leaving 8 rather than 11 for the point-shadow
+/// faces that follow. Those were already truncated -- 8 lights x 6 faces is 48
+/// passes competing for 11 slots -- so the trade is 3 more untimed point-shadow
+/// faces in exchange for per-cascade figures. `next_timed_pass` returns `None`
+/// past the cap rather than failing, so the effect is missing rows in the
+/// profiler panel, not a broken frame.
 const CASCADE_PASS_NAMES: [&str; crate::shadow::MAX_CASCADES] = [
     "directional_shadow_c0",
     "directional_shadow_c1",

@@ -82,18 +82,34 @@ fn changed_bounds(a: &common::Pixels, b: &common::Pixels) -> Option<(u32, u32, u
 /// path could have ignored containers, or anchors entirely, and everything here
 /// would still have passed. This is the first test in the repo to render a
 /// `UiWidget` and look at the result.
+/// Renders a scene twice and returns the second frame.
+///
+/// egui derives an `Area`'s clip rectangle from the size it had on the
+/// previous frame, so the frame on which an area first appears clips its
+/// contents away entirely. HUD text does not go through an area — it paints
+/// straight into a layer — which is why the HUD test above needs only one
+/// frame and this one does not. A game running continuously never notices; a
+/// test that renders a single frame sees nothing at all.
+fn render_settled(h: &mut Harness, scene: &Scene) -> common::Pixels {
+    h.render(scene);
+    h.render(scene)
+}
+
 #[test]
 fn a_container_moves_its_child_away_from_the_childs_own_coordinates() {
     let mut h = Harness::new();
-    let blank = h.render(&Scene::default());
+    let blank = render_settled(&mut h, &Scene::default());
 
     // Loose: the button sits at its own (0, 0), the top-left corner.
     let mut loose = UiState::default();
     loose.set_widget(button("b", 80.0, 40.0));
-    let loose_frame = h.render(&Scene {
-        ui: loose,
-        ..Scene::default()
-    });
+    let loose_frame = render_settled(
+        &mut h,
+        &Scene {
+            ui: loose,
+            ..Scene::default()
+        },
+    );
 
     // Contained: the identical button, inside a row placed well away from the
     // origin. Nothing about the button itself changed.
@@ -115,14 +131,18 @@ fn a_container_moves_its_child_away_from_the_childs_own_coordinates() {
     });
     boxed.set_widget(button("b", 80.0, 40.0));
     boxed.set_parent("b", "row");
-    let boxed_frame = h.render(&Scene {
-        ui: boxed,
-        ..Scene::default()
-    });
+    let boxed_frame = render_settled(
+        &mut h,
+        &Scene {
+            ui: boxed,
+            ..Scene::default()
+        },
+    );
 
     let loose_at = changed_bounds(&loose_frame, &blank).expect(
         "a button widget must draw something; nothing in the frame changed at all, \
-         which means UI widgets do not reach the framebuffer in this harness",
+         which means UI widgets do not reach the framebuffer even after the area \
+         has settled — not a first-frame clipping artifact",
     );
     let boxed_at =
         changed_bounds(&boxed_frame, &blank).expect("the contained button must draw something");

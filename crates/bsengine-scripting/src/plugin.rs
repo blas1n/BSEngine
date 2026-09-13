@@ -2384,6 +2384,57 @@ fn run_scripts(world: &mut World) {
             ScriptCommand::SetPaused { paused } => {
                 world.insert_resource(bsengine_core::PauseState { paused });
             }
+            ScriptCommand::SetUiContainer {
+                id,
+                x,
+                y,
+                width,
+                height,
+                horizontal,
+                spacing,
+                padding,
+                align,
+            } => {
+                if let Some(mut ui) = world.get_resource_mut::<UiState>() {
+                    ui.set_widget(bsengine_core::UiWidget::Container {
+                        id,
+                        x,
+                        y,
+                        width,
+                        height,
+                        anchor: bsengine_core::UiAnchor::TOP_LEFT,
+                        direction: if horizontal {
+                            bsengine_core::UiDirection::Horizontal
+                        } else {
+                            bsengine_core::UiDirection::Vertical
+                        },
+                        spacing,
+                        padding,
+                        // An out-of-range value means a prelude change got
+                        // ahead of this match; stretch is the default the
+                        // reference engines use, so it is the safe landing.
+                        align: match align {
+                            1 => bsengine_core::UiAlign::Start,
+                            2 => bsengine_core::UiAlign::Center,
+                            3 => bsengine_core::UiAlign::End,
+                            _ => bsengine_core::UiAlign::Stretch,
+                        },
+                    });
+                }
+            }
+            ScriptCommand::SetUiParent { id, parent } => {
+                if let Some(mut ui) = world.get_resource_mut::<UiState>() {
+                    // Unlike `set_anchor` this does not require the widget to
+                    // exist yet: a menu is commonly built children-first, and
+                    // the layout pass resolves the relation when it runs.
+                    ui.set_parent(&id, &parent);
+                }
+            }
+            ScriptCommand::SetUiFill { id, weight } => {
+                if let Some(mut ui) = world.get_resource_mut::<UiState>() {
+                    ui.set_fill(&id, weight);
+                }
+            }
             ScriptCommand::SetUiAnchor {
                 id,
                 min_x,

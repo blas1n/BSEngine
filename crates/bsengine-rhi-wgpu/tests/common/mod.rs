@@ -180,6 +180,13 @@ pub struct Scene {
     pub light: Light,
     pub camera_pos: Vec3,
     pub look_at: Vec3,
+    /// UI widgets to draw this frame.
+    ///
+    /// Exposed because the harness used to build a `UiState::default()`
+    /// internally, which left every widget kind and every layout rule
+    /// unobservable from a pixel test -- the renderer could have ignored them
+    /// entirely and nothing here would have noticed.
+    pub ui: bsengine_core::UiState,
     /// Cross-fade width at each cascade boundary, as a fraction of that
     /// cascade's far distance.
     ///
@@ -219,6 +226,7 @@ impl Default for Scene {
             light: Light::default(),
             camera_pos: Vec3::new(0.0, 0.0, 5.0),
             look_at: Vec3::ZERO,
+            ui: bsengine_core::UiState::default(),
             shadow_blend: bsengine_core::shadow_config::DEFAULT_CASCADE_BLEND,
             bloom: None,
             tone_map: None,
@@ -574,7 +582,6 @@ struct VertOut {{
             })
             .collect();
 
-        let ui_state = bsengine_core::UiState::default();
         let sky_vp_inv = if scene.with_skybox {
             Some(view_proj.inverse())
         } else {
@@ -614,7 +621,7 @@ struct VertOut {{
                 scene.light.to_engine(),
                 Some(&self.textures),
                 &scene.hud,
-                &ui_state,
+                &scene.ui,
                 0.0,
                 0.0,
                 false,

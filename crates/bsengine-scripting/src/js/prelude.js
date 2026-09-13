@@ -601,6 +601,51 @@ var Bsengine = {
             }
             Deno.core.ops.bsengine_ui_set_anchor(id, v[0], v[1], v[2], v[3]);
         },
+        // Cross-axis placement names, matching the reference engines'
+        // vocabulary. `stretch` is the default because Unity's layout groups,
+        // Unreal's box slots and Godot's size flags all control the cross axis
+        // by default.
+        ALIGN: { 'stretch': 0, 'start': 1, 'center': 2, 'end': 3 },
+        // Applies `opts.parent` and `opts.fill` if present. Separate ops
+        // rather than more positional arguments, the same way `_applyAnchor`
+        // works and for the same reason.
+        _applyLayout: (id, opts) => {
+            if (!opts) return;
+            if (opts.parent !== undefined) {
+                Deno.core.ops.bsengine_ui_set_parent(id, String(opts.parent));
+            }
+            if (opts.fill !== undefined) {
+                Deno.core.ops.bsengine_ui_set_fill(id, opts.fill);
+            }
+        },
+        // A row or column that positions whatever names it as `parent`.
+        //
+        // `direction` is 'horizontal' or 'vertical'; an unknown value throws
+        // rather than silently picking one, because a typo that quietly laid
+        // out the other way would look like a layout bug rather than a typo.
+        setContainer: (id, x, y, width, height, direction, opts) => {
+            const o = opts || {};
+            if (direction !== 'horizontal' && direction !== 'vertical') {
+                throw new Error(
+                    'unknown UI container direction "' + direction +
+                    '"; expected "horizontal" or "vertical"');
+            }
+            let align = 0;
+            if (o.align !== undefined) {
+                align = Bsengine.ui.ALIGN[o.align];
+                if (align === undefined) {
+                    throw new Error(
+                        'unknown UI align "' + o.align + '"; expected one of ' +
+                        Object.keys(Bsengine.ui.ALIGN).join(', '));
+                }
+            }
+            Deno.core.ops.bsengine_ui_set_container(
+                id, x, y, width, height,
+                direction === 'horizontal',
+                o.spacing ?? 0, o.padding ?? 0, align);
+            Bsengine.ui._applyAnchor(id, o);
+            Bsengine.ui._applyLayout(id, o);
+        },
         setLabel:       (id, text, x, y, fontSize, opts) => {
             Deno.core.ops.bsengine_ui_set_label(id, String(text), x, y, fontSize ?? 20);
             Bsengine.ui._applyAnchor(id, opts);

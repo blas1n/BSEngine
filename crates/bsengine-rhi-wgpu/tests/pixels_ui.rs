@@ -47,9 +47,30 @@ fn button(id: &str, width: f32, height: f32) -> UiWidget {
     }
 }
 
-/// Whether any pixel inside the given box differs between two frames.
-fn differs_in(a: &common::Pixels, b: &common::Pixels, x0: u32, y0: u32, x1: u32, y1: u32) -> bool {
-    (y0..y1.min(a.height)).any(|y| (x0..x1.min(a.width)).any(|x| a.at(x, y) != b.at(x, y)))
+/// The bounding box of pixels that differ between two frames, if any do.
+///
+/// Returns `(x0, y0, x1, y1)`, exclusive on the far edges.
+///
+/// A bounding box rather than a hand-picked sample rectangle, deliberately.
+/// The first version of this test asserted that specific pixels changed, which
+/// meant it also encoded my guesses about egui's button metrics, the theme's
+/// fill colour and where a label lands inside its frame — none of which this
+/// test is about, and none of which I could check on a machine whose GPU can no
+/// longer create a device. Asking *where the drawing moved to* needs none of
+/// them.
+fn changed_bounds(a: &common::Pixels, b: &common::Pixels) -> Option<(u32, u32, u32, u32)> {
+    let mut bounds: Option<(u32, u32, u32, u32)> = None;
+    for y in 0..a.height.min(b.height) {
+        for x in 0..a.width.min(b.width) {
+            if a.at(x, y) != b.at(x, y) {
+                bounds = Some(match bounds {
+                    None => (x, y, x + 1, y + 1),
+                    Some((x0, y0, x1, y1)) => (x0.min(x), y0.min(y), x1.max(x + 1), y1.max(y + 1)),
+                });
+            }
+        }
+    }
+    bounds
 }
 
 /// The end-to-end claim: a container puts its children somewhere the child's
@@ -57,9 +78,10 @@ fn differs_in(a: &common::Pixels, b: &common::Pixels, x0: u32, y0: u32, x1: u32,
 ///
 /// The pure layout tests in `bsengine-core` prove the arithmetic; this proves
 /// the renderer asks for it. Until this branch the harness built its own
-/// `UiState::default()`, so the draw path could have ignored containers
-/// entirely -- or ignored anchors, for that matter -- and every test here would
-/// still have passed.
+/// `UiState::default()`, so no pixel test could drive widgets at all — the draw
+/// path could have ignored containers, or anchors entirely, and everything here
+/// would still have passed. This is the first test in the repo to render a
+/// `UiWidget` and look at the result.
 #[test]
 fn a_container_moves_its_child_away_from_the_childs_own_coordinates() {
     let mut h = Harness::new();
@@ -73,14 +95,14 @@ fn a_container_moves_its_child_away_from_the_childs_own_coordinates() {
         ..Scene::default()
     });
 
-    // Contained: the identical button, inside a row anchored far from the
+    // Contained: the identical button, inside a row placed well away from the
     // origin. Nothing about the button itself changed.
     let mut boxed = UiState::default();
     boxed.set_widget(UiWidget::Container {
         id: "row".into(),
         // Inside the harness's 200x150 framebuffer, and far enough from the
         // origin that "drew at its own coordinates" and "drew where its
-        // container says" cannot both be true of the same pixels.
+        // container says" cannot describe the same pixels.
         x: 100.0,
         y: 80.0,
         width: 90.0,
@@ -98,18 +120,24 @@ fn a_container_moves_its_child_away_from_the_childs_own_coordinates() {
         ..Scene::default()
     });
 
+    let loose_at = changed_bounds(&loose_frame, &blank).expect(
+        "a button widget must draw something; nothing in the frame changed at all, \
+         which means UI widgets do not reach the framebuffer in this harness",
+    );
+    let boxed_at =
+        changed_bounds(&boxed_frame, &blank).expect("the contained button must draw something");
+
+    // The button is 80 wide and 40 tall at the origin, so its drawing starts
+    // near the top-left corner; inside the container it starts near (100, 80).
     assert!(
-        differs_in(&loose_frame, &blank, 2, 2, 60, 30),
-        "the loose button must actually draw at the top-left; if it does not, \
-         the rest of this test is comparing two blank frames"
+        loose_at.0 < 40 && loose_at.1 < 30,
+        "a button at its own (0, 0) should draw from near the top-left corner, \
+         but the changed pixels start at {loose_at:?}"
     );
     assert!(
-        !differs_in(&boxed_frame, &blank, 2, 2, 60, 30),
-        "the contained button must NOT draw at its own (0, 0) -- if it does, \
-         the renderer used the widget's coordinates and ignored its container"
-    );
-    assert!(
-        differs_in(&boxed_frame, &blank, 105, 85, 185, 128),
-        "the contained button must draw inside its container at (100, 80)"
+        boxed_at.0 >= 90 && boxed_at.1 >= 70,
+        "the contained button must draw from near its container's (100, 80), but \
+         the changed pixels start at {boxed_at:?}. Starting near the origin means \
+         the renderer used the widget's own coordinates and ignored its container."
     );
 }

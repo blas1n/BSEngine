@@ -1118,6 +1118,42 @@ pub enum ScriptCommand {
         /// Bottom edge, normalised.
         max_y: f32,
     },
+    /// Create or replace a UI container that lays its children out in a row
+    /// or a column.
+    SetUiContainer {
+        /// Container identifier; children name this as their parent.
+        id: String,
+        /// X offset, in pixels.
+        x: f32,
+        /// Y offset, in pixels.
+        y: f32,
+        /// Width, in pixels.
+        width: f32,
+        /// Height, in pixels.
+        height: f32,
+        /// `true` to stack children left to right, `false` top to bottom.
+        horizontal: bool,
+        /// Gap between adjacent children, in pixels.
+        spacing: f32,
+        /// Inset on all four sides, in pixels.
+        padding: f32,
+        /// Cross-axis placement: 0 stretch, 1 start, 2 centre, 3 end.
+        align: u32,
+    },
+    /// Put a UI widget inside a container, or detach it with an empty parent.
+    SetUiParent {
+        /// Widget to move.
+        id: String,
+        /// Container to move it into; empty detaches to the root.
+        parent: String,
+    },
+    /// Set how much of a container's leftover space a child claims.
+    SetUiFill {
+        /// Widget to weight.
+        id: String,
+        /// Share of the leftover space; 0 keeps the widget's own size.
+        weight: f32,
+    },
     /// Remove a UI widget by id.
     RemoveUiWidget {
         /// Identifier of the sound or UI widget to target.
@@ -5707,6 +5743,58 @@ pub fn bsengine_ui_set_label(
     });
 }
 
+/// Queue creating a UI container that lays its children out in a row or column.
+///
+/// What Unity's layout groups, Unreal's `Horizontal`/`VerticalBox` and Godot's
+/// `HBox`/`VBoxContainer` all agree on: stack along one axis, a fixed gap
+/// between children, an inset around them, and leftover space handed to the
+/// children that asked to fill.
+///
+/// `align` is the cross-axis placement: 0 stretch, 1 start, 2 centre, 3 end.
+#[op2(fast)]
+pub fn bsengine_ui_set_container(
+    #[string] id: String,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+    horizontal: bool,
+    spacing: f32,
+    padding: f32,
+    align: u32,
+) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetUiContainer {
+            id,
+            x,
+            y,
+            width,
+            height,
+            horizontal,
+            spacing,
+            padding,
+            align,
+        });
+    });
+}
+
+/// Puts a widget inside a container. An empty `parent` detaches it.
+#[op2(fast)]
+pub fn bsengine_ui_set_parent(#[string] id: String, #[string] parent: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::SetUiParent { id, parent });
+    });
+}
+
+/// Sets a child's share of its container's leftover space.
+#[op2(fast)]
+pub fn bsengine_ui_set_fill(#[string] id: String, weight: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetUiFill { id, weight });
+    });
+}
+
 /// Queue setting an existing widget's anchor.
 ///
 /// Normalised 0..1, `(0,0)` top-left and `(1,1)` bottom-right — the same
@@ -6234,6 +6322,9 @@ deno_core::extension!(
         bsengine_clear_hud_text,
         bsengine_ui_set_label,
         bsengine_ui_set_anchor,
+        bsengine_ui_set_container,
+        bsengine_ui_set_parent,
+        bsengine_ui_set_fill,
         bsengine_ui_set_button,
         bsengine_ui_set_panel,
         bsengine_ui_set_text_input,

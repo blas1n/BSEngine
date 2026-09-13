@@ -5770,45 +5770,46 @@ impl WgpuSurface {
 
                 // Interactive UI widgets.
                 //
-                // Every widget's anchor is resolved against the live screen
-                // size first, so the positions below are already pixels. The
-                // resolution itself lives in `bsengine_core::UiAnchor` — pure
-                // arithmetic with no GPU, window or egui, which is what lets
-                // every anchoring rule be tested headlessly.
+                // Every widget's rectangle is resolved in one pass before any
+                // of them is drawn, so the positions below are already pixels.
+                // The resolution lives in `bsengine_core::UiState::layout` —
+                // pure arithmetic with no GPU, window or egui, which is what
+                // lets every anchoring and layout rule be tested headlessly.
+                //
+                // One pass rather than a per-widget anchor call at each draw
+                // site, because a child's rectangle comes from its container
+                // and cannot be derived from the child alone. It also keeps
+                // the placement rule in one place instead of once per widget
+                // kind down here.
                 let screen_w = self.output.width() as f32;
                 let screen_h = self.output.height() as f32;
+                let ui_rects = ui_state.layout(screen_w, screen_h);
                 for widget in &ui_state.widgets {
                     use bsengine_core::UiWidget;
+                    let Some(rect) = ui_rects.get(widget.id()) else {
+                        continue;
+                    };
+                    let (px, py, pw, ph) = (rect.x, rect.y, rect.width, rect.height);
                     match widget {
+                        // Containers position their children and draw nothing
+                        // of their own, the same as Unreal's boxes and Godot's
+                        // containers.
+                        UiWidget::Container { .. } => {}
                         UiWidget::Label {
                             id,
                             text,
-                            x,
-                            y,
                             font_size,
-                            anchor,
+                            ..
                         } => {
                             // A label has no authored size, so only its
                             // position is anchored; egui sizes it to its text.
-                            let (px, py, _, _) =
-                                anchor.resolve(*x, *y, 0.0, 0.0, screen_w, screen_h);
                             egui::Area::new(egui::Id::new(id.as_str()))
                                 .fixed_pos(egui::pos2(px, py))
                                 .show(ctx, |ui| {
                                     ui.label(egui::RichText::new(text.as_str()).size(*font_size));
                                 });
                         }
-                        UiWidget::Button {
-                            id,
-                            label,
-                            x,
-                            y,
-                            width,
-                            height,
-                            anchor,
-                        } => {
-                            let (px, py, pw, ph) =
-                                anchor.resolve(*x, *y, *width, *height, screen_w, screen_h);
+                        UiWidget::Button { id, label, .. } => {
                             egui::Area::new(egui::Id::new(id.as_str()))
                                 .fixed_pos(egui::pos2(px, py))
                                 .show(ctx, |ui| {
@@ -5823,17 +5824,7 @@ impl WgpuSurface {
                                     }
                                 });
                         }
-                        UiWidget::Panel {
-                            id,
-                            title,
-                            x,
-                            y,
-                            width,
-                            height,
-                            anchor,
-                        } => {
-                            let (px, py, pw, ph) =
-                                anchor.resolve(*x, *y, *width, *height, screen_w, screen_h);
+                        UiWidget::Panel { id, title, .. } => {
                             egui::Window::new(title.as_str())
                                 .id(egui::Id::new(id.as_str()))
                                 .fixed_pos(egui::pos2(px, py))
@@ -5842,18 +5833,9 @@ impl WgpuSurface {
                                 .resizable(false)
                                 .show(ctx, |_ui| {});
                         }
-                        UiWidget::TextInput {
-                            id,
-                            hint,
-                            x,
-                            y,
-                            width,
-                            anchor,
-                        } => {
+                        UiWidget::TextInput { id, hint, .. } => {
                             // Height 0: a single-line field sizes itself
                             // vertically, so only its width is anchored.
-                            let (px, py, pw, _) =
-                                anchor.resolve(*x, *y, *width, 0.0, screen_w, screen_h);
                             let text_val = new_text_values.entry(id.clone()).or_default();
                             egui::Area::new(egui::Id::new(id.as_str()))
                                 .fixed_pos(egui::pos2(px, py))
@@ -5865,17 +5847,7 @@ impl WgpuSurface {
                                     );
                                 });
                         }
-                        UiWidget::Image {
-                            id,
-                            x,
-                            y,
-                            width,
-                            height,
-                            anchor,
-                            ..
-                        } => {
-                            let (px, py, pw, ph) =
-                                anchor.resolve(*x, *y, *width, *height, screen_w, screen_h);
+                        UiWidget::Image { id, .. } => {
                             egui::Area::new(egui::Id::new(id.as_str()))
                                 .fixed_pos(egui::pos2(px, py))
                                 .show(ctx, |ui| {
@@ -5885,17 +5857,7 @@ impl WgpuSurface {
                                     );
                                 });
                         }
-                        UiWidget::ProgressBar {
-                            id,
-                            x,
-                            y,
-                            width,
-                            height,
-                            fraction,
-                            anchor,
-                        } => {
-                            let (px, py, pw, ph) =
-                                anchor.resolve(*x, *y, *width, *height, screen_w, screen_h);
+                        UiWidget::ProgressBar { id, fraction, .. } => {
                             egui::Area::new(egui::Id::new(id.as_str()))
                                 .fixed_pos(egui::pos2(px, py))
                                 .show(ctx, |ui| {

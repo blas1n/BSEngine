@@ -618,17 +618,29 @@ var Bsengine = {
                 Deno.core.ops.bsengine_ui_set_fill(id, opts.fill);
             }
         },
-        // A row or column that positions whatever names it as `parent`.
+        // Direction names, and the number each maps to in the op.
+        DIRECTIONS: { 'horizontal': 0, 'vertical': 1, 'grid': 2 },
+        // A row, column or grid that positions whatever names it as `parent`.
         //
-        // `direction` is 'horizontal' or 'vertical'; an unknown value throws
-        // rather than silently picking one, because a typo that quietly laid
-        // out the other way would look like a layout bug rather than a typo.
+        // An unknown `direction` throws rather than silently picking one,
+        // because a typo that quietly laid out the other way would look like a
+        // layout bug rather than a typo.
+        //
+        // A grid takes `opts.columns`; its columns split the container's width
+        // equally rather than taking a fixed cell size, so a grid stays
+        // proportional at any resolution.
         setContainer: (id, x, y, width, height, direction, opts) => {
             const o = opts || {};
-            if (direction !== 'horizontal' && direction !== 'vertical') {
+            const dir = Bsengine.ui.DIRECTIONS[direction];
+            if (dir === undefined) {
                 throw new Error(
                     'unknown UI container direction "' + direction +
-                    '"; expected "horizontal" or "vertical"');
+                    '"; expected one of ' +
+                    Object.keys(Bsengine.ui.DIRECTIONS).join(', '));
+            }
+            if (direction === 'grid' && !(o.columns > 0)) {
+                throw new Error(
+                    'a grid container needs opts.columns > 0; got ' + o.columns);
             }
             let align = 0;
             if (o.align !== undefined) {
@@ -640,8 +652,7 @@ var Bsengine = {
                 }
             }
             Deno.core.ops.bsengine_ui_set_container(
-                id, x, y, width, height,
-                direction === 'horizontal',
+                id, x, y, width, height, dir, o.columns ?? 1,
                 o.spacing ?? 0, o.padding ?? 0, align);
             Bsengine.ui._applyAnchor(id, o);
             Bsengine.ui._applyLayout(id, o);

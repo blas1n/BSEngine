@@ -1131,8 +1131,13 @@ pub enum ScriptCommand {
         width: f32,
         /// Height, in pixels.
         height: f32,
-        /// `true` to stack children left to right, `false` top to bottom.
-        horizontal: bool,
+        /// 0 stacks left to right, 1 top to bottom, 2 wraps into a grid.
+        ///
+        /// Widened from a `bool` when grids arrived: two directions fit in a
+        /// flag, three do not.
+        direction: u32,
+        /// Children per row when `direction` is a grid; ignored otherwise.
+        columns: u32,
         /// Gap between adjacent children, in pixels.
         spacing: f32,
         /// Inset on all four sides, in pixels.
@@ -5773,7 +5778,8 @@ pub fn bsengine_ui_set_container(
     y: f32,
     width: f32,
     height: f32,
-    horizontal: bool,
+    direction: u32,
+    columns: u32,
     spacing: f32,
     padding: f32,
     align: u32,
@@ -5785,7 +5791,8 @@ pub fn bsengine_ui_set_container(
             y,
             width,
             height,
-            horizontal,
+            direction,
+            columns,
             spacing,
             padding,
             align,

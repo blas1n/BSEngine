@@ -43,6 +43,15 @@ pub struct Component {
     pub public: bool,
 }
 
+/// One parameter of a scripting op.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct OpParam {
+    /// The parameter name as written in Rust.
+    pub name: String,
+    /// Its Rust type, with `#[string]`-style attributes stripped, e.g. `f32`.
+    pub ty: String,
+}
+
 /// A `#[op2]` scripting op exposed to JavaScript.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Op {
@@ -54,6 +63,15 @@ pub struct Op {
     pub location: String,
     /// The first paragraph of its rustdoc.
     pub doc: String,
+    /// Its parameters, in declaration order.
+    ///
+    /// Recorded because the op's Rust signature is the only place the engine
+    /// states what JavaScript may pass it. Without these the catalogue can say
+    /// an op exists but not how to call it, which is the difference between a
+    /// list and an API description.
+    pub params: Vec<OpParam>,
+    /// Its return type, or `None` for `()`.
+    pub returns: Option<String>,
 }
 
 /// Finds every component declared in one source string.
@@ -150,11 +168,57 @@ fn collect_ops(items: &[syn::Item], src: &str, krate: &str, file: &str, out: &mu
                     krate: krate.to_string(),
                     location: format!("{file}:{line}"),
                     doc: doc_summary(&f.attrs),
+                    params: op_params(&f.sig),
+                    returns: op_return(&f.sig),
                 });
             }
             _ => {}
         }
     }
+}
+
+/// The parameters of an op, in declaration order.
+///
+/// `self` receivers and deno's plumbing arguments are skipped: `OpState` and
+/// `v8::` handles are how the runtime hands the op its context, not something a
+/// script passes, so listing them would describe a signature no caller writes.
+fn op_params(sig: &syn::Signature) -> Vec<OpParam> {
+    sig.inputs
+        .iter()
+        .filter_map(|arg| match arg {
+            syn::FnArg::Receiver(_) => None,
+            syn::FnArg::Typed(pat) => {
+                let name = match &*pat.pat {
+                    syn::Pat::Ident(i) => i.ident.to_string(),
+                    _ => return None,
+                };
+                let ty = type_name(&pat.ty);
+                if ty.contains("OpState") || ty.contains("v8::") || ty.contains("Scope") {
+                    return None;
+                }
+                Some(OpParam { name, ty })
+            }
+        })
+        .collect()
+}
+
+/// An op's return type, or `None` when it returns `()`.
+fn op_return(sig: &syn::Signature) -> Option<String> {
+    match &sig.output {
+        syn::ReturnType::Default => None,
+        syn::ReturnType::Type(_, ty) => Some(type_name(ty)),
+    }
+}
+
+/// A type as written, with whitespace normalised so `& str` and `&str` agree.
+fn type_name(ty: &syn::Type) -> String {
+    let text = quote::quote!(#ty).to_string();
+    text.replace(" :: ", "::")
+        .replace("& ", "&")
+        .replace(" <", "<")
+        .replace("< ", "<")
+        .replace(" >", ">")
+        .replace(" ,", ",")
 }
 
 /// Removes the body of every `#[cfg(test)] mod ... { .. }`, matching braces so
@@ -368,6 +432,96 @@ fn locate(src: &str, file: &str, ident: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_op_records_its_parameters_and_return_type() {
+        // Deliberately mixed types and a non-unit return: a test with one
+        // parameter type cannot tell "reads the signature" from "assumes
+        // everything is a string".
+        let src = r#"
+            /// Sets a widget's label.
+            #[op2(fast)]
+            pub fn bsengine_ui_set_label(
+                #[string] id: String,
+                #[string] text: String,
+                x: f32,
+                count: u32,
+                visible: bool,
+            ) -> Option<Vec<f32>> {
+            }
+        "#;
+        let found = ops_in_source(src, "bsengine-scripting", "ops.rs");
+        assert_eq!(found.len(), 1);
+        let op = &found[0];
+        assert_eq!(op.doc, "Sets a widget's label.");
+        assert_eq!(
+            op.params,
+            vec![
+                OpParam {
+                    name: "id".into(),
+                    ty: "String".into()
+                },
+                OpParam {
+                    name: "text".into(),
+                    ty: "String".into()
+                },
+                OpParam {
+                    name: "x".into(),
+                    ty: "f32".into()
+                },
+                OpParam {
+                    name: "count".into(),
+                    ty: "u32".into()
+                },
+                OpParam {
+                    name: "visible".into(),
+                    ty: "bool".into()
+                },
+            ],
+            "the `#[string]` attribute must not end up in the recorded type"
+        );
+        assert_eq!(op.returns.as_deref(), Some("Option<Vec<f32>>"));
+    }
+
+    #[test]
+    fn an_op_with_no_parameters_records_none_rather_than_guessing() {
+        let src = r#"
+            /// Quits.
+            #[op2(fast)]
+            pub fn bsengine_quit() {}
+        "#;
+        let found = ops_in_source(src, "bsengine-scripting", "ops.rs");
+        assert!(found[0].params.is_empty(), "{:?}", found[0].params);
+        assert_eq!(found[0].returns, None, "a unit return is None, not \"()\"");
+    }
+
+    /// The runtime's own plumbing is not part of the signature a script writes.
+    ///
+    /// `OpState` and v8 handles are how deno hands an op its context. Listing
+    /// them would describe a call no caller can make, which is worse than
+    /// listing nothing because it looks authoritative.
+    #[test]
+    fn op_state_and_v8_arguments_are_not_part_of_the_scripts_signature() {
+        let src = r#"
+            /// Spawns.
+            #[op2]
+            pub fn bsengine_spawn(
+                state: &mut OpState,
+                scope: &mut v8::HandleScope,
+                #[string] name: String,
+            ) {
+            }
+        "#;
+        let found = ops_in_source(src, "bsengine-scripting", "ops.rs");
+        assert_eq!(
+            found[0].params,
+            vec![OpParam {
+                name: "name".into(),
+                ty: "String".into()
+            }],
+            "only the argument a script actually passes should be recorded"
+        );
+    }
 
     #[test]
     fn a_component_is_found_with_its_fields_and_doc() {

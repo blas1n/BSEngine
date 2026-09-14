@@ -119,6 +119,26 @@ pub enum UiDirection {
     Horizontal,
     /// Top to bottom.
     Vertical,
+    /// Left to right, wrapping to a new row every `columns` children.
+    ///
+    /// Columns split the container's width equally rather than taking a fixed
+    /// cell size. That is Godot's model (name the column count, let the
+    /// container size them) with Unreal's uniform cells, and it is a choice
+    /// rather than a lookup: the three reference engines genuinely disagree
+    /// here — Unity takes a fixed `cellSize`, Unreal sizes cells to the largest
+    /// child, Godot sizes each column to its own widest child.
+    ///
+    /// Unity's fixed cell was rejected on two grounds: it silently overrides
+    /// the width and height the author just wrote on the child, and a cell
+    /// pinned to a pixel count undoes the resolution independence anchors
+    /// exist to provide. Godot's per-column content sizing has nothing to
+    /// measure here, because widgets carry explicit sizes rather than
+    /// content-derived ones.
+    Grid {
+        /// Children per row. Clamped to at least 1 where it is used, so a
+        /// zero cannot divide by zero or silently drop every child.
+        columns: u32,
+    },
 }
 
 /// How a container places its children across the axis it does *not* stack
@@ -600,6 +620,10 @@ impl UiState {
             width: (rect.width - 2.0 * padding).max(0.0),
             height: (rect.height - 2.0 * padding).max(0.0),
         };
+        if let UiDirection::Grid { columns } = direction {
+            self.place_grid(*columns, kids, inner, *spacing, *align, children, out);
+            return;
+        }
         let horizontal = *direction == UiDirection::Horizontal;
         let main_span = if horizontal {
             inner.width
@@ -667,6 +691,77 @@ impl UiState {
         }
     }
 
+    /// Lays children out in rows of `columns`, inside `inner`.
+    ///
+    /// Column width is the container's width split equally, so a grid stays
+    /// proportional at any resolution. Row height is the tallest child in that
+    /// row, which is the one place a cell is content-derived: rows are not
+    /// bounded by anything the way columns are bounded by the container's
+    /// width, so splitting the height equally would depend on how many children
+    /// happen to exist.
+    #[allow(clippy::too_many_arguments)]
+    fn place_grid<'a>(
+        &'a self,
+        columns: u32,
+        kids: &[&'a UiWidget],
+        inner: UiRect,
+        spacing: f32,
+        align: UiAlign,
+        children: &HashMap<&'a str, Vec<&'a UiWidget>>,
+        out: &mut HashMap<String, UiRect>,
+    ) {
+        let columns = columns.max(1) as usize;
+        let gaps = spacing * columns.saturating_sub(1) as f32;
+        let cell_width = ((inner.width - gaps) / columns as f32).max(0.0);
+        let mut row_top = inner.y;
+        for row in kids.chunks(columns) {
+            // The tallest child decides the row, so a short widget beside a
+            // tall one does not clip it.
+            let row_height = row
+                .iter()
+                .map(|k| k.height())
+                .fold(0.0_f32, f32::max)
+                .max(0.0);
+            for (col, kid) in row.iter().enumerate() {
+                let cell_x = inner.x + col as f32 * (cell_width + spacing);
+                let own_w = kid.width();
+                let own_h = kid.height();
+                // `align` means the same thing it does for a row or a column:
+                // stretch fills the cell, anything else keeps the child's own
+                // size. Applied to both axes here, because a grid cell bounds
+                // the child on both.
+                let (w, h, dx, dy) = match align {
+                    UiAlign::Stretch => (cell_width, row_height, 0.0, 0.0),
+                    UiAlign::Start => (own_w, own_h, 0.0, 0.0),
+                    UiAlign::Center => (
+                        own_w,
+                        own_h,
+                        ((cell_width - own_w) / 2.0).max(0.0),
+                        ((row_height - own_h) / 2.0).max(0.0),
+                    ),
+                    UiAlign::End => (
+                        own_w,
+                        own_h,
+                        (cell_width - own_w).max(0.0),
+                        (row_height - own_h).max(0.0),
+                    ),
+                };
+                self.place(
+                    kid,
+                    UiRect {
+                        x: cell_x + dx,
+                        y: row_top + dy,
+                        width: w,
+                        height: h,
+                    },
+                    children,
+                    out,
+                );
+            }
+            row_top += row_height + spacing;
+        }
+    }
+
     /// A widget's fill weight; zero means it keeps its own size.
     fn fill_of(&self, id: &str) -> f32 {
         self.fills.get(id).copied().unwrap_or(0.0)
@@ -720,6 +815,148 @@ mod tests {
             st.set_parent(k.id(), "box");
         }
         st
+    }
+
+    /// Three columns of a 400-wide container with a 10px gap: each column is
+    /// (400 - 20) / 3 = 126.666.
+    #[test]
+    fn a_grid_splits_the_container_width_equally_across_its_columns() {
+        let kids = [
+            button("a", 10.0, 20.0),
+            button("b", 10.0, 20.0),
+            button("c", 10.0, 20.0),
+        ];
+        let r = row_of(&kids, UiDirection::Grid { columns: 3 }, |c| {
+            if let UiWidget::Container { spacing, .. } = c {
+                *spacing = 10.0;
+            }
+        })
+        .layout(W, H);
+        let expected = (400.0 - 20.0) / 3.0;
+        for id in ["a", "b", "c"] {
+            assert!(
+                (r[id].width - expected).abs() < 1e-3,
+                "every column must be {expected} wide, but {id} is {}",
+                r[id].width
+            );
+        }
+        assert!((r["a"].x - 100.0).abs() < 1e-3);
+        assert!(
+            (r["b"].x - (100.0 + expected + 10.0)).abs() < 1e-3,
+            "the second column must follow the first plus one gap, not two"
+        );
+        assert!(
+            (r["c"].x + r["c"].width - 500.0).abs() < 1e-3,
+            "the last column must end exactly at the container's right edge"
+        );
+    }
+
+    /// The property that distinguishes a grid from a row.
+    #[test]
+    fn a_grid_wraps_to_a_new_row_after_the_column_count() {
+        // Four children in two columns: two rows. Asymmetric heights so a row
+        // that took the wrong child's height shows.
+        let kids = [
+            button("a", 10.0, 20.0),
+            button("b", 10.0, 50.0),
+            button("c", 10.0, 30.0),
+            button("d", 10.0, 30.0),
+        ];
+        let r = row_of(&kids, UiDirection::Grid { columns: 2 }, |_| {}).layout(W, H);
+        assert_eq!(r["a"].y, r["b"].y, "a and b share the first row");
+        assert_eq!(r["c"].y, r["d"].y, "c and d share the second row");
+        assert!(
+            r["c"].y > r["a"].y,
+            "the second row must sit below the first, not beside it"
+        );
+        assert_eq!(
+            r["c"].y,
+            50.0 + 50.0,
+            "the second row starts after the tallest child of the first (50), \
+             not after the first child's own height (20)"
+        );
+        assert_eq!(r["a"].x, r["c"].x, "column 0 is one x for every row");
+    }
+
+    #[test]
+    fn a_grid_stretches_children_to_their_cell_by_default() {
+        let kids = [button("a", 10.0, 20.0), button("b", 10.0, 50.0)];
+        let r = row_of(&kids, UiDirection::Grid { columns: 2 }, |_| {}).layout(W, H);
+        assert_eq!(r["a"].width, 200.0, "half of a 400-wide container");
+        assert_eq!(
+            r["a"].height, 50.0,
+            "stretch fills the row, whose height is the tallest child's"
+        );
+    }
+
+    #[test]
+    fn a_grid_alignment_other_than_stretch_keeps_the_childs_own_size() {
+        let kids = [button("a", 40.0, 20.0), button("b", 10.0, 60.0)];
+        let at = |align: UiAlign| {
+            row_of(&kids, UiDirection::Grid { columns: 2 }, move |c| {
+                if let UiWidget::Container { align: a, .. } = c {
+                    *a = align;
+                }
+            })
+            .layout(W, H)["a"]
+        };
+        let start = at(UiAlign::Start);
+        assert_eq!(
+            (start.width, start.height),
+            (40.0, 20.0),
+            "start keeps the child's own size in both axes"
+        );
+        assert_eq!((start.x, start.y), (100.0, 50.0));
+        // Cell is 200 wide and the row is 60 tall (b is the tallest).
+        let centre = at(UiAlign::Center);
+        assert_eq!(centre.x, 100.0 + (200.0 - 40.0) / 2.0);
+        assert_eq!(centre.y, 50.0 + (60.0 - 20.0) / 2.0);
+        let end = at(UiAlign::End);
+        assert_eq!(end.x, 100.0 + 200.0 - 40.0);
+        assert_eq!(end.y, 50.0 + 60.0 - 20.0);
+    }
+
+    #[test]
+    fn a_grid_with_zero_columns_still_lays_every_child_out() {
+        // Zero would divide by zero and could silently drop every child; it is
+        // clamped to one column instead.
+        let kids = [button("a", 10.0, 20.0), button("b", 10.0, 20.0)];
+        let r = row_of(&kids, UiDirection::Grid { columns: 0 }, |_| {}).layout(W, H);
+        assert!(r.contains_key("a") && r.contains_key("b"), "{r:?}");
+        assert!(
+            r["a"].width.is_finite() && r["a"].width > 0.0,
+            "a clamped single column must still have a real width, got {}",
+            r["a"].width
+        );
+        assert!(r["b"].y > r["a"].y, "one column means one child per row");
+    }
+
+    /// A grid inside a row, to prove the branch composes with the rest of the
+    /// pass rather than being a separate path that only works at the top.
+    #[test]
+    fn a_grid_nested_in_a_column_lays_out_inside_its_own_rectangle() {
+        let mut st = UiState::default();
+        st.set_widget(container("outer", UiDirection::Vertical));
+        let mut grid = container("grid", UiDirection::Grid { columns: 2 });
+        if let UiWidget::Container { width, height, .. } = &mut grid {
+            *width = 200.0;
+            *height = 80.0;
+        }
+        st.set_widget(grid);
+        st.set_parent("grid", "outer");
+        for id in ["a", "b"] {
+            st.set_widget(button(id, 10.0, 20.0));
+            st.set_parent(id, "grid");
+        }
+        let r = st.layout(W, H);
+        // outer stacks vertically with stretch, so the grid spans outer's width
+        // (400) at outer's top-left.
+        assert_eq!(r["a"].x, 100.0, "the grid's first cell starts at the grid");
+        assert_eq!(r["a"].y, 50.0);
+        assert!(
+            r["b"].x > r["a"].x,
+            "two columns inside a nested grid still sit side by side"
+        );
     }
 
     #[test]

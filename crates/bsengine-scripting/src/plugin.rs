@@ -2390,7 +2390,8 @@ fn run_scripts(world: &mut World) {
                 y,
                 width,
                 height,
-                horizontal,
+                direction,
+                columns,
                 spacing,
                 padding,
                 align,
@@ -2403,10 +2404,16 @@ fn run_scripts(world: &mut World) {
                         width,
                         height,
                         anchor: bsengine_core::UiAnchor::TOP_LEFT,
-                        direction: if horizontal {
-                            bsengine_core::UiDirection::Horizontal
-                        } else {
-                            bsengine_core::UiDirection::Vertical
+                        // An out-of-range value means a prelude change got
+                        // ahead of this match; horizontal is what a container
+                        // did before there was a choice, so it is the safe
+                        // landing. The prelude throws on an unknown name, so
+                        // reaching this is a Rust/JS mismatch rather than a
+                        // typo in a game.
+                        direction: match direction {
+                            1 => bsengine_core::UiDirection::Vertical,
+                            2 => bsengine_core::UiDirection::Grid { columns },
+                            _ => bsengine_core::UiDirection::Horizontal,
                         },
                         spacing,
                         padding,

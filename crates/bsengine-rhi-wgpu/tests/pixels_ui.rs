@@ -161,3 +161,67 @@ fn a_container_moves_its_child_away_from_the_childs_own_coordinates() {
          the renderer used the widget's own coordinates and ignored its container."
     );
 }
+
+/// The Image widget must draw its texture.
+///
+/// It used to call `allocate_exact_size` and nothing else -- reserving a
+/// rectangle and painting no pixels -- while `texture_path` was stored and
+/// ignored. With no `setImage` op either, the variant was both unreachable from
+/// a game and inert if reached.
+///
+/// The second half is what makes this about the texture rather than about
+/// drawing *something*: the identical widget with no uploaded texture must
+/// still draw nothing, so a placeholder rectangle cannot satisfy the first
+/// assertion.
+#[test]
+fn an_image_widget_draws_its_texture_and_nothing_without_one() {
+    let mut h = Harness::new();
+    let blank = render_settled(&mut h, &Scene::default());
+    let tex = h.two_colour_texture([255, 0, 0, 255], [0, 0, 255, 255]);
+
+    let image = |id: &str| UiWidget::Image {
+        id: id.into(),
+        texture_path: "ui/panel.png".into(),
+        x: 40.0,
+        y: 30.0,
+        width: 80.0,
+        height: 60.0,
+        anchor: UiAnchor::TOP_LEFT,
+    };
+
+    let mut with_texture = UiState::default();
+    with_texture.set_widget(image("img"));
+    let drawn = render_settled(
+        &mut h,
+        &Scene {
+            ui: with_texture,
+            ui_textures: HashMap::from([("ui/panel.png".to_string(), tex)]),
+            ..Scene::default()
+        },
+    );
+
+    let mut unresolved = UiState::default();
+    unresolved.set_widget(image("img"));
+    let not_drawn = render_settled(
+        &mut h,
+        &Scene {
+            ui: unresolved,
+            // No entry: the path has not finished loading.
+            ..Scene::default()
+        },
+    );
+
+    let bounds = changed_bounds(&drawn, &blank)
+        .expect("an image widget with an uploaded texture must draw pixels");
+    assert!(
+        bounds.0 >= 30 && bounds.1 >= 20,
+        "the image should draw at its own (40, 30), but the changed pixels start \
+         at {bounds:?}"
+    );
+    assert!(
+        changed_bounds(&not_drawn, &blank).is_none(),
+        "an image whose texture has not loaded must draw nothing; something was \
+         painted, so the first assertion could be satisfied by a placeholder \
+         rather than by the texture"
+    );
+}

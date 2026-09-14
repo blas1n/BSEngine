@@ -959,6 +959,22 @@ fn render_frame(
     );
     let tex_reg_ref = tex_registry.as_deref();
 
+    // Each UI image's path resolved to a GPU id, for the paths this frame's
+    // widgets actually name. Resolved here rather than in the renderer because
+    // the path-to-id map is `TextureCache`, which lives in this crate -- the
+    // same reason mesh draw calls carry an id rather than a path.
+    let ui_image_ids: std::collections::HashMap<String, u64> = ui
+        .widgets
+        .iter()
+        .filter_map(|w| match w {
+            bsengine_core::UiWidget::Image { texture_path, .. } => {
+                let id = texture_cache.as_deref()?.id_for(texture_path)?;
+                Some((texture_path.clone(), id))
+            }
+            _ => None,
+        })
+        .collect();
+
     match surface.0.render_frame(
         view_proj,
         cam_pos,
@@ -972,6 +988,7 @@ fn render_frame(
         tex_reg_ref,
         hud_map,
         ui,
+        &ui_image_ids,
         cursor_x,
         cursor_y,
         left_just_pressed,

@@ -1140,6 +1140,21 @@ pub enum ScriptCommand {
         /// Cross-axis placement: 0 stretch, 1 start, 2 centre, 3 end.
         align: u32,
     },
+    /// Create or replace a UI image.
+    SetUiImage {
+        /// Widget identifier.
+        id: String,
+        /// Asset path of the texture to draw.
+        texture_path: String,
+        /// X offset, in pixels.
+        x: f32,
+        /// Y offset, in pixels.
+        y: f32,
+        /// Width, in pixels.
+        width: f32,
+        /// Height, in pixels.
+        height: f32,
+    },
     /// Put a UI widget inside a container, or detach it with an empty parent.
     SetUiParent {
         /// Widget to move.
@@ -5778,6 +5793,31 @@ pub fn bsengine_ui_set_container(
     });
 }
 
+/// Queue creating a UI image.
+///
+/// `texture_path` goes through the same texture cache entity materials use, so
+/// an image shared with a mesh uploads once rather than twice.
+#[op2(fast)]
+pub fn bsengine_ui_set_image(
+    #[string] id: String,
+    #[string] texture_path: String,
+    x: f32,
+    y: f32,
+    width: f32,
+    height: f32,
+) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetUiImage {
+            id,
+            texture_path,
+            x,
+            y,
+            width,
+            height,
+        });
+    });
+}
+
 /// Puts a widget inside a container. An empty `parent` detaches it.
 #[op2(fast)]
 pub fn bsengine_ui_set_parent(#[string] id: String, #[string] parent: String) {
@@ -6323,6 +6363,7 @@ deno_core::extension!(
         bsengine_ui_set_label,
         bsengine_ui_set_anchor,
         bsengine_ui_set_container,
+        bsengine_ui_set_image,
         bsengine_ui_set_parent,
         bsengine_ui_set_fill,
         bsengine_ui_set_button,

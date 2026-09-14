@@ -2422,6 +2422,26 @@ fn run_scripts(world: &mut World) {
                     });
                 }
             }
+            ScriptCommand::SetUiImage {
+                id,
+                texture_path,
+                x,
+                y,
+                width,
+                height,
+            } => {
+                if let Some(mut ui) = world.get_resource_mut::<UiState>() {
+                    ui.set_widget(bsengine_core::UiWidget::Image {
+                        id,
+                        texture_path,
+                        x,
+                        y,
+                        width,
+                        height,
+                        anchor: bsengine_core::UiAnchor::TOP_LEFT,
+                    });
+                }
+            }
             ScriptCommand::SetUiParent { id, parent } => {
                 if let Some(mut ui) = world.get_resource_mut::<UiState>() {
                     // Unlike `set_anchor` this does not require the widget to

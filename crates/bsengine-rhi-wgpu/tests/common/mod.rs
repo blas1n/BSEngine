@@ -180,6 +180,13 @@ pub struct Scene {
     pub light: Light,
     pub camera_pos: Vec3,
     pub look_at: Vec3,
+    /// GPU texture ids for UI image paths, as `bsengine-render` resolves them
+    /// from its texture cache.
+    ///
+    /// Supplied by the test rather than looked up, because the cache lives in a
+    /// crate this one cannot depend on. A test that wants an image on screen
+    /// uploads a texture through the registry and names it here.
+    pub ui_textures: HashMap<String, u64>,
     /// UI widgets to draw this frame.
     ///
     /// Exposed because the harness used to build a `UiState::default()`
@@ -227,6 +234,7 @@ impl Default for Scene {
             camera_pos: Vec3::new(0.0, 0.0, 5.0),
             look_at: Vec3::ZERO,
             ui: bsengine_core::UiState::default(),
+            ui_textures: HashMap::new(),
             shadow_blend: bsengine_core::shadow_config::DEFAULT_CASCADE_BLEND,
             bloom: None,
             tone_map: None,
@@ -622,6 +630,7 @@ struct VertOut {{
                 Some(&self.textures),
                 &scene.hud,
                 &scene.ui,
+                &scene.ui_textures,
                 0.0,
                 0.0,
                 false,

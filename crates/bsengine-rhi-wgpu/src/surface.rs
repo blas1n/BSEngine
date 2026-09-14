@@ -2276,6 +2276,13 @@ pub struct WgpuSurface {
     sky_tex_bgl: wgpu::BindGroupLayout,
     egui_ctx: egui::Context,
     egui_renderer: egui_wgpu::Renderer,
+    /// egui's handle for each GPU texture a UI image has drawn, keyed by the
+    /// registry id.
+    ///
+    /// Cached because `register_native_texture` allocates a fresh binding every
+    /// call: registering per frame would leak one per image per frame, which is
+    /// invisible until a long-running scene runs the device out of descriptors.
+    ui_texture_ids: std::collections::HashMap<u64, egui::TextureId>,
     skybox: Option<SkyboxState>,
     loaded_skybox_path: Option<String>,
     /// The irradiance and prefiltered specular maps convolved from the current
@@ -3822,6 +3829,7 @@ impl WgpuSurface {
             sky_tex_bgl,
             egui_ctx,
             egui_renderer,
+            ui_texture_ids: std::collections::HashMap::new(),
             skybox: None,
             loaded_skybox_path: None,
             // No skybox yet, so there is no environment to have convolved.
@@ -4695,6 +4703,7 @@ impl WgpuSurface {
         tex_registry: Option<&crate::texture::GpuTextureRegistry>,
         hud_texts: &std::collections::HashMap<String, String>,
         ui_state: &bsengine_core::UiState,
+        ui_textures: &std::collections::HashMap<String, u64>,
         cursor_x: f32,
         cursor_y: f32,
         left_just_pressed: bool,
@@ -5680,6 +5689,39 @@ impl WgpuSurface {
         frame_objects_drawn += pp_draw_calls;
         frame_triangles += pp_triangles;
 
+        // Every UI image's texture, as an egui handle, resolved before the UI
+        // closure runs.
+        //
+        // Two reasons it happens here rather than at the draw site: the closure
+        // borrows `self` immutably while registering needs `&mut self`, and
+        // registration has to be cached anyway -- doing it per frame allocates
+        // a fresh binding each time, which is a slow leak rather than an error.
+        let ui_image_textures: std::collections::HashMap<&str, egui::TextureId> = ui_state
+            .widgets
+            .iter()
+            .filter_map(|w| match w {
+                bsengine_core::UiWidget::Image { texture_path, .. } => {
+                    let gpu_id = ui_textures.get(texture_path.as_str()).copied()?;
+                    let registry = tex_registry?;
+                    let egui_id = match self.ui_texture_ids.get(&gpu_id) {
+                        Some(id) => *id,
+                        None => {
+                            let view = registry.get_view(gpu_id)?;
+                            let id = self.egui_renderer.register_native_texture(
+                                &self.device,
+                                view,
+                                wgpu::FilterMode::Linear,
+                            );
+                            self.ui_texture_ids.insert(gpu_id, id);
+                            id
+                        }
+                    };
+                    Some((texture_path.as_str(), egui_id))
+                }
+                _ => None,
+            })
+            .collect();
+
         // UI + HUD overlay via egui (always on in editor mode)
         let has_ui = is_editor
             || !hud_texts.is_empty()
@@ -5784,6 +5826,11 @@ impl WgpuSurface {
                 let screen_w = self.output.width() as f32;
                 let screen_h = self.output.height() as f32;
                 let ui_rects = ui_state.layout(screen_w, screen_h);
+                // Borrowed, not moved: this closure is `FnMut` and may run
+                // more than once. An image whose texture has not finished
+                // loading has no entry and draws nothing this frame, which is
+                // what it did every frame before.
+                let image_textures = &ui_image_textures;
                 for widget in &ui_state.widgets {
                     use bsengine_core::UiWidget;
                     let Some(rect) = ui_rects.get(widget.id()) else {
@@ -5847,14 +5894,36 @@ impl WgpuSurface {
                                     );
                                 });
                         }
-                        UiWidget::Image { id, .. } => {
+                        UiWidget::Image {
+                            id, texture_path, ..
+                        } => {
+                            // This used to call `allocate_exact_size` and
+                            // nothing else: it reserved a rectangle and drew no
+                            // pixels, so `texture_path` was stored and ignored.
+                            // Combined with there being no `setImage` op, the
+                            // variant was unreachable *and* inert.
+                            let tex = image_textures.get(texture_path.as_str()).copied();
                             egui::Area::new(egui::Id::new(id.as_str()))
                                 .fixed_pos(egui::pos2(px, py))
-                                .show(ctx, |ui| {
-                                    ui.allocate_exact_size(
-                                        egui::vec2(pw, ph),
-                                        egui::Sense::hover(),
-                                    );
+                                .show(ctx, |ui| match tex {
+                                    Some(tex_id) => {
+                                        ui.add(
+                                            egui::Image::new(egui::load::SizedTexture::new(
+                                                tex_id,
+                                                egui::vec2(pw, ph),
+                                            ))
+                                            .fit_to_exact_size(egui::vec2(pw, ph)),
+                                        );
+                                    }
+                                    // Still loading, or the path failed. The
+                                    // space is held so a later frame does not
+                                    // reflow everything around it.
+                                    None => {
+                                        ui.allocate_exact_size(
+                                            egui::vec2(pw, ph),
+                                            egui::Sense::hover(),
+                                        );
+                                    }
                                 });
                         }
                         UiWidget::ProgressBar { id, fraction, .. } => {
@@ -7450,6 +7519,7 @@ mod tests {
                 None,
                 &std::collections::HashMap::new(),
                 &ui_state,
+                &std::collections::HashMap::new(),
                 0.0,
                 0.0,
                 false,

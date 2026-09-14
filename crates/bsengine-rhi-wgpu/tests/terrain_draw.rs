@@ -40,6 +40,7 @@ fn a_terrain_draw_call_does_not_panic_alongside_regular_draw_calls() {
     let terrain_draw_calls = vec![(mesh_id, Mat4::IDENTITY, layer_ids, weight_id)];
 
     let ui_state = bsengine_core::UiState::default();
+    let ui_textures = std::collections::HashMap::new();
     let cascades = bsengine_rhi_wgpu::shadow::DirectionalCascades::new(
         Vec3::new(0.0, -1.0, 0.0),
         Mat4::IDENTITY,
@@ -60,6 +61,7 @@ fn a_terrain_draw_call_does_not_panic_alongside_regular_draw_calls() {
         Some(&textures),
         &std::collections::HashMap::new(),
         &ui_state,
+        &ui_textures,
         0.0,
         0.0,
         false,

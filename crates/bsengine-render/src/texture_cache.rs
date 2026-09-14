@@ -58,6 +58,45 @@ impl TextureCache {
     pub fn uploaded_count(&self) -> usize {
         self.by_path.values().filter(|c| c.id.is_some()).count()
     }
+
+    /// Requests `path` if this is the first time anyone asked, polls it, and
+    /// uploads it once it arrives. Returns the GPU id when there is one.
+    ///
+    /// Split out of [`resolve_texture_paths`] so that callers with nowhere to
+    /// write an id -- UI images, which are not entities -- go through exactly
+    /// the same request-once, upload-once path that entities do, rather than a
+    /// second copy of it that could diverge.
+    fn ensure_uploaded(
+        &mut self,
+        path: &str,
+        asset_server: &bevy_asset::AssetServer,
+        textures: &bevy_asset::Assets<TextureAsset>,
+        registry: &mut GpuTextureRegistry,
+    ) -> Option<u64> {
+        // Requested here, the first time anyone asks for this path, so
+        // "request exactly once" is a property of the map rather than of any
+        // caller's control flow.
+        let entry = self
+            .by_path
+            .entry(path.to_string())
+            .or_insert_with(|| CachedTexture {
+                slot: bsengine_asset::AssetSlot::requesting(asset_server, path),
+                id: None,
+            });
+
+        match entry.slot.poll(asset_server, textures) {
+            bsengine_asset::Polled::Arrived => {
+                if let Some(tex) = textures.get(entry.slot.handle()) {
+                    entry.id = Some(registry.load_from_rgba(tex.width, tex.height, &tex.data));
+                }
+            }
+            bsengine_asset::Polled::Failed(e) => {
+                tracing::warn!("[texture] '{path}' failed to load: {e}");
+            }
+            bsengine_asset::Polled::Nothing => {}
+        }
+        entry.id
+    }
 }
 
 /// Requests, polls and uploads the textures entities are waiting for, then
@@ -69,6 +108,7 @@ impl TextureCache {
 pub fn resolve_texture_paths(
     mut cache: ResMut<TextureCache>,
     mut wanting: Query<(&TexturePath, &mut Material)>,
+    ui_state: Option<Res<bsengine_core::UiState>>,
     asset_server: Res<bevy_asset::AssetServer>,
     textures: Res<bevy_asset::Assets<TextureAsset>>,
     registry: Option<ResMut<GpuTextureRegistry>>,
@@ -83,36 +123,24 @@ pub fn resolve_texture_paths(
         if material.texture_id.is_some() {
             continue;
         }
-        let path = wanted.0.as_str();
-        // Requested here, the first time any entity asks for this path, so
-        // "request exactly once" is a property of the map rather than of the
-        // control flow below.
-        let entry = cache
-            .by_path
-            .entry(path.to_string())
-            .or_insert_with(|| CachedTexture {
-                slot: bsengine_asset::AssetSlot::requesting(&asset_server, path),
-                id: None,
-            });
-
-        match entry.slot.poll(&asset_server, &textures) {
-            bsengine_asset::Polled::Arrived => {
-                if let Some(tex) = textures.get(entry.slot.handle()) {
-                    entry.id = Some(registry.load_from_rgba(tex.width, tex.height, &tex.data));
-                }
-                // The id is deliberately not written to `material` here. The
-                // block below does it on the next frame, and doing it in both
-                // places is a line whose removal changes nothing observable --
-                // which is exactly what a mutation test found when it was there.
-            }
-            bsengine_asset::Polled::Failed(e) => {
-                tracing::warn!("[texture] '{path}' failed to load: {e}");
-            }
-            bsengine_asset::Polled::Nothing => {}
-        }
-
-        if let Some(id) = entry.id {
+        let id = cache.ensure_uploaded(wanted.0.as_str(), &asset_server, &textures, &mut registry);
+        if let Some(id) = id {
             material.texture_id = Some(id);
+        }
+    }
+
+    // UI images want the same thing an entity does -- a path on the GPU -- but
+    // they are not entities and have no `Material` to write an id onto, so the
+    // query above never sees them. Without this a `UiWidget::Image` names a
+    // texture that is never requested, which is one of the two reasons that
+    // widget drew nothing at all.
+    if let Some(ui) = ui_state {
+        for widget in &ui.widgets {
+            if let bsengine_core::UiWidget::Image { texture_path, .. } = widget {
+                if !texture_path.is_empty() {
+                    cache.ensure_uploaded(texture_path, &asset_server, &textures, &mut registry);
+                }
+            }
         }
     }
 }

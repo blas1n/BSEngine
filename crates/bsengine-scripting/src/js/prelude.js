@@ -646,6 +646,14 @@ var Bsengine = {
             Bsengine.ui._applyAnchor(id, o);
             Bsengine.ui._applyLayout(id, o);
         },
+        // An image drawn from an asset path. The texture goes through the
+        // same cache entity materials use, so sharing one with a mesh uploads
+        // it once.
+        setImage: (id, path, x, y, width, height, opts) => {
+            Deno.core.ops.bsengine_ui_set_image(id, String(path), x, y, width, height);
+            Bsengine.ui._applyAnchor(id, opts);
+            Bsengine.ui._applyLayout(id, opts);
+        },
         setLabel:       (id, text, x, y, fontSize, opts) => {
             Deno.core.ops.bsengine_ui_set_label(id, String(text), x, y, fontSize ?? 20);
             Bsengine.ui._applyAnchor(id, opts);

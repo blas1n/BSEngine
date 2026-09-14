@@ -1181,6 +1181,7 @@ dependencies = [
  "bsengine-app",
  "bsengine-asset",
  "bsengine-audio",
+ "bsengine-catalog",
  "bsengine-core",
  "bsengine-ecs",
  "bsengine-input",

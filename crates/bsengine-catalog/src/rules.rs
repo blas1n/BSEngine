@@ -136,6 +136,9 @@ mod tests {
             krate: "bsengine-scripting".to_string(),
             location: "crates/bsengine-scripting/src/ops.rs:1".to_string(),
             doc: "An op.".to_string(),
+            // These rules are about names, not signatures.
+            params: Vec::new(),
+            returns: None,
         }
     }
 

@@ -27,6 +27,7 @@ serde_json.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+bsengine-catalog.workspace = true
 bsengine-app.workspace = true
 # The prediction tests spawn a named, networked entity and drive a real
 # movement script over it, which needs `Name` and `glam` directly.

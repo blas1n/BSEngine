@@ -73,6 +73,215 @@ impl BlendTree1D {
     }
 }
 
+/// One clip placed at a point in a 2D blend space.
+#[derive(Debug, Clone, Reflect, serde::Serialize, serde::Deserialize)]
+pub struct BlendClip2D {
+    /// Name/identifier of the animation clip.
+    pub clip: String,
+    /// Position on the first parameter's axis.
+    pub x: f32,
+    /// Position on the second parameter's axis.
+    pub y: f32,
+}
+
+/// Blends clips placed anywhere on a plane — a 2D blend space.
+///
+/// The usual shape is locomotion: forward speed on one axis, strafe or turn on
+/// the other, with a clip at each combination worth authoring.
+///
+/// # Why triangles
+///
+/// The samples are triangulated, and a parameter falling inside a triangle
+/// blends exactly that triangle's three clips by barycentric weight. Unreal's
+/// Blend Space and Godot's `AnimationNodeBlendSpace2D` both work this way;
+/// Unity's Freeform Cartesian mode instead derives weights from pairwise
+/// projections without triangulating. Two of the three agree, so this follows
+/// them.
+///
+/// The practical difference is what a point is allowed to influence. Under
+/// triangulation a clip contributes only where its own triangles reach, so a
+/// sprint clip placed far out cannot bleed a little weight into a standing
+/// idle. Gradient bands let every sample contribute everywhere, which is more
+/// forgiving of sparse authoring and less predictable to author against.
+#[derive(Debug, Clone, Reflect, serde::Serialize, serde::Deserialize)]
+pub struct BlendTree2D {
+    /// Name of the float parameter driving the first axis.
+    pub param_x: String,
+    /// Name of the float parameter driving the second axis.
+    pub param_y: String,
+    /// The clips, placed anywhere on the plane. Order does not matter.
+    pub clips: Vec<BlendClip2D>,
+}
+
+impl BlendTree2D {
+    /// The clips contributing at `(x, y)`, each with its weight.
+    ///
+    /// Weights always sum to 1 when any clip is returned. Degenerate authoring
+    /// is handled rather than rejected, because a blend space is edited
+    /// incrementally and is legitimately degenerate on the way: no clips
+    /// returns nothing (the caller plays the state's own clip), one clip plays
+    /// alone, and clips that are all collinear — including exactly two — blend
+    /// along that line, which is a 1D blend space and the only sensible
+    /// reading.
+    pub fn sample(&self, x: f32, y: f32) -> Vec<(String, f32)> {
+        let pts: Vec<(f32, f32)> = self.clips.iter().map(|c| (c.x, c.y)).collect();
+        match self.clips.len() {
+            0 => return Vec::new(),
+            1 => return vec![(self.clips[0].clip.clone(), 1.0)],
+            _ => {}
+        }
+        let tris = triangulate(&pts);
+        if tris.is_empty() {
+            // Collinear or coincident samples: no triangle has area, so fall
+            // back to the nearest edge of the point set.
+            return self.along_nearest_edge(x, y);
+        }
+        for &(a, b, c) in &tris {
+            if let Some((wa, wb, wc)) = barycentric(pts[a], pts[b], pts[c], (x, y)) {
+                if wa >= -1e-6 && wb >= -1e-6 && wc >= -1e-6 {
+                    return vec![
+                        (self.clips[a].clip.clone(), wa.max(0.0)),
+                        (self.clips[b].clip.clone(), wb.max(0.0)),
+                        (self.clips[c].clip.clone(), wc.max(0.0)),
+                    ];
+                }
+            }
+        }
+        // Outside the hull. Clamping to the nearest edge keeps a parameter that
+        // overshoots — a speed above the fastest authored clip — playing that
+        // edge rather than snapping to one arbitrary corner.
+        self.along_nearest_edge(x, y)
+    }
+
+    /// Blends the two clips whose connecting segment is nearest to `(x, y)`.
+    fn along_nearest_edge(&self, x: f32, y: f32) -> Vec<(String, f32)> {
+        let mut best: Option<(f32, usize, usize, f32)> = None;
+        for i in 0..self.clips.len() {
+            for j in (i + 1)..self.clips.len() {
+                let (ax, ay) = (self.clips[i].x, self.clips[i].y);
+                let (bx, by) = (self.clips[j].x, self.clips[j].y);
+                let (dx, dy) = (bx - ax, by - ay);
+                let len2 = dx * dx + dy * dy;
+                let t = if len2 <= f32::EPSILON {
+                    0.0
+                } else {
+                    (((x - ax) * dx + (y - ay) * dy) / len2).clamp(0.0, 1.0)
+                };
+                let (px, py) = (ax + dx * t, ay + dy * t);
+                let d2 = (x - px) * (x - px) + (y - py) * (y - py);
+                if best.is_none_or(|(bd, _, _, _)| d2 < bd) {
+                    best = Some((d2, i, j, t));
+                }
+            }
+        }
+        match best {
+            Some((_, i, j, t)) => vec![
+                (self.clips[i].clip.clone(), 1.0 - t),
+                (self.clips[j].clip.clone(), t),
+            ],
+            None => Vec::new(),
+        }
+    }
+}
+
+/// Barycentric coordinates of `p` in triangle `abc`, or `None` if degenerate.
+fn barycentric(
+    a: (f32, f32),
+    b: (f32, f32),
+    c: (f32, f32),
+    p: (f32, f32),
+) -> Option<(f32, f32, f32)> {
+    let det = (b.1 - c.1) * (a.0 - c.0) + (c.0 - b.0) * (a.1 - c.1);
+    if det.abs() <= 1e-12 {
+        return None;
+    }
+    let wa = ((b.1 - c.1) * (p.0 - c.0) + (c.0 - b.0) * (p.1 - c.1)) / det;
+    let wb = ((c.1 - a.1) * (p.0 - c.0) + (a.0 - c.0) * (p.1 - c.1)) / det;
+    Some((wa, wb, 1.0 - wa - wb))
+}
+
+/// Delaunay triangulation of `pts`, as index triples.
+///
+/// Bowyer-Watson: start from a triangle large enough to contain everything,
+/// insert each point by deleting the triangles whose circumcircle it falls
+/// inside and re-filling that cavity, then drop anything still touching the
+/// outer scaffold. Returns empty for fewer than three points or for a set with
+/// no area, which the caller reads as "blend along a line instead".
+///
+/// Blend spaces hold a handful of clips, so the straightforward quadratic form
+/// is the right one: it is short enough to check by eye, which a faster
+/// incremental structure would not be.
+fn triangulate(pts: &[(f32, f32)]) -> Vec<(usize, usize, usize)> {
+    if pts.len() < 3 {
+        return Vec::new();
+    }
+    let (mut min_x, mut min_y) = (f32::MAX, f32::MAX);
+    let (mut max_x, mut max_y) = (f32::MIN, f32::MIN);
+    for &(x, y) in pts {
+        min_x = min_x.min(x);
+        min_y = min_y.min(y);
+        max_x = max_x.max(x);
+        max_y = max_y.max(y);
+    }
+    let dx = (max_x - min_x).max(1.0);
+    let dy = (max_y - min_y).max(1.0);
+    let m = dx.max(dy) * 10.0;
+    let (cx, cy) = ((min_x + max_x) / 2.0, (min_y + max_y) / 2.0);
+    // The scaffold vertices live past the end of `pts`; every triangle still
+    // referencing one at the end was never fully surrounded by real samples.
+    let mut work: Vec<(f32, f32)> = pts.to_vec();
+    work.push((cx - m, cy - m));
+    work.push((cx + m, cy - m));
+    work.push((cx, cy + m));
+    let n = pts.len();
+    let mut tris: Vec<(usize, usize, usize)> = vec![(n, n + 1, n + 2)];
+
+    for i in 0..n {
+        let p = work[i];
+        let mut cavity: Vec<(usize, usize)> = Vec::new();
+        tris.retain(|&(a, b, c)| {
+            if in_circumcircle(work[a], work[b], work[c], p) {
+                for e in [(a, b), (b, c), (c, a)] {
+                    cavity.push(e);
+                }
+                false
+            } else {
+                true
+            }
+        });
+        // An edge shared by two removed triangles is interior to the cavity and
+        // must not be re-filled; only the boundary is.
+        for k in 0..cavity.len() {
+            let (a, b) = cavity[k];
+            let shared = cavity
+                .iter()
+                .enumerate()
+                .any(|(l, &(c, d))| l != k && ((c, d) == (b, a) || (c, d) == (a, b)));
+            if !shared {
+                tris.push((a, b, i));
+            }
+        }
+    }
+    tris.retain(|&(a, b, c)| a < n && b < n && c < n);
+    tris
+}
+
+/// Whether `p` falls strictly inside the circumcircle of `abc`.
+fn in_circumcircle(a: (f32, f32), b: (f32, f32), c: (f32, f32), p: (f32, f32)) -> bool {
+    let ax = a.0 as f64 - p.0 as f64;
+    let ay = a.1 as f64 - p.1 as f64;
+    let bx = b.0 as f64 - p.0 as f64;
+    let by = b.1 as f64 - p.1 as f64;
+    let cx = c.0 as f64 - p.0 as f64;
+    let cy = c.1 as f64 - p.1 as f64;
+    // f64 throughout: the determinant multiplies four coordinates together, so
+    // f32 loses the sign on nearly-cocircular points and the triangulation
+    // develops holes that only show up as a clip silently dropping out.
+    let det = (ax * ax + ay * ay) * (bx * cy - by * cx) - (bx * bx + by * by) * (ax * cy - ay * cx)
+        + (cx * cx + cy * cy) * (ax * by - ay * bx);
+    det > 0.0
+}
+
 /// A single named animation state within an [`AnimationStateMachine`], describing
 /// which clip plays and how, while that state is active.
 #[derive(Debug, Clone, Reflect, serde::Serialize, serde::Deserialize)]
@@ -86,6 +295,11 @@ pub struct AsmState {
     /// Optional and defaulted so every scene written before blend trees
     /// existed keeps parsing unchanged.
     pub blend: Option<BlendTree1D>,
+    /// A 2D blend space, taking precedence over [`blend`](AsmState::blend).
+    ///
+    /// Optional for the same reason `blend` is: a scene written before 2D
+    /// blend spaces existed parses unchanged.
+    pub blend2d: Option<BlendTree2D>,
     /// Whether the clip wraps back to the start after reaching `duration`.
     pub looping: bool,
     /// Playback rate multiplier (1.0 = normal speed).
@@ -108,6 +322,7 @@ impl AsmState {
         Self {
             clip: clip.into(),
             blend: None,
+            blend2d: None,
             looping: true,
             speed: 1.0,
             duration: 0.0,
@@ -118,6 +333,12 @@ impl AsmState {
     /// Makes this state play a blend space instead of its single clip.
     pub fn with_blend(mut self, blend: BlendTree1D) -> Self {
         self.blend = Some(blend);
+        self
+    }
+
+    /// Makes this state play a 2D blend space, taking precedence over a 1D one.
+    pub fn with_blend2d(mut self, blend: BlendTree2D) -> Self {
+        self.blend2d = Some(blend);
         self
     }
 
@@ -276,6 +497,174 @@ impl AnimationStateMachine {
     /// Returns true while a crossfade between two states is in progress.
     pub fn is_blending(&self) -> bool {
         self.blend_from.is_some()
+    }
+}
+
+#[cfg(test)]
+mod blend2d_tests {
+    use super::*;
+
+    fn tree(points: &[(&str, f32, f32)]) -> BlendTree2D {
+        BlendTree2D {
+            param_x: "x".into(),
+            param_y: "y".into(),
+            clips: points
+                .iter()
+                .map(|(c, x, y)| BlendClip2D {
+                    clip: (*c).into(),
+                    x: *x,
+                    y: *y,
+                })
+                .collect(),
+        }
+    }
+
+    fn weight_of(got: &[(String, f32)], clip: &str) -> f32 {
+        got.iter()
+            .find(|(c, _)| c == clip)
+            .map(|(_, w)| *w)
+            .unwrap_or(0.0)
+    }
+
+    /// A right triangle with distinct legs, so swapping the axes or two
+    /// vertices cannot read as correct.
+    fn right_triangle() -> BlendTree2D {
+        tree(&[
+            ("origin", 0.0, 0.0),
+            ("east", 4.0, 0.0),
+            ("north", 0.0, 2.0),
+        ])
+    }
+
+    #[test]
+    fn a_point_at_a_sample_plays_that_clip_alone() {
+        let got = right_triangle().sample(4.0, 0.0);
+        assert!(
+            (weight_of(&got, "east") - 1.0).abs() < 1e-4,
+            "a parameter sitting exactly on a sample must be that clip alone, got {got:?}"
+        );
+    }
+
+    #[test]
+    fn a_point_inside_a_triangle_blends_its_three_clips_by_area() {
+        // The centroid weights all three equally; any other point does not.
+        let got = right_triangle().sample(4.0 / 3.0, 2.0 / 3.0);
+        for c in ["origin", "east", "north"] {
+            assert!(
+                (weight_of(&got, c) - 1.0 / 3.0).abs() < 1e-3,
+                "the centroid must weight {c} at 1/3, got {got:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn weights_always_sum_to_one() {
+        let t = right_triangle();
+        // Inside, on an edge, at a vertex, and far outside the hull.
+        for (x, y) in [(1.0, 0.5), (2.0, 0.0), (0.0, 2.0), (99.0, -40.0)] {
+            let got = t.sample(x, y);
+            let sum: f32 = got.iter().map(|(_, w)| w).sum();
+            assert!(
+                (sum - 1.0).abs() < 1e-3,
+                "weights at ({x}, {y}) sum to {sum}, not 1: {got:?}"
+            );
+        }
+    }
+
+    /// The property that distinguishes triangulation from a distance falloff.
+    #[test]
+    fn a_clip_outside_the_containing_triangle_contributes_nothing() {
+        // A square of four clips triangulates into two triangles. A point well
+        // inside the lower-left triangle must not be tinted by the opposite
+        // corner, which a gradient-band or inverse-distance scheme would do.
+        let t = tree(&[
+            ("sw", 0.0, 0.0),
+            ("se", 10.0, 0.0),
+            ("nw", 0.0, 10.0),
+            ("ne", 10.0, 10.0),
+        ]);
+        let got = t.sample(1.0, 1.0);
+        assert_eq!(
+            got.len(),
+            3,
+            "a point inside the hull blends one triangle: {got:?}"
+        );
+        let far = weight_of(&got, "ne");
+        assert!(
+            far < 1e-6,
+            "the far corner must contribute nothing at (1, 1), got {far} in {got:?}"
+        );
+        assert!(
+            weight_of(&got, "sw") > 0.5,
+            "the nearest corner should dominate: {got:?}"
+        );
+    }
+
+    #[test]
+    fn a_point_outside_the_hull_clamps_to_the_nearest_edge() {
+        // Overshooting a parameter -- a speed past the fastest authored clip --
+        // must keep playing that edge rather than snapping to one corner.
+        let got = right_triangle().sample(10.0, 0.0);
+        assert!(
+            (weight_of(&got, "east") - 1.0).abs() < 1e-4,
+            "past the east sample along the x axis, east should play alone: {got:?}"
+        );
+        let got = right_triangle().sample(2.0, -5.0);
+        assert!(
+            weight_of(&got, "origin") > 0.0 && weight_of(&got, "east") > 0.0,
+            "below the origin-east edge, both its ends should blend: {got:?}"
+        );
+        assert!(
+            weight_of(&got, "north") < 1e-6,
+            "the opposite vertex must not contribute: {got:?}"
+        );
+    }
+
+    #[test]
+    fn collinear_samples_blend_along_their_line() {
+        // No triangle has area, which must degrade to a 1D blend rather than
+        // returning nothing and silently muting the state.
+        let t = tree(&[("a", 0.0, 0.0), ("b", 1.0, 1.0), ("c", 2.0, 2.0)]);
+        let got = t.sample(0.5, 0.5);
+        let sum: f32 = got.iter().map(|(_, w)| w).sum();
+        assert!((sum - 1.0).abs() < 1e-3, "{got:?}");
+        assert!(
+            (weight_of(&got, "a") - 0.5).abs() < 1e-3 && (weight_of(&got, "b") - 0.5).abs() < 1e-3,
+            "halfway between a and b should be an even blend of those two: {got:?}"
+        );
+    }
+
+    #[test]
+    fn two_samples_blend_as_a_one_dimensional_space() {
+        let t = tree(&[("a", 0.0, 0.0), ("b", 10.0, 0.0)]);
+        let got = t.sample(2.5, 0.0);
+        assert!((weight_of(&got, "a") - 0.75).abs() < 1e-3, "{got:?}");
+        assert!((weight_of(&got, "b") - 0.25).abs() < 1e-3, "{got:?}");
+    }
+
+    #[test]
+    fn a_degenerate_space_does_not_panic_or_invent_a_clip() {
+        assert!(tree(&[]).sample(0.0, 0.0).is_empty(), "no clips, no output");
+        let one = tree(&[("only", 3.0, 4.0)]).sample(-100.0, 100.0);
+        assert_eq!(one.len(), 1);
+        assert!((one[0].1 - 1.0).abs() < 1e-4, "{one:?}");
+        // Every sample at the same point: no area, no distinct edge.
+        let same = tree(&[("a", 1.0, 1.0), ("b", 1.0, 1.0)]).sample(5.0, 5.0);
+        let sum: f32 = same.iter().map(|(_, w)| w).sum();
+        assert!((sum - 1.0).abs() < 1e-3, "coincident samples: {same:?}");
+    }
+
+    /// The axes must not be interchangeable.
+    #[test]
+    fn the_two_axes_are_not_swapped() {
+        let t = right_triangle();
+        let a = t.sample(3.0, 0.5);
+        let b = t.sample(0.5, 3.0);
+        assert!(
+            weight_of(&a, "east") > weight_of(&b, "east"),
+            "a point far along x must favour the east clip more than one far \
+             along y does; x={a:?} y={b:?}"
+        );
     }
 }
 

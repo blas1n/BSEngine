@@ -503,14 +503,36 @@ fn push_state_samples<'a>(
         return;
     };
 
-    if let Some(tree) = &state.blend {
-        let value = asm
-            .params_float
-            .get(tree.param.as_str())
-            .copied()
-            .unwrap_or(0.0);
+    // A 2D space wins over a 1D one when a state has both: it is the more
+    // specific authoring, and silently preferring the 1D tree would make the
+    // 2D one look broken rather than ignored.
+    let sampled: Option<Vec<(String, f32)>> = match (&state.blend2d, &state.blend) {
+        (Some(t), _) => {
+            let px = asm
+                .params_float
+                .get(t.param_x.as_str())
+                .copied()
+                .unwrap_or(0.0);
+            let py = asm
+                .params_float
+                .get(t.param_y.as_str())
+                .copied()
+                .unwrap_or(0.0);
+            Some(t.sample(px, py))
+        }
+        (None, Some(t)) => {
+            let v = asm
+                .params_float
+                .get(t.param.as_str())
+                .copied()
+                .unwrap_or(0.0);
+            Some(t.sample(v))
+        }
+        (None, None) => None,
+    };
+    if let Some(entries) = sampled {
         let mut any = false;
-        for (name, weight) in tree.sample(value) {
+        for (name, weight) in entries {
             if let Some(clip) = library.clips.get(&name) {
                 any = true;
                 out.push(ClipSample {
@@ -1373,6 +1395,147 @@ mod tests {
         asm.current_state = "locomotion".to_string();
         asm.params_float.insert("speed".to_string(), speed);
         asm
+    }
+
+    /// A library whose three clips sit at distinct positions, so a wrong
+    /// weighting shows as a wrong position rather than a plausible one.
+    fn three_clip_library() -> AnimationClipLibrary {
+        AnimationClipLibrary::from_clips(vec![
+            AnimationClip {
+                name: "idle".to_string(),
+                channels: vec![fixed_translation(Vec3::ZERO)],
+                duration: 1.0,
+            },
+            AnimationClip {
+                name: "run".to_string(),
+                channels: vec![fixed_translation(Vec3::new(30.0, 0.0, 0.0))],
+                duration: 1.0,
+            },
+            AnimationClip {
+                name: "strafe".to_string(),
+                channels: vec![fixed_translation(Vec3::new(0.0, 12.0, 0.0))],
+                duration: 1.0,
+            },
+        ])
+    }
+
+    /// Locomotion laid out the way a game would: speed on x, strafe on y.
+    fn blend_space_2d(speed: f32, strafe: f32) -> bsengine_core::AnimationStateMachine {
+        use bsengine_core::{AnimationStateMachine, AsmState, BlendClip2D, BlendTree2D};
+        let mut asm = AnimationStateMachine::default();
+        asm.states.insert(
+            "locomotion".to_string(),
+            AsmState::new("idle").with_blend2d(BlendTree2D {
+                param_x: "speed".to_string(),
+                param_y: "strafe".to_string(),
+                clips: vec![
+                    BlendClip2D {
+                        clip: "idle".into(),
+                        x: 0.0,
+                        y: 0.0,
+                    },
+                    BlendClip2D {
+                        clip: "run".into(),
+                        x: 3.0,
+                        y: 0.0,
+                    },
+                    BlendClip2D {
+                        clip: "strafe".into(),
+                        x: 0.0,
+                        y: 3.0,
+                    },
+                ],
+            }),
+        );
+        asm.current_state = "locomotion".to_string();
+        asm.params_float.insert("speed".to_string(), speed);
+        asm.params_float.insert("strafe".to_string(), strafe);
+        asm
+    }
+
+    /// The consumer-side proof. The pure `sample` tests show the weights are
+    /// right; this shows the animation path asks for them and mixes the pose
+    /// accordingly. A disconnected producer is indistinguishable from a working
+    /// one if only the producer is tested.
+    #[test]
+    fn a_2d_blend_space_mixes_all_three_clips_into_the_pose() {
+        let library = three_clip_library();
+        let idle = library.clips.get("idle").expect("clip exists");
+        // The centroid of the triangle: a third of each.
+        let asm = blend_space_2d(1.0, 1.0);
+
+        let samples = blend_samples(idle, &library, 0.0, Some(&asm));
+        assert_eq!(
+            samples.len(),
+            3,
+            "all three corners contribute at the centroid"
+        );
+
+        let pose = compute_local_transforms_blended(&one_node(), &samples);
+        let t = pose[0].to_scale_rotation_translation().2;
+        assert!(
+            (t.x - 10.0).abs() < 0.01,
+            "a third of run's 30 along x is 10, got {}",
+            t.x
+        );
+        assert!(
+            (t.y - 4.0).abs() < 0.01,
+            "a third of strafe's 12 along y is 4, got {}",
+            t.y
+        );
+    }
+
+    /// Both axes must reach the pose, not just the first.
+    #[test]
+    fn the_second_axis_of_a_2d_blend_space_changes_the_pose() {
+        let library = three_clip_library();
+        let idle = library.clips.get("idle").expect("clip exists");
+
+        let low = compute_local_transforms_blended(
+            &one_node(),
+            &blend_samples(idle, &library, 0.0, Some(&blend_space_2d(1.0, 0.2))),
+        )[0]
+        .to_scale_rotation_translation()
+        .2;
+        let high = compute_local_transforms_blended(
+            &one_node(),
+            &blend_samples(idle, &library, 0.0, Some(&blend_space_2d(1.0, 2.0))),
+        )[0]
+        .to_scale_rotation_translation()
+        .2;
+        assert!(
+            high.y > low.y + 1.0,
+            "raising the strafe parameter must move the pose along y: {} -> {}",
+            low.y,
+            high.y
+        );
+    }
+
+    /// A state carrying both spaces must use the 2D one.
+    #[test]
+    fn a_2d_space_takes_precedence_over_a_1d_one_on_the_same_state() {
+        use bsengine_core::{BlendClip, BlendTree1D};
+        let library = three_clip_library();
+        let idle = library.clips.get("idle").expect("clip exists");
+        let mut asm = blend_space_2d(0.0, 3.0); // pure strafe under the 2D space
+                                                // A 1D tree that would say "pure run" if it won.
+        if let Some(state) = asm.states.get_mut("locomotion") {
+            state.blend = Some(BlendTree1D {
+                param: "speed".to_string(),
+                clips: vec![BlendClip {
+                    clip: "run".to_string(),
+                    threshold: 0.0,
+                }],
+            });
+        }
+        let samples = blend_samples(idle, &library, 0.0, Some(&asm));
+        let pose = compute_local_transforms_blended(&one_node(), &samples);
+        let t = pose[0].to_scale_rotation_translation().2;
+        assert!(
+            t.y > 11.0 && t.x < 0.01,
+            "the 2D space says pure strafe (y=12); if the 1D tree won this would \
+             be pure run (x=30). Got {t:?}"
+        );
     }
 
     #[test]

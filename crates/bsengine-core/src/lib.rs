@@ -112,7 +112,8 @@ pub mod volumetric_fog;
 pub use ambient_occlusion::AmbientOcclusion;
 pub use animation_player::AnimationPlayer;
 pub use animation_state_machine::{
-    AnimationStateMachine, AsmState, AsmTransition, BlendClip, BlendTree1D, TransitionCondition,
+    AnimationStateMachine, AsmState, AsmTransition, BlendClip, BlendClip2D, BlendTree1D,
+    BlendTree2D, TransitionCondition,
 };
 pub use bloom::Bloom;
 pub use camera::Camera;

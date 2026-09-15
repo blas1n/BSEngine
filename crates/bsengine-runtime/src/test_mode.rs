@@ -1356,7 +1356,12 @@ mod tests {
     #[test]
     fn a_dynamic_body_dropped_above_terrain_demo_comes_to_rest_supported_by_the_heightfield() {
         let project_dir = format!("{}/../../games/terrain-demo", env!("CARGO_MANIFEST_DIR"));
-        let mut app = build_test_app(&project_dir, None, false);
+        // `fast_render: true`, because this asserts where a body comes to
+        // rest and reads the heightmap image directly -- it never looks at a
+        // rendered frame. Measured 11.1 min on Windows CI as the single
+        // slowest test in the workspace; the shadow, SSAO and bloom passes it
+        // was paying for every frame decided nothing here.
+        let mut app = build_test_app(&project_dir, None, true);
 
         // Step until the scene's own "Ground" entity (the authored `Terrain`)
         // has finished generating its chunks -- the heightmap loads
@@ -1660,7 +1665,9 @@ mod tests {
         let project_dir = root.to_str().unwrap().to_string();
 
         // --- Phase 1: edit, through the real app stack ---
-        let mut app = build_test_app(&project_dir, None, false);
+        // `fast_render: true`: this asserts terrain data across a reload,
+        // with no assertion on a rendered frame. 8.0 min on Windows CI.
+        let mut app = build_test_app(&project_dir, None, true);
 
         let mut terrain_ready = false;
         for _ in 0..200 {
@@ -3541,7 +3548,9 @@ mod tests {
         // component fights the script that a real player drives through.
         let run = |hold_throttle: bool| -> f32 {
             let project_dir = format!("{}/../../games/vehicle-demo", env!("CARGO_MANIFEST_DIR"));
-            let mut app = build_test_app(&project_dir, None, false);
+            // `fast_render: true`: this asserts the vehicle moved, not how
+            // it looked. 6.6 min on Windows CI.
+            let mut app = build_test_app(&project_dir, None, true);
             let mut frame: u64 = 0;
 
             let car = |app: &mut App| {
@@ -3767,7 +3776,9 @@ mod tests {
         //
         // No crate-level test spans that chain -- each one covers a link.
         let project_dir = format!("{}/../../games/ik-demo", env!("CARGO_MANIFEST_DIR"));
-        let mut app = build_test_app(&project_dir, None, false);
+        // `fast_render: true`: this asserts foot bone positions against the
+        // surface, not pixels. 3.9 min on Windows CI.
+        let mut app = build_test_app(&project_dir, None, true);
         let mut frame: u64 = 0;
 
         // Let the glTF load and the probe run for a few frames. The probe reads

@@ -174,6 +174,58 @@ pub struct UiRect {
     pub height: f32,
 }
 
+/// Where a widget ended up, and what it is clipped to.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct UiPlacement {
+    /// The widget's rectangle, in screen pixels.
+    pub rect: UiRect,
+    /// The rectangle outside which this widget must not draw.
+    ///
+    /// `None` for anything not inside a scroll container. Clipping is opt-in
+    /// per container rather than universal: children of an ordinary container
+    /// are allowed to overflow it today -- a label wider than its cell, a
+    /// button in a container sized smaller than its content -- and clipping
+    /// every container would change that silently.
+    pub clip: Option<UiRect>,
+}
+
+/// The result of one layout pass.
+#[derive(Clone, Debug, Default)]
+pub struct UiLayout {
+    /// Every widget's placement, keyed by id.
+    pub placements: HashMap<String, UiPlacement>,
+    /// How far each scroll container *can* scroll, keyed by container id.
+    ///
+    /// Zero on an axis whose content fits. Reported rather than applied so the
+    /// thing that changes the offset -- a wheel, a script, a scrollbar -- can
+    /// clamp what it stores, instead of every reader having to re-derive the
+    /// content extent to know whether an offset is reachable.
+    pub scroll_max: HashMap<String, (f32, f32)>,
+}
+
+impl std::ops::Index<&str> for UiLayout {
+    type Output = UiRect;
+
+    /// The rectangle of the widget with this id.
+    ///
+    /// A convenience for the common case -- most callers want where a widget
+    /// went, not what it is clipped to. The clip is reached through
+    /// [`placements`](UiLayout::placements).
+    ///
+    /// # Panics
+    ///
+    /// If no widget with that id was laid out. That is a caller bug: the pass
+    /// places every widget it was given, so a missing id means the id itself
+    /// is wrong.
+    fn index(&self, id: &str) -> &UiRect {
+        &self
+            .placements
+            .get(id)
+            .unwrap_or_else(|| panic!("no widget laid out with id {id:?}"))
+            .rect
+    }
+}
+
 /// A single immediate-mode UI element rendered by the HUD/UI system.
 #[derive(Clone, Debug)]
 pub enum UiWidget {
@@ -227,6 +279,15 @@ pub enum UiWidget {
         padding: f32,
         /// How children are placed across the non-stacking axis.
         align: UiAlign,
+        /// Whether children are offset by this container's scroll position and
+        /// clipped to its rectangle.
+        ///
+        /// Opt-in, so every container written before scrolling existed keeps
+        /// letting its children overflow exactly as it did. Unity's
+        /// `ScrollRect`, Unreal's `ScrollBox` and Godot's `ScrollContainer` are
+        /// all likewise a distinct thing you reach for rather than a property
+        /// every container has.
+        scrollable: bool,
     },
     /// A clickable button.
     Button {
@@ -445,6 +506,12 @@ pub struct UiState {
     /// as a `parent:` name. A widget with no entry here is a root, which is
     /// what every widget was before containers existed.
     pub parents: HashMap<String, String>,
+    /// Scroll offset of each scroll container, keyed by container id.
+    ///
+    /// A side table for the same reason `parents` and `fills` are: it is
+    /// per-widget state that arrives from its own op, and it changes at
+    /// runtime while the container's own declaration does not.
+    pub scroll_offsets: HashMap<String, (f32, f32)>,
     /// Share of a container's leftover space each child claims, keyed by id.
     ///
     /// Zero — the default — means the child keeps its own size. Non-zero
@@ -502,6 +569,22 @@ impl UiState {
         }
     }
 
+    /// Sets a scroll container's offset. Negative values clamp to zero.
+    ///
+    /// Not clamped against the content here, because the content extent is a
+    /// layout result and this is called before layout runs. `UiLayout`'s
+    /// `scroll_max` is what a caller clamps against once it knows.
+    pub fn set_scroll(&mut self, id: &str, x: f32, y: f32) {
+        let sane = |v: f32| if v.is_finite() { v.max(0.0) } else { 0.0 };
+        self.scroll_offsets
+            .insert(id.to_string(), (sane(x), sane(y)));
+    }
+
+    /// A container's scroll offset, or `(0, 0)` if it has never been set.
+    pub fn scroll_of(&self, id: &str) -> (f32, f32) {
+        self.scroll_offsets.get(id).copied().unwrap_or((0.0, 0.0))
+    }
+
     /// Sets how much of a container's leftover space a child claims.
     pub fn set_fill(&mut self, id: &str, weight: f32) {
         if weight > 0.0 && weight.is_finite() {
@@ -518,6 +601,7 @@ impl UiState {
         self.clicked.clear();
         self.parents.clear();
         self.fills.clear();
+        self.scroll_offsets.clear();
     }
 
     /// Resolves every widget to a screen rectangle.
@@ -531,8 +615,8 @@ impl UiState {
     /// Pure: no GPU, no window, no egui. Every layout rule is testable on a
     /// machine with no display, which is how [`UiAnchor::resolve`] is tested
     /// and for the same reason.
-    pub fn layout(&self, screen_w: f32, screen_h: f32) -> HashMap<String, UiRect> {
-        let mut out = HashMap::new();
+    pub fn layout(&self, screen_w: f32, screen_h: f32) -> UiLayout {
+        let mut out = UiLayout::default();
         // Children grouped by parent, in declaration order. Declaration order
         // is the layout order: a script that calls `setButton` three times
         // gets those three buttons in that order, which is the only ordering a
@@ -556,6 +640,9 @@ impl UiState {
                         width,
                         height,
                     },
+                    // A root is clipped by nothing; a scroll container passes
+                    // its own rectangle down to its descendants.
+                    None,
                     &children,
                     &mut out,
                 );
@@ -597,15 +684,18 @@ impl UiState {
         &'a self,
         widget: &'a UiWidget,
         rect: UiRect,
+        clip: Option<UiRect>,
         children: &HashMap<&'a str, Vec<&'a UiWidget>>,
-        out: &mut HashMap<String, UiRect>,
+        out: &mut UiLayout,
     ) {
-        out.insert(widget.id().to_string(), rect);
+        out.placements
+            .insert(widget.id().to_string(), UiPlacement { rect, clip });
         let UiWidget::Container {
             direction,
             spacing,
             padding,
             align,
+            scrollable,
             ..
         } = widget
         else {
@@ -620,8 +710,36 @@ impl UiState {
             width: (rect.width - 2.0 * padding).max(0.0),
             height: (rect.height - 2.0 * padding).max(0.0),
         };
+        // Everything below a scroll container is clipped to it, and nested
+        // scroll containers intersect rather than replace: an inner list inside
+        // an outer one must not paint outside the outer one when the outer is
+        // scrolled away.
+        let child_clip = if *scrollable {
+            Some(match clip {
+                Some(c) => Self::intersect(c, rect),
+                None => rect,
+            })
+        } else {
+            clip
+        };
+        let (off_x, off_y) = if *scrollable {
+            self.scroll_of(widget.id())
+        } else {
+            (0.0, 0.0)
+        };
         if let UiDirection::Grid { columns } = direction {
-            self.place_grid(*columns, kids, inner, *spacing, *align, children, out);
+            self.place_grid(
+                *columns,
+                kids,
+                inner,
+                *spacing,
+                *align,
+                (off_x, off_y),
+                child_clip,
+                widget.id(),
+                children,
+                out,
+            );
             return;
         }
         let horizontal = *direction == UiDirection::Horizontal;
@@ -642,7 +760,22 @@ impl UiState {
             .sum();
         let total_weight: f32 = kids.iter().map(|k| self.fill_of(k.id())).sum();
         let leftover = (main_span - gaps - fixed).max(0.0);
-        let mut cursor = if horizontal { inner.x } else { inner.y };
+        // Content is only larger than the viewport when nothing fills: a
+        // filling child takes exactly the leftover, so a container whose
+        // children fill can never overflow and never scrolls.
+        let content = fixed + gaps + if total_weight > 0.0 { leftover } else { 0.0 };
+        if *scrollable {
+            let over = (content - main_span).max(0.0);
+            out.scroll_max.insert(
+                widget.id().to_string(),
+                if horizontal { (over, 0.0) } else { (0.0, over) },
+            );
+        }
+        let mut cursor = if horizontal {
+            inner.x - off_x
+        } else {
+            inner.y - off_y
+        };
         for kid in kids {
             let weight = self.fill_of(kid.id());
             let own = if horizontal {
@@ -687,7 +820,21 @@ impl UiState {
                 }
             };
             cursor += main + spacing;
-            self.place(kid, kid_rect, children, out);
+            self.place(kid, kid_rect, child_clip, children, out);
+        }
+    }
+
+    /// The overlap of two rectangles, empty when they do not meet.
+    fn intersect(a: UiRect, b: UiRect) -> UiRect {
+        let x0 = a.x.max(b.x);
+        let y0 = a.y.max(b.y);
+        let x1 = (a.x + a.width).min(b.x + b.width);
+        let y1 = (a.y + a.height).min(b.y + b.height);
+        UiRect {
+            x: x0,
+            y: y0,
+            width: (x1 - x0).max(0.0),
+            height: (y1 - y0).max(0.0),
         }
     }
 
@@ -707,13 +854,16 @@ impl UiState {
         inner: UiRect,
         spacing: f32,
         align: UiAlign,
+        scroll: (f32, f32),
+        clip: Option<UiRect>,
+        id: &str,
         children: &HashMap<&'a str, Vec<&'a UiWidget>>,
-        out: &mut HashMap<String, UiRect>,
+        out: &mut UiLayout,
     ) {
         let columns = columns.max(1) as usize;
         let gaps = spacing * columns.saturating_sub(1) as f32;
         let cell_width = ((inner.width - gaps) / columns as f32).max(0.0);
-        let mut row_top = inner.y;
+        let mut row_top = inner.y - scroll.1;
         for row in kids.chunks(columns) {
             // The tallest child decides the row, so a short widget beside a
             // tall one does not clip it.
@@ -723,7 +873,7 @@ impl UiState {
                 .fold(0.0_f32, f32::max)
                 .max(0.0);
             for (col, kid) in row.iter().enumerate() {
-                let cell_x = inner.x + col as f32 * (cell_width + spacing);
+                let cell_x = inner.x - scroll.0 + col as f32 * (cell_width + spacing);
                 let own_w = kid.width();
                 let own_h = kid.height();
                 // `align` means the same thing it does for a row or a column:
@@ -754,12 +904,18 @@ impl UiState {
                         width: w,
                         height: h,
                     },
+                    clip,
                     children,
                     out,
                 );
             }
             row_top += row_height + spacing;
         }
+        // Rows grow downward without bound, so a grid's reachable scroll is
+        // whatever its rows overran the viewport by.
+        let consumed = row_top + scroll.1 - inner.y;
+        out.scroll_max
+            .insert(id.to_string(), (0.0, (consumed - inner.height).max(0.0)));
     }
 
     /// A widget's fill weight; zero means it keeps its own size.
@@ -801,6 +957,7 @@ mod tests {
             spacing: 0.0,
             padding: 0.0,
             align: UiAlign::Stretch,
+            scrollable: false,
         }
     }
 
@@ -922,7 +1079,10 @@ mod tests {
         // clamped to one column instead.
         let kids = [button("a", 10.0, 20.0), button("b", 10.0, 20.0)];
         let r = row_of(&kids, UiDirection::Grid { columns: 0 }, |_| {}).layout(W, H);
-        assert!(r.contains_key("a") && r.contains_key("b"), "{r:?}");
+        assert!(
+            r.placements.contains_key("a") && r.placements.contains_key("b"),
+            "{r:?}"
+        );
         assert!(
             r["a"].width.is_finite() && r["a"].width > 0.0,
             "a clamped single column must still have a real width, got {}",
@@ -959,6 +1119,175 @@ mod tests {
         );
     }
 
+    /// A scrollable column of three fixed-height buttons, taller than its box.
+    fn scroll_column() -> UiState {
+        let mut c = container("list", UiDirection::Vertical);
+        if let UiWidget::Container {
+            height, scrollable, ..
+        } = &mut c
+        {
+            *height = 100.0; // shorter than the 3 x 50 of content
+            *scrollable = true;
+        }
+        let mut st = UiState::default();
+        st.set_widget(c);
+        for id in ["a", "b", "c"] {
+            st.set_widget(button(id, 40.0, 50.0));
+            st.set_parent(id, "list");
+        }
+        st
+    }
+
+    #[test]
+    fn a_container_is_not_scrollable_or_clipped_unless_asked() {
+        // The backwards-compatibility property: every container written before
+        // scrolling existed still lets its children overflow, and clips
+        // nothing.
+        let kids = [button("a", 40.0, 50.0)];
+        let st = row_of(&kids, UiDirection::Vertical, |_| {});
+        let l = st.layout(W, H);
+        assert!(
+            l.placements["a"].clip.is_none(),
+            "an ordinary container must not clip its children"
+        );
+        assert!(
+            l.scroll_max.is_empty(),
+            "a container that is not scrollable reports no scroll range"
+        );
+    }
+
+    #[test]
+    fn scrolling_shifts_children_up_by_the_offset() {
+        let mut st = scroll_column();
+        let before = st.layout(W, H)["a"].y;
+        st.set_scroll("list", 0.0, 30.0);
+        let after = st.layout(W, H)["a"].y;
+        assert_eq!(
+            after,
+            before - 30.0,
+            "scrolling down by 30 must move the first child up by 30"
+        );
+    }
+
+    #[test]
+    fn a_scroll_container_clips_its_children_to_itself() {
+        let st = scroll_column();
+        let l = st.layout(W, H);
+        let list = l["list"];
+        for id in ["a", "b", "c"] {
+            let clip = l.placements[id].clip.expect("a child must be clipped");
+            assert_eq!(
+                clip, list,
+                "every child of a scroll container is clipped to the container"
+            );
+        }
+        // The third child starts past the bottom of a 100-tall box: it is laid
+        // out, and the clip is what keeps it off screen.
+        assert!(
+            l["c"].y >= list.y + list.height,
+            "the overflowing child should still be placed, at {} vs box bottom {}",
+            l["c"].y,
+            list.y + list.height
+        );
+    }
+
+    #[test]
+    fn scroll_max_is_the_overflow_and_zero_when_content_fits() {
+        let st = scroll_column();
+        let over = st.layout(W, H).scroll_max["list"];
+        // 3 x 50 of content in a 100-tall box overflows by 50.
+        assert_eq!(over, (0.0, 50.0), "vertical overflow only");
+
+        // The same container, tall enough for its content, cannot scroll.
+        let mut st2 = scroll_column();
+        if let Some(UiWidget::Container { height, .. }) =
+            st2.widgets.iter_mut().find(|w| w.id() == "list")
+        {
+            *height = 500.0;
+        }
+        assert_eq!(
+            st2.layout(W, H).scroll_max["list"],
+            (0.0, 0.0),
+            "content that fits leaves nothing to scroll"
+        );
+    }
+
+    #[test]
+    fn a_nested_scroll_container_clips_to_the_overlap_of_both() {
+        // An inner list inside an outer one must not paint outside the outer
+        // box when the outer is scrolled away.
+        let mut st = UiState::default();
+        let mut outer = container("outer", UiDirection::Vertical);
+        if let UiWidget::Container {
+            height, scrollable, ..
+        } = &mut outer
+        {
+            *height = 60.0;
+            *scrollable = true;
+        }
+        st.set_widget(outer);
+        let mut inner = container("inner", UiDirection::Vertical);
+        if let UiWidget::Container {
+            height, scrollable, ..
+        } = &mut inner
+        {
+            *height = 200.0;
+            *scrollable = true;
+        }
+        st.set_widget(inner);
+        st.set_parent("inner", "outer");
+        st.set_widget(button("leaf", 40.0, 50.0));
+        st.set_parent("leaf", "inner");
+
+        let l = st.layout(W, H);
+        let clip = l.placements["leaf"].clip.expect("clipped");
+        assert!(
+            clip.height <= 60.0 + 1e-3,
+            "the leaf's clip must be bounded by the 60-tall outer box, not the \
+             200-tall inner one; got {clip:?}"
+        );
+    }
+
+    #[test]
+    fn a_negative_or_nonsense_scroll_offset_is_ignored() {
+        let mut st = scroll_column();
+        let base = st.layout(W, H)["a"].y;
+        st.set_scroll("list", 0.0, -100.0);
+        assert_eq!(
+            st.layout(W, H)["a"].y,
+            base,
+            "scrolling above the top must clamp to zero rather than pushing \
+             content down into empty space"
+        );
+        st.set_scroll("list", f32::NAN, f32::INFINITY);
+        assert!(
+            st.layout(W, H)["a"].y.is_finite(),
+            "a nonsense offset must not poison the layout"
+        );
+    }
+
+    #[test]
+    fn a_scrollable_grid_scrolls_its_rows() {
+        let mut st = UiState::default();
+        let mut g = container("grid", UiDirection::Grid { columns: 2 });
+        if let UiWidget::Container {
+            height, scrollable, ..
+        } = &mut g
+        {
+            *height = 60.0;
+            *scrollable = true;
+        }
+        st.set_widget(g);
+        for id in ["a", "b", "c", "d"] {
+            st.set_widget(button(id, 40.0, 50.0));
+            st.set_parent(id, "grid");
+        }
+        let before = st.layout(W, H)["c"].y;
+        st.set_scroll("grid", 0.0, 20.0);
+        let after = st.layout(W, H)["c"].y;
+        assert_eq!(after, before - 20.0, "a grid's second row scrolls too");
+    }
+
     #[test]
     fn a_widget_with_no_parent_is_placed_exactly_as_before() {
         // The backwards-compatibility property. Every existing game declares
@@ -967,7 +1296,7 @@ mod tests {
         let mut st = UiState::default();
         st.set_widget(button("solo", 120.0, 40.0));
         let rects = st.layout(W, H);
-        let r = rects.get("solo").expect("root widget must be laid out");
+        let r = &rects["solo"];
         let (x, y, w, h) = UiAnchor::TOP_LEFT.resolve(0.0, 0.0, 120.0, 40.0, W, H);
         assert_eq!(
             *r,
@@ -1171,7 +1500,10 @@ mod tests {
         st.set_parent("a", "b");
         st.set_parent("b", "a");
         let r = st.layout(W, H);
-        assert!(r.contains_key("a") && r.contains_key("b"), "{r:?}");
+        assert!(
+            r.placements.contains_key("a") && r.placements.contains_key("b"),
+            "{r:?}"
+        );
     }
 
     #[test]

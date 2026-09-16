@@ -1144,6 +1144,18 @@ pub enum ScriptCommand {
         padding: f32,
         /// Cross-axis placement: 0 stretch, 1 start, 2 centre, 3 end.
         align: u32,
+        /// Whether children are offset by the scroll position and clipped to
+        /// the container.
+        scrollable: bool,
+    },
+    /// Set a scroll container's offset.
+    SetUiScroll {
+        /// Container to scroll.
+        id: String,
+        /// Horizontal offset, in pixels.
+        x: f32,
+        /// Vertical offset, in pixels.
+        y: f32,
     },
     /// Create or replace a UI image.
     SetUiImage {
@@ -5783,6 +5795,7 @@ pub fn bsengine_ui_set_container(
     spacing: f32,
     padding: f32,
     align: u32,
+    scrollable: bool,
 ) {
     COMMAND_BUFFER.with(|c| {
         c.borrow_mut().push(ScriptCommand::SetUiContainer {
@@ -5796,7 +5809,20 @@ pub fn bsengine_ui_set_container(
             spacing,
             padding,
             align,
+            scrollable,
         });
+    });
+}
+
+/// Queue setting a scroll container's offset, in pixels from its top-left.
+///
+/// Clamped to zero at the near edge here; the far edge depends on the content,
+/// which only the layout pass knows, so an offset past the end simply shows the
+/// end rather than being rejected.
+#[op2(fast)]
+pub fn bsengine_ui_set_scroll(#[string] id: String, x: f32, y: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetUiScroll { id, x, y });
     });
 }
 
@@ -6370,6 +6396,7 @@ deno_core::extension!(
         bsengine_ui_set_label,
         bsengine_ui_set_anchor,
         bsengine_ui_set_container,
+        bsengine_ui_set_scroll,
         bsengine_ui_set_image,
         bsengine_ui_set_parent,
         bsengine_ui_set_fill,

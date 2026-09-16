@@ -336,6 +336,7 @@ declare namespace Bsengine {
         function setLabel(id: string, text: string, x: number, y: number, fontSize: number, opts?: Record<string, unknown>): void;
         function setPanel(id: string, title: string, x: number, y: number, width: number, height: number, opts?: Record<string, unknown>): void;
         function setProgressBar(id: string, x: number, y: number, width: number, height: number, fraction: number, opts?: Record<string, unknown>): void;
+        function setScroll(id: string, x: number, y: number): void;
         function setTextInput(id: string, hint: string, x: number, y: number, width: number, opts?: Record<string, unknown>): void;
     }
     namespace vehicle {

@@ -128,6 +128,7 @@ fn a_container_moves_its_child_away_from_the_childs_own_coordinates() {
         spacing: 0.0,
         padding: 0.0,
         align: bsengine_core::UiAlign::Stretch,
+        scrollable: false,
     });
     boxed.set_widget(button("b", 80.0, 40.0));
     boxed.set_parent("b", "row");
@@ -223,5 +224,68 @@ fn an_image_widget_draws_its_texture_and_nothing_without_one() {
         "an image whose texture has not loaded must draw nothing; something was \
          painted, so the first assertion could be satisfied by a placeholder \
          rather than by the texture"
+    );
+}
+
+/// A scroll container must not let its children paint outside it.
+///
+/// The pure tests fix which rectangle a child is clipped to; this one proves
+/// the renderer honours it. Without the clip the third button would paint below
+/// the box, which is exactly what an unclipped container does today and why
+/// clipping had to be opt-in.
+#[test]
+fn a_scroll_container_clips_what_overflows_it() {
+    let mut h = Harness::new();
+    let blank = render_settled(&mut h, &Scene::default());
+
+    // A 60-tall box holding 3 x 30 of buttons: one and a bit fit.
+    let scene_with = |scrollable: bool| {
+        let mut ui = UiState::default();
+        ui.set_widget(UiWidget::Container {
+            id: "list".into(),
+            x: 20.0,
+            y: 20.0,
+            width: 100.0,
+            height: 60.0,
+            anchor: UiAnchor::TOP_LEFT,
+            direction: UiDirection::Vertical,
+            spacing: 0.0,
+            padding: 0.0,
+            align: bsengine_core::UiAlign::Stretch,
+            scrollable,
+        });
+        for id in ["a", "b", "c"] {
+            ui.set_widget(button(id, 100.0, 30.0));
+            ui.set_parent(id, "list");
+        }
+        Scene {
+            ui,
+            ..Scene::default()
+        }
+    };
+
+    let clipped = render_settled(&mut h, &scene_with(true));
+    let unclipped = render_settled(&mut h, &scene_with(false));
+
+    // Below the box (y >= 80) the unclipped version still paints; the clipped
+    // one must not.
+    let below = |f: &common::Pixels| {
+        (82..f.height.min(110)).any(|y| (22..118).any(|x| f.at(x, y) != blank.at(x, y)))
+    };
+    assert!(
+        below(&unclipped),
+        "the unclipped container must paint below its own box -- if it does not, \
+         this fixture does not overflow and proves nothing"
+    );
+    assert!(
+        !below(&clipped),
+        "a scroll container must not paint below its own box"
+    );
+    // And it must still draw *inside* the box, so the clip is a clip and not a
+    // way of drawing nothing at all.
+    let inside = (22..118).any(|x| (22..78).any(|y| clipped.at(x, y) != blank.at(x, y)));
+    assert!(
+        inside,
+        "the clipped container must still draw within its box"
     );
 }

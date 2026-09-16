@@ -585,6 +585,74 @@ impl UiState {
         self.scroll_offsets.get(id).copied().unwrap_or((0.0, 0.0))
     }
 
+    /// Applies a wheel delta at a cursor position, returning whether anything
+    /// moved.
+    ///
+    /// Scrolls the innermost scroll container under the cursor that still has
+    /// somewhere to go on that axis. "Still has somewhere to go" is what gives
+    /// scroll chaining for free: a nested list already at its bottom hands the
+    /// wheel to its parent, which is what a browser, Godot and Unity all do,
+    /// and what makes a list inside a panel feel right rather than trapping the
+    /// wheel.
+    ///
+    /// Clamped to `scroll_max`, so a container can never be scrolled past its
+    /// own content and the stored offset cannot drift somewhere unreachable
+    /// while the wheel keeps turning.
+    pub fn scroll_by(&mut self, layout: &UiLayout, x: f32, y: f32, dx: f32, dy: f32) -> bool {
+        if (dx == 0.0 && dy == 0.0) || !dx.is_finite() || !dy.is_finite() {
+            return false;
+        }
+        // Innermost first: a container nested inside another is placed later in
+        // the recursion, but declaration order says nothing about nesting, so
+        // depth decides.
+        let mut candidates: Vec<(usize, &str)> = self
+            .widgets
+            .iter()
+            .filter(|w| {
+                matches!(
+                    w,
+                    UiWidget::Container {
+                        scrollable: true,
+                        ..
+                    }
+                )
+            })
+            .filter_map(|w| {
+                let placement = layout.placements.get(w.id())?;
+                let r = placement.rect;
+                let inside = x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height;
+                inside.then(|| (self.depth_of(w.id()), w.id()))
+            })
+            .collect();
+        candidates.sort_by_key(|&(depth, _)| std::cmp::Reverse(depth));
+
+        for (_, id) in candidates {
+            let (max_x, max_y) = layout.scroll_max.get(id).copied().unwrap_or((0.0, 0.0));
+            let (cur_x, cur_y) = self.scroll_of(id);
+            let want_x = (cur_x + dx).clamp(0.0, max_x);
+            let want_y = (cur_y + dy).clamp(0.0, max_y);
+            if want_x != cur_x || want_y != cur_y {
+                self.scroll_offsets.insert(id.to_string(), (want_x, want_y));
+                return true;
+            }
+        }
+        false
+    }
+
+    /// How many containers a widget sits inside.
+    fn depth_of(&self, id: &str) -> usize {
+        let mut depth = 0;
+        let mut cursor = id;
+        while let Some(parent) = self.effective_parent(cursor) {
+            depth += 1;
+            cursor = parent;
+            if depth > self.widgets.len() {
+                break;
+            }
+        }
+        depth
+    }
+
     /// Sets how much of a container's leftover space a child claims.
     pub fn set_fill(&mut self, id: &str, weight: f32) {
         if weight > 0.0 && weight.is_finite() {
@@ -1136,6 +1204,110 @@ mod tests {
             st.set_parent(id, "list");
         }
         st
+    }
+
+    /// Scrolls `st` at a cursor position, recomputing the layout first the way
+    /// the render path does.
+    fn wheel(st: &mut UiState, x: f32, y: f32, dy: f32) -> bool {
+        let l = st.layout(W, H);
+        st.scroll_by(&l, x, y, 0.0, dy)
+    }
+
+    #[test]
+    fn the_wheel_scrolls_the_container_under_the_cursor() {
+        let mut st = scroll_column();
+        // The list sits at (100, 50), 400 x 100.
+        assert!(wheel(&mut st, 150.0, 80.0, 20.0), "the wheel should scroll");
+        assert_eq!(st.scroll_of("list"), (0.0, 20.0));
+    }
+
+    #[test]
+    fn the_wheel_does_nothing_away_from_any_scroll_container() {
+        let mut st = scroll_column();
+        assert!(
+            !wheel(&mut st, 5.0, 5.0, 20.0),
+            "a wheel turned over empty space must not scroll a container \
+             elsewhere on screen"
+        );
+        assert_eq!(st.scroll_of("list"), (0.0, 0.0));
+    }
+
+    #[test]
+    fn the_wheel_cannot_scroll_past_the_content() {
+        let mut st = scroll_column();
+        // Content overflows by 50; a huge delta must stop there.
+        wheel(&mut st, 150.0, 80.0, 10_000.0);
+        assert_eq!(
+            st.scroll_of("list"),
+            (0.0, 50.0),
+            "the offset must clamp to the overflow, not keep accumulating \
+             somewhere unreachable"
+        );
+        assert!(
+            !wheel(&mut st, 150.0, 80.0, 10.0),
+            "already at the end, there is nothing left to scroll"
+        );
+        // And back up stops at the top.
+        wheel(&mut st, 150.0, 80.0, -10_000.0);
+        assert_eq!(st.scroll_of("list"), (0.0, 0.0));
+    }
+
+    /// Scroll chaining: an inner list at its limit hands the wheel outward.
+    #[test]
+    fn a_nested_list_at_its_end_gives_the_wheel_to_its_parent() {
+        let mut st = UiState::default();
+        let mut outer = container("outer", UiDirection::Vertical);
+        if let UiWidget::Container {
+            height, scrollable, ..
+        } = &mut outer
+        {
+            *height = 100.0;
+            *scrollable = true;
+        }
+        st.set_widget(outer);
+        let mut inner = container("inner", UiDirection::Vertical);
+        if let UiWidget::Container {
+            height, scrollable, ..
+        } = &mut inner
+        {
+            *height = 40.0;
+            *scrollable = true;
+        }
+        st.set_widget(inner);
+        st.set_parent("inner", "outer");
+        for id in ["a", "b"] {
+            st.set_widget(button(id, 40.0, 50.0));
+            st.set_parent(id, "inner");
+        }
+        // The outer needs content of its own to overflow by, or it has nothing
+        // to chain *to* and this test would pass or fail for the wrong reason.
+        st.set_widget(button("tail", 40.0, 90.0));
+        st.set_parent("tail", "outer");
+        // Inside the inner list: it scrolls first.
+        assert!(wheel(&mut st, 150.0, 70.0, 5.0));
+        assert!(st.scroll_of("inner").1 > 0.0, "the inner list moved first");
+        // Drive it to its end, then keep turning: the outer takes over.
+        wheel(&mut st, 150.0, 70.0, 10_000.0);
+        let inner_end = st.scroll_of("inner").1;
+        let outer_before = st.scroll_of("outer").1;
+        wheel(&mut st, 150.0, 70.0, 20.0);
+        assert_eq!(
+            st.scroll_of("inner").1,
+            inner_end,
+            "the inner list is at its end and must not move further"
+        );
+        assert!(
+            st.scroll_of("outer").1 > outer_before,
+            "the wheel must chain to the parent rather than being swallowed"
+        );
+    }
+
+    #[test]
+    fn a_wheel_delta_of_zero_or_nonsense_changes_nothing() {
+        let mut st = scroll_column();
+        assert!(!wheel(&mut st, 150.0, 80.0, 0.0));
+        assert!(!wheel(&mut st, 150.0, 80.0, f32::NAN));
+        assert_eq!(st.scroll_of("list"), (0.0, 0.0));
     }
 
     #[test]

@@ -24,6 +24,8 @@ pub mod cursor_config;
 pub mod cursor_pos;
 /// Custom shader override component for materials.
 pub mod custom_shader;
+/// A texture projected onto the geometry inside a box.
+pub mod decal;
 /// Editor-side dockable panel trait and registry.
 pub mod editor_panel;
 /// Components that make an entity's transform track another entity.
@@ -124,6 +126,7 @@ pub use camera::Camera;
 pub use cursor_config::CursorConfig;
 pub use cursor_pos::CursorPos;
 pub use custom_shader::CustomShader;
+pub use decal::{Decal, MAX_DECALS};
 pub use editor_panel::{EditorPanel, EditorPanelContext, EditorPanelRegistry};
 pub use follow::{Follow, LookAt};
 pub use global_transform::GlobalTransform;

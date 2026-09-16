@@ -80,6 +80,8 @@ pub mod reflect_glam;
 pub mod reflect_mat4;
 /// Validation trait for reflected component field values.
 pub mod reflect_validate;
+/// Remote procedure calls in flight, between the network and scripting layers.
+pub mod rpc_state;
 /// Serializable save-game data resource.
 pub mod save_data;
 /// Current window/render-target size resource.
@@ -151,6 +153,7 @@ pub use reflect_degrees::ReflectDegrees;
 pub use reflect_glam::{ReflectQuat, ReflectVec2, ReflectVec3, ReflectVec4};
 pub use reflect_mat4::ReflectMat4;
 pub use reflect_validate::{ReflectValidate, Validate};
+pub use rpc_state::{OutgoingRpc, RpcCall, RpcQueues, RpcTarget};
 pub use save_data::SaveData;
 pub use screen_size::ScreenSize;
 pub use shadow_config::ShadowSettings;

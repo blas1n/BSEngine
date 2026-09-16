@@ -18,7 +18,7 @@
 
 use bevy_app::App;
 use bevy_ecs::prelude::*;
-use bsengine_core::{NetworkAuthority, NetworkId, Transform};
+use bsengine_core::{NetworkAuthority, NetworkId, RpcCall, RpcQueues, RpcTarget, Transform};
 use bsengine_network::{AppliedInputs, NetworkConfig, NetworkPlugin, NetworkSession};
 use glam::Vec3;
 
@@ -116,6 +116,44 @@ impl Pair {
             .get_mut::<Transform>(entity)
             .expect("server entity has a transform");
         transform.position = to.into();
+    }
+
+    /// Spawns an entity the given peer owns, on both sides.
+    ///
+    /// `Predicted` rather than `Client` because that is the variant a real
+    /// player character uses, and because the ownership check the server does
+    /// on an incoming call has to accept both.
+    fn spawn_owned(&mut self, net_id: u64, peer_id: u64) -> (Entity, Entity) {
+        let id = NetworkId {
+            id: net_id,
+            authority: NetworkAuthority::Predicted { peer_id },
+        };
+        let on_server = self
+            .server
+            .world_mut()
+            .spawn((id, Transform::default()))
+            .id();
+        let on_client = self
+            .client
+            .world_mut()
+            .spawn((id, Transform::default()))
+            .id();
+        (on_server, on_client)
+    }
+
+    fn queue_rpc(app: &mut App, call: RpcCall, target: RpcTarget, reliable: bool) {
+        app.world_mut()
+            .resource_mut::<RpcQueues>()
+            .send(call, target, reliable);
+    }
+
+    /// Every call that has arrived on `app` so far, drained as it goes.
+    ///
+    /// Accumulated across frames rather than read at the end, because the queue
+    /// is drained by whoever runs handlers and a test that only looked once
+    /// would see whatever happened to be left.
+    fn collect(app: &mut App, into: &mut Vec<RpcCall>) {
+        into.extend(app.world_mut().resource_mut::<RpcQueues>().take_incoming());
     }
 
     fn client_position(&self, entity: Entity) -> Vec3 {
@@ -449,5 +487,491 @@ fn a_predicted_entity_is_corrected_rather_than_interpolated() {
             .get(1)
             .is_none(),
         "a predicted entity must not be in the interpolation buffer"
+    );
+}
+
+/// The headline for reliability: on a link that drops half the packets, every
+/// call still arrives, exactly once, in the order it was sent.
+///
+/// All three of those are asserted separately. "They all arrived" alone would
+/// pass for a channel that delivered each one three times; "none arrived twice"
+/// alone would pass for one that dropped them.
+#[test]
+fn every_reliable_call_arrives_exactly_once_and_in_order_under_loss() {
+    let mut pair = Pair::connect(NetworkConfig {
+        simulated_loss: 0.5,
+        simulator_seed: 11,
+        rpc_resend_frames: 2,
+        ..Default::default()
+    });
+    pair.spawn_owned(1, 1);
+
+    let sent: Vec<String> = (0..8).map(|i| format!("call{i}")).collect();
+    for name in &sent {
+        Pair::queue_rpc(
+            &mut pair.client,
+            RpcCall {
+                net_id: 1,
+                name: name.clone(),
+                args: String::new(),
+            },
+            RpcTarget::Server,
+            true,
+        );
+        // One per frame, so the loss the simulator rolls falls on different
+        // packets rather than on one burst.
+        pair.step();
+    }
+
+    let mut arrived = Vec::new();
+    for _ in 0..60 {
+        pair.step();
+        Pair::collect(&mut pair.server, &mut arrived);
+    }
+
+    let names: Vec<String> = arrived.iter().map(|c| c.name.clone()).collect();
+    assert_eq!(
+        names, sent,
+        "every call, once each, in the order they were made"
+    );
+}
+
+/// The instrument check: without the reliable envelope the same link loses
+/// calls.
+///
+/// Without this, a "reliable" channel that did nothing at all would pass the
+/// test above on any run where the simulator happened to be kind -- and there
+/// would be no way to tell from the green.
+#[test]
+fn the_same_calls_sent_unreliably_do_not_all_arrive() {
+    let mut pair = Pair::connect(NetworkConfig {
+        simulated_loss: 0.5,
+        simulator_seed: 11,
+        rpc_resend_frames: 2,
+        ..Default::default()
+    });
+    pair.spawn_owned(1, 1);
+
+    for i in 0..8 {
+        Pair::queue_rpc(
+            &mut pair.client,
+            RpcCall {
+                net_id: 1,
+                name: format!("call{i}"),
+                args: String::new(),
+            },
+            RpcTarget::Server,
+            false,
+        );
+        pair.step();
+    }
+
+    let mut arrived = Vec::new();
+    for _ in 0..60 {
+        pair.step();
+        Pair::collect(&mut pair.server, &mut arrived);
+    }
+
+    assert!(
+        arrived.len() < 8,
+        "a 50% link that delivered all 8 unreliable calls would mean the loss \
+         simulator is not reaching this path, and the test above proves nothing: \
+         got {}",
+        arrived.len()
+    );
+}
+
+/// Arguments travel, and travel with the call they belong to.
+#[test]
+fn a_call_arrives_with_its_own_arguments() {
+    let mut pair = Pair::connect(NetworkConfig::default());
+    pair.spawn_owned(1, 1);
+
+    // Distinct arguments deliberately: with equal ones a transport that paired
+    // a name with the wrong payload would look correct.
+    for (name, args) in [("open", r#"{"door":3}"#), ("close", r#"{"door":7}"#)] {
+        Pair::queue_rpc(
+            &mut pair.client,
+            RpcCall {
+                net_id: 1,
+                name: name.into(),
+                args: args.into(),
+            },
+            RpcTarget::Server,
+            true,
+        );
+    }
+
+    let mut arrived = Vec::new();
+    for _ in 0..10 {
+        pair.step();
+        Pair::collect(&mut pair.server, &mut arrived);
+    }
+
+    assert_eq!(arrived.len(), 2, "{arrived:?}");
+    assert_eq!(arrived[0].name, "open");
+    assert_eq!(arrived[0].args, r#"{"door":3}"#);
+    assert_eq!(arrived[1].name, "close");
+    assert_eq!(
+        arrived[1].args, r#"{"door":7}"#,
+        "each call keeps the arguments it was made with"
+    );
+}
+
+/// A client may not make a call on an entity it does not own.
+///
+/// This is the whole security property of a server RPC: without it any peer
+/// could drive any other peer's character by naming its id.
+#[test]
+fn the_server_refuses_a_call_on_an_entity_the_caller_does_not_own() {
+    let mut pair = Pair::connect(NetworkConfig::default());
+    // Entity 1 belongs to the connected peer; entity 2 belongs to somebody else.
+    pair.spawn_owned(1, 1);
+    pair.spawn_owned(2, 2);
+
+    for net_id in [1, 2] {
+        Pair::queue_rpc(
+            &mut pair.client,
+            RpcCall {
+                net_id,
+                name: format!("touch{net_id}"),
+                args: String::new(),
+            },
+            RpcTarget::Server,
+            true,
+        );
+    }
+
+    let mut arrived = Vec::new();
+    for _ in 0..10 {
+        pair.step();
+        Pair::collect(&mut pair.server, &mut arrived);
+    }
+
+    let names: Vec<&str> = arrived.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(
+        names,
+        vec!["touch1"],
+        "the call on the owned entity goes through and the other does not"
+    );
+}
+
+/// A multicast reaches the clients and also runs on the server.
+///
+/// Unreal's `NetMulticast` behaves this way, and a server that skipped its own
+/// copy would be the one machine that never saw what it announced.
+#[test]
+fn a_multicast_runs_on_the_client_and_on_the_server() {
+    let mut pair = Pair::connect(NetworkConfig::default());
+    pair.spawn_owned(1, 1);
+
+    Pair::queue_rpc(
+        &mut pair.server,
+        RpcCall {
+            net_id: 1,
+            name: "explode".into(),
+            args: String::new(),
+        },
+        RpcTarget::Multicast,
+        true,
+    );
+
+    let (mut on_server, mut on_client) = (Vec::new(), Vec::new());
+    for _ in 0..10 {
+        pair.step();
+        Pair::collect(&mut pair.server, &mut on_server);
+        Pair::collect(&mut pair.client, &mut on_client);
+    }
+
+    assert_eq!(on_server.len(), 1, "the server runs its own copy");
+    assert_eq!(on_client.len(), 1, "and the client runs one too");
+    assert_eq!(on_client[0].name, "explode");
+}
+
+/// A call aimed at an owner reaches that peer.
+#[test]
+fn a_call_to_the_owner_reaches_that_peer() {
+    let mut pair = Pair::connect(NetworkConfig::default());
+    pair.spawn_owned(1, 1);
+
+    Pair::queue_rpc(
+        &mut pair.server,
+        RpcCall {
+            net_id: 1,
+            name: "youWereHit".into(),
+            args: r#"{"damage":12}"#.into(),
+        },
+        RpcTarget::Owner,
+        true,
+    );
+
+    let (mut on_server, mut on_client) = (Vec::new(), Vec::new());
+    for _ in 0..10 {
+        pair.step();
+        Pair::collect(&mut pair.server, &mut on_server);
+        Pair::collect(&mut pair.client, &mut on_client);
+    }
+
+    assert_eq!(on_client.len(), 1, "the owner runs it");
+    assert_eq!(on_client[0].args, r#"{"damage":12}"#);
+    assert!(
+        on_server.is_empty(),
+        "and the server does not, or every owner-targeted call would run twice"
+    );
+}
+
+/// A client cannot multicast.
+///
+/// Dropped rather than relayed: letting a client reach every other machine is
+/// the thing server authority exists to prevent, and all three reference
+/// engines refuse it the same way.
+#[test]
+fn a_client_cannot_send_a_multicast() {
+    let mut pair = Pair::connect(NetworkConfig::default());
+    pair.spawn_owned(1, 1);
+
+    Pair::queue_rpc(
+        &mut pair.client,
+        RpcCall {
+            net_id: 1,
+            name: "everybodyExplode".into(),
+            args: String::new(),
+        },
+        RpcTarget::Multicast,
+        true,
+    );
+
+    let (mut on_server, mut on_client) = (Vec::new(), Vec::new());
+    for _ in 0..10 {
+        pair.step();
+        Pair::collect(&mut pair.server, &mut on_server);
+        Pair::collect(&mut pair.client, &mut on_client);
+    }
+
+    assert!(on_server.is_empty(), "the server must not relay it");
+    assert!(on_client.is_empty(), "and it must not run locally either");
+}
+
+/// Replication keeps working while calls are in flight.
+///
+/// The reliable channel shares a socket with the snapshot stream, and a resend
+/// loop that starved it would be a regression no RPC test would notice.
+#[test]
+fn transform_replication_still_works_alongside_calls() {
+    let mut pair = Pair::connect(NetworkConfig::default());
+    let (on_server, on_client) = pair.spawn_replicated(9, Vec3::ZERO);
+    pair.spawn_owned(1, 1);
+
+    for i in 0..10 {
+        Pair::queue_rpc(
+            &mut pair.server,
+            RpcCall {
+                net_id: 1,
+                name: format!("tick{i}"),
+                args: String::new(),
+            },
+            RpcTarget::Multicast,
+            true,
+        );
+        pair.move_server_entity(on_server, Vec3::new(i as f32, 0.0, 0.0));
+        pair.step();
+    }
+
+    assert!(
+        (pair.client_position(on_client).x - 9.0).abs() < 1e-3,
+        "the client should still be tracking the server's transform, got {:?}",
+        pair.client_position(on_client)
+    );
+}
+
+/// A server and *two* clients, so "send it to the owner" and "send it to
+/// everyone" stop being the same sentence.
+///
+/// With a single client every routing rule collapses into "send it down the one
+/// socket", and a transport that ignored the target entirely would pass every
+/// test above.
+struct Room {
+    server: App,
+    first: App,
+    second: App,
+}
+
+impl Room {
+    fn connect(config: NetworkConfig) -> Self {
+        let server_session = NetworkSession::new_server(0).expect("bind server");
+        let port = server_session
+            .socket
+            .local_addr()
+            .expect("server address")
+            .port();
+
+        let mut server = App::new();
+        server.add_plugins(NetworkPlugin);
+        server.insert_resource(config.clone());
+        server.insert_resource(server_session);
+
+        let mut apps = Vec::new();
+        for _ in 0..2 {
+            let mut app = App::new();
+            app.add_plugins(NetworkPlugin);
+            app.insert_resource(config.clone());
+            app.insert_resource(
+                NetworkSession::new_client("127.0.0.1", port).expect("bind client"),
+            );
+            // Settled one at a time: peer ids are assigned in connection order,
+            // and a test that says "the first client" has to be able to mean it.
+            for _ in 0..200 {
+                server.update();
+                app.update();
+                if app.world().resource::<NetworkSession>().connected {
+                    break;
+                }
+            }
+            assert!(
+                app.world().resource::<NetworkSession>().connected,
+                "a client never completed its handshake"
+            );
+            apps.push(app);
+        }
+        let second = apps.pop().expect("two clients");
+        let first = apps.pop().expect("two clients");
+        Self {
+            server,
+            first,
+            second,
+        }
+    }
+
+    fn step(&mut self) {
+        self.server.update();
+        self.first.update();
+        self.second.update();
+    }
+
+    /// Spawns an entity owned by `peer_id` on the server and on both clients.
+    fn spawn_owned(&mut self, net_id: u64, peer_id: u64) {
+        let id = NetworkId {
+            id: net_id,
+            authority: NetworkAuthority::Predicted { peer_id },
+        };
+        for app in [&mut self.server, &mut self.first, &mut self.second] {
+            app.world_mut().spawn((id, Transform::default()));
+        }
+    }
+}
+
+/// An owner-targeted call reaches its own owner and nobody else.
+///
+/// Both owners are exercised in one test on purpose. Aimed only at the first
+/// client's entity, "send it to the owner", "send it to everyone" and "send it
+/// to whichever peer connected first" all name the same socket -- and a
+/// transport doing any of those three would pass.
+#[test]
+fn an_owner_targeted_call_reaches_that_owner_and_no_one_else() {
+    let mut room = Room::connect(NetworkConfig::default());
+    room.spawn_owned(1, 1);
+    room.spawn_owned(2, 2);
+
+    for net_id in [1, 2] {
+        Pair::queue_rpc(
+            &mut room.server,
+            RpcCall {
+                net_id,
+                name: format!("hit{net_id}"),
+                args: String::new(),
+            },
+            RpcTarget::Owner,
+            true,
+        );
+    }
+
+    let (mut first, mut second) = (Vec::new(), Vec::new());
+    for _ in 0..10 {
+        room.step();
+        Pair::collect(&mut room.first, &mut first);
+        Pair::collect(&mut room.second, &mut second);
+    }
+
+    let names =
+        |calls: &[RpcCall]| -> Vec<String> { calls.iter().map(|c| c.name.clone()).collect() };
+    assert_eq!(
+        names(&first),
+        vec!["hit1".to_string()],
+        "peer 1 gets the call on its own entity and not the other one"
+    );
+    assert_eq!(
+        names(&second),
+        vec!["hit2".to_string()],
+        "and peer 2 gets its own -- which a transport that always sent to the          first peer would fail"
+    );
+}
+
+/// And a multicast reaches both of them.
+///
+/// The other half of the pair above: without it, a transport that dropped every
+/// call except the owner's would pass that test.
+#[test]
+fn a_multicast_reaches_both_clients() {
+    let mut room = Room::connect(NetworkConfig::default());
+    room.spawn_owned(1, 1);
+
+    Pair::queue_rpc(
+        &mut room.server,
+        RpcCall {
+            net_id: 1,
+            name: "explode".into(),
+            args: String::new(),
+        },
+        RpcTarget::Multicast,
+        true,
+    );
+
+    let (mut first, mut second) = (Vec::new(), Vec::new());
+    for _ in 0..10 {
+        room.step();
+        Pair::collect(&mut room.first, &mut first);
+        Pair::collect(&mut room.second, &mut second);
+    }
+
+    assert_eq!(first.len(), 1, "{first:?}");
+    assert_eq!(second.len(), 1, "both clients run a multicast: {second:?}");
+}
+
+/// One client cannot make a call on the other client's entity.
+///
+/// The same refusal as the single-client test, but with a peer that genuinely
+/// exists on the other end -- there the unowned id belonged to nobody, and a
+/// server that only rejected unknown ids would have passed.
+#[test]
+fn a_client_cannot_call_on_another_clients_entity() {
+    let mut room = Room::connect(NetworkConfig::default());
+    room.spawn_owned(1, 1);
+    room.spawn_owned(2, 2);
+
+    // The second client reaches for the first client's entity, and for its own.
+    for net_id in [1, 2] {
+        Pair::queue_rpc(
+            &mut room.second,
+            RpcCall {
+                net_id,
+                name: format!("touch{net_id}"),
+                args: String::new(),
+            },
+            RpcTarget::Server,
+            true,
+        );
+    }
+
+    let mut arrived = Vec::new();
+    for _ in 0..10 {
+        room.step();
+        Pair::collect(&mut room.server, &mut arrived);
+    }
+
+    let names: Vec<&str> = arrived.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(
+        names,
+        vec!["touch2"],
+        "only the call on its own entity should be accepted"
     );
 }

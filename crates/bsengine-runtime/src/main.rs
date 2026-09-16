@@ -323,6 +323,7 @@ fn run_windowed(project_dir: &str) {
         simulated_latency_frames: manifest.network.simulated_latency_frames,
         simulated_loss: manifest.network.simulated_loss,
         simulator_seed: manifest.network.simulator_seed,
+        rpc_resend_frames: manifest.network.rpc_resend_frames,
     });
     app.add_plugins(TimePlugin)
         .add_plugins(AssetPlugin)

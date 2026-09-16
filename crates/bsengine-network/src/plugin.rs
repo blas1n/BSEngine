@@ -12,6 +12,8 @@ use crate::{
         MSG_TRANSFORM_BATCH,
     },
     prediction::PendingInputs,
+    reliable::{decode_ack, ReliableChannel, MSG_ACK, MSG_RELIABLE},
+    rpc::{decode_rpc, encode_rpc, MSG_RPC},
     session::{NetworkRole, NetworkSession},
     sim::LinkSimulator,
 };
@@ -39,6 +41,8 @@ impl Plugin for NetworkPlugin {
         app.init_resource::<bsengine_core::RemoteHeldKeys>();
         app.init_resource::<AppliedInputs>();
         app.init_resource::<bsengine_core::PendingReplays>();
+        app.init_resource::<bsengine_core::RpcQueues>();
+        app.init_resource::<ReliableChannels>();
         app.add_systems(Update, network_receive_system);
         // Between receive and send: it consumes what receive buffered, and a
         // client's own send must not read a transform this just wrote for a
@@ -50,6 +54,9 @@ impl Plugin for NetworkPlugin {
                 .before(network_send_system),
         );
         app.add_systems(Update, network_send_system.after(network_receive_system));
+        // After the transform send, so a frame's RPCs and that frame's snapshot
+        // leave in a fixed order rather than whichever Bevy happens to pick.
+        app.add_systems(Update, rpc_send_system.after(network_send_system));
     }
 }
 
@@ -224,6 +231,28 @@ fn network_receive_system(world: &mut World) {
                     tracing::debug!("[network] peer {addr} disconnected");
                 }
             }
+            MSG_RELIABLE => {
+                let delivered = world
+                    .resource_mut::<ReliableChannels>()
+                    .0
+                    .entry(addr)
+                    .or_default()
+                    .on_receive(&data);
+                for payload in delivered {
+                    receive_rpc(world, &payload, addr);
+                }
+            }
+            MSG_ACK => {
+                if let Some((ack, bits)) = decode_ack(&data) {
+                    world
+                        .resource_mut::<ReliableChannels>()
+                        .0
+                        .entry(addr)
+                        .or_default()
+                        .on_ack(ack, bits);
+                }
+            }
+            MSG_RPC => receive_rpc(world, &data, addr),
             _ => {}
         }
     }
@@ -557,4 +586,240 @@ mod tests {
     fn no_radius_sends_everything() {
         assert!(within_interest(Vec3::ZERO, Vec3::new(1e6, 0.0, 0.0), None));
     }
+}
+
+/// One reliable channel per peer, keyed by the address it talks to.
+///
+/// A server keeps one per client and a client keeps one for the server, which is
+/// the same shape either way -- the channel itself does not know which role it
+/// is playing.
+#[derive(Resource, Default)]
+pub struct ReliableChannels(pub std::collections::HashMap<std::net::SocketAddr, ReliableChannel>);
+
+/// Accepts one arrived call, if the sender was allowed to make it.
+///
+/// # Why the server checks ownership and the client does not
+///
+/// A call arriving at the server came from a client, and a client may only make
+/// calls on an entity it owns -- otherwise any peer could drive any other
+/// peer's character by naming its id. Unity's `ServerRpc` requires ownership by
+/// default, Unreal drops a Server function whose actor the sender does not own,
+/// and Godot's default `@rpc("authority")` means the same thing. A call arriving
+/// at a *client* came from the server, which is authoritative by definition, so
+/// there is nothing there to check.
+fn receive_rpc(world: &mut World, packet: &[u8], from: std::net::SocketAddr) {
+    let Some(call) = decode_rpc(packet) else {
+        tracing::warn!("[network] dropping a malformed rpc from {from}");
+        return;
+    };
+
+    let is_server = world
+        .get_resource::<NetworkSession>()
+        .is_some_and(|s| s.is_server());
+    if is_server {
+        // Peers are assigned ids from 1 in connection order, which is the order
+        // they were pushed -- the same mapping the send path uses.
+        let peer_id = world
+            .get_resource::<NetworkSession>()
+            .and_then(|s| s.peers.iter().position(|p| *p == from))
+            .map(|index| index as u64 + 1);
+        let Some(peer_id) = peer_id else {
+            tracing::warn!(
+                "[network] dropping rpc '{}' from unknown peer {from}",
+                call.name
+            );
+            return;
+        };
+        if !owns(world, call.net_id, peer_id) {
+            tracing::warn!(
+                "[network] peer {peer_id} called '{}' on entity {} it does not own; dropping",
+                call.name,
+                call.net_id
+            );
+            return;
+        }
+    }
+
+    world
+        .resource_mut::<bsengine_core::RpcQueues>()
+        .incoming
+        .push(call);
+}
+
+/// Whether `peer_id` drives the entity with this network id.
+fn owns(world: &mut World, net_id: u64, peer_id: u64) -> bool {
+    let mut q = world.query::<&NetworkId>();
+    q.iter(world).any(|nid| {
+        nid.id == net_id
+            && match nid.authority {
+                NetworkAuthority::Client { peer_id: owner }
+                | NetworkAuthority::Predicted { peer_id: owner } => owner == peer_id,
+                _ => false,
+            }
+    })
+}
+
+/// Sends this frame's queued calls, resends what was not acknowledged, and
+/// acknowledges what arrived.
+fn rpc_send_system(world: &mut World) {
+    let outgoing = world
+        .get_resource_mut::<bsengine_core::RpcQueues>()
+        .map(|mut q| q.take_outgoing())
+        .unwrap_or_default();
+    let (loss, seed, resend_frames) =
+        world
+            .get_resource::<NetworkConfig>()
+            .map_or((0.0, 0, 0), |config| {
+                (
+                    config.simulated_loss,
+                    config.simulator_seed,
+                    config.rpc_resend_frames,
+                )
+            });
+
+    // (bytes, peer) pairs, decided before any borrow of the session is taken.
+    let mut wire: Vec<(Vec<u8>, std::net::SocketAddr)> = Vec::new();
+    let mut run_locally: Vec<bsengine_core::RpcCall> = Vec::new();
+
+    for out in outgoing {
+        let Some(payload) = encode_rpc(&out.call) else {
+            continue;
+        };
+        // The role as two plain values: `NetworkRole` is not `Clone`, and a
+        // borrow of the session cannot be held across the world accesses below.
+        let role = world
+            .get_resource::<NetworkSession>()
+            .map(|s| match &s.role {
+                NetworkRole::Server => (true, None),
+                NetworkRole::Client { server_addr } => (false, Some(*server_addr)),
+            });
+        let Some((is_server, server_addr)) = role else {
+            continue;
+        };
+
+        match (is_server, out.target) {
+            (true, bsengine_core::RpcTarget::Server) => {
+                // Already where it was going to run.
+                run_locally.push(out.call);
+            }
+            (true, bsengine_core::RpcTarget::Owner) => {
+                match owner_address(world, out.call.net_id) {
+                    Some(peer) => wire.push((wrap(world, peer, &payload, out.reliable), peer)),
+                    None => tracing::warn!(
+                        "[network] rpc '{}' targets the owner of entity {}, which no peer owns; \
+                         dropping",
+                        out.call.name,
+                        out.call.net_id
+                    ),
+                }
+            }
+            (true, bsengine_core::RpcTarget::Multicast) => {
+                let peers = world
+                    .get_resource::<NetworkSession>()
+                    .map(|s| s.peers.clone())
+                    .unwrap_or_default();
+                for peer in peers {
+                    wire.push((wrap(world, peer, &payload, out.reliable), peer));
+                }
+                // Unreal's NetMulticast runs on the server too, and a server
+                // that skipped its own copy would be the one machine that never
+                // saw what it announced.
+                run_locally.push(out.call);
+            }
+            (false, bsengine_core::RpcTarget::Server) => {
+                let Some(server) = server_addr else { continue };
+                wire.push((wrap(world, server, &payload, out.reliable), server));
+            }
+            (false, target) => {
+                // A client cannot make other machines run things; only the
+                // server decides that. Said out loud rather than dropped
+                // quietly, because a call that goes nowhere and a call that
+                // arrives look identical from the caller's side.
+                tracing::warn!(
+                    "[network] a client called '{}' with target {target:?}; only the server can \
+                     send to an owner or multicast",
+                    out.call.name
+                );
+            }
+        }
+    }
+
+    // Resends and acknowledgements, per peer.
+    let peers: Vec<std::net::SocketAddr> = world
+        .get_resource::<ReliableChannels>()
+        .map(|c| c.0.keys().copied().collect())
+        .unwrap_or_default();
+    for peer in peers {
+        let mut channels = world.resource_mut::<ReliableChannels>();
+        let Some(channel) = channels.0.get_mut(&peer) else {
+            continue;
+        };
+        for bytes in channel.due_resends(resend_frames) {
+            wire.push((bytes, peer));
+        }
+        if let Some(ack) = channel.pending_ack() {
+            wire.push((ack, peer));
+        }
+    }
+
+    if !wire.is_empty() {
+        // One roll per packet, taken before the immutable session borrow below.
+        let deliver: Vec<bool> = {
+            let mut link = world.resource_mut::<SimulatedLink>();
+            wire.iter()
+                .map(|_| link.should_deliver(loss, seed))
+                .collect()
+        };
+        if let Some(session) = world.get_resource::<NetworkSession>() {
+            for (index, (bytes, peer)) in wire.iter().enumerate() {
+                // Dropped before the send, so the packet never exists -- what a
+                // lossy link actually does. Acks and resends are subject to it
+                // too: a reliable channel that only had to survive losing the
+                // first copy would not be one.
+                if deliver.get(index).copied().unwrap_or(true) {
+                    let _ = session.socket.send_to(bytes, peer);
+                }
+            }
+        }
+    }
+
+    if !run_locally.is_empty() {
+        if let Some(mut queues) = world.get_resource_mut::<bsengine_core::RpcQueues>() {
+            queues.incoming.extend(run_locally);
+        }
+    }
+}
+
+/// Puts `payload` in a reliable envelope, or leaves it bare.
+fn wrap(world: &mut World, peer: std::net::SocketAddr, payload: &[u8], reliable: bool) -> Vec<u8> {
+    if !reliable {
+        return payload.to_vec();
+    }
+    world
+        .resource_mut::<ReliableChannels>()
+        .0
+        .entry(peer)
+        .or_default()
+        .queue(payload)
+}
+
+/// The address of the peer that owns the entity with this network id.
+fn owner_address(world: &mut World, net_id: u64) -> Option<std::net::SocketAddr> {
+    let owner = {
+        let mut q = world.query::<&NetworkId>();
+        q.iter(world).find_map(|nid| {
+            if nid.id != net_id {
+                return None;
+            }
+            match nid.authority {
+                NetworkAuthority::Client { peer_id } | NetworkAuthority::Predicted { peer_id } => {
+                    Some(peer_id)
+                }
+                _ => None,
+            }
+        })
+    }?;
+    let session = world.get_resource::<NetworkSession>()?;
+    // Ids are assigned from 1 in connection order.
+    session.peers.get(owner.checked_sub(1)? as usize).copied()
 }

@@ -144,14 +144,18 @@ pub struct PackageSection {
 
 /// Replication switches from `project.toml`'s `[network]` table.
 ///
-/// Unlike [`WindowSection`] this takes a derived `Default`, and that is correct
-/// rather than lazy: every field's `#[serde(default)]` is its type's zero value,
-/// so "table absent" and "table present but empty" already agree. `WindowSection`
-/// needs a hand-written impl only because its defaults are not zeros.
+/// This used to take a derived `Default`, on the grounds that every field's
+/// default was its type's zero value so "table absent" and "table present but
+/// empty" already agreed. [`Self::rpc_resend_frames`] ended that: its useful
+/// default is not zero, and a derived `Default` would hand a project that says
+/// nothing about networking a channel that resends every unacknowledged packet
+/// every frame. So this is now hand-written for the same reason
+/// [`WindowSection`] is.
 ///
-/// Every zero here reproduces the engine's pre-item-56 behaviour: no interest
-/// limit, no interpolation delay, no simulated latency or loss.
-#[derive(Deserialize, Default)]
+/// Every other default here still reproduces the engine's pre-item-56
+/// behaviour: no interest limit, no interpolation delay, no simulated latency
+/// or loss.
+#[derive(Deserialize)]
 pub struct NetworkSection {
     /// Radius around a peer's own entity within which it receives updates.
     /// Absent means no limit.
@@ -170,6 +174,32 @@ pub struct NetworkSection {
     /// Seed for the drop sequence, so a run is reproducible.
     #[serde(default)]
     pub simulator_seed: u64,
+    /// Frames an unacknowledged reliable packet waits before being sent again.
+    ///
+    /// Unlike every other field here, zero is not the useful default: it would
+    /// resend everything outstanding on every frame.
+    #[serde(default = "default_rpc_resend_frames")]
+    pub rpc_resend_frames: u32,
+}
+
+impl Default for NetworkSection {
+    fn default() -> Self {
+        Self {
+            aoi_radius: None,
+            interpolation_delay_ticks: 0,
+            simulated_latency_frames: 0,
+            simulated_loss: 0.0,
+            simulator_seed: 0,
+            rpc_resend_frames: default_rpc_resend_frames(),
+        }
+    }
+}
+
+/// Roughly 100ms at 60Hz: long enough that an ordinary round trip is not
+/// mistaken for a loss, short enough that a real loss is repaired in a few
+/// frames.
+fn default_rpc_resend_frames() -> u32 {
+    6
 }
 
 fn default_width() -> u32 {
@@ -628,6 +658,12 @@ mod network_section_tests {
             "the newest snapshot renders immediately"
         );
         assert_eq!(manifest.network.simulated_loss, 0.0, "the simulator is off");
+        assert_eq!(
+            manifest.network.rpc_resend_frames, 6,
+            "the one field whose useful default is not zero -- a derived \
+             `Default` would make this 0 and resend every outstanding packet \
+             every frame"
+        );
     }
 
     /// Paired with the above: without this, a section that silently ignored the
@@ -636,13 +672,19 @@ mod network_section_tests {
     fn a_present_network_table_is_read() {
         let manifest: ProjectManifest = toml::from_str(
             "[project]\nname = \"t\"\nentry_scene = \"s.ron\"\n\
-             [network]\naoi_radius = 25.0\ninterpolation_delay_ticks = 3\nsimulated_loss = 0.25\n",
+             [network]\naoi_radius = 25.0\ninterpolation_delay_ticks = 3\nsimulated_loss = 0.25\n\
+             rpc_resend_frames = 12\n",
         )
         .expect("parse");
 
         assert_eq!(manifest.network.aoi_radius, Some(25.0));
         assert_eq!(manifest.network.interpolation_delay_ticks, 3);
         assert_eq!(manifest.network.simulated_loss, 0.25);
+        assert_eq!(
+            manifest.network.rpc_resend_frames, 12,
+            "and the non-zero default must still be overridable, or the field \
+             is a constant wearing a setting's name"
+        );
     }
 
     /// A present-but-empty table must behave as an absent one, which is the
@@ -655,5 +697,6 @@ mod network_section_tests {
 
         assert_eq!(manifest.network.aoi_radius, None);
         assert_eq!(manifest.network.interpolation_delay_ticks, 0);
+        assert_eq!(manifest.network.rpc_resend_frames, 6);
     }
 }

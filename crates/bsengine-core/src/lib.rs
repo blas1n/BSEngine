@@ -44,6 +44,8 @@ pub mod light_probe;
 pub mod logging;
 /// PBR material properties component.
 pub mod material;
+/// Shared state between the editor mixer panel and the audio buses.
+pub mod mixer_state;
 /// Baked navigation mesh resource used for pathfinding.
 pub mod nav_mesh;
 /// Nav-mesh-driven pathing agent component and its runtime state.
@@ -133,6 +135,7 @@ pub use light::{DirectionalLight, PointLight, SpotLight};
 pub use light_probe::{LightProbeVolume, MAX_PROBES};
 pub use logging::init_logging;
 pub use material::{Material, TexturePath};
+pub use mixer_state::{MixerBus, MixerShared, MixerState};
 pub use nav_mesh::NavMesh;
 pub use nav_mesh_agent::{NavAgentState, NavMeshAgent};
 pub use net_input::{LocalHeldKeys, PendingReplays, RemoteHeldKeys, ReplayRequest};

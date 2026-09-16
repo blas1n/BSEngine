@@ -653,7 +653,7 @@ var Bsengine = {
             }
             Deno.core.ops.bsengine_ui_set_container(
                 id, x, y, width, height, dir, o.columns ?? 1,
-                o.spacing ?? 0, o.padding ?? 0, align);
+                o.spacing ?? 0, o.padding ?? 0, align, o.scroll === true);
             Bsengine.ui._applyAnchor(id, o);
             Bsengine.ui._applyLayout(id, o);
         },
@@ -664,6 +664,13 @@ var Bsengine = {
             Deno.core.ops.bsengine_ui_set_image(id, String(path), x, y, width, height);
             Bsengine.ui._applyAnchor(id, opts);
             Bsengine.ui._applyLayout(id, opts);
+        },
+        // Scrolls a container created with `{ scroll: true }`. Offsets are
+        // pixels from its top-left; scrolling past the content shows the end
+        // rather than failing, because how far there is to scroll depends on
+        // the laid-out content rather than on anything a caller knows here.
+        setScroll: (id, x, y) => {
+            Deno.core.ops.bsengine_ui_set_scroll(id, x ?? 0, y ?? 0);
         },
         setLabel:       (id, text, x, y, fontSize, opts) => {
             Deno.core.ops.bsengine_ui_set_label(id, String(text), x, y, fontSize ?? 20);

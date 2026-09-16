@@ -5833,10 +5833,21 @@ impl WgpuSurface {
                 let image_textures = &ui_image_textures;
                 for widget in &ui_state.widgets {
                     use bsengine_core::UiWidget;
-                    let Some(rect) = ui_rects.get(widget.id()) else {
+                    let Some(placement) = ui_rects.placements.get(widget.id()) else {
                         continue;
                     };
+                    let rect = placement.rect;
                     let (px, py, pw, ph) = (rect.x, rect.y, rect.width, rect.height);
+                    // A widget inside a scroll container must not paint outside
+                    // it. Computed in the layout pass -- the clip is the
+                    // intersection of every scroll container above this widget,
+                    // so a nested list cannot escape its outer one.
+                    let clip_rect = placement.clip.map(|c| {
+                        egui::Rect::from_min_size(
+                            egui::pos2(c.x, c.y),
+                            egui::vec2(c.width, c.height),
+                        )
+                    });
                     match widget {
                         // Containers position their children and draw nothing
                         // of their own, the same as Unreal's boxes and Godot's
@@ -5853,6 +5864,9 @@ impl WgpuSurface {
                             egui::Area::new(egui::Id::new(id.as_str()))
                                 .fixed_pos(egui::pos2(px, py))
                                 .show(ctx, |ui| {
+                                    if let Some(c) = clip_rect {
+                                        ui.set_clip_rect(c);
+                                    }
                                     ui.label(egui::RichText::new(text.as_str()).size(*font_size));
                                 });
                         }
@@ -5860,6 +5874,9 @@ impl WgpuSurface {
                             egui::Area::new(egui::Id::new(id.as_str()))
                                 .fixed_pos(egui::pos2(px, py))
                                 .show(ctx, |ui| {
+                                    if let Some(c) = clip_rect {
+                                        ui.set_clip_rect(c);
+                                    }
                                     if ui
                                         .add_sized(
                                             egui::vec2(pw, ph),
@@ -5887,6 +5904,9 @@ impl WgpuSurface {
                             egui::Area::new(egui::Id::new(id.as_str()))
                                 .fixed_pos(egui::pos2(px, py))
                                 .show(ctx, |ui| {
+                                    if let Some(c) = clip_rect {
+                                        ui.set_clip_rect(c);
+                                    }
                                     ui.add(
                                         egui::TextEdit::singleline(text_val)
                                             .hint_text(hint.as_str())
@@ -5905,24 +5925,29 @@ impl WgpuSurface {
                             let tex = image_textures.get(texture_path.as_str()).copied();
                             egui::Area::new(egui::Id::new(id.as_str()))
                                 .fixed_pos(egui::pos2(px, py))
-                                .show(ctx, |ui| match tex {
-                                    Some(tex_id) => {
-                                        ui.add(
-                                            egui::Image::new(egui::load::SizedTexture::new(
-                                                tex_id,
-                                                egui::vec2(pw, ph),
-                                            ))
-                                            .fit_to_exact_size(egui::vec2(pw, ph)),
-                                        );
+                                .show(ctx, |ui| {
+                                    if let Some(c) = clip_rect {
+                                        ui.set_clip_rect(c);
                                     }
-                                    // Still loading, or the path failed. The
-                                    // space is held so a later frame does not
-                                    // reflow everything around it.
-                                    None => {
-                                        ui.allocate_exact_size(
-                                            egui::vec2(pw, ph),
-                                            egui::Sense::hover(),
-                                        );
+                                    match tex {
+                                        Some(tex_id) => {
+                                            ui.add(
+                                                egui::Image::new(egui::load::SizedTexture::new(
+                                                    tex_id,
+                                                    egui::vec2(pw, ph),
+                                                ))
+                                                .fit_to_exact_size(egui::vec2(pw, ph)),
+                                            );
+                                        }
+                                        // Still loading, or the path failed. The
+                                        // space is held so a later frame does not
+                                        // reflow everything around it.
+                                        None => {
+                                            ui.allocate_exact_size(
+                                                egui::vec2(pw, ph),
+                                                egui::Sense::hover(),
+                                            );
+                                        }
                                     }
                                 });
                         }
@@ -5930,6 +5955,9 @@ impl WgpuSurface {
                             egui::Area::new(egui::Id::new(id.as_str()))
                                 .fixed_pos(egui::pos2(px, py))
                                 .show(ctx, |ui| {
+                                    if let Some(c) = clip_rect {
+                                        ui.set_clip_rect(c);
+                                    }
                                     ui.add_sized(
                                         egui::vec2(pw, ph),
                                         egui::ProgressBar::new(*fraction),

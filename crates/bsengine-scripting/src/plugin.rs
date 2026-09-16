@@ -2395,6 +2395,7 @@ fn run_scripts(world: &mut World) {
                 spacing,
                 padding,
                 align,
+                scrollable,
             } => {
                 if let Some(mut ui) = world.get_resource_mut::<UiState>() {
                     ui.set_widget(bsengine_core::UiWidget::Container {
@@ -2417,6 +2418,7 @@ fn run_scripts(world: &mut World) {
                         },
                         spacing,
                         padding,
+                        scrollable,
                         // An out-of-range value means a prelude change got
                         // ahead of this match; stretch is the default the
                         // reference engines use, so it is the safe landing.
@@ -2447,6 +2449,11 @@ fn run_scripts(world: &mut World) {
                         height,
                         anchor: bsengine_core::UiAnchor::TOP_LEFT,
                     });
+                }
+            }
+            ScriptCommand::SetUiScroll { id, x, y } => {
+                if let Some(mut ui) = world.get_resource_mut::<UiState>() {
+                    ui.set_scroll(&id, x, y);
                 }
             }
             ScriptCommand::SetUiParent { id, parent } => {

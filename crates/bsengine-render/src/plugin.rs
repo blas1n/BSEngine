@@ -487,6 +487,13 @@ fn rebuild_modified_skybox(
     }
 }
 
+/// Pixels scrolled per unit of wheel delta.
+///
+/// A wheel notch reports 1.0, and 40 pixels is roughly a line and a half --
+/// close to what a desktop toolkit moves per notch, which is the only reference
+/// a player's hand has.
+const WHEEL_PIXELS: f32 = 40.0;
+
 #[allow(clippy::too_many_arguments)] // Bevy system params; splitting into a struct is a larger refactor
 fn render_frame(
     surface: Option<ResMut<WgpuSurfaceResource>>,
@@ -601,12 +608,31 @@ fn render_frame(
     };
     let empty = std::collections::HashMap::new();
     let hud_map = hud_texts.as_deref().map(|h| &h.0).unwrap_or(&empty);
-    let empty_ui = UiState::default();
-    let ui = ui_state.as_deref().unwrap_or(&empty_ui);
     let (cursor_x, cursor_y) = mouse_state
         .as_deref()
         .map(|ms| (ms.position.0 as f32, ms.position.1 as f32))
         .unwrap_or((0.0, 0.0));
+    // The wheel scrolls whatever scroll container sits under the cursor,
+    // before the frame is laid out for drawing, so a wheel turned this frame is
+    // reflected in this frame rather than the next. `scroll_by` recomputes the
+    // layout because the offset it clamps against is a layout result -- the
+    // arithmetic is pure and cheap, and sharing a cached layout with the
+    // renderer would couple two things that are otherwise independent.
+    let wheel = mouse_state
+        .as_deref()
+        .map(|ms| ms.scroll_delta as f32)
+        .unwrap_or(0.0);
+    if wheel != 0.0 {
+        if let Some(state) = ui_state.as_deref_mut() {
+            let (w, h) = (surface.0.width() as f32, surface.0.height() as f32);
+            let layout = state.layout(w, h);
+            // Negated: a wheel pushed forward scrolls the content up, which is
+            // what every one of the reference engines and every browser does.
+            state.scroll_by(&layout, cursor_x, cursor_y, 0.0, -wheel * WHEEL_PIXELS);
+        }
+    }
+    let empty_ui = UiState::default();
+    let ui = ui_state.as_deref().unwrap_or(&empty_ui);
     let left_just_pressed = mouse_buttons
         .as_deref()
         .map(|b| b.just_pressed(&MouseButton::Left))

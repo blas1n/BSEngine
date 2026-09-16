@@ -48,6 +48,14 @@ pub struct NetworkConfig {
     /// instrument is worse than none: it turns a real regression and an unlucky
     /// roll into the same red.
     pub simulator_seed: u64,
+    /// Frames an unacknowledged reliable packet waits before being sent again.
+    ///
+    /// Frames rather than milliseconds, for the same reason the server stamps a
+    /// tick: a test can name an exact frame, and two machines' clocks have
+    /// nothing to do with each other. The default is roughly 100ms at 60Hz --
+    /// long enough that an ordinary round trip is not mistaken for a loss,
+    /// short enough that a real loss is repaired within a few frames.
+    pub rpc_resend_frames: u32,
 }
 
 impl Default for NetworkConfig {
@@ -58,6 +66,7 @@ impl Default for NetworkConfig {
             simulated_latency_frames: 0,
             simulated_loss: 0.0,
             simulator_seed: 0,
+            rpc_resend_frames: 6,
         }
     }
 }

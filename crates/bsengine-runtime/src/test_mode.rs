@@ -73,6 +73,7 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>, fast_rend
         simulated_latency_frames: manifest.network.simulated_latency_frames,
         simulated_loss: manifest.network.simulated_loss,
         simulator_seed: manifest.network.simulator_seed,
+        rpc_resend_frames: manifest.network.rpc_resend_frames,
     });
     app.add_plugins(TimePlugin)
         .add_plugins(AssetPlugin)

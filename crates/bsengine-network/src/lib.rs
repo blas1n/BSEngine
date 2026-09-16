@@ -26,6 +26,8 @@ mod interpolation;
 mod packet;
 mod plugin;
 mod prediction;
+mod reliable;
+mod rpc;
 mod session;
 mod sim;
 
@@ -33,5 +35,7 @@ pub use config::NetworkConfig;
 pub use interpolation::{sample, SnapshotBuffers};
 pub use plugin::{AppliedInputs, NetworkPlugin, ServerTick};
 pub use prediction::PendingInputs;
+pub use reliable::ReliableChannel;
+pub use rpc::{decode_rpc, encode_rpc, MAX_ARGS_LEN};
 pub use session::{NetworkRole, NetworkSession};
 pub use sim::{DelayQueue, LinkSimulator};

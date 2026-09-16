@@ -23,17 +23,18 @@ use crate::ops::{
     COMMAND_BUFFER, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, FOLLOW_SNAPSHOT, FRICTION_SNAPSHOT,
     GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT, GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT,
     GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT,
-    KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, LIFETIME_SNAPSHOT,
-    LINEAR_DAMPING_SNAPSHOT, LOOK_AT_SNAPSHOT, MASS_SNAPSHOT, MATERIAL_COLOR_SNAPSHOT,
-    MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT, MATERIAL_ROUGHNESS_SNAPSHOT,
-    MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT, MOUSE_JUST_RELEASED_SNAPSHOT,
-    MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, NAV_SNAPSHOT, NETWORK_ID_SNAPSHOT,
-    NETWORK_STATE_SNAPSHOT, PARENT_SNAPSHOT, PAUSED_SNAPSHOT, PHYSICS_WORLD_PTR, PROJECT_DIR,
-    REMOTE_INPUT, REMOTE_INPUT_PREVIOUS, RESTITUTION_SNAPSHOT, SAVE_DATA_SNAPSHOT,
-    SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT, SOUND_POSITION_SNAPSHOT,
-    SOUND_STATE_SNAPSHOT, TIMELINE_SNAPSHOT, TIMER_SNAPSHOT, TIME_DELTA_SNAPSHOT,
-    TIME_ELAPSED_SNAPSHOT, TONE_MAP_SNAPSHOT, TRANSFORM_SNAPSHOT, TWEEN_SNAPSHOT,
-    UI_CLICKED_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT, WORLD_TRANSFORM_SNAPSHOT,
+    INCOMING_RPCS, KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT,
+    LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, LOOK_AT_SNAPSHOT, MASS_SNAPSHOT,
+    MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
+    MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
+    MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, NAV_SNAPSHOT,
+    NETWORK_ID_SNAPSHOT, NETWORK_STATE_SNAPSHOT, PARENT_SNAPSHOT, PAUSED_SNAPSHOT,
+    PHYSICS_WORLD_PTR, PROJECT_DIR, REMOTE_INPUT, REMOTE_INPUT_PREVIOUS, RESTITUTION_SNAPSHOT,
+    SAVE_DATA_SNAPSHOT, SCREEN_SIZE_SNAPSHOT, SHIELD_SNAPSHOT, SLEEP_SNAPSHOT,
+    SOUND_POSITION_SNAPSHOT, SOUND_STATE_SNAPSHOT, TIMELINE_SNAPSHOT, TIMER_SNAPSHOT,
+    TIME_DELTA_SNAPSHOT, TIME_ELAPSED_SNAPSHOT, TONE_MAP_SNAPSHOT, TRANSFORM_SNAPSHOT,
+    TWEEN_SNAPSHOT, UI_CLICKED_SNAPSHOT, VELOCITY_SNAPSHOT, VISIBLE_SNAPSHOT,
+    WORLD_TRANSFORM_SNAPSHOT,
 };
 use crate::runtime::ScriptRuntime;
 
@@ -1695,6 +1696,63 @@ fn run_scripts(world: &mut World) {
             }
             ScriptCommand::NetworkDisconnect => {
                 world.remove_resource::<bsengine_network::NetworkSession>();
+            }
+            ScriptCommand::NetworkCallRpc {
+                entity,
+                name,
+                args,
+                target,
+                reliable,
+            } => {
+                let target = match target.as_str() {
+                    "server" => Some(bsengine_core::RpcTarget::Server),
+                    "owner" => Some(bsengine_core::RpcTarget::Owner),
+                    "multicast" => Some(bsengine_core::RpcTarget::Multicast),
+                    // Said out loud rather than defaulted: a call routed
+                    // somewhere the author did not ask for is worse than one
+                    // that does not go, because it still looks like it worked.
+                    other => {
+                        tracing::warn!(
+                            "[network] rpc '{name}' has unknown target '{other}'; \
+                             expected \"server\", \"owner\" or \"multicast\""
+                        );
+                        None
+                    }
+                };
+                let net_id = {
+                    let mut q = world.query::<(&Name, &bsengine_core::NetworkId)>();
+                    q.iter(world)
+                        .find(|(n, _)| n.0 == entity)
+                        .map(|(_, nid)| nid.id)
+                };
+                match (target, net_id) {
+                    (Some(target), Some(net_id)) => {
+                        // `get_resource_mut`, not `resource_mut`: the queue is
+                        // inserted by `NetworkPlugin`, and a single-player game
+                        // has no reason to add it. A call made there goes
+                        // nowhere, which is the truth -- panicking would end
+                        // the game over a line that does nothing.
+                        match world.get_resource_mut::<bsengine_core::RpcQueues>() {
+                            Some(mut queues) => queues.send(
+                                bsengine_core::RpcCall {
+                                    net_id,
+                                    name,
+                                    args,
+                                },
+                                target,
+                                reliable,
+                            ),
+                            None => tracing::warn!(
+                                "[network] rpc '{name}' was called with no networking                                  running; it goes nowhere"
+                            ),
+                        }
+                    }
+                    (Some(_), None) => tracing::warn!(
+                        "[network] rpc '{name}' names entity '{entity}', which has no \
+                         NetworkId -- only replicated entities can carry a call"
+                    ),
+                    (None, _) => {}
+                }
             }
             ScriptCommand::ClearCustomShader { name } => {
                 let entity = {
@@ -4045,6 +4103,45 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
             *s.borrow_mut() = (is_server, is_connected, my_peer_id, peer_count);
         });
     }
+    {
+        // Drained here, in the same pass that publishes the other network
+        // snapshots, so a call and the session state a handler reads describe
+        // the same frame.
+        let arrived = world
+            .get_resource_mut::<bsengine_core::RpcQueues>()
+            .map(|mut q| q.take_incoming())
+            .unwrap_or_default();
+        if !arrived.is_empty() {
+            // net_id back to the name the script knows the entity by. An
+            // arrival for an entity this peer never spawned still runs its
+            // handler with an empty name: "the crate exploded" can matter to a
+            // client that is not rendering the crate.
+            let names: std::collections::HashMap<u64, String> = {
+                let mut q = world.query::<(&Name, &bsengine_core::NetworkId)>();
+                q.iter(world)
+                    .map(|(n, nid)| (nid.id, n.0.clone()))
+                    .collect()
+            };
+            let payload: Vec<serde_json::Value> = arrived
+                .iter()
+                .map(|call| {
+                    serde_json::json!({
+                        "entity": names.get(&call.net_id).cloned().unwrap_or_default(),
+                        // A string: a u64 net id can exceed what a JS number
+                        // holds exactly, and an id that silently rounds would
+                        // address the wrong entity.
+                        "netId": call.net_id.to_string(),
+                        "name": call.name,
+                        "args": call.args,
+                    })
+                })
+                .collect();
+            INCOMING_RPCS.with(|s| {
+                *s.borrow_mut() =
+                    serde_json::to_string(&payload).unwrap_or_else(|_| "[]".to_string());
+            });
+        }
+    }
     COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
     (scripted, collision_json)
 }
@@ -4278,6 +4375,148 @@ mod tests {
                 .is_some_and(|l| l.slot.is_ready()),
             "an executed script must be recorded as Ready, holding the handle \
              that keeps the source tracked"
+        );
+
+        let _ = std::fs::remove_file(&script_path);
+    }
+
+    /// A script's call reaches the queue the network layer drains, with the
+    /// entity resolved to its network id.
+    #[test]
+    fn a_script_call_reaches_the_outgoing_queue() {
+        let script_path =
+            std::env::temp_dir().join(format!("bsengine_test_rpc_out_{}.js", std::process::id()));
+        std::fs::write(
+            &script_path,
+            r#"
+            Bsengine.network.registerRpc("ping", { target: "multicast", reliable: false },
+                () => {});
+            function onUpdate(name) {
+                if (!globalThis.sent) { globalThis.sent = true; Bsengine.network.callRpc(name, "ping", { n: 4 }); }
+            }
+            "#,
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: String::new(),
+        });
+        app.insert_resource(bsengine_core::RpcQueues::default());
+        app.world_mut().spawn((
+            Name("Hero".to_string()),
+            bsengine_core::NetworkId {
+                id: 7,
+                authority: bsengine_core::NetworkAuthority::Predicted { peer_id: 1 },
+            },
+            ScriptPath(script_path.to_string_lossy().to_string()),
+        ));
+
+        let mut frames = 0;
+        loop {
+            app.update();
+            frames += 1;
+            if !app
+                .world()
+                .resource::<bsengine_core::RpcQueues>()
+                .outgoing
+                .is_empty()
+            {
+                break;
+            }
+            assert!(frames < 300, "the call never reached the queue");
+        }
+
+        let queued = &app.world().resource::<bsengine_core::RpcQueues>().outgoing;
+        assert_eq!(queued.len(), 1, "{queued:?}");
+        assert_eq!(
+            queued[0].call.net_id, 7,
+            "the entity name has to be resolved to the id the wire uses"
+        );
+        assert_eq!(queued[0].call.name, "ping");
+        assert!(queued[0].call.args.contains("\"n\":4"));
+        assert_eq!(queued[0].target, bsengine_core::RpcTarget::Multicast);
+        assert!(
+            !queued[0].reliable,
+            "the declaration's routing has to survive the whole trip"
+        );
+
+        let _ = std::fs::remove_file(&script_path);
+    }
+
+    /// An arrived call runs the script's handler.
+    ///
+    /// The other half: without it the transport could deliver perfectly and no
+    /// game would ever see a call. Asserted through a HUD text the handler
+    /// writes, so what is observed is the handler's *effect* rather than the
+    /// queue being drained.
+    #[test]
+    fn an_arrived_call_runs_the_scripts_handler() {
+        let script_path =
+            std::env::temp_dir().join(format!("bsengine_test_rpc_in_{}.js", std::process::id()));
+        std::fs::write(
+            &script_path,
+            r#"
+            Bsengine.network.registerRpc("onHit", { target: "owner" }, (entity, args) => {
+                Bsengine.setHudText("hit", `${entity}:${args.damage}`);
+            });
+            function onUpdate(name) {}
+            "#,
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: String::new(),
+        });
+        app.insert_resource(bsengine_core::RpcQueues::default());
+        app.world_mut().spawn((
+            Name("Hero".to_string()),
+            bsengine_core::NetworkId {
+                id: 7,
+                authority: bsengine_core::NetworkAuthority::Predicted { peer_id: 1 },
+            },
+            ScriptPath(script_path.to_string_lossy().to_string()),
+        ));
+
+        // Wait for the script to be running before the call arrives: a call
+        // delivered to a runtime with no handler registered yet would be
+        // dropped, and the test would be measuring the load race rather than
+        // the dispatch.
+        let mut frames = 0;
+        loop {
+            app.update();
+            frames += 1;
+            // A non-send resource, and `eval` needs `&mut`.
+            let registered = app
+                .world_mut()
+                .non_send_resource_mut::<ScriptRuntimeResource>()
+                .0
+                .eval("typeof Bsengine._rpcs.onHit")
+                .is_ok_and(|t| t.contains("object"));
+            if registered {
+                break;
+            }
+            assert!(frames < 300, "the script never registered its handler");
+        }
+
+        app.world_mut()
+            .resource_mut::<bsengine_core::RpcQueues>()
+            .incoming
+            .push(bsengine_core::RpcCall {
+                net_id: 7,
+                name: "onHit".into(),
+                args: r#"{"damage":12}"#.into(),
+            });
+        app.update();
+
+        assert_eq!(
+            app.world().resource::<HudTexts>().0.get("hit").cloned(),
+            Some("Hero:12".to_string()),
+            "the handler should run with the entity's *name* and the arguments \
+             the caller sent"
         );
 
         let _ = std::fs::remove_file(&script_path);

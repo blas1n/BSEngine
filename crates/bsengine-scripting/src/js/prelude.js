@@ -395,6 +395,56 @@ var Bsengine = {
       isConnected:   ()           => Deno.core.ops.bsengine_network_is_connected(),
       getMyPeerId:   ()           => Deno.core.ops.bsengine_network_get_my_peer_id(),
       getPeerCount:  ()           => Deno.core.ops.bsengine_network_get_peer_count(),
+
+      // Declares a remote procedure, then calls one.
+      //
+      // The routing is declared once per handler name rather than given at
+      // each call site, which is what Unity's [Rpc(SendTo...)], Unreal's
+      // UFUNCTION(Server/Client/NetMulticast) and Godot's @rpc all do: a call
+      // routed one way here and another way there would be two different
+      // calls sharing a name.
+      //
+      // `target` is "server" (runs on the server, sent by the client that owns
+      // the entity), "owner" (runs on the one client that owns it) or
+      // "multicast" (runs on every client and on the server). Reliable unless
+      // `reliable: false` is passed -- an RPC is said once, so losing one is
+      // not repaired by the next packet the way a lost transform is.
+      registerRpc(name, opts, handler) {
+        if (typeof handler !== "function") {
+          Bsengine.log(`[network] registerRpc('${name}') needs a handler function`);
+          return;
+        }
+        const target = (opts && opts.target) || "server";
+        if (target !== "server" && target !== "owner" && target !== "multicast") {
+          Bsengine.log(`[network] registerRpc('${name}') has unknown target '${target}'`);
+          return;
+        }
+        Bsengine._rpcs[name] = {
+          target,
+          reliable: !(opts && opts.reliable === false),
+          handler,
+        };
+      },
+
+      callRpc(entityName, name, args) {
+        const decl = Bsengine._rpcs[name];
+        if (!decl) {
+          // The declaration carries the routing, so a call without one has
+          // nowhere to go. Said out loud rather than sent to a default, which
+          // would deliver it somewhere the author never asked for.
+          Bsengine.log(`[network] callRpc('${name}') with no registerRpc('${name}') first`);
+          return;
+        }
+        let payload;
+        try {
+          payload = JSON.stringify(args === undefined ? {} : args);
+        } catch (e) {
+          Bsengine.log(`[network] rpc '${name}' has arguments that will not serialise: ${e}`);
+          return;
+        }
+        Deno.core.ops.bsengine_network_call_rpc(
+          entityName, name, payload, decl.target, decl.reliable);
+      },
     },
 
     // Nimble
@@ -966,9 +1016,56 @@ var Bsengine = {
         }
     },
 
+    // Remote procedure declarations, by handler name. See `network.registerRpc`.
+    _rpcs: {},
+
+    // Runs the handlers for calls that arrived since the last frame.
+    //
+    // Taken rather than read, so a call runs once: an RPC that fired every
+    // frame is exactly what the reliable channel's deduplication prevents one
+    // layer down, and it would be undone here.
+    _dispatchRpcs() {
+        const raw = Deno.core.ops.bsengine_network_take_rpcs();
+        if (!raw) {
+            return;
+        }
+        let calls;
+        try {
+            calls = JSON.parse(raw);
+        } catch (e) {
+            this.log(`[network] could not read arrived rpcs: ${e}`);
+            return;
+        }
+        for (const call of calls) {
+            const decl = this._rpcs[call.name];
+            if (!decl) {
+                // The sender declared it and this side did not. Worth saying:
+                // a call that arrives and does nothing is indistinguishable
+                // from one that never arrived.
+                this.log(`[network] rpc '${call.name}' arrived with no handler registered`);
+                continue;
+            }
+            let args;
+            try {
+                args = call.args ? JSON.parse(call.args) : {};
+            } catch (e) {
+                this.log(`[network] rpc '${call.name}' had unreadable arguments: ${e}`);
+                continue;
+            }
+            try {
+                decl.handler(call.entity, args, call.netId);
+            } catch (e) {
+                this.log(`[network] rpc '${call.name}' handler error: ${e}`);
+            }
+        }
+    },
+
     // Called each frame by the engine with [[id, name], ...] for all scripted entities.
     _runAll(entities) {
         this._tickTimers();
+        // Before the per-entity updates, so a handler's effect is visible to
+        // the same frame's onUpdate rather than a frame later.
+        this._dispatchRpcs();
         this._dispatchKeyEvents();
         this._dispatchMouseEvents();
         this._dispatchGamepadEvents();

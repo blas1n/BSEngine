@@ -312,12 +312,14 @@ declare namespace Bsengine {
         function setWalkable(x: number, z: number, v: boolean): void;
     }
     namespace network {
+        function callRpc(entityName: string, name: string, args: unknown): void;
         function connect(host: string, port: number): void;
         function disconnect(): void;
         function getMyPeerId(): string;
         function getPeerCount(): number;
         function isConnected(): boolean;
         function isServer(): boolean;
+        function registerRpc(name: unknown, opts?: Record<string, unknown>, handler: unknown): unknown;
         function startServer(port: number): void;
     }
     namespace timeline {

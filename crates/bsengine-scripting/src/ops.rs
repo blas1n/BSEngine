@@ -1621,6 +1621,23 @@ pub enum ScriptCommand {
     },
     /// Disconnect from the current network session.
     NetworkDisconnect,
+    /// Make a remote procedure call on a networked entity.
+    NetworkCallRpc {
+        /// Name of the entity the call is attached to.
+        ///
+        /// Carried as a name and resolved against the world later, like every
+        /// other command here, so an entity spawned earlier this frame can
+        /// still be named.
+        entity: String,
+        /// Handler name, as registered on the receiving side.
+        name: String,
+        /// Arguments, already serialised by the caller.
+        args: String,
+        /// `"server"`, `"owner"` or `"multicast"`.
+        target: String,
+        /// Whether losing the call is acceptable.
+        reliable: bool,
+    },
 }
 
 thread_local! {
@@ -2341,6 +2358,13 @@ thread_local! {
     // forced_dismount_damage = -1.0 if None
     // entity name → (duration, timer, sound_radius_fraction, just_muffled, just_unmuffled, enabled)
     // entity name → (id_str, authority_kind[0=Server,1=Client,2=Local], peer_id_str)
+    /// Calls that arrived since the last frame, as a JSON array.
+    ///
+    /// JSON rather than a typed structure because the only consumer is the
+    /// script runtime, which will parse it anyway -- the same reason the
+    /// arguments themselves travel as an opaque string.
+    pub(crate) static INCOMING_RPCS: RefCell<String> = const { RefCell::new(String::new()) };
+
     pub(crate) static NETWORK_ID_SNAPSHOT: RefCell<HashMap<String, (String, u32, String)>> =
         RefCell::new(HashMap::new());
     // (is_server, is_connected, my_peer_id, peer_count)
@@ -4794,6 +4818,44 @@ pub fn bsengine_network_get_my_peer_id() -> String {
     NETWORK_STATE_SNAPSHOT.with(|s| s.borrow().2.to_string())
 }
 
+/// Queue a remote procedure call on a networked entity.
+///
+/// The routing (`target`, `reliable`) comes from the declaration the script
+/// made with `registerRpc`, not from the call site. Unity's `[Rpc(SendTo...)]`,
+/// Unreal's `UFUNCTION(Server/Client/NetMulticast)` and Godot's `@rpc` all
+/// attach it to the function for the same reason: a call that routed one way
+/// here and another way there would be two different calls sharing a name.
+#[op2(fast)]
+pub fn bsengine_network_call_rpc(
+    #[string] entity: String,
+    #[string] name: String,
+    #[string] args: String,
+    #[string] target: String,
+    reliable: bool,
+) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::NetworkCallRpc {
+            entity,
+            name,
+            args,
+            target,
+            reliable,
+        });
+    });
+}
+
+/// Take the remote procedure calls that arrived since the last frame.
+///
+/// Returns a JSON array of `{entity, netId, name, args}`. Taking rather than
+/// reading: a call left behind would run its handler again on the next frame,
+/// and an RPC that fires twice is exactly what the reliable channel's
+/// deduplication prevents one layer down.
+#[op2]
+#[string]
+pub fn bsengine_network_take_rpcs() -> String {
+    INCOMING_RPCS.with(|s| std::mem::take(&mut *s.borrow_mut()))
+}
+
 /// Get the number of connected network peers.
 #[op2(fast)]
 pub fn bsengine_network_get_peer_count() -> u32 {
@@ -6322,6 +6384,8 @@ deno_core::extension!(
         bsengine_network_is_connected,
         bsengine_network_get_my_peer_id,
         bsengine_network_get_peer_count,
+        bsengine_network_call_rpc,
+        bsengine_network_take_rpcs,
         bsengine_look_at,
         bsengine_get_time,
         bsengine_get_delta_time,
@@ -7613,6 +7677,156 @@ mod tests {
         rt.exec_source("Bsengine._runAll([]);", "<tick>").unwrap();
         let r = rt.eval("fired ? 'yes' : 'no'").unwrap();
         assert!(r.contains("yes"), "should fire on frame 2: {r}");
+    }
+
+    /// A call that arrived runs its handler, once, with its arguments.
+    ///
+    /// The whole point of the script surface: without this the transport could
+    /// be perfect and no game would ever see a call.
+    #[test]
+    fn a_registered_rpc_handler_runs_with_its_arguments() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(
+            r#"
+            globalThis.seen = [];
+            Bsengine.network.registerRpc("onHit", { target: "owner" }, (entity, args) => {
+                globalThis.seen.push(`${entity}:${args.damage}`);
+            });
+            "#,
+            "<test>",
+        )
+        .unwrap();
+
+        // What the engine publishes when a call arrives.
+        super::INCOMING_RPCS.with(|s| {
+            *s.borrow_mut() = r#"[{"entity":"Player","netId":"7",
+                "name":"onHit","args":"{\"damage\":12}"}]"#
+                .to_string();
+        });
+        rt.exec_source("Bsengine._runAll([]);", "<tick>").unwrap();
+
+        let seen = rt.eval("globalThis.seen.join(',')").unwrap();
+        assert!(
+            seen.contains("Player:12"),
+            "the handler should run with the entity and the arguments: {seen}"
+        );
+
+        // And exactly once: a call that fired every frame would undo the
+        // deduplication the reliable channel does one layer down.
+        rt.exec_source("Bsengine._runAll([]);", "<tick>").unwrap();
+        let count = rt.eval("String(globalThis.seen.length)").unwrap();
+        assert!(
+            count.contains('1'),
+            "a call must run once, not on every frame after it: {count}"
+        );
+    }
+
+    /// The routing comes from the declaration, not from the call site.
+    #[test]
+    fn a_call_carries_the_routing_its_declaration_gave_it() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        // Two declarations that differ in both fields, so a call that ignored
+        // the declaration and used a default could not look correct for both.
+        rt.exec_source(
+            r#"
+            Bsengine.network.registerRpc("shout", { target: "multicast", reliable: false },
+                () => {});
+            Bsengine.network.registerRpc("ask", { target: "server" }, () => {});
+            Bsengine.network.callRpc("Crate", "shout", { volume: 3 });
+            Bsengine.network.callRpc("Crate", "ask");
+            "#,
+            "<test>",
+        )
+        .unwrap();
+
+        let queued: Vec<(String, String, bool, String)> = super::COMMAND_BUFFER.with(|c| {
+            c.borrow()
+                .iter()
+                .filter_map(|cmd| match cmd {
+                    super::ScriptCommand::NetworkCallRpc {
+                        name,
+                        target,
+                        reliable,
+                        args,
+                        ..
+                    } => Some((name.clone(), target.clone(), *reliable, args.clone())),
+                    _ => None,
+                })
+                .collect()
+        });
+
+        assert_eq!(queued.len(), 2, "{queued:?}");
+        assert_eq!(queued[0].0, "shout");
+        assert_eq!(queued[0].1, "multicast");
+        assert!(!queued[0].2, "the reliable opt-out has to survive the call");
+        assert!(
+            queued[0].3.contains("\"volume\":3"),
+            "arguments are serialised by the caller: {:?}",
+            queued[0].3
+        );
+        assert_eq!(queued[1].1, "server", "and each call keeps its own routing");
+        assert!(
+            queued[1].2,
+            "reliable unless the declaration says otherwise"
+        );
+    }
+
+    /// A call with no declaration has nowhere to go, and says so.
+    #[test]
+    fn a_call_without_a_declaration_is_refused_rather_than_defaulted() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+        rt.exec_source(
+            r#"Bsengine.network.callRpc("Crate", "neverDeclared", {});"#,
+            "<test>",
+        )
+        .unwrap();
+
+        let queued = super::COMMAND_BUFFER.with(|c| {
+            c.borrow()
+                .iter()
+                .filter(|cmd| matches!(cmd, super::ScriptCommand::NetworkCallRpc { .. }))
+                .count()
+        });
+        assert_eq!(
+            queued, 0,
+            "the declaration carries the routing, so a call without one would \
+             have to be sent somewhere the author never asked for"
+        );
+    }
+
+    /// An arrival nobody registered a handler for does not throw.
+    ///
+    /// The two sides run different scripts here -- unlike Unity and Unreal,
+    /// where both ends are the same binary -- so a name declared on one side
+    /// and not the other is an ordinary mistake, not a crash.
+    #[test]
+    fn an_arrival_with_no_handler_does_not_break_the_frame() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.exec_source(
+            r#"
+            globalThis.ticked = 0;
+            Bsengine.setTimeout(() => { globalThis.ticked = 1; }, 1);
+            "#,
+            "<test>",
+        )
+        .unwrap();
+        super::INCOMING_RPCS.with(|s| {
+            *s.borrow_mut() =
+                r#"[{"entity":"","netId":"9","name":"nobodyHandlesThis","args":"{}"}]"#.to_string();
+        });
+
+        rt.exec_source("Bsengine._runAll([]);", "<tick>").unwrap();
+        let ticked = rt.eval("String(globalThis.ticked)").unwrap();
+        assert!(
+            ticked.contains('1'),
+            "the rest of the frame must still run: {ticked}"
+        );
     }
 
     #[test]

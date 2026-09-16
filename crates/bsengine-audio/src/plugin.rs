@@ -30,9 +30,14 @@ impl Plugin for AudioPlugin {
         // reflect_types` because `bsengine-scene` does not depend on this
         // crate, and `AudioPlugin` is in both the windowed runtime and the
         // headless `--test` app, so the two cannot drift.
+        // The editor mixer panel reads this and writes volume requests into
+        // it. Inserted unconditionally so the panel finds a resource rather
+        // than an absence in a headless run, where it simply stays empty.
+        app.init_resource::<bsengine_core::MixerShared>();
         app.register_type::<AudioListener>();
         app.register_type::<AudioEmitter>();
         app.register_type::<AudioOcclusion>();
+        app.add_systems(bevy_app::Update, sync_mixer_panel);
         // Listener first: an emitter's spatial track is created *linked to* a
         // listener, so on the very first frame the ears have to exist before
         // any source can be attached to them.
@@ -274,6 +279,67 @@ mod bus_loading_tests {
     }
 
     #[test]
+    fn the_mixer_panel_sees_the_bus_tree_and_gets_its_requests_applied() {
+        let dir = project_with_layout(
+            r#"BusLayout(buses: [
+                Bus(name: "sfx", parent: None,        volume_db: -6.0, effects: [
+                    Reverb(feedback: 0.5, damping: 0.25, stereo_width: 0.125, mix: 0.5),
+                ]),
+                Bus(name: "ui",  parent: Some("sfx"), volume_db: -3.0),
+            ])"#,
+        );
+        let mut app = app_for(&dir);
+        app.update();
+
+        let shared = app.world().resource::<bsengine_core::MixerShared>().clone();
+        let mut buses = shared.buses();
+        buses.sort_by(|a, b| a.name.cmp(&b.name));
+        assert_eq!(buses.len(), 2, "both buses should be published: {buses:?}");
+        assert_eq!(buses[0].name, "sfx");
+        assert_eq!(buses[0].volume_db, -6.0);
+        assert_eq!(
+            buses[0].effects, 1,
+            "a bus's DSP chain length has to survive the trip, or the panel \
+             shows every chain as empty"
+        );
+        assert_eq!(buses[1].name, "ui");
+        assert_eq!(
+            buses[1].volume_db, -3.0,
+            "distinct volumes, so reading the wrong bus cannot look correct"
+        );
+        assert_eq!(
+            buses[1].parent.as_deref(),
+            Some("sfx"),
+            "the panel draws a tree, so it needs the parent and not a flat list"
+        );
+        assert_eq!(buses[0].effects, 1);
+
+        // What a fader drag turns into: a request, applied on the next frame.
+        shared.request_volume("ui", -18.0);
+        app.update();
+        assert_eq!(
+            app.world().resource::<AudioWorld>().bus_volume("ui"),
+            Some(-18.0),
+            "the request should reach the mixer"
+        );
+        assert_eq!(
+            shared
+                .buses()
+                .iter()
+                .find(|b| b.name == "ui")
+                .map(|b| b.volume_db),
+            Some(-18.0),
+            "and the panel should read back what it asked for, so the fader \
+             does not snap to the old value on the next frame"
+        );
+        assert!(
+            shared.take_pending().is_empty(),
+            "the request must be consumed once, not re-applied every frame \
+             against whatever the user does next"
+        );
+    }
+
+    #[test]
     fn a_project_with_no_layout_still_runs() {
         // The feature is additive: every existing game has no buses.ron and
         // must behave exactly as before. This is what keeps the 12 committed
@@ -319,4 +385,37 @@ mod bus_loading_tests {
             "the layout is authored data loaded once, not re-applied every frame"
         );
     }
+}
+
+/// Publishes the bus tree for the editor mixer panel and applies what it asks.
+///
+/// Both directions run here, in that order, so a volume the panel set this
+/// frame is reflected in the snapshot it reads next frame rather than being
+/// overwritten by a snapshot taken before the change landed.
+///
+/// Runs whether or not an audio device exists. The bus ledger is kept
+/// independently of the backend -- that is why bus state is observable on a
+/// machine with no sound card at all -- so the panel shows the real tree in a
+/// headless editor session instead of an empty one.
+pub fn sync_mixer_panel(
+    mut audio: Option<bevy_ecs::prelude::ResMut<AudioWorld>>,
+    shared: Option<bevy_ecs::prelude::Res<bsengine_core::MixerShared>>,
+) {
+    let (Some(audio), Some(shared)) = (audio.as_mut(), shared) else {
+        return;
+    };
+    for (bus, db) in shared.take_pending() {
+        audio.set_bus_volume(&bus, db);
+    }
+    let buses = audio
+        .bus_volumes()
+        .into_iter()
+        .map(|(name, volume_db)| bsengine_core::MixerBus {
+            parent: audio.bus_parent(&name).flatten(),
+            effects: audio.bus_effects(&name).map(<[_]>::len).unwrap_or(0),
+            name,
+            volume_db,
+        })
+        .collect();
+    shared.publish(buses);
 }

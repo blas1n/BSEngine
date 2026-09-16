@@ -6,6 +6,8 @@ pub mod dock;
 pub mod hierarchy;
 /// The Inspector panel: displays and edits the selected entity's components.
 pub mod inspector;
+/// The Mixer panel: the audio bus tree with a volume fader on each bus.
+pub mod mixer;
 /// The Profiler panel: frame timing, per-pass GPU cost, and draw-call/
 /// triangle/texture-memory stats.
 pub mod profiler;
@@ -25,6 +27,7 @@ pub use dock::{
 };
 pub use hierarchy::HierarchyPanel;
 pub use inspector::InspectorPanel;
+pub use mixer::{register_mixer_panel, MixerPanel};
 pub use profiler::ProfilerPanel;
 pub use reflect_ui::draw_reflect_ui;
 pub use shadergraph::ShaderGraphPanel;

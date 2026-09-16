@@ -1,4 +1,4 @@
-use bevy_app::{App, Plugin, PostUpdate, Update};
+use bevy_app::{App, Plugin, PostUpdate, Startup, Update};
 use bevy_ecs::prelude::{EventReader, IntoSystemConfigs, Local, ParamSet, Query, ResMut};
 use bsengine_core::{
     AmbientOcclusion, Bloom, Camera, CustomShader, DirectionalLight, EditorPanelRegistry,
@@ -1082,6 +1082,7 @@ impl Plugin for RenderPlugin {
             .init_resource::<crate::texture_cache::TextureCache>()
             .add_event::<WindowResized>()
             .add_event::<KeyInput>()
+            .add_systems(Startup, bsengine_rhi_wgpu::panels::register_mixer_panel)
             .add_systems(
                 Update,
                 (

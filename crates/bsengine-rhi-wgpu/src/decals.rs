@@ -146,7 +146,13 @@ fn fs_decal(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     // rotation sprays at a floor.
     let axis = normalize((decal.model * vec4<f32>(0.0, -1.0, 0.0, 0.0)).xyz);
     let facing = abs(dot(surface_normal, axis));
-    let fade = smoothstep(decal.params.y, 1.0, facing);
+    // A clamped ramp rather than `smoothstep(fade, 1.0, facing)`. WGSL's
+    // smoothstep is only defined for edge0 < edge1, so a threshold of exactly
+    // 1 -- or above it, which a caller reaching this type directly can pass --
+    // returns something other than "fade everything out". Written out, it is
+    // monotone at every threshold and degenerates to a hard step at 1.
+    let fade_span = max(1.0 - decal.params.y, 1e-4);
+    let fade = clamp((facing - decal.params.y) / fade_span, 0.0, 1.0);
 
     // An explicit level: the box's screen footprint has nothing to do with the
     // texture's, so an implicit derivative would pick a mip from the wrong rate

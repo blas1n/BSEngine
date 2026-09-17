@@ -591,7 +591,14 @@ fn render_frame(
     // `ParamSet` comment names this same remedy, "the same treatment applied
     // one level down (a tuple ...)". The query is read-only and touches no
     // component the `ParamSet` writes, so it conflicts with nothing.
-    (occlusion_enabled, mut occlusion_buf, mut taa_frame_index, probe_volumes, shadow_settings): (
+    (
+        occlusion_enabled,
+        mut occlusion_buf,
+        mut taa_frame_index,
+        probe_volumes,
+        shadow_settings,
+        decal_query,
+    ): (
         Option<Res<bsengine_core::OcclusionCullingEnabled>>,
         Local<crate::occlusion::OcclusionBuffer>,
         Local<u32>,
@@ -601,6 +608,12 @@ fn render_frame(
             Option<&GlobalTransform>,
         )>,
         Option<Res<bsengine_core::ShadowSettings>>,
+        // In this tuple rather than the `ParamSet` above for the reason that
+        // tuple's own comment gives: the ParamSet is at its hard maximum of 8
+        // sub-params and this function is at Bevy's 16 top-level ones, while a
+        // tuple of `SystemParam`s counts as one. `probe_volumes` above is a
+        // `Query` here for exactly the same reason.
+        Query<(&bsengine_core::Decal, &Transform, Option<&GlobalTransform>)>,
     ),
 ) {
     let (Some(mut surface), Some(registry)) = (surface, registry) else {
@@ -1001,6 +1014,31 @@ fn render_frame(
         })
         .collect();
 
+    // Decals: the box's world matrix, and its texture path resolved to the id
+    // the GPU knows. Resolved here rather than in the renderer because the
+    // path-to-id map is `TextureCache`, which lives in this crate -- the same
+    // reason mesh draw calls carry an id rather than a path.
+    let decals: Vec<bsengine_rhi_wgpu::decals::DecalDraw> = decal_query
+        .iter()
+        .map(|(decal, transform, global)| {
+            // The global transform when the entity has one, so a decal
+            // parented to a moving object goes with it.
+            let placed = global
+                .map(|g| g.to_matrix())
+                .unwrap_or_else(|| transform.to_matrix());
+            bsengine_rhi_wgpu::decals::DecalDraw {
+                // The authored size is the box's full extent, and the cube the
+                // renderer draws is a unit box, so the size goes in as scale.
+                model: placed * Mat4::from_scale(decal.clamped_size()),
+                opacity: decal.clamped_opacity(),
+                normal_fade: decal.normal_fade.clamp(0.0, 1.0),
+                texture: texture_cache
+                    .as_deref()
+                    .and_then(|c| c.id_for(&decal.texture_path)),
+            }
+        })
+        .collect();
+
     match surface.0.render_frame(
         view_proj,
         cam_pos,
@@ -1008,6 +1046,7 @@ fn render_frame(
         sky_vp_inv,
         &draw_calls,
         &terrain_draw_calls,
+        &decals,
         occluded_count,
         &registry,
         light,
@@ -1074,6 +1113,7 @@ impl Plugin for RenderPlugin {
         app.register_type::<TerrainSplat>();
         app.register_type::<LodLevels>();
         app.register_type::<Occluder>();
+        app.register_type::<bsengine_core::Decal>();
         app.init_asset::<crate::shader_asset::ShaderSource>()
             .register_asset_loader(crate::shader_asset::ShaderSourceLoader)
             .init_resource::<UiState>()

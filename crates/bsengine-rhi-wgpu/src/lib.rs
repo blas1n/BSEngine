@@ -13,6 +13,8 @@
 #![allow(clippy::type_complexity)]
 #![warn(missing_docs)]
 
+/// Decals, accumulated into a buffer the opaque pass folds into its albedo.
+pub mod decals;
 pub mod froxel;
 /// Screen-space translate/rotate gizmo math and drawing.
 pub mod gizmo;

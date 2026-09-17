@@ -123,6 +123,11 @@ struct ProbeUniform {
     _pad1: u32,
 };
 @group(2) @binding(9) var<uniform> probes: ProbeUniform;
+// What the decal pass accumulated for this frame: premultiplied colour in rgb
+// and "how much of the base albedo survives" in alpha. Read with textureLoad
+// at the fragment's own pixel -- it is a screen-space buffer, so there is no
+// uv to sample and no filtering to want.
+@group(2) @binding(10) var decal_buffer: texture_2d<f32>;
 
 struct VertIn {
     @location(0) pos: vec3<f32>,
@@ -375,7 +380,12 @@ fn eval_probe_sh(world_pos: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
 fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
     let n = normalize(in.world_normal);
     let v = normalize(camera.cam_pos - in.world_pos);
-    let albedo = textureSample(t_diffuse, s_diffuse, in.uv).rgb * in.col * model_data.base_color;
+    var albedo = textureSample(t_diffuse, s_diffuse, in.uv).rgb * in.col * model_data.base_color;
+    // Decals, before a single light has touched it. This is the whole reason
+    // the buffer exists: a decal blended after lighting would stay bright in a
+    // shadow, because nothing about the surface would have changed.
+    let dbuf = textureLoad(decal_buffer, vec2<i32>(in.clip_pos.xy), 0);
+    albedo = albedo * dbuf.a + dbuf.rgb;
     let metallic = model_data.metallic;
     let roughness = max(model_data.roughness, 0.04);
     let f0 = mix(vec3<f32>(0.04, 0.04, 0.04), albedo, metallic);
@@ -2124,6 +2134,9 @@ struct LightBindings<'a> {
     /// The baked probe grid. Always present; `enabled` is 0 when no volume
     /// has been baked.
     probe_buffer: &'a wgpu::Buffer,
+    /// This frame's decal buffer. Always present; cleared to "no decals" when
+    /// the scene has none.
+    decal_view: &'a wgpu::TextureView,
 }
 
 /// Builds the light bind group. The single place the group-2 binding numbers
@@ -2178,6 +2191,10 @@ fn create_light_bind_group(
                 binding: 9,
                 resource: bindings.probe_buffer.as_entire_binding(),
             },
+            wgpu::BindGroupEntry {
+                binding: 10,
+                resource: wgpu::BindingResource::TextureView(bindings.decal_view),
+            },
         ],
     })
 }
@@ -2194,6 +2211,15 @@ pub struct WgpuSurface {
     particles: crate::particles::ParticleRenderer,
     depth_texture: crate::profiler::TrackedTexture,
     depth_view: wgpu::TextureView,
+    /// The decal buffer, its pipeline and its box geometry.
+    decals: crate::decals::DecalResources,
+    /// Depth-only pipeline for the prepass the decal projection needs.
+    ///
+    /// Uses the mesh shader's own `vs_main` with no fragment stage, so the
+    /// depth it writes is bit-for-bit what the opaque pass would compute --
+    /// a separate vertex shader could drift from it and the decals would then
+    /// project onto geometry that is not quite where it gets drawn.
+    depth_prepass_pipeline: wgpu::RenderPipeline,
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     model_buffer: wgpu::Buffer,
@@ -2912,6 +2938,22 @@ impl WgpuSurface {
                     },
                     count: None,
                 },
+                // 10 is the decal buffer, which the mesh shader folds into its
+                // albedo before lighting. It rides in this group rather than
+                // its own because the group is already per-pass state, and
+                // because the probe-capture pipeline shares this layout while
+                // its shader never declares this binding -- which is exactly
+                // what keeps decals out of baked probes.
+                wgpu::BindGroupLayoutEntry {
+                    binding: 10,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
 
@@ -3193,6 +3235,18 @@ impl WgpuSurface {
             bytemuck::bytes_of(&<ProbeUniformData as bytemuck::Zeroable>::zeroed()),
         );
 
+        // Before the light bind group, which binds its view. A resize
+        // rebuilds both, in this order, for the same reason.
+        let decals = crate::decals::DecalResources::new(
+            &device,
+            width,
+            height,
+            &depth_view,
+            &camera_bgl,
+            &texture_bgl,
+            bsengine_core::MAX_DECALS,
+        );
+
         // No skybox at construction, so the cube bindings get the dummy. Every
         // later rebuild goes through `rebuild_light_bind_group`, which binds
         // the same way from the same struct.
@@ -3210,6 +3264,7 @@ impl WgpuSurface {
                 prefilter_view: &dummy_ibl_cube_view,
                 brdf_lut_view: &brdf_lut_view,
                 probe_buffer: &probe_buffer,
+                decal_view: &decals.view,
             },
         );
 
@@ -3563,6 +3618,48 @@ impl WgpuSurface {
             push_constant_ranges: &[],
         });
 
+        // Depth-only, and deliberately the *same* `vs_main` the opaque pass
+        // uses: the decal buffer is projected onto this depth, so any drift
+        // between the two would land decals slightly off the geometry they were
+        // meant for. `vs_main` reads only groups 0 and 1, which is why a layout
+        // with just those two validates.
+        let depth_prepass_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("depth prepass pipeline layout"),
+            bind_group_layouts: &[&camera_bgl, &model_bgl],
+            push_constant_ranges: &[],
+        });
+        let depth_prepass_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("depth prepass pipeline"),
+                layout: Some(&depth_prepass_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: "vs_main",
+                    buffers: std::slice::from_ref(&vertex_buffer_layout),
+                    compilation_options: Default::default(),
+                },
+                fragment: None,
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    cull_mode: Some(wgpu::Face::Back),
+                    front_face: wgpu::FrontFace::Ccw,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less,
+                    stencil: wgpu::StencilState::default(),
+                    // No bias, unlike the shadow pipeline: a bias here would move
+                    // the depth the decals project onto away from the depth the
+                    // opaque pass draws at.
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            });
+
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("mesh pipeline"),
             layout: Some(&pipeline_layout),
@@ -3789,6 +3886,8 @@ impl WgpuSurface {
             particles,
             depth_texture,
             depth_view,
+            decals,
+            depth_prepass_pipeline,
             camera_buffer,
             camera_bind_group,
             model_buffer,
@@ -4196,6 +4295,7 @@ impl WgpuSurface {
                 prefilter_view,
                 brdf_lut_view: &self.brdf_lut_view,
                 probe_buffer: &self.probe_buffer,
+                decal_view: &self.decals.view,
             },
         );
         self.light_bind_group = bind_group;
@@ -4697,6 +4797,11 @@ impl WgpuSurface {
         sky_vp_inv: Option<Mat4>,
         draw_calls: &[(u64, Mat4, Option<u64>, MaterialParams, Option<String>)],
         terrain_draw_calls: &[(u64, Mat4, [u64; 4], u64)],
+        // Decals to project onto this frame's opaque meshes. Empty is the
+        // ordinary case and costs nothing: the depth prepass the projection
+        // needs is skipped entirely, so a scene with no decals renders exactly
+        // as it did before they existed.
+        decals: &[crate::decals::DecalDraw],
         occluded_count: u32,
         registry: &GpuMeshRegistry,
         light: LightData,
@@ -5401,6 +5506,118 @@ impl WgpuSurface {
             let d = |i: usize| (draw_calls[i].1.w_axis.truncate() - cam_pos).length_squared();
             d(b).partial_cmp(&d(a)).unwrap_or(std::cmp::Ordering::Equal)
         });
+
+        // --- depth prepass + decals ---
+        //
+        // The decal buffer is projected onto the depth the opaque geometry will
+        // have, so that depth has to exist before the opaque pass runs. Both
+        // passes are skipped when there are no decals: the prepass is a whole
+        // extra pass over the geometry, and a scene without decals should not
+        // pay for one.
+        //
+        // The main pass still clears depth and writes it again rather than
+        // loading what the prepass left. Its pipeline compares `Less`, and
+        // against depth that is already exact every fragment would fail and
+        // nothing would draw at all. Reusing it would need a second pipeline
+        // comparing `LessEqual`; the prepass cost is already accepted here and
+        // correctness is not worth trading for it.
+        let decal_count = if decals.is_empty() {
+            0
+        } else {
+            self.decals
+                .upload(&self.queue, decals, view_proj, bsengine_core::MAX_DECALS)
+        };
+        if decal_count > 0 {
+            {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("depth prepass"),
+                    color_attachments: &[],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &self.depth_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    timestamp_writes: self.next_timed_pass(
+                        "depth prepass",
+                        &mut gpu_pass_index,
+                        &mut gpu_pass_names,
+                    ),
+                    occlusion_query_set: None,
+                });
+                pass.set_pipeline(&self.depth_prepass_pipeline);
+                pass.set_bind_group(0, &self.camera_bind_group, &[]);
+                // The same `opaque` list and the same model-buffer slots the
+                // main pass uses below. Terrain is deliberately absent: its
+                // slots are written inside the main pass's own loop, and
+                // reproducing that numbering here would be the same rule
+                // implemented twice -- which goes wrong silently. Terrain as a
+                // decal receiver is its own step.
+                for &i in &opaque {
+                    let (mesh_id, _, _, _, _) = &draw_calls[i];
+                    let Some(mesh) = registry.get(*mesh_id) else {
+                        continue;
+                    };
+                    let offset = (i as u64 * MODEL_STRIDE) as u32;
+                    pass.set_bind_group(1, &self.model_bind_group, &[offset]);
+                    pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                    pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                }
+            }
+        }
+        {
+            // ⚠️ Runs every frame, decals or not. The mesh shader reads this
+            // buffer unconditionally, so a frame that skipped the pass would
+            // have it read whatever was left in the texture -- which on the
+            // very first frame is zeroes, alpha included, and alpha 0 wipes
+            // every surface's albedo to black. Skipping it after a frame *with*
+            // decals would be worse still: the decals would stay on screen for
+            // the rest of the run.
+            //
+            // Only the depth prepass above is conditional. That one is a whole
+            // extra pass over the geometry; this one is a clear.
+            {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("decal pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &self.decals.view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            // Nothing projected yet means all of the base
+                            // albedo survives, which is alpha 1.
+                            load: wgpu::LoadOp::Clear(wgpu::Color {
+                                r: 0.0,
+                                g: 0.0,
+                                b: 0.0,
+                                a: 1.0,
+                            }),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    // None: the pass reads the depth texture *as a texture*,
+                    // and a depth buffer cannot be an attachment and a sampled
+                    // texture in the same pass.
+                    depth_stencil_attachment: None,
+                    timestamp_writes: self.next_timed_pass(
+                        "decals",
+                        &mut gpu_pass_index,
+                        &mut gpu_pass_names,
+                    ),
+                    occlusion_query_set: None,
+                });
+                self.decals.draw(
+                    &mut pass,
+                    &self.camera_bind_group,
+                    decals,
+                    decal_count,
+                    tex_registry,
+                    &self.default_texture_bind_group,
+                );
+            }
+        }
 
         // --- main pass (into HDR buffer) ---
         {
@@ -6438,6 +6655,12 @@ impl WgpuSurface {
         self.depth_view = depth_view;
         self.post_process
             .resize_targets(&self.device, &self.depth_view, width, height);
+        // Screen-sized, and its view is bound in group 2 -- so the light bind
+        // group has to be rebuilt after it, or the mesh shader reads a view
+        // into the texture that just went away.
+        self.decals
+            .resize(&self.device, width, height, &self.depth_view);
+        self.rebuild_light_bind_group();
     }
 
     /// Throws away the accumulated TAA history, so the next
@@ -7540,6 +7763,7 @@ mod tests {
                 ),
                 None,
                 &self.draw_calls,
+                &[],
                 &[],
                 0,
                 &self.registry,

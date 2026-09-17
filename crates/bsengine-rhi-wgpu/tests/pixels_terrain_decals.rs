@@ -34,6 +34,7 @@ fn decal(texture: u64) -> DecalDraw {
         opacity: 1.0,
         normal_fade: 0.0,
         texture: Some(texture),
+        normal_texture: None,
     }
 }
 

@@ -43,6 +43,8 @@ pub struct DecalDraw {
     /// Texture id in the [`GpuTextureRegistry`](crate::GpuTextureRegistry), or
     /// `None` for a path that has not resolved yet.
     pub texture: Option<u64>,
+    /// Normal map id, or `None` for a decal that projects colour only.
+    pub normal_texture: Option<u64>,
 }
 
 /// Format of the decal buffer.
@@ -52,6 +54,13 @@ pub struct DecalDraw {
 /// that into an sRGB albedo would make every decal read darker than the
 /// texture its author looked at.
 pub const DBUFFER_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+
+/// Format of the decal *normal* buffer.
+///
+/// Linear, not sRGB: what accumulates here is a direction, and an sRGB curve
+/// applied to a direction bends it. The colour buffer above is sRGB for the
+/// opposite reason -- what accumulates there is albedo.
+pub const DBUFFER_NORMAL_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
 /// Bytes between one decal's uniform and the next.
 ///
@@ -115,7 +124,8 @@ struct DecalUniform {
 @group(1) @binding(0) var<uniform> decal: DecalUniform;
 @group(2) @binding(0) var depth_tex: texture_depth_2d;
 @group(3) @binding(0) var t_decal: texture_2d<f32>;
-@group(3) @binding(1) var s_decal: sampler;
+@group(3) @binding(1) var t_decal_normal: texture_2d<f32>;
+@group(3) @binding(2) var s_decal: sampler;
 
 @vertex
 fn vs_decal(@location(0) pos: vec3<f32>) -> @builtin(position) vec4<f32> {
@@ -123,8 +133,17 @@ fn vs_decal(@location(0) pos: vec3<f32>) -> @builtin(position) vec4<f32> {
     return camera.view_proj * decal.model * vec4<f32>(pos, 1.0);
 }
 
+struct DecalOut {
+    // Premultiplied albedo, and how much of the base survives in alpha.
+    @location(0) colour: vec4<f32>,
+    // The same construction for the normal: `sum(encoded * a)` in rgb and
+    // `product(1 - a)` in alpha. The consumer undoes it with
+    // `2 * rgb - (1 - a)`, which is `a * n` -- see the mesh shader.
+    @location(1) normal: vec4<f32>,
+};
+
 @fragment
-fn fs_decal(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
+fn fs_decal(@builtin(position) frag: vec4<f32>) -> DecalOut {
     let dims = vec2<f32>(textureDimensions(depth_tex, 0));
     let coord = vec2<i32>(frag.xy);
     let depth = textureLoad(depth_tex, coord, 0);
@@ -164,10 +183,24 @@ fn fs_decal(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
     let hit = select(0.0, 1.0, depth < 1.0);
     let a = texel.a * decal.params.x * fade * select(0.0, 1.0, inside) * hit;
 
+    // The decal's own tangent frame, taken from its box. A decal carries its
+    // own orientation, so a normal map needs no tangents on the surface it
+    // lands on -- which is what lets one dent terrain, or anything else built
+    // without them.
+    let tangent = normalize((decal.model * vec4<f32>(1.0, 0.0, 0.0, 0.0)).xyz);
+    let bitangent = normalize((decal.model * vec4<f32>(0.0, 0.0, 1.0, 0.0)).xyz);
+    let tex_n = textureSampleLevel(t_decal_normal, s_decal, tex_uv, 0.0).xyz * 2.0 - 1.0;
+    // `axis` points *along* the projection; the surface it lands on faces back
+    // up it, so the frame's normal is its negation.
+    let decal_normal = normalize(tex_n.x * tangent + tex_n.y * bitangent + tex_n.z * -axis);
+
+    var out: DecalOut;
     // Premultiplied. The buffer accumulates `sum(colour * a)` in rgb and
     // `product(1 - a)` in alpha, so the mesh shader finishes with
     // `albedo * dst.a + dst.rgb`.
-    return vec4<f32>(texel.rgb * a, a);
+    out.colour = vec4<f32>(texel.rgb * a, a);
+    out.normal = vec4<f32>((decal_normal * 0.5 + 0.5) * a, a);
+    return out;
 }
 "#;
 
@@ -199,14 +232,39 @@ const CUBE_INDICES: [u32; 36] = [
 
 /// Everything the decal pass owns.
 pub struct DecalResources {
-    /// Screen-sized buffer the opaque pass reads.
+    /// Screen-sized colour buffer the opaque pass reads.
     pub view: wgpu::TextureView,
+    /// Screen-sized normal buffer, read alongside it.
+    pub normal_view: wgpu::TextureView,
     _buffer: TrackedTexture,
+    _normal_buffer: TrackedTexture,
     pipeline: wgpu::RenderPipeline,
     uniform: wgpu::Buffer,
     uniform_bind_group: wgpu::BindGroup,
     depth_bind_group: wgpu::BindGroup,
     depth_bgl: wgpu::BindGroupLayout,
+    /// Two textures and a sampler, per decal.
+    ///
+    /// A decal needs its colour *and* its normal map bound together, and wgpu
+    /// allows only four bind groups -- camera, uniform, depth and this one --
+    /// so a second texture cannot have a group of its own. Built per decal per
+    /// frame, the way terrain builds its layer group per chunk.
+    texture_bgl: wgpu::BindGroupLayout,
+    /// Bound for a decal with no normal map: a flat one, so its surface keeps
+    /// the normal it already had.
+    flat_normal: wgpu::TextureView,
+    _flat_normal_texture: TrackedTexture,
+    /// Bound for a decal whose colour texture has not resolved: white, so the
+    /// decal shows as untinted rather than vanishing.
+    flat_white: wgpu::TextureView,
+    _flat_white_texture: TrackedTexture,
+    /// One per decal this frame, built in [`Self::upload`].
+    ///
+    /// Built ahead of the pass rather than inside it because a render pass
+    /// borrows what it binds for as long as it lives, and a bind group created
+    /// inside the draw loop does not live that long.
+    texture_bind_groups: Vec<wgpu::BindGroup>,
+    sampler: wgpu::Sampler,
     cube_vertices: wgpu::Buffer,
     cube_indices: wgpu::Buffer,
 }
@@ -220,18 +278,20 @@ impl std::fmt::Debug for DecalResources {
 impl DecalResources {
     /// Builds the buffer, pipeline and geometry.
     ///
-    /// `camera_bgl` and `texture_bgl` are the renderer's own, so a decal's
-    /// texture is bound exactly the way a mesh's is.
+    /// `camera_bgl` is the renderer's own. The decal's textures get a layout of
+    /// their own instead of the renderer's: a decal binds a colour map *and* a
+    /// normal map together, and the shared one holds a single texture.
     pub fn new(
         device: &wgpu::Device,
+        queue: &wgpu::Queue,
         width: u32,
         height: u32,
         depth_view: &wgpu::TextureView,
         camera_bgl: &wgpu::BindGroupLayout,
-        texture_bgl: &wgpu::BindGroupLayout,
         max_decals: usize,
     ) -> Self {
         let (buffer, view) = Self::create_buffer(device, width, height);
+        let (normal_buffer, normal_view) = Self::create_normal_buffer(device, width, height);
 
         let uniform_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("decal uniform bgl"),
@@ -281,13 +341,95 @@ impl DecalResources {
         });
         let depth_bind_group = Self::create_depth_bind_group(device, &depth_bgl, depth_view);
 
+        // Colour, normal map and sampler in one group. `texture_bgl` from the
+        // renderer holds one texture and a sampler, which is one short.
+        let decal_texture_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("decal texture bgl"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("decal sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        // (0.5, 0.5, 1.0) is a tangent-space normal of (0, 0, 1): straight out
+        // of the surface, so a decal with no normal map leaves the surface's
+        // own normal exactly as it was.
+        let flat_normal_texture = crate::profiler::create_tracked_texture(
+            device,
+            &wgpu::TextureDescriptor {
+                label: Some("decal flat normal"),
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+        );
+        let flat_normal = flat_normal_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let flat_white_texture = crate::profiler::create_tracked_texture(
+            device,
+            &wgpu::TextureDescriptor {
+                label: Some("decal flat white"),
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+        );
+        let flat_white = flat_white_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("decal shader"),
             source: wgpu::ShaderSource::Wgsl(DECAL_WGSL.into()),
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("decal pipeline layout"),
-            bind_group_layouts: &[camera_bgl, &uniform_bgl, &depth_bgl, texture_bgl],
+            bind_group_layouts: &[camera_bgl, &uniform_bgl, &depth_bgl, &decal_texture_bgl],
             push_constant_ranges: &[],
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -310,25 +452,46 @@ impl DecalResources {
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: "fs_decal",
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: DBUFFER_FORMAT,
-                    // Premultiplied accumulation. rgb sums the contributions;
-                    // alpha multiplies out to how much of the base albedo is
-                    // left, which is what the mesh shader scales by.
-                    blend: Some(wgpu::BlendState {
-                        color: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::One,
-                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                        alpha: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::Zero,
-                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                            operation: wgpu::BlendOperation::Add,
-                        },
+                targets: &[
+                    Some(wgpu::ColorTargetState {
+                        format: DBUFFER_FORMAT,
+                        // Premultiplied accumulation. rgb sums the contributions;
+                        // alpha multiplies out to how much of the base albedo is
+                        // left, which is what the mesh shader scales by.
+                        blend: Some(wgpu::BlendState {
+                            color: wgpu::BlendComponent {
+                                src_factor: wgpu::BlendFactor::One,
+                                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                                operation: wgpu::BlendOperation::Add,
+                            },
+                            alpha: wgpu::BlendComponent {
+                                src_factor: wgpu::BlendFactor::Zero,
+                                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                                operation: wgpu::BlendOperation::Add,
+                            },
+                        }),
+                        write_mask: wgpu::ColorWrites::ALL,
                     }),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
+                    // The same blend for the normal buffer. Both accumulate a
+                    // premultiplied contribution and a surviving fraction, so
+                    // the two stay in step when several decals overlap.
+                    Some(wgpu::ColorTargetState {
+                        format: DBUFFER_NORMAL_FORMAT,
+                        blend: Some(wgpu::BlendState {
+                            color: wgpu::BlendComponent {
+                                src_factor: wgpu::BlendFactor::One,
+                                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                                operation: wgpu::BlendOperation::Add,
+                            },
+                            alpha: wgpu::BlendComponent {
+                                src_factor: wgpu::BlendFactor::Zero,
+                                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                                operation: wgpu::BlendOperation::Add,
+                            },
+                        }),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                ],
                 compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState {
@@ -359,9 +522,58 @@ impl DecalResources {
             usage: wgpu::BufferUsages::INDEX,
         });
 
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &flat_normal_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &[128u8, 128, 255, 255],
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(4),
+                rows_per_image: Some(1),
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &flat_white_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &[255u8, 255, 255, 255],
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(4),
+                rows_per_image: Some(1),
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
+
         Self {
             view,
+            normal_view,
             _buffer: buffer,
+            _normal_buffer: normal_buffer,
+            texture_bgl: decal_texture_bgl,
+            flat_normal,
+            _flat_normal_texture: flat_normal_texture,
+            flat_white,
+            _flat_white_texture: flat_white_texture,
+            texture_bind_groups: Vec::new(),
+            sampler,
             pipeline,
             uniform,
             uniform_bind_group,
@@ -399,6 +611,34 @@ impl DecalResources {
         (texture, view)
     }
 
+    /// The normal buffer, in the linear format a direction needs.
+    fn create_normal_buffer(
+        device: &wgpu::Device,
+        width: u32,
+        height: u32,
+    ) -> (TrackedTexture, wgpu::TextureView) {
+        let texture = crate::profiler::create_tracked_texture(
+            device,
+            &wgpu::TextureDescriptor {
+                label: Some("decal normal buffer"),
+                size: wgpu::Extent3d {
+                    width: width.max(1),
+                    height: height.max(1),
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: DBUFFER_NORMAL_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            },
+        );
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        (texture, view)
+    }
+
     fn create_depth_bind_group(
         device: &wgpu::Device,
         bgl: &wgpu::BindGroupLayout,
@@ -425,6 +665,9 @@ impl DecalResources {
         let (buffer, view) = Self::create_buffer(device, width, height);
         self._buffer = buffer;
         self.view = view;
+        let (normal_buffer, normal_view) = Self::create_normal_buffer(device, width, height);
+        self._normal_buffer = normal_buffer;
+        self.normal_view = normal_view;
         self.depth_bind_group = Self::create_depth_bind_group(device, &self.depth_bgl, depth_view);
     }
 
@@ -434,11 +677,13 @@ impl DecalResources {
     /// the buffer holds -- an over-specified scene still renders, the same way
     /// an over-specified probe volume does.
     pub fn upload(
-        &self,
+        &mut self,
+        device: &wgpu::Device,
         queue: &wgpu::Queue,
         decals: &[DecalDraw],
         view_proj: glam::Mat4,
         max_decals: usize,
+        tex_registry: Option<&crate::GpuTextureRegistry>,
     ) -> usize {
         let count = decals.len().min(max_decals);
         let inv_view_proj = view_proj.inverse().to_cols_array_2d();
@@ -457,6 +702,39 @@ impl DecalResources {
         if !bytes.is_empty() {
             queue.write_buffer(&self.uniform, 0, &bytes);
         }
+
+        self.texture_bind_groups.clear();
+        for decal in &decals[..count] {
+            let colour = decal
+                .texture
+                .and_then(|id| tex_registry.and_then(|r| r.get_view(id)))
+                .unwrap_or(&self.flat_white);
+            // A decal with no normal map gets the flat one, which decodes to
+            // "straight out of the surface" and leaves its normal untouched.
+            let normal = decal
+                .normal_texture
+                .and_then(|id| tex_registry.and_then(|r| r.get_view(id)))
+                .unwrap_or(&self.flat_normal);
+            self.texture_bind_groups
+                .push(device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("decal texture bg"),
+                    layout: &self.texture_bgl,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(colour),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(normal),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::Sampler(&self.sampler),
+                        },
+                    ],
+                }));
+        }
         count
     }
 
@@ -469,27 +747,20 @@ impl DecalResources {
         &'a self,
         pass: &mut wgpu::RenderPass<'a>,
         camera_bind_group: &'a wgpu::BindGroup,
-        decals: &[DecalDraw],
         count: usize,
-        tex_registry: Option<&'a crate::GpuTextureRegistry>,
-        default_texture_bind_group: &'a wgpu::BindGroup,
     ) {
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, camera_bind_group, &[]);
         pass.set_bind_group(2, &self.depth_bind_group, &[]);
         pass.set_vertex_buffer(0, self.cube_vertices.slice(..));
         pass.set_index_buffer(self.cube_indices.slice(..), wgpu::IndexFormat::Uint32);
-        for (i, decal) in decals[..count].iter().enumerate() {
-            let tex_bg = decal
-                .texture
-                .and_then(|id| tex_registry.and_then(|r| r.get_bind_group(id)))
-                .unwrap_or(default_texture_bind_group);
+        for (i, textures) in self.texture_bind_groups.iter().take(count).enumerate() {
             pass.set_bind_group(
                 1,
                 &self.uniform_bind_group,
                 &[(i as u64 * DECAL_STRIDE) as u32],
             );
-            pass.set_bind_group(3, tex_bg, &[]);
+            pass.set_bind_group(3, textures, &[]);
             pass.draw_indexed(0..CUBE_INDICES.len() as u32, 0, 0..1);
         }
     }

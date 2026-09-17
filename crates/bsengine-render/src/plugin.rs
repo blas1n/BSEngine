@@ -1035,6 +1035,12 @@ fn render_frame(
                 texture: texture_cache
                     .as_deref()
                     .and_then(|c| c.id_for(&decal.texture_path)),
+                // Empty path resolves to `None`, and the renderer binds a flat
+                // normal for that -- which leaves the surface's own normal
+                // exactly as it was.
+                normal_texture: texture_cache
+                    .as_deref()
+                    .and_then(|c| c.id_for(&decal.normal_map_path)),
             }
         })
         .collect();

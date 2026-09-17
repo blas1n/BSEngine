@@ -31,6 +31,7 @@ fn decal(size: Vec3, texture: u64) -> DecalDraw {
         opacity: 1.0,
         normal_fade: 0.0,
         texture: Some(texture),
+        normal_texture: None,
     }
 }
 
@@ -91,6 +92,7 @@ fn a_decal_is_bounded_by_its_box() {
             opacity: 1.0,
             normal_fade: 0.0,
             texture: Some(red),
+            normal_texture: None,
         }],
         ..lit_scene(cube)
     });

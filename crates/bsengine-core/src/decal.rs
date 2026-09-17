@@ -29,6 +29,17 @@ pub const MAX_DECALS: usize = 64;
 pub struct Decal {
     /// Texture to project, as a path, the way materials name theirs.
     pub texture_path: String,
+    /// Optional normal map, projected alongside the colour.
+    ///
+    /// Tangent space, in the decal's own frame: the box's local X is the
+    /// tangent, its local Z the bitangent, and the projection direction the
+    /// normal. A decal carries its own frame, so unlike a material's normal map
+    /// this needs no tangents on the receiving mesh -- which is what lets a
+    /// decal put a dent in terrain, or in anything else that has none.
+    ///
+    /// Empty means colour only, which is what every decal authored before this
+    /// existed says.
+    pub normal_map_path: String,
     /// Full size of the projection box along each local axis.
     ///
     /// Full size rather than half-extents because that is the number an author
@@ -52,6 +63,7 @@ impl Default for Decal {
     fn default() -> Self {
         Self {
             texture_path: String::new(),
+            normal_map_path: String::new(),
             size: glam::Vec3::new(1.0, 1.0, 1.0).into(),
             opacity: 1.0,
             normal_fade: 0.5,
@@ -86,6 +98,13 @@ impl Decal {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_decal_projects_colour_only_until_a_normal_map_is_named() {
+        // The property that lets every decal authored before normal maps
+        // existed keep rendering exactly as it did.
+        assert!(Decal::default().normal_map_path.is_empty());
+    }
 
     #[test]
     fn the_default_decal_is_a_one_metre_box_at_full_opacity() {

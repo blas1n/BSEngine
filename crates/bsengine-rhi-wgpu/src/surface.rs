@@ -123,6 +123,11 @@ struct ProbeUniform {
     _pad1: u32,
 };
 @group(2) @binding(9) var<uniform> probes: ProbeUniform;
+// The decal normal buffer. Its rgb holds `sum(encoded * a)` and its alpha
+// `product(1 - a)`, so the decals' contribution decodes as
+// `2 * rgb - (1 - a)`, which is `a * n` -- making the blend below a plain
+// weighted sum of "what the surface had" and "what the decals put there".
+@group(2) @binding(11) var decal_normal_buffer: texture_2d<f32>;
 // What the decal pass accumulated for this frame: premultiplied colour in rgb
 // and "how much of the base albedo survives" in alpha. Read with textureLoad
 // at the fragment's own pixel -- it is a screen-space buffer, so there is no
@@ -378,7 +383,13 @@ fn eval_probe_sh(world_pos: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
 }
 @fragment
 fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
-    let n = normalize(in.world_normal);
+    let geom_n = normalize(in.world_normal);
+    // A surface with no decal reads (0, 0, 0, 1) here and keeps its own normal
+    // exactly.
+    let dnorm = textureLoad(decal_normal_buffer, vec2<i32>(in.clip_pos.xy), 0);
+    let n = normalize(
+        geom_n * dnorm.a + (2.0 * dnorm.rgb - vec3<f32>(1.0 - dnorm.a))
+    );
     let v = normalize(camera.cam_pos - in.world_pos);
     var albedo = textureSample(t_diffuse, s_diffuse, in.uv).rgb * in.col * model_data.base_color;
     // Decals, before a single light has touched it. This is the whole reason
@@ -568,6 +579,11 @@ struct LightUniform {
 // The decal buffer, read exactly as the mesh shader reads it. Terrain is the
 // ground of most levels, so it is where tyre marks and scorch marks land.
 @group(2) @binding(10) var decal_buffer: texture_2d<f32>;
+// The decal normal buffer. Its rgb holds `sum(encoded * a)` and its alpha
+// `product(1 - a)`, so the decals' contribution decodes as
+// `2 * rgb - (1 - a)`, which is `a * n` -- making the blend below a plain
+// weighted sum of "what the surface had" and "what the decals put there".
+@group(2) @binding(11) var decal_normal_buffer: texture_2d<f32>;
 @group(3) @binding(0) var t_layer0: texture_2d<f32>;
 @group(3) @binding(1) var t_layer1: texture_2d<f32>;
 @group(3) @binding(2) var t_layer2: texture_2d<f32>;
@@ -730,7 +746,13 @@ fn fresnel_schlick(cos_theta: f32, f0: vec3<f32>) -> vec3<f32> {
 }
 @fragment
 fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
-    let n = normalize(in.world_normal);
+    let geom_n = normalize(in.world_normal);
+    // A surface with no decal reads (0, 0, 0, 1) here and keeps its own normal
+    // exactly.
+    let dnorm = textureLoad(decal_normal_buffer, vec2<i32>(in.clip_pos.xy), 0);
+    let n = normalize(
+        geom_n * dnorm.a + (2.0 * dnorm.rgb - vec3<f32>(1.0 - dnorm.a))
+    );
     let v = normalize(camera.cam_pos - in.world_pos);
 
     var w = textureSample(t_weight, s_terrain, in.uv);
@@ -2144,6 +2166,8 @@ struct LightBindings<'a> {
     /// This frame's decal buffer. Always present; cleared to "no decals" when
     /// the scene has none.
     decal_view: &'a wgpu::TextureView,
+    /// This frame's decal normal buffer, cleared the same way.
+    decal_normal_view: &'a wgpu::TextureView,
 }
 
 /// Builds the light bind group. The single place the group-2 binding numbers
@@ -2201,6 +2225,10 @@ fn create_light_bind_group(
             wgpu::BindGroupEntry {
                 binding: 10,
                 resource: wgpu::BindingResource::TextureView(bindings.decal_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 11,
+                resource: wgpu::BindingResource::TextureView(bindings.decal_normal_view),
             },
         ],
     })
@@ -2961,6 +2989,17 @@ impl WgpuSurface {
                     },
                     count: None,
                 },
+                // 11 is the decal *normal* buffer, beside the colour one.
+                wgpu::BindGroupLayoutEntry {
+                    binding: 11,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
 
@@ -3246,11 +3285,11 @@ impl WgpuSurface {
         // rebuilds both, in this order, for the same reason.
         let decals = crate::decals::DecalResources::new(
             &device,
+            &queue,
             width,
             height,
             &depth_view,
             &camera_bgl,
-            &texture_bgl,
             bsengine_core::MAX_DECALS,
         );
 
@@ -3272,6 +3311,7 @@ impl WgpuSurface {
                 brdf_lut_view: &brdf_lut_view,
                 probe_buffer: &probe_buffer,
                 decal_view: &decals.view,
+                decal_normal_view: &decals.normal_view,
             },
         );
 
@@ -4303,6 +4343,7 @@ impl WgpuSurface {
                 brdf_lut_view: &self.brdf_lut_view,
                 probe_buffer: &self.probe_buffer,
                 decal_view: &self.decals.view,
+                decal_normal_view: &self.decals.normal_view,
             },
         );
         self.light_bind_group = bind_group;
@@ -5586,8 +5627,14 @@ impl WgpuSurface {
         let decal_count = if decals.is_empty() {
             0
         } else {
-            self.decals
-                .upload(&self.queue, decals, view_proj, bsengine_core::MAX_DECALS)
+            self.decals.upload(
+                &self.device,
+                &self.queue,
+                decals,
+                view_proj,
+                bsengine_core::MAX_DECALS,
+                tex_registry,
+            )
         };
         if decal_count > 0 {
             {
@@ -5658,21 +5705,38 @@ impl WgpuSurface {
             {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("decal pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &self.decals.view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            // Nothing projected yet means all of the base
-                            // albedo survives, which is alpha 1.
-                            load: wgpu::LoadOp::Clear(wgpu::Color {
-                                r: 0.0,
-                                g: 0.0,
-                                b: 0.0,
-                                a: 1.0,
-                            }),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
+                    color_attachments: &[
+                        Some(wgpu::RenderPassColorAttachment {
+                            view: &self.decals.view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                // Nothing projected yet means all of the base
+                                // albedo survives, which is alpha 1.
+                                load: wgpu::LoadOp::Clear(wgpu::Color {
+                                    r: 0.0,
+                                    g: 0.0,
+                                    b: 0.0,
+                                    a: 1.0,
+                                }),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        }),
+                        Some(wgpu::RenderPassColorAttachment {
+                            view: &self.decals.normal_view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                // Same reading: alpha 1 means the surface keeps
+                                // all of the normal it already had.
+                                load: wgpu::LoadOp::Clear(wgpu::Color {
+                                    r: 0.0,
+                                    g: 0.0,
+                                    b: 0.0,
+                                    a: 1.0,
+                                }),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        }),
+                    ],
                     // None: the pass reads the depth texture *as a texture*,
                     // and a depth buffer cannot be an attachment and a sampled
                     // texture in the same pass.
@@ -5684,14 +5748,8 @@ impl WgpuSurface {
                     ),
                     occlusion_query_set: None,
                 });
-                self.decals.draw(
-                    &mut pass,
-                    &self.camera_bind_group,
-                    decals,
-                    decal_count,
-                    tex_registry,
-                    &self.default_texture_bind_group,
-                );
+                self.decals
+                    .draw(&mut pass, &self.camera_bind_group, decal_count);
             }
         }
 

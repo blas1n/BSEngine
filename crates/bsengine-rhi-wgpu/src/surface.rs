@@ -4916,6 +4916,9 @@ impl WgpuSurface {
         bloom: Option<bsengine_core::Bloom>,
         tone_map: Option<bsengine_core::ToneMap>,
         ambient_occlusion: Option<bsengine_core::AmbientOcclusion>,
+        // Absent means no reflections, which is what every scene authored
+        // before they existed says.
+        ssr: Option<bsengine_core::ScreenSpaceReflections>,
         mut inspector: Option<&mut bsengine_core::InspectorState>,
         key_events: &[bsengine_input::KeyInput],
         ctrl_held: bool,
@@ -5200,6 +5203,31 @@ impl WgpuSurface {
                 crate::post_process::SsaoCameraGpu {
                     proj: cam_proj.to_cols_array_2d(),
                     inv_proj: inv_proj.to_cols_array_2d(),
+                },
+            );
+            // Unjittered, like TAA's: a trace through jittered matrices would
+            // chase the jitter and the reflection would swim against the
+            // surface carrying it.
+            let ssr_settings =
+                ssr.map(|s| s.clamped())
+                    .unwrap_or_else(|| bsengine_core::ScreenSpaceReflections {
+                        enabled: false,
+                        ..Default::default()
+                    });
+            let ssr_intensity = ssr.map(|s| s.effective_intensity()).unwrap_or(0.0);
+            self.post_process.update_ssr_camera(
+                &self.queue,
+                crate::post_process::SsrCameraGpu {
+                    view: (cam_proj.inverse() * unjittered_view_proj).to_cols_array_2d(),
+                    proj: cam_proj.to_cols_array_2d(),
+                    inv_view_proj: unjittered_view_proj.inverse().to_cols_array_2d(),
+                    cam_pos: [cam_pos.x, cam_pos.y, cam_pos.z, ssr_settings.max_roughness],
+                    params: [
+                        ssr_settings.steps as f32,
+                        ssr_settings.stride,
+                        ssr_settings.thickness,
+                        ssr_intensity,
+                    ],
                 },
             );
             // Both matrices are the unjittered ones on purpose -- see
@@ -7990,6 +8018,7 @@ mod tests {
                 false,
                 false,
                 Mat4::IDENTITY,
+                None,
                 None,
                 None,
                 None,

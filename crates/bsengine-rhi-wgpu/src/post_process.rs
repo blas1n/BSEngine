@@ -790,6 +790,206 @@ fn fs_bloom(in: FullscreenOut) -> @location(0) vec4<f32> {
 }
 "#;
 
+/// Screen-space reflections.
+///
+/// # Why screen space, and what that costs
+///
+/// Unity (HDRP), Unreal and Godot all march the depth buffer and sample the
+/// scene colour at the hit. The construction is the same in all three because
+/// the trade is the same: it reflects what is already on screen, for the cost
+/// of a march, and it cannot reflect what is not. A reflection that leaves the
+/// frame, or lands behind something, has no answer -- so every one of them
+/// fades those rays out rather than inventing a colour, and so does this.
+///
+/// The fade is what keeps the failure honest. A ray that walks off the edge of
+/// the screen returns nothing and the surface keeps its existing shading;
+/// without the fade it would return whatever happened to be at the edge, and a
+/// mirror would smear the frame's border across itself.
+const SSR_WGSL: &str = r#"
+struct SsrCamera {
+    view: mat4x4<f32>,
+    proj: mat4x4<f32>,
+    inv_view_proj: mat4x4<f32>,
+    // xyz camera position, w the maximum roughness that still reflects.
+    cam_pos: vec4<f32>,
+    // x steps, y stride in view-space units, z thickness, w intensity.
+    params: vec4<f32>,
+};
+
+@group(0) @binding(0) var scene_tex: texture_2d<f32>;
+@group(0) @binding(1) var scene_samp: sampler;
+@group(1) @binding(0) var depth_tex: texture_depth_2d;
+@group(2) @binding(0) var normal_tex: texture_2d<f32>;
+@group(2) @binding(1) var normal_samp: sampler;
+@group(3) @binding(0) var<uniform> cam: SsrCamera;
+
+@vertex
+fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
+    var p = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -1.0),
+        vec2<f32>(3.0, -1.0),
+        vec2<f32>(-1.0, 3.0),
+    );
+    return vec4<f32>(p[vi], 0.0, 1.0);
+}
+
+/// World position of whatever was drawn at this pixel.
+fn world_at(uv: vec2<f32>, depth: f32) -> vec3<f32> {
+    let ndc = vec3<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, depth);
+    let p = cam.inv_view_proj * vec4<f32>(ndc, 1.0);
+    return p.xyz / p.w;
+}
+
+/// Where a world position lands on screen, and how deep it is.
+fn project(p: vec3<f32>) -> vec3<f32> {
+    let clip = cam.proj * cam.view * vec4<f32>(p, 1.0);
+    let ndc = clip.xyz / clip.w;
+    return vec3<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5, ndc.z);
+}
+
+@fragment
+fn fs_ssr(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
+    let dims = vec2<f32>(textureDimensions(depth_tex, 0));
+    let uv = frag.xy / dims;
+    let coord = vec2<i32>(frag.xy);
+    let depth = textureLoad(depth_tex, coord, 0);
+
+    let nr = textureSampleLevel(normal_tex, normal_samp, uv, 0.0);
+    let n = nr.xyz;
+    let roughness = nr.w;
+    // The buffer clears to zero, which is not a unit vector: nothing opaque was
+    // drawn here, so there is no surface to reflect from.
+    let has_surface = dot(n, n) > 0.25 && depth < 1.0;
+    // Rough surfaces scatter; a single mirror ray is the wrong answer for them,
+    // and the three reference engines all fade SSR out with roughness rather
+    // than pretending otherwise.
+    let rough_fade = clamp(1.0 - roughness / max(cam.cam_pos.w, 0.0001), 0.0, 1.0);
+
+    let world = world_at(uv, depth);
+    let view_dir = normalize(world - cam.cam_pos.xyz);
+    let refl = reflect(view_dir, normalize(n));
+
+    // A ray heading back towards the camera has nothing on screen to hit: what
+    // it would reflect is behind the viewer.
+    //
+    // `view_dir` points *from* the camera, so a ray continuing away from it
+    // agrees with `view_dir`. ⚠️ Against `-view_dir` this reads backwards, and
+    // reads zero at exactly the grazing angles where a floor reflects most --
+    // which is a reflection that never appears rather than one that looks
+    // wrong.
+    let facing = clamp(dot(refl, view_dir), 0.0, 1.0);
+
+    let steps = i32(cam.params.x);
+    let stride = cam.params.y;
+    let thickness = cam.params.z;
+
+    var hit_uv = vec2<f32>(0.0);
+    var found = 0.0;
+    // ⚠️ The march starts just *off* the surface, not on it. A ray leaving
+    // exactly the point it reflects from lands, at a grazing angle, back on the
+    // same pixel -- and a mirror then reflects itself, brightly and everywhere.
+    //
+    // Half a step, not a distance of its own: an offset larger than the stride
+    // would reach further than the march it is supposed to be nudging, and the
+    // ray would find things a trace of that length could never have reached.
+    var p = world + normalize(n) * (stride * 0.5);
+    for (var i = 0; i < steps; i = i + 1) {
+        p = p + refl * stride;
+        let s = project(p);
+        // Off screen: no answer, and the loop stops rather than walking on.
+        //
+        // ⚠️ Deleting this is not observable from the tests, and the reason is
+        // worth knowing rather than guessing at: a `textureLoad` outside the
+        // texture reads zero, so an off-screen sample reports a depth of 0 and
+        // no ray ever hits anything there. What the break actually buys is the
+        // steps it stops spending -- which is real, and which no pixel shows.
+        if (s.x < 0.0 || s.x > 1.0 || s.y < 0.0 || s.y > 1.0 || s.z > 1.0) {
+            break;
+        }
+        let px = vec2<i32>(s.xy * dims);
+        // The pixel the ray left is the surface it left. Skipping it says that
+        // directly, rather than relying on an offset big enough to escape it --
+        // which is how the offset above grew past the stride the first time.
+        if (px.x == coord.x && px.y == coord.y) {
+            continue;
+        }
+        let scene_depth = textureLoad(depth_tex, px, 0);
+        // The ray has gone behind what is drawn there. `thickness` is how deep
+        // a surface is assumed to be: without it every ray eventually passes
+        // behind something and reports a hit on the far side of the world.
+        let behind = s.z - scene_depth;
+        if (behind > 0.0 && behind < thickness) {
+            hit_uv = s.xy;
+            found = 1.0;
+            break;
+        }
+    }
+
+    // Fade towards the frame's edge, where a hit is about to run out of screen.
+    let edge = min(
+        min(hit_uv.x, 1.0 - hit_uv.x),
+        min(hit_uv.y, 1.0 - hit_uv.y)
+    );
+    let edge_fade = clamp(edge / 0.1, 0.0, 1.0);
+
+    let weight = found
+        * f32(has_surface)
+        * rough_fade
+        * facing
+        * edge_fade
+        * cam.params.w;
+    let reflected = textureSampleLevel(scene_tex, scene_samp, hit_uv, 0.0).rgb;
+    // Premultiplied: the composite pass adds this on top of the scene, so a
+    // pixel with no hit contributes exactly nothing.
+    return vec4<f32>(reflected * weight, weight);
+}
+"#;
+
+/// Adds the reflection buffer onto the scene.
+///
+/// A pass of its own because the reflection pass samples the scene it is being
+/// added to, and a pass may not sample the texture it renders to.
+const SSR_COMPOSITE_WGSL: &str = r#"
+@group(0) @binding(0) var ssr_tex: texture_2d<f32>;
+@group(0) @binding(1) var ssr_samp: sampler;
+
+@vertex
+fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
+    var p = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -1.0),
+        vec2<f32>(3.0, -1.0),
+        vec2<f32>(-1.0, 3.0),
+    );
+    return vec4<f32>(p[vi], 0.0, 1.0);
+}
+
+@fragment
+fn fs_composite(@builtin(position) frag: vec4<f32>) -> @location(0) vec4<f32> {
+    let dims = vec2<f32>(textureDimensions(ssr_tex, 0));
+    return textureSampleLevel(ssr_tex, ssr_samp, frag.xy / dims, 0.0);
+}
+"#;
+
+/// What the reflection pass needs to know about the camera and the trace.
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Debug, PartialEq)]
+pub struct SsrCameraGpu {
+    /// View matrix.
+    pub view: [[f32; 4]; 4],
+    /// Projection matrix.
+    pub proj: [[f32; 4]; 4],
+    /// Inverse of `proj * view`, for turning a depth sample back into a world
+    /// position.
+    pub inv_view_proj: [[f32; 4]; 4],
+    /// `xyz` camera position; `w` the roughness at which reflections have
+    /// faded out entirely.
+    pub cam_pos: [f32; 4],
+    /// `x` march steps, `y` stride in world units, `z` assumed surface
+    /// thickness in NDC depth, `w` overall intensity. Zero intensity is how
+    /// the feature is switched off.
+    pub params: [f32; 4],
+}
+
 const SSAO_WGSL: &str = r#"
 struct FullscreenOut {
     @builtin(position) pos: vec4<f32>,
@@ -1456,6 +1656,14 @@ pub struct PostProcessState {
     pub bloom_pipeline: wgpu::RenderPipeline,
     /// Pipeline for the SSAO occlusion shader.
     pub ssao_pipeline: wgpu::RenderPipeline,
+    /// Traces the reflections into [`Self::ssr_view`].
+    ssr_pipeline: wgpu::RenderPipeline,
+    /// Adds that buffer onto the scene.
+    ssr_composite_pipeline: wgpu::RenderPipeline,
+    ssr_cam_buffer: wgpu::Buffer,
+    ssr_cam_bg: wgpu::BindGroup,
+    /// Whether the reflection passes run this frame.
+    ssr_enabled: bool,
     /// Pipeline for the final composite (HDR + bloom + AO, tonemapped) shader.
     pub composite_pipeline: wgpu::RenderPipeline,
     /// Pipeline for the temporal-antialiasing resolve. Writes both the
@@ -1970,6 +2178,36 @@ impl PostProcessState {
         let bloom_pipeline = Self::make_bloom_pipeline(device, &tex2d_bgl, &config_bgl);
         let ssao_pipeline =
             Self::make_ssao_pipeline(device, &depth_bgl, &config_bgl, &ssao_cam_bgl);
+
+        let ssr_cam_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("pp ssr cam bgl"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+        let ssr_cam_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("pp ssr cam buffer"),
+            size: std::mem::size_of::<SsrCameraGpu>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let ssr_cam_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("pp ssr cam bg"),
+            layout: &ssr_cam_bgl,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: ssr_cam_buffer.as_entire_binding(),
+            }],
+        });
+        let ssr_pipeline = Self::make_ssr_pipeline(device, &tex2d_bgl, &depth_bgl, &ssr_cam_bgl);
+        let ssr_composite_pipeline = Self::make_ssr_composite_pipeline(device, &tex2d_bgl);
         let composite_pipeline =
             Self::make_composite_pipeline(device, &tex2d_bgl, &config_bgl, surface_format);
         let taa_pipeline = Self::make_taa_pipeline(
@@ -2044,6 +2282,11 @@ impl PostProcessState {
             fog_pipeline,
             bloom_pipeline,
             ssao_pipeline,
+            ssr_pipeline,
+            ssr_composite_pipeline,
+            ssr_cam_buffer,
+            ssr_cam_bg,
+            ssr_enabled: false,
             composite_pipeline,
             taa_pipeline,
             tex2d_bgl,
@@ -2338,6 +2581,102 @@ impl PostProcessState {
         })
     }
 
+    /// The reflection trace. Groups: scene colour, depth, normal+roughness,
+    /// camera -- the normal buffer reuses `tex2d_bgl` because it is a plain
+    /// sampled 2D texture like every other post-process input.
+    fn make_ssr_pipeline(
+        device: &wgpu::Device,
+        tex2d_bgl: &wgpu::BindGroupLayout,
+        depth_bgl: &wgpu::BindGroupLayout,
+        ssr_cam_bgl: &wgpu::BindGroupLayout,
+    ) -> wgpu::RenderPipeline {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("ssr shader"),
+            source: wgpu::ShaderSource::Wgsl(SSR_WGSL.into()),
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("ssr pll"),
+            bind_group_layouts: &[tex2d_bgl, depth_bgl, tex2d_bgl, ssr_cam_bgl],
+            push_constant_ranges: &[],
+        });
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("ssr pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_fullscreen",
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_ssr",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: HDR_FORMAT,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        })
+    }
+
+    /// Adds the reflection buffer onto the scene, premultiplied.
+    fn make_ssr_composite_pipeline(
+        device: &wgpu::Device,
+        tex2d_bgl: &wgpu::BindGroupLayout,
+    ) -> wgpu::RenderPipeline {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("ssr composite shader"),
+            source: wgpu::ShaderSource::Wgsl(SSR_COMPOSITE_WGSL.into()),
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("ssr composite pll"),
+            bind_group_layouts: &[tex2d_bgl],
+            push_constant_ranges: &[],
+        });
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("ssr composite pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_fullscreen",
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_composite",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: HDR_FORMAT,
+                    // The reflection arrives premultiplied, so this is a plain
+                    // add: a pixel with no hit carries zero and contributes
+                    // nothing.
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::One,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent::REPLACE,
+                    }),
+                    write_mask: wgpu::ColorWrites::COLOR,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        })
+    }
+
     fn make_ssao_pipeline(
         device: &wgpu::Device,
         depth_bgl: &wgpu::BindGroupLayout,
@@ -2540,6 +2879,15 @@ impl PostProcessState {
         queue.write_buffer(&self.config_buffer, 0, bytemuck::cast_slice(&[config]));
     }
 
+    /// Uploads what the reflection pass needs. Intensity zero switches it off.
+    pub fn update_ssr_camera(&mut self, queue: &wgpu::Queue, cam: SsrCameraGpu) {
+        queue.write_buffer(&self.ssr_cam_buffer, 0, bytemuck::bytes_of(&cam));
+        // Kept beside the buffer rather than read back from it: `apply` has to
+        // decide whether to run two passes at all, and a zero-intensity trace
+        // that still marches every pixel is the cost without the effect.
+        self.ssr_enabled = cam.params[3] > 0.0;
+    }
+
     /// Uploads the current frame's camera projection matrices for SSAO depth reconstruction.
     pub fn update_ssao_camera(&self, queue: &wgpu::Queue, cam: SsaoCameraGpu) {
         queue.write_buffer(&self.ssao_cam_buffer, 0, bytemuck::cast_slice(&[cam]));
@@ -2613,6 +2961,62 @@ impl PostProcessState {
     ) -> (u32, u64) {
         let mut draw_calls = 0u32;
         let mut triangles = 0u64;
+
+        // Reflections first, before fog: what they change is the surface's own
+        // shading, and fog is atmosphere in front of it. Folding them in after
+        // the fog would put a reflection on top of the haze that is supposed to
+        // be hiding it.
+        //
+        // Two passes because the trace samples the scene it is then added to,
+        // and a pass may not sample the texture it renders to -- the same
+        // reason the fog pass has a target of its own.
+        if self.ssr_enabled && !fast_render {
+            {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("ssr pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &self.ssr_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    ..Default::default()
+                });
+                pass.set_pipeline(&self.ssr_pipeline);
+                pass.set_bind_group(0, &self.hdr_bg, &[]);
+                pass.set_bind_group(1, &self.depth_bg, &[]);
+                pass.set_bind_group(2, &self.normal_bg, &[]);
+                pass.set_bind_group(3, &self.ssr_cam_bg, &[]);
+                pass.draw(0..3, 0..1);
+                draw_calls += 1;
+                triangles += 1;
+            }
+            {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("ssr composite pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &self.hdr_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            // Load: this adds to the scene rather than
+                            // replacing it.
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    ..Default::default()
+                });
+                pass.set_pipeline(&self.ssr_composite_pipeline);
+                pass.set_bind_group(0, &self.ssr_bg, &[]);
+                pass.draw(0..3, 0..1);
+                draw_calls += 1;
+                triangles += 1;
+            }
+        }
 
         if self.fog_enabled {
             // The froxel volumes, filled before anything samples them. One

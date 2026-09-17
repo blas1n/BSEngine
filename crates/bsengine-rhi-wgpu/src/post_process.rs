@@ -1,6 +1,14 @@
 /// Texture format used for the HDR scene-color render target, before tonemapping.
 pub const HDR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 const BLOOM_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+
+/// Format of the screen-space normal and roughness buffer.
+///
+/// Float rather than 8-bit unorm: a reflection ray is traced *along* this
+/// normal, so a direction quantised to 1/255 sends the ray visibly off course
+/// over the dozens of steps a march takes. Roughness rides in the alpha
+/// channel, which is why this is four components and not two.
+pub const NORMAL_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 const AO_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 const CONFIG_SIZE: u64 = 64;
 const SSAO_CAM_SIZE: u64 = 128;
@@ -1279,6 +1287,22 @@ struct PostProcessTargets {
     ao_texture: crate::profiler::TrackedTexture,
     ao_view: wgpu::TextureView,
     ao_bg: wgpu::BindGroup,
+    /// World-space normal in rgb and roughness in alpha, written by the opaque
+    /// pass alongside its colour.
+    ///
+    /// Written rather than reconstructed from depth: the opaque pass has
+    /// already computed the normal it shaded with, decals included, and
+    /// reconstructing loses exactly the detail that makes a reflection look
+    /// like it belongs to the surface.
+    normal_texture: crate::profiler::TrackedTexture,
+    normal_view: wgpu::TextureView,
+    normal_bg: wgpu::BindGroup,
+    /// Where the reflection pass writes, before it is composited into the
+    /// scene. A pass may not sample the texture it renders to, which is the
+    /// same reason the fog pass has a target of its own.
+    ssr_texture: crate::profiler::TrackedTexture,
+    ssr_view: wgpu::TextureView,
+    ssr_bg: wgpu::BindGroup,
     ldr_texture: crate::profiler::TrackedTexture,
     ldr_view: wgpu::TextureView,
     ldr_bg: wgpu::BindGroup,
@@ -1328,6 +1352,19 @@ pub struct PostProcessState {
     fog_hdr_bg: wgpu::BindGroup,
     bloom_bg: wgpu::BindGroup,
     ao_bg: wgpu::BindGroup,
+    /// World normal in rgb and roughness in alpha, written by the opaque pass.
+    ///
+    /// Public because the main pass attaches it: the scene is what fills it,
+    /// exactly as the scene fills `hdr_view`.
+    pub normal_view: wgpu::TextureView,
+    _normal_texture: crate::profiler::TrackedTexture,
+    normal_bg: wgpu::BindGroup,
+    /// Where the reflection pass writes before it is composited in. A pass may
+    /// not sample the texture it renders to, which is the same reason the fog
+    /// pass has a target of its own.
+    ssr_view: wgpu::TextureView,
+    _ssr_texture: crate::profiler::TrackedTexture,
+    ssr_bg: wgpu::BindGroup,
     ldr_bg: wgpu::BindGroup,
     depth_bg: wgpu::BindGroup,
     sampler: wgpu::Sampler,
@@ -1974,6 +2011,12 @@ impl PostProcessState {
             fog_hdr_bg: targets.fog_hdr_bg,
             bloom_bg: targets.bloom_bg,
             ao_bg: targets.ao_bg,
+            normal_view: targets.normal_view,
+            _normal_texture: targets.normal_texture,
+            normal_bg: targets.normal_bg,
+            ssr_view: targets.ssr_view,
+            _ssr_texture: targets.ssr_texture,
+            ssr_bg: targets.ssr_bg,
             ldr_bg: targets.ldr_bg,
             depth_bg: targets.depth_bg,
             sampler,
@@ -2051,6 +2094,10 @@ impl PostProcessState {
         let bloom_view = bloom_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let ao_texture = make_tex("pp ao", AO_FORMAT);
         let ao_view = ao_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let normal_texture = make_tex("pp normal", NORMAL_FORMAT);
+        let normal_view = normal_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let ssr_texture = make_tex("pp ssr", HDR_FORMAT);
+        let ssr_view = ssr_texture.create_view(&wgpu::TextureViewDescriptor::default());
         // `surface_format`, not HDR_FORMAT: this holds the already-tonemapped
         // LDR image on its way to the swapchain, so matching the swapchain's
         // format keeps the round trip through it exact.
@@ -2090,6 +2137,8 @@ impl PostProcessState {
         let fog_hdr_bg = make_tex2d_bg("pp fog hdr bg", &fog_hdr_view);
         let bloom_bg = make_tex2d_bg("pp bloom bg", &bloom_view);
         let ao_bg = make_tex2d_bg("pp ao bg", &ao_view);
+        let normal_bg = make_tex2d_bg("pp normal bg", &normal_view);
+        let ssr_bg = make_tex2d_bg("pp ssr bg", &ssr_view);
         let ldr_bg = make_tex2d_bg("pp ldr bg", &ldr_view);
         let history_bgs = [
             make_tex2d_bg("pp history bg 0", &history_views[0]),
@@ -2118,6 +2167,12 @@ impl PostProcessState {
             ao_texture,
             ao_view,
             ao_bg,
+            normal_texture,
+            normal_view,
+            normal_bg,
+            ssr_texture,
+            ssr_view,
+            ssr_bg,
             ldr_texture,
             ldr_view,
             ldr_bg,
@@ -2443,6 +2498,12 @@ impl PostProcessState {
         self._bloom_texture = t.bloom_texture;
         self.ao_view = t.ao_view;
         self._ao_texture = t.ao_texture;
+        self.normal_view = t.normal_view;
+        self._normal_texture = t.normal_texture;
+        self.normal_bg = t.normal_bg;
+        self.ssr_view = t.ssr_view;
+        self._ssr_texture = t.ssr_texture;
+        self.ssr_bg = t.ssr_bg;
         self.ldr_view = t.ldr_view;
         self._ldr_texture = t.ldr_texture;
         self.history_views = t.history_views;

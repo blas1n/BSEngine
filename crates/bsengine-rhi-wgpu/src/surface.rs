@@ -381,8 +381,17 @@ fn eval_probe_sh(world_pos: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
     // would darken a surface rather than light it.
     return max(e, vec3<f32>(0.0, 0.0, 0.0)) / PI;
 }
+struct SceneOut {
+    @location(0) colour: vec4<f32>,
+    // World normal in rgb, roughness in alpha -- what a reflection ray needs to
+    // know about the surface it starts from. Written here rather than
+    // reconstructed from depth later, because this is where the normal the
+    // surface was actually shaded with exists, decals included.
+    @location(1) normal_roughness: vec4<f32>,
+};
+
 @fragment
-fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
+fn fs_main(in: VertOut) -> SceneOut {
     let geom_n = normalize(in.world_normal);
     // A surface with no decal reads (0, 0, 0, 1) here and keeps its own normal
     // exactly.
@@ -504,7 +513,10 @@ fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
         ambient_term = probe_irradiance * albedo * kd_ibl + specular_ibl;
     }
     let color = ambient_term + lo + model_data.emissive;
-    return vec4<f32>(color, model_data.opacity);
+    var out: SceneOut;
+    out.colour = vec4<f32>(color, model_data.opacity);
+    out.normal_roughness = vec4<f32>(n, roughness);
+    return out;
 }
 "#;
 
@@ -744,8 +756,17 @@ fn geometry_smith(n_dot_v: f32, n_dot_l: f32, roughness: f32) -> f32 {
 fn fresnel_schlick(cos_theta: f32, f0: vec3<f32>) -> vec3<f32> {
     return f0 + (vec3<f32>(1.0, 1.0, 1.0) - f0) * pow(clamp(1.0 - cos_theta, 0.0, 1.0), 5.0);
 }
+struct SceneOut {
+    @location(0) colour: vec4<f32>,
+    // World normal in rgb, roughness in alpha -- what a reflection ray needs to
+    // know about the surface it starts from. Written here rather than
+    // reconstructed from depth later, because this is where the normal the
+    // surface was actually shaded with exists, decals included.
+    @location(1) normal_roughness: vec4<f32>,
+};
+
 @fragment
-fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
+fn fs_main(in: VertOut) -> SceneOut {
     let geom_n = normalize(in.world_normal);
     // A surface with no decal reads (0, 0, 0, 1) here and keeps its own normal
     // exactly.
@@ -835,7 +856,10 @@ fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
         }
     }
     let color = light.ambient * albedo + lo + model_data.emissive;
-    return vec4<f32>(color, model_data.opacity);
+    var out: SceneOut;
+    out.colour = vec4<f32>(color, model_data.opacity);
+    out.normal_roughness = vec4<f32>(n, roughness);
+    return out;
 }
 "#;
 
@@ -3719,11 +3743,19 @@ impl WgpuSurface {
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: "fs_main",
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: crate::post_process::HDR_FORMAT,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
+                targets: &[
+                    Some(wgpu::ColorTargetState {
+                        format: crate::post_process::HDR_FORMAT,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                    // The screen-space normal SSR traces along.
+                    Some(wgpu::ColorTargetState {
+                        format: crate::post_process::NORMAL_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                ],
                 compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState {
@@ -3766,11 +3798,22 @@ impl WgpuSurface {
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: "fs_main",
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: crate::post_process::HDR_FORMAT,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
+                targets: &[
+                    Some(wgpu::ColorTargetState {
+                        format: crate::post_process::HDR_FORMAT,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                    // Declared because this pass shares `fs_main`, which writes two
+                    // locations -- but masked off. A reflection traced from a pane
+                    // of glass's normal would replace what is *behind* the glass,
+                    // which is the one thing the surface is there to show.
+                    Some(wgpu::ColorTargetState {
+                        format: crate::post_process::NORMAL_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::empty(),
+                    }),
+                ],
                 compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState {
@@ -3875,11 +3918,19 @@ impl WgpuSurface {
             fragment: Some(wgpu::FragmentState {
                 module: &terrain_shader,
                 entry_point: "fs_main",
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: crate::post_process::HDR_FORMAT,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
+                targets: &[
+                    Some(wgpu::ColorTargetState {
+                        format: crate::post_process::HDR_FORMAT,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                    // Terrain writes its normal too: it is a reflector like any other.
+                    Some(wgpu::ColorTargetState {
+                        format: crate::post_process::NORMAL_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                ],
                 compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState {
@@ -5757,19 +5808,32 @@ impl WgpuSurface {
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("render pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.post_process.hdr_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.08,
-                            g: 0.08,
-                            b: 0.08,
-                            a: 1.0,
-                        }),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
+                color_attachments: &[
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &self.post_process.hdr_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color {
+                                r: 0.08,
+                                g: 0.08,
+                                b: 0.08,
+                                a: 1.0,
+                            }),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                    // Cleared to zero, which is not a unit vector -- so a pixel
+                    // no opaque surface covered has no normal, and the
+                    // reflection pass can tell that apart from one that does.
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &self.post_process.normal_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                ],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &self.depth_view,
                     depth_ops: Some(wgpu::Operations {
@@ -5932,18 +5996,32 @@ impl WgpuSurface {
         if !transparent.is_empty() {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("transparent pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.post_process.hdr_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        // Load, not Clear, on both attachments. Clearing colour
-                        // would wipe the scene this pass is meant to blend
-                        // into; clearing depth would let glass float in front
-                        // of walls it is behind.
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
+                color_attachments: &[
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &self.post_process.hdr_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            // Load, not Clear, on every attachment. Clearing
+                            // colour would wipe the scene this pass is meant to
+                            // blend into; clearing depth would let glass float
+                            // in front of walls it is behind.
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                    // Attached only because this pass shares the opaque pass's
+                    // `fs_main`, which writes two locations. The pipeline masks
+                    // the write off, so what the opaque pass left here survives
+                    // the pass untouched.
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: &self.post_process.normal_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                ],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &self.depth_view,
                     depth_ops: Some(wgpu::Operations {
@@ -6899,11 +6977,28 @@ impl WgpuSurface {
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
                     entry_point: "fs_main",
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: crate::post_process::HDR_FORMAT,
-                        blend: Some(wgpu::BlendState::REPLACE),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
+                    targets: &[
+                        Some(wgpu::ColorTargetState {
+                            format: crate::post_process::HDR_FORMAT,
+                            blend: Some(wgpu::BlendState::REPLACE),
+                            write_mask: wgpu::ColorWrites::ALL,
+                        }),
+                        // Declared with the pass's format and its write masked
+                        // off. `None` is not an option: wgpu compares the
+                        // pipeline's target *formats* against the pass's
+                        // attachments, and a `None` against a real attachment is
+                        // "incompatible", not "writes nothing".
+                        //
+                        // A custom shader is the author's own WGSL with a single
+                        // output, so it has nothing to put here -- and a surface
+                        // drawn with one therefore reflects into nothing, which
+                        // is a limitation to know rather than a bug to chase.
+                        Some(wgpu::ColorTargetState {
+                            format: crate::post_process::NORMAL_FORMAT,
+                            blend: None,
+                            write_mask: wgpu::ColorWrites::empty(),
+                        }),
+                    ],
                     compilation_options: Default::default(),
                 }),
                 primitive: wgpu::PrimitiveState {

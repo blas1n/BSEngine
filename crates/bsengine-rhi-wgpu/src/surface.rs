@@ -565,6 +565,9 @@ struct LightUniform {
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
 @group(1) @binding(0) var<uniform> model_data: ModelUniform;
 @group(2) @binding(0) var<uniform> light: LightUniform;
+// The decal buffer, read exactly as the mesh shader reads it. Terrain is the
+// ground of most levels, so it is where tyre marks and scorch marks land.
+@group(2) @binding(10) var decal_buffer: texture_2d<f32>;
 @group(3) @binding(0) var t_layer0: texture_2d<f32>;
 @group(3) @binding(1) var t_layer1: texture_2d<f32>;
 @group(3) @binding(2) var t_layer2: texture_2d<f32>;
@@ -739,7 +742,11 @@ fn fs_main(in: VertOut) -> @location(0) vec4<f32> {
     let c1 = textureSample(t_layer1, s_terrain, tiled_uv).rgb;
     let c2 = textureSample(t_layer2, s_terrain, tiled_uv).rgb;
     let c3 = textureSample(t_layer3, s_terrain, tiled_uv).rgb;
-    let albedo = (c0 * w.r + c1 * w.g + c2 * w.b + c3 * w.a) * in.col * model_data.base_color;
+    var albedo = (c0 * w.r + c1 * w.g + c2 * w.b + c3 * w.a) * in.col * model_data.base_color;
+    // Before lighting, for the same reason the mesh shader folds it there: a
+    // decal in albedo darkens in shadow because the surface itself changed.
+    let dbuf = textureLoad(decal_buffer, vec2<i32>(in.clip_pos.xy), 0);
+    albedo = albedo * dbuf.a + dbuf.rgb;
 
     let metallic = model_data.metallic;
     let roughness = max(model_data.roughness, 0.04);
@@ -5507,6 +5514,61 @@ impl WgpuSurface {
             d(b).partial_cmp(&d(a)).unwrap_or(std::cmp::Ordering::Equal)
         });
 
+        // Terrain chunks that will actually draw, each with the model-buffer
+        // slot it uses.
+        //
+        // Computed once because the numbering *skips* chunks whose mesh or
+        // textures have not loaded. Deriving it separately in the prepass and
+        // the main pass would be the same rule implemented twice, and the two
+        // would disagree the moment one of those lookups failed -- which is not
+        // an error anywhere, just a chunk drawn with another chunk's matrix.
+        //
+        // Slots start after the ones `draw_calls` used, and stop at
+        // `MAX_OBJECTS` the same way those do.
+        let terrain_plan: Vec<(usize, usize)> = {
+            let mut plan = Vec::new();
+            let mut slot = draw_calls.len().min(MAX_OBJECTS);
+            for (i, (mesh_id, _, layer_ids, weight_id)) in terrain_draw_calls.iter().enumerate() {
+                if slot >= MAX_OBJECTS {
+                    break;
+                }
+                if registry.get(*mesh_id).is_none() {
+                    continue;
+                }
+                let Some(tex_reg) = tex_registry else {
+                    continue;
+                };
+                if layer_ids.iter().any(|id| tex_reg.get_view(*id).is_none())
+                    || tex_reg.get_view(*weight_id).is_none()
+                {
+                    continue;
+                }
+                plan.push((i, slot));
+                slot += 1;
+            }
+            plan
+        };
+        // Written before any pass rather than inside the main one, so the depth
+        // prepass reads the same matrices the main pass will draw with.
+        for &(i, slot) in &terrain_plan {
+            let model_data = ModelUniformData {
+                model: terrain_draw_calls[i].1.to_cols_array_2d(),
+                metallic: 0.0,
+                roughness: 0.9,
+                _pad0: 0.0,
+                _pad1: 0.0,
+                emissive: [0.0; 3],
+                _pad2: 0.0,
+                base_color: [1.0, 1.0, 1.0],
+                opacity: 1.0,
+            };
+            self.queue.write_buffer(
+                &self.model_buffer,
+                slot as u64 * MODEL_STRIDE,
+                bytemuck::cast_slice(&[model_data]),
+            );
+        }
+
         // --- depth prepass + decals ---
         //
         // The decal buffer is projected onto the depth the opaque geometry will
@@ -5550,11 +5612,7 @@ impl WgpuSurface {
                 pass.set_pipeline(&self.depth_prepass_pipeline);
                 pass.set_bind_group(0, &self.camera_bind_group, &[]);
                 // The same `opaque` list and the same model-buffer slots the
-                // main pass uses below. Terrain is deliberately absent: its
-                // slots are written inside the main pass's own loop, and
-                // reproducing that numbering here would be the same rule
-                // implemented twice -- which goes wrong silently. Terrain as a
-                // decal receiver is its own step.
+                // main pass uses below.
                 for &i in &opaque {
                     let (mesh_id, _, _, _, _) = &draw_calls[i];
                     let Some(mesh) = registry.get(*mesh_id) else {
@@ -5562,6 +5620,24 @@ impl WgpuSurface {
                     };
                     let offset = (i as u64 * MODEL_STRIDE) as u32;
                     pass.set_bind_group(1, &self.model_bind_group, &[offset]);
+                    pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                    pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                }
+                // Terrain too, through the same depth-only pipeline: a terrain
+                // chunk is a mesh with a model matrix as far as depth is
+                // concerned, and leaving it out would mean a decal on the
+                // ground of a terrain level projects onto the far plane and
+                // vanishes -- which is most of what decals are for.
+                for &(i, slot) in &terrain_plan {
+                    let Some(mesh) = registry.get(terrain_draw_calls[i].0) else {
+                        continue;
+                    };
+                    pass.set_bind_group(
+                        1,
+                        &self.model_bind_group,
+                        &[(slot as u64 * MODEL_STRIDE) as u32],
+                    );
                     pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                     pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                     pass.draw_indexed(0..mesh.index_count, 0, 0..1);
@@ -5686,11 +5762,12 @@ impl WgpuSurface {
             // is capped the same way `draw_calls` is: once it reaches
             // `MAX_OBJECTS` further terrain chunks are skipped rather than
             // overrunning `model_buffer`.
-            let mut terrain_slot = draw_calls.len().min(MAX_OBJECTS);
-            for (mesh_id, model, layer_ids, weight_id) in terrain_draw_calls {
-                if terrain_slot >= MAX_OBJECTS {
-                    break;
-                }
+            for &(i, terrain_slot) in &terrain_plan {
+                let (mesh_id, _, layer_ids, weight_id) = &terrain_draw_calls[i];
+                // Every lookup below already succeeded when `terrain_plan` was
+                // built; repeated here only to get the borrows, never to decide
+                // whether this chunk draws -- that decision is the slot
+                // numbering's, and it was made once.
                 let Some(mesh) = registry.get(*mesh_id) else {
                     continue;
                 };
@@ -5736,22 +5813,6 @@ impl WgpuSurface {
                         },
                     ],
                 });
-                let model_data = ModelUniformData {
-                    model: model.to_cols_array_2d(),
-                    metallic: 0.0,
-                    roughness: 0.9,
-                    _pad0: 0.0,
-                    _pad1: 0.0,
-                    emissive: [0.0; 3],
-                    _pad2: 0.0,
-                    base_color: [1.0, 1.0, 1.0],
-                    opacity: 1.0,
-                };
-                self.queue.write_buffer(
-                    &self.model_buffer,
-                    terrain_slot as u64 * MODEL_STRIDE,
-                    bytemuck::cast_slice(&[model_data]),
-                );
                 pass.set_pipeline(&self.terrain_pipeline);
                 pass.set_bind_group(
                     1,
@@ -5765,7 +5826,6 @@ impl WgpuSurface {
                 frame_draw_calls += 1;
                 frame_objects_drawn += 1;
                 frame_triangles += (mesh.index_count / 3) as u64;
-                terrain_slot += 1;
             }
         }
 

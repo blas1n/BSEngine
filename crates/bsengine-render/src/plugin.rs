@@ -531,6 +531,7 @@ fn render_frame(
             Option<&AmbientOcclusion>,
             Option<&Taa>,
             Option<&bsengine_core::VolumetricFog>,
+            Option<&bsengine_core::ScreenSpaceReflections>,
         )>,
         Query<(
             &MeshRenderer,
@@ -668,34 +669,45 @@ fn render_frame(
         .map(|k| k.is_pressed(&KeyCode::AltLeft) || k.is_pressed(&KeyCode::AltRight))
         .unwrap_or(false);
 
-    let (mut view_proj, mut cam_pos, mut cam_proj, bloom, tone_map, ambient_occlusion, taa, fog) =
-        render_queries
-            .p0()
-            .iter()
-            .next()
-            .map(|(cam, t, b, tm, ao, taa, fog)| {
-                let proj = cam.projection_matrix();
-                (
-                    proj * t.view_matrix(),
-                    t.position.0,
-                    proj,
-                    b.copied(),
-                    tm.copied(),
-                    ao.copied(),
-                    taa.copied(),
-                    fog.copied(),
-                )
-            })
-            .unwrap_or((
-                Mat4::IDENTITY,
-                Vec3::ZERO,
-                Mat4::IDENTITY,
-                None,
-                None,
-                None,
-                None,
-                None,
-            ));
+    let (
+        mut view_proj,
+        mut cam_pos,
+        mut cam_proj,
+        bloom,
+        tone_map,
+        ambient_occlusion,
+        taa,
+        fog,
+        ssr,
+    ) = render_queries
+        .p0()
+        .iter()
+        .next()
+        .map(|(cam, t, b, tm, ao, taa, fog, ssr)| {
+            let proj = cam.projection_matrix();
+            (
+                proj * t.view_matrix(),
+                t.position.0,
+                proj,
+                b.copied(),
+                tm.copied(),
+                ao.copied(),
+                taa.copied(),
+                fog.copied(),
+                ssr.copied(),
+            )
+        })
+        .unwrap_or((
+            Mat4::IDENTITY,
+            Vec3::ZERO,
+            Mat4::IDENTITY,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        ));
 
     // While editing (not Playing), override camera matrices from the orbit
     // camera computed by EditorPlugin. Once Play starts, the viewport should
@@ -1068,6 +1080,7 @@ fn render_frame(
         bloom,
         tone_map,
         ambient_occlusion,
+        ssr,
         inspector.as_deref_mut(),
         &key_events_this_frame,
         ctrl_held,
@@ -1120,6 +1133,7 @@ impl Plugin for RenderPlugin {
         app.register_type::<LodLevels>();
         app.register_type::<Occluder>();
         app.register_type::<bsengine_core::Decal>();
+        app.register_type::<bsengine_core::ScreenSpaceReflections>();
         app.init_asset::<crate::shader_asset::ShaderSource>()
             .register_asset_loader(crate::shader_asset::ShaderSourceLoader)
             .init_resource::<UiState>()

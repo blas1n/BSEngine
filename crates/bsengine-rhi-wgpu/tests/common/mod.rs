@@ -218,6 +218,8 @@ pub struct Scene {
     pub bloom: Option<bsengine_core::Bloom>,
     pub tone_map: Option<bsengine_core::ToneMap>,
     pub ssao: Option<bsengine_core::AmbientOcclusion>,
+    /// Screen-space reflections. Absent means off, exactly as on a real camera.
+    pub ssr: Option<bsengine_core::ScreenSpaceReflections>,
     /// Absent means off, exactly as it does on a real camera. Note that
     /// `render` shows almost nothing of TAA even when this is set -- it
     /// accumulates over frames, so use [`Harness::render_converged`].
@@ -255,6 +257,7 @@ impl Default for Scene {
             bloom: None,
             tone_map: None,
             ssao: None,
+            ssr: None,
             taa: None,
             light_probes: None,
             fog: None,
@@ -656,6 +659,7 @@ struct VertOut {{
                 scene.bloom,
                 scene.tone_map,
                 scene.ssao,
+                scene.ssr,
                 None,
                 &[],
                 false,

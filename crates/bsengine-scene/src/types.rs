@@ -741,6 +741,27 @@ pub struct Cloth {
     /// 0 to 1. At 1 an edge is corrected fully every pass; lower values read
     /// as a stretchier fabric.
     pub stiffness: f32,
+    /// How strongly the sheet resists *curving*, 0 to 1. Zero -- the default --
+    /// is silk: it creases and crumples freely. Raising it walks toward canvas,
+    /// where the surface prefers a smooth sweep to a sharp fold.
+    ///
+    /// Separate from [`stiffness`](Cloth::stiffness) because the two are
+    /// independent properties of a real fabric: something can be almost
+    /// unstretchable and still fold flat. Unity and Unreal both split them the
+    /// same way (`bendingStiffness` / `BendingStiffness`); Godot has no
+    /// equivalent at all.
+    ///
+    /// ⚠️ It will not hold a sheet out horizontally. Bending is enforced as a
+    /// distance between vertices two apart, and a sheet swinging down about a
+    /// pinned edge rotates rigidly -- every distance in it is preserved, so
+    /// there is nothing for the constraint to object to. What it changes is
+    /// what the surface does when it has material to spare: crumple in its own
+    /// plane, or bow out of it.
+    ///
+    /// Zero by default so that every cloth authored before this field behaves
+    /// exactly as it did -- and the solver skips those links outright rather
+    /// than multiplying by zero, so it costs nothing either.
+    pub bending_stiffness: f32,
     /// Fraction of a vertex's velocity discarded each step, 0 to 1. Zero
     /// leaves a pinned sheet swinging like a pendulum indefinitely.
     pub damping: f32,
@@ -780,6 +801,7 @@ impl Default for Cloth {
             pinned: (0..8).collect(),
             gravity: [0.0, -9.81, 0.0],
             stiffness: 0.9,
+            bending_stiffness: 0.0,
             damping: 0.02,
             iterations: 8,
             // A centimetre: fabric-thick. Enough that the sheet visibly rests

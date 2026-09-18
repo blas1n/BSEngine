@@ -709,6 +709,7 @@ mod tests {
                     pinned: vec![0, 1, 2, 3],
                     gravity: [0.0, -9.81, 0.0],
                     stiffness: 0.9,
+                    bending_stiffness: 0.0,
                     damping: 0.02,
                     iterations: 8,
                     collision_thickness: 0.01,

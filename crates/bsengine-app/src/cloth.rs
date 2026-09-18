@@ -148,7 +148,15 @@ fn generate_cloth(
         }
 
         let positions: Vec<Vec3> = vertices.iter().map(|v| Vec3::from(v.position)).collect();
-        let links = cloth_solver::links_from_indices(&positions, &indices);
+        let mut links = cloth_solver::links_from_indices(&positions, &indices);
+        // Built whatever `bending_stiffness` currently is, so that raising it on
+        // a live cloth takes effect immediately -- the solver skips bend links
+        // while it is zero, which costs a branch rather than a rebuild.
+        links.extend(cloth_solver::bend_links(
+            &positions,
+            cloth.columns,
+            cloth.rows,
+        ));
         let mesh_id = registry.register(&vertices, &indices);
         commands.entity(entity).insert((
             MeshRenderer { mesh_id },
@@ -284,6 +292,7 @@ fn simulate_cloth(
             dt,
             cloth.iterations,
             cloth.stiffness,
+            cloth.bending_stiffness,
             cloth.damping,
         );
 
@@ -348,6 +357,7 @@ mod tests {
             pinned: (0..4).collect(),
             gravity: [0.0, -9.81, 0.0],
             stiffness: 0.9,
+            bending_stiffness: 0.0,
             damping: 0.02,
             iterations: 8,
             collision_thickness: 0.01,
@@ -918,6 +928,70 @@ mod tests {
             now.length() < 1.0e-5,
             "a pinned vertex inside a collider must stay at the grid origin it \
              was built at, got {now:?}"
+        );
+    }
+
+    #[test]
+    fn a_stiffer_cloth_drapes_less_sharply_over_an_edge() {
+        // ⚠️ The only test that drives `Cloth::bending_stiffness` through the
+        // component rather than calling the solver directly, and it exists
+        // because two mutations proved it was needed: deleting the bend-link
+        // generation in `generate_cloth`, and passing 0 for the authored
+        // stiffness, both left the whole suite green.
+        //
+        // A sheet dropped over a narrow pedestal. Both end up with their centre
+        // on it; what bending decides is the corners, which fold straight down
+        // over the edge when the fabric is limp and are carried further out when
+        // it is not. Measured: -2.157 against -1.901.
+        let drape = |bending: f32| {
+            let mut app = test_app();
+            app.add_plugins(bsengine_physics::PhysicsPlugin);
+            app.world_mut().spawn((
+                bsengine_core::Transform::default(),
+                bsengine_physics::PhysicsInput {
+                    position: Vec3::new(CLOTH_AT.x + 0.75, CLOTH_AT.y - 2.0, CLOTH_AT.z + 0.75)
+                        .into(),
+                    rotation: Quat::IDENTITY.into(),
+                },
+                bsengine_physics::RigidBody::fixed(),
+                bsengine_physics::Collider::cuboid(0.35, 0.5, 0.35),
+            ));
+            let entity = spawn(
+                &mut app,
+                Cloth {
+                    columns: 6,
+                    rows: 6,
+                    spacing: 0.3,
+                    pinned: Vec::new(),
+                    bending_stiffness: bending,
+                    ..curtain()
+                },
+                Quat::IDENTITY,
+            );
+            for _ in 0..300 {
+                app.update();
+            }
+            let sim = app.world().get::<ClothSim>(entity).unwrap();
+            let corners = [0usize, 5, 30, 35];
+            (
+                corners.iter().map(|&i| sim.positions[i].y).sum::<f32>() / 4.0,
+                sim.positions[21].y,
+            )
+        };
+
+        let (limp_corners, limp_centre) = drape(0.0);
+        let (stiff_corners, stiff_centre) = drape(1.0);
+        // The fixture only means anything if both sheets actually landed on the
+        // pedestal rather than missing it or sliding off.
+        for (label, centre) in [("limp", limp_centre), ("stiff", stiff_centre)] {
+            assert!(
+                (centre - (-1.49)).abs() < 0.2,
+                "the {label} sheet should be resting on the pedestal, its centre                  is at {centre}"
+            );
+        }
+        assert!(
+            stiff_corners > limp_corners + 0.1,
+            "a stiffer sheet's corners must not fold as far over the edge:              stiff {stiff_corners}, limp {limp_corners}"
         );
     }
 

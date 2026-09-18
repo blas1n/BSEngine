@@ -362,34 +362,58 @@ mod tests {
     ///
     /// Mirrors `terrain`'s `insert_headless_mesh_registry`, which explains why
     /// a window-less test has to build these itself.
+    /// One headless device and queue for the whole test binary.
+    ///
+    /// ⚠️ Shared rather than built per test, and that is not tidiness. Each
+    /// `request_device` holds a real GPU allocation for the life of the process,
+    /// and this crate's suite already builds two per terrain test; going from
+    /// 6 cloth tests to 13 was enough to turn the next request into
+    /// `RequestDeviceError(OutOfMemory)` on Windows CI -- which fails the
+    /// *terrain* tests, since they are the ones that happen to ask last.
+    ///
+    /// Sharing is safe here because nothing shares state across it: each test
+    /// still gets its own `GpuMeshRegistry`, and a registry owns its buffers.
+    fn shared_gpu() -> (std::sync::Arc<wgpu::Device>, std::sync::Arc<wgpu::Queue>) {
+        static GPU: std::sync::OnceLock<(
+            std::sync::Arc<wgpu::Device>,
+            std::sync::Arc<wgpu::Queue>,
+        )> = std::sync::OnceLock::new();
+        GPU.get_or_init(|| {
+            let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+                backends: wgpu::Backends::all(),
+                ..Default::default()
+            });
+            let adapter =
+                pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::None,
+                    compatible_surface: None,
+                    force_fallback_adapter: false,
+                }))
+                .expect("a headless adapter; the rest of this suite already requires one");
+            let (device, queue) = pollster::block_on(adapter.request_device(
+                &wgpu::DeviceDescriptor {
+                    label: Some("bsengine-app cloth test device"),
+                    required_features: wgpu::Features::empty(),
+                    required_limits: wgpu::Limits::downlevel_defaults(),
+                    memory_hints: wgpu::MemoryHints::default(),
+                },
+                None,
+            ))
+            .expect("headless device request");
+            (std::sync::Arc::new(device), std::sync::Arc::new(queue))
+        })
+        .clone()
+    }
+
     fn test_app() -> bevy_app::App {
         let mut app = crate::new_app();
         app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(crate::TimePlugin);
         app.add_plugins(ClothPlugin);
 
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::None,
-            compatible_surface: None,
-            force_fallback_adapter: false,
-        }))
-        .expect("a headless adapter; the rest of this suite already requires one");
-        let (device, queue) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                label: Some("bsengine-app cloth test device"),
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::downlevel_defaults(),
-                memory_hints: wgpu::MemoryHints::default(),
-            },
-            None,
-        ))
-        .expect("headless device request");
-        app.insert_resource(GpuMeshRegistry::new(std::sync::Arc::new(device)));
-        app.insert_resource(GpuQueueResource(std::sync::Arc::new(queue)));
+        let (device, queue) = shared_gpu();
+        app.insert_resource(GpuMeshRegistry::new(device));
+        app.insert_resource(GpuQueueResource(queue));
         // After the plugins, so `TimePlugin`'s own wall-clock `Time` does not
         // win: a headless frame takes well under a millisecond, and gravity
         // over a microsecond moves nothing measurable.

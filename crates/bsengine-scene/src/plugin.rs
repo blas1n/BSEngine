@@ -1109,6 +1109,7 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     // absent, and a leg that simply never reaches for the ground looks like a
     // solver problem rather than a missing registration.
     app.register_type::<bsengine_gltf::IkChains>();
+    app.register_type::<bsengine_gltf::IkGoals>();
     app.register_type::<bsengine_gltf::RetargetSource>();
     app.register_type::<bsengine_gltf::IkChain>();
 

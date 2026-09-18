@@ -33,5 +33,6 @@ pub use loader::{
 };
 pub use plugin::{GltfAsset, GltfPlugin, LodRequest};
 pub use skinned_mesh::{
-    AnimationClipLibrary, IkChain, IkChains, RetargetSource, SkinnedMesh, SkinnedMeshPlugin,
+    AnimationClipLibrary, IkChain, IkChains, IkGoal, IkGoals, RetargetSource, SkinnedMesh,
+    SkinnedMeshPlugin,
 };

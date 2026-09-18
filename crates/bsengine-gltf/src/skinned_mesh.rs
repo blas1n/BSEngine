@@ -76,6 +76,56 @@ pub struct IkChains {
     pub chains: Vec<IkChain>,
 }
 
+/// One full-body IK goal: a chain of bones, and where its last bone should go.
+///
+/// The difference from [`IkChain`] is the sharing. An `IkChain` names exactly
+/// three bones and solves them alone, so two chains naming the same bone fight
+/// and the last one wins -- which its own doc comment records as an authoring
+/// error. Goals name as many bones as they like and are solved *together*, so
+/// two arms that both list the spine agree on where it ends up: reaching one
+/// hand forward bends the spine, and the other arm pulls it back.
+///
+/// Unreal's Full Body IK node is the same shape -- one solver over the
+/// hierarchy with several effectors, rather than one chain at a time. Unity
+/// composes per-limb constraints in a rig and Godot's SkeletonIK3D is
+/// single-chain, so this follows Unreal where the three diverge.
+#[derive(Debug, Clone, Default, bevy_reflect::Reflect)]
+pub struct IkGoal {
+    /// Bones from the one that may move down to the effector, in order.
+    ///
+    /// Names, not indices, matching [`IkChain`] and `Ragdoll.joint_overrides`.
+    /// Longer chains reach further into the body: `["Spine", "Chest",
+    /// "Shoulder", "UpperArm", "LowerArm", "Hand"]` lets a reach bend the
+    /// spine, while `["UpperArm", "LowerArm", "Hand"]` keeps it to the arm.
+    pub bones: Vec<String>,
+    /// World-space position the last bone should reach.
+    pub target: bsengine_core::ReflectVec3,
+    /// How much of the solved pose to apply, `0.0..=1.0`.
+    ///
+    /// Blended once at the end of the solve, so half means half. A goal at
+    /// zero leaves its bones exactly where the animation put them, which is
+    /// what lets foot IK fade out rather than pop.
+    pub weight: f32,
+}
+
+/// Every full-body IK goal on one character, solved together.
+///
+/// A list for the same reason [`IkChains`] is one: an entity holds one of any
+/// component and a character has several effectors. Unlike `IkChains`, goals
+/// that share bones are *resolved* rather than left to fight -- that is the
+/// whole point of solving them in one pass.
+///
+/// The two compose: `IkChains` stays the right tool for a single limb, where
+/// its analytic two-bone solution is exact and cheaper.
+#[derive(Component, Debug, Clone, Default, bevy_reflect::Reflect)]
+#[reflect(Component, Default)]
+pub struct IkGoals {
+    /// The goals. Order does not affect the result -- shared joints are
+    /// averaged, so the answer cannot depend on how an author happened to list
+    /// them.
+    pub goals: Vec<IkGoal>,
+}
+
 /// Rest-pose (bind pose) geometry, skin/joint data, and node hierarchy needed
 /// to re-derive a skinned mesh's deformed vertices every frame from whichever
 /// clip its `AnimationPlayer` is currently sampling. Attached alongside
@@ -611,7 +661,7 @@ fn compute_joint_matrices_blended(
     skin: &SkinData,
     clips: &[ClipSample<'_>],
 ) -> Vec<Mat4> {
-    compute_joint_matrices_with_ik(nodes, skin, clips, &[])
+    compute_joint_matrices_with_ik(nodes, skin, clips, &[], &[])
 }
 
 /// As [`compute_joint_matrices_blended`], with IK chains applied between the
@@ -626,8 +676,99 @@ fn compute_joint_matrices_with_ik(
     skin: &SkinData,
     clips: &[ClipSample<'_>],
     chains: &[&IkChain],
+    goals: &[&IkGoal],
 ) -> Vec<Mat4> {
-    compute_pose_with_ik(nodes, skin, clips, chains, None).0
+    compute_pose_with_ik(nodes, skin, clips, chains, goals, None).0
+}
+
+/// Solves every full-body goal together and writes the result into `locals`.
+///
+/// The solver works in world-space joint *positions*; a skeleton is driven by
+/// local rotations. So the bones are gathered as positions, solved, and the
+/// rotations that reproduce the solved positions are carried back into each
+/// bone's parent frame -- the same trip [`crate::ik::solve_two_bone`]'s result
+/// makes, just over a longer chain.
+fn solve_full_body_goals(
+    nodes: &[NodeTransform],
+    locals: &mut [Mat4],
+    globals: &mut Vec<Mat4>,
+    goals: &[&IkGoal],
+) {
+    let live: Vec<&&IkGoal> = goals
+        .iter()
+        .filter(|g| g.weight > 0.0 && g.bones.len() >= 2)
+        .collect();
+    if live.is_empty() {
+        return;
+    }
+
+    // Bone names to node indices, once. A name the rig lacks is a scene typo:
+    // the goal is dropped with a warning rather than posing some other joint,
+    // which would read as a solver bug.
+    let mut chains: Vec<Vec<usize>> = Vec::new();
+    let mut targets: Vec<Vec3> = Vec::new();
+    let mut weights: Vec<f32> = Vec::new();
+    for goal in &live {
+        let resolved: Option<Vec<usize>> = goal
+            .bones
+            .iter()
+            .map(|name| node_index_by_name(nodes, name))
+            .collect();
+        match resolved {
+            Some(indices) => {
+                chains.push(indices);
+                targets.push(goal.target.0);
+                weights.push(goal.weight);
+            }
+            None => tracing::warn!(
+                "[ik] goal names a bone this skeleton lacks: {:?}",
+                goal.bones
+            ),
+        }
+    }
+    if chains.is_empty() {
+        return;
+    }
+
+    // Positions for every node, so a chain can index straight into it.
+    let original: Vec<Vec3> = globals
+        .iter()
+        .map(|m| m.transform_point3(Vec3::ZERO))
+        .collect();
+    let mut solved = original.clone();
+    crate::ik::solve_goals(
+        &mut solved,
+        &chains,
+        &targets,
+        &weights,
+        crate::ik::GOAL_ITERATIONS,
+    );
+
+    // Rotations per bone, from the root down.
+    //
+    // ⚠️ Each one is measured against the bone's direction *right now*, not
+    // against the pose the animation gave. Rotating a parent already turns
+    // every bone under it, so a delta computed from the original pose counts
+    // the parent's rotation a second time -- measured, a two-arm reach landed
+    // the hand 0.7 short in y and no number of solver iterations helped,
+    // because the solver was right and the application was not.
+    //
+    // Measuring afresh is self-correcting: after each bone is applied its child
+    // is where the solve wants it, so the next bone's correction starts from
+    // the truth.
+    for chain in &chains {
+        for k in 0..chain.len() - 1 {
+            let here = globals[chain[k]].transform_point3(Vec3::ZERO);
+            let current = globals[chain[k + 1]].transform_point3(Vec3::ZERO) - here;
+            let desired = solved[chain[k + 1]] - solved[chain[k]];
+            if current.length_squared() <= 1.0e-12 || desired.length_squared() <= 1.0e-12 {
+                continue;
+            }
+            let rot = Quat::from_rotation_arc(current.normalize(), desired.normalize());
+            apply_world_rotation(locals, globals, nodes, chain[k], rot);
+            *globals = accumulate_globals(nodes, locals);
+        }
+    }
 }
 
 /// As [`compute_joint_matrices_with_ik`], also returning each chain's tip bone
@@ -641,6 +782,7 @@ fn compute_pose_with_ik(
     skin: &SkinData,
     clips: &[ClipSample<'_>],
     chains: &[&IkChain],
+    goals: &[&IkGoal],
     retarget: Option<(&RetargetSource, &[NodeTransform], &[Mat4])>,
 ) -> (Vec<Mat4>, Vec<Vec3>, Vec<Mat4>) {
     let mut locals = compute_local_transforms_blended(nodes, clips);
@@ -706,6 +848,13 @@ fn compute_pose_with_ik(
         // everything below it — stays where the clip put it.
         globals = accumulate_globals(nodes, &locals);
     }
+
+    // Full-body goals, after the per-limb chains. The order matters and is not
+    // incidental: a chain is exact for its own two bones, so letting it place
+    // the limb first and then resolving whatever the goals disagree about is
+    // strictly better than the reverse, which would have a chain overwrite the
+    // body's answer for its own limb.
+    solve_full_body_goals(nodes, &mut locals, &mut globals, goals);
 
     // Read the tips back off the FINAL globals, after every chain has been
     // solved and re-accumulated. Reading them mid-loop would publish a foot
@@ -817,6 +966,7 @@ fn update_skinned_meshes(
         Option<&bsengine_core::AnimationPlayer>,
         Option<&bsengine_core::AnimationStateMachine>,
         Option<&IkChains>,
+        Option<&IkGoals>,
         Option<&RetargetSource>,
         Option<&bsengine_core::GlobalTransform>,
         Option<&bsengine_core::Transform>,
@@ -851,7 +1001,7 @@ fn update_skinned_meshes(
 
     let mut gpu = mesh_registry.zip(queue);
 
-    for (_entity, mut skinned, library, player, asm, ik, retarget, global, local) in
+    for (_entity, mut skinned, library, player, asm, ik, ik_goals, retarget, global, local) in
         query.iter_mut()
     {
         // Set by the clip branch below; the ragdoll-override branches leave it
@@ -917,6 +1067,22 @@ fn update_skinned_meshes(
                 })
                 .unwrap_or_default();
             let chains: Vec<&IkChain> = model_chains.iter().collect();
+            // Into model space, exactly as the chains above: the solver works
+            // in the skeleton's own frame, and a target authored in world space
+            // would otherwise pull the pose by however far the character has
+            // walked from the origin.
+            let model_goals: Vec<IkGoal> = ik_goals
+                .map(|g| {
+                    g.goals
+                        .iter()
+                        .map(|goal| IkGoal {
+                            target: world_to_model.transform_point3(goal.target.0).into(),
+                            ..goal.clone()
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            let goals: Vec<&IkGoal> = model_goals.iter().collect();
             let retarget_input = retarget.and_then(|r| {
                 r.resolved
                     .and_then(|e| poses.get(&e))
@@ -927,6 +1093,7 @@ fn update_skinned_meshes(
                 &skinned.skin_data,
                 &samples,
                 &chains,
+                &goals,
                 retarget_input,
             );
             published_locals = Some(locals);
@@ -1156,7 +1323,7 @@ mod tests {
 
     /// Where each joint ends up, per the matrices skinning would actually use.
     fn joint_positions(nodes: &[NodeTransform], skin: &SkinData, chains: &[&IkChain]) -> Vec<Vec3> {
-        compute_joint_matrices_with_ik(nodes, skin, &[], chains)
+        compute_joint_matrices_with_ik(nodes, skin, &[], chains, &[])
             .iter()
             .map(|m| m.transform_point3(Vec3::ZERO))
             .collect()
@@ -1205,8 +1372,8 @@ mod tests {
         let (nodes, skin) = leg_skeleton();
         let chain = chain_to(Vec3::new(0.3, 0.6, 0.2), 0.0);
 
-        let none = compute_joint_matrices_with_ik(&nodes, &skin, &[], &[]);
-        let zero = compute_joint_matrices_with_ik(&nodes, &skin, &[], &[&chain]);
+        let none = compute_joint_matrices_with_ik(&nodes, &skin, &[], &[], &[]);
+        let zero = compute_joint_matrices_with_ik(&nodes, &skin, &[], &[&chain], &[]);
         assert_eq!(
             none, zero,
             "a zero-weight chain must leave the pose bit-for-bit unchanged"
@@ -1243,8 +1410,8 @@ mod tests {
         let mut chain = chain_to(Vec3::new(0.3, 0.6, 0.2), 1.0);
         chain.mid_bone = "no_such_bone".to_string();
 
-        let none = compute_joint_matrices_with_ik(&nodes, &skin, &[], &[]);
-        let typo = compute_joint_matrices_with_ik(&nodes, &skin, &[], &[&chain]);
+        let none = compute_joint_matrices_with_ik(&nodes, &skin, &[], &[], &[]);
+        let typo = compute_joint_matrices_with_ik(&nodes, &skin, &[], &[&chain], &[]);
         assert_eq!(
             none, typo,
             "a chain naming a missing bone must not change the pose"
@@ -2285,6 +2452,236 @@ mod tests {
              the same limb: {foot:?} is {err} m from {target_pos:?}. A larger \
              error means retargeting ran after IK and overwrote the correction."
         );
+    }
+
+    /// A torso with two arms hanging off a shared spine, for the goal tests.
+    ///
+    /// ```text
+    ///   6            3         <- hands
+    ///    \          /
+    ///     5        2           <- upper arms
+    ///      \      /
+    ///        1                 <- chest (shared by both goals)
+    ///        |
+    ///        0                 <- pelvis (root)
+    /// ```
+    fn torso_with_two_arms() -> Vec<NodeTransform> {
+        vec![
+            NodeTransform {
+                name: "pelvis".to_string(),
+                ..Default::default()
+            },
+            NodeTransform {
+                name: "chest".to_string(),
+                position: [0.0, 1.0, 0.0],
+                parent: Some(0),
+                ..Default::default()
+            },
+            NodeTransform {
+                name: "l_arm".to_string(),
+                position: [-0.5, 0.5, 0.0],
+                parent: Some(1),
+                ..Default::default()
+            },
+            NodeTransform {
+                name: "l_hand".to_string(),
+                position: [-0.7, 0.0, 0.0],
+                parent: Some(2),
+                ..Default::default()
+            },
+            NodeTransform {
+                name: "r_arm".to_string(),
+                position: [0.5, 0.5, 0.0],
+                parent: Some(1),
+                ..Default::default()
+            },
+            NodeTransform {
+                name: "r_hand".to_string(),
+                position: [0.7, 0.0, 0.0],
+                parent: Some(4),
+                ..Default::default()
+            },
+        ]
+    }
+
+    /// Spawns `torso_with_two_arms` with the given goals and returns the joint
+    /// positions the skinning would actually use.
+    ///
+    /// Asserted on the joint matrices for the reason the chain tests give: a
+    /// disconnected consumer looks exactly like a working producer, and this
+    /// codebase has shipped that shape before.
+    fn solve_goals_through_the_system(goals: Vec<IkGoal>) -> Vec<Vec3> {
+        let mut app = bsengine_app::new_app();
+        app.insert_resource(bsengine_core::Time::default());
+        app.add_plugins(SkinnedMeshPlugin);
+
+        let nodes = torso_with_two_arms();
+        let skin_data = SkinData {
+            joint_node_indices: (0..nodes.len()).collect(),
+            inverse_bind_matrices: vec![Mat4::IDENTITY.to_cols_array_2d(); nodes.len()],
+        };
+        // IK is a correction over an animated pose, so the system skips an
+        // entity with nothing animating. A clip that holds the root still is
+        // enough -- the same trick the chain test uses.
+        let mut clips = std::collections::HashMap::new();
+        clips.insert(
+            "still".to_string(),
+            AnimationClip {
+                name: "still".to_string(),
+                duration: 1.0,
+                channels: vec![AnimationChannel {
+                    node_index: 0,
+                    times: vec![0.0, 1.0],
+                    values: KeyframeValues::Translations(vec![[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]),
+                    interpolation: Interpolation::Linear,
+                }],
+            },
+        );
+
+        let entity = app
+            .world_mut()
+            .spawn((
+                SkinnedMesh {
+                    mesh_id: 1,
+                    rest_vertices: Vec::new(),
+                    skin: Vec::new(),
+                    skin_data,
+                    nodes,
+                    pose_override: Vec::new(),
+                    ik_tip_positions: Vec::new(),
+                    animated_locals: Vec::new(),
+                    pose_override_weight: 1.0,
+                    joint_matrices: Vec::new(),
+                },
+                AnimationClipLibrary { clips },
+                bsengine_core::AnimationPlayer::new("still").with_duration(1.0),
+                IkGoals { goals },
+                // ⚠️ Not at the origin. Goal targets are authored in world
+                // space and solved in the skeleton's own frame, and with an
+                // identity transform those are the same thing -- deleting the
+                // conversion left every assertion here green.
+                bsengine_core::Transform::from_position(CHARACTER_AT),
+            ))
+            .id();
+
+        app.update();
+
+        app.world()
+            .get::<SkinnedMesh>(entity)
+            .expect("the character keeps its skinned mesh")
+            .joint_matrices
+            .iter()
+            .map(|m| m.transform_point3(Vec3::ZERO))
+            .collect()
+    }
+
+    /// Where the goal-test character stands. See the spawn for why it matters.
+    const CHARACTER_AT: Vec3 = Vec3::new(5.0, 0.0, 2.0);
+
+    /// A goal whose target is given in the skeleton's frame, carried out to
+    /// world space the way an author would write it.
+    fn arm_goal(side: &str, target: Vec3) -> IkGoal {
+        let target = target + CHARACTER_AT;
+        IkGoal {
+            bones: vec![
+                "pelvis".to_string(),
+                "chest".to_string(),
+                format!("{side}_arm"),
+                format!("{side}_hand"),
+            ],
+            target: target.into(),
+            weight: 1.0,
+        }
+    }
+
+    #[test]
+    fn full_body_goals_bend_the_shared_spine() {
+        // The whole reason this exists. `IkChains` solves each limb alone, so
+        // two chains naming the chest fight and the last one wins -- its own
+        // doc comment says so. Goals are solved together, and a chest both arms
+        // name ends up somewhere both agree on.
+        // ⚠️ The target has to sit BETWEEN two reaches, and finding that is
+        // most of what this fixture is.
+        //
+        // From the chest the arm alone spans about 1.41; from the pelvis the
+        // whole chain spans about 2.41. A target inside the first needs no help
+        // from the spine, so "the chest bends" would be false. A target at the
+        // second is at the solver's limit, where the test measures convergence
+        // rather than correctness -- 2.38 put the hand 1.7 off in y.
+        //
+        // This one is 1.54 from the chest and 2.04 from the pelvis: out of the
+        // arm's reach, well inside the body's.
+        let reach = 1.1;
+        let posed = solve_goals_through_the_system(vec![
+            arm_goal("l", Vec3::new(-1.0, 1.4, reach)),
+            arm_goal("r", Vec3::new(1.0, 1.4, reach)),
+        ]);
+        assert_eq!(posed.len(), 6, "one matrix per joint");
+
+        assert!(
+            posed[1].z > 0.1,
+            "both hands reaching forward should carry the chest with them, \
+             got {:?}",
+            posed[1]
+        );
+        assert!(
+            posed[0].length() < 1.0e-3,
+            "and the pelvis must stay put -- a character does not slide toward \
+             what it reaches for: {:?}",
+            posed[0]
+        );
+        // ⚠️ And each hand is near the target *in the skeleton's frame*. The
+        // assertions above are about the chest and the pelvis and are satisfied
+        // by any forward reach, so without this the world-to-model conversion
+        // could be deleted and everything here would stay green -- the goal
+        // would simply pull toward a point offset by however far the character
+        // stands from the origin.
+        for (joint, want) in [
+            (3usize, Vec3::new(-1.0, 1.4, reach)),
+            (5, Vec3::new(1.0, 1.4, reach)),
+        ] {
+            assert!(
+                (posed[joint] - want).length() < 0.25,
+                "hand {joint} should reach {want:?} in model space, got {:?} \
+                 (character stands at {CHARACTER_AT:?})",
+                posed[joint]
+            );
+        }
+    }
+
+    #[test]
+    fn a_goal_naming_a_bone_the_rig_lacks_is_dropped_not_guessed() {
+        // A scene typo. Posing some other joint would read as a solver bug, so
+        // the goal is refused -- and the rest of the pose has to survive it.
+        let posed = solve_goals_through_the_system(vec![IkGoal {
+            bones: vec!["pelvis".to_string(), "nonexistent".to_string()],
+            target: (Vec3::new(2.0, 2.0, 2.0) + CHARACTER_AT).into(),
+            weight: 1.0,
+        }]);
+        let rest = solve_goals_through_the_system(Vec::new());
+        for (i, (a, b)) in posed.iter().zip(&rest).enumerate() {
+            assert!(
+                (*a - *b).length() < 1.0e-4,
+                "joint {i} moved for a goal that names nothing: {a:?} vs {b:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_character_with_no_goals_poses_exactly_as_before() {
+        // The property that lets this ship without touching any existing scene.
+        let rest = solve_goals_through_the_system(Vec::new());
+        let zero_weight = solve_goals_through_the_system(vec![IkGoal {
+            weight: 0.0,
+            ..arm_goal("l", Vec3::new(-1.2, 1.5, 1.4))
+        }]);
+        for (i, (a, b)) in rest.iter().zip(&zero_weight).enumerate() {
+            assert!(
+                (*a - *b).length() < 1.0e-4,
+                "joint {i}: a zero-weight goal is not the same as no goal: \
+                 {a:?} vs {b:?}"
+            );
+        }
     }
 
     #[test]

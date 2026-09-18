@@ -8,8 +8,8 @@ use std::io::{self, BufRead, Write};
 use bevy_app::App;
 use bevy_ecs::event::Events;
 use bsengine_app::{
-    AnimationPlugin, AnimationStateMachinePlugin, LifetimePlugin, NavMeshPlugin, ParticlePlugin,
-    TerrainBrushPlugin, TerrainPlugin, TimePlugin,
+    AnimationPlugin, AnimationStateMachinePlugin, ClothPlugin, LifetimePlugin, NavMeshPlugin,
+    ParticlePlugin, TerrainBrushPlugin, TerrainPlugin, TimePlugin,
 };
 use bsengine_asset::{AssetIdentityPlugin, AssetPlugin, AssetStatusPlugin};
 use bsengine_audio::AudioPlugin;
@@ -183,6 +183,10 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>, fast_rend
         // brush's picking system, kept in both hosts for the same reason
         // TerrainPlugin itself is -- see the comment there.
         .add_plugins(TerrainBrushPlugin)
+        // Mirrors the windowed runtime (main.rs's run_windowed): a `Cloth` in a
+        // headless E2E replay has to simulate too, or a recording made in the
+        // editor replays against a sheet that never moves.
+        .add_plugins(ClothPlugin)
         .add_plugins(ScenePlugin::from_file(&scene_path))
         .add_plugins(ScriptingPlugin {
             project_dir: project_dir.to_string(),
@@ -680,6 +684,46 @@ mod tests {
                 .len(),
             6,
             "a queued burst has to be emitted by the headless app too"
+        );
+    }
+
+    #[test]
+    fn a_cloth_actually_gets_its_mesh_in_the_test_app() {
+        // Same guard as the two above, and the one `TerrainPlugin` needed a
+        // demo project to discover: `ClothPlugin` is what turns a `Cloth`
+        // component into geometry, so a `Cloth` with no `MeshRenderer` after
+        // several frames means the plugin is missing from this host's list.
+        // Every assertion about how the sheet *moves* lives in `bsengine-app`,
+        // where the simulation state is reachable; what only this host can say
+        // is whether any of it is switched on here at all.
+        let dir = write_two_scene_project();
+        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
+        let cloth = app
+            .world_mut()
+            .spawn((
+                bsengine_core::Transform::default(),
+                bsengine_scene::Cloth {
+                    columns: 4,
+                    rows: 4,
+                    spacing: 0.5,
+                    pinned: vec![0, 1, 2, 3],
+                    gravity: [0.0, -9.81, 0.0],
+                    stiffness: 0.9,
+                    damping: 0.02,
+                    iterations: 8,
+                },
+            ))
+            .id();
+
+        for _ in 0..4 {
+            app.update();
+        }
+
+        assert!(
+            app.world()
+                .get::<bsengine_render::MeshRenderer>(cloth)
+                .is_some(),
+            "a Cloth has to be given a sheet mesh by the headless app too"
         );
     }
 

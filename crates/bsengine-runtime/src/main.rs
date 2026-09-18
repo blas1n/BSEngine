@@ -1,8 +1,8 @@
 use std::env;
 
 use bsengine_app::{
-    new_app, AnimationPlugin, AnimationStateMachinePlugin, LifetimePlugin, NavMeshPlugin,
-    ParticlePlugin, TerrainBrushPlugin, TerrainPlugin, TimePlugin,
+    new_app, AnimationPlugin, AnimationStateMachinePlugin, ClothPlugin, LifetimePlugin,
+    NavMeshPlugin, ParticlePlugin, TerrainBrushPlugin, TerrainPlugin, TimePlugin,
 };
 use bsengine_asset::{AssetIdentityPlugin, AssetPlugin, AssetStatusPlugin, AssetWatcherPlugin};
 use bsengine_audio::AudioPlugin;
@@ -405,6 +405,12 @@ fn run_windowed(project_dir: &str) {
         // in the other is a feature that works when you look at it and not
         // when you test it) this follows the same precedent to avoid.
         .add_plugins(TerrainBrushPlugin)
+        // Generates each scene-authored `Cloth`'s sheet mesh and steps it every
+        // frame. In both hosts from the start, for the reason `TerrainPlugin`'s
+        // comment above records the hard way: a component whose plugin is
+        // missing from the runtime is a feature that passes its own tests and
+        // does nothing in a real game.
+        .add_plugins(ClothPlugin)
         .add_plugins(ScenePlugin::from_file(&scene_path))
         .add_plugins(ScriptingPlugin {
             project_dir: project_dir.to_string(),

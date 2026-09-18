@@ -13,6 +13,11 @@ pub mod animation_player;
 pub mod animation_state_machine;
 /// `new_app()`/`BsPlugin` entry points and re-exported `bevy_app` schedule labels.
 pub mod app;
+/// `ClothPlugin`: generates each `Cloth`'s sheet mesh and steps it every frame.
+pub mod cloth;
+/// Pure position-based cloth solver (no ECS types); `cloth`'s ECS layer calls
+/// into this.
+pub mod cloth_solver;
 /// `FollowPlugin`: moves/orients entities toward a target entity (`Follow`, `LookAt`).
 pub mod follow;
 /// `LifetimePlugin`: despawns entities once their `Lifetime` expires.
@@ -45,6 +50,7 @@ pub mod tween;
 pub use animation_player::AnimationPlugin;
 pub use animation_state_machine::AnimationStateMachinePlugin;
 pub use app::{new_app, App, BsPlugin, Last, PostUpdate, PreUpdate, Startup, Update};
+pub use cloth::ClothPlugin;
 pub use follow::FollowPlugin;
 pub use lifetime::LifetimePlugin;
 pub use nav_mesh::NavMeshPlugin;

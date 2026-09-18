@@ -645,6 +645,119 @@ pub struct Terrain {
     pub splatmap_path: Option<String>,
 }
 
+/// A simulated sheet of cloth: a grid of vertices pulled down by gravity,
+/// held together by the grid's own edges, and held up by whichever vertices
+/// are pinned.
+///
+/// The sheet's geometry is generated from this description rather than taken
+/// from a mesh asset, because the mesh is deformed every frame and this
+/// codebase's primitive meshes are *shared* -- `Primitive::Plane` registers
+/// one GPU mesh and every plane in the scene draws it, so deforming that
+/// buffer would ripple the cloth through unrelated entities. `ClothPlugin`
+/// registers a mesh of its own per cloth entity for the same reason
+/// `SkinnedMesh` owns the buffer it re-uploads into.
+///
+/// # Parameters, and why these ones
+///
+/// Unity's `Cloth`, Unreal's Chaos Cloth and Godot's `SoftBody3D` expose
+/// different names for the same five things, and this takes the intersection:
+/// a stiffness ([`stiffness`](Cloth::stiffness), Unity's stretching
+/// stiffness / Unreal's edge stiffness / Godot's linear stiffness), a damping,
+/// an iteration count (Godot calls it simulation precision), a gravity, and a
+/// list of held vertices (Godot's `pinned_points`; Unity constrains vertices
+/// and Unreal paints a max-distance map, both per-vertex data in the end).
+///
+/// Deliberately *not* here, and each a feature rather than a knob: bending
+/// constraints (Unity and Unreal have them, Godot does not -- they need a
+/// second constraint set spanning every other vertex), and collision against
+/// the scene, which all three have. [`gravity`](Cloth::gravity) is a plain
+/// acceleration, so a steady wind is that vector plus the wind rather than a
+/// field of its own.
+///
+/// # Editing a cloth that is already running
+///
+/// [`pinned`](Cloth::pinned), [`gravity`](Cloth::gravity),
+/// [`stiffness`](Cloth::stiffness), [`damping`](Cloth::damping) and
+/// [`iterations`](Cloth::iterations) are read afresh every step, so changing
+/// them in the Inspector takes effect immediately.
+///
+/// [`columns`](Cloth::columns), [`rows`](Cloth::rows) and
+/// [`spacing`](Cloth::spacing) do not: they describe geometry that is built
+/// once, when the sheet is first seen, and the simulation then owns that mesh.
+/// Changing them on a live cloth does nothing until the entity is respawned --
+/// a scene reload, or removing and re-adding the component. Rebuilding the
+/// sheet in place is a separate piece of work: the old mesh has to be replaced
+/// rather than re-registered (the registry never frees), and the vertices have
+/// to be re-derived without the sheet visibly snapping back to flat.
+///
+/// Defined here rather than in `bsengine-app` for the same reason
+/// [`Terrain`] is: the systems that act on it need
+/// `bsengine-rhi-wgpu`, but the component itself is plain data that the
+/// editor -- which `bsengine-app` depends on -- must be able to construct.
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component, Default)]
+pub struct Cloth {
+    /// Vertices along the sheet's local x axis. Two or more; a sheet one
+    /// vertex wide has no edges to hold it together.
+    pub columns: u32,
+    /// Vertices along the sheet's local z axis. `columns * rows` is capped --
+    /// see `cloth_solver::MAX_CLOTH_VERTICES` -- because every vertex of a
+    /// cloth is integrated and constrained on the CPU every frame.
+    pub rows: u32,
+    /// Local-space distance between neighbouring vertices, and therefore each
+    /// structural edge's rest length. The sheet spans `(columns - 1) *
+    /// spacing` by `(rows - 1) * spacing`.
+    pub spacing: f32,
+    /// Vertices held in place, as indices into the generated grid:
+    /// `row * columns + column`, with row 0 at local z = 0. The top edge of a
+    /// hanging curtain is therefore `0..columns`.
+    ///
+    /// Without at least one, the sheet is in free fall and leaves the scene
+    /// within a second -- which is the correct simulation of an unpinned
+    /// cloth, and almost never what the scene meant.
+    pub pinned: Vec<u32>,
+    /// Acceleration applied every step, in world space. The sheet's own
+    /// rotation is taken out of it, so a rotated cloth still falls downward.
+    ///
+    /// Written in a scene the way [`Terrain::chunk_count`] is -- as a RON
+    /// tuple, `gravity: (0.0, -9.81, 0.0)` for Earth gravity. Square brackets
+    /// are refused, and the whole component is then skipped with one warning.
+    pub gravity: [f32; 3],
+    /// How strongly each edge is pulled back to its rest length per pass,
+    /// 0 to 1. At 1 an edge is corrected fully every pass; lower values read
+    /// as a stretchier fabric.
+    pub stiffness: f32,
+    /// Fraction of a vertex's velocity discarded each step, 0 to 1. Zero
+    /// leaves a pinned sheet swinging like a pendulum indefinitely.
+    pub damping: f32,
+    /// Constraint passes per step. More passes make the sheet stiffer and
+    /// converge closer to its rest lengths, at a proportional cost.
+    pub iterations: u32,
+}
+
+impl Default for Cloth {
+    /// A hanging curtain: a 2x2 metre sheet at 8 vertices a side, held along
+    /// its top edge.
+    ///
+    /// Pinned, which is the part that matters. `ReflectDefault` is what the
+    /// Inspector's Add Component picker constructs from, so this is literally
+    /// what appears when someone adds a cloth to an entity -- and an unpinned
+    /// default would drop through the floor on the first frame and read as a
+    /// broken engine rather than an unconfigured component.
+    fn default() -> Self {
+        Self {
+            columns: 8,
+            rows: 8,
+            spacing: 0.25,
+            pinned: (0..8).collect(),
+            gravity: [0.0, -9.81, 0.0],
+            stiffness: 0.9,
+            damping: 0.02,
+            iterations: 8,
+        }
+    }
+}
+
 fn default_rotation() -> [f32; 4] {
     [0.0, 0.0, 0.0, 1.0]
 }

@@ -2365,6 +2365,43 @@ mod tests {
     /// `cargo run -p bsengine-runtime -- games/<name>` from the repo root,
     /// false under `cargo test`.
     #[test]
+    fn a_cloths_pinned_vertices_and_gravity_survive_deserialization() {
+        // ⚠️ Asserts on the field *contents*, not on the component's presence.
+        //
+        // `pinned` is a `Vec<u32>` and `gravity` a `[f32; 3]`, and a collection
+        // this deserializer cannot reconstruct comes back *empty* rather than
+        // failing -- see `a_state_machines_states_survive_deserialization` for
+        // the same trap costing mini-arena its animation with nothing logged.
+        // A `Cloth` whose `pinned` silently became `[]` still loads, still
+        // simulates, and drops out of the world on the first second, which
+        // looks like a solver bug rather than a parsing one.
+        let ron = r#"SceneDescriptor(entities: [
+            EntityDescriptor(name: "Curtain", components: [
+                ("bsengine_scene::types::Cloth", "(columns: 8, rows: 6, spacing: 0.25, pinned: [0, 3, 7], gravity: (0.0, -9.81, 0.0), stiffness: 0.8, damping: 0.05, iterations: 12)"),
+            ]),
+        ])"#;
+        let path = write_temp_scene("test_cloth_component.ron", ron);
+
+        let mut app = new_app();
+        app.register_type::<crate::types::Cloth>();
+        app.add_plugins(ScenePlugin::from_file(&path));
+        app.update();
+
+        let mut q = app.world_mut().query::<(&Name, &crate::types::Cloth)>();
+        let results: Vec<_> = q.iter(app.world()).collect();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0 .0, "Curtain");
+        let cloth = results[0].1;
+        assert_eq!(cloth.pinned, vec![0, 3, 7], "the pinned vertices");
+        assert_eq!(cloth.gravity, [0.0, -9.81, 0.0], "the gravity vector");
+        assert_eq!((cloth.columns, cloth.rows), (8, 6));
+        assert_eq!(cloth.spacing, 0.25);
+        assert_eq!(cloth.stiffness, 0.8);
+        assert_eq!(cloth.damping, 0.05);
+        assert_eq!(cloth.iterations, 12);
+    }
+
+    #[test]
     fn scene_plugin_terrain_heightmap_path_resolves_against_project_dir() {
         let ron = r#"SceneDescriptor(entities: [
             EntityDescriptor(name: "Ground", components: [

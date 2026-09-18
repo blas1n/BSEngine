@@ -13,7 +13,7 @@
 use bevy_app::{App, Plugin, PostUpdate, Update};
 use bevy_ecs::schedule::IntoSystemConfigs;
 use bsengine_core::{GlobalTransform, Time, Transform};
-use bsengine_ecs::{Commands, Component, Entity, Query, Res, ResMut, Without};
+use bsengine_ecs::{Changed, Commands, Component, Entity, Query, Res, ResMut, With, Without};
 use bsengine_physics::PhysicsWorld;
 use bsengine_render::MeshRenderer;
 use bsengine_rhi_wgpu::{GpuMeshRegistry, GpuQueueResource, Vertex};
@@ -52,6 +52,12 @@ struct ClothSim {
     vertices: Vec<Vertex>,
     /// The generated grid's triangles, kept for normal recomputation.
     indices: Vec<u32>,
+    /// The `(columns, rows, spacing)` this sheet was actually built from.
+    ///
+    /// Compared against the component every time it is written, so that editing
+    /// the sheet's size rebuilds it while editing its stiffness does not. The
+    /// other five parameters are read afresh each step and need no record.
+    built_from: (u32, u32, f32),
     /// Whether the most recent step's vertices actually reached the GPU.
     ///
     /// Recorded because the upload is otherwise unobservable from outside:
@@ -77,7 +83,10 @@ pub struct ClothPlugin;
 impl Plugin for ClothPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<Cloth>()
-            .add_systems(Update, generate_cloth)
+            // Chained so a cloth refused on one frame and fixed on the next is
+            // let back in before `generate_cloth` looks, rather than a frame
+            // later.
+            .add_systems(Update, (regenerate_resized_cloth, generate_cloth).chain())
             .add_systems(
                 PostUpdate,
                 // After the world transforms are propagated, because that is
@@ -167,9 +176,101 @@ fn generate_cloth(
                 links,
                 vertices,
                 indices,
+                built_from: (cloth.columns, cloth.rows, cloth.spacing),
                 uploaded: false,
             },
         ));
+    }
+}
+
+/// Rebuilds a sheet whose size was edited, and lets a refused one back in once
+/// its size makes sense.
+///
+/// Five of a [`Cloth`]'s parameters are read afresh every step, so editing them
+/// takes effect on the next frame with nothing to do here. The three that
+/// describe geometry cannot: they decide how many vertices there are, and the
+/// mesh, the links and the solver's arrays are all built from them once. Before
+/// this, changing the size of a cloth in the Inspector did *nothing* -- which is
+/// worse than it sounds, because the other five fields do work, so the sheet
+/// looks like it is responding right up until it is asked to resize.
+///
+/// The sheet snaps back to flat when it rebuilds. There is no honest way around
+/// that: a different vertex count has no correspondence with the drape it had.
+/// Unity, Unreal and Godot all reset a cloth when its mesh changes too.
+fn regenerate_resized_cloth(
+    mut commands: Commands,
+    mut mesh_registry: Option<ResMut<GpuMeshRegistry>>,
+    mut query: Query<(Entity, &Cloth, Option<&mut ClothSim>), Changed<Cloth>>,
+    rejected: Query<(), With<ClothRejected>>,
+) {
+    for (entity, cloth, sim) in query.iter_mut() {
+        let wanted = (cloth.columns, cloth.rows, cloth.spacing);
+
+        let Some(mut sim) = sim else {
+            // No sheet yet. Either it is still waiting for a registry, or it was
+            // refused -- and a refusal has to be reversible now that the size
+            // can be edited: typing "1" on the way to "12" must not leave the
+            // cloth dead for the rest of the session.
+            //
+            // The new size is not checked here. `generate_cloth` runs next and
+            // is the one place that decides what can be simulated; re-deciding
+            // it here would be the same rule written twice, and each edit
+            // earning one warning is the right amount of feedback anyway.
+            if rejected.get(entity).is_ok() {
+                commands.entity(entity).remove::<ClothRejected>();
+            }
+            continue;
+        };
+
+        if sim.built_from == wanted {
+            // The usual case by far: some other field was edited, or the
+            // component was written back unchanged.
+            continue;
+        }
+
+        let Some((vertices, indices)) =
+            cloth_solver::grid(cloth.columns, cloth.rows, cloth.spacing)
+        else {
+            // Keep the sheet that is already there rather than deleting it. An
+            // Inspector edit passes through whatever the author has typed so
+            // far, and a cloth that vanishes at "1" and never returns is a
+            // worse answer than one that waits for the second digit.
+            warn!(
+                "[cloth] a cloth of {} x {} vertices at spacing {} cannot be simulated; \
+                 keeping the {} x {} sheet it already has",
+                cloth.columns, cloth.rows, cloth.spacing, sim.built_from.0, sim.built_from.1
+            );
+            continue;
+        };
+
+        let Some(registry) = mesh_registry.as_mut() else {
+            continue;
+        };
+
+        // `replace`, not `register`: the id is what `MeshRenderer` holds and the
+        // registry never frees, so registering again would both leak the old
+        // mesh and leave this entity drawing it.
+        if !registry.replace(sim.mesh_id, &vertices, &indices) {
+            warn!(
+                "[cloth] mesh {} vanished from the registry; leaving the sheet as it was",
+                sim.mesh_id
+            );
+            continue;
+        }
+
+        let positions: Vec<Vec3> = vertices.iter().map(|v| Vec3::from(v.position)).collect();
+        let mut links = cloth_solver::links_from_indices(&positions, &indices);
+        links.extend(cloth_solver::bend_links(
+            &positions,
+            cloth.columns,
+            cloth.rows,
+        ));
+        sim.previous = positions.clone();
+        sim.positions = positions;
+        sim.links = links;
+        sim.vertices = vertices;
+        sim.indices = indices;
+        sim.built_from = wanted;
     }
 }
 
@@ -338,6 +439,7 @@ fn simulate_cloth(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy_ecs::change_detection::DetectChangesMut;
     use bsengine_rhi_wgpu::WgpuRHIPlugin;
     use glam::Quat;
 
@@ -992,6 +1094,186 @@ mod tests {
         assert!(
             stiff_corners > limp_corners + 0.1,
             "a stiffer sheet's corners must not fold as far over the edge:              stiff {stiff_corners}, limp {limp_corners}"
+        );
+    }
+
+    /// Lets a sheet fall for a second so it has a drape to lose.
+    fn settle(app: &mut bevy_app::App) {
+        for _ in 0..60 {
+            app.update();
+        }
+    }
+
+    #[test]
+    fn resizing_a_cloth_rebuilds_its_sheet_in_place() {
+        let mut app = test_app();
+        let entity = spawn(&mut app, curtain(), Quat::IDENTITY);
+        app.update();
+        let before = app.world().get::<MeshRenderer>(entity).unwrap().mesh_id;
+        assert_eq!(
+            app.world().get::<ClothSim>(entity).unwrap().positions.len(),
+            16
+        );
+
+        app.world_mut().get_mut::<Cloth>(entity).unwrap().columns = 7;
+        app.update();
+
+        let sim = app.world().get::<ClothSim>(entity).unwrap();
+        assert_eq!(sim.positions.len(), 7 * 4, "the sheet has to be rebuilt");
+        assert_eq!(sim.vertices.len(), 7 * 4, "and so does its vertex buffer");
+        // ⚠️ The same mesh id, reused through `replace`. Registering a second
+        // mesh would leak the first -- the registry never frees -- and leave
+        // `MeshRenderer` pointing at geometry nothing simulates.
+        assert_eq!(
+            app.world().get::<MeshRenderer>(entity).unwrap().mesh_id,
+            before,
+            "the entity must keep drawing the mesh it already had"
+        );
+        assert!(
+            app.world()
+                .resource::<GpuMeshRegistry>()
+                .get(before)
+                .is_some(),
+            "and that mesh must still be registered"
+        );
+        // ⚠️ And the two ids must still agree. Registering a fresh mesh instead
+        // of replacing leaves `MeshRenderer` on the old one while the solver
+        // uploads into the new -- the entity then draws a sheet that never
+        // moves, and the assertions above cannot tell, since each is separately
+        // satisfied.
+        assert_eq!(
+            app.world().get::<ClothSim>(entity).unwrap().mesh_id,
+            app.world().get::<MeshRenderer>(entity).unwrap().mesh_id,
+            "the simulated mesh and the drawn mesh have to be the same one"
+        );
+    }
+
+    #[test]
+    fn a_cloth_written_every_frame_keeps_simulating() {
+        // ⚠️ How the Inspector actually behaves: it writes the whole component
+        // back, so `Changed<Cloth>` fires on a cloth nobody is editing. If the
+        // rebuild does not record what it built, every one of those writes looks
+        // like a resize and the sheet is reset to flat forever -- a curtain that
+        // freezes the moment it is selected, and only then.
+        // Written back by a system, which is what the Inspector is. It writes
+        // the whole component every frame whether or not anything differs, and
+        // `set_changed` is that without pretending a value moved.
+        fn rewrite_every_cloth(mut cloths: Query<&mut Cloth>) {
+            for mut cloth in cloths.iter_mut() {
+                cloth.set_changed();
+            }
+        }
+
+        let mut app = test_app();
+        app.add_systems(Update, rewrite_every_cloth.before(regenerate_resized_cloth));
+        let entity = spawn(&mut app, curtain(), Quat::IDENTITY);
+        // ⚠️ The sheet has to exist *before* the resize. Setting `columns`
+        // first means `generate_cloth` simply builds the new size on the first
+        // frame and `regenerate_resized_cloth` never runs -- counted, it
+        // rebuilt exactly 0 times, and this test passed anyway while measuring
+        // nothing it was written to measure.
+        app.update();
+        app.world_mut().get_mut::<Cloth>(entity).unwrap().columns = 6;
+        for _ in 0..60 {
+            app.update();
+        }
+
+        let sim = app.world().get::<ClothSim>(entity).unwrap();
+        assert_eq!(sim.positions.len(), 6 * 4, "the resize still has to happen");
+        assert!(
+            sim.positions.iter().any(|p| p.y < -0.05),
+            "and the sheet has to have kept falling rather than being rebuilt              flat every frame: {:?}",
+            sim.positions
+        );
+    }
+
+    #[test]
+    fn editing_a_cloths_other_settings_does_not_reset_its_drape() {
+        // ⚠️ The assertion a naive version fails. Rebuilding on any write to
+        // `Cloth` is one line shorter and looks correct -- until someone nudges
+        // the damping on a settled curtain and it snaps back to a flat plane.
+        // The Inspector writes the whole component, so "some field changed" is
+        // not the same question as "the geometry changed".
+        let mut app = test_app();
+        let entity = spawn(&mut app, curtain(), Quat::IDENTITY);
+        settle(&mut app);
+        let draped = app
+            .world()
+            .get::<ClothSim>(entity)
+            .unwrap()
+            .positions
+            .clone();
+        assert!(
+            draped.iter().any(|p| p.y < -0.05),
+            "the fixture needs a sheet that has actually fallen: {draped:?}"
+        );
+
+        app.world_mut().get_mut::<Cloth>(entity).unwrap().damping = 0.5;
+        app.update();
+
+        let now = &app.world().get::<ClothSim>(entity).unwrap().positions;
+        for (i, (a, b)) in now.iter().zip(&draped).enumerate() {
+            assert!(
+                (*a - *b).length() < 0.05,
+                "vertex {i} jumped when an unrelated field was edited: {a:?} \
+                 from {b:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_size_that_cannot_be_simulated_keeps_the_sheet_already_there() {
+        // Half-typed values reach the component on their way to the real one.
+        // Deleting the sheet at "1" and never bringing it back would make the
+        // Inspector unusable for exactly the field this feature is about.
+        let mut app = test_app();
+        let entity = spawn(&mut app, curtain(), Quat::IDENTITY);
+        app.update();
+
+        app.world_mut().get_mut::<Cloth>(entity).unwrap().columns = 1;
+        app.update();
+        assert_eq!(
+            app.world().get::<ClothSim>(entity).unwrap().positions.len(),
+            16,
+            "the 4x4 sheet must still be there"
+        );
+
+        // And the second digit takes.
+        app.world_mut().get_mut::<Cloth>(entity).unwrap().columns = 12;
+        app.update();
+        assert_eq!(
+            app.world().get::<ClothSim>(entity).unwrap().positions.len(),
+            12 * 4
+        );
+    }
+
+    #[test]
+    fn a_refused_cloth_comes_back_once_its_size_makes_sense() {
+        // `ClothRejected` was permanent, which was fine when the size could only
+        // be set in a scene file. With it editable, a cloth that spent one frame
+        // at an impossible size would have stayed dead for the session.
+        let mut app = test_app();
+        let entity = spawn(
+            &mut app,
+            Cloth {
+                columns: 1,
+                ..curtain()
+            },
+            Quat::IDENTITY,
+        );
+        app.update();
+        assert!(app.world().get::<MeshRenderer>(entity).is_none());
+
+        app.world_mut().get_mut::<Cloth>(entity).unwrap().columns = 5;
+        app.update();
+
+        assert!(
+            app.world().get::<MeshRenderer>(entity).is_some(),
+            "a cloth whose size was corrected has to be given its sheet"
+        );
+        assert_eq!(
+            app.world().get::<ClothSim>(entity).unwrap().positions.len(),
+            5 * 4
         );
     }
 

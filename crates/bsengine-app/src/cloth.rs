@@ -11,8 +11,10 @@
 //! rather than rebuilt.
 
 use bevy_app::{App, Plugin, PostUpdate, Update};
-use bsengine_core::{Time, Transform};
+use bevy_ecs::schedule::IntoSystemConfigs;
+use bsengine_core::{GlobalTransform, Time, Transform};
 use bsengine_ecs::{Commands, Component, Entity, Query, Res, ResMut, Without};
+use bsengine_physics::PhysicsWorld;
 use bsengine_render::MeshRenderer;
 use bsengine_rhi_wgpu::{GpuMeshRegistry, GpuQueueResource, Vertex};
 use glam::Vec3;
@@ -76,10 +78,18 @@ impl Plugin for ClothPlugin {
     fn build(&self, app: &mut App) {
         app.register_type::<Cloth>()
             .add_systems(Update, generate_cloth)
-            // Alongside `update_skinned_meshes`, and for the same reason: the
-            // sheet should settle after whatever moved the entity this frame,
-            // not a frame behind it.
-            .add_systems(PostUpdate, simulate_cloth);
+            .add_systems(
+                PostUpdate,
+                // After the world transforms are propagated, because that is
+                // what tells the sheet where it is -- and collision is resolved
+                // against colliders that live only in world space, so a
+                // frame-stale one resolves a cape against where its character
+                // stood last frame. `render_frame` is private to
+                // `bsengine-render` and cannot be ordered against from here, so
+                // the upload lands on the same terms `update_skinned_meshes`
+                // has always had.
+                simulate_cloth.after(bsengine_core::propagate_global_transforms),
+            );
     }
 }
 
@@ -155,14 +165,100 @@ fn generate_cloth(
     }
 }
 
+/// How far into a collider a vertex can be and still be pushed back out.
+///
+/// `project_point`'s `max_dist` is measured to the *surface*, so a vertex deep
+/// inside a large shape is not merely far from it, it is invisible to the query
+/// and stays stuck there. Half a metre is well past what a frame can produce: a
+/// sheet that has been falling for a second is doing about 10 m/s, which is
+/// 16 cm in a 1/60 step.
+const COLLISION_REACH: f32 = 0.5;
+
+/// Moves each free vertex out of whatever it is inside, and off whatever it is
+/// resting on by `thickness`.
+///
+/// Pinned vertices are left alone. A pin is the one promise this component
+/// makes unconditionally, and a cloth pinned to a point inside a collider --
+/// a cape fixed to a shoulder that has a capsule in it -- would otherwise tear
+/// itself off its own anchor.
+fn push_out_of_colliders(
+    positions: &mut [Vec3],
+    previous: &mut [Vec3],
+    pinned: &[u32],
+    model: &glam::Mat4,
+    thickness: f32,
+    physics: &PhysicsWorld,
+) {
+    if !thickness.is_finite() || thickness <= 0.0 {
+        return;
+    }
+    let inverse = model.inverse();
+    for i in 0..positions.len() {
+        if pinned.contains(&(i as u32)) {
+            continue;
+        }
+        let world = model.transform_point3(positions[i]);
+        let Some(hit) = physics.project_point(world, thickness + COLLISION_REACH) else {
+            continue;
+        };
+
+        // The direction out. For a vertex inside the shape that is *toward* the
+        // nearest surface point; for one outside it is away from it. Getting
+        // this backwards on either branch drags the sheet into the collider
+        // instead of off it.
+        let away = if hit.inside {
+            hit.point - world
+        } else {
+            world - hit.point
+        };
+        let Some(outward) = away.try_normalize() else {
+            // Exactly on the surface: no direction to leave along, and the next
+            // step's gravity will produce one.
+            continue;
+        };
+        if !hit.inside && away.length() >= thickness {
+            // Outside and already clear. The common case, and the reason this
+            // is a projection rather than a sweep.
+            continue;
+        }
+
+        let target = inverse.transform_point3(hit.point + outward * thickness);
+        let moved = target - positions[i];
+        if moved.length_squared() <= f32::EPSILON {
+            continue;
+        }
+        positions[i] = target;
+
+        // Take the velocity *into* the surface away, and leave the rest. Zeroing
+        // all of it would be infinite friction -- cloth would stick where it
+        // landed instead of sliding off a slope -- and leaving all of it would
+        // turn every push-out into a bounce.
+        let normal = inverse.transform_vector3(outward).normalize_or_zero();
+        let velocity = positions[i] - previous[i];
+        let tangent = velocity - normal * velocity.dot(normal);
+        previous[i] = positions[i] - tangent;
+    }
+}
+
 fn simulate_cloth(
     time: Res<Time>,
     mut mesh_registry: Option<ResMut<GpuMeshRegistry>>,
     queue: Option<Res<GpuQueueResource>>,
-    mut query: Query<(&Cloth, &Transform, &mut ClothSim)>,
+    physics: Option<Res<PhysicsWorld>>,
+    mut query: Query<(&Cloth, &Transform, Option<&GlobalTransform>, &mut ClothSim)>,
 ) {
     let dt = time.delta_seconds;
-    for (cloth, transform, mut sim) in query.iter_mut() {
+    for (cloth, transform, global, mut sim) in query.iter_mut() {
+        // The entity's *world* transform, preferring `GlobalTransform` exactly
+        // as `render_frame` does. Not a refinement: a cape is parented to the
+        // character wearing it, so its own `Transform` is an offset from a
+        // shoulder and says nothing about where the cloth is in the world --
+        // which is the only space the colliders it has to avoid live in.
+        let model = global
+            .map(|g| g.to_matrix())
+            .unwrap_or_else(|| transform.to_matrix());
+        let (_, rotation, _) = model.to_scale_rotation_translation();
+
         // Gravity is authored in world space, but the sheet is simulated in the
         // entity's local space (its vertices are what the mesh buffer holds), so
         // the entity's rotation has to come out of it. Without this a curtain
@@ -171,7 +267,7 @@ fn simulate_cloth(
         // Scale is deliberately not undone: a non-uniformly scaled cloth
         // simulates in its own space and is stretched on the way to the screen,
         // which is what every other component on the entity does too.
-        let local_gravity = transform.rotation.0.inverse() * Vec3::from(cloth.gravity);
+        let local_gravity = rotation.inverse() * Vec3::from(cloth.gravity);
 
         let ClothSim {
             positions,
@@ -190,6 +286,22 @@ fn simulate_cloth(
             cloth.stiffness,
             cloth.damping,
         );
+
+        // Collision last, after the constraints rather than inside them: a
+        // constraint pass run afterwards would pull vertices straight back into
+        // whatever they were just pushed out of, and visible interpenetration
+        // reads far worse than the fraction of a percent of stretch this
+        // leaves behind.
+        if let Some(physics) = physics.as_ref() {
+            push_out_of_colliders(
+                positions,
+                previous,
+                &cloth.pinned,
+                &model,
+                cloth.collision_thickness,
+                physics,
+            );
+        }
 
         // The deformed sheet is written back whether or not there is a GPU, so a
         // headless host still has the simulated positions to assert on -- the
@@ -238,6 +350,7 @@ mod tests {
             stiffness: 0.9,
             damping: 0.02,
             iterations: 8,
+            collision_thickness: 0.01,
         }
     }
 
@@ -249,34 +362,58 @@ mod tests {
     ///
     /// Mirrors `terrain`'s `insert_headless_mesh_registry`, which explains why
     /// a window-less test has to build these itself.
+    /// One headless device and queue for the whole test binary.
+    ///
+    /// ⚠️ Shared rather than built per test, and that is not tidiness. Each
+    /// `request_device` holds a real GPU allocation for the life of the process,
+    /// and this crate's suite already builds two per terrain test; going from
+    /// 6 cloth tests to 13 was enough to turn the next request into
+    /// `RequestDeviceError(OutOfMemory)` on Windows CI -- which fails the
+    /// *terrain* tests, since they are the ones that happen to ask last.
+    ///
+    /// Sharing is safe here because nothing shares state across it: each test
+    /// still gets its own `GpuMeshRegistry`, and a registry owns its buffers.
+    fn shared_gpu() -> (std::sync::Arc<wgpu::Device>, std::sync::Arc<wgpu::Queue>) {
+        static GPU: std::sync::OnceLock<(
+            std::sync::Arc<wgpu::Device>,
+            std::sync::Arc<wgpu::Queue>,
+        )> = std::sync::OnceLock::new();
+        GPU.get_or_init(|| {
+            let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+                backends: wgpu::Backends::all(),
+                ..Default::default()
+            });
+            let adapter =
+                pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::None,
+                    compatible_surface: None,
+                    force_fallback_adapter: false,
+                }))
+                .expect("a headless adapter; the rest of this suite already requires one");
+            let (device, queue) = pollster::block_on(adapter.request_device(
+                &wgpu::DeviceDescriptor {
+                    label: Some("bsengine-app cloth test device"),
+                    required_features: wgpu::Features::empty(),
+                    required_limits: wgpu::Limits::downlevel_defaults(),
+                    memory_hints: wgpu::MemoryHints::default(),
+                },
+                None,
+            ))
+            .expect("headless device request");
+            (std::sync::Arc::new(device), std::sync::Arc::new(queue))
+        })
+        .clone()
+    }
+
     fn test_app() -> bevy_app::App {
         let mut app = crate::new_app();
         app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(crate::TimePlugin);
         app.add_plugins(ClothPlugin);
 
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::None,
-            compatible_surface: None,
-            force_fallback_adapter: false,
-        }))
-        .expect("a headless adapter; the rest of this suite already requires one");
-        let (device, queue) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                label: Some("bsengine-app cloth test device"),
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::downlevel_defaults(),
-                memory_hints: wgpu::MemoryHints::default(),
-            },
-            None,
-        ))
-        .expect("headless device request");
-        app.insert_resource(GpuMeshRegistry::new(std::sync::Arc::new(device)));
-        app.insert_resource(GpuQueueResource(std::sync::Arc::new(queue)));
+        let (device, queue) = shared_gpu();
+        app.insert_resource(GpuMeshRegistry::new(device));
+        app.insert_resource(GpuQueueResource(queue));
         // After the plugins, so `TimePlugin`'s own wall-clock `Time` does not
         // win: a headless frame takes well under a millisecond, and gravity
         // over a microsecond moves nothing measurable.
@@ -458,6 +595,329 @@ mod tests {
         assert!(
             app.world().get::<ClothSim>(entity).unwrap().uploaded,
             "the simulated sheet must be uploaded into the mesh the renderer draws"
+        );
+    }
+
+    /// Where the top face of [`floor`]'s slab sits.
+    ///
+    /// ⚠️ Not y = 0. A floor at the origin cannot tell "stopped on the surface"
+    /// from "reset to zero", and the push-out writes an absolute position.
+    const FLOOR_TOP: f32 = -1.25;
+
+    /// A fixed slab wide enough that a falling sheet cannot miss it, with its
+    /// top face at [`FLOOR_TOP`].
+    /// ⚠️ Positioned through `PhysicsInput`, not `Transform`. `spawn_bodies`
+    /// reads the former and defaults to the origin without it -- a floor
+    /// authored by `Transform` alone lands at y = 0 with its top at +1, which
+    /// looks exactly like a cloth that stopped too early.
+    fn floor(app: &mut bevy_app::App) {
+        app.world_mut().spawn((
+            bsengine_core::Transform {
+                position: Vec3::new(CLOTH_AT.x, FLOOR_TOP - 1.0, CLOTH_AT.z).into(),
+                rotation: Quat::IDENTITY.into(),
+                scale: Vec3::ONE.into(),
+            },
+            bsengine_physics::PhysicsInput {
+                position: Vec3::new(CLOTH_AT.x, FLOOR_TOP - 1.0, CLOTH_AT.z).into(),
+                rotation: Quat::IDENTITY.into(),
+            },
+            bsengine_physics::RigidBody::fixed(),
+            bsengine_physics::Collider::cuboid(8.0, 1.0, 8.0),
+        ));
+    }
+
+    /// `test_app` plus a real physics world, so the cloth has something to be
+    /// pushed out of. Without `PhysicsPlugin` there is no `PhysicsWorld` and the
+    /// collision pass does not run at all -- which is what keeps every test
+    /// above measuring the solver alone.
+    fn physical_app() -> bevy_app::App {
+        let mut app = test_app();
+        app.add_plugins(bsengine_physics::PhysicsPlugin);
+        floor(&mut app);
+        app
+    }
+
+    /// The world-space y of the sheet's lowest vertex.
+    fn lowest(app: &bevy_app::App, entity: Entity) -> f32 {
+        let sim = app.world().get::<ClothSim>(entity).unwrap();
+        sim.positions
+            .iter()
+            .map(|p| CLOTH_AT.y + p.y)
+            .fold(f32::MAX, f32::min)
+    }
+
+    /// An unpinned sheet, so gravity is free to take the whole thing down onto
+    /// whatever is below it.
+    fn loose() -> Cloth {
+        Cloth {
+            pinned: Vec::new(),
+            ..curtain()
+        }
+    }
+
+    #[test]
+    fn a_falling_sheet_comes_to_rest_on_a_collider() {
+        let mut app = physical_app();
+        let entity = spawn(&mut app, loose(), Quat::IDENTITY);
+        for _ in 0..240 {
+            app.update();
+        }
+        let resting = lowest(&app, entity);
+        assert!(
+            resting > FLOOR_TOP - 1.0e-3,
+            "the sheet went through the floor: lowest vertex at {resting}, \
+             floor at {FLOOR_TOP}"
+        );
+        assert!(
+            resting < FLOOR_TOP + 0.1,
+            "and it has to actually reach the floor rather than hang in the \
+             air: {resting}"
+        );
+    }
+
+    #[test]
+    fn collision_off_lets_the_sheet_through() {
+        // ⚠️ The negative half, and the one that makes the positive mean
+        // something. Without it, a sheet that stopped 1.25 below where it
+        // started could be a sheet resting on a floor or a sheet that never
+        // fell that far -- and the same test would pass either way.
+        let mut app = physical_app();
+        let entity = spawn(
+            &mut app,
+            Cloth {
+                collision_thickness: 0.0,
+                ..loose()
+            },
+            Quat::IDENTITY,
+        );
+        for _ in 0..240 {
+            app.update();
+        }
+        assert!(
+            lowest(&app, entity) < FLOOR_TOP - 1.0,
+            "with collision off the sheet must keep falling, got {}",
+            lowest(&app, entity)
+        );
+    }
+
+    #[test]
+    fn the_sheet_rests_its_own_thickness_above_the_surface() {
+        // Proves the field is a distance and not a flag. A deliberately fat
+        // sheet, because the 1cm default is inside the tolerance any
+        // "did it stop" assertion needs.
+        let mut app = physical_app();
+        let entity = spawn(
+            &mut app,
+            Cloth {
+                collision_thickness: 0.25,
+                ..loose()
+            },
+            Quat::IDENTITY,
+        );
+        for _ in 0..240 {
+            app.update();
+        }
+        let resting = lowest(&app, entity);
+        assert!(
+            (resting - (FLOOR_TOP + 0.25)).abs() < 0.05,
+            "a 0.25-thick sheet should rest at {}, got {resting}",
+            FLOOR_TOP + 0.25
+        );
+    }
+
+    #[test]
+    fn a_sheet_on_a_slope_slides_down_it() {
+        // ⚠️ The friction choice, and the only thing that observes it. The
+        // push-out takes the velocity *into* the surface away and leaves the
+        // rest; zeroing all of it instead is one character's difference and
+        // makes cloth stick wherever it lands, which every other collision test
+        // here would still pass.
+        //
+        // Gravity keeps pulling either way, so this is not "does it move at
+        // all" -- the threshold is set past what a sheet whose velocity is
+        // reset every frame can creep.
+        let mut app = test_app();
+        app.add_plugins(bsengine_physics::PhysicsPlugin);
+        // Tipped a quarter-radian about +z, so the surface normal leans toward
+        // -x and downhill is -x.
+        let tilt = Quat::from_rotation_z(0.45);
+        app.world_mut().spawn((
+            bsengine_core::Transform::default(),
+            bsengine_physics::PhysicsInput {
+                position: Vec3::new(CLOTH_AT.x, FLOOR_TOP - 1.0, CLOTH_AT.z).into(),
+                rotation: tilt.into(),
+            },
+            bsengine_physics::RigidBody::fixed(),
+            bsengine_physics::Collider::cuboid(8.0, 1.0, 8.0),
+        ));
+
+        let entity = spawn(&mut app, loose(), Quat::IDENTITY);
+        app.update();
+        let centre = |app: &bevy_app::App| -> f32 {
+            let sim = app.world().get::<ClothSim>(entity).unwrap();
+            sim.positions.iter().map(|p| p.x).sum::<f32>() / sim.positions.len() as f32
+        };
+        let start = centre(&app);
+        for _ in 0..240 {
+            app.update();
+        }
+        let slid = start - centre(&app);
+        assert!(
+            slid > 0.3,
+            "the sheet should have slid downhill along -x, moved {slid}"
+        );
+    }
+
+    #[test]
+    fn a_sheet_hanging_near_a_surface_is_not_dragged_onto_it() {
+        // ⚠️ `project_point` is asked for anything within half a metre, because
+        // a vertex deep inside a shape is otherwise unreachable. That makes the
+        // "already clear" check load-bearing rather than an optimisation:
+        // without it every vertex within that reach is snapped to
+        // surface + thickness, and a curtain hanging near a wall gets sucked
+        // flat against it. Every other collision test here drops the sheet
+        // *onto* something, so none of them can see it.
+        let mut app = physical_app();
+        // Pinned along the top row and short enough that it hangs with its
+        // bottom edge a clear 0.2 above the floor, but well within the reach.
+        let entity = spawn(&mut app, curtain(), Quat::IDENTITY);
+        app.world_mut()
+            .get_mut::<bsengine_core::Transform>(entity)
+            .unwrap()
+            .position = Vec3::new(CLOTH_AT.x, FLOOR_TOP + 1.7, CLOTH_AT.z).into();
+
+        for _ in 0..240 {
+            app.update();
+        }
+        let sim = app.world().get::<ClothSim>(entity).unwrap();
+        let bottom = sim
+            .positions
+            .iter()
+            .map(|p| FLOOR_TOP + 1.7 + p.y)
+            .fold(f32::MAX, f32::min);
+        assert!(
+            bottom > FLOOR_TOP + 0.1,
+            "the sheet hangs clear of the floor and must stay there, got \
+             {bottom} against a floor at {FLOOR_TOP}"
+        );
+    }
+
+    #[test]
+    fn a_parented_cloth_collides_where_it_actually_is() {
+        // ⚠️ The case cloth collision exists for: a cape is parented to the
+        // character wearing it, so its own `Transform` is an offset from a
+        // shoulder and says nothing about where it is in the world. Resolving
+        // against that offset puts the cape's collisions wherever the offset
+        // happens to point -- here, nowhere near the floor it is actually
+        // resting on.
+        //
+        // Every other test in this file spawns an unparented cloth, where the
+        // world transform and the local one are the same matrix, so none of
+        // them can tell the two apart.
+        let mut app = test_app();
+        app.add_plugins(bsengine_physics::PhysicsPlugin);
+        app.add_systems(PostUpdate, bsengine_core::propagate_global_transforms);
+        // ⚠️ A *narrow* slab, directly under where the cape really hangs and
+        // nowhere near the world origin its local transform claims. The wide
+        // floor the other tests use reaches over the origin too, so a sheet
+        // resolved in the wrong space still landed on it and this test passed
+        // with the world transform thrown away.
+        app.world_mut().spawn((
+            bsengine_core::Transform::default(),
+            bsengine_physics::PhysicsInput {
+                position: Vec3::new(CLOTH_AT.x, FLOOR_TOP - 1.0, CLOTH_AT.z).into(),
+                rotation: Quat::IDENTITY.into(),
+            },
+            bsengine_physics::RigidBody::fixed(),
+            bsengine_physics::Collider::cuboid(2.0, 1.0, 2.0),
+        ));
+
+        // ⚠️ Both of these carry a `GlobalTransform` because
+        // `propagate_global_transforms` only *writes into* one that already
+        // exists -- it never inserts it. Scene-spawned entities get one from
+        // `spawn_scene_entities`; a hand-built pair does not, and without it
+        // this test silently exercises the local-transform fallback instead of
+        // the path it exists to cover.
+        let parent = app
+            .world_mut()
+            .spawn((
+                bsengine_core::Transform {
+                    position: Vec3::new(CLOTH_AT.x, CLOTH_AT.y, CLOTH_AT.z).into(),
+                    rotation: Quat::IDENTITY.into(),
+                    scale: Vec3::ONE.into(),
+                },
+                bsengine_core::GlobalTransform::default(),
+            ))
+            .id();
+        // The child sits at the origin *of its parent*, so its own `Transform`
+        // claims it is at the world origin -- far above and to the side of the
+        // floor slab, and nowhere the sheet could rest.
+        let child = app
+            .world_mut()
+            .spawn((
+                loose(),
+                bsengine_core::Transform::default(),
+                bsengine_core::GlobalTransform::default(),
+                bsengine_core::Parent(parent),
+            ))
+            .id();
+
+        for _ in 0..240 {
+            app.update();
+        }
+        let sim = app.world().get::<ClothSim>(child).unwrap();
+        let lowest_world = sim
+            .positions
+            .iter()
+            .map(|p| CLOTH_AT.y + p.y)
+            .fold(f32::MAX, f32::min);
+        assert!(
+            lowest_world > FLOOR_TOP - 1.0e-2,
+            "the cape has to rest on the floor it is really above, not on \
+             where its local transform says it is: {lowest_world} against a \
+             floor at {FLOOR_TOP}"
+        );
+    }
+
+    #[test]
+    fn a_pin_inside_a_collider_is_still_a_pin() {
+        // A cape is pinned to a shoulder, and a shoulder has a capsule in it.
+        // If the collision pass moved pinned vertices the cloth would tear
+        // itself off its own anchor on the first frame -- and every other
+        // assertion here uses a sheet whose pins are in open air, so none of
+        // them would notice.
+        let mut app = physical_app();
+        let buried = Cloth {
+            // Vertex 0 is at the entity's own origin, which this test puts
+            // inside the floor slab.
+            pinned: vec![0],
+            ..curtain()
+        };
+        let entity = app
+            .world_mut()
+            .spawn((
+                buried,
+                bsengine_core::Transform {
+                    position: Vec3::new(CLOTH_AT.x, FLOOR_TOP - 0.3, CLOTH_AT.z).into(),
+                    rotation: Quat::IDENTITY.into(),
+                    scale: Vec3::ONE.into(),
+                },
+            ))
+            .id();
+        for _ in 0..60 {
+            app.update();
+        }
+        let now = app.world().get::<ClothSim>(entity).unwrap().positions[0];
+        // ⚠️ Against the grid coordinate vertex 0 is *built* at, not against a
+        // reading taken after the first frame. An earlier version of this test
+        // sampled `positions[0]` once the app had stepped, which is already
+        // after the push-out would have happened -- so it compared a moved
+        // vertex against itself and a version that shoved pinned vertices
+        // around passed it.
+        assert!(
+            now.length() < 1.0e-5,
+            "a pinned vertex inside a collider must stay at the grid origin it \
+             was built at, got {now:?}"
         );
     }
 

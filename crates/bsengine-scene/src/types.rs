@@ -694,6 +694,20 @@ pub struct Terrain {
 /// [`Terrain`] is: the systems that act on it need
 /// `bsengine-rhi-wgpu`, but the component itself is plain data that the
 /// editor -- which `bsengine-app` depends on -- must be able to construct.
+/// # Adding a field to this
+///
+/// ⚠️ Safe, and `#[reflect(Default)]` is the whole reason. A scene written
+/// before a new field keeps loading with that field defaulted, and a
+/// misspelled field name is refused with a warning rather than silently
+/// accepted. Both were measured, not assumed:
+/// `a_cloth_written_before_collision_still_loads` fails the moment `Default`
+/// leaves the `reflect` list.
+///
+/// This is worth stating because the opposite is the better-known story here --
+/// `AsmState` grew a field and quietly emptied mini-arena's animation, and
+/// `AudioEmitter` carries a standing warning never to add one. Those types have
+/// no `ReflectDefault`; there is nothing for the deserializer to fill a gap
+/// from, so the gap becomes a failure it does not report.
 #[derive(Component, Debug, Clone, Reflect)]
 #[reflect(Component, Default)]
 pub struct Cloth {
@@ -733,6 +747,20 @@ pub struct Cloth {
     /// Constraint passes per step. More passes make the sheet stiffer and
     /// converge closer to its rest lengths, at a proportional cost.
     pub iterations: u32,
+    /// How far the sheet's vertices are held off a collider's surface, in world
+    /// units. Zero or less turns collision off entirely.
+    ///
+    /// Real cloth has thickness and the simulation has none, so a sheet resting
+    /// exactly on a surface z-fights with it. Unreal calls this Collision
+    /// Thickness; Unity spends the same idea as a per-collider sphere radius.
+    ///
+    /// Collision is on by default, following Unreal and Godot -- Unity is the
+    /// outlier, and its reason is the per-vertex cost that
+    /// `cloth_solver::MAX_CLOTH_VERTICES` already bounds. What the sheet
+    /// collides with is every non-sensor collider in the physics world; this
+    /// engine has no author-facing collision layers yet, so there is nothing to
+    /// filter by.
+    pub collision_thickness: f32,
 }
 
 impl Default for Cloth {
@@ -754,6 +782,11 @@ impl Default for Cloth {
             stiffness: 0.9,
             damping: 0.02,
             iterations: 8,
+            // A centimetre: fabric-thick. Enough that the sheet visibly rests
+            // on a surface instead of z-fighting through it, and far enough
+            // below the default 0.25 spacing that it never reads as the
+            // curtain floating off the wall it hangs against.
+            collision_thickness: 0.01,
         }
     }
 }

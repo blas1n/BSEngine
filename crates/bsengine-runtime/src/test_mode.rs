@@ -711,6 +711,7 @@ mod tests {
                     stiffness: 0.9,
                     damping: 0.02,
                     iterations: 8,
+                    collision_thickness: 0.01,
                 },
             ))
             .id();

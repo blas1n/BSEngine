@@ -330,6 +330,26 @@ pub struct RaycastHit {
     pub distance: f32,
 }
 
+/// Result of projecting a point onto the nearest collider.
+///
+/// The query a per-vertex solver needs, and the reason it is not a raycast:
+/// cloth does not know which way it has to move to get out of something. A ray
+/// answers "what is along this direction"; this answers "where is the nearest
+/// surface, and am I already inside it", which is the whole of a
+/// position-based collision response.
+#[derive(Debug, Clone)]
+pub struct PointProjection {
+    /// The entity whose collider was nearest, if it maps to a known entity.
+    pub entity: Option<Entity>,
+    /// The closest point on that collider's **surface**, in world space.
+    ///
+    /// A point inside the shape projects to the boundary rather than to
+    /// itself, which is what makes this usable as a push-out target.
+    pub point: Vec3,
+    /// Whether the queried point was inside the collider.
+    pub inside: bool,
+}
+
 /// Where the simulation says a body **is**. Physics writes it; you read it.
 ///
 /// Structurally identical to [`PhysicsInput`], and the difference is entirely

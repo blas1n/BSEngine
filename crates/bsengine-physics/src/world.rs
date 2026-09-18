@@ -5,7 +5,7 @@ use glam::Vec3;
 use rapier3d::pipeline::EventHandler;
 use rapier3d::prelude::*;
 
-use crate::components::{JointKind, RaycastHit};
+use crate::components::{JointKind, PointProjection, RaycastHit};
 
 /// The Rapier simulation state: rigid bodies, colliders, and the pipeline that steps them.
 #[derive(Resource)]
@@ -519,6 +519,36 @@ impl PhysicsWorld {
     /// Cast a ray into the physics world. Returns hit info or None.
     pub fn cast_ray(&self, origin: Vec3, dir: Vec3, max_dist: f32) -> Option<RaycastHit> {
         self.cast_ray_filtered(origin, dir, max_dist, QueryFilter::default())
+    }
+
+    /// Finds the nearest collider surface to `point`, within `max_dist`.
+    ///
+    /// Returns `None` when nothing is that close.
+    ///
+    /// Sensors never answer. That is Rapier's own behaviour rather than a
+    /// filter here -- a hand-written sensor predicate turned out to change
+    /// nothing at all -- but cloth depends on it either way, since a trigger
+    /// volume that pushed vertices around would be an invisible obstacle only
+    /// cloth could feel. `a_sensor_is_not_a_surface` is what notices if a
+    /// Rapier upgrade ever changes it.
+    ///
+    /// Unlike a raycast this needs no direction, which is exactly why cloth
+    /// uses it — see [`PointProjection`].
+    pub fn project_point(&self, point: Vec3, max_dist: f32) -> Option<PointProjection> {
+        let solid = false;
+        let filter = QueryFilter::default();
+        let qp = self.broad_phase.as_query_pipeline(
+            self.narrow_phase.query_dispatcher(),
+            &self.rigid_body_set,
+            &self.collider_set,
+            filter,
+        );
+        qp.project_point(Vector::new(point.x, point.y, point.z), max_dist, solid)
+            .map(|(handle, projection)| PointProjection {
+                entity: self.collider_entity_map.get(&handle).copied(),
+                point: Vec3::new(projection.point.x, projection.point.y, projection.point.z),
+                inside: projection.is_inside,
+            })
     }
 
     /// Advances one vehicle controller against the current world, casting its
@@ -1152,6 +1182,111 @@ mod tests {
                  opened to {gap}"
             );
         }
+    }
+
+    /// A ball of radius 0.5 whose centre is `pos`, and the entity it belongs to.
+    ///
+    /// ⚠️ Deliberately away from the origin in every projection test below. A
+    /// shape centred on the origin cannot tell "the nearest surface point" from
+    /// "the direction back to the origin", and every push-out below is built on
+    /// that distinction.
+    const BALL_AT: Vec3 = Vec3::new(4.0, -3.0, 2.0);
+
+    /// A world holding one ball at [`BALL_AT`], ready to be queried.
+    ///
+    /// ⚠️ Stepped once before returning. The broad phase's BVH is built during
+    /// a step, so a collider inserted and immediately queried is invisible --
+    /// `project_point` returns `None` and reads as "nothing is there" rather
+    /// than as "you have not stepped yet". Gravity is zero, so the step does
+    /// not move the ball out from under the coordinates the tests assert on.
+    fn world_with_a_ball(entity: Entity) -> PhysicsWorld {
+        let mut world = PhysicsWorld::new(0.0);
+        spawn_ball(&mut world, entity, BALL_AT);
+        world.step(&());
+        world
+    }
+
+    #[test]
+    fn a_point_inside_a_collider_projects_to_its_surface() {
+        let ball = Entity::from_raw(1);
+        let world = world_with_a_ball(ball);
+
+        // A quarter of the way out from the centre, along a direction that is
+        // not an axis -- an axis-aligned probe passes even if two components
+        // are swapped.
+        let offset = Vec3::new(1.0, 2.0, -2.0).normalize() * 0.125;
+        let hit = world
+            .project_point(BALL_AT + offset, f32::MAX)
+            .expect("a collider is right there");
+
+        assert!(hit.inside, "the point is well within a radius-0.5 ball");
+        assert_eq!(hit.entity, Some(ball));
+        assert!(
+            ((hit.point - BALL_AT).length() - 0.5).abs() < 1.0e-3,
+            "an interior point must project onto the boundary, got {:?} which \
+             is {} from the centre",
+            hit.point,
+            (hit.point - BALL_AT).length()
+        );
+        // ⚠️ And onto the boundary *in the direction it already lay*, not the
+        // nearest point to the origin or to the query's own axis. This is what
+        // makes `point - query` a usable push-out direction.
+        assert!(
+            (hit.point - BALL_AT).normalize().dot(offset.normalize()) > 0.99,
+            "expected the projection along {:?}, got {:?}",
+            offset.normalize(),
+            (hit.point - BALL_AT).normalize()
+        );
+    }
+
+    #[test]
+    fn a_point_outside_projects_without_claiming_to_be_inside() {
+        let ball = Entity::from_raw(1);
+        let world = world_with_a_ball(ball);
+
+        let outside = BALL_AT + Vec3::new(0.0, 2.0, 0.0);
+        let hit = world
+            .project_point(outside, f32::MAX)
+            .expect("within max_dist");
+        assert!(!hit.inside, "2 units out of a radius-0.5 ball");
+        assert!(
+            (hit.point - (BALL_AT + Vec3::new(0.0, 0.5, 0.0))).length() < 1.0e-3,
+            "expected the top of the ball, got {:?}",
+            hit.point
+        );
+    }
+
+    #[test]
+    fn nothing_within_range_is_none_rather_than_a_far_away_answer() {
+        // The distinction cloth rests on: a vertex nowhere near anything must
+        // cost nothing and change nothing. An implementation that ignored
+        // `max_dist` would still "work" on a scene with one collider and would
+        // drag every vertex toward it in a scene with two.
+        let world = world_with_a_ball(Entity::from_raw(1));
+
+        let far = BALL_AT + Vec3::new(0.0, 50.0, 0.0);
+        assert!(world.project_point(far, 1.0).is_none());
+        assert!(
+            world.project_point(far, 60.0).is_some(),
+            "and the same point is found once the range reaches it"
+        );
+    }
+
+    #[test]
+    fn a_sensor_is_not_a_surface() {
+        // A trigger volume is deliberately not something to be pushed out of.
+        // Without the filter every trigger in a scene becomes an invisible
+        // obstacle that only cloth can feel.
+        let trigger = Entity::from_raw(1);
+        let mut world = PhysicsWorld::new(0.0);
+        spawn_ball(&mut world, trigger, BALL_AT);
+        world.set_collider_sensor(trigger, true);
+        world.step(&());
+
+        assert!(
+            world.project_point(BALL_AT, f32::MAX).is_none(),
+            "the query point is at the sensor's own centre and must still miss"
+        );
     }
 
     #[test]

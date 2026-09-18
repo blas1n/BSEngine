@@ -1014,6 +1014,12 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     // load-bearing because `a_state_machines_states_survive_deserialization`
     // omits a defaulted field from its RON.
     app.register_type_data::<bsengine_core::AsmState, bevy_reflect::ReflectDeserialize>();
+    // `Cloth` here as well as in `ClothPlugin`, so the scene tests in this file
+    // -- and anything else that reaches for the shared registration rather than
+    // the plugin -- can read one out of a RON file. Its tolerance of a field it
+    // predates comes from `#[reflect(Default)]` on the type itself, not from
+    // anything registered here; see its doc comment.
+    app.register_type::<crate::types::Cloth>();
     app.register_type_data::<bsengine_core::AsmState, bevy_reflect::ReflectSerialize>();
     // `AnimationStateMachine::transitions` is `Vec<AsmTransition>`, and each
     // `AsmTransition` holds a `TransitionCondition` enum. Neither was ever
@@ -2383,7 +2389,7 @@ mod tests {
         let path = write_temp_scene("test_cloth_component.ron", ron);
 
         let mut app = new_app();
-        app.register_type::<crate::types::Cloth>();
+        super::register_gameplay_reflect_types(&mut app);
         app.add_plugins(ScenePlugin::from_file(&path));
         app.update();
 
@@ -2399,6 +2405,75 @@ mod tests {
         assert_eq!(cloth.stiffness, 0.8);
         assert_eq!(cloth.damping, 0.05);
         assert_eq!(cloth.iterations, 12);
+        // ⚠️ The RON above deliberately omits `collision_thickness`. Keep it
+        // omitted: writing it out would make this test pass whether or not
+        // `Cloth` goes through serde, and hand the next field-adder the silent
+        // break this registration exists to prevent.
+        assert_eq!(
+            cloth.collision_thickness,
+            crate::types::Cloth::default().collision_thickness,
+            "a field the scene predates has to arrive as its default"
+        );
+    }
+
+    #[test]
+    fn a_cloth_written_before_collision_still_loads() {
+        // The other half of the same guarantee, stated on the fields the scene
+        // *did* write: a structurally-deserialized `Cloth` missing a field does
+        // not fail, it comes back empty with nothing logged. So this asserts
+        // the authored values survived, not that the component is present --
+        // the component is always present, which is the whole problem.
+        //
+        // Named for the field that was added, so when this fails the next
+        // person knows it is about field addition rather than about cloth.
+        let ron = r#"SceneDescriptor(entities: [
+            EntityDescriptor(name: "Banner", components: [
+                ("bsengine_scene::types::Cloth", "(columns: 5, rows: 9, spacing: 0.4, pinned: [0, 4], gravity: (1.0, -9.81, -2.0), stiffness: 0.55, damping: 0.11, iterations: 3)"),
+            ]),
+        ])"#;
+        let path = write_temp_scene("test_cloth_without_collision_field.ron", ron);
+
+        let mut app = new_app();
+        super::register_gameplay_reflect_types(&mut app);
+        app.add_plugins(ScenePlugin::from_file(&path));
+        app.update();
+
+        let mut q = app.world_mut().query::<&crate::types::Cloth>();
+        let cloth = q.iter(app.world()).next().expect("the Cloth component");
+        assert_eq!((cloth.columns, cloth.rows), (5, 9));
+        assert_eq!(cloth.spacing, 0.4);
+        assert_eq!(cloth.pinned, vec![0, 4]);
+        assert_eq!(cloth.gravity, [1.0, -9.81, -2.0]);
+        assert_eq!(cloth.stiffness, 0.55);
+        assert_eq!(cloth.damping, 0.11);
+        assert_eq!(cloth.iterations, 3);
+    }
+
+    #[test]
+    fn a_misspelled_cloth_field_is_refused_rather_than_defaulted() {
+        // The other side of the tolerance above, and the reason it is safe:
+        // filling in a field the scene never mentioned is right, and filling in
+        // one it *misspelled* would be a sheet silently loading at the wrong
+        // size with nothing to read. The deserializer refuses the whole
+        // component instead, and the loader logs it.
+        let ron = r#"SceneDescriptor(entities: [
+            EntityDescriptor(name: "Typo", components: [
+                ("bsengine_scene::types::Cloth", "(columns: 5, rows: 9, spaceing: 0.4)"),
+            ]),
+        ])"#;
+        let path = write_temp_scene("test_cloth_misspelled_field.ron", ron);
+
+        let mut app = new_app();
+        super::register_gameplay_reflect_types(&mut app);
+        app.add_plugins(ScenePlugin::from_file(&path));
+        app.update();
+
+        let mut q = app.world_mut().query::<&crate::types::Cloth>();
+        assert!(
+            q.iter(app.world()).next().is_none(),
+            "a component with an unknown field must be skipped, not silently \
+             filled in with defaults"
+        );
     }
 
     #[test]

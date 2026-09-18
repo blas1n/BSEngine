@@ -23,6 +23,24 @@
 use bsengine_rhi_wgpu::Vertex;
 use glam::Vec3;
 
+/// What a [`Link`] is resisting, and therefore which stiffness applies to it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkKind {
+    /// An edge of the mesh. Resists the sheet being stretched or sheared, and
+    /// is what makes it a fabric rather than a cloud of points.
+    Structural,
+    /// A span between two vertices with one between them. Resists the sheet
+    /// *folding*, which its own edges cannot: three vertices in a row can hinge
+    /// freely about the middle one without changing either edge's length.
+    ///
+    /// Unity spells this `bendingStiffness` and Unreal `BendingStiffness`;
+    /// Godot has no equivalent. Both of those also offer a dihedral-angle
+    /// formulation between adjacent triangles, which is more faithful and more
+    /// expensive; the two-apart span is what game cloth normally uses and needs
+    /// no solver of its own -- it is a distance constraint like any other.
+    Bend,
+}
+
 /// The pair of vertices one distance constraint holds together, and the
 /// distance it holds them at.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -33,6 +51,8 @@ pub struct Link {
     pub b: u32,
     /// Distance the two rest at, taken from the mesh before it was simulated.
     pub rest: f32,
+    /// Which stiffness [`step`] should enforce this one with.
+    pub kind: LinkKind,
 }
 
 /// Every distinct edge of a triangle mesh, with the length it starts at.
@@ -57,7 +77,47 @@ pub fn links_from_indices(positions: &[Vec3], indices: &[u32]) -> Vec<Link> {
                 a: lo,
                 b: hi,
                 rest: (*pb - *pa).length(),
+                kind: LinkKind::Structural,
             });
+        }
+    }
+    links
+}
+
+/// The spans that stop a grid folding: every pair of vertices two apart along a
+/// row, and every pair two apart down a column.
+///
+/// Not derived from the triangles the way [`links_from_indices`] is, because
+/// "two apart" is a statement about the grid's layout and the index list has
+/// already forgotten it. Cloth generated any other way would need its own
+/// version of this -- which is why it takes the dimensions rather than a mesh.
+///
+/// Diagonals are left out. The grid's triangulation already spans each cell
+/// diagonally as a structural edge, and a sheet folding along a diagonal has to
+/// bend a row or a column to do it.
+pub fn bend_links(positions: &[Vec3], columns: u32, rows: u32) -> Vec<Link> {
+    let mut links = Vec::new();
+    let mut push = |a: u32, b: u32| {
+        let (Some(pa), Some(pb)) = (positions.get(a as usize), positions.get(b as usize)) else {
+            return;
+        };
+        links.push(Link {
+            a,
+            b,
+            rest: (*pb - *pa).length(),
+            kind: LinkKind::Bend,
+        });
+    };
+    for row in 0..rows {
+        for column in 0..columns.saturating_sub(2) {
+            let here = row * columns + column;
+            push(here, here + 2);
+        }
+    }
+    for row in 0..rows.saturating_sub(2) {
+        for column in 0..columns {
+            let here = row * columns + column;
+            push(here, here + 2 * columns);
         }
     }
     links
@@ -169,6 +229,12 @@ pub fn recompute_normals(vertices: &mut [Vertex], indices: &[u32]) {
 ///
 /// `pinned` holds indices that do not move. They still participate in every
 /// constraint -- that is how the cloth hangs from them.
+///
+/// `stiffness` enforces [`LinkKind::Structural`] links and `bending_stiffness`
+/// enforces [`LinkKind::Bend`] ones. Two numbers rather than one because a
+/// fabric that barely stretches can still fold freely, and both stay parameters
+/// rather than being baked into the links so that editing either on a live
+/// cloth takes effect the same frame.
 #[allow(clippy::too_many_arguments)]
 pub fn step(
     positions: &mut [Vec3],
@@ -179,12 +245,14 @@ pub fn step(
     dt: f32,
     iterations: u32,
     stiffness: f32,
+    bending_stiffness: f32,
     damping: f32,
 ) {
     if positions.len() != previous.len() || positions.is_empty() || dt <= 0.0 {
         return;
     }
     let stiffness = stiffness.clamp(0.0, 1.0);
+    let bending_stiffness = bending_stiffness.clamp(0.0, 1.0);
     let damping = damping.clamp(0.0, 1.0);
     // A mask rather than a scan of `pinned`: this is asked twice per link per
     // iteration, so on a sheet of any size a linear search turns a list of held
@@ -228,7 +296,17 @@ pub fn step(
             if distance <= f32::EPSILON {
                 continue;
             }
-            let correction = delta * (stiffness * (distance - link.rest) / distance);
+            let strength = match link.kind {
+                LinkKind::Structural => stiffness,
+                LinkKind::Bend => bending_stiffness,
+            };
+            // A bend link at zero stiffness is exactly the sheet before bending
+            // existed, and skipping it here is what makes that free rather than
+            // merely equivalent.
+            if strength <= 0.0 {
+                continue;
+            }
+            let correction = delta * (strength * (distance - link.rest) / distance);
             let (pa, pb) = (is_pinned(a), is_pinned(b));
             match (pa, pb) {
                 // Both held: the link is whatever the pins make it. Moving
@@ -255,6 +333,9 @@ mod tests {
     // are this suite's parameters, and the component in `bsengine-scene` is the
     // one place the engine's actual defaults live.
     const DEFAULT_STIFFNESS: f32 = 0.9;
+    /// What every test written before bending existed passed, and what
+    /// `Cloth::default()` still uses.
+    const NO_BEND: f32 = 0.0;
     const DEFAULT_DAMPING: f32 = 0.02;
     const DEFAULT_ITERATIONS: u32 = 8;
 
@@ -284,6 +365,7 @@ mod tests {
                 1.0 / 60.0,
                 DEFAULT_ITERATIONS,
                 DEFAULT_STIFFNESS,
+                NO_BEND,
                 DEFAULT_DAMPING,
             );
         }
@@ -382,6 +464,158 @@ mod tests {
             "a surface rising toward +z should face back along -z, got {tilted:?}"
         );
         assert!(tilted.y > 0.0, "and still upward, got {tilted:?}");
+    }
+
+    #[test]
+    fn bend_links_span_two_along_each_axis() {
+        // ⚠️ Not square, so a transposed loop is visible: 5 across and 3 down
+        // gives 3 spans per row and 1 per column, not the same count twice.
+        let (columns, rows) = (5u32, 3u32);
+        let (vertices, _) = grid(columns, rows, 0.25).expect("5x3");
+        let positions: Vec<Vec3> = vertices.iter().map(|v| Vec3::from(v.position)).collect();
+        let bends = bend_links(&positions, columns, rows);
+        // Every row has one span per vertex it can skip, and so does every
+        // column -- stated as the formula rather than as a total, so the count
+        // says which way round the two loops go.
+        assert_eq!(
+            bends.len() as u32,
+            (columns - 2) * rows + columns * (rows - 2),
+            "{bends:?}"
+        );
+        for link in &bends {
+            assert_eq!(link.kind, LinkKind::Bend);
+            assert!(
+                (link.rest - 0.5).abs() < 1.0e-6,
+                "a two-apart span rests at twice the spacing, got {}",
+                link.rest
+            );
+            let step = link.b - link.a;
+            assert!(
+                step == 2 || step == 2 * columns,
+                "spans must skip exactly one vertex along a row (2) or a column \
+                 (2 * 5), got {step}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_sheet_too_narrow_to_fold_gets_no_bend_links_along_that_axis() {
+        let (vertices, _) = grid(2, 5, 1.0).expect("2x5");
+        let positions: Vec<Vec3> = vertices.iter().map(|v| Vec3::from(v.position)).collect();
+        let bends = bend_links(&positions, 2, 5);
+        // Two vertices across cannot hinge about a middle one, so every span
+        // here runs down a column: 2 columns x (5 - 2) rows.
+        assert_eq!(bends.len(), 2 * 3, "{bends:?}");
+        assert!(bends.iter().all(|l| l.b - l.a == 4));
+    }
+
+    #[test]
+    fn bending_makes_a_squashed_sheet_bow_instead_of_crumple() {
+        // ⚠️ What a two-apart distance constraint actually does, arrived at by
+        // measuring rather than by assuming. Two earlier fixtures asserted
+        // things it cannot do:
+        //
+        // * A cantilever -- pinned along one edge, held out flat. A sheet
+        //   swinging down about its pinned edge rotates *rigidly*, which leaves
+        //   every distance in the mesh unchanged, two-apart spans included.
+        //   Measured: drooped 3.9675 at bending 1.0 against 3.9676 at 0.
+        // * Straightening a crease. The constraint resists curvature but has no
+        //   sign, so it cannot tell a fold up from a fold down; asked to undo
+        //   one it pushed the flap further over instead.
+        //
+        // What it does do is decide what happens to material with nowhere to
+        // go. Pin the far row half a sheet's length from the near one and the
+        // surface must give somewhere: without bending it concertinas flat in
+        // its own plane, and with bending it bows out into a smooth arch.
+        let measure = |bending: f32| {
+            let (mut positions, indices) = sheet(5);
+            let mut links = links_from_indices(&positions, &indices);
+            let bends = bend_links(&positions, 5, 5);
+            links.extend(bends.iter().copied());
+            for column in 0..5u32 {
+                let i = (4 * 5 + column) as usize;
+                // A hair off the plane, so buckling has a direction to pick.
+                // Exactly in-plane is a symmetric stalemate no solver leaves.
+                positions[i] = Vec3::new(column as f32, 0.01, 2.0);
+            }
+            let pinned: Vec<u32> = (0..5).chain(20..25).collect();
+            let mut previous = positions.clone();
+            for _ in 0..600 {
+                step(
+                    &mut positions,
+                    &mut previous,
+                    &links,
+                    &pinned,
+                    Vec3::ZERO,
+                    1.0 / 60.0,
+                    DEFAULT_ITERATIONS,
+                    DEFAULT_STIFFNESS,
+                    bending,
+                    DEFAULT_DAMPING,
+                );
+            }
+            let span_error: f32 = bends
+                .iter()
+                .map(|l| {
+                    ((positions[l.b as usize] - positions[l.a as usize]).length() - l.rest).abs()
+                })
+                .sum();
+            let bow = positions.iter().map(|p| p.y.abs()).fold(0.0f32, f32::max);
+            (span_error, bow)
+        };
+
+        let (limp_error, limp_bow) = measure(NO_BEND);
+        let (stiff_error, stiff_bow) = measure(1.0);
+        // Measured 9.95 / 0.30 and 0.01 / 1.76; the thresholds sit well clear
+        // of both so this is about the behaviour, not about the numerics.
+        assert!(
+            limp_error > 5.0 && limp_bow < 0.1,
+            "with no bending the sheet should crumple in its own plane: span              error {limp_error}, bow {limp_bow}"
+        );
+        assert!(
+            stiff_error < 1.0 && stiff_bow > 1.0,
+            "with bending it should bow out instead, holding its spans near              rest: span error {stiff_error}, bow {stiff_bow}"
+        );
+    }
+
+    #[test]
+    fn bending_at_zero_is_the_sheet_exactly_as_it_was() {
+        // ⚠️ The compatibility claim, stated as an equality rather than a
+        // tolerance. Every cloth authored before this field has
+        // `bending_stiffness: 0`, and `generate_cloth` now hands the solver
+        // bend links regardless -- so "the default changes nothing" is a
+        // property of `step`, not of the component, and this is where it lives.
+        let run = |with_bends: bool| {
+            let (mut positions, indices) = sheet(4);
+            let mut links = links_from_indices(&positions, &indices);
+            if with_bends {
+                links.extend(bend_links(&positions, 4, 4));
+            }
+            let pinned: Vec<u32> = (0..4).collect();
+            let mut previous = positions.clone();
+            for _ in 0..120 {
+                step(
+                    &mut positions,
+                    &mut previous,
+                    &links,
+                    &pinned,
+                    Vec3::new(0.0, -9.81, 0.0),
+                    1.0 / 60.0,
+                    DEFAULT_ITERATIONS,
+                    DEFAULT_STIFFNESS,
+                    NO_BEND,
+                    DEFAULT_DAMPING,
+                );
+            }
+            positions
+        };
+
+        for (i, (with, without)) in run(true).iter().zip(run(false).iter()).enumerate() {
+            assert_eq!(
+                with, without,
+                "vertex {i} moved because bend links were present at zero stiffness"
+            );
+        }
     }
 
     #[test]
@@ -506,6 +740,7 @@ mod tests {
                 1.0 / 60.0,
                 DEFAULT_ITERATIONS,
                 DEFAULT_STIFFNESS,
+                NO_BEND,
                 damping,
             );
             if s >= steps / 2 {
@@ -557,6 +792,7 @@ mod tests {
                 1.0 / 60.0,
                 DEFAULT_ITERATIONS,
                 DEFAULT_STIFFNESS,
+                NO_BEND,
                 DEFAULT_DAMPING,
             );
         }
@@ -591,6 +827,7 @@ mod tests {
                     1.0 / 60.0,
                     DEFAULT_ITERATIONS,
                     stiffness,
+                    NO_BEND,
                     DEFAULT_DAMPING,
                 );
             }
@@ -625,6 +862,7 @@ mod tests {
             0.0,
             DEFAULT_ITERATIONS,
             DEFAULT_STIFFNESS,
+            NO_BEND,
             DEFAULT_DAMPING,
         );
         assert!(positions.iter().all(|p| p.is_finite()), "{positions:?}");

@@ -710,6 +710,7 @@ mod tests {
                     gravity: [0.0, -9.81, 0.0],
                     stiffness: 0.9,
                     bending_stiffness: 0.0,
+                    self_collision_distance: 0.0,
                     damping: 0.02,
                     iterations: 8,
                     collision_thickness: 0.01,

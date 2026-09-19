@@ -25,8 +25,8 @@ pub mod save;
 pub mod script_asset;
 pub use bsengine_core::ProjectDir;
 pub use plugin::{
-    load_scripts, Script, ScriptRuntimeResource, ScriptTimingState, ScriptingPlugin, SoundHandles,
-    KEY_MAPPINGS,
+    load_scripts, load_scripts_with, Bootstrap, Script, ScriptRuntimeResource, ScriptTimingState,
+    ScriptingPlugin, SoundHandles, KEY_MAPPINGS,
 };
 pub use runtime::ScriptRuntime;
 pub use script_asset::{ScriptSource, ScriptSourceLoader};

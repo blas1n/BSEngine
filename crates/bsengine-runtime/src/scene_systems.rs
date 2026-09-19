@@ -12,10 +12,11 @@ use bsengine_rhi_wgpu::{
     GpuMeshRegistry,
 };
 use bsengine_scene::{
-    spawn_scene_entities, ColliderShapeDesc, Name, PendingSceneLoad, PhysicsBodyDesc, Primitive,
-    PrimitiveMesh, RigidBodyDesc, SceneDescriptor,
+    spawn_scene_entities, ColliderShapeDesc, LoadedScenes, Name, PendingSceneLoad,
+    PendingSceneStream, PhysicsBodyDesc, Primitive, PrimitiveMesh, RigidBodyDesc, SceneDescriptor,
+    SceneStreamOp,
 };
-use bsengine_scripting::{load_scripts, SoundHandles};
+use bsengine_scripting::{load_scripts, load_scripts_with, Bootstrap, SoundHandles};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -220,7 +221,16 @@ pub fn register_scene_systems(app: &mut App) {
         (resolve_primitives, resolve_physics_bodies).chain(),
     )
     .add_systems(Update, handle_scene_load)
-    .add_systems(Update, resolve_primitives.after(handle_scene_load))
+    // After `handle_scene_load`, which wipes the record it works from.
+    .add_systems(Update, handle_scene_stream.after(handle_scene_load))
+    .add_systems(
+        Update,
+        resolve_primitives
+            .after(handle_scene_load)
+            // Streamed-in entities need their primitives resolved on the frame
+            // they arrive, exactly as a replacing load's do.
+            .after(handle_scene_stream),
+    )
     .add_systems(Update, resolve_physics_bodies.after(resolve_primitives))
     // After the emitters have been positioned for this frame, so the ray is
     // cast against where things actually are rather than where they were.
@@ -313,26 +323,106 @@ pub fn resolve_physics_bodies(
     }
 }
 
+/// Reads a scene file and parses it, through the archive in a packaged build
+/// and from disk otherwise.
+///
+/// Shared by the three paths that load one so that a streamed scene reaches the
+/// same reader as the entry scene -- a second level of a packaged game arrives
+/// here and nowhere else.
+fn read_scene(path: &str) -> Option<SceneDescriptor> {
+    let content = match bsengine_asset::pak_source::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!("[scene] failed to read {path}: {e}");
+            return None;
+        }
+    };
+    match ron::from_str(&content) {
+        Ok(s) => Some(s),
+        Err(e) => {
+            tracing::error!("[scene] failed to parse {path}: {e}");
+            None
+        }
+    }
+}
+
+/// Spawns `scene`'s entities and records which ones it added under `path`.
+///
+/// The recording is a diff of the world rather than a tag applied per entity,
+/// because a `prefab:` entry spawns a subtree whose children the spawner never
+/// names -- see [`LoadedScenes`].
+fn spawn_and_record(world: &mut World, path: &str, scene: &SceneDescriptor) {
+    let before: std::collections::HashSet<Entity> = world.iter_entities().map(|e| e.id()).collect();
+    spawn_scene_entities(world, &scene.entities);
+    let added: Vec<Entity> = world
+        .iter_entities()
+        .map(|e| e.id())
+        .filter(|e| !before.contains(e))
+        .collect();
+    world
+        .get_resource_or_insert_with(LoadedScenes::default)
+        .by_path
+        .insert(path.to_owned(), added);
+}
+
+/// Applies every queued streaming request, in the order they were made.
+///
+/// Deliberately *not* `handle_scene_load` with a flag. That function despawns
+/// every named entity and re-runs `BOOTSTRAP_JS`, which resets the whole script
+/// runtime -- the two things a streamed load must not do, since the scene
+/// already running is the one asking for this one.
+///
+/// One system over one queue so that `unload(x)` then `load(x)` reloads and
+/// `load(x)` then `unload(x)` leaves it gone. Splitting loads and unloads into
+/// separate passes would have to pick which kind runs first, and whichever it
+/// picked would be wrong for the other spelling.
+pub fn handle_scene_stream(world: &mut World) {
+    let Some(pending) = world.remove_resource::<PendingSceneStream>() else {
+        return;
+    };
+    let mut loaded_anything = false;
+    for op in pending.ops {
+        match op {
+            SceneStreamOp::Load(path) => {
+                let Some(scene) = read_scene(&path) else {
+                    continue;
+                };
+                spawn_and_record(world, &path, &scene);
+                loaded_anything = true;
+            }
+            SceneStreamOp::Unload(path) => {
+                let entities = world
+                    .get_resource_mut::<LoadedScenes>()
+                    .and_then(|mut loaded| loaded.by_path.remove(&path));
+                let Some(entities) = entities else {
+                    tracing::warn!("[scene] asked to unload {path}, which is not loaded");
+                    continue;
+                };
+                for entity in entities {
+                    // Already gone is not an error: a script may despawn
+                    // anything a scene brought in.
+                    world.despawn(entity);
+                }
+            }
+        }
+    }
+    if loaded_anything {
+        resolve_physics_bodies_world(world);
+        // ⚠️ `Bootstrap::Keep`. The resetting spelling re-runs `BOOTSTRAP_JS`,
+        // which replaces the whole `Bsengine` object -- every timer, handler and
+        // script the *running* scene registered. A replacing load wants that; a
+        // scene streamed in beside a level that is still playing must not have
+        // it, or the player's own scripts stop the moment a chunk arrives.
+        load_scripts_with(world, Bootstrap::Keep);
+    }
+}
+
 pub fn handle_scene_load(world: &mut World) {
     let pending = world.remove_resource::<PendingSceneLoad>();
     let Some(pending) = pending else { return };
 
-    // Through the archive when this is a packaged build, from disk otherwise.
-    // This is the site a script's `loadScene` reaches, so a second level of a
-    // packaged game arrives here and nowhere else.
-    let content = match bsengine_asset::pak_source::read_to_string(&pending.path) {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!("[scene] failed to read {}: {e}", pending.path);
-            return;
-        }
-    };
-    let scene: SceneDescriptor = match ron::from_str(&content) {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::error!("[scene] failed to parse {}: {e}", pending.path);
-            return;
-        }
+    let Some(scene) = read_scene(&pending.path) else {
+        return;
     };
 
     // Stop all sounds and clear handles
@@ -365,8 +455,15 @@ pub fn handle_scene_load(world: &mut World) {
     // without a HandleScope" the moment a script next runs) — see
     // BOOTSTRAP_JS's `var Bsengine` comment for the JS-side half of this fix.
 
-    // Spawn scene and resolve physics inline (Added<> won't fire for same-frame spawns)
-    spawn_scene_entities(world, &scene.entities);
+    // Spawn scene and resolve physics inline (Added<> won't fire for same-frame spawns).
+    // Recorded under its own path like any other load: a scene swapped in is as
+    // unloadable as one streamed in, and `LoadedScenes` is emptied above along
+    // with everything else this scene replaced.
+    world
+        .get_resource_or_insert_with(LoadedScenes::default)
+        .by_path
+        .clear();
+    spawn_and_record(world, &pending.path, &scene);
     resolve_physics_bodies_world(world);
     // Requests the new entities' scripts; it does not run them. Scripts are
     // `bevy_asset` assets, and `bevy_asset` publishes finished loads from
@@ -502,6 +599,108 @@ mod tests {
         )
         .unwrap();
         dir
+    }
+
+    /// A project whose entry scene counts frames in JS, and a second scene to
+    /// stream in beside it.
+    ///
+    /// The count lives in a module-level `var`, which is what makes it an
+    /// observation of the *script runtime* rather than of the entity: running
+    /// `BOOTSTRAP_JS` again replaces the whole `Bsengine` object, so the
+    /// counting script stops being called at all and its HUD entry stops
+    /// moving.
+    fn counting_scene_project() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("assets/scenes")).unwrap();
+        std::fs::create_dir_all(root.join("assets/scripts")).unwrap();
+        std::fs::write(
+            root.join("project.toml"),
+            "[project]\nname = \"Counting\"\nentry_scene = \"assets/scenes/a.ron\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("assets/scripts/count.js"),
+            "var ticks = 0;\n\
+             function onUpdate(name) {\n\
+               ticks += 1;\n\
+               Bsengine.setHudText(\"ticks\", String(ticks));\n\
+             }",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("assets/scenes/a.ron"),
+            r#"SceneDescriptor(entities: [EntityDescriptor(name: "Counter", script: Some("assets/scripts/count.js"))])"#,
+        )
+        .unwrap();
+        // ⚠️ The streamed scene carries a script of its own, and it has to.
+        // `load_scripts` returns before it reaches the bootstrap when there is
+        // nothing new to request, so a streamed scene with no scripts cannot
+        // reset anything -- and a fixture built that way passes whether the
+        // additive path resets the runtime or not. Measured: it did.
+        std::fs::write(
+            root.join("assets/scripts/streamed.js"),
+            "function onUpdate(name) { Bsengine.setHudText(\"streamed\", \"ran\"); }",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("assets/scenes/b.ron"),
+            r#"SceneDescriptor(entities: [EntityDescriptor(name: "Streamed", script: Some("assets/scripts/streamed.js"))])"#,
+        )
+        .unwrap();
+        dir
+    }
+
+    /// ⚠️ Streaming a scene in must not reset the script runtime.
+    ///
+    /// `load_scripts` runs `BOOTSTRAP_JS` before it requests anything, which
+    /// replaces the whole `Bsengine` object -- every registered script, timer
+    /// and handler. A *replacing* scene load wants exactly that. A scene loaded
+    /// alongside one that is still playing must not have it, and the first
+    /// version of the additive path called the resetting spelling: every
+    /// streamed-in chunk would have stopped the player's own scripts.
+    ///
+    /// Counted rather than merely "still there", because the entity survives
+    /// either way -- it is the *script* that dies.
+    #[test]
+    fn streaming_a_scene_in_leaves_the_running_scripts_alone() {
+        let dir = counting_scene_project();
+        let mut app = crate::test_mode::build_test_app(dir.path().to_str().unwrap(), None, false);
+
+        let ticks = |app: &bevy_app::App| -> u32 {
+            app.world()
+                .resource::<HudTexts>()
+                .0
+                .get("ticks")
+                .and_then(|t| t.parse().ok())
+                .unwrap_or(0)
+        };
+
+        for _ in 0..30 {
+            app.update();
+        }
+        let before = ticks(&app);
+        assert!(
+            before > 0,
+            "the fixture needs a script that is actually running before anything \
+             is streamed in"
+        );
+
+        let path = format!("{}/assets/scenes/b.ron", dir.path().to_str().unwrap());
+        app.world_mut()
+            .get_resource_or_insert_with(super::PendingSceneStream::default)
+            .ops
+            .push(super::SceneStreamOp::Load(path));
+        for _ in 0..10 {
+            app.update();
+        }
+
+        let after = ticks(&app);
+        assert!(
+            after > before,
+            "the counting script has to have kept counting across the streamed \
+             load: {before} before, {after} after"
+        );
     }
 
     /// A scene loaded from a script must end up with *its* scripts running,

@@ -613,6 +613,169 @@ mod tests {
         dir
     }
 
+    /// Every entity name currently in the world.
+    fn names(app: &mut App) -> Vec<String> {
+        let mut q = app.world_mut().query::<&bsengine_scene::Name>();
+        let mut found: Vec<String> = q.iter(app.world()).map(|n| n.0.clone()).collect();
+        found.sort();
+        found
+    }
+
+    /// Asks for a scene to be loaded alongside the current one and lets it land.
+    fn stream_in(app: &mut App, dir: &tempfile::TempDir, scene: &str) {
+        let path = format!("{}/assets/scenes/{scene}", dir.path().to_str().unwrap());
+        app.world_mut()
+            .get_resource_or_insert_with(bsengine_scene::PendingSceneStream::default)
+            .ops
+            .push(bsengine_scene::SceneStreamOp::Load(path));
+        app.update();
+    }
+
+    fn stream_out(app: &mut App, dir: &tempfile::TempDir, scene: &str) {
+        let path = format!("{}/assets/scenes/{scene}", dir.path().to_str().unwrap());
+        app.world_mut()
+            .get_resource_or_insert_with(bsengine_scene::PendingSceneStream::default)
+            .ops
+            .push(bsengine_scene::SceneStreamOp::Unload(path));
+        app.update();
+    }
+
+    #[test]
+    fn an_additive_load_adds_a_scene_without_taking_the_current_one_away() {
+        // The whole difference from `loadScene`, which despawns every named
+        // entity before it spawns anything.
+        let dir = write_two_scene_project();
+        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
+        app.update();
+        assert_eq!(names(&mut app), vec!["SceneA".to_string()]);
+
+        stream_in(&mut app, &dir, "b.ron");
+        assert_eq!(
+            names(&mut app),
+            vec!["SceneA".to_string(), "SceneB".to_string()],
+            "both scenes have to be in the world at once"
+        );
+    }
+
+    #[test]
+    fn unloading_takes_back_exactly_what_that_scene_brought_in() {
+        let dir = write_two_scene_project();
+        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
+        app.update();
+        stream_in(&mut app, &dir, "b.ron");
+        // ⚠️ The fixture only means anything if the streamed scene actually
+        // arrived; without this the unload below could be taking away nothing
+        // and the assertion after it would still hold.
+        assert!(names(&mut app).contains(&"SceneB".to_string()));
+
+        stream_out(&mut app, &dir, "b.ron");
+        assert_eq!(
+            names(&mut app),
+            vec!["SceneA".to_string()],
+            "the streamed scene goes, and the one that was already there stays"
+        );
+    }
+
+    #[test]
+    fn a_streamed_scene_can_be_brought_back_after_it_is_unloaded() {
+        // What a streaming system does all day: the same chunk comes and goes
+        // as the player moves. An unload that forgot to clear its record, or a
+        // load that refused a path it had seen before, would fail here and
+        // nowhere else.
+        let dir = write_two_scene_project();
+        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
+        app.update();
+        for _ in 0..3 {
+            stream_in(&mut app, &dir, "b.ron");
+            assert!(names(&mut app).contains(&"SceneB".to_string()));
+            stream_out(&mut app, &dir, "b.ron");
+            assert!(!names(&mut app).contains(&"SceneB".to_string()));
+        }
+    }
+
+    /// Queues several streaming requests and applies them in one frame.
+    fn stream_ops(app: &mut App, dir: &tempfile::TempDir, ops: &[(&str, bool)]) {
+        let mut queue = app
+            .world_mut()
+            .get_resource_or_insert_with(bsengine_scene::PendingSceneStream::default);
+        for (scene, load) in ops {
+            let path = format!("{}/assets/scenes/{scene}", dir.path().to_str().unwrap());
+            queue.ops.push(if *load {
+                bsengine_scene::SceneStreamOp::Load(path)
+            } else {
+                bsengine_scene::SceneStreamOp::Unload(path)
+            });
+        }
+        app.update();
+    }
+
+    #[test]
+    fn streaming_requests_are_applied_in_the_order_they_were_made() {
+        // ⚠️ Why loads and unloads share one queue. Split into two passes,
+        // something has to decide which kind runs first, and whichever it
+        // decided would be wrong for the other spelling -- `unload` then `load`
+        // is how a script reloads a chunk, and `load` then `unload` is how it
+        // changes its mind. Both have to mean what they say.
+        let dir = write_two_scene_project();
+
+        let mut reload = build_test_app(dir.path().to_str().unwrap(), None, false);
+        reload.update();
+        stream_ops(&mut reload, &dir, &[("b.ron", true)]);
+        stream_ops(&mut reload, &dir, &[("b.ron", false), ("b.ron", true)]);
+        assert!(
+            names(&mut reload).contains(&"SceneB".to_string()),
+            "unload then load is a reload, and has to leave the scene present"
+        );
+
+        let mut cancel = build_test_app(dir.path().to_str().unwrap(), None, false);
+        cancel.update();
+        stream_ops(&mut cancel, &dir, &[("b.ron", true), ("b.ron", false)]);
+        assert!(
+            !names(&mut cancel).contains(&"SceneB".to_string()),
+            "load then unload has to leave it gone"
+        );
+    }
+
+    #[test]
+    fn unloading_stops_claiming_the_scene_is_loaded() {
+        // The record is what a streaming system reads to decide whether a chunk
+        // is already in. Leaving a path in it after the entities are gone makes
+        // the next "is this loaded?" answer yes about nothing.
+        let dir = write_two_scene_project();
+        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
+        app.update();
+        let path = format!("{}/assets/scenes/b.ron", dir.path().to_str().unwrap());
+
+        stream_in(&mut app, &dir, "b.ron");
+        assert!(app
+            .world()
+            .resource::<bsengine_scene::LoadedScenes>()
+            .by_path
+            .contains_key(&path));
+
+        stream_out(&mut app, &dir, "b.ron");
+        assert!(
+            !app.world()
+                .resource::<bsengine_scene::LoadedScenes>()
+                .by_path
+                .contains_key(&path),
+            "an unloaded scene must not still be listed as loaded"
+        );
+    }
+
+    #[test]
+    fn unloading_a_scene_that_is_not_loaded_is_a_warning_and_nothing_else() {
+        let dir = write_two_scene_project();
+        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
+        app.update();
+        stream_out(&mut app, &dir, "b.ron");
+        assert_eq!(
+            names(&mut app),
+            vec!["SceneA".to_string()],
+            "a scene nobody loaded must not take anything else with it"
+        );
+    }
+
     #[test]
     fn build_test_app_with_no_override_loads_entry_scene() {
         let dir = write_two_scene_project();

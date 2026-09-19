@@ -220,6 +220,29 @@ pub fn recompute_normals(vertices: &mut [Vertex], indices: &[u32]) {
     }
 }
 
+/// The tunables a step reads, mirroring the fields of the same name on
+/// [`Cloth`](bsengine_scene::Cloth).
+///
+/// A struct rather than six more parameters: `step` stood at ten already, and
+/// every one of these is read afresh each frame so that editing it on a live
+/// cloth takes effect immediately -- baking any of them into the links at
+/// generation time is what this shape exists to keep impossible.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StepParams {
+    /// Constraint passes per step.
+    pub iterations: u32,
+    /// Enforces [`LinkKind::Structural`] links.
+    pub stiffness: f32,
+    /// Enforces [`LinkKind::Bend`] links. Separate because a fabric that barely
+    /// stretches can still fold freely.
+    pub bending_stiffness: f32,
+    /// Fraction of velocity discarded each step.
+    pub damping: f32,
+    /// How close two of the sheet's own vertices may come before they push each
+    /// other apart. Zero switches self-collision off.
+    pub self_collision_distance: f32,
+}
+
 /// Advances the cloth one step, in place.
 ///
 /// `previous` carries the velocity: a vertex's motion is the distance it
@@ -230,12 +253,7 @@ pub fn recompute_normals(vertices: &mut [Vertex], indices: &[u32]) {
 /// `pinned` holds indices that do not move. They still participate in every
 /// constraint -- that is how the cloth hangs from them.
 ///
-/// `stiffness` enforces [`LinkKind::Structural`] links and `bending_stiffness`
-/// enforces [`LinkKind::Bend`] ones. Two numbers rather than one because a
-/// fabric that barely stretches can still fold freely, and both stay parameters
-/// rather than being baked into the links so that editing either on a live
-/// cloth takes effect the same frame.
-#[allow(clippy::too_many_arguments)]
+/// The tunables come in as [`StepParams`].
 pub fn step(
     positions: &mut [Vec3],
     previous: &mut [Vec3],
@@ -243,11 +261,15 @@ pub fn step(
     pinned: &[u32],
     gravity: Vec3,
     dt: f32,
-    iterations: u32,
-    stiffness: f32,
-    bending_stiffness: f32,
-    damping: f32,
+    params: &StepParams,
 ) {
+    let StepParams {
+        iterations,
+        stiffness,
+        bending_stiffness,
+        damping,
+        self_collision_distance,
+    } = *params;
     if positions.len() != previous.len() || positions.is_empty() || dt <= 0.0 {
         return;
     }
@@ -323,6 +345,93 @@ pub fn step(
             }
         }
     }
+
+    // Self-collision after the constraint passes rather than inside them: it
+    // builds a spatial index over every vertex, which is far too much to pay
+    // once per iteration, and running it last is the stronger guarantee anyway
+    // -- the positions that leave this function are the separated ones.
+    push_apart_touching_vertices(positions, &is_pinned, self_collision_distance);
+}
+
+/// Pushes any two vertices closer than `distance` apart until they are exactly
+/// that far, leaving pinned ones where they are.
+///
+/// This is what stops a cloth passing through itself -- a cape folding over its
+/// own hem, a curtain gathered at the bottom. Unity spells it
+/// `selfCollisionDistance` and Unreal `SelfCollisionThickness`; Godot has none.
+///
+/// # Why no exclusion list
+///
+/// The obvious worry is that this fights the links, since two vertices an edge
+/// apart are always each other's nearest neighbours. It does not, as long as
+/// `distance` is smaller than the shortest rest length -- Unity documents the
+/// same rule for the same setting, and `step_params` in `cloth.rs` enforces it.
+/// A linked pair only comes within `distance` when it is compressed below its
+/// own rest length, and then the link wants them *further* apart than this
+/// does. Both push the same way; this one simply asks for less.
+///
+/// # Why a spatial hash
+///
+/// Every pair is the honest formulation and is unusable: [`MAX_CLOTH_VERTICES`]
+/// is 65536, so all-pairs would be two billion tests a frame. Bucketing by a
+/// grid of `distance`-sized cells means each vertex only looks at the 27 cells
+/// it could possibly touch -- and two vertices far apart in the mesh but folded
+/// together in space, which is the whole case this exists for, land in the same
+/// bucket regardless of their indices.
+fn push_apart_touching_vertices(
+    positions: &mut [Vec3],
+    is_pinned: &dyn Fn(usize) -> bool,
+    distance: f32,
+) {
+    if !distance.is_finite() || distance <= 0.0 {
+        return;
+    }
+    let cell_of = |p: Vec3| {
+        (
+            (p.x / distance).floor() as i32,
+            (p.y / distance).floor() as i32,
+            (p.z / distance).floor() as i32,
+        )
+    };
+    let mut buckets: std::collections::HashMap<(i32, i32, i32), Vec<usize>> =
+        std::collections::HashMap::new();
+    for (i, p) in positions.iter().enumerate() {
+        buckets.entry(cell_of(*p)).or_default().push(i);
+    }
+
+    for i in 0..positions.len() {
+        let (cx, cy, cz) = cell_of(positions[i]);
+        for dx in -1..=1 {
+            for dy in -1..=1 {
+                for dz in -1..=1 {
+                    let Some(cell) = buckets.get(&(cx + dx, cy + dy, cz + dz)) else {
+                        continue;
+                    };
+                    for &j in cell {
+                        // Each pair once, and never a vertex against itself.
+                        if j <= i {
+                            continue;
+                        }
+                        let delta = positions[j] - positions[i];
+                        let apart = delta.length();
+                        if apart >= distance || apart <= f32::EPSILON {
+                            continue;
+                        }
+                        let correction = delta * ((distance - apart) / apart);
+                        match (is_pinned(i), is_pinned(j)) {
+                            (true, true) => {}
+                            (true, false) => positions[j] += correction,
+                            (false, true) => positions[i] -= correction,
+                            (false, false) => {
+                                positions[i] -= correction * 0.5;
+                                positions[j] += correction * 0.5;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -336,6 +445,19 @@ mod tests {
     /// What every test written before bending existed passed, and what
     /// `Cloth::default()` still uses.
     const NO_BEND: f32 = 0.0;
+    /// What every test written before self-collision existed passed.
+    const NO_SELF_COLLISION: f32 = 0.0;
+
+    /// The settings this suite steps with, so a test names only what it varies.
+    fn params() -> StepParams {
+        StepParams {
+            iterations: DEFAULT_ITERATIONS,
+            stiffness: DEFAULT_STIFFNESS,
+            bending_stiffness: NO_BEND,
+            damping: DEFAULT_DAMPING,
+            self_collision_distance: NO_SELF_COLLISION,
+        }
+    }
     const DEFAULT_DAMPING: f32 = 0.02;
     const DEFAULT_ITERATIONS: u32 = 8;
 
@@ -363,10 +485,7 @@ mod tests {
                 pinned,
                 Vec3::new(0.0, -9.81, 0.0),
                 1.0 / 60.0,
-                DEFAULT_ITERATIONS,
-                DEFAULT_STIFFNESS,
-                NO_BEND,
-                DEFAULT_DAMPING,
+                &params(),
             );
         }
         positions.to_vec()
@@ -548,10 +667,10 @@ mod tests {
                     &pinned,
                     Vec3::ZERO,
                     1.0 / 60.0,
-                    DEFAULT_ITERATIONS,
-                    DEFAULT_STIFFNESS,
-                    bending,
-                    DEFAULT_DAMPING,
+                    &StepParams {
+                        bending_stiffness: bending,
+                        ..params()
+                    },
                 );
             }
             let span_error: f32 = bends
@@ -601,10 +720,7 @@ mod tests {
                     &pinned,
                     Vec3::new(0.0, -9.81, 0.0),
                     1.0 / 60.0,
-                    DEFAULT_ITERATIONS,
-                    DEFAULT_STIFFNESS,
-                    NO_BEND,
-                    DEFAULT_DAMPING,
+                    &params(),
                 );
             }
             positions
@@ -614,6 +730,166 @@ mod tests {
             assert_eq!(
                 with, without,
                 "vertex {i} moved because bend links were present at zero stiffness"
+            );
+        }
+    }
+
+    /// The closest any two vertices of `positions` come to each other.
+    fn closest_pair(positions: &[Vec3]) -> f32 {
+        let mut closest = f32::MAX;
+        for i in 0..positions.len() {
+            for j in i + 1..positions.len() {
+                closest = closest.min((positions[j] - positions[i]).length());
+            }
+        }
+        closest
+    }
+
+    #[test]
+    fn self_collision_keeps_a_folded_sheet_out_of_itself() {
+        // ⚠️ The fixture folds the sheet back over itself, which is the only
+        // arrangement that can tell this feature from nothing: vertices an edge
+        // apart are held by their links whatever this does, so the pair that
+        // matters has to be one the links never touch -- here, row 0 laid
+        // directly on top of row 4.
+        let fold = |distance: f32| {
+            let (mut positions, indices) = sheet(5);
+            let links = links_from_indices(&positions, &indices);
+            // Rows 3 and 4 folded back over rows 1 and 0, a hair above them.
+            for row in 3..5u32 {
+                for column in 0..5u32 {
+                    let i = (row * 5 + column) as usize;
+                    positions[i] = Vec3::new(column as f32, 0.02, (4 - row) as f32);
+                }
+            }
+            let pinned: Vec<u32> = (0..5).collect();
+            let mut previous = positions.clone();
+            for _ in 0..120 {
+                step(
+                    &mut positions,
+                    &mut previous,
+                    &links,
+                    &pinned,
+                    Vec3::ZERO,
+                    1.0 / 60.0,
+                    &StepParams {
+                        self_collision_distance: distance,
+                        ..params()
+                    },
+                );
+            }
+            closest_pair(&positions)
+        };
+
+        let through = fold(NO_SELF_COLLISION);
+        assert!(
+            through < 0.1,
+            "without self-collision the folded rows must stay lying on each \
+             other -- the fixture is pointless otherwise: closest pair {through}"
+        );
+        let apart = fold(0.5);
+        assert!(
+            apart > 0.4,
+            "with a 0.5 distance no two vertices may be closer than that: \
+             closest pair {apart}"
+        );
+    }
+
+    #[test]
+    fn self_collision_sees_a_pair_that_straddles_two_buckets() {
+        // ⚠️ The spatial hash's whole correctness condition, and the fold test
+        // above cannot check it: those vertices happened to land in the same
+        // bucket, so a version that only ever looked at its own cell passed.
+        //
+        // Two free vertices 0.02 apart, placed either side of a cell boundary
+        // -- cells are `distance` wide, so 0.49 and 0.51 are in different ones.
+        // Looking only at its own bucket, neither ever sees the other.
+        let mut positions = vec![Vec3::new(0.49, 0.0, 0.0), Vec3::new(0.51, 0.0, 0.0)];
+        let mut previous = positions.clone();
+        step(
+            &mut positions,
+            &mut previous,
+            &[],
+            &[],
+            Vec3::ZERO,
+            1.0 / 60.0,
+            &StepParams {
+                self_collision_distance: 0.5,
+                ..params()
+            },
+        );
+        let apart = (positions[1] - positions[0]).length();
+        assert!(
+            (apart - 0.5).abs() < 1.0e-5,
+            "the pair should have been pushed to exactly 0.5, got {apart}"
+        );
+    }
+
+    #[test]
+    fn self_collision_at_zero_is_the_sheet_exactly_as_it_was() {
+        // The same equality `bending_at_zero_is_the_sheet_exactly_as_it_was`
+        // states, for the same reason: every cloth authored before this field
+        // has it at zero, and the guarantee belongs to `step` rather than to
+        // the component.
+        let run = |distance: f32| {
+            let (mut positions, indices) = sheet(4);
+            let links = links_from_indices(&positions, &indices);
+            let pinned: Vec<u32> = (0..4).collect();
+            let mut previous = positions.clone();
+            for _ in 0..120 {
+                step(
+                    &mut positions,
+                    &mut previous,
+                    &links,
+                    &pinned,
+                    Vec3::new(0.0, -9.81, 0.0),
+                    1.0 / 60.0,
+                    &StepParams {
+                        self_collision_distance: distance,
+                        ..params()
+                    },
+                );
+            }
+            positions
+        };
+        for (i, (off, none)) in run(0.0).iter().zip(run(-1.0).iter()).enumerate() {
+            assert_eq!(off, none, "vertex {i}");
+        }
+    }
+
+    #[test]
+    fn self_collision_never_moves_a_pinned_vertex() {
+        // Pins are the one promise this component makes unconditionally, and a
+        // pinned vertex is exactly the one another vertex is most likely to be
+        // pressed against -- a cape's hem swinging back onto its own collar.
+        let (mut positions, indices) = sheet(4);
+        let links = links_from_indices(&positions, &indices);
+        let pinned: Vec<u32> = (0..4).collect();
+        // Fold the far row straight onto the pinned one.
+        for column in 0..4u32 {
+            let i = (3 * 4 + column) as usize;
+            positions[i] = Vec3::new(column as f32, 0.01, 0.0);
+        }
+        let mut previous = positions.clone();
+        for _ in 0..60 {
+            step(
+                &mut positions,
+                &mut previous,
+                &links,
+                &pinned,
+                Vec3::ZERO,
+                1.0 / 60.0,
+                &StepParams {
+                    self_collision_distance: 0.5,
+                    ..params()
+                },
+            );
+        }
+        for (i, p) in positions.iter().enumerate().take(4) {
+            assert_eq!(
+                *p,
+                Vec3::new(i as f32, 0.0, 0.0),
+                "pinned vertex {i} was pushed out of the way"
             );
         }
     }
@@ -738,10 +1014,10 @@ mod tests {
                 &pinned,
                 Vec3::new(0.0, -9.81, 0.0),
                 1.0 / 60.0,
-                DEFAULT_ITERATIONS,
-                DEFAULT_STIFFNESS,
-                NO_BEND,
-                damping,
+                &StepParams {
+                    damping,
+                    ..params()
+                },
             );
             if s >= steps / 2 {
                 total += positions
@@ -790,10 +1066,7 @@ mod tests {
                 &pinned,
                 Vec3::new(0.0, -9.81, 0.0),
                 1.0 / 60.0,
-                DEFAULT_ITERATIONS,
-                DEFAULT_STIFFNESS,
-                NO_BEND,
-                DEFAULT_DAMPING,
+                &params(),
             );
         }
         // A 4x4 sheet of unit links hangs at most 3 units from its pins, so
@@ -825,10 +1098,10 @@ mod tests {
                     &pinned,
                     Vec3::new(0.0, -9.81, 0.0),
                     1.0 / 60.0,
-                    DEFAULT_ITERATIONS,
-                    stiffness,
-                    NO_BEND,
-                    DEFAULT_DAMPING,
+                    &StepParams {
+                        stiffness,
+                        ..params()
+                    },
                 );
             }
             links
@@ -860,10 +1133,7 @@ mod tests {
             &[],
             Vec3::new(0.0, -9.81, 0.0),
             0.0,
-            DEFAULT_ITERATIONS,
-            DEFAULT_STIFFNESS,
-            NO_BEND,
-            DEFAULT_DAMPING,
+            &params(),
         );
         assert!(positions.iter().all(|p| p.is_finite()), "{positions:?}");
     }

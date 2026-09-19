@@ -768,6 +768,24 @@ pub struct Cloth {
     /// Constraint passes per step. More passes make the sheet stiffer and
     /// converge closer to its rest lengths, at a proportional cost.
     pub iterations: u32,
+    /// How close two of the sheet's own vertices may come before they push each
+    /// other apart, in local units. Zero -- the default -- lets the cloth pass
+    /// through itself.
+    ///
+    /// This is what stops a cape folding through its own hem. Unity spells it
+    /// `selfCollisionDistance` and Unreal `SelfCollisionThickness`; Godot has no
+    /// equivalent.
+    ///
+    /// ⚠️ Must be smaller than [`spacing`](Cloth::spacing), and is clamped with
+    /// a warning if it is not. Unity documents the same rule for the same
+    /// reason: at or above the distance between neighbouring vertices, every
+    /// vertex is permanently inside its neighbour and the sheet inflates
+    /// instead of draping.
+    ///
+    /// Unlike the other settings this one costs something to leave on -- every
+    /// vertex is bucketed into a spatial grid once per step -- which is the
+    /// other half of why it is off by default.
+    pub self_collision_distance: f32,
     /// How far the sheet's vertices are held off a collider's surface, in world
     /// units. Zero or less turns collision off entirely.
     ///
@@ -802,6 +820,7 @@ impl Default for Cloth {
             gravity: [0.0, -9.81, 0.0],
             stiffness: 0.9,
             bending_stiffness: 0.0,
+            self_collision_distance: 0.0,
             damping: 0.02,
             iterations: 8,
             // A centimetre: fabric-thick. Enough that the sheet visibly rests

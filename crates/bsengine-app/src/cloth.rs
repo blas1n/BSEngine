@@ -274,6 +274,38 @@ fn regenerate_resized_cloth(
     }
 }
 
+/// The tunables this frame's step should read, with the one rule the solver
+/// cannot check for itself applied.
+///
+/// ⚠️ `self_collision_distance` is clamped below `spacing`. At or above it every
+/// vertex is permanently inside its neighbours and the sheet inflates rather
+/// than draping -- Unity documents the same rule for the same setting. Clamped
+/// rather than refused, because the sensible thing to do with "too much
+/// thickness" is as much as will work, and the warning says so.
+fn step_params(cloth: &Cloth) -> cloth_solver::StepParams {
+    let limit = cloth.spacing * SELF_COLLISION_LIMIT;
+    let mut self_collision_distance = cloth.self_collision_distance;
+    if self_collision_distance > limit {
+        warn!(
+            "[cloth] a self-collision distance of {} is not smaller than the {}              spacing between vertices; using {limit}",
+            cloth.self_collision_distance, cloth.spacing
+        );
+        self_collision_distance = limit;
+    }
+    cloth_solver::StepParams {
+        iterations: cloth.iterations,
+        stiffness: cloth.stiffness,
+        bending_stiffness: cloth.bending_stiffness,
+        damping: cloth.damping,
+        self_collision_distance,
+    }
+}
+
+/// The largest fraction of a sheet's vertex spacing its self-collision distance
+/// may take. Short of the full spacing, so a pair at exactly its rest length is
+/// never also touching.
+const SELF_COLLISION_LIMIT: f32 = 0.9;
+
 /// How far into a collider a vertex can be and still be pushed back out.
 ///
 /// `project_point`'s `max_dist` is measured to the *surface*, so a vertex deep
@@ -391,10 +423,7 @@ fn simulate_cloth(
             &cloth.pinned,
             local_gravity,
             dt,
-            cloth.iterations,
-            cloth.stiffness,
-            cloth.bending_stiffness,
-            cloth.damping,
+            &step_params(cloth),
         );
 
         // Collision last, after the constraints rather than inside them: a
@@ -460,6 +489,7 @@ mod tests {
             gravity: [0.0, -9.81, 0.0],
             stiffness: 0.9,
             bending_stiffness: 0.0,
+            self_collision_distance: 0.0,
             damping: 0.02,
             iterations: 8,
             collision_thickness: 0.01,
@@ -1274,6 +1304,90 @@ mod tests {
         assert_eq!(
             app.world().get::<ClothSim>(entity).unwrap().positions.len(),
             5 * 4
+        );
+    }
+
+    #[test]
+    fn a_self_collision_distance_is_clamped_below_the_vertex_spacing() {
+        // ⚠️ At or above the spacing, every vertex is permanently inside its
+        // own neighbours and the sheet inflates instead of draping. Unity
+        // documents the same rule; the solver cannot check it, because it is
+        // handed links and not a grid.
+        let over = Cloth {
+            spacing: 0.5,
+            self_collision_distance: 2.0,
+            ..curtain()
+        };
+        let clamped = step_params(&over).self_collision_distance;
+        assert!(
+            clamped < over.spacing,
+            "must end up under the {} spacing, got {clamped}",
+            over.spacing
+        );
+
+        // And a distance that already fits is passed through untouched -- a
+        // clamp that always clamps would satisfy the assertion above.
+        let fits = Cloth {
+            spacing: 0.5,
+            self_collision_distance: 0.2,
+            ..curtain()
+        };
+        assert_eq!(step_params(&fits).self_collision_distance, 0.2);
+        // The rest of the settings travel unchanged.
+        assert_eq!(step_params(&fits).stiffness, fits.stiffness);
+        assert_eq!(step_params(&fits).iterations, fits.iterations);
+    }
+
+    #[test]
+    fn a_cloth_hanging_from_its_own_middle_does_not_pass_through_itself() {
+        // ⚠️ The only test that drives `self_collision_distance` through the
+        // component, and it needs an arrangement where the sheet meets itself.
+        // Pinning the middle row does it with no collider at all: everything
+        // above the pins and everything below swings down about the same line,
+        // so the two halves end up hanging in the same place.
+        //
+        // An earlier fixture draped the sheet over a narrow rail, which never
+        // folded -- collision against the world is frictionless, so the sheet
+        // simply slid off. Closest pair came back as exactly the vertex spacing
+        // both with self-collision and without, which is the sheet reporting
+        // that nothing had folded at all.
+        let fold = |distance: f32| {
+            let mut app = test_app();
+            let entity = spawn(
+                &mut app,
+                Cloth {
+                    columns: 6,
+                    rows: 6,
+                    spacing: 0.3,
+                    // The middle row, and nothing else.
+                    pinned: (12..18).collect(),
+                    self_collision_distance: distance,
+                    ..curtain()
+                },
+                Quat::IDENTITY,
+            );
+            for _ in 0..300 {
+                app.update();
+            }
+            let sim = app.world().get::<ClothSim>(entity).unwrap();
+            let mut closest = f32::MAX;
+            for i in 0..sim.positions.len() {
+                for j in i + 1..sim.positions.len() {
+                    closest = closest.min((sim.positions[j] - sim.positions[i]).length());
+                }
+            }
+            closest
+        };
+
+        let through = fold(0.0);
+        let apart = fold(0.2);
+        assert!(
+            through < 0.15,
+            "the fixture only means something if the halves meet without              self-collision: closest pair {through}"
+        );
+        assert!(
+            apart > 0.15,
+            "with a 0.2 distance no two vertices may come that close:              closest pair {apart}"
         );
     }
 

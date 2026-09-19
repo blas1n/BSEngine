@@ -597,6 +597,51 @@ pub struct PendingSceneLoad {
     pub path: String,
 }
 
+/// One requested change to what is streamed in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SceneStreamOp {
+    /// Spawn this scene *alongside* whatever is already in the world.
+    ///
+    /// The difference from [`PendingSceneLoad`] is the whole of what makes
+    /// streaming possible: a level built from pieces has to bring one in
+    /// without tearing down the rest. Unity spells it `LoadSceneMode.Additive`
+    /// and Unreal `LoadStreamLevel`.
+    Load(String),
+    /// Despawn everything that scene put into the world.
+    Unload(String),
+}
+
+/// Streaming requests waiting to be applied, in the order they were made.
+///
+/// One queue rather than a list of loads and a list of unloads, so that
+/// `unload(x)` then `load(x)` means a reload and `load(x)` then `unload(x)`
+/// means it is gone. Two queues would have to pick which kind goes first, and
+/// whichever it picked would be wrong for the other spelling.
+#[derive(Resource, Default)]
+pub struct PendingSceneStream {
+    /// The requests, oldest first.
+    pub ops: Vec<SceneStreamOp>,
+}
+
+/// Which entities each loaded scene put into the world, so that one of them can
+/// be taken back out again.
+///
+/// Recorded by **diffing the world** around a load rather than by tagging each
+/// entity as it spawns. A scene's `prefab:` entries each spawn a whole subtree,
+/// and the spawner only ever learns about their roots -- tagging at the spawn
+/// site would leave every prefab child unaccounted for, and unloading would
+/// leave them behind with their parents gone. Whatever appeared during the load
+/// belongs to the load, and nothing else spawns during it.
+///
+/// Entries may name entities that are already gone: a script is free to despawn
+/// anything a scene brought in, and unloading skips what is no longer there
+/// rather than treating it as an error.
+#[derive(Resource, Default)]
+pub struct LoadedScenes {
+    /// Scene path to the entities it spawned.
+    pub by_path: std::collections::HashMap<String, Vec<bevy_ecs::entity::Entity>>,
+}
+
 /// A chunked terrain surface: a heightmap divided into `chunk_count.0 *
 /// chunk_count.1` chunks, each rendered and collided independently (both are
 /// chunked, not just rendering, because a single engine-wide Rapier

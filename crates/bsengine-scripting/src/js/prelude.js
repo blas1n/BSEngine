@@ -796,6 +796,11 @@ var Bsengine = {
     },
 
     loadScene:      (path)                 => Deno.core.ops.bsengine_load_scene(path),
+    // Alongside the current world rather than replacing it, and without
+    // resetting the script runtime -- the scene calling this keeps running.
+    loadSceneAdditive: (path)              => Deno.core.ops.bsengine_load_scene_additive(path),
+    // Despawns everything that scene brought in, by the path it was loaded with.
+    unloadScene:    (path)                 => Deno.core.ops.bsengine_unload_scene(path),
 
     save:           (path)                 => Deno.core.ops.bsengine_save_game(path ?? 'save.json'),
     load:           (path)                 => Deno.core.ops.bsengine_load_game(path ?? 'save.json'),

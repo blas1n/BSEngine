@@ -155,6 +155,7 @@ declare namespace Bsengine {
     function isTweenReversed(name: string): boolean;
     function load(path: string): void;
     function loadScene(path: string): void;
+    function loadSceneAdditive(path: string): void;
     function lockRotation(name: string, lockX: boolean, lockY: boolean, lockZ: boolean): void;
     function lockTranslation(name: string, lockX: boolean, lockY: boolean, lockZ: boolean): void;
     function log(msg: string): void;
@@ -280,6 +281,7 @@ declare namespace Bsengine {
     function sleep(name: string): void;
     function spawn(params: unknown): void;
     function stopSound(id: number): void;
+    function unloadScene(path: string): void;
     function vec3(x: unknown, y: unknown, z: unknown): unknown;
     function version(): string;
     function wakeUp(name: string): void;

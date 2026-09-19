@@ -1198,6 +1198,16 @@ pub enum ScriptCommand {
         /// Filesystem path of the resource to load.
         path: String,
     },
+    /// Load a scene from a file *alongside* the current world.
+    LoadSceneAdditive {
+        /// Filesystem path of the resource to load.
+        path: String,
+    },
+    /// Despawn everything a previously loaded scene brought in.
+    UnloadScene {
+        /// Filesystem path the scene was loaded from.
+        path: String,
+    },
     /// Set the skybox texture used for the background/environment.
     SetSkybox {
         /// Filesystem path of the resource to load.
@@ -6092,6 +6102,27 @@ pub fn bsengine_load_scene(#[string] path: String) {
     COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::LoadScene { path }));
 }
 
+/// Queue loading a scene from a file alongside the current world.
+///
+/// Unlike [`bsengine_load_scene`] this despawns nothing and does not reset the
+/// script runtime, so the scene that asked for this one keeps running.
+#[op2(fast)]
+pub fn bsengine_load_scene_additive(#[string] path: String) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::LoadSceneAdditive { path })
+    });
+}
+
+/// Queue despawning everything a previously loaded scene brought in.
+///
+/// The path is the one it was loaded with. Unloading a scene that is not
+/// loaded warns and does nothing.
+#[op2(fast)]
+pub fn bsengine_unload_scene(#[string] path: String) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::UnloadScene { path }));
+}
+
 /// Queue setting the skybox texture used for the background/environment.
 #[op2(fast)]
 pub fn bsengine_set_skybox(#[string] path: String) {
@@ -6475,6 +6506,8 @@ deno_core::extension!(
         bsengine_ui_clear,
         bsengine_ui_is_clicked,
         bsengine_load_scene,
+        bsengine_load_scene_additive,
+        bsengine_unload_scene,
         bsengine_is_mouse_pressed,
         bsengine_is_mouse_down,
         bsengine_is_mouse_up,

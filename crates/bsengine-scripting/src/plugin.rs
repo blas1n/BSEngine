@@ -452,7 +452,40 @@ fn capture_collision_events(
 /// most for a path that *failed*: `AssetServer::load` on a `Failed` path
 /// resets it to `Loading` and starts over, which would make the failure
 /// permanently unobservable. See [`bsengine_asset::AssetSlot::GaveUp`].
+/// Requests the JS source for every entity that has a `ScriptPath` and no
+/// `ScriptLoad`, clearing all script state first.
+///
+/// The spelling every replacing scene load uses. See [`load_scripts_with`] for
+/// the variant that leaves the running scripts alone.
 pub fn load_scripts(world: &mut World) {
+    load_scripts_with(world, Bootstrap::Reset);
+}
+
+/// Whether [`load_scripts_with`] should re-run `BOOTSTRAP_JS` before requesting
+/// anything.
+///
+/// ⚠️ `BOOTSTRAP_JS` replaces the whole `Bsengine` object -- every registered
+/// script, timer, collision and message handler, and the UI state with them. A
+/// *replacing* scene load wants exactly that, and wants it on the same frame as
+/// the despawn. A scene loaded **alongside** the running one must not have it:
+/// the scene that asked for the new one is still playing, and resetting the
+/// runtime under it would stop its timers and drop its handlers mid-level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Bootstrap {
+    /// Re-run `BOOTSTRAP_JS`, clearing all script state first.
+    Reset,
+    /// Leave the running script state alone and only request the new sources.
+    Keep,
+}
+
+/// Requests the JS source for every entity that has a `ScriptPath` and no
+/// `ScriptLoad`, resetting the script runtime first or not as `bootstrap` says.
+///
+/// Returns before it reaches the bootstrap when there is nothing new to
+/// request, which is worth knowing when testing: a scene with no scripts cannot
+/// reset anything, so a fixture built from one passes whichever variant it is
+/// given.
+pub fn load_scripts_with(world: &mut World, bootstrap: Bootstrap) {
     let project_dir = world
         .get_resource::<ProjectDir>()
         .map(|pd| pd.0.clone())
@@ -481,10 +514,12 @@ pub fn load_scripts(world: &mut World) {
         return;
     }
 
-    if let Some(mut rt) = world.get_non_send_resource_mut::<ScriptRuntimeResource>() {
-        if let Err(e) = rt.0.exec_source(BOOTSTRAP_JS, "<bootstrap>") {
-            tracing::error!("[scripting] bootstrap failed: {e}");
-            return;
+    if bootstrap == Bootstrap::Reset {
+        if let Some(mut rt) = world.get_non_send_resource_mut::<ScriptRuntimeResource>() {
+            if let Err(e) = rt.0.exec_source(BOOTSTRAP_JS, "<bootstrap>") {
+                tracing::error!("[scripting] bootstrap failed: {e}");
+                return;
+            }
         }
     }
 
@@ -2573,6 +2608,24 @@ fn run_scripts(world: &mut World) {
                 // project_dir.
                 let full_path = resolve_project_path(world.get_resource::<ProjectDir>(), &path);
                 world.insert_resource(PendingSceneLoad { path: full_path });
+            }
+            ScriptCommand::LoadSceneAdditive { path } => {
+                // Same project-relative convention as `LoadScene` above, and the
+                // same reason: the loader reads the path directly.
+                let full_path = resolve_project_path(world.get_resource::<ProjectDir>(), &path);
+                world
+                    .get_resource_or_insert_with(bsengine_scene::PendingSceneStream::default)
+                    .ops
+                    .push(bsengine_scene::SceneStreamOp::Load(full_path));
+            }
+            ScriptCommand::UnloadScene { path } => {
+                // Resolved the same way, so a scene unloads by the path it was
+                // loaded with rather than by a second spelling of it.
+                let full_path = resolve_project_path(world.get_resource::<ProjectDir>(), &path);
+                world
+                    .get_resource_or_insert_with(bsengine_scene::PendingSceneStream::default)
+                    .ops
+                    .push(bsengine_scene::SceneStreamOp::Unload(full_path));
             }
             ScriptCommand::SetVisible { name, visible } => {
                 let mut q = world.query::<(&Name, &mut Visible)>();

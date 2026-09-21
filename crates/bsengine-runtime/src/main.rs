@@ -85,7 +85,24 @@ fn main() {
         return;
     }
 
-    run_windowed(&first_arg);
+    let mut frame_limit = None;
+    while let Some(flag) = args.next() {
+        match flag.as_str() {
+            "--frames" => {
+                let value = args
+                    .next()
+                    .unwrap_or_else(|| panic!("--frames requires a count"));
+                frame_limit = Some(
+                    value
+                        .parse::<u32>()
+                        .unwrap_or_else(|_| panic!("--frames expects a number, got {value}")),
+                );
+            }
+            other => panic!("unknown argument after project dir: {other}"),
+        }
+    }
+
+    run_windowed(&first_arg, frame_limit);
 }
 
 /// `--fixup <dir> [--json]`: settles every reference in a project that only
@@ -278,7 +295,66 @@ fn open_pak(project_dir: &str) -> Option<std::sync::Arc<bsengine_asset::pak::Pak
     Some(pak)
 }
 
-fn run_windowed(project_dir: &str) {
+/// Opens the game's window and runs it until it is closed -- or, with
+/// `--frames`, until it has drawn that many frames.
+///
+/// Thin on purpose: everything the player's app needs is assembled by
+/// [`build_windowed_app`], and the only thing added here is the optional frame
+/// limit. `window_smoke.rs` reaches this through the real executable, so what it
+/// certifies is the arrangement a player gets rather than a second one
+/// assembled for the test.
+fn run_windowed(project_dir: &str, frame_limit: Option<u32>) {
+    let mut app = build_windowed_app(project_dir);
+    if let Some(frames) = frame_limit {
+        quit_after_frames(&mut app, frames);
+    }
+    app.run();
+}
+
+/// Makes the game quit on its own after `frames` frames, reporting what it drew
+/// on the way out -- what `--frames` does, and the whole of it.
+///
+/// ⚠️ Exists because the windowed path cannot be tested in-process. winit
+/// refuses to build an event loop off the main thread, and libtest runs every
+/// test on a worker thread, so a `#[test]` that called
+/// [`winit_runner`](bsengine_window::winit_runner) would panic before opening
+/// anything. `window_smoke.rs` therefore runs this binary as a subprocess --
+/// which is the better test anyway, since it covers `main`'s own argument
+/// handling and the executable a player actually launches.
+///
+/// ⚠️ Reports draw calls, not just a frame count. A window that opens and
+/// presents nothing -- a surface that failed to configure, a renderer that
+/// found no camera -- still ticks `Update` happily, and a frame count alone
+/// would call that a success.
+fn quit_after_frames(app: &mut bevy_app::App, frames: u32) {
+    app.add_event::<bevy_app::AppExit>();
+
+    let mut seen = 0u32;
+    let mut drawn = 0u32;
+    app.add_systems(
+        bevy_app::Last,
+        move |surface: Option<bevy_ecs::prelude::Res<bsengine_rhi_wgpu::WgpuSurfaceResource>>,
+              mut exit: bevy_ecs::prelude::EventWriter<bevy_app::AppExit>| {
+            seen += 1;
+            if let Some(stats) = surface.and_then(|s| s.0.latest_frame_stats()) {
+                drawn = drawn.max(stats.draw_calls);
+            }
+            if seen >= frames {
+                // The line `window_smoke.rs` parses. Printed once, on the way
+                // out, so a truncated run cannot look like a complete one.
+                println!("frames={seen} draw_calls={drawn}");
+                exit.send(bevy_app::AppExit::Success);
+            }
+        },
+    );
+}
+
+/// Builds the app a player runs: every plugin, the project's manifest, its
+/// entry scene, and `Playing` already set.
+///
+/// Stops short of `run()` so [`run_windowed`] can add the `--frames` limit
+/// before the event loop takes the app.
+fn build_windowed_app(project_dir: &str) -> bevy_app::App {
     let manifest_path = format!("{project_dir}/project.toml");
 
     let manifest_str = std::fs::read_to_string(&manifest_path)
@@ -434,5 +510,5 @@ fn run_windowed(project_dir: &str) {
         inspector.current_scene_path = Some(scene_path.clone());
     }
 
-    app.run();
+    app
 }

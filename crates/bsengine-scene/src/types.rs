@@ -597,6 +597,54 @@ pub struct PendingSceneLoad {
     pub path: String,
 }
 
+/// Marks an entity as the anchor for a scene that streams in and out with the
+/// camera's distance from it.
+///
+/// Placed in the *persistent* scene, not in the one it loads -- an anchor
+/// inside its own chunk would be despawned the first time that chunk unloaded,
+/// and would never bring it back. Unreal has the same rule for the same reason:
+/// streaming volumes and World Partition cells live in the persistent level.
+///
+/// The anchor's own `Transform` says where the chunk is, so moving the marker
+/// moves the region it guards.
+///
+/// Only Unreal has this built in; Unity leaves the triggering to scripts and
+/// Godot has neither. See `streaming::should_be_loaded` for which of Unreal's
+/// two forms this follows and why.
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component, Default)]
+pub struct StreamedScene {
+    /// Project-relative path of the scene to bring in, the same spelling
+    /// `loadSceneAdditive` takes.
+    pub path: String,
+    /// How close the camera must come, in world units, before the scene loads.
+    pub load_distance: f32,
+    /// Width of the band around [`load_distance`](StreamedScene::load_distance)
+    /// in which the current state is kept.
+    ///
+    /// ⚠️ Not decoration. Without it a camera sitting on the boundary loads and
+    /// unloads the same chunk every frame, and a chunk is far more expensive to
+    /// build than a LOD level is to switch. Spelled and applied exactly as
+    /// `LodLevels::hysteresis_band` is.
+    pub hysteresis_band: f32,
+}
+
+impl Default for StreamedScene {
+    /// No path, so adding the component from the Inspector streams nothing
+    /// until it is told what.
+    ///
+    /// The distances are a starting point rather than a meaningful default:
+    /// what "close" means is entirely the level's business, and there is no
+    /// value that is right for both a room and a mountain.
+    fn default() -> Self {
+        Self {
+            path: String::new(),
+            load_distance: 100.0,
+            hysteresis_band: 10.0,
+        }
+    }
+}
+
 /// One requested change to what is streamed in.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SceneStreamOp {

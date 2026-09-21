@@ -4,8 +4,8 @@
 
 use bevy_app::{App, PostStartup, Update};
 use bevy_ecs::prelude::{IntoSystemConfigs, World};
-use bsengine_core::{HudTexts, Transform};
-use bsengine_ecs::{Added, Commands, Entity, Query, ResMut};
+use bsengine_core::{GlobalTransform, HudTexts, Transform};
+use bsengine_ecs::{Added, Commands, Entity, Query, ResMut, With};
 use bsengine_physics::{Collider, PhysicsInput, RigidBody};
 use bsengine_rhi_wgpu::{
     capsule_vertices, cube_vertices, cylinder_vertices, plane_vertices, sphere_vertices,
@@ -14,7 +14,7 @@ use bsengine_rhi_wgpu::{
 use bsengine_scene::{
     spawn_scene_entities, ColliderShapeDesc, LoadedScenes, Name, PendingSceneLoad,
     PendingSceneStream, PhysicsBodyDesc, Primitive, PrimitiveMesh, RigidBodyDesc, SceneDescriptor,
-    SceneStreamOp,
+    SceneStreamOp, StreamedScene,
 };
 use bsengine_scripting::{load_scripts, load_scripts_with, Bootstrap, SoundHandles};
 use serde::Deserialize;
@@ -222,7 +222,12 @@ pub fn register_scene_systems(app: &mut App) {
     )
     .add_systems(Update, handle_scene_load)
     // After `handle_scene_load`, which wipes the record it works from.
-    .add_systems(Update, handle_scene_stream.after(handle_scene_load))
+    .add_systems(
+        Update,
+        (stream_scenes_by_distance, handle_scene_stream)
+            .chain()
+            .after(handle_scene_load),
+    )
     .add_systems(
         Update,
         resolve_primitives
@@ -363,6 +368,73 @@ fn spawn_and_record(world: &mut World, path: &str, scene: &SceneDescriptor) {
         .get_resource_or_insert_with(LoadedScenes::default)
         .by_path
         .insert(path.to_owned(), added);
+}
+
+/// Queues loads and unloads for every [`StreamedScene`] anchor, from how far
+/// the camera is from it.
+///
+/// Runs before `handle_scene_stream`, so a chunk that comes into range is in
+/// the world on the same frame the camera reached it rather than the next.
+///
+/// Silent when there is no camera. A world with nothing to measure from is not
+/// a world where everything is infinitely far away -- unloading the level
+/// because the camera has not spawned yet would be a worse answer than waiting.
+pub fn stream_scenes_by_distance(
+    cameras: Query<(&Transform, Option<&GlobalTransform>), With<bsengine_core::Camera>>,
+    anchors: Query<(&StreamedScene, &Transform, Option<&GlobalTransform>)>,
+    loaded: Option<bsengine_ecs::Res<LoadedScenes>>,
+    project_dir: Option<bsengine_ecs::Res<bsengine_core::ProjectDir>>,
+    mut commands: Commands,
+) {
+    // Untyped on purpose: naming `glam::Vec3` here would make `glam` a real
+    // dependency of this crate for one annotation, and it is a dev-dependency
+    // today.
+    let world_pos = |t: &Transform, g: Option<&GlobalTransform>| {
+        g.map(|g| g.to_matrix().w_axis.truncate())
+            .unwrap_or(t.position.0)
+    };
+
+    let Some(camera) = cameras.iter().next().map(|(t, g)| world_pos(t, g)) else {
+        return;
+    };
+
+    let mut ops = Vec::new();
+    for (anchor, transform, global) in anchors.iter() {
+        if anchor.path.is_empty() {
+            continue;
+        }
+        // Resolved the same way the script API resolves `loadSceneAdditive`,
+        // because `LoadedScenes` is keyed by the resolved path and the two have
+        // to agree about what "this scene" means.
+        let full_path = bsengine_core::resolve_project_path(project_dir.as_deref(), &anchor.path);
+        let is_loaded = loaded
+            .as_ref()
+            .is_some_and(|l| l.by_path.contains_key(&full_path));
+        let distance = camera.distance(world_pos(transform, global));
+
+        let wanted = bsengine_scene::streaming::should_be_loaded(
+            is_loaded,
+            distance,
+            anchor.load_distance,
+            anchor.hysteresis_band,
+        );
+        if wanted != is_loaded {
+            ops.push(if wanted {
+                SceneStreamOp::Load(full_path)
+            } else {
+                SceneStreamOp::Unload(full_path)
+            });
+        }
+    }
+
+    if !ops.is_empty() {
+        commands.add(move |world: &mut World| {
+            world
+                .get_resource_or_insert_with(PendingSceneStream::default)
+                .ops
+                .extend(ops);
+        });
+    }
 }
 
 /// Applies every queued streaming request, in the order they were made.

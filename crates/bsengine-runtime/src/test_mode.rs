@@ -709,6 +709,168 @@ mod tests {
         app.update();
     }
 
+    /// Where the streaming anchor stands.
+    ///
+    /// ⚠️ Not the origin. Every anchor at the origin makes "distance to the
+    /// anchor" and "distance to the origin" the same number, and a version that
+    /// measured from the origin passed the whole suite.
+    const ANCHOR_AT: f32 = 500.0;
+
+    /// Spawns a camera and an anchor for `b.ron`, and returns a way to move the
+    /// camera.
+    ///
+    /// The camera starts far from the anchor, so the scene begins *out* of
+    /// range -- a fixture that started inside it could not tell loading from
+    /// having always been loaded.
+    fn anchored_app(
+        dir: &tempfile::TempDir,
+        load_distance: f32,
+        band: f32,
+    ) -> (App, bevy_ecs::entity::Entity) {
+        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
+        let camera = app
+            .world_mut()
+            .spawn((
+                bsengine_core::Camera::perspective(60.0, 1.0),
+                bsengine_core::Transform {
+                    position: glam::Vec3::new(1000.0, 0.0, 0.0).into(),
+                    ..Default::default()
+                },
+            ))
+            .id();
+        app.world_mut().spawn((
+            bsengine_scene::StreamedScene {
+                path: "assets/scenes/b.ron".to_string(),
+                load_distance,
+                hysteresis_band: band,
+            },
+            bsengine_core::Transform {
+                position: glam::Vec3::new(ANCHOR_AT, 0.0, 0.0).into(),
+                ..Default::default()
+            },
+        ));
+        app.update();
+        (app, camera)
+    }
+
+    fn move_camera(app: &mut App, camera: bevy_ecs::entity::Entity, x: f32) {
+        app.world_mut()
+            .get_mut::<bsengine_core::Transform>(camera)
+            .unwrap()
+            .position = glam::Vec3::new(x, 0.0, 0.0).into();
+        app.update();
+    }
+
+    #[test]
+    fn a_chunk_streams_in_when_the_camera_reaches_it_and_out_when_it_leaves() {
+        let dir = write_two_scene_project();
+        let (mut app, camera) = anchored_app(&dir, 100.0, 10.0);
+        // ⚠️ The premise. Starting inside the radius would make "it is loaded"
+        // true before the system ever ran.
+        assert!(
+            !names(&mut app).contains(&"SceneB".to_string()),
+            "the fixture has to start with the chunk out of range"
+        );
+
+        move_camera(&mut app, camera, ANCHOR_AT + 10.0);
+        assert!(
+            names(&mut app).contains(&"SceneB".to_string()),
+            "a camera well inside the radius has to bring the chunk in"
+        );
+
+        move_camera(&mut app, camera, 1000.0);
+        assert!(
+            !names(&mut app).contains(&"SceneB".to_string()),
+            "and leaving has to take it out again"
+        );
+    }
+
+    #[test]
+    fn a_camera_sitting_on_the_boundary_does_not_thrash() {
+        // ⚠️ What the hysteresis band is for, and the only test that can see
+        // it: every other one here moves the camera well past a threshold,
+        // where a band of zero behaves identically. A chunk is far more
+        // expensive to rebuild than a LOD level is to switch -- about 4.8µs per
+        // entity, each way, every frame.
+        let dir = write_two_scene_project();
+        let (mut app, camera) = anchored_app(&dir, 100.0, 20.0);
+        move_camera(&mut app, camera, ANCHOR_AT + 50.0);
+        assert!(names(&mut app).contains(&"SceneB".to_string()));
+
+        // Just outside the nominal radius but inside the band: it must stay.
+        for offset in [101.0, 105.0, 109.0] {
+            move_camera(&mut app, camera, ANCHOR_AT + offset);
+            assert!(
+                names(&mut app).contains(&"SceneB".to_string()),
+                "a loaded chunk must hold through the band, failed at {offset}"
+            );
+        }
+
+        move_camera(&mut app, camera, ANCHOR_AT + 200.0);
+        assert!(
+            !names(&mut app).contains(&"SceneB".to_string()),
+            "and still leave once clearly outside"
+        );
+    }
+
+    #[test]
+    fn an_anchor_with_no_camera_leaves_the_world_alone() {
+        // A world with nothing to measure from is not a world where everything
+        // is infinitely far away. Unloading the level because the camera has
+        // not spawned yet would be a worse answer than waiting.
+        let dir = write_two_scene_project();
+        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
+        app.update();
+        stream_in(&mut app, &dir, "b.ron");
+        assert!(names(&mut app).contains(&"SceneB".to_string()));
+
+        app.world_mut().spawn((
+            bsengine_scene::StreamedScene {
+                path: "assets/scenes/b.ron".to_string(),
+                load_distance: 1.0,
+                hysteresis_band: 0.0,
+            },
+            // ⚠️ Far from the origin, and that is what makes this test able to
+            // fail. With the anchor at the origin, a version that treated a
+            // missing camera as one standing at the origin measured a distance
+            // of zero, decided the chunk belonged in, and left it -- the same
+            // answer as doing nothing, for the opposite reason.
+            bsengine_core::Transform {
+                position: glam::Vec3::new(ANCHOR_AT, 0.0, 0.0).into(),
+                ..Default::default()
+            },
+        ));
+        for _ in 0..5 {
+            app.update();
+        }
+        assert!(
+            names(&mut app).contains(&"SceneB".to_string()),
+            "with no camera the anchor must not unload what is already there"
+        );
+    }
+
+    #[test]
+    fn an_anchor_with_no_path_streams_nothing() {
+        let dir = write_two_scene_project();
+        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
+        app.world_mut().spawn((
+            bsengine_core::Camera::perspective(60.0, 1.0),
+            bsengine_core::Transform::default(),
+        ));
+        app.world_mut().spawn((
+            bsengine_scene::StreamedScene::default(),
+            bsengine_core::Transform::default(),
+        ));
+        for _ in 0..5 {
+            app.update();
+        }
+        assert_eq!(
+            names(&mut app),
+            vec!["SceneA".to_string()],
+            "an anchor that names nothing must bring nothing in"
+        );
+    }
+
     #[test]
     fn streaming_requests_are_applied_in_the_order_they_were_made() {
         // ⚠️ Why loads and unloads share one queue. Split into two passes,

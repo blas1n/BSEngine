@@ -11,6 +11,9 @@ pub mod plugin;
 /// Single-prefab instantiation: turns a `PrefabDescriptor` into spawned entities by
 /// delegating to `spawn_scene_entities`.
 pub mod prefab;
+/// Deciding whether a streamed scene should be in the world, from the camera's
+/// distance to it. Pure; `bsengine-runtime` owns the system that acts on it.
+pub mod streaming;
 /// Serde/RON descriptor types that make up the on-disk scene file format.
 pub mod types;
 
@@ -23,5 +26,6 @@ pub use types::{
     AssetRef, Cloth, ColliderDesc, ColliderShapeDesc, DirectionalLightDescriptor, EntityDescriptor,
     JointDescriptor, JointKindDesc, LoadedScenes, PendingSceneLoad, PendingSceneStream,
     PhysicsBodyDesc, PointLightDescriptor, Primitive, PrimitiveMesh, RigidBodyDesc,
-    SceneDescriptor, SceneStreamOp, ScriptPath, SpotLightDescriptor, Terrain, TransformDescriptor,
+    SceneDescriptor, SceneStreamOp, ScriptPath, SpotLightDescriptor, StreamedScene, Terrain,
+    TransformDescriptor,
 };

@@ -2906,10 +2906,13 @@ mod tests {
     /// numbers are checked; the timings are for the findings table that
     /// `scale_sweep_table` below produces.
     ///
-    /// 500 is chosen to sit *below* the renderer's `MAX_OBJECTS` ceiling of
-    /// 1024, so this test is about whether a scene twenty times larger than
-    /// anything in `games/` draws at all. What happens *above* the ceiling is
-    /// `entities_past_the_renderers_object_cap_are_silently_dropped` below.
+    /// 500 was chosen to sit *below* the renderer's `MAX_OBJECTS` ceiling,
+    /// which was 1024 when this was written and is 16384 since #1834 — so this
+    /// test is about whether a scene twenty times larger than anything in
+    /// `games/` draws at all, and 500 is comfortably under either number. What
+    /// happens *above* the ceiling is
+    /// `entity_count_reaches_the_draw_call_list_past_the_old_1024_ceiling`
+    /// below.
     #[test]
     fn a_five_hundred_entity_scene_renders_every_entity() {
         let sample = measure_scale(500);

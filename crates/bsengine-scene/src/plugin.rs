@@ -1020,6 +1020,10 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     // predates comes from `#[reflect(Default)]` on the type itself, not from
     // anything registered here; see its doc comment.
     app.register_type::<crate::types::Cloth>();
+    // R1: every public component must be registered, and this one is authored
+    // in a scene like any other -- the anchor lives in the persistent level and
+    // names the chunk it guards.
+    app.register_type::<crate::types::StreamedScene>();
     app.register_type_data::<bsengine_core::AsmState, bevy_reflect::ReflectSerialize>();
     // `AnimationStateMachine::transitions` is `Vec<AsmTransition>`, and each
     // `AsmTransition` holds a `TransitionCondition` enum. Neither was ever

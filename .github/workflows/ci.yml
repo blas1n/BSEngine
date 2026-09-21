@@ -97,7 +97,11 @@ jobs:
           sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/g' /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null || true
           sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/g' /etc/apt/sources.list 2>/dev/null || true
           sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=10 -o Acquire::https::Timeout=10 update
-          sudo apt-get install -y mesa-vulkan-drivers libasound2-dev libudev-dev xvfb
+          # libxkbcommon-x11-0: winit's X11 backend dlopens it when it builds the
+          # event loop and panics if it is missing. Not installed by default on
+          # the runner image -- `window_smoke.rs` is what found that out, and a
+          # player on a bare X11 machine needs it too.
+          sudo apt-get install -y mesa-vulkan-drivers libasound2-dev libudev-dev xvfb libxkbcommon-x11-0
 
       # `window_smoke.rs` opens a real window, which every other test avoids --
       # the rest of the suite renders to an offscreen surface with no window at

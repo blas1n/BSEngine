@@ -13,7 +13,28 @@ command is right.
 ## Build and test
 
 `.cargo/config.toml` already sets `RUST_MIN_STACK` and a Windows-local
-`target-dir`; you should not need to set either by hand.
+`target-dir`. **The target dir must be on the same drive letter as the cargo
+registry** (`$CARGO_HOME/registry`): `v8`'s build script creates a `gn_root`
+symlink only when the two differ, and creating it needs a privilege a normal
+Windows account lacks, so every crate behind `deno_core` fails with
+
+```
+symlink_dir failed: Os { code: 1314, ... }   →   failed to run custom build command for `v8`
+```
+
+The checked-in `target-dir` assumes the registry is on `C:`. If `CARGO_HOME`
+points elsewhere (on the machine this was written on it is `F:\.cargo`, set
+as a user environment variable), override per command:
+
+```bash
+CARGO_TARGET_DIR='F:\BSEngine-target' cargo ...
+```
+
+This is a *drive* condition, not a permissions one — Developer Mode or an
+elevated shell would also work, but the override is what CI's own
+`CARGO_TARGET_DIR` env var already does. Check `echo $CARGO_HOME` before the
+first build of a session; the failure costs a full dependency compile to
+reach.
 
 ```bash
 cargo build --all

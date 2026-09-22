@@ -33,6 +33,10 @@ bsengine-app.workspace = true
 # movement script over it, which needs `Name` and `glam` directly.
 bsengine-scene.workspace = true
 glam.workspace = true
+# The `Bsengine.spawn` tests read `GltfAsset` back off the entity the scene
+# loader built, to check its path was joined onto `ProjectDir`; the component
+# is `bsengine-gltf`'s, reached at runtime only through `bsengine-scene`.
+bsengine-gltf.workspace = true
 # The hot-reload tests drive a real `AssetWatcherPlugin` over a real project
 # directory that has to be removed afterwards even when a test panics, and
 # `ProbeDir`/`unique` are what the watcher's own tests use for exactly that —

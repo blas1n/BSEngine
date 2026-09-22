@@ -1184,6 +1184,7 @@ dependencies = [
  "bsengine-catalog",
  "bsengine-core",
  "bsengine-ecs",
+ "bsengine-gltf",
  "bsengine-input",
  "bsengine-network",
  "bsengine-physics",

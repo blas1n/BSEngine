@@ -12,15 +12,15 @@ use bsengine_input::{GamepadButton, GamepadSticks, Input, KeyCode, MouseButton, 
 use bsengine_network::NetworkSession;
 use bsengine_physics::CollisionEvent;
 use bsengine_physics::PhysicsWorld;
-use bsengine_scene::{Name, PendingSceneLoad, Primitive, PrimitiveMesh, ScriptPath};
+use bsengine_scene::{Name, PendingSceneLoad, ScriptPath};
 use glam::{EulerRot, Quat, Vec3};
 
 use crate::ops::{
-    render_asset_status, ScriptCommand, SpawnParams, AMBIENT_OCCLUSION_SNAPSHOT,
-    ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT, ANIMATION_SNAPSHOT, ASM_STATE_SNAPSHOT,
-    ASSET_STATUS_SNAPSHOT, AUDIO_PARAM_SNAPSHOT, BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS,
-    BUS_VOLUME_SNAPSHOT, CHILDREN_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT,
-    COMMAND_BUFFER, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, FOLLOW_SNAPSHOT, FRICTION_SNAPSHOT,
+    render_asset_status, ScriptCommand, AMBIENT_OCCLUSION_SNAPSHOT, ANGULAR_DAMPING_SNAPSHOT,
+    ANGULAR_VELOCITY_SNAPSHOT, ANIMATION_SNAPSHOT, ASM_STATE_SNAPSHOT, ASSET_STATUS_SNAPSHOT,
+    AUDIO_PARAM_SNAPSHOT, BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, BUS_VOLUME_SNAPSHOT,
+    CHILDREN_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COMMAND_BUFFER,
+    ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, FOLLOW_SNAPSHOT, FRICTION_SNAPSHOT,
     GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT, GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT,
     GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT,
     INCOMING_RPCS, KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT,
@@ -2149,8 +2149,15 @@ fn run_scripts(world: &mut World) {
                     }
                 }
             }
-            ScriptCommand::Spawn(params) => {
-                spawn_entity(world, params);
+            ScriptCommand::Spawn(entity) => {
+                // One entity, through the loader every scene file and prefab
+                // goes through -- see `bsengine_spawn`'s doc comment for why
+                // this crate no longer has a spawn path of its own. Asset
+                // reference resolution and the `ProjectDir` join on `gltf`
+                // happen in there, so a project-relative path lands on
+                // `GltfAsset` already resolved, exactly as it would from a
+                // scene file.
+                bsengine_scene::spawn_scene_entities(world, std::slice::from_ref(&*entity));
             }
             ScriptCommand::InstantiatePrefab {
                 path,
@@ -3222,44 +3229,6 @@ fn start_pending_sounds(world: &mut World) {
                 }
             }
         }
-    }
-}
-
-fn spawn_entity(world: &mut World, params: SpawnParams) {
-    let prim = match params.primitive.as_str() {
-        "Sphere" => Primitive::Sphere,
-        "Plane" => Primitive::Plane,
-        "Capsule" => Primitive::Capsule,
-        "Cylinder" => Primitive::Cylinder,
-        _ => Primitive::Cube,
-    };
-
-    let transform = Transform {
-        position: Vec3::new(params.x, params.y, params.z).into(),
-        rotation: Quat::from_xyzw(params.rx, params.ry, params.rz, params.rw)
-            .normalize()
-            .into(),
-        scale: Vec3::new(params.sx, params.sy, params.sz).into(),
-    };
-
-    let mut cmd = world.spawn((
-        Name(params.name.clone()),
-        transform,
-        GlobalTransform::default(),
-        PrimitiveMesh(prim),
-    ));
-
-    let has_color = params.color.is_some() || params.emissive.is_some();
-    if has_color {
-        cmd.insert(Material {
-            base_color: params.color.map(Vec3::from).unwrap_or(Vec3::ONE).into(),
-            emissive: params.emissive.map(Vec3::from).unwrap_or(Vec3::ZERO).into(),
-            ..Default::default()
-        });
-    }
-
-    if let Some(script) = params.script {
-        cmd.insert(ScriptPath(script));
     }
 }
 
@@ -6183,6 +6152,185 @@ mod tests {
              once -- not twice, which is what happened when this top-level call bypassed \
              the cycle-guard registration and the self-reference was only caught one \
              recursion level later. names: {names:?}"
+        );
+    }
+
+    /// A project on disk whose one scene entity carries only a script, and
+    /// that script calls `Bsengine.spawn(<js_object>)` exactly once, on its
+    /// first `onUpdate`. Ticked until the named entity exists (bounded, so a
+    /// script that never ran is a failure with a message rather than a
+    /// hang), then returned with `ProjectDir` set to the project so callers
+    /// can check what the spawn built against where the project lives.
+    ///
+    /// `register_gameplay_reflect_types` is what the windowed and `--test`
+    /// hosts both call before any scene loads; without it a `components:`
+    /// entry has no registry to resolve its type path against and the loader
+    /// warns and skips it -- the same host setup, so the same outcome.
+    fn app_after_a_script_spawned(
+        tag: &str,
+        spawned_name: &str,
+        js_object: &str,
+    ) -> (
+        bevy_app::App,
+        String,
+        bsengine_asset::test_support::ProbeDir,
+    ) {
+        let project = bsengine_asset::test_support::unique(tag);
+        let root = std::path::PathBuf::from(&project);
+        std::fs::create_dir_all(root.join("assets").join("scripts")).unwrap();
+        let guard = bsengine_asset::test_support::ProbeDir(root.clone());
+        std::fs::write(
+            root.join("assets").join("scripts").join("spawner.js"),
+            format!(
+                "let done = false;\n\
+                 function onUpdate(name) {{\n\
+                     if (done) return;\n\
+                     done = true;\n\
+                     Bsengine.spawn({js_object});\n\
+                 }}"
+            ),
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: project.clone(),
+        });
+        bsengine_scene::register_gameplay_reflect_types(&mut app);
+        app.world_mut().spawn((
+            Name("Spawner".to_string()),
+            ScriptPath("assets/scripts/spawner.js".to_string()),
+        ));
+
+        // The script's source arrives asynchronously, then its first
+        // `onUpdate` queues the spawn, then the next tick applies it. A fixed
+        // tick count would encode today's load latency; a bound encodes only
+        // "it must happen".
+        let mut ticks = 0;
+        loop {
+            app.update();
+            ticks += 1;
+            let world = app.world_mut();
+            let mut q = world.query::<&Name>();
+            if q.iter(world).any(|n| n.0 == spawned_name) {
+                break;
+            }
+            assert!(
+                ticks < 30,
+                "'{spawned_name}' never appeared in 30 ticks -- either the spawner \
+                 script never ran or the spawn built no entity"
+            );
+        }
+        (app, project, guard)
+    }
+
+    /// `Bsengine.spawn` used to hand-build a coloured primitive and nothing
+    /// else -- a `gltf:` or `rigidbody:` in its argument was not an error, it
+    /// was silently not a field. Now that the argument is the scene file's
+    /// own entity block and the spawn goes through the scene loader, the
+    /// entity a script spawns must carry exactly what the same block in
+    /// `main.ron` would: the `GltfAsset` with its path already joined to
+    /// `ProjectDir`, the `TexturePath` and the `Material` it needs to be
+    /// visible, the `PhysicsBodyDesc`, and the transform. Read back from the
+    /// `World` after real ticks, through the same components `GltfPlugin`,
+    /// `PhysicsPlugin` and the renderer consume -- so a spawn that queued the
+    /// right command but built the wrong entity fails here, not in a game.
+    ///
+    /// Every asserted value is one the old path could not have produced: it
+    /// never joined `ProjectDir` onto anything, never inserted `GltfAsset`,
+    /// `TexturePath` or `PhysicsBodyDesc`, and set `Material.base_color` to
+    /// white unless told otherwise. Restoring it fails this test four ways.
+    #[test]
+    fn a_script_spawn_builds_what_the_same_scene_block_would() {
+        use bsengine_scene::{ColliderShapeDesc, PhysicsBodyDesc, RigidBodyDesc};
+
+        let (mut app, project, _guard) = app_after_a_script_spawned(
+            "script-spawn-scene-block",
+            "Fox",
+            r#"{
+                name: "Fox",
+                transform: { position: [1, 2, 3], scale: [0.02, 0.02, 0.02] },
+                gltf: "assets/models/fox.glb",
+                texture: "assets/textures/fur.png",
+                color: [1, 0, 0],
+                rigidbody: "Dynamic",
+                collider: { shape: { Capsule: { half_height: 0.5, radius: 0.35 } }, friction: 0.3 },
+            }"#,
+        );
+
+        let world = app.world_mut();
+        let mut q = world.query::<(
+            &Name,
+            &Transform,
+            &bsengine_gltf::GltfAsset,
+            &bsengine_core::TexturePath,
+            &bsengine_core::Material,
+            &PhysicsBodyDesc,
+        )>();
+        let (_, transform, gltf, texture, material, body) =
+            q.iter(world).find(|(n, ..)| n.0 == "Fox").expect(
+                "Fox must carry Transform, GltfAsset, TexturePath, Material and PhysicsBodyDesc \
+                 together -- the scene loader inserts all five for this block, and a missing \
+                 one is the old hand-built spawn path showing through",
+            );
+
+        assert_eq!(transform.position.0, Vec3::new(1.0, 2.0, 3.0));
+        assert_eq!(transform.scale.0, Vec3::splat(0.02));
+        assert_eq!(
+            gltf.path,
+            format!("{project}/assets/models/fox.glb"),
+            "the gltf path must be joined onto ProjectDir, as the scene loader does and the \
+             old path never did -- GltfPlugin reads this path from the process CWD"
+        );
+        assert_eq!(
+            texture.0, "assets/textures/fur.png",
+            "a texture path is stored project-relative; the texture loader joins it later"
+        );
+        assert_eq!(material.base_color.to_array(), [1.0, 0.0, 0.0]);
+        assert_eq!(body.rigidbody, RigidBodyDesc::Dynamic);
+        assert_eq!(
+            body.collider.shape,
+            ColliderShapeDesc::Capsule {
+                half_height: 0.5,
+                radius: 0.35
+            }
+        );
+        assert!((body.collider.friction - 0.3).abs() < 1e-6);
+    }
+
+    /// The `components:` list is how a scene file attaches anything the
+    /// descriptor has no typed field for -- `Shield`, `NavMeshAgent`, an
+    /// `AnimationStateMachine`. It is the half of "what a scene can author, a
+    /// script can spawn" that no flat parameter bag could have offered, and
+    /// it is the one part of the spawn that depends on host setup: the
+    /// loader resolves the type path against `AppTypeRegistry`, and a path it
+    /// cannot find is a warning and a skipped component, not an error. So the
+    /// assertion is on the component's *value* having arrived, which is the
+    /// thing a silent skip would leave absent.
+    #[test]
+    fn a_script_spawn_attaches_reflected_components_by_type_path() {
+        let (mut app, _project, _guard) = app_after_a_script_spawned(
+            "script-spawn-components",
+            "Fox",
+            r#"{
+                name: "Fox",
+                components: [["bsengine_core::shield::Shield",
+                    "(current: 30.0, max: 45.0, recharge_rate: 0.0, recharge_delay: 0.0, recharge_cooldown: 0.0)"]],
+            }"#,
+        );
+
+        let world = app.world_mut();
+        let mut q = world.query::<(&Name, &bsengine_core::Shield)>();
+        let (_, shield) = q.iter(world).find(|(n, _)| n.0 == "Fox").expect(
+            "Fox must carry the Shield its `components:` entry named -- absent means the type \
+             path did not resolve (registry not populated in this host) or the RON value was \
+             rejected, and the loader only warned",
+        );
+        assert_eq!(shield.current, 30.0);
+        assert_eq!(
+            shield.max, 45.0,
+            "a non-default value, so a Default-constructed Shield cannot pass for the authored one"
         );
     }
 

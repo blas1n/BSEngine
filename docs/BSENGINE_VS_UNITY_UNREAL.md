@@ -23,7 +23,6 @@ master `134b7bf1` 기준. 열린 PR·이슈 0개, 소스 TODO/FIXME 0개, 워크
 | **macOS FSEvents rename 페어링** | 테스트 5개가 macOS만 `#[ignore]` | **원인 미상.** 같은 코드가 실행마다 다른 raw 이벤트를 냄(3개 vs 1개). 우리 코드 밖일 가능성. 로컬 macOS 없이는 진전 어려움 |
 | GPU 스키닝 | `grep -rl "compute_skin\|skinning_pipeline"` → 0 | ⚠️ **성능 근거 약함** — 릴리스에서 여우 100마리 CPU 스키닝이 2.8ms. 규모 논거로만 유효 |
 | 에셋 단위 스트리밍(텍스처 밉) | `grep -rl "mip_stream\|texture_streaming"` → 0 | ⚠️ **필요가 측정된 적 없음.** 씬 스트리밍은 #1866/#1867로 있음 |
-| `Bsengine.spawn`이 프리미티브만 | `SpawnParams`에 mesh/texture 필드 없음 | 스크립트로 규모를 만들려면 프리팹 경유 강제. Unity엔 이 분리가 없음 |
 | 비주얼 스크립팅 | `grep -rl "VisualScript\|NodeGraph"` → 0 | |
 | 파티클 에디터 패널 | `grep -rl "ParticlePanel"` → 0 | 파티클 런타임 자체는 있음 |
 | 임포트 세팅 | `grep -rl "ImportSettings"` → 0 | |
@@ -601,10 +600,14 @@ off — CI의 clear-only 고속 경로를 켜면 그림자/SSAO/블룸이 안 �
 2. **CSM / GPU 스키닝.** 천장을 올린 뒤에야 실제로 필요한지 알 수 있다.
 3. **레벨 스트리밍.** 위 둘 다음의 문제.
 
-**저작 쪽 별개 발견:** `SpawnParams`(`bsengine-scripting/src/ops.rs:27-68`)는 `name`/
-`primitive`/트랜스폼/`color`/`emissive`/`script`만 받는다 — **glTF 메시나 텍스처를 만들 수
-없다.** 스크립트로 규모를 생성하려면 색칠한 프리미티브 이상은 프리팹을 거쳐야 한다.
-Unity(아무 프리팹이나 인스턴스화 + 스크립트에서 머티리얼 지정)에는 이 분리가 없다.
+**저작 쪽 별개 발견 — 해소됨 (2026-09-22):** `SpawnParams`는 `name`/`primitive`/트랜스폼/
+`color`/`emissive`/`script`만 받아 **glTF 메시나 텍스처를 만들 수 없었고**, 게임 11개 중 어느
+것도 호출하지 않았으며 실행하는 테스트도 없었다. 지금 `Bsengine.spawn`은 씬 파일의
+`EntityDescriptor`를 JS 객체 철자로 그대로 받아 `spawn_scene_entities`(씬·프리팹과 같은 로더)를
+탄다 — 씬이 저작할 수 있는 것(glTF·텍스처·물리·라이트·리플렉트 컴포넌트)은 스크립트도 만든다.
+Unity `Instantiate` / Unreal `SpawnActor` / Godot `instantiate()`가 수렴하는 "인자 = 완전한 서술"
+모델이다. `parent:`/`joint:`는 같은 호출 안의 엔티티끼리만 해석되므로(씬 파일과 같은 규칙) 기존
+엔티티에 붙이려면 다음 틱에 `setParent`를 쓴다.
 
 ### 2. 오디오 — 해소됨 (2026-09-11)
 

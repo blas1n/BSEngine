@@ -283,16 +283,18 @@ fn replay(root: &Path) -> std::process::Output {
 /// Split into two tests it would be possible for the first to leave state the
 /// second silently depended on, which is the shape of coupling this file exists
 /// to remove.
-// macOS: same root cause as `bsengine-asset::watcher`'s rename tests (see
-// their comments) reached through the real engine this time -- FSEvents
-// reports the symlink-resolved temp path (`/private/var/folders/...`) while
-// `start_asset_watcher`'s rename-pairing cache is seeded with the unresolved
-// one, so the rename is never paired and nothing ever follows the sidecar.
-// Observed in CI 2026-09-22 (PR #1871); not fixed here, same follow-up.
+// macOS: `resolve_watch_prefix` (PR #1872) closed the path-spelling half of
+// PR #1871's finding, but a second, follow-up run showed
+// `bsengine-asset::watcher`'s own rename-pairing tests still fail on macOS
+// for an unrelated reason -- FSEvents not reliably reporting both halves of a
+// same-directory rename (see that crate's `a_rename_is_reported_with_both_the_old_and_the_new_path`
+// for the two differing captures). This test reaches the exact same watcher
+// code, so it inherits that gap, even though `cargo test`'s fail-fast never
+// let this specific test run in that CI attempt to confirm it directly.
 #[cfg_attr(
     target_os = "macos",
-    ignore = "downstream of the FSEvents symlink-resolution mismatch in \
-              bsengine-asset::watcher: the rename is never paired"
+    ignore = "inherits bsengine-asset::watcher's FSEvents rename-pairing gap, \
+              not the path-spelling issue #1872 already fixed"
 )]
 #[test]
 fn a_renamed_asset_is_still_found_by_a_scene_that_names_its_old_path() {
@@ -344,13 +346,11 @@ fn a_renamed_asset_is_still_found_by_a_scene_that_names_its_old_path() {
 /// Without this, the test above would pass just as happily against an engine
 /// that recovered nothing but happened to move the entity for some other reason.
 // macOS: same cause as the test above -- both share
-// `rename_the_script_with_the_engine_running`, which times out waiting for
-// the sidecar to follow before either test reaches its own assertions.
-// Observed in CI 2026-09-22 (PR #1871); same follow-up.
+// `rename_the_script_with_the_engine_running`.
 #[cfg_attr(
     target_os = "macos",
-    ignore = "downstream of the FSEvents symlink-resolution mismatch in \
-              bsengine-asset::watcher: the rename is never paired"
+    ignore = "inherits bsengine-asset::watcher's FSEvents rename-pairing gap, \
+              not the path-spelling issue #1872 already fixed"
 )]
 #[test]
 fn without_the_recorded_former_path_the_same_recording_fails() {

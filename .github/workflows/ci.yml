@@ -35,7 +35,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -50,7 +50,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          # Cache key includes OS so Windows/Linux don't share V8 artifacts
+          # Cache key includes OS so the three platforms don't share V8 artifacts
           key: ${{ matrix.os }}
 
       # Cache librusty_v8.a keyed by v8 crate version + OS, independent of
@@ -84,6 +84,19 @@ jobs:
           Invoke-WebRequest "https://github.com/denoland/rusty_v8/releases/download/v${{ steps.v8ver.outputs.ver }}/rusty_v8_simdutf_release_x86_64-pc-windows-msvc.lib.gz" `
             -OutFile "$env:USERPROFILE\.rusty_v8\rusty_v8.lib.gz"
 
+      # GitHub's macos-latest is Apple Silicon (aarch64) today, but resolves
+      # by runner.arch instead of hardcoding that, so this survives GitHub
+      # changing the default or a future x86_64 macOS runner being used
+      # explicitly. RUNNER_ARCH is one of GitHub's own default env vars.
+      - name: Download rusty_v8 (macOS)
+        if: matrix.os == 'macos-latest' && steps.cache-rusty-v8.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/.rusty_v8
+          target=aarch64-apple-darwin
+          if [ "$RUNNER_ARCH" = "X64" ]; then target=x86_64-apple-darwin; fi
+          curl -fL "https://github.com/denoland/rusty_v8/releases/download/v${{ steps.v8ver.outputs.ver }}/librusty_v8_simdutf_release_${target}.a.gz" \
+            -o ~/.rusty_v8/librusty_v8.a.gz
+
       - name: Set RUSTY_V8_ARCHIVE (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: echo "RUSTY_V8_ARCHIVE=$HOME/.rusty_v8/librusty_v8.a.gz" >> $GITHUB_ENV
@@ -92,6 +105,10 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: echo "RUSTY_V8_ARCHIVE=$env:USERPROFILE\.rusty_v8\rusty_v8.lib.gz" >> $env:GITHUB_ENV
+
+      - name: Set RUSTY_V8_ARCHIVE (macOS)
+        if: matrix.os == 'macos-latest'
+        run: echo "RUSTY_V8_ARCHIVE=$HOME/.rusty_v8/librusty_v8.a.gz" >> $GITHUB_ENV
 
       # GitHub's ubuntu-latest runners pre-configure azure.archive.ubuntu.com
       # as a mirror, and it has been degraded: apt-get update against it hung

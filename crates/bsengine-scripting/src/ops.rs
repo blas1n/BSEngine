@@ -18,64 +18,10 @@ use std::collections::{HashMap, HashSet};
 
 use bsengine_asset::AssetStatus;
 use bsengine_core::{resolve_project_path, ProjectDir};
+use bsengine_scene::EntityDescriptor;
 use deno_core::op2;
 use glam::{Quat, Vec3};
 use serde::{Deserialize, Serialize};
-
-/// JS-provided parameters for spawning a new entity via `Bsengine.spawn`.
-#[derive(Clone, Debug, Deserialize)]
-pub struct SpawnParams {
-    /// Name to assign the spawned entity.
-    pub name: String,
-    /// Primitive mesh shape to spawn (e.g. "Cube", "Sphere"); defaults to "Cube".
-    #[serde(default = "default_primitive")]
-    pub primitive: String,
-    /// Initial X position.
-    #[serde(default)]
-    pub x: f32,
-    /// Initial Y position.
-    #[serde(default)]
-    pub y: f32,
-    /// Initial Z position.
-    #[serde(default)]
-    pub z: f32,
-    /// Initial rotation quaternion X component.
-    #[serde(default)]
-    pub rx: f32,
-    /// Initial rotation quaternion Y component.
-    #[serde(default)]
-    pub ry: f32,
-    /// Initial rotation quaternion Z component.
-    #[serde(default)]
-    pub rz: f32,
-    /// Initial rotation quaternion W component; defaults to 1 (identity).
-    #[serde(default = "default_one")]
-    pub rw: f32,
-    /// Initial X scale; defaults to 1.
-    #[serde(default = "default_one")]
-    pub sx: f32,
-    /// Initial Y scale; defaults to 1.
-    #[serde(default = "default_one")]
-    pub sy: f32,
-    /// Initial Z scale; defaults to 1.
-    #[serde(default = "default_one")]
-    pub sz: f32,
-    /// Optional base material color as `[r, g, b]`.
-    pub color: Option<[f32; 3]>,
-    /// Optional emissive material color as `[r, g, b]`.
-    pub emissive: Option<[f32; 3]>,
-    /// Optional path to a script to attach to the spawned entity.
-    pub script: Option<String>,
-}
-
-/// Default primitive shape used by `SpawnParams` when none is specified.
-fn default_primitive() -> String {
-    "Cube".to_string()
-}
-/// Default value (`1.0`) used for `SpawnParams` scale/rotation-w fields.
-fn default_one() -> f32 {
-    1.0
-}
 
 /// JS-provided parameters for instantiating a prefab via `Bsengine.instantiatePrefab`.
 #[derive(Clone, Debug, Deserialize)]
@@ -902,8 +848,17 @@ pub enum ScriptCommand {
         /// Remaining lifetime, in seconds, before the entity is destroyed.
         seconds: f32,
     },
-    /// Spawn a new entity from the given parameters.
-    Spawn(SpawnParams),
+    /// Spawn one entity from a scene-file entity block. Carried whole and
+    /// handed to `bsengine_scene::spawn_scene_entities` unchanged -- see
+    /// `bsengine_spawn` for why this is the scene's own descriptor and not a
+    /// parameter bag of this crate's.
+    ///
+    /// Boxed because an enum is as big as its biggest variant: every other
+    /// command here is a name and a few scalars, and `EntityDescriptor` is
+    /// twenty-odd `Option`s and `Vec`s. Unboxed, a frame's whole
+    /// `COMMAND_BUFFER` -- mostly `SetPosition`s -- would be laid out at the
+    /// descriptor's size, and clippy's `large_enum_variant` says so.
+    Spawn(Box<EntityDescriptor>),
     /// Instantiate a prefab. Unlike `Spawn`, the root's final name is
     /// already decided (computed synchronously in the op, before this
     /// command was even queued) -- this variant just carries it through.
@@ -2893,10 +2848,52 @@ pub fn bsengine_set_color(#[string] name: String, r: f32, g: f32, b: f32) {
     });
 }
 
-/// Queue spawning a new entity from the given parameters.
+/// Queue spawning one entity from a scene-file entity block.
+///
+/// The argument is `bsengine_scene::EntityDescriptor` -- the struct every
+/// `assets/scenes/*.ron` and every prefab is a list of -- written as a JS
+/// object instead of RON. So whatever a scene file can author, a script can
+/// spawn: a glTF mesh, a texture, a rigid body with its collider, a light, a
+/// camera, a script, a nested prefab, and any reflected component through
+/// `components`. The only differences from the `.ron` spelling are serde's
+/// JSON conventions, nothing of this op's own: `Some(x)` is just `x`; a unit
+/// enum variant is its name as a string (`rigidbody: "Dynamic"`,
+/// `primitive: "Sphere"`); a struct variant is a one-key object
+/// (`shape: { Capsule: { half_height: 0.5, radius: 0.35 } }`); a tuple is an
+/// array (`components: [["bsengine_core::shield::Shield", "(current: 30.0,
+/// ...)"]]` -- the component value itself stays a RON string, exactly as in
+/// the file). Copying an entity block out of `main.ron` and fixing those three
+/// spellings is the whole translation.
+///
+/// Routed through `bsengine_scene::spawn_scene_entities`, the loader every
+/// scene file and every prefab already goes through, rather than a spawn path
+/// of this crate's own. The previous `SpawnParams` was that second path: a
+/// flat `{name, primitive, x, y, z, ...}` bag hand-assembled into one of five
+/// primitives plus a colour, with no way to name a mesh, a texture or a body
+/// -- so a script that wanted anything but a coloured cube had to author a
+/// prefab file first, a detour Unity's `Instantiate`, Unreal's `SpawnActor`
+/// and Godot's `instantiate()` never impose. No game under `games/` had ever
+/// called it, and no test had ever executed the function behind it: it was
+/// unexercised in both directions. Going through the scene loader also means
+/// a script-spawned entity gets what a scene-spawned one gets and the old path
+/// silently did not -- asset-identity resolution for its references, the
+/// `ProjectDir` join on its `gltf` path, and the `Material` a bare `texture`
+/// needs to be visible at all.
+///
+/// What a single call cannot do: `parent:` and `joint:` resolve by name
+/// against the *other entities of the same call* -- the same rule a scene
+/// file has (one file, one name space) -- and a one-entity call has none, so
+/// either field logs the loader's usual warning and is ignored. Parent a
+/// spawned entity to something already in the world with `Bsengine.setParent`
+/// on the following tick instead.
+///
+/// Same deferred timing as `Bsengine.instantiatePrefab` below: the entity
+/// exists from the *next* tick, not on the line after this call.
 #[op2]
-pub fn bsengine_spawn(#[serde] params: SpawnParams) {
-    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::Spawn(params)));
+pub fn bsengine_spawn(#[serde] entity: EntityDescriptor) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::Spawn(Box::new(entity)));
+    });
 }
 
 /// Instantiate a prefab, returning the spawned root entity's *name*
@@ -9483,28 +9480,131 @@ JSON.stringify(received)
         assert!(r.contains("not_called"), "expected not_called: {r}");
     }
 
+    /// The argument is the scene file's own `EntityDescriptor`, so the one
+    /// thing left to get wrong is the spelling: RON and a JS object disagree
+    /// on how an `Option`, an enum variant and a tuple look, and this op
+    /// reaches Rust through `serde_v8`, not through the RON parser every other
+    /// `EntityDescriptor` test in this repo goes through. Every shape family
+    /// the struct uses appears here once -- bare-string and identified asset
+    /// references, a unit variant, a struct variant, a tuple list, an
+    /// omitted-field default -- and each is read back out of the queued
+    /// command with a value that is not its default, because a field that
+    /// deserialised to its default would look exactly like one never sent.
     #[test]
-    fn spawn_params_rotation_defaults_to_identity() {
-        use crate::ops::SpawnParams;
-        let p: SpawnParams =
-            serde_json::from_str(r#"{"name":"Cube1","primitive":"Cube","x":0,"y":0,"z":0}"#)
-                .unwrap();
-        assert_eq!(p.rx, 0.0);
-        assert_eq!(p.ry, 0.0);
-        assert_eq!(p.rz, 0.0);
-        assert_eq!(p.rw, 1.0, "rw should default to 1 (identity quaternion)");
-    }
+    fn spawn_takes_a_scene_entity_block_in_js_spelling() {
+        use bsengine_scene::{AssetRef, ColliderShapeDesc, Primitive, RigidBodyDesc};
 
-    #[test]
-    fn spawn_params_rotation_accepted() {
-        use crate::ops::SpawnParams;
-        let p: SpawnParams = serde_json::from_str(
-            r#"{"name":"Tilted","primitive":"Cube","x":0,"y":0,"z":0,
-               "rx":0.0,"ry":0.707,"rz":0.0,"rw":0.707}"#,
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(
+            r#"Bsengine.spawn({
+                name: "Fox",
+                transform: { position: [1, 2, 3], scale: [0.02, 0.02, 0.02] },
+                gltf: "assets/models/fox.glb",
+                texture: { guid: "0193a7c1-8f2e-7c44-9d61-3b5a0e7f2c19", path: "assets/textures/fur.png" },
+                primitive: "Sphere",
+                color: [1, 0, 0],
+                rigidbody: "Dynamic",
+                collider: { shape: { Capsule: { half_height: 0.5, radius: 0.35 } }, friction: 0.3 },
+                script: "assets/scripts/enemy.js",
+                components: [["bsengine_core::shield::Shield", "(current: 30.0, max: 30.0)"]],
+            });"#,
         )
         .unwrap();
-        assert!((p.ry - 0.707).abs() < 1e-3);
-        assert!((p.rw - 0.707).abs() < 1e-3);
+
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert_eq!(buf.len(), 1, "exactly one command queued: {buf:?}");
+            let super::ScriptCommand::Spawn(e) = &buf[0] else {
+                panic!("expected Spawn, got {:?}", buf[0]);
+            };
+            assert_eq!(e.name, "Fox");
+
+            let t = e
+                .transform
+                .as_ref()
+                .expect("an Option is spelled as the bare value, not Some(...)");
+            assert_eq!(t.position, [1.0, 2.0, 3.0]);
+            assert_eq!(t.scale, [0.02, 0.02, 0.02]);
+            assert_eq!(
+                t.rotation,
+                [0.0, 0.0, 0.0, 1.0],
+                "an omitted field takes the scene file's default, not zero"
+            );
+
+            assert_eq!(
+                e.gltf.as_ref().map(AssetRef::path),
+                Some("assets/models/fox.glb"),
+                "a bare string is a path reference"
+            );
+            let texture = e.texture.as_ref().expect("texture");
+            assert_eq!(
+                texture.guid(),
+                Some("0193a7c1-8f2e-7c44-9d61-3b5a0e7f2c19"),
+                "a {{guid, path}} object is an identified reference"
+            );
+            assert_eq!(texture.path(), "assets/textures/fur.png");
+
+            assert!(
+                matches!(e.primitive, Some(Primitive::Sphere)),
+                "a unit variant is its name as a string; got {:?}",
+                e.primitive
+            );
+            assert_eq!(e.color, Some([1.0, 0.0, 0.0]));
+            assert_eq!(e.rigidbody, Some(RigidBodyDesc::Dynamic));
+
+            let collider = e.collider.as_ref().expect("collider");
+            assert_eq!(
+                collider.shape,
+                ColliderShapeDesc::Capsule {
+                    half_height: 0.5,
+                    radius: 0.35
+                },
+                "a struct variant is a one-key object"
+            );
+            assert!((collider.friction - 0.3).abs() < 1e-6);
+            assert!(
+                !collider.sensor,
+                "an omitted field takes the scene file's default"
+            );
+
+            assert_eq!(
+                e.script.as_ref().map(AssetRef::path),
+                Some("assets/scripts/enemy.js")
+            );
+            assert_eq!(
+                e.components,
+                vec![(
+                    "bsengine_core::shield::Shield".to_string(),
+                    "(current: 30.0, max: 30.0)".to_string()
+                )],
+                "a (type path, RON) tuple is a two-element array"
+            );
+        });
+    }
+
+    /// `name` is the one required field. Every other `Bsengine.*` call
+    /// addresses an entity by its name, so a spawn that could not be named
+    /// would be unreachable from the moment it existed -- better a thrown
+    /// error on the calling line, naming the field, with nothing queued.
+    #[test]
+    fn spawn_without_a_name_throws_and_queues_nothing() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        let err = rt
+            .eval(r#"Bsengine.spawn({ gltf: "assets/models/fox.glb" });"#)
+            .expect_err("a nameless spawn must throw");
+        assert!(
+            err.to_string().contains("name"),
+            "the error must name the missing field; got {err}"
+        );
+        super::COMMAND_BUFFER.with(|c| {
+            assert!(
+                c.borrow().is_empty(),
+                "a rejected spawn must queue nothing: {:?}",
+                c.borrow()
+            );
+        });
     }
 
     #[test]

@@ -86,10 +86,17 @@ Requires: Rust stable, Vulkan/Metal/DX12 GPU driver (for rendering tests on Linu
 
 ```bash
 cargo build --all
-cargo test --all
+
+# Two invocations, not `--all`: bsengine-editor overflows the stack when its
+# suite runs concatenated with the rest of the workspace.
+cargo test --workspace --exclude bsengine-editor
+cargo test -p bsengine-editor
 ```
 
-CI runs on Ubuntu and Windows via GitHub Actions.
+CI runs on Ubuntu, Windows and macOS via GitHub Actions, and covers more than
+the tests: formatting, clippy, the component catalogue, every checked-in E2E
+replay, packaging every project, and a smoke test that opens a real window.
+See `CLAUDE.md` for how to run and judge those gates locally.
 
 ### Packaging a build
 

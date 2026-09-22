@@ -441,8 +441,19 @@ MigrationBackup/
 
 # End of https://www.gitignore.io/api/c++,windows,visualstudio,visualstudiocode
 
-# BSEngine local-only directories
-docs/
+# BSEngine local-only directories.
+#
+# `docs/*` rather than `docs/`: git cannot re-include a file whose *parent
+# directory* is excluded, so excluding the directory itself would make the
+# negation below silently do nothing. Excluding its contents keeps it working.
+#
+# Stays local: `docs/superpowers/plans/` (134 working-artifact implementation
+# plans). Tracked: the comparison report -- the one document here that answers
+# "what does this engine actually have" for someone who did not write it. It
+# was local-only until 2026-09-22, which meant handing the project over would
+# have lost it.
+docs/*
+!docs/BSENGINE_VS_UNITY_UNREAL.md
 .omc/
 
 # Editor window layout, written by panels/dock.rs when the editor exits. It

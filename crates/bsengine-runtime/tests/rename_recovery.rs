@@ -283,17 +283,10 @@ fn replay(root: &Path) -> std::process::Output {
 /// Split into two tests it would be possible for the first to leave state the
 /// second silently depended on, which is the shape of coupling this file exists
 /// to remove.
-// macOS: same root cause as `bsengine-asset::watcher`'s rename tests (see
-// their comments) reached through the real engine this time -- FSEvents
-// reports the symlink-resolved temp path (`/private/var/folders/...`) while
-// `start_asset_watcher`'s rename-pairing cache is seeded with the unresolved
-// one, so the rename is never paired and nothing ever follows the sidecar.
-// Observed in CI 2026-09-22 (PR #1871); not fixed here, same follow-up.
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "downstream of the FSEvents symlink-resolution mismatch in \
-              bsengine-asset::watcher: the rename is never paired"
-)]
+// macOS: hit the same cache-seeding mismatch as `bsengine-asset::watcher`'s
+// rename tests, reached through the real engine this time. Fixed there via
+// `resolve_watch_prefix`; nothing to change in this test. Found and fixed
+// 2026-09-22, PR #1871.
 #[test]
 fn a_renamed_asset_is_still_found_by_a_scene_that_names_its_old_path() {
     // Declared before anything that could panic, so it is dropped last and the
@@ -343,15 +336,8 @@ fn a_renamed_asset_is_still_found_by_a_scene_that_names_its_old_path() {
 ///
 /// Without this, the test above would pass just as happily against an engine
 /// that recovered nothing but happened to move the entity for some other reason.
-// macOS: same cause as the test above -- both share
-// `rename_the_script_with_the_engine_running`, which times out waiting for
-// the sidecar to follow before either test reaches its own assertions.
-// Observed in CI 2026-09-22 (PR #1871); same follow-up.
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "downstream of the FSEvents symlink-resolution mismatch in \
-              bsengine-asset::watcher: the rename is never paired"
-)]
+// macOS: same cause as the test above, same fix. Found and fixed 2026-09-22,
+// PR #1871.
 #[test]
 fn without_the_recorded_former_path_the_same_recording_fails() {
     let probe = create_fixture();

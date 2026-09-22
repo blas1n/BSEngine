@@ -195,6 +195,42 @@ struct AssetWatcher {
     engine_root: String,
 }
 
+/// Resolves `p` to the spelling `notify` will actually report paths under it
+/// with -- which is not always the spelling `p` already has.
+///
+/// Identity on Windows and Linux: notify reports the CWD-absolutised spelling
+/// verbatim there, and on Windows `fs::canonicalize` would make things worse
+/// by returning a `\\?\`-prefixed path that never strips (see the comment at
+/// `start_asset_watcher`'s call site).
+///
+/// On macOS it is `fs::canonicalize`, and that is safe here specifically
+/// because the `\\?\` problem is Windows-only. FSEvents reports paths with
+/// every symlink resolved, and `/tmp` and `/var` -- so every OS-provided temp
+/// directory, which is exactly what every watcher test builds its fixtures
+/// under -- are themselves symlinks into `/private`. A `strip_base` built from
+/// the unresolved spelling never matches what comes back, and the failure is
+/// not limited to `reconstruct`'s own `strip_prefix`: `notify-debouncer-full`
+/// stitches a rename's two halves together by comparing `FileId`s, but it
+/// looks the *old* path's cached `FileId` up by exact string equality
+/// (`notify_debouncer_full::cache::FileIdMap`, confirmed by reading its
+/// source, not assumed). Seed that cache with the unresolved spelling and the
+/// lookup misses every time the old path is reported resolved, so the rename
+/// is filed as an unrelated delete-plus-create, forever, with no way to
+/// recover the path it moved from.
+///
+/// Falls back to the unresolved spelling if canonicalization fails (the root
+/// vanished between the caller's `is_dir()` check and here, a permissions
+/// error, ...): worse than the fix, but no worse than not having it.
+#[cfg(target_os = "macos")]
+fn resolve_watch_prefix(p: PathBuf) -> PathBuf {
+    std::fs::canonicalize(&p).unwrap_or(p)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn resolve_watch_prefix(p: PathBuf) -> PathBuf {
+    p
+}
+
 /// Starts the watcher, or explains once why it is not starting.
 fn start_asset_watcher(
     mut commands: Commands,
@@ -228,10 +264,10 @@ fn start_asset_watcher(
         return;
     }
 
-    // Deliberately NOT canonicalize(): notify reports the CWD-absolutised
-    // spelling, never the canonical one, and on Windows canonicalize() returns
-    // a `\\?\` path that would never strip.
-    let strip_base = asset_root.join(&watch_root);
+    // CWD-absolutised, then resolved on macOS only -- see
+    // `resolve_watch_prefix`'s own doc comment for why that platform is the
+    // exception rather than a plain `asset_root.join(&watch_root)` everywhere.
+    let strip_base = resolve_watch_prefix(asset_root.join(&watch_root));
 
     let (tx, rx) = mpsc::channel();
     let mut debouncer = match new_debouncer(DEBOUNCE, None, tx) {
@@ -266,6 +302,11 @@ fn start_asset_watcher(
     // unpaired rename still reloads the destination perfectly well, so the
     // whole failure was invisible. Linux hides it further, since inotify's
     // cookie pairs renames without consulting the cache at all.
+    //
+    // `strip_base` is already `resolve_watch_prefix`-resolved by the time it
+    // gets here, which on macOS is a *second* reason this cache needs it: the
+    // paths this cache is asked about are exactly the ones `notify` reports,
+    // and FSEvents reports them symlink-resolved.
     debouncer
         .cache()
         .add_root(&strip_base, RecursiveMode::Recursive);
@@ -299,14 +340,13 @@ fn start_asset_watcher(
 ///   and announcing each of those would bury the lines that matter.
 /// * A path that will not strip is an **anomaly**, by construction: `notify`
 ///   only ever reports paths under the root it was told to watch, and
-///   [`start_asset_watcher`] builds `strip_base` from that same root. If it
-///   fires anyway the symptom is hot reload doing nothing at all, forever,
-///   with nothing in the log to say why — the exact failure this module exists
-///   to prevent. It cannot happen on the backends CI covers; it is reachable
-///   where the backend reports a *resolved* path the watch root's own spelling
-///   does not prefix (macOS FSEvents reached through a symlink). So it warns,
-///   naming both paths, because the difference between them is the whole
-///   diagnosis.
+///   [`start_asset_watcher`] builds `strip_base` from that same root, resolved
+///   by [`resolve_watch_prefix`] the same way notify's own reports are (which
+///   is what closes the macOS FSEvents-through-a-symlink case this warning
+///   used to be the only sign of). If it fires anyway the symptom is hot
+///   reload doing nothing at all, forever, with nothing in the log to say why
+///   — the exact failure this module exists to prevent. So it warns, naming
+///   both paths, because the difference between them is the whole diagnosis.
 ///
 /// The extension is checked first so that only the anomaly's *relevant* half
 /// is reported: on a backend that resolves paths, everything fails to strip,
@@ -623,19 +663,12 @@ mod tests {
     // its only in-engine source of former paths — and would do so silently,
     // since a rename would still look like an ordinary change to the
     // destination.
-    // macOS: FSEvents reports the symlink-resolved temp path
-    // (`/private/var/folders/...`) while `std::env::temp_dir()` -- what this
-    // test seeds the pairing cache with -- returns the unresolved spelling
-    // (`/var/folders/...`). The cache's lookup is keyed on *exact* path
-    // equality, so it misses and no paired rename event is ever produced.
-    // Observed in CI 2026-09-22 (PR #1871); tracked as a follow-up, not fixed
-    // here -- see the module's `notify_reports_cwd_absolutised_paths_even_for_a_relative_watch_root`
-    // for the same fact measured directly.
-    #[cfg_attr(
-        target_os = "macos",
-        ignore = "FSEvents reports the symlink-resolved path; the exact-equality \
-                  pairing cache seeded from the unresolved one never matches"
-    )]
+    // macOS: `root` itself is seeded into the cache resolved
+    // (`resolve_watch_prefix`), the same way `start_asset_watcher` seeds it --
+    // this test exercises exactly that recipe, not a hand-rolled one, because
+    // it is the recipe the production cache-miss bug lived in (fixed
+    // 2026-09-22, PR #1871 found it and left it as a follow-up; this closes
+    // that follow-up).
     #[test]
     fn a_rename_is_reported_with_both_the_old_and_the_new_path() {
         let root = std::env::temp_dir().join(unique("rename-probe"));
@@ -647,14 +680,25 @@ mod tests {
             .watcher()
             .watch(&root, RecursiveMode::Recursive)
             .unwrap();
-        debouncer.cache().add_root(&root, RecursiveMode::Recursive);
+        let cache_root = resolve_watch_prefix(root.clone());
+        debouncer
+            .cache()
+            .add_root(&cache_root, RecursiveMode::Recursive);
 
         std::thread::sleep(DEBOUNCE * 3);
         while rx.try_recv().is_ok() {}
 
-        let from = root.join(nested());
-        let to = root.join("assets").join("models").join("renamed.txt");
-        std::fs::rename(&from, &to).unwrap();
+        // The filesystem calls use `root` (any spelling reaches the same
+        // file); the expected paths use `cache_root` because that is the
+        // spelling notify will actually report back, which on every platform
+        // but macOS is the same string as `root` anyway.
+        let from = cache_root.join(nested());
+        let to = cache_root.join("assets").join("models").join("renamed.txt");
+        std::fs::rename(
+            root.join(nested()),
+            root.join("assets").join("models").join("renamed.txt"),
+        )
+        .unwrap();
 
         let events = collect(&rx, DEBOUNCE * 3);
         let rendered: Vec<String> = events
@@ -710,16 +754,15 @@ mod tests {
     // perfectly well. Linux hid it too -- inotify's cookie pairs renames
     // without consulting the cache at all -- so this is the shape of failure CI
     // alone would never have found.
-    // macOS: same cause as the absolute-root version above, for the relative
-    // case. `current_dir().join(&root)` is the unresolved CWD-absolutised
-    // spelling; FSEvents reports the `/private/var/...`-resolved one instead,
-    // so the cache seeded here never matches what comes back. Observed in CI
-    // 2026-09-22 (PR #1871).
-    #[cfg_attr(
-        target_os = "macos",
-        ignore = "FSEvents reports the symlink-resolved path; the cache seeded \
-                  from the unresolved CWD-absolutised one never matches"
-    )]
+    // macOS: this test's own root is under the process CWD (typically
+    // `/Users/...` in CI), not under a symlinked prefix like `/tmp`/`/var`, so
+    // `resolve_watch_prefix` is a no-op here and this specific case was never
+    // explained by the symlink cause above -- PR #1871's capture showed a
+    // *single* unpaired `Create` event for a rename under this kind of root,
+    // not two mismatched-path halves. Applying `resolve_watch_prefix` anyway
+    // for consistency with `start_asset_watcher`'s real recipe; if this still
+    // fails on macOS, that is a second, separate FSEvents gap and worth its
+    // own investigation rather than folding into this one's fix.
     #[test]
     fn a_relative_watch_root_pairs_a_rename_when_the_cache_is_absolutised() {
         let root = PathBuf::from(unique("rename-relative"));
@@ -733,7 +776,7 @@ mod tests {
             .unwrap();
         // What `start_asset_watcher` does: the cache is given what notify will
         // report, not what `watch()` was given.
-        let absolutised = std::env::current_dir().unwrap().join(&root);
+        let absolutised = resolve_watch_prefix(std::env::current_dir().unwrap().join(&root));
         debouncer
             .cache()
             .add_root(&absolutised, RecursiveMode::Recursive);
@@ -820,9 +863,11 @@ mod tests {
 
         // The whole reconstruction recipe, in one line: notify absolutises the
         // watch root against the process CWD and appends the OS-relative
-        // remainder, so stripping `current_dir().join(watch_root)` recovers the
-        // asset's path relative to the assets directory.
-        let absolutised = std::env::current_dir().unwrap().join(watch_root);
+        // remainder, so stripping `resolve_watch_prefix(current_dir().join(watch_root))`
+        // recovers the asset's path relative to the assets directory. The
+        // resolution step is a no-op everywhere but macOS; see its own doc
+        // comment for why that platform needs it.
+        let absolutised = resolve_watch_prefix(std::env::current_dir().unwrap().join(watch_root));
         assert_eq!(
             reported.strip_prefix(&absolutised).ok(),
             Some(nested().as_path()),
@@ -871,19 +916,17 @@ mod tests {
     // If row 2 ever stops holding after a notify upgrade, this test fails and
     // the reconstruction in the watcher must be re-derived from whatever the
     // new measurement says.
-    // macOS: this test's whole premise -- row 2 above, "notify does not
-    // normalise" -- is false here. `assert_common`'s `strip_prefix` (the very
-    // first assertion the "abs" case reaches) fails because FSEvents reports
-    // the symlink-resolved spelling (`/private/var/folders/...`) while
-    // `current_dir()`/`temp_dir()` return the unresolved one
-    // (`/var/folders/...`). Observed in CI 2026-09-22 (PR #1871); this is the
-    // same fact the two rename tests above hit, measured directly here.
-    #[cfg_attr(
-        target_os = "macos",
-        ignore = "notify resolves the /var -> /private/var symlink in its \
-                  reported paths here; row 2's \"no normalisation\" premise \
-                  does not hold on this platform"
-    )]
+    //
+    // macOS is a fourth, narrower exception to row 1's "verbatim" half, not to
+    // row 2: `abs_root` here is built from `std::env::temp_dir()`, and `/tmp`
+    // and `/var` are themselves symlinks into `/private` on macOS, so FSEvents
+    // reports the resolved spelling for anything under them specifically.
+    // `rel_root`/`odd_root` live under the process CWD instead (not a
+    // symlinked prefix in CI), so row 2's "no normalisation" holds for them
+    // unchanged. `resolve_watch_prefix` is exactly the platform-conditional
+    // fix this asymmetry needs -- identity everywhere it does not apply.
+    // Found via PR #1871's macOS run (2026-09-22), fixed by the same PR that
+    // added this paragraph.
     #[test]
     fn notify_reports_cwd_absolutised_paths_even_for_a_relative_watch_root() {
         // Row 1: absolute watch root, outside the source tree.
@@ -893,8 +936,10 @@ mod tests {
         let abs_reported = assert_common("abs", &abs_root, &abs_events);
         assert_eq!(
             abs_reported,
-            abs_root.join(nested()),
-            "an absolute watch root must come back verbatim, not re-spelled"
+            resolve_watch_prefix(abs_root.clone()).join(nested()),
+            "an absolute watch root must come back verbatim (resolved on \
+             macOS only, see the module doc comment above), not re-spelled \
+             some other way"
         );
 
         // Row 2: relative watch root, no `..`, directly under the CWD. This is
@@ -1363,15 +1408,10 @@ mod tests {
     // what mints the identity this test follows, and its own atomic sidecar
     // write is itself a rename the watcher sees -- so this covers the recorder
     // not reacting to its own file format as well.
-    // macOS: downstream of the same cache-seeding mismatch, reached through
-    // `start_asset_watcher` this time rather than a raw debouncer -- the
-    // rename is never paired, so the sidecar-follow logic this test waits on
-    // never fires and it times out. Observed in CI 2026-09-22 (PR #1871).
-    #[cfg_attr(
-        target_os = "macos",
-        ignore = "downstream of the FSEvents symlink-resolution mismatch: the \
-                  rename is never paired, so nothing ever follows the sidecar"
-    )]
+    // macOS: this is the test that first showed the cache-seeding mismatch
+    // reaches all the way through `start_asset_watcher` (not just a raw
+    // debouncer) -- fixed by `resolve_watch_prefix` there, no change needed
+    // in this test itself. Found and fixed 2026-09-22, PR #1871.
     #[test]
     fn a_rename_moves_the_sidecar_along_and_records_the_old_path() {
         use crate::identity::{sidecar_path, AssetIdentityPlugin, AssetIndex, Sidecar};

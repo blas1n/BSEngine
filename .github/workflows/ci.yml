@@ -1,10 +1,27 @@
 name: CI
 
 on:
+  # No push trigger for feature branches: every one of them gets a PR
+  # immediately (this repo's workflow never pushes without opening one), so
+  # the `pull_request` run below already covers that commit. A push trigger
+  # here used to fire a second, redundant full run on the exact same SHA --
+  # observed doubling Windows's ~1h matrix job on every commit to a PR
+  # branch, with no `concurrency` group to cancel either one.
   push:
-    branches: [master, "feat/**"]
+    branches: [master]
   pull_request:
     branches: [master]
+
+# Belt-and-suspenders for the case the push/pull_request split above doesn't
+# cover: force-pushes or rapid consecutive commits to the same PR each fire
+# their own `pull_request: synchronize` run. Without this, they'd all run to
+# completion even though only the latest commit's result matters. The group
+# key folds push and pull_request events for the same branch together
+# (`head_ref` is only set on pull_request; `ref_name` is push's branch name),
+# so a newer run in either form cancels an older one still in flight.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always

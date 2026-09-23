@@ -777,6 +777,31 @@ fn transform_replication_still_works_alongside_calls() {
         pair.step();
     }
 
+    // Replication must have kept up *during* the calls: after ten frames of
+    // moves the client holds at least the ninth snapshot. Exactly one frame
+    // of slack, and only because the transport promises delivery order, not
+    // delivery within the frame. The tenth snapshot leaves in this frame's
+    // `server.update()` and is read by the same frame's `client.update()` --
+    // if the OS has delivered the loopback datagram by then. Usually it has;
+    // on macOS CI (run 35820145362, 2026-09-23) it once had not, and the
+    // client sat on tick 9's snapshot at x = 8.0 with nothing wrong. With
+    // `interpolation_delay_ticks: 0` the client renders the newest snapshot
+    // it *holds*, so "one datagram in flight" reads as "one frame behind".
+    let after_calls = pair.client_position(on_client).x;
+    assert!(
+        after_calls >= 8.0 - 1e-3,
+        "replication fell behind the calls: the client is at x = {after_calls} after ten moves"
+    );
+
+    // A few more frames for that last datagram to land. A starved snapshot
+    // stream -- the regression this test exists for -- never gets here
+    // however many frames it is given.
+    for _ in 0..10 {
+        if (pair.client_position(on_client).x - 9.0).abs() < 1e-3 {
+            break;
+        }
+        pair.step();
+    }
     assert!(
         (pair.client_position(on_client).x - 9.0).abs() < 1e-3,
         "the client should still be tracking the server's transform, got {:?}",

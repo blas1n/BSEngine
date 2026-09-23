@@ -179,36 +179,16 @@ mod tests {
         (surface.device_arc(), surface.queue_arc())
     }
 
-    #[test]
-    fn create_tracked_texture_increments_global_counters_and_drop_decrements_them() {
-        let (device, _queue) = test_device();
-        let before_bytes = texture_memory_bytes();
-        let before_count = texture_count();
-
-        let desc = wgpu::TextureDescriptor {
-            label: Some("profiler test texture"),
-            size: wgpu::Extent3d {
-                width: 64,
-                height: 64,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        };
-        let expected_bytes = 64u64 * 64 * 4; // width * height * 4 bytes/texel (Rgba8Unorm)
-
-        let tracked = create_tracked_texture(&device, &desc);
-        assert_eq!(texture_memory_bytes(), before_bytes + expected_bytes);
-        assert_eq!(texture_count(), before_count + 1);
-
-        drop(tracked);
-        assert_eq!(texture_memory_bytes(), before_bytes);
-        assert_eq!(texture_count(), before_count);
-    }
+    // ⚠️ The counter test -- "create increments the global totals, drop
+    // decrements them" -- is deliberately NOT here. It lives in
+    // `tests/profiler_counters.rs`, alone in its own binary. The totals are
+    // process-global statics, and this module's test binary runs every test
+    // in the crate in one process, most of them building an offscreen
+    // surface that allocates tracked targets of its own; whenever one did so
+    // between the test's two samples, the delta was off by that surface and
+    // the test failed (expected +16,384, saw +7,389,184), taking the whole
+    // `cargo test --workspace` down with it via fail-fast. Moving it back
+    // here reintroduces that race. See the header of that file.
 
     #[test]
     fn tracked_texture_derefs_to_wgpu_texture_for_create_view() {

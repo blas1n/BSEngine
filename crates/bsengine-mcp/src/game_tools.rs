@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+use bsengine_asset::identity::{read_import_settings, write_import_settings, ImportSettings};
+use bsengine_core::{ModelImportSettings, TextureImportSettings};
 use serde_json::{json, Value};
 
 use crate::tool::{McpTool, McpToolOutput};
@@ -132,15 +134,49 @@ Notes:
 - Each entity's script is isolated — multiple entities can each have their own script
 - path is relative to game root (e.g. "assets/scripts/player.js")"#;
 
-/// Builds the `game_create`/`scene_write`/`script_write`/`game_validate` tools,
-/// each scoped to game projects under `root/games/`.
+/// Builds the `game_create`/`scene_write`/`script_write`/`game_validate`/
+/// `asset_import_settings` tools, each scoped to game projects under
+/// `root/games/`.
 pub fn game_tools(root: PathBuf) -> Vec<McpTool> {
     let r1 = root.clone();
     let r2 = root.clone();
     let r3 = root.clone();
     let r4 = root.clone();
+    let r5 = root.clone();
 
     vec![
+        McpTool {
+            name: "asset_import_settings".to_string(),
+            description: "Read or change how one asset is imported -- the per-asset settings \
+                Unity keeps in a .meta and Godot in a .import, stored here in the asset's \
+                `<file>.meta` sidecar. Without `settings`, returns what is in force for the \
+                asset (`recorded: false` means the kind's defaults, nothing tuned yet). With \
+                `settings`, merges the given fields onto what is in force, writes the sidecar \
+                (minting an identity for an asset no scan has seen yet, keeping the identity \
+                of one that has), and returns the result. Fields not given keep their value; \
+                an unknown field is an error, not ignored.\n\n\
+                Textures (png, jpg, jpeg, hdr): `srgb` (bool, default true -- off for data \
+                textures such as normal maps), `mipmaps` (bool, default true), `filter` \
+                (\"Linear\" | \"Nearest\", default Linear), `wrap` (\"Repeat\" | \"Clamp\" | \
+                \"Mirror\", default Repeat).\n\
+                Models (glb, gltf): `scale` (number > 0, default 1.0 -- baked into vertices, \
+                skeleton, bind matrices and animation keys; 0.01 brings a centimetre file to \
+                metres), `import_animations` (bool, default true).\n\n\
+                A running game or editor that watches the project reloads the asset with the \
+                new settings; a test session started before the edit sees them on its next \
+                load of that asset."
+                .to_string(),
+            input_schema: Some(json!({
+                "type": "object",
+                "properties": {
+                    "game":     { "type": "string", "description": "Game folder name under games/" },
+                    "path":     { "type": "string", "description": "Asset path relative to the game root (e.g. 'assets/textures/wall.png' or 'assets/models/fox.glb')" },
+                    "settings": { "type": "object", "description": "Fields to change, by name; omit to read. See the description for each kind's fields." },
+                },
+                "required": ["game", "path"],
+            })),
+            handler: Box::new(move |args| asset_import_settings(&r5, args)),
+        },
         McpTool {
             name: "game_create".to_string(),
             description: format!(
@@ -311,6 +347,118 @@ fn script_write(root: &Path, args: Value) -> McpToolOutput {
     }
 
     McpToolOutput::success(json!({ "written": format!("games/{game}/{rel_path}") }))
+}
+
+/// The fields of one kind's settings as a JSON object, which is both what
+/// the tool returns and what a partial edit is merged onto.
+fn import_settings_json(settings: &ImportSettings) -> Value {
+    match settings {
+        ImportSettings::Texture(t) => serde_json::to_value(t),
+        ImportSettings::Model(m) => serde_json::to_value(m),
+    }
+    .unwrap_or(Value::Null)
+}
+
+fn asset_import_settings(root: &Path, args: Value) -> McpToolOutput {
+    let game = match get_str(&args, "game") {
+        Ok(v) => v.to_string(),
+        Err(e) => return e,
+    };
+    let rel = match get_str(&args, "path") {
+        Ok(v) => v.to_string(),
+        Err(e) => return e,
+    };
+    // Scoped to the game: this tool writes a file beside whatever `path`
+    // names, so `../../.cargo/config.toml.meta` must not be reachable from
+    // it. `script_write` has no such guard, and this one is not a licence
+    // for that -- an agent that can write arbitrary scripts is already
+    // trusted with the tree, but a *sidecar* landing beside a non-asset is a
+    // file the scan would then refuse to explain, so the cheap check goes in.
+    let rel_path = Path::new(&rel);
+    if rel_path.is_absolute()
+        || rel_path.components().any(|c| {
+            matches!(
+                c,
+                std::path::Component::ParentDir | std::path::Component::Prefix(_)
+            )
+        })
+    {
+        return McpToolOutput::error(
+            "path must be relative to the game root and may not leave it (no `..`)",
+        );
+    }
+    let asset = root.join("games").join(&game).join(rel_path);
+    let shown = format!("games/{game}/{rel}");
+
+    let report = match read_import_settings(&asset) {
+        Ok(r) => r,
+        Err(e) => return McpToolOutput::error(&format!("{shown}: {e}")),
+    };
+
+    let Some(patch) = args.get("settings") else {
+        return McpToolOutput::success(json!({
+            "path": shown,
+            "kind": report.kind,
+            "recorded": report.recorded,
+            "settings": import_settings_json(&report.settings),
+        }));
+    };
+    let Some(patch) = patch.as_object() else {
+        return McpToolOutput::error("`settings` must be an object of the kind's fields");
+    };
+
+    // Merge onto what is in force, field by field, refusing a field the kind
+    // does not have: `mipmap` for `mipmaps` silently ignored would leave an
+    // agent certain it had turned mipmaps off.
+    let mut merged = import_settings_json(&report.settings);
+    let fields = merged.as_object().cloned().unwrap_or_default();
+    for (key, value) in patch {
+        if !fields.contains_key(key) {
+            let known: Vec<&String> = fields.keys().collect();
+            return McpToolOutput::error(&format!(
+                "unknown {} import setting `{key}`; the settings are {known:?}",
+                report.kind
+            ));
+        }
+        merged[key] = value.clone();
+    }
+    let settings = match report.kind {
+        "Texture" => serde_json::from_value::<TextureImportSettings>(merged.clone())
+            .map(ImportSettings::Texture),
+        "Model" => {
+            serde_json::from_value::<ModelImportSettings>(merged.clone()).map(ImportSettings::Model)
+        }
+        other => return McpToolOutput::error(&format!("unhandled import kind {other}")),
+    };
+    let settings = match settings {
+        Ok(s) => s,
+        Err(e) => {
+            return McpToolOutput::error(&format!("invalid {} import settings: {e}", report.kind))
+        }
+    };
+    if let ImportSettings::Model(m) = &settings {
+        // The loader would read a bad scale as 1.0 and warn; here somebody is
+        // asking for it, so refuse instead of writing a value that will be
+        // silently corrected on every load.
+        if !m.usable_scale().1 {
+            return McpToolOutput::error(&format!(
+                "scale must be a finite number greater than zero, got {}",
+                m.scale
+            ));
+        }
+    }
+
+    match write_import_settings(&asset, settings) {
+        Ok(meta) => McpToolOutput::success(json!({
+            "path": shown,
+            "kind": report.kind,
+            "recorded": true,
+            "settings": import_settings_json(&settings),
+            "written": format!("games/{game}/{}", meta.strip_prefix(root.join("games").join(&game)).unwrap_or(&meta).display()).replace('\\', "/"),
+            "note": "an engine watching this project reloads the asset with these settings; a test session sees them on its next load of the asset",
+        })),
+        Err(e) => McpToolOutput::error(&format!("{shown}: {e}")),
+    }
 }
 
 fn game_validate(root: &Path, args: Value) -> McpToolOutput {
@@ -532,6 +680,206 @@ mod tests {
         }));
         assert!(out.is_ok(), "{:?}", out.error);
         assert!(root.join("games/g/assets/scripts/player.js").exists());
+    }
+
+    fn import_tool(root: &Path) -> McpTool {
+        game_tools(root.to_path_buf())
+            .into_iter()
+            .find(|t| t.name == "asset_import_settings")
+            .expect("registered")
+    }
+
+    /// A game with one texture and one model, neither scanned, so the tool's
+    /// minting path is what every test below starts from.
+    fn game_with_assets(root: &Path) {
+        std::fs::create_dir_all(root.join("games/g/assets/textures")).unwrap();
+        std::fs::create_dir_all(root.join("games/g/assets/models")).unwrap();
+        std::fs::create_dir_all(root.join("games/g/assets/scenes")).unwrap();
+        std::fs::write(root.join("games/g/assets/textures/wall.png"), b"png bytes").unwrap();
+        std::fs::write(root.join("games/g/assets/models/fox.glb"), b"glb bytes").unwrap();
+        std::fs::write(root.join("games/g/assets/scenes/main.ron"), b"()").unwrap();
+    }
+
+    #[test]
+    fn asset_import_settings_reads_the_defaults_for_an_untuned_asset() {
+        let (_tmp, root) = temp_root();
+        game_with_assets(&root);
+        let tool = import_tool(&root);
+        let out = (tool.handler)(json!({"game": "g", "path": "assets/textures/wall.png"}));
+        assert!(out.is_ok(), "{:?}", out.error);
+        assert_eq!(out.content["kind"], "Texture");
+        assert_eq!(out.content["recorded"], false);
+        assert_eq!(out.content["settings"]["srgb"], true);
+        assert_eq!(out.content["settings"]["wrap"], "Repeat");
+        assert!(
+            !root.join("games/g/assets/textures/wall.png.meta").exists(),
+            "a read must not mint a sidecar"
+        );
+
+        let out = (tool.handler)(json!({"game": "g", "path": "assets/models/fox.glb"}));
+        assert!(out.is_ok(), "{:?}", out.error);
+        assert_eq!(out.content["kind"], "Model");
+        assert_eq!(out.content["settings"]["scale"], 1.0);
+        assert_eq!(out.content["settings"]["import_animations"], true);
+    }
+
+    /// The merge semantics, which is what makes a one-field edit safe for an
+    /// agent: the second edit must not reset the first. A tool that replaced
+    /// the whole record with `{filter: Nearest}` plus defaults would pass the
+    /// first half of this test and fail the second.
+    #[test]
+    fn asset_import_settings_merges_each_edit_onto_what_is_recorded() {
+        use bsengine_asset::identity::{sidecar_path, Sidecar};
+        use bsengine_core::{TextureFilter, TextureWrap};
+
+        let (_tmp, root) = temp_root();
+        game_with_assets(&root);
+        let tool = import_tool(&root);
+        let png = root.join("games/g/assets/textures/wall.png");
+
+        let out = (tool.handler)(json!({
+            "game": "g", "path": "assets/textures/wall.png", "settings": {"srgb": false}
+        }));
+        assert!(out.is_ok(), "{:?}", out.error);
+        assert_eq!(out.content["recorded"], true);
+        assert_eq!(
+            out.content["written"],
+            "games/g/assets/textures/wall.png.meta"
+        );
+        let first = Sidecar::read(sidecar_path(&png)).unwrap().expect("minted");
+        assert!(!first.texture_import().srgb);
+        assert!(
+            first.texture_import().mipmaps,
+            "untouched fields keep their defaults"
+        );
+
+        let out = (tool.handler)(json!({
+            "game": "g", "path": "assets/textures/wall.png",
+            "settings": {"filter": "Nearest", "wrap": "Clamp"}
+        }));
+        assert!(out.is_ok(), "{:?}", out.error);
+        let second = Sidecar::read(sidecar_path(&png))
+            .unwrap()
+            .expect("still there");
+        assert_eq!(
+            second.guid, first.guid,
+            "the identity minted by the first edit survives"
+        );
+        assert_eq!(
+            second.texture_import(),
+            TextureImportSettings {
+                srgb: false,
+                mipmaps: true,
+                filter: TextureFilter::Nearest,
+                wrap: TextureWrap::Clamp,
+            },
+            "the second edit keeps the first's srgb: false"
+        );
+
+        let out = (tool.handler)(json!({"game": "g", "path": "assets/textures/wall.png"}));
+        assert_eq!(out.content["recorded"], true);
+        assert_eq!(out.content["settings"]["srgb"], false);
+        assert_eq!(out.content["settings"]["filter"], "Nearest");
+    }
+
+    #[test]
+    fn asset_import_settings_writes_a_models_scale_and_animation_toggle() {
+        use bsengine_asset::identity::{sidecar_path, Sidecar};
+
+        let (_tmp, root) = temp_root();
+        game_with_assets(&root);
+        let tool = import_tool(&root);
+        let out = (tool.handler)(json!({
+            "game": "g", "path": "assets/models/fox.glb",
+            "settings": {"scale": 0.01, "import_animations": false}
+        }));
+        assert!(out.is_ok(), "{:?}", out.error);
+        let sidecar = Sidecar::read(sidecar_path(root.join("games/g/assets/models/fox.glb")))
+            .unwrap()
+            .expect("minted");
+        assert_eq!(
+            sidecar.model_import(),
+            ModelImportSettings {
+                scale: 0.01,
+                import_animations: false,
+            }
+        );
+    }
+
+    /// Every refusal, and that none of them wrote anything: an agent's typo
+    /// must come back as an error naming the field, not as a sidecar that
+    /// quietly says something else.
+    #[test]
+    fn asset_import_settings_refuses_bad_input_without_writing() {
+        let (_tmp, root) = temp_root();
+        game_with_assets(&root);
+        let tool = import_tool(&root);
+        let png = "assets/textures/wall.png";
+        let cases: Vec<(Value, &str)> = vec![
+            (
+                json!({"game": "g", "path": png, "settings": {"mipmap": false}}),
+                "unknown Texture import setting `mipmap`",
+            ),
+            (
+                json!({"game": "g", "path": png, "settings": {"srgb": "yes"}}),
+                "invalid Texture import settings",
+            ),
+            (
+                json!({"game": "g", "path": png, "settings": {"wrap": "Tile"}}),
+                "invalid Texture import settings",
+            ),
+            (
+                json!({"game": "g", "path": png, "settings": 3}),
+                "must be an object",
+            ),
+            (
+                json!({"game": "g", "path": "assets/models/fox.glb", "settings": {"scale": 0}}),
+                "scale must be a finite number greater than zero",
+            ),
+            (
+                json!({"game": "g", "path": "assets/scenes/main.ron"}),
+                "has no import settings",
+            ),
+            (
+                json!({"game": "g", "path": "assets/textures/missing.png"}),
+                "does not exist",
+            ),
+            (
+                json!({"game": "g", "path": "../../Cargo.toml"}),
+                "may not leave it",
+            ),
+            // A real texture in *another* game: without the guard this one
+            // would not fail for any other reason -- the file exists and is
+            // a texture -- so it is the case that tells a guard from the
+            // read failing on its own.
+            (
+                json!({"game": "g", "path": "../other/assets/leak.png", "settings": {"srgb": false}}),
+                "may not leave it",
+            ),
+        ];
+        std::fs::create_dir_all(root.join("games/other/assets")).unwrap();
+        std::fs::write(root.join("games/other/assets/leak.png"), b"png bytes").unwrap();
+        for (args, expected) in cases {
+            let out = (tool.handler)(args.clone());
+            assert!(!out.is_ok(), "{args} must be refused");
+            let error = out.error.unwrap();
+            assert!(
+                error.contains(expected),
+                "{args}: expected the error to mention {expected:?}, got {error:?}"
+            );
+        }
+        for meta in [
+            "games/g/assets/textures/wall.png.meta",
+            "games/g/assets/models/fox.glb.meta",
+            "games/g/assets/scenes/main.ron.meta",
+            "Cargo.toml.meta",
+            "games/other/assets/leak.png.meta",
+        ] {
+            assert!(
+                !root.join(meta).exists(),
+                "{meta} must not have been written"
+            );
+        }
     }
 
     #[test]

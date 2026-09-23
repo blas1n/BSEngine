@@ -58,6 +58,11 @@ fn black_and_white() -> Vec<u8> {
 }
 
 /// The lit cube face must be visible for any of this to mean anything.
+///
+/// Only for a render whose centre pixel is not a texel boundary: on a
+/// black-and-white two-texel face the centre *is* the boundary, and under
+/// Nearest it reads as whichever texel the sampler rounds to -- black, on
+/// lavapipe. Those tests assert visibility on the band centres instead.
 fn assert_face_visible(pixels: &Pixels, what: &str) {
     assert!(
         pixels.centre_luma() > 0.05,
@@ -223,8 +228,14 @@ fn repeat_tiles_past_uv_one_where_clamp_stretches_the_edge() {
 
     let tiled = h.render(&face_scene(cube, repeat));
     let stretched = h.render(&face_scene(cube, clamp));
-    assert_face_visible(&tiled, "the repeat render");
 
+    // No centre-pixel visibility check: the centre of this face is u = 1,
+    // a texel boundary, and under Nearest which texel that pixel shows is
+    // the sampler's rounding -- see `nearest_keeps_a_hard_texel_edge...`
+    // for the run where lavapipe read it as black. The premise inside
+    // `flips` -- both texels visible at the band centres, well apart -- is
+    // the one this test actually needs.
+    //
     // Eight band centres across the face; light or dark relative to the
     // midpoint of what the two texels render at on this face.
     let flips = |pixels: &Pixels| -> usize {
@@ -291,8 +302,14 @@ fn nearest_keeps_a_hard_texel_edge_that_linear_blends() {
 
     let blended = h.render(&face_scene(cube, linear));
     let hard = h.render(&face_scene(cube, nearest));
-    assert_face_visible(&hard, "the nearest render");
 
+    // No centre-pixel visibility check here, and not by oversight: on this
+    // face the centre pixel *is* the texel boundary, and under Nearest which
+    // texel it lands on is the sampler's rounding -- lavapipe on the Ubuntu
+    // runner picked black (luma 0) where the Windows GPU picked white, and
+    // the premise failed on a fully visible face. `texel_range` is the right
+    // premise: both texels must show, well inside their halves, and apart.
+    //
     // What the two texels render at on this face, from well inside each
     // half of the nearest render, and the midpoint that tells them apart.
     let (lo, hi) = texel_range(&hard, face_x(0.15), face_x(0.85));

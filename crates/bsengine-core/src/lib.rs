@@ -48,6 +48,9 @@ pub mod logging;
 pub mod material;
 /// Shared state between the editor mixer panel and the audio buses.
 pub mod mixer_state;
+/// Per-model import settings (uniform scale, whether to import animations),
+/// stored in an asset's sidecar and baked into the loaded data.
+pub mod model_import;
 /// Baked navigation mesh resource used for pathfinding.
 pub mod nav_mesh;
 /// Nav-mesh-driven pathing agent component and its runtime state.
@@ -149,6 +152,7 @@ pub use light_probe::{LightProbeVolume, MAX_PROBES};
 pub use logging::init_logging;
 pub use material::{Material, TexturePath};
 pub use mixer_state::{MixerBus, MixerShared, MixerState};
+pub use model_import::ModelImportSettings;
 pub use nav_mesh::{NavBakeParams, NavMesh};
 pub use nav_mesh_agent::{NavAgentState, NavMeshAgent};
 pub use nav_mesh_surface::NavMeshSurface;

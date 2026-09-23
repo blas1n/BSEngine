@@ -22,6 +22,8 @@
 //! )
 //! ```
 //!
+//! or, beside a model, `import: Some(Model((scale: 0.01, import_animations: true)))`.
+//!
 //! The sidecar lives next to the asset because that is the only place it
 //! survives the things artists actually do — copying a folder, moving a file in
 //! Explorer, committing to git. A central database would go stale on the first
@@ -58,7 +60,9 @@
 //! empty asset re-hashed forever *and* make the migration untestable.
 
 use super::AssetGuid;
-use bsengine_core::TextureImportSettings;
+use bevy_asset::io::AssetReaderError;
+use bevy_asset::{AssetPath, LoadContext, ReadAssetBytesError};
+use bsengine_core::{ModelImportSettings, TextureImportSettings};
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -68,11 +72,26 @@ use std::path::{Path, PathBuf};
 ///
 /// An enum rather than one struct with every kind's fields, so a texture's
 /// sidecar cannot carry a model's scale and a hand-edit that puts the wrong
-/// kind on an asset is a parse error rather than a silently ignored field.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// kind's *fields* on an asset is a parse error rather than a silently
+/// ignored field. The wrong *variant* -- `Model(..)` beside a `.png` --
+/// parses, and each loader warns about it by name; see [`Sidecar::texture_import`].
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum ImportSettings {
     /// An image file: how it becomes a GPU texture.
     Texture(TextureImportSettings),
+    /// A model file (glTF/GLB): how it becomes geometry, a skeleton and clips.
+    Model(ModelImportSettings),
+}
+
+impl ImportSettings {
+    /// The variant's name, for a warning that has to say which kind a
+    /// sidecar recorded when it was not the kind the loader wanted.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Texture(_) => "Texture",
+            Self::Model(_) => "Model",
+        }
+    }
 }
 
 /// Extension appended to the asset's own file name to name its sidecar.
@@ -131,7 +150,8 @@ pub fn empty_hash() -> String {
 }
 
 /// One asset's identity record, stored beside the asset as `<asset>.meta`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+// Not `Eq`: `import` may carry a model's `f32` scale.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Sidecar {
     /// The asset's stable identity. Minted once and never rewritten.
     pub guid: AssetGuid,
@@ -173,11 +193,79 @@ pub struct Sidecar {
 
 impl Sidecar {
     /// The texture import settings this sidecar asks for: the recorded ones,
-    /// or the defaults when it records none.
+    /// or the defaults when it records none -- or records another kind's.
+    ///
+    /// The other-kind case is deliberately the defaults and not an error:
+    /// the texture itself is fine, and refusing to load it over its sidecar
+    /// would turn a hand-edit of a `.meta` into a missing asset. But it is
+    /// not silent either -- a loader reading the sidecar through
+    /// [`Sidecar::read_beside_loading_asset`] knows the asset's path and
+    /// warns with it, which this accessor cannot.
     pub fn texture_import(&self) -> TextureImportSettings {
         match self.import {
             Some(ImportSettings::Texture(settings)) => settings,
-            None => TextureImportSettings::default(),
+            _ => TextureImportSettings::default(),
+        }
+    }
+
+    /// The model import settings this sidecar asks for; the same contract as
+    /// [`Sidecar::texture_import`].
+    pub fn model_import(&self) -> ModelImportSettings {
+        match self.import {
+            Some(ImportSettings::Model(settings)) => settings,
+            _ => ModelImportSettings::default(),
+        }
+    }
+
+    /// Whether the recorded import settings, if any, are for another kind
+    /// of asset than `wanted` names (`"Texture"`, `"Model"`) -- the loaders'
+    /// cue to warn, since `None` and a mismatch both read as the defaults.
+    pub fn import_is_another_kind(&self, wanted: &str) -> bool {
+        self.import
+            .is_some_and(|recorded| recorded.kind() != wanted)
+    }
+
+    /// Reads the sidecar beside the asset an [`AssetLoader`](bevy_asset::AssetLoader)
+    /// is loading, or `None` when there is none.
+    ///
+    /// Through the asset source rather than `std::fs`, so the sidecar is
+    /// resolved against the same root the asset was -- a project directory,
+    /// or a `.pak` in a packaged build, where there is no path to open.
+    ///
+    /// A missing sidecar is the ordinary case for an asset a scan has not
+    /// seen yet and says nothing. One that exists and will not parse is
+    /// worth a warning, because the settings in it are being ignored -- but
+    /// not a failed load, since the asset itself is fine and the scan
+    /// already refuses to touch such a file. Both loaders that read import
+    /// settings go through here: two copies of that policy is how one of
+    /// them ends up without it.
+    pub async fn read_beside_loading_asset(load_context: &mut LoadContext<'_>) -> Option<Self> {
+        let asset_path = load_context.asset_path().clone_owned();
+        let sidecar = AssetPath::from(sidecar_path(asset_path.path()));
+        match load_context.read_asset_bytes(sidecar).await {
+            Ok(bytes) => match std::str::from_utf8(&bytes)
+                .map_err(|e| e.to_string())
+                .and_then(|text| Self::from_ron(text).map_err(|e| e.to_string()))
+            {
+                Ok(sidecar) => Some(sidecar),
+                Err(e) => {
+                    tracing::warn!(
+                        "import settings: the sidecar beside {} could not be read ({e}); \
+                         loading it with the defaults",
+                        asset_path.path().display()
+                    );
+                    None
+                }
+            },
+            Err(ReadAssetBytesError::AssetReaderError(AssetReaderError::NotFound(_))) => None,
+            Err(e) => {
+                tracing::warn!(
+                    "import settings: the sidecar beside {} could not be opened ({e}); \
+                     loading it with the defaults",
+                    asset_path.path().display()
+                );
+                None
+            }
         }
     }
 
@@ -462,6 +550,52 @@ mod tests {
         );
     }
 
+    /// The model half of the shape above, plus the two accessors' contract
+    /// on a sidecar of the *other* kind: each reads as its own defaults, and
+    /// `import_is_another_kind` is what lets a loader say so.
+    #[test]
+    fn a_models_import_settings_round_trip_and_read_as_a_textures_defaults() {
+        let tuned = Sidecar {
+            guid: "0193a7c1-8f2e-7c44-9d61-3b5a0e7f2c19"
+                .parse()
+                .expect("guid"),
+            hash: "blake3:9f2c1d".to_string(),
+            size: Some(4096),
+            former_paths: Vec::new(),
+            import: Some(ImportSettings::Model(ModelImportSettings {
+                scale: 0.01,
+                import_animations: false,
+            })),
+        };
+        let text = tuned.to_ron().expect("serialise");
+        assert!(
+            text.contains(
+                "import: Some(Model((\n        scale: 0.01,\n        import_animations: false,\n    ))),"
+            ),
+            "the documented spelling, got:\n{text}"
+        );
+        let parsed = Sidecar::from_ron(&text).expect("parse");
+        assert_eq!(parsed, tuned);
+        assert_eq!(parsed.model_import().scale, 0.01);
+        assert!(!parsed.model_import().import_animations);
+
+        assert!(parsed.import_is_another_kind("Texture"));
+        assert!(!parsed.import_is_another_kind("Model"));
+        assert_eq!(
+            parsed.texture_import(),
+            TextureImportSettings::default(),
+            "a model's settings are a texture's defaults, never a parse error"
+        );
+        let bare = Sidecar {
+            import: None,
+            ..tuned.clone()
+        };
+        assert!(
+            !bare.import_is_another_kind("Texture") && !bare.import_is_another_kind("Model"),
+            "no settings is not a mismatch"
+        );
+    }
+
     /// The migration property, the same one `size` has below: every sidecar
     /// committed before `import` existed must still parse, and must mean
     /// "the defaults" rather than fail or mean something else. The
@@ -476,6 +610,7 @@ mod tests {
         .expect("a sidecar without `import` must still parse");
         assert_eq!(parsed.import, None);
         assert_eq!(parsed.texture_import(), TextureImportSettings::default());
+        assert_eq!(parsed.model_import(), ModelImportSettings::default());
     }
 
     #[test]

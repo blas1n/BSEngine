@@ -1185,6 +1185,95 @@ fn update_skinned_meshes(
 mod tests {
     use super::*;
 
+    /// The one property the four parts of `LoadedGltf::bake_scale` exist to
+    /// hold together: a character imported at scale `s` deforms, at any
+    /// moment of any clip, to exactly `s` times where the unscaled character
+    /// is. Each part alone is pinned in `loader.rs`; this is the composition,
+    /// through the real skinning path -- global accumulation, inverse bind,
+    /// per-vertex blend. Scaling three of the four passes the per-part
+    /// checks for those three and fails here by the missing factor.
+    #[test]
+    fn a_baked_scale_deforms_to_exactly_the_scaled_unscaled_pose() {
+        use crate::loader::{GltfLoader, LoadedGltf};
+        use bsengine_core::ModelImportSettings;
+
+        const S: f32 = 2.5;
+        let fox = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../games/mini-arena/assets/models/fox.glb");
+        let load = |scale| {
+            GltfLoader::load_full_with(
+                fox.to_str().unwrap(),
+                &ModelImportSettings {
+                    scale,
+                    import_animations: true,
+                },
+            )
+            .expect("fox.glb loads")
+        };
+        let one = load(1.0);
+        let two = load(S);
+
+        // The longest clip, sampled well inside it.
+        let clip = (0..one.animations.len())
+            .max_by(|&a, &b| {
+                one.animations[a]
+                    .duration
+                    .partial_cmp(&one.animations[b].duration)
+                    .unwrap()
+            })
+            .expect("premise: fox.glb has clips");
+        let time = one.animations[clip].duration * 0.4;
+
+        let pose = |g: &LoadedGltf| -> Vec<Vec3> {
+            let sample = ClipSample {
+                channels: &g.animations[clip].channels,
+                time,
+                weight: 1.0,
+            };
+            let joints = compute_joint_matrices_blended(&g.nodes, &g.skins[0], &[sample]);
+            let mesh = &g.meshes[0];
+            mesh.vertices
+                .iter()
+                .zip(
+                    mesh.skin
+                        .as_ref()
+                        .expect("fox's first primitive is skinned"),
+                )
+                .map(|(v, s)| blend_vertex_position(Vec3::from(v.position), s, &joints))
+                .collect()
+        };
+        let p1 = pose(&one);
+        let p2 = pose(&two);
+
+        let extent = p1
+            .iter()
+            .map(|p| p.abs().max_element())
+            .fold(0.0_f32, f32::max);
+        // Premise: the clip actually moves the mesh off its rest pose at this
+        // time. A frame where nothing moved would let a bake that ignored the
+        // animation keys pass.
+        let moved = p1
+            .iter()
+            .zip(&one.meshes[0].vertices)
+            .map(|(p, v)| (*p - Vec3::from(v.position)).length())
+            .fold(0.0_f32, f32::max);
+        assert!(
+            moved > 0.05 * extent,
+            "premise: at t = {time} the clip must move the fox visibly (moved {moved}, extent {extent})"
+        );
+
+        let worst = p1
+            .iter()
+            .zip(&p2)
+            .map(|(a, b)| (*b - *a * S).length())
+            .fold(0.0_f32, f32::max);
+        assert!(
+            worst <= 1e-4 * extent * S,
+            "the scaled character must deform to exactly {S}x the unscaled pose; \
+             worst vertex is off by {worst} on a model {extent} across"
+        );
+    }
+
     #[test]
     fn clip_library_from_clips_keys_by_name() {
         let lib = AnimationClipLibrary::from_clips(vec![

@@ -1783,6 +1783,16 @@ mod tests {
             "a texture's sidecar reloads the texture"
         );
         assert_eq!(
+            reconstruct(
+                &strip_base.join("models").join("fox.glb.meta"),
+                &strip_base,
+                engine_root
+            )
+            .as_deref(),
+            Some("games/mini-arena/assets/models/fox.glb"),
+            "a model's sidecar reloads the model -- its scale is baked at load"
+        );
+        assert_eq!(
             reconstruct(&strip_base.join("scene.ron.meta"), &strip_base, engine_root),
             None,
             "a sidecar beside an unreloadable asset is still nothing to reload"

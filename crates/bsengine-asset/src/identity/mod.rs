@@ -36,7 +36,8 @@ pub use fixup::{fixup, FixupReport};
 pub use index::AssetIndex;
 pub use scan::scan;
 pub use sidecar::{
-    empty_hash, measure_file, sidecar_path, Sidecar, SidecarError, SIDECAR_EXTENSION,
+    empty_hash, measure_file, sidecar_path, ImportSettings, Sidecar, SidecarError,
+    SIDECAR_EXTENSION,
 };
 
 /// A stable identity for one asset file, independent of where it lives.

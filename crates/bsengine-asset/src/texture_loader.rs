@@ -1,8 +1,8 @@
-use bevy_asset::io::{AssetReaderError, Reader};
-use bevy_asset::{AssetLoader, AssetPath, LoadContext, ReadAssetBytesError};
+use bevy_asset::io::Reader;
+use bevy_asset::{AssetLoader, LoadContext};
 use bsengine_core::TextureImportSettings;
 
-use crate::identity::sidecar::{Sidecar, SIDECAR_EXTENSION};
+use crate::identity::sidecar::Sidecar;
 use crate::types::TextureAsset;
 
 /// Decodes a texture file (PNG/JPEG/HDR — matches this workspace's `image`
@@ -45,48 +45,23 @@ impl AssetLoader for TextureAssetLoader {
 }
 
 /// The import settings recorded in the sidecar beside the texture being
-/// loaded, or the defaults when there is no sidecar or it records none.
-///
-/// Read through the asset source rather than `std::fs`, so the sidecar is
-/// resolved against the same root the texture was, whatever that root is.
-/// A missing sidecar is the ordinary case for an asset a scan has not seen
-/// yet and says nothing; a sidecar that exists and will not parse is worth
-/// a warning, because the settings in it are being ignored -- but not a
-/// failed load, since the texture itself is fine and the scan already
-/// refuses to touch such a file.
+/// loaded, or the defaults when there is no sidecar, it records none, or it
+/// records another kind's -- the last of which is said out loud, since a
+/// `Model(..)` beside a `.png` is a hand-edit whose every field is about to
+/// be ignored. See [`Sidecar::read_beside_loading_asset`] for the rest.
 async fn import_settings(load_context: &mut LoadContext<'_>) -> TextureImportSettings {
-    let asset_path = load_context.asset_path().clone_owned();
-    let mut sidecar = asset_path.path().as_os_str().to_os_string();
-    sidecar.push(".");
-    sidecar.push(SIDECAR_EXTENSION);
-    let sidecar_path = AssetPath::from(std::path::PathBuf::from(sidecar));
-    match load_context.read_asset_bytes(sidecar_path).await {
-        Ok(bytes) => match std::str::from_utf8(&bytes)
-            .map_err(|e| e.to_string())
-            .and_then(|text| Sidecar::from_ron(text).map_err(|e| e.to_string()))
-        {
-            Ok(sidecar) => sidecar.texture_import(),
-            Err(e) => {
-                tracing::warn!(
-                    "texture import: the sidecar beside {} could not be read ({e}); \
-                     loading it with the default import settings",
-                    asset_path.path().display()
-                );
-                TextureImportSettings::default()
-            }
-        },
-        Err(ReadAssetBytesError::AssetReaderError(AssetReaderError::NotFound(_))) => {
-            TextureImportSettings::default()
-        }
-        Err(e) => {
-            tracing::warn!(
-                "texture import: the sidecar beside {} could not be opened ({e}); \
-                 loading it with the default import settings",
-                asset_path.path().display()
-            );
-            TextureImportSettings::default()
-        }
+    let Some(sidecar) = Sidecar::read_beside_loading_asset(load_context).await else {
+        return TextureImportSettings::default();
+    };
+    if sidecar.import_is_another_kind("Texture") {
+        tracing::warn!(
+            "texture import: the sidecar beside {} records {} import settings, which a \
+             texture has no use for; loading it with the defaults",
+            load_context.path().display(),
+            sidecar.import.map(|i| i.kind()).unwrap_or_default()
+        );
     }
+    sidecar.texture_import()
 }
 
 #[cfg(test)]

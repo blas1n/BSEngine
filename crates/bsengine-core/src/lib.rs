@@ -149,8 +149,7 @@ pub use import_settings::ImportSettings;
 pub use inspector::{
     AssetImportSnapshot, EditorPlayState, GizmoMode, InspectorCmd, InspectorEntityInfo,
     InspectorState, ParticlePreview, ParticleSnapshot, PreviewCamera, TerrainBrushKind,
-    TerrainBrushSettings, TerrainBrushStroke,
-    TimelinePreview, PRIMITIVE_KINDS,
+    TerrainBrushSettings, TerrainBrushStroke, TimelinePreview, PRIMITIVE_KINDS,
 };
 pub use lifetime::Lifetime;
 pub use light::{DirectionalLight, PointLight, SpotLight};

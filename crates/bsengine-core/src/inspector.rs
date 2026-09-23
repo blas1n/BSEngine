@@ -168,6 +168,18 @@ pub enum InspectorCmd {
         /// Path to the `.ron` scene file to load.
         path: String,
     },
+    /// Record import settings in the sidecar beside an asset -- the
+    /// Inspector's **Apply** on a selected texture or model. Applied by
+    /// `bsengine-editor` through `bsengine_asset::identity::write_import_settings`,
+    /// the same function the MCP `asset_import_settings` tool uses, so the
+    /// two cannot disagree about minting or keeping the asset's identity.
+    WriteImportSettings {
+        /// The asset's path, as the Asset Browser hands it out.
+        path: String,
+        /// What to record. Must be the asset's own kind; the writer refuses
+        /// the other and the error lands in `InspectorState::asset_import_error`.
+        settings: crate::ImportSettings,
+    },
     /// Spawn a new named entity with a `GltfAsset { path }` component
     /// attached, so `bsengine-gltf`'s existing `load_gltf_assets` system
     /// (already registered in the editor app, already tested) picks it up
@@ -460,6 +472,31 @@ pub struct TimelinePreview {
     pub clips: Vec<(String, String, f32)>,
 }
 
+/// The import settings of the asset selected in the Asset Browser, as the
+/// Inspector shows and edits them.
+///
+/// Populated by `bsengine-editor` (which can read the sidecar) whenever
+/// [`InspectorState::selected_asset`] names a different asset than this
+/// snapshot does, and again after a write lands; the panel only draws it.
+/// `edit` is the Inspector's working copy -- Unity's importer model, where
+/// changes sit in the panel until **Apply** writes them or **Revert** drops
+/// them, rather than a write per checkbox click that would re-import the
+/// asset four times for one four-field edit.
+#[derive(Clone, Debug, PartialEq)]
+pub struct AssetImportSnapshot {
+    /// The asset this describes, exactly as `selected_asset` names it.
+    pub path: String,
+    /// What is in force for the asset: recorded settings or the defaults.
+    pub settings: crate::ImportSettings,
+    /// Whether `settings` came from the sidecar rather than being the
+    /// kind's defaults. Shown so an author can tell "tuned to the defaults"
+    /// from "never tuned".
+    pub recorded: bool,
+    /// The Inspector's working copy; differs from `settings` while an edit
+    /// is pending.
+    pub edit: crate::ImportSettings,
+}
+
 /// Editor-side resource holding the current entity snapshot, selection,
 /// pending edit commands, and all viewport/gizmo/camera UI state.
 #[derive(Resource)]
@@ -468,6 +505,19 @@ pub struct InspectorState {
     pub entities: Vec<InspectorEntityInfo>,
     /// Id of the currently selected entity, if any.
     pub selected_id: Option<u64>,
+    /// Path of the asset selected in the Asset Browser, if any. One
+    /// selection at a time, as in Unity's Project/Hierarchy pair: selecting
+    /// an asset clears the entity selection ([`Self::select_asset`]) and
+    /// selecting an entity clears this ([`Self::sync_selection`]), so the
+    /// Inspector always knows which one it is showing.
+    pub selected_asset: Option<String>,
+    /// The selected asset's import settings, for the Inspector; see
+    /// [`AssetImportSnapshot`]. `None` until `bsengine-editor` has read
+    /// them, or when the asset has none.
+    pub asset_import: Option<AssetImportSnapshot>,
+    /// Why `asset_import` could not be read or written, for the Inspector
+    /// to show instead of the fields: a broken sidecar, a write that failed.
+    pub asset_import_error: Option<String>,
     /// Edit commands queued by the UI this frame, drained by `apply_inspector_cmds`.
     pub cmd_queue: Vec<InspectorCmd>,
     /// Cloned reflected components currently attached to `selected_id`,
@@ -621,6 +671,9 @@ impl Default for InspectorState {
         Self {
             entities: Vec::new(),
             selected_id: None,
+            selected_asset: None,
+            asset_import: None,
+            asset_import_error: None,
             cmd_queue: Vec::new(),
             reflected_components: Vec::new(),
             edit_pos: [0.0; 3],
@@ -675,10 +728,19 @@ impl InspectorState {
     }
 
     /// Refreshes the `edit_*` buffers from the newly selected entity, if the selection changed.
+    ///
+    /// A newly selected *entity* also drops the asset selection: the
+    /// Inspector shows one thing, and the thing picked last is it. Only a
+    /// change *to* an entity does this -- the Hierarchy clearing its own
+    /// selection (`None`) must not throw away an asset the author just
+    /// clicked in the browser.
     pub fn sync_selection(&mut self) {
         if self.selected_id != self.prev_selected_id {
             self.prev_selected_id = self.selected_id;
             if let Some(id) = self.selected_id {
+                self.selected_asset = None;
+                self.asset_import = None;
+                self.asset_import_error = None;
                 if let Some(info) = self.entities.iter().find(|e| e.id == id) {
                     self.edit_pos = info.position.unwrap_or([0.0; 3]);
                     self.edit_rot = info.rotation.unwrap_or([0.0; 3]);
@@ -687,6 +749,28 @@ impl InspectorState {
                 }
             }
         }
+    }
+
+    /// Selects an asset from the Asset Browser, and deselects the entity:
+    /// the other half of the one-selection rule `sync_selection` keeps.
+    ///
+    /// `prev_selected_id` is moved along with `selected_id`, so the next
+    /// `sync_selection` sees no entity change and leaves this selection be;
+    /// without that, the frame after a browser click would read `Some ->
+    /// None` as no-op but a later `None -> Some(same)` as a fresh pick, which
+    /// is right, while a stale `prev` would make the *clearing* itself look
+    /// like a change and clear the asset straight back.
+    pub fn select_asset(&mut self, path: impl Into<String>) {
+        let path = path.into();
+        if self.selected_asset.as_deref() != Some(path.as_str()) {
+            self.asset_import = None;
+        }
+        // Cleared even for the same asset: clicking it again is how an
+        // author retries after fixing the broken sidecar the error named.
+        self.asset_import_error = None;
+        self.selected_asset = Some(path);
+        self.selected_id = None;
+        self.prev_selected_id = None;
     }
 }
 
@@ -698,10 +782,75 @@ mod tests {
     fn default_has_no_selection() {
         let s = InspectorState::default();
         assert!(s.selected_id.is_none());
+        assert!(s.selected_asset.is_none());
         assert!(s.entities.is_empty());
         assert!(s.cmd_queue.is_empty());
         assert!(!s.editor_mode);
         assert_eq!(s.play_state, EditorPlayState::Stopped);
+    }
+
+    fn snapshot(path: &str) -> AssetImportSnapshot {
+        let settings = crate::ImportSettings::Texture(crate::TextureImportSettings::default());
+        AssetImportSnapshot {
+            path: path.to_string(),
+            settings,
+            recorded: false,
+            edit: settings,
+        }
+    }
+
+    /// One selection at a time, in both directions, and the cases where
+    /// nothing must be cleared: the Hierarchy deselecting (`Some -> None`)
+    /// and re-selecting the same asset (its pending edit survives).
+    #[test]
+    fn selecting_an_asset_and_selecting_an_entity_each_clear_the_other() {
+        let mut s = InspectorState::default();
+        s.entities.push(InspectorEntityInfo {
+            id: 1,
+            ..Default::default()
+        });
+        s.selected_id = Some(1);
+        s.sync_selection();
+
+        s.select_asset("assets/textures/wall.png");
+        assert_eq!(s.selected_id, None, "an asset pick deselects the entity");
+        assert_eq!(
+            s.selected_asset.as_deref(),
+            Some("assets/textures/wall.png")
+        );
+
+        // The frame after: no entity change to see, so the asset stays.
+        s.sync_selection();
+        assert_eq!(
+            s.selected_asset.as_deref(),
+            Some("assets/textures/wall.png")
+        );
+
+        // A pending edit on the same asset survives re-clicking it...
+        s.asset_import = Some(snapshot("assets/textures/wall.png"));
+        s.select_asset("assets/textures/wall.png");
+        assert!(s.asset_import.is_some(), "same asset: the snapshot is kept");
+        // ...and is dropped for a different one, so the editor re-reads.
+        s.select_asset("assets/models/fox.glb");
+        assert!(
+            s.asset_import.is_none(),
+            "another asset: the snapshot is stale"
+        );
+
+        s.selected_id = Some(1);
+        s.sync_selection();
+        assert_eq!(s.selected_asset, None, "an entity pick deselects the asset");
+        assert!(s.asset_import.is_none());
+
+        // The Hierarchy clearing its selection is not a pick of anything.
+        s.select_asset("assets/models/fox.glb");
+        s.selected_id = None;
+        s.sync_selection();
+        assert_eq!(
+            s.selected_asset.as_deref(),
+            Some("assets/models/fox.glb"),
+            "Some -> None on the entity side must not clear the asset"
+        );
     }
 
     #[test]

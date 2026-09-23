@@ -40,6 +40,14 @@ impl EditorPanel for InspectorPanel {
         let insp = &mut *ctx.insp;
 
         let Some(sel_id) = insp.selected_id else {
+            // One selection at a time (see `InspectorState::select_asset`):
+            // with no entity, an asset picked in the Asset Browser is what
+            // the Inspector shows -- its import settings, as Unity's
+            // Inspector shows an importer for a selected Project asset.
+            if let Some(path) = insp.selected_asset.clone() {
+                draw_asset_import(ui, insp, &path);
+                return;
+            }
             ui.label("No entity selected.");
             return;
         };
@@ -504,6 +512,119 @@ fn component_header_id(type_path: &str) -> egui::Id {
     egui::Id::new(("inspector_component_header", type_path))
 }
 
+/// The Inspector for a selected *asset*: its import settings, edited in
+/// place on `AssetImportSnapshot::edit` and written only on **Apply**.
+///
+/// Apply/Revert rather than a write per click, for the reason Unity's
+/// importer works that way: every write re-imports the asset -- a mip chain
+/// rebuilt, a model re-baked -- and a four-field edit should cost one
+/// re-import, not four. `Revert` puts the working copy back to what is on
+/// disk. Both are disabled while nothing differs, which is also how the
+/// panel says "nothing pending".
+///
+/// What is drawn comes entirely from `InspectorState`: `bsengine-editor`
+/// reads the sidecar into `asset_import` and applies the queued write, and
+/// this crate cannot see the sidecar at all (it sits below `bsengine-asset`
+/// in the dependency order). So the three states are: an error to show, a
+/// snapshot to edit, or neither -- the frame between selection and the
+/// editor's read.
+fn draw_asset_import(ui: &mut egui::Ui, insp: &mut bsengine_core::InspectorState, path: &str) {
+    use bsengine_core::{ImportSettings, TextureFilter, TextureWrap};
+
+    let file_name = std::path::Path::new(path)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| path.to_string());
+    ui.heading(&file_name);
+    ui.separator();
+    ui.colored_label(crate::theme::TEXT, "Import Settings");
+
+    if let Some(error) = insp.asset_import_error.clone() {
+        ui.colored_label(egui::Color32::from_rgb(230, 90, 90), error);
+        return;
+    }
+    let Some(snapshot) = insp.asset_import.as_mut() else {
+        ui.label("Reading import settings...");
+        return;
+    };
+    // Guard against a snapshot for another asset: `select_asset` drops it
+    // on a change of asset, but the panel is the last line, and drawing
+    // fox.glb's scale under wall.png's name is the kind of wrong that
+    // looks right.
+    if snapshot.path != path {
+        ui.label("Reading import settings...");
+        return;
+    }
+
+    let recorded = snapshot.recorded;
+    ui.label(format!(
+        "{}{}",
+        snapshot.settings.kind(),
+        if recorded {
+            ""
+        } else {
+            " (defaults, nothing recorded yet)"
+        }
+    ));
+
+    match &mut snapshot.edit {
+        ImportSettings::Texture(t) => {
+            ui.checkbox(&mut t.srgb, "sRGB");
+            ui.checkbox(&mut t.mipmaps, "Mipmaps");
+            egui::ComboBox::from_label("Filter")
+                .selected_text(format!("{:?}", t.filter))
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut t.filter, TextureFilter::Linear, "Linear");
+                    ui.selectable_value(&mut t.filter, TextureFilter::Nearest, "Nearest");
+                });
+            egui::ComboBox::from_label("Wrap")
+                .selected_text(format!("{:?}", t.wrap))
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut t.wrap, TextureWrap::Repeat, "Repeat");
+                    ui.selectable_value(&mut t.wrap, TextureWrap::Clamp, "Clamp");
+                    ui.selectable_value(&mut t.wrap, TextureWrap::Mirror, "Mirror");
+                });
+        }
+        ImportSettings::Model(m) => {
+            ui.horizontal(|ui| {
+                ui.label("Scale");
+                // Clamped to what the loader would accept: it reads a zero
+                // or negative scale as 1.0 with a warning, and a widget that
+                // let one be typed would be offering a value that is never
+                // honoured.
+                ui.add(
+                    egui::DragValue::new(&mut m.scale)
+                        .speed(0.01)
+                        .range(1e-4..=1e4),
+                );
+            });
+            ui.checkbox(&mut m.import_animations, "Import Animations");
+        }
+    }
+
+    let dirty = snapshot.edit != snapshot.settings;
+    let mut apply = None;
+    let mut revert = false;
+    ui.horizontal(|ui| {
+        if ui.add_enabled(dirty, egui::Button::new("Apply")).clicked() {
+            apply = Some(snapshot.edit);
+        }
+        if ui.add_enabled(dirty, egui::Button::new("Revert")).clicked() {
+            revert = true;
+        }
+    });
+    if revert {
+        snapshot.edit = snapshot.settings;
+    }
+    if let Some(settings) = apply {
+        insp.cmd_queue
+            .push(bsengine_core::InspectorCmd::WriteImportSettings {
+                path: path.to_string(),
+                settings,
+            });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -789,6 +910,182 @@ mod tests {
     /// frame would cancel the extra against the header and pass.
     fn occurrences(texts: &[String], needle: &str) -> usize {
         texts.iter().filter(|text| text.as_str() == needle).count()
+    }
+
+    /// A harness showing an *asset* rather than an entity: the browser's
+    /// selection, with the snapshot `bsengine-editor` would have read.
+    fn asset_harness(path: &str, settings: bsengine_core::ImportSettings) -> PickerHarness {
+        let mut harness = PickerHarness::new(bevy_reflect::TypeRegistry::default(), Vec::new());
+        harness.insp.select_asset(path);
+        harness.insp.asset_import = Some(bsengine_core::AssetImportSnapshot {
+            path: path.to_string(),
+            settings,
+            recorded: false,
+            edit: settings,
+        });
+        harness
+    }
+
+    fn texture_defaults() -> bsengine_core::ImportSettings {
+        bsengine_core::ImportSettings::Texture(bsengine_core::TextureImportSettings::default())
+    }
+
+    /// Where `label` rendered on `frame`, for a click.
+    fn pos_of(frame: &egui::FullOutput, label: &str) -> egui::Pos2 {
+        collect_rendered_texts_with_pos(&frame.shapes)
+            .into_iter()
+            .find(|(text, _)| text == label)
+            .map(|(_, pos)| pos)
+            .unwrap_or_else(|| panic!("{label:?} must render"))
+    }
+
+    /// With an asset selected and no entity, the Inspector is the asset's
+    /// importer: its name, its fields, and Apply -- and not the
+    /// "No entity selected." placeholder, which is what an Inspector that
+    /// never learned about assets would show.
+    #[test]
+    fn a_selected_texture_shows_its_import_fields_instead_of_the_placeholder() {
+        let mut harness = asset_harness("assets/textures/wall.png", texture_defaults());
+        let texts = collect_rendered_texts(&harness.draw().shapes);
+        for expected in [
+            "wall.png",
+            "Import Settings",
+            "sRGB",
+            "Mipmaps",
+            "Apply",
+            "Revert",
+        ] {
+            assert!(
+                texts.iter().any(|t| t == expected),
+                "{expected:?} must render for a selected texture; got {texts:?}"
+            );
+        }
+        assert!(
+            !texts.iter().any(|t| t == "No entity selected."),
+            "the placeholder must not render over the asset"
+        );
+        assert!(
+            texts
+                .iter()
+                .any(|t| t.contains("defaults, nothing recorded yet")),
+            "an unrecorded snapshot must say so; got {texts:?}"
+        );
+    }
+
+    #[test]
+    fn a_selected_model_shows_scale_and_the_animation_toggle() {
+        let mut harness = asset_harness(
+            "assets/models/fox.glb",
+            bsengine_core::ImportSettings::Model(bsengine_core::ModelImportSettings::default()),
+        );
+        let texts = collect_rendered_texts(&harness.draw().shapes);
+        for expected in ["fox.glb", "Scale", "Import Animations"] {
+            assert!(
+                texts.iter().any(|t| t == expected),
+                "{expected:?} must render for a selected model; got {texts:?}"
+            );
+        }
+        assert!(
+            !texts.iter().any(|t| t == "sRGB"),
+            "a model has no texture fields; got {texts:?}"
+        );
+    }
+
+    /// Apply queues exactly the working copy, and only while something is
+    /// pending: the same click on an unedited snapshot queues nothing,
+    /// which is the disabled button doing its job rather than a click that
+    /// happened to miss.
+    #[test]
+    fn apply_queues_the_pending_edit_and_is_inert_without_one() {
+        use bsengine_core::{ImportSettings, TextureImportSettings};
+
+        let mut harness = asset_harness("assets/textures/wall.png", texture_defaults());
+        let clean = harness.draw();
+        harness.click(pos_of(&clean, "Apply"));
+        assert!(
+            harness.insp.cmd_queue.is_empty(),
+            "nothing pending: Apply is disabled and must queue nothing"
+        );
+
+        let edited = ImportSettings::Texture(TextureImportSettings {
+            srgb: false,
+            ..Default::default()
+        });
+        harness.insp.asset_import.as_mut().unwrap().edit = edited;
+        let dirty = harness.draw();
+        harness.click(pos_of(&dirty, "Apply"));
+        assert_eq!(
+            harness.insp.cmd_queue.len(),
+            1,
+            "Apply must queue one write"
+        );
+        match &harness.insp.cmd_queue[0] {
+            InspectorCmd::WriteImportSettings { path, settings } => {
+                assert_eq!(path, "assets/textures/wall.png");
+                assert_eq!(*settings, edited, "what is queued is the working copy");
+            }
+            other => panic!(
+                "expected WriteImportSettings, got {:?}",
+                std::mem::discriminant(other)
+            ),
+        }
+    }
+
+    #[test]
+    fn revert_drops_the_pending_edit_without_writing() {
+        use bsengine_core::{ImportSettings, TextureImportSettings};
+
+        let mut harness = asset_harness("assets/textures/wall.png", texture_defaults());
+        harness.insp.asset_import.as_mut().unwrap().edit =
+            ImportSettings::Texture(TextureImportSettings {
+                mipmaps: false,
+                ..Default::default()
+            });
+        let dirty = harness.draw();
+        harness.click(pos_of(&dirty, "Revert"));
+        let snapshot = harness.insp.asset_import.as_ref().unwrap();
+        assert_eq!(
+            snapshot.edit, snapshot.settings,
+            "Revert restores what is on disk"
+        );
+        assert!(harness.insp.cmd_queue.is_empty(), "and writes nothing");
+    }
+
+    /// Clicking a checkbox edits the working copy, not the disk: the
+    /// Unity importer model, where nothing happens until Apply.
+    #[test]
+    fn toggling_a_field_edits_the_working_copy_only() {
+        use bsengine_core::ImportSettings;
+
+        let mut harness = asset_harness("assets/textures/wall.png", texture_defaults());
+        let frame = harness.draw();
+        harness.click(pos_of(&frame, "sRGB"));
+        let snapshot = harness.insp.asset_import.as_ref().unwrap();
+        let ImportSettings::Texture(edit) = snapshot.edit else {
+            panic!("a texture snapshot")
+        };
+        assert!(!edit.srgb, "the click must flip the working copy's sRGB");
+        assert_eq!(
+            snapshot.settings,
+            texture_defaults(),
+            "and leave what is on disk alone"
+        );
+        assert!(harness.insp.cmd_queue.is_empty(), "no write until Apply");
+    }
+
+    #[test]
+    fn an_import_error_is_shown_in_place_of_the_fields() {
+        let mut harness = asset_harness("assets/textures/wall.png", texture_defaults());
+        harness.insp.asset_import_error = Some("the sidecar exists but could not be read".into());
+        let texts = collect_rendered_texts(&harness.draw().shapes);
+        assert!(
+            texts.iter().any(|t| t.contains("could not be read")),
+            "the error must render; got {texts:?}"
+        );
+        assert!(
+            !texts.iter().any(|t| t == "Apply"),
+            "no Apply over an error; got {texts:?}"
+        );
     }
 
     #[test]

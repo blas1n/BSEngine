@@ -62,37 +62,15 @@
 use super::AssetGuid;
 use bevy_asset::io::AssetReaderError;
 use bevy_asset::{AssetPath, LoadContext, ReadAssetBytesError};
+// The `import:` value itself is `bsengine_core::ImportSettings`, re-exported
+// here so the sidecar's users keep naming it beside the sidecar. It lives in
+// core because the editor's panels edit it and sit below this crate; see
+// that module's doc.
+pub use bsengine_core::ImportSettings;
 use bsengine_core::{ModelImportSettings, TextureImportSettings};
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::path::{Path, PathBuf};
-
-/// What a sidecar says about *how* its asset is imported, beside *what* it
-/// is. One variant per kind of asset that has import settings at all.
-///
-/// An enum rather than one struct with every kind's fields, so a texture's
-/// sidecar cannot carry a model's scale and a hand-edit that puts the wrong
-/// kind's *fields* on an asset is a parse error rather than a silently
-/// ignored field. The wrong *variant* -- `Model(..)` beside a `.png` --
-/// parses, and each loader warns about it by name; see [`Sidecar::texture_import`].
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub enum ImportSettings {
-    /// An image file: how it becomes a GPU texture.
-    Texture(TextureImportSettings),
-    /// A model file (glTF/GLB): how it becomes geometry, a skeleton and clips.
-    Model(ModelImportSettings),
-}
-
-impl ImportSettings {
-    /// The variant's name, for a warning that has to say which kind a
-    /// sidecar recorded when it was not the kind the loader wanted.
-    pub fn kind(&self) -> &'static str {
-        match self {
-            Self::Texture(_) => "Texture",
-            Self::Model(_) => "Model",
-        }
-    }
-}
 
 /// Extension appended to the asset's own file name to name its sidecar.
 pub const SIDECAR_EXTENSION: &str = "meta";

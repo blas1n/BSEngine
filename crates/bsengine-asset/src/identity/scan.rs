@@ -868,6 +868,7 @@ fn mint(candidate: &Candidate, contents: &Contents, index: &mut AssetIndex) {
         hash: contents.hash.clone(),
         size: Some(contents.size),
         former_paths: Vec::new(),
+        import: None,
     };
     let meta = sidecar_path(&candidate.path);
     if let Err(e) = sidecar.write(&meta) {
@@ -1235,6 +1236,7 @@ mod tests {
             hash: "blake3:abc".to_string(),
             size: None,
             former_paths: Vec::new(),
+            import: None,
         };
         for name in ["fox.glb", "fox_copy.glb"] {
             write_file(&assets.join(name), b"fake glb");
@@ -1289,6 +1291,7 @@ mod tests {
             hash: "blake3:abc".to_string(),
             size: None,
             former_paths: Vec::new(),
+            import: None,
         };
         for name in ["a.glb", "B.glb"] {
             write_file(&models.join(name), b"fake glb");
@@ -1692,6 +1695,7 @@ mod tests {
                 hash,
                 size: Some(size),
                 former_paths: Vec::new(),
+                import: None,
             }
             .write(sidecar_path(models.join(name)))
             .expect("write sidecar");

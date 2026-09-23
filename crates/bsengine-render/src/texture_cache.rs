@@ -87,7 +87,8 @@ impl TextureCache {
         match entry.slot.poll(asset_server, textures) {
             bsengine_asset::Polled::Arrived => {
                 if let Some(tex) = textures.get(entry.slot.handle()) {
-                    entry.id = Some(registry.load_from_rgba(tex.width, tex.height, &tex.data));
+                    entry.id =
+                        Some(registry.load_with(tex.width, tex.height, &tex.data, tex.settings));
                 }
             }
             bsengine_asset::Polled::Failed(e) => {
@@ -96,6 +97,46 @@ impl TextureCache {
             bsengine_asset::Polled::Nothing => {}
         }
         entry.id
+    }
+}
+
+/// Re-uploads a cached texture whose asset was modified -- a saved edit to
+/// the image, or to the import settings in the sidecar beside it -- under
+/// the id every `Material` already holds.
+///
+/// Until this existed a material texture was uploaded once and never again:
+/// the asset watcher reloaded the file into `Assets<TextureAsset>`, the
+/// `Modified` event fired, and nothing listened, so the GPU copy stayed as it
+/// was while the skybox (which had its own handler) and glTF meshes (theirs)
+/// updated. The sidecar path makes the gap visible in a way a pixel edit did
+/// not: toggling `srgb` in a `.meta` is *only* an upload change.
+pub fn reupload_modified_textures(
+    mut events: bevy_ecs::prelude::EventReader<bevy_asset::AssetEvent<TextureAsset>>,
+    cache: Res<TextureCache>,
+    textures: Res<bevy_asset::Assets<TextureAsset>>,
+    mut registry: Option<ResMut<GpuTextureRegistry>>,
+) {
+    for event in events.read() {
+        let bevy_asset::AssetEvent::Modified { id } = event else {
+            continue;
+        };
+        let Some(registry) = registry.as_mut() else {
+            continue;
+        };
+        for (path, entry) in cache.by_path.iter() {
+            if entry.slot.handle().id() != *id {
+                continue;
+            }
+            let (Some(gpu_id), Some(tex)) = (entry.id, textures.get(entry.slot.handle())) else {
+                continue;
+            };
+            if !registry.replace_with(gpu_id, tex.width, tex.height, &tex.data, tex.settings) {
+                tracing::warn!(
+                    "[texture] '{path}' was modified but its GPU texture {gpu_id} is no longer \
+                     registered; whatever samples it keeps the pre-edit pixels"
+                );
+            }
+        }
     }
 }
 
@@ -172,8 +213,84 @@ mod tests {
         app.add_plugins(bsengine_asset::AssetPlugin);
         with_gpu(&mut app);
         app.init_resource::<TextureCache>();
-        app.add_systems(bevy_app::Update, resolve_texture_paths);
+        app.add_systems(
+            bevy_app::Update,
+            (resolve_texture_paths, reupload_modified_textures),
+        );
         app
+    }
+
+    /// The property the sidecar story depends on: an asset modified after it
+    /// was uploaded is uploaded again under the same id, with its new pixels
+    /// and its new settings. Driven through `Assets::get_mut`, which is what
+    /// a reload ends in, rather than through the file watcher -- that half is
+    /// `bsengine-asset`'s to prove.
+    #[test]
+    fn a_modified_texture_asset_is_reuploaded_under_its_existing_id() {
+        use bsengine_core::TextureImportSettings;
+
+        let mut app = test_app();
+        app.world_mut()
+            .spawn((Material::default(), TexturePath(REAL_TEXTURE.into())));
+        for _ in 0..60 {
+            app.update();
+        }
+        let gpu_id = app
+            .world()
+            .resource::<TextureCache>()
+            .id_for(REAL_TEXTURE)
+            .expect("premise: the texture uploaded");
+        let handle = app.world().resource::<TextureCache>().by_path[REAL_TEXTURE]
+            .slot
+            .handle()
+            .clone();
+        {
+            let registry = app.world().resource::<GpuTextureRegistry>();
+            let (w, h) = registry.get_size(gpu_id).unwrap();
+            assert_ne!((w, h), (2, 2), "premise: the checker is not already 2x2");
+            assert_eq!(
+                registry.get_settings(gpu_id),
+                Some(TextureImportSettings::default()),
+                "premise: a file texture without a sidecar uploads with the defaults"
+            );
+        }
+
+        // What a reload produces: the same handle, new contents. `get_mut`
+        // marks the asset modified, which is the event under test.
+        let data_settings = TextureImportSettings {
+            srgb: false,
+            ..Default::default()
+        };
+        {
+            let mut textures = app
+                .world_mut()
+                .resource_mut::<bevy_asset::Assets<TextureAsset>>();
+            let tex = textures.get_mut(&handle).expect("the asset is loaded");
+            tex.width = 2;
+            tex.height = 2;
+            tex.data = vec![0u8; 16];
+            tex.settings = data_settings;
+        }
+        for _ in 0..3 {
+            app.update();
+        }
+
+        let registry = app.world().resource::<GpuTextureRegistry>();
+        assert_eq!(
+            app.world().resource::<TextureCache>().id_for(REAL_TEXTURE),
+            Some(gpu_id),
+            "the id materials hold must not change"
+        );
+        assert_eq!(
+            registry.get_size(gpu_id),
+            Some((2, 2)),
+            "the GPU texture must carry the modified pixels"
+        );
+        assert_eq!(
+            registry.get_settings(gpu_id),
+            Some(data_settings),
+            "and the modified import settings"
+        );
     }
 
     /// A real image, reached from this crate's directory.

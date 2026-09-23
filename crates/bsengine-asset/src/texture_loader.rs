@@ -1,10 +1,13 @@
-use bevy_asset::io::Reader;
-use bevy_asset::{AssetLoader, LoadContext};
+use bevy_asset::io::{AssetReaderError, Reader};
+use bevy_asset::{AssetLoader, AssetPath, LoadContext, ReadAssetBytesError};
+use bsengine_core::TextureImportSettings;
 
+use crate::identity::sidecar::{Sidecar, SIDECAR_EXTENSION};
 use crate::types::TextureAsset;
 
 /// Decodes a texture file (PNG/JPEG/HDR — matches this workspace's `image`
-/// crate features) into a [`TextureAsset`]. Backs `LoadMode::Async` for
+/// crate features) into a [`TextureAsset`], carrying the import settings
+/// from the `.meta` sidecar beside it. Backs `LoadMode::Async` for
 /// textures via `AssetServer::load`; `LoadMode::Sync` does not use this —
 /// see `load_mode.rs`.
 #[derive(Default)]
@@ -19,7 +22,7 @@ impl AssetLoader for TextureAssetLoader {
         &'a self,
         reader: &'a mut Reader<'_>,
         _settings: &'a Self::Settings,
-        _load_context: &'a mut LoadContext<'_>,
+        load_context: &'a mut LoadContext<'_>,
     ) -> Result<Self::Asset, Self::Error> {
         use bevy_asset::io::AsyncReadExt;
         let mut bytes = Vec::new();
@@ -27,6 +30,7 @@ impl AssetLoader for TextureAssetLoader {
             .read_to_end(&mut bytes)
             .await
             .map_err(|e| format!("read: {e}"))?;
+        let settings = import_settings(load_context).await;
         let img = image::load_from_memory(&bytes)
             .map_err(|e| format!("decode: {e}"))?
             .to_rgba8();
@@ -35,7 +39,53 @@ impl AssetLoader for TextureAssetLoader {
             width,
             height,
             data: img.into_raw(),
+            settings,
         })
+    }
+}
+
+/// The import settings recorded in the sidecar beside the texture being
+/// loaded, or the defaults when there is no sidecar or it records none.
+///
+/// Read through the asset source rather than `std::fs`, so the sidecar is
+/// resolved against the same root the texture was, whatever that root is.
+/// A missing sidecar is the ordinary case for an asset a scan has not seen
+/// yet and says nothing; a sidecar that exists and will not parse is worth
+/// a warning, because the settings in it are being ignored -- but not a
+/// failed load, since the texture itself is fine and the scan already
+/// refuses to touch such a file.
+async fn import_settings(load_context: &mut LoadContext<'_>) -> TextureImportSettings {
+    let asset_path = load_context.asset_path().clone_owned();
+    let mut sidecar = asset_path.path().as_os_str().to_os_string();
+    sidecar.push(".");
+    sidecar.push(SIDECAR_EXTENSION);
+    let sidecar_path = AssetPath::from(std::path::PathBuf::from(sidecar));
+    match load_context.read_asset_bytes(sidecar_path).await {
+        Ok(bytes) => match std::str::from_utf8(&bytes)
+            .map_err(|e| e.to_string())
+            .and_then(|text| Sidecar::from_ron(text).map_err(|e| e.to_string()))
+        {
+            Ok(sidecar) => sidecar.texture_import(),
+            Err(e) => {
+                tracing::warn!(
+                    "texture import: the sidecar beside {} could not be read ({e}); \
+                     loading it with the default import settings",
+                    asset_path.path().display()
+                );
+                TextureImportSettings::default()
+            }
+        },
+        Err(ReadAssetBytesError::AssetReaderError(AssetReaderError::NotFound(_))) => {
+            TextureImportSettings::default()
+        }
+        Err(e) => {
+            tracing::warn!(
+                "texture import: the sidecar beside {} could not be opened ({e}); \
+                 loading it with the default import settings",
+                asset_path.path().display()
+            );
+            TextureImportSettings::default()
+        }
     }
 }
 

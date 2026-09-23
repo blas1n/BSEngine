@@ -25,7 +25,6 @@ master `134b7bf1` 기준. 열린 PR·이슈 0개, 소스 TODO/FIXME 0개, 워크
 | 에셋 단위 스트리밍(텍스처 밉) | `grep -rl "mip_stream\|texture_streaming"` → 0 | ⚠️ **필요가 측정된 적 없음.** 씬 스트리밍은 #1866/#1867로 있음 |
 | 비주얼 스크립팅 | `grep -rl "VisualScript\|NodeGraph"` → 0 | |
 | 파티클 에디터 패널 | `grep -rl "ParticlePanel"` → 0 | 파티클 런타임 자체는 있음 |
-| 임포트 세팅 | `grep -rl "ImportSettings"` → 0 | |
 | 의존성 그래프 시각화 | `grep -rl "DependencyGraph"` → 0 | |
 | 단일 실행 파일 | `grep -rl "embed_assets\|EmbeddedPak"` → 0 | 의도적 범위 밖(로드맵 item 55) |
 

@@ -9,6 +9,19 @@
 //! )
 //! ```
 //!
+//! and, for an asset whose import was tuned, one more field -- the same
+//! place Unity's `.meta` and Godot's `.import` keep theirs:
+//!
+//! ```ron
+//! (
+//!     guid: "…",
+//!     hash: "blake3:…",
+//!     size: Some(4096),
+//!     former_paths: [],
+//!     import: Some(Texture((srgb: false, mipmaps: true, filter: Linear, wrap: Repeat))),
+//! )
+//! ```
+//!
 //! The sidecar lives next to the asset because that is the only place it
 //! survives the things artists actually do — copying a folder, moving a file in
 //! Explorer, committing to git. A central database would go stale on the first
@@ -45,9 +58,22 @@
 //! empty asset re-hashed forever *and* make the migration untestable.
 
 use super::AssetGuid;
+use bsengine_core::TextureImportSettings;
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::path::{Path, PathBuf};
+
+/// What a sidecar says about *how* its asset is imported, beside *what* it
+/// is. One variant per kind of asset that has import settings at all.
+///
+/// An enum rather than one struct with every kind's fields, so a texture's
+/// sidecar cannot carry a model's scale and a hand-edit that puts the wrong
+/// kind on an asset is a parse error rather than a silently ignored field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ImportSettings {
+    /// An image file: how it becomes a GPU texture.
+    Texture(TextureImportSettings),
+}
 
 /// Extension appended to the asset's own file name to name its sidecar.
 pub const SIDECAR_EXTENSION: &str = "meta";
@@ -133,9 +159,28 @@ pub struct Sidecar {
     /// engine's forward-slash project-relative form. Sub-item A's orphan
     /// recovery writes these; nothing reads them yet.
     pub former_paths: Vec<String>,
+    /// How the asset is imported, when that differs from the defaults for
+    /// its kind. `None` -- every sidecar written before this field existed,
+    /// and every asset nobody has tuned -- means the defaults.
+    ///
+    /// Not serialised when `None`, and that is load-bearing: a scan rewrites
+    /// a sidecar whenever its asset changes, and writing `import: None` into
+    /// each one would dirty every committed sidecar in every project on the
+    /// first scan after this field arrived, for no information gained.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub import: Option<ImportSettings>,
 }
 
 impl Sidecar {
+    /// The texture import settings this sidecar asks for: the recorded ones,
+    /// or the defaults when it records none.
+    pub fn texture_import(&self) -> TextureImportSettings {
+        match self.import {
+            Some(ImportSettings::Texture(settings)) => settings,
+            None => TextureImportSettings::default(),
+        }
+    }
+
     /// Records a path this asset used to live at, unless it is recorded
     /// already.
     ///
@@ -356,6 +401,7 @@ mod tests {
             hash: "blake3:abc123".to_string(),
             size: Some(4096),
             former_paths: vec!["assets/models/old.glb".to_string()],
+            import: None,
         }
     }
 
@@ -366,10 +412,70 @@ mod tests {
             hash: "blake3:abc123".to_string(),
             size: Some(4096),
             former_paths: vec!["assets/models/old.glb".to_string()],
+            import: None,
         };
         let text = original.to_ron().expect("serialise");
         let parsed = Sidecar::from_ron(&text).expect("parse");
         assert_eq!(parsed, original);
+    }
+
+    /// Import settings round-trip, and their on-disk spelling is pinned the
+    /// same way the identity fields' is below: humans edit this by hand.
+    #[test]
+    fn import_settings_round_trip_and_pin_their_shape() {
+        use bsengine_core::{TextureFilter, TextureWrap};
+
+        let tuned = Sidecar {
+            guid: "0193a7c1-8f2e-7c44-9d61-3b5a0e7f2c19"
+                .parse()
+                .expect("guid"),
+            hash: "blake3:9f2c1d".to_string(),
+            size: Some(4096),
+            former_paths: Vec::new(),
+            import: Some(ImportSettings::Texture(TextureImportSettings {
+                srgb: false,
+                mipmaps: true,
+                filter: TextureFilter::Nearest,
+                wrap: TextureWrap::Clamp,
+            })),
+        };
+        let text = tuned.to_ron().expect("serialise");
+        assert_eq!(
+            text,
+            "(\n    guid: \"0193a7c1-8f2e-7c44-9d61-3b5a0e7f2c19\",\n    \
+             hash: \"blake3:9f2c1d\",\n    \
+             size: Some(4096),\n    \
+             former_paths: [],\n    \
+             import: Some(Texture((\n        \
+             srgb: false,\n        \
+             mipmaps: true,\n        \
+             filter: Nearest,\n        \
+             wrap: Clamp,\n    \
+             ))),\n)\n"
+        );
+        let parsed = Sidecar::from_ron(&text).expect("parse");
+        assert_eq!(parsed, tuned);
+        assert_eq!(
+            parsed.texture_import().filter,
+            TextureFilter::Nearest,
+            "the accessor hands back what was recorded"
+        );
+    }
+
+    /// The migration property, the same one `size` has below: every sidecar
+    /// committed before `import` existed must still parse, and must mean
+    /// "the defaults" rather than fail or mean something else. The
+    /// no-churn half -- a sidecar *without* settings serialises without the
+    /// field -- is what `the_on_disk_shape_is_the_documented_one` pins.
+    #[test]
+    fn a_sidecar_written_before_import_existed_reads_as_the_defaults() {
+        let parsed = Sidecar::from_ron(
+            "(\n    guid: \"0193a7c1-8f2e-7c44-9d61-3b5a0e7f2c19\",\n    \
+             hash: \"blake3:9f2c1d\",\n    size: Some(4096),\n    former_paths: [],\n)\n",
+        )
+        .expect("a sidecar without `import` must still parse");
+        assert_eq!(parsed.import, None);
+        assert_eq!(parsed.texture_import(), TextureImportSettings::default());
     }
 
     #[test]
@@ -386,7 +492,10 @@ mod tests {
 
     // The round-trip test above passes for any format both halves agree on,
     // including ones no human can read and sub-item B cannot embed. This one
-    // pins the bytes.
+    // pins the bytes. It is also what proves a sidecar without import
+    // settings gains no `import:` line: `skip_serializing_if` is the only
+    // thing keeping every committed sidecar from being rewritten by the first
+    // scan after that field arrived.
     #[test]
     fn the_on_disk_shape_is_the_documented_one() {
         let text = Sidecar {
@@ -396,6 +505,7 @@ mod tests {
             hash: "blake3:9f2c1d".to_string(),
             size: Some(4096),
             former_paths: vec!["assets/models/old_fox.glb".to_string()],
+            import: None,
         }
         .to_ron()
         .expect("serialise");
@@ -557,6 +667,7 @@ mod tests {
             former_paths: (0..400)
                 .map(|i| format!("assets/models/generation_{i}/fox.glb"))
                 .collect(),
+            import: None,
         };
         sidecar.write(&path).expect("seed the sidecar");
 

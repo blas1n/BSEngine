@@ -1,5 +1,6 @@
 use bevy_asset::Asset;
 use bevy_reflect::TypePath;
+use bsengine_core::TextureImportSettings;
 
 /// Decoded texture pixel data, ready to be uploaded to the GPU.
 #[derive(Asset, TypePath)]
@@ -10,6 +11,10 @@ pub struct TextureAsset {
     pub height: u32,
     /// Raw pixel data, laid out row by row, RGBA8.
     pub data: Vec<u8>,
+    /// How to upload it: from the `.meta` sidecar beside the file, or the
+    /// defaults when it has none. Carried with the pixels so every uploader
+    /// -- materials, terrain layers, the skybox -- honours the same record.
+    pub settings: TextureImportSettings,
 }
 
 /// A decoded heightmap: 16-bit grayscale values, row-major, `width * height`
@@ -39,6 +44,7 @@ mod tests {
             width: 256,
             height: 256,
             data: vec![0u8; 256 * 256 * 4],
+            settings: TextureImportSettings::default(),
         };
         assert_eq!(tex.width, 256);
         assert_eq!(tex.data.len(), 256 * 256 * 4);

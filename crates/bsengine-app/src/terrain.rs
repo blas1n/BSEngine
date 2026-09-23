@@ -223,10 +223,10 @@ fn generate_terrain_chunks(
         // spawned and `TerrainChunksGenerated`/`PendingTerrain` are updated
         // before the next frame's query would see this entity again).
         let layer_ids: [u64; 4] = [
-            tex_reg.load_from_rgba(tex0.width, tex0.height, &tex0.data),
-            tex_reg.load_from_rgba(tex1.width, tex1.height, &tex1.data),
-            tex_reg.load_from_rgba(tex2.width, tex2.height, &tex2.data),
-            tex_reg.load_from_rgba(tex3.width, tex3.height, &tex3.data),
+            tex_reg.load_with(tex0.width, tex0.height, &tex0.data, tex0.settings),
+            tex_reg.load_with(tex1.width, tex1.height, &tex1.data, tex1.settings),
+            tex_reg.load_with(tex2.width, tex2.height, &tex2.data, tex2.settings),
+            tex_reg.load_with(tex3.width, tex3.height, &tex3.data, tex3.settings),
         ];
 
         let params = crate::terrain_chunking::ChunkParams {

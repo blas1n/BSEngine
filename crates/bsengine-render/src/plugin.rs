@@ -1148,6 +1148,7 @@ impl Plugin for RenderPlugin {
                 (
                     update_camera_aspect,
                     crate::texture_cache::resolve_texture_paths,
+                    crate::texture_cache::reupload_modified_textures,
                 ),
             )
             .add_systems(

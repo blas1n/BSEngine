@@ -97,6 +97,9 @@ pub mod shield;
 pub mod skybox;
 /// Temporal antialiasing post-process settings.
 pub mod taa;
+/// Per-texture import settings (sRGB, mipmaps, filter, wrap), stored in an
+/// asset's sidecar and applied at upload.
+pub mod texture_import;
 /// Frame and elapsed-time resource driven by the app's main loop.
 pub mod time;
 /// Cutscene sequencing: a `Timeline` asset of camera/animation/event tracks,
@@ -166,6 +169,7 @@ pub use shadow_config::ShadowSettings;
 pub use shield::Shield;
 pub use skybox::{Skybox, SkyboxPath, SkyboxProjection};
 pub use taa::Taa;
+pub use texture_import::{TextureFilter, TextureImportSettings, TextureWrap};
 pub use time::Time;
 pub use timeline::{
     animations_between, evaluate, events_between, AnimationKey, CameraKey, CameraPose, EventKey,

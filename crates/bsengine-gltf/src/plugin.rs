@@ -177,11 +177,23 @@ fn load_gltf_assets(
         let Some(mesh_reg) = mesh_registry.as_mut() else {
             continue;
         };
+        // glTF specifies that a base colour texture is sRGB-encoded, and its
+        // default sampler is linear and repeating -- exactly the reference
+        // import defaults. Before this they were uploaded linear and clamped
+        // like everything else, which read every fox's fur brighter than
+        // its author painted it.
         let tex_ids: Vec<Option<u64>> = if let Some(tr) = tex_registry.as_mut() {
             loaded
                 .images
                 .iter()
-                .map(|img| Some(tr.load_from_rgba(img.width, img.height, &img.rgba)))
+                .map(|img| {
+                    Some(tr.load_with(
+                        img.width,
+                        img.height,
+                        &img.rgba,
+                        bsengine_core::TextureImportSettings::default(),
+                    ))
+                })
                 .collect()
         } else {
             vec![None; loaded.images.len()]

@@ -354,6 +354,14 @@ fn start_asset_watcher(
 /// mattered would drown it.
 fn reconstruct(changed: &Path, strip_base: &Path, engine_root: &str) -> Option<String> {
     let extension = changed.extension()?.to_str()?.to_ascii_lowercase();
+    // A sidecar edit is an edit to the asset beside it: the import settings
+    // live in `tex.png.meta`, and changing `srgb` there must re-upload
+    // `tex.png` exactly as repainting it would. `with_extension("")` strips
+    // only the trailing `.meta`, leaving the asset's own extension for the
+    // filter below to judge -- a `.ron.meta` is still not reloadable.
+    if extension == crate::identity::sidecar::SIDECAR_EXTENSION {
+        return reconstruct(&changed.with_extension(""), strip_base, engine_root);
+    }
     if !RELOADABLE_EXTENSIONS.contains(&extension.as_str()) {
         return None;
     }
@@ -1759,6 +1767,27 @@ mod tests {
             );
         }
 
+        // A sidecar stands for the asset beside it: its import settings are
+        // read at load, so editing them has to reload the asset -- and only
+        // an asset something can reload. `meta.toml` above is not a sidecar
+        // (the extension is `toml`), and `scene.ron.meta` is a sidecar of a
+        // file no loader serves.
+        assert_eq!(
+            reconstruct(
+                &strip_base.join("textures").join("tex.png.meta"),
+                &strip_base,
+                engine_root
+            )
+            .as_deref(),
+            Some("games/mini-arena/assets/textures/tex.png"),
+            "a texture's sidecar reloads the texture"
+        );
+        assert_eq!(
+            reconstruct(&strip_base.join("scene.ron.meta"), &strip_base, engine_root),
+            None,
+            "a sidecar beside an unreloadable asset is still nothing to reload"
+        );
+
         assert_eq!(
             reconstruct(
                 &std::env::current_dir()
@@ -1770,6 +1799,93 @@ mod tests {
             ),
             None,
             "a path outside the watch root must be dropped, not mangled"
+        );
+    }
+
+    /// The import-settings story end to end, through a real filesystem
+    /// notification: toggle `srgb` in `tex.png.meta` and the loaded
+    /// `TextureAsset` comes back with it off. Three things have to hold for
+    /// that -- the watcher maps the sidecar to the texture, the reload really
+    /// dispatches, and the loader reads the sidecar on the way back in -- and
+    /// a failure in any of them looks the same from here: the settings never
+    /// change. The premise assertion pins that they start as the defaults.
+    #[test]
+    fn an_edited_sidecar_reloads_the_asset_beside_it_with_its_new_settings() {
+        use crate::identity::sidecar::{measure_file, sidecar_path, ImportSettings, Sidecar};
+        use crate::identity::AssetGuid;
+        use crate::types::TextureAsset;
+        use bevy_asset::Assets;
+        use bsengine_app::new_app;
+        use bsengine_core::TextureImportSettings;
+
+        let project = unique("sidecar-reload");
+        let root = PathBuf::from(&project);
+        std::fs::create_dir_all(root.join("assets")).unwrap();
+        let _guard = ProbeDir(root.clone());
+
+        let texture = root.join("assets").join("tex.png");
+        std::fs::write(&texture, png_bytes([10, 20, 30, 255])).unwrap();
+        let meta = sidecar_path(&texture);
+        let (hash, size) = measure_file(&texture).expect("measure the fixture");
+        let mut sidecar = Sidecar {
+            guid: AssetGuid::new(),
+            hash,
+            size: Some(size),
+            former_paths: Vec::new(),
+            import: None,
+        };
+        sidecar.write(&meta).expect("write the sidecar");
+
+        let mut app = new_app();
+        app.insert_resource(ProjectDir(project.clone()));
+        app.add_plugins(crate::plugin::AssetPlugin);
+        app.add_plugins(AssetWatcherPlugin);
+        let handle = app
+            .world()
+            .resource::<AssetServer>()
+            .load::<TextureAsset>(format!("{project}/assets/tex.png"));
+        run_until(&mut app, "the texture finished loading", |app| {
+            app.world()
+                .resource::<Assets<TextureAsset>>()
+                .get(&handle)
+                .is_some()
+        });
+        assert!(
+            app.world()
+                .resource::<Assets<TextureAsset>>()
+                .get(&handle)
+                .expect("loaded")
+                .settings
+                .srgb,
+            "premise: a sidecar that records no import settings loads the texture as sRGB"
+        );
+        assert!(
+            app.world().get_resource::<AssetWatcher>().is_some(),
+            "the watcher must have started for an existing <ProjectDir>/assets"
+        );
+
+        // Let the OS backend start delivering before the edit is made.
+        std::thread::sleep(DEBOUNCE * 3);
+        app.update();
+
+        // The edit: the same sidecar with one setting turned off. Written the
+        // way the scan and the editor write sidecars (temporary + rename), so
+        // the watcher sees what it would see in real use.
+        sidecar.import = Some(ImportSettings::Texture(TextureImportSettings {
+            srgb: false,
+            ..Default::default()
+        }));
+        sidecar.write(&meta).expect("rewrite the sidecar");
+
+        run_until(
+            &mut app,
+            "the sidecar edit reloaded the texture with srgb off",
+            |app| {
+                app.world()
+                    .resource::<Assets<TextureAsset>>()
+                    .get(&handle)
+                    .is_some_and(|tex| !tex.settings.srgb)
+            },
         );
     }
 

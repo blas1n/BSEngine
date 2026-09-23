@@ -418,6 +418,35 @@ impl Harness {
         self.textures.load_from_rgba(2, 1, &rgba)
     }
 
+    /// Uploads arbitrary RGBA8 texels with explicit import settings -- the
+    /// path a file texture takes, where `two_colour_texture` and friends take
+    /// the settings-less one.
+    pub fn texture_with(
+        &mut self,
+        settings: bsengine_core::TextureImportSettings,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+    ) -> u64 {
+        assert_eq!(
+            rgba.len() as u32,
+            width * height * 4,
+            "width * height RGBA texels"
+        );
+        self.textures.load_with(width, height, rgba, settings)
+    }
+
+    /// The unit cube with every UV multiplied by `factor`, so a face spans
+    /// `factor` repeats of its texture. Only a UV outside `0..1` can show what
+    /// a wrap mode does.
+    pub fn cube_uv_scaled(&mut self, factor: f32) -> u64 {
+        let (mut v, i) = cube_vertices();
+        for vertex in &mut v {
+            vertex.uv = [vertex.uv[0] * factor, vertex.uv[1] * factor];
+        }
+        self.registry.register(&v, &i)
+    }
+
     /// Compiles a custom shader that ignores lighting and returns one colour,
     /// and hands back the path key a `Draw` refers to it by.
     ///

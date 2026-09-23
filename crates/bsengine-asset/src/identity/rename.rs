@@ -279,6 +279,7 @@ mod tests {
                     hash: "blake3:abc123".to_string(),
                     size: Some(19),
                     former_paths: Vec::new(),
+                    import: None,
                 };
                 sidecar
                     .write(sidecar_path(self.at(relative)))

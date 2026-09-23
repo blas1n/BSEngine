@@ -610,7 +610,7 @@ impl AssetBrowserPanel {
         ui: &mut egui::Ui,
         entry: &AssetEntry,
         navigate_to: &mut Option<PathBuf>,
-        _ctx: &mut EditorPanelContext,
+        ctx: &mut EditorPanelContext,
     ) {
         ui.vertical(|ui| {
             ui.set_width(64.0);
@@ -644,6 +644,18 @@ impl AssetBrowserPanel {
                         self.pending_load_scene = Some(entry.path.to_string_lossy().to_string());
                     }
                 }
+                // A single click selects the asset for the Inspector, which
+                // then shows its import settings -- Unity's Project panel
+                // behaviour, and the only way to reach those settings from
+                // the editor. Textures only here; meshes are selected in the
+                // drag-capable arm below, off the unioned response, since a
+                // same-rect drag interact would otherwise swallow the click.
+                AssetKind::Texture => {
+                    if response.clicked() {
+                        ctx.insp
+                            .select_asset(entry.path.to_string_lossy().to_string());
+                    }
+                }
                 AssetKind::Mesh | AssetKind::Script | AssetKind::Prefab => {
                     // Sense::click_and_drag() here, not Sense::drag() alone:
                     // this interact is registered after (on top of, in
@@ -657,6 +669,10 @@ impl AssetBrowserPanel {
                     let drag_response =
                         ui.interact(response.rect, drag_id, egui::Sense::click_and_drag());
                     let combined = drag_response | response;
+                    if entry.kind == AssetKind::Mesh && combined.clicked() {
+                        ctx.insp
+                            .select_asset(entry.path.to_string_lossy().to_string());
+                    }
                     combined.dnd_set_drag_payload(AssetDragPayload {
                         path: entry.path.clone(),
                         kind: entry.kind,
@@ -861,6 +877,115 @@ mod tests {
             clicked,
             "asset tile click must register even with a same-rect drag-sense interact unioned in"
         );
+    }
+
+    /// A single click on a texture tile selects the asset for the Inspector
+    /// and deselects the entity -- the browser's half of the one-selection
+    /// rule. Driven through the real `ui()`, on a real directory with one
+    /// fake texture in it, clicking where the tile's icon actually rendered
+    /// (the bytes are not a PNG, so the tile falls back to the icon button).
+    /// Two frames, since egui hit-tests against the previous frame's rects.
+    #[test]
+    fn clicking_a_texture_tile_selects_the_asset_and_deselects_the_entity() {
+        use bsengine_core::InspectorState;
+
+        let tmp =
+            std::env::temp_dir().join(format!("bse_asset_browser_select_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let texture = tmp.join("wall.png");
+        std::fs::write(&texture, b"not a png").unwrap();
+
+        let mut panel = AssetBrowserPanel {
+            root: tmp.clone(),
+            current_dir: tmp.clone(),
+            cache_root: tmp.join("cache"),
+            ..Default::default()
+        };
+        let mut insp = InspectorState::default();
+        insp.selected_id = Some(7);
+        let entities: Vec<bsengine_core::InspectorEntityInfo> = Vec::new();
+
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::empty());
+        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(600.0, 400.0));
+        let mut run = |events: Vec<egui::Event>, insp: &mut InspectorState| {
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(screen_rect),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        let mut pctx = EditorPanelContext {
+                            insp,
+                            entities_snapshot: &entities,
+                            cursor_pos: (0.0, 0.0),
+                            type_registry: None,
+                        };
+                        panel.ui(ui, &mut pctx);
+                    });
+                },
+            )
+        };
+
+        let first = run(Vec::new(), &mut insp);
+        let icon = AssetBrowserPanel::icon_for_kind(AssetKind::Texture);
+        let mut pos = None;
+        fn walk(shapes: &[egui::epaint::ClippedShape], icon: &str, pos: &mut Option<egui::Pos2>) {
+            for clipped in shapes {
+                match &clipped.shape {
+                    egui::Shape::Text(t) if t.galley.text() == icon => *pos = Some(t.pos),
+                    egui::Shape::Vec(inner) => {
+                        let nested: Vec<egui::epaint::ClippedShape> = inner
+                            .iter()
+                            .cloned()
+                            .map(|shape| egui::epaint::ClippedShape {
+                                clip_rect: clipped.clip_rect,
+                                shape,
+                            })
+                            .collect();
+                        walk(&nested, icon, pos);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        walk(&first.shapes, icon, &mut pos);
+        let pos = pos.expect("premise: the texture tile's icon button must render");
+        assert!(
+            insp.selected_asset.is_none(),
+            "premise: nothing is selected before the click"
+        );
+
+        let _ = run(
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::default(),
+                },
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::default(),
+                },
+            ],
+            &mut insp,
+        );
+
+        assert_eq!(
+            insp.selected_asset.as_deref(),
+            Some(texture.to_string_lossy().as_ref()),
+            "the click must select the texture by the path the tile carries"
+        );
+        assert_eq!(insp.selected_id, None, "and deselect the entity");
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

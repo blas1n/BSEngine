@@ -1442,6 +1442,51 @@ fn populate_reflected_component_snapshot(world: &mut World) {
     }
 }
 
+/// Reads the import settings of the asset selected in the Asset Browser
+/// into `InspectorState::asset_import`, for the Inspector to draw.
+///
+/// Only when the selection names an asset the snapshot does not already
+/// describe -- once per selection, and once more after a write drops the
+/// snapshot -- rather than every frame: the sidecar is a file, and reading
+/// it sixty times a second to show the same four checkboxes is what would
+/// make the Inspector the one panel that touches the disk while idle. An
+/// error is likewise recorded once and shown until the author clicks the
+/// asset again (`InspectorState::select_asset` clears it), since re-reading
+/// a broken sidecar every frame would warn every frame.
+///
+/// The path is used as the browser handed it out, relative to the editor's
+/// working directory, which is where the browser's own `assets_root()`
+/// resolves too.
+fn populate_asset_import_snapshot(inspector: Option<ResMut<InspectorState>>) {
+    let Some(mut inspector) = inspector else {
+        return;
+    };
+    let Some(path) = inspector.selected_asset.clone() else {
+        return;
+    };
+    let already = inspector
+        .asset_import
+        .as_ref()
+        .is_some_and(|snapshot| snapshot.path == path);
+    if already || inspector.asset_import_error.is_some() {
+        return;
+    }
+    match bsengine_asset::identity::read_import_settings(std::path::Path::new(&path)) {
+        Ok(report) => {
+            inspector.asset_import = Some(bsengine_core::AssetImportSnapshot {
+                path,
+                settings: report.settings,
+                recorded: report.recorded,
+                edit: report.settings,
+            });
+        }
+        Err(e) => {
+            tracing::warn!("import settings for {path} could not be read: {e}");
+            inspector.asset_import_error = Some(e.to_string());
+        }
+    }
+}
+
 /// Component types excluded from `populate_snapshot_extra_components`'s
 /// generic capture: `Transform`/`Camera`/`PointLight`/`DirectionalLight`/
 /// `SpotLight`/`Material` already have a dedicated `EntityInfo` field above,
@@ -2079,6 +2124,29 @@ fn apply_inspector_cmds(
             InspectorCmd::LoadScene { path } => {
                 queue.push(EditorCommand::LoadScene(path));
             }
+            InspectorCmd::WriteImportSettings { path, settings } => {
+                // Through the same function as the MCP tool, so the two
+                // cannot differ on minting or keeping the asset's identity.
+                // On success the snapshot is dropped, not patched:
+                // `populate_asset_import_snapshot` re-reads the sidecar next
+                // frame, so what the Inspector shows is what is on disk
+                // (`recorded: true` included), never what it hoped it wrote.
+                match bsengine_asset::identity::write_import_settings(
+                    std::path::Path::new(&path),
+                    settings,
+                ) {
+                    Ok(meta) => {
+                        tracing::info!("import settings written to {}", meta.display());
+                        inspector.asset_import = None;
+                        inspector.asset_import_error = None;
+                    }
+                    Err(e) => {
+                        tracing::warn!("import settings for {path} not written: {e}");
+                        inspector.asset_import_error = Some(e.to_string());
+                    }
+                }
+                continue;
+            }
             InspectorCmd::SpawnMeshAsset { name, path } => {
                 queue.push(EditorCommand::SpawnMeshAsset { name, path });
             }
@@ -2228,6 +2296,13 @@ impl Plugin for EditorPlugin {
         );
         app.add_systems(Update, populate_inspector.after(update_editor_snapshot));
         app.add_systems(Update, populate_reflected_component_snapshot);
+        // After the command drain, so a write's "drop the snapshot" is
+        // followed by the re-read in the same frame rather than a frame of
+        // "Reading import settings..." between Apply and the refreshed fields.
+        app.add_systems(
+            Update,
+            populate_asset_import_snapshot.after(apply_inspector_cmds),
+        );
         app.add_systems(
             Update,
             populate_snapshot_extra_components.after(update_editor_snapshot),
@@ -93747,5 +93822,154 @@ mod tests {
         let queued = queue.0.lock().unwrap();
         assert_eq!(queued.len(), 1);
         assert_eq!(queued[0].entity_id, 42);
+    }
+
+    /// A directory of its own with one fake texture in it, for the import
+    /// settings round trip below. The bytes are not a PNG on purpose: nothing
+    /// here decodes them, and the sidecar hashes whatever is there.
+    struct TextureProbe {
+        dir: std::path::PathBuf,
+        path: String,
+    }
+
+    impl TextureProbe {
+        fn new(tag: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "bsengine-editor-import-{tag}-{}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            let file = dir.join("wall.png");
+            std::fs::write(&file, b"not a png").unwrap();
+            Self {
+                path: file.to_string_lossy().to_string(),
+                dir,
+            }
+        }
+    }
+
+    impl Drop for TextureProbe {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.dir).ok();
+        }
+    }
+
+    /// The Inspector's whole import-settings loop, through the real
+    /// systems: selecting an asset reads its sidecar into the snapshot,
+    /// Apply writes the sidecar and the snapshot comes back *from disk* with
+    /// `recorded: true`, in the same frame -- `populate_asset_import_snapshot`
+    /// is ordered after the command drain for exactly that. The premise
+    /// (the first read reports the defaults, unrecorded) is asserted so a
+    /// write that silently failed cannot pass as "still the defaults".
+    #[test]
+    fn selecting_an_asset_reads_its_import_settings_and_apply_writes_them_back() {
+        use bsengine_asset::identity::{sidecar_path, Sidecar};
+        use bsengine_core::{ImportSettings, TextureFilter, TextureImportSettings};
+
+        let probe = TextureProbe::new("round-trip");
+        let mut app = new_app();
+        app.add_plugins(EditorPlugin);
+
+        app.world_mut()
+            .resource_mut::<InspectorState>()
+            .select_asset(probe.path.clone());
+        app.update();
+        {
+            let insp = app.world().resource::<InspectorState>();
+            let snapshot = insp
+                .asset_import
+                .as_ref()
+                .expect("one update after selecting must read the sidecar");
+            assert_eq!(snapshot.path, probe.path);
+            assert!(!snapshot.recorded, "premise: nothing is recorded yet");
+            assert_eq!(
+                snapshot.settings,
+                ImportSettings::Texture(TextureImportSettings::default())
+            );
+            assert_eq!(snapshot.edit, snapshot.settings);
+            assert!(insp.asset_import_error.is_none());
+        }
+
+        let tuned = ImportSettings::Texture(TextureImportSettings {
+            srgb: false,
+            filter: TextureFilter::Nearest,
+            ..Default::default()
+        });
+        app.world_mut()
+            .resource_mut::<InspectorState>()
+            .cmd_queue
+            .push(InspectorCmd::WriteImportSettings {
+                path: probe.path.clone(),
+                settings: tuned,
+            });
+        app.update();
+
+        let on_disk = Sidecar::read(sidecar_path(&probe.path))
+            .expect("readable")
+            .expect("Apply must write a sidecar beside the texture");
+        assert_eq!(on_disk.texture_import().filter, TextureFilter::Nearest);
+        assert!(!on_disk.texture_import().srgb);
+
+        let insp = app.world().resource::<InspectorState>();
+        let snapshot = insp
+            .asset_import
+            .as_ref()
+            .expect("the snapshot must be re-read in the frame the write landed");
+        assert!(
+            snapshot.recorded,
+            "the re-read snapshot must say the settings are now recorded"
+        );
+        assert_eq!(snapshot.settings, tuned);
+        assert_eq!(snapshot.edit, tuned, "nothing is pending after Apply");
+        assert!(insp.asset_import_error.is_none());
+    }
+
+    /// The scan's rule reaches the Inspector: a sidecar that will not parse
+    /// is reported, not overwritten. Both the read and a later Apply leave
+    /// the bytes exactly as they were.
+    #[test]
+    fn a_broken_sidecar_is_reported_to_the_inspector_and_never_overwritten() {
+        use bsengine_asset::identity::sidecar_path;
+        use bsengine_core::{ImportSettings, TextureImportSettings};
+
+        let probe = TextureProbe::new("broken");
+        let meta = sidecar_path(&probe.path);
+        std::fs::write(&meta, b"(guid: 7)").unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(EditorPlugin);
+        app.world_mut()
+            .resource_mut::<InspectorState>()
+            .select_asset(probe.path.clone());
+        app.update();
+        {
+            let insp = app.world().resource::<InspectorState>();
+            assert!(insp.asset_import.is_none());
+            let error = insp
+                .asset_import_error
+                .as_deref()
+                .expect("a broken sidecar must be reported");
+            assert!(error.contains("could not be read"), "{error}");
+        }
+
+        app.world_mut()
+            .resource_mut::<InspectorState>()
+            .cmd_queue
+            .push(InspectorCmd::WriteImportSettings {
+                path: probe.path.clone(),
+                settings: ImportSettings::Texture(TextureImportSettings::default()),
+            });
+        app.update();
+        assert_eq!(
+            std::fs::read(&meta).unwrap(),
+            b"(guid: 7)",
+            "Apply must not overwrite a sidecar it could not read"
+        );
+        assert!(app
+            .world()
+            .resource::<InspectorState>()
+            .asset_import_error
+            .is_some());
     }
 }

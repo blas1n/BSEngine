@@ -935,6 +935,7 @@ dependencies = [
  "bevy_ecs",
  "bevy_reflect",
  "bsengine-app",
+ "bsengine-asset",
  "bsengine-core",
  "bsengine-ecs",
  "bsengine-gltf",

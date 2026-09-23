@@ -34,6 +34,9 @@ pub mod follow;
 pub mod global_transform;
 /// Named on-screen HUD text overlay resource.
 pub mod hud_texts;
+/// The one `import:` value a sidecar carries: a texture's or a model's
+/// settings, whichever the asset is.
+pub mod import_settings;
 /// Editor inspector state, entity snapshots, and inspector command protocol.
 pub mod inspector;
 /// Countdown-to-despawn component for temporary entities.
@@ -142,9 +145,11 @@ pub use editor_panel::{EditorPanel, EditorPanelContext, EditorPanelRegistry};
 pub use follow::{Follow, LookAt};
 pub use global_transform::GlobalTransform;
 pub use hud_texts::HudTexts;
+pub use import_settings::ImportSettings;
 pub use inspector::{
-    EditorPlayState, GizmoMode, InspectorCmd, InspectorEntityInfo, InspectorState, PreviewCamera,
-    TerrainBrushKind, TerrainBrushSettings, TerrainBrushStroke, TimelinePreview, PRIMITIVE_KINDS,
+    AssetImportSnapshot, EditorPlayState, GizmoMode, InspectorCmd, InspectorEntityInfo,
+    InspectorState, PreviewCamera, TerrainBrushKind, TerrainBrushSettings, TerrainBrushStroke,
+    TimelinePreview, PRIMITIVE_KINDS,
 };
 pub use lifetime::Lifetime;
 pub use light::{DirectionalLight, PointLight, SpotLight};

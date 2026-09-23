@@ -1,5 +1,5 @@
 use bevy_app::{App, Plugin, Update};
-use bsengine_core::{Particle, ParticleEmitter, Time, Transform};
+use bsengine_core::{EditorPlayState, InspectorState, Particle, ParticleEmitter, Time, Transform};
 use bsengine_ecs::{Query, Res};
 use glam::Vec3;
 
@@ -23,8 +23,34 @@ impl Plugin for ParticlePlugin {
 /// broken one.
 const MAX_PARTICLES_PER_EMITTER: usize = 4096;
 
-fn tick_emitters(mut emitters: Query<(&Transform, &mut ParticleEmitter)>, time: Res<Time>) {
-    let dt = time.delta_seconds;
+/// The time step the editor's preview asks for, or `None` to skip the tick.
+///
+/// Only a *preview* is subject to it: editor mode with the game stopped,
+/// which is the state Unity's Particle Effect overlay and Godot's editor-time
+/// emission exist for. A running game -- `Playing`, or a runtime with no
+/// editor at all -- keeps its own pace whatever the panel's controls say, so
+/// tuning slow motion into an effect cannot leak into how it plays.
+fn preview_step(inspector: Option<&InspectorState>, dt: f32) -> Option<f32> {
+    let Some(insp) = inspector else {
+        return Some(dt);
+    };
+    if !(insp.editor_mode && insp.play_state == EditorPlayState::Stopped) {
+        return Some(dt);
+    }
+    if insp.particle_preview.paused {
+        return None;
+    }
+    Some(dt * insp.particle_preview.speed.max(0.0))
+}
+
+fn tick_emitters(
+    mut emitters: Query<(&Transform, &mut ParticleEmitter)>,
+    time: Res<Time>,
+    inspector: Option<Res<InspectorState>>,
+) {
+    let Some(dt) = preview_step(inspector.as_deref(), time.delta_seconds) else {
+        return;
+    };
     for (transform, mut emitter) in emitters.iter_mut() {
         let origin = transform.position.0;
 
@@ -107,6 +133,119 @@ mod tests {
 
     fn live_count(app: &bevy_app::App, e: bevy_ecs::entity::Entity) -> usize {
         app.world().get::<ParticleEmitter>(e).unwrap().live.len()
+    }
+
+    /// An editor-mode inspector in the given play state, with the preview
+    /// controls set: the fixture every preview test below starts from.
+    fn editor_inspector(
+        play_state: bsengine_core::EditorPlayState,
+        paused: bool,
+        speed: f32,
+    ) -> InspectorState {
+        let mut insp = InspectorState::editor();
+        insp.play_state = play_state;
+        insp.particle_preview = bsengine_core::ParticlePreview { paused, speed };
+        insp
+    }
+
+    fn first_age(app: &bevy_app::App, e: bevy_ecs::entity::Entity) -> f32 {
+        app.world().get::<ParticleEmitter>(e).unwrap().live[0].age
+    }
+
+    /// The preview's pause freezes everything an emitter does -- emission,
+    /// ageing, motion -- and only while the game is stopped in the editor:
+    /// the same paused preview under `Playing` ticks as if it were not
+    /// there. The `Playing` half is the premise that the pause is a
+    /// *preview* control; without it a pause that froze a running game's
+    /// effects would pass the first half.
+    #[test]
+    fn a_paused_preview_freezes_emitters_only_while_the_game_is_stopped() {
+        use bsengine_core::EditorPlayState;
+
+        let (mut app, e) = app_with(ParticleEmitter {
+            rate: 100.0,
+            burst_count: 3,
+            particle_lifetime: 100.0,
+            ..Default::default()
+        });
+        app.world_mut()
+            .get_mut::<ParticleEmitter>(e)
+            .unwrap()
+            .burst();
+        app.update();
+        let alive = live_count(&app, e);
+        let age = first_age(&app, e);
+        assert!(
+            alive >= 3 && age > 0.0,
+            "premise: the emitter is live and ageing"
+        );
+
+        app.insert_resource(editor_inspector(EditorPlayState::Stopped, true, 1.0));
+        for _ in 0..5 {
+            app.update();
+        }
+        assert_eq!(live_count(&app, e), alive, "paused: no emission");
+        assert_eq!(first_age(&app, e), age, "paused: no ageing");
+
+        app.insert_resource(editor_inspector(EditorPlayState::Playing, true, 1.0));
+        app.update();
+        assert!(
+            live_count(&app, e) > alive,
+            "a running game is not a preview: the pause must not apply"
+        );
+        assert!(first_age(&app, e) > age);
+    }
+
+    /// Speed scales the preview's step: at 2x a particle ages twice as
+    /// much per frame as at 1x, and at 0.5x half as much. Measured against
+    /// the fixed 0.1 s clock the fixture pins, so the numbers are exact.
+    #[test]
+    fn preview_speed_scales_the_step_while_the_game_is_stopped() {
+        use bsengine_core::EditorPlayState;
+
+        let (mut app, e) = app_with(ParticleEmitter {
+            rate: 0.0,
+            burst_count: 1,
+            particle_lifetime: 100.0,
+            gravity: 0.0,
+            ..Default::default()
+        });
+        app.world_mut()
+            .get_mut::<ParticleEmitter>(e)
+            .unwrap()
+            .burst();
+        // The tick emits and then ages everything alive, the newborn
+        // included, so the particle already carries one step after the
+        // frame that emitted it. Each step is therefore measured as the
+        // difference between two frames, not as an absolute age.
+        app.insert_resource(editor_inspector(EditorPlayState::Stopped, false, 2.0));
+        app.update();
+        let born = first_age(&app, e);
+        app.update();
+        let at_2x = first_age(&app, e) - born;
+        assert!(
+            (at_2x - 0.2).abs() < 1e-5,
+            "one 0.1 s frame at 2x must age a particle by 0.2 s, got {at_2x}"
+        );
+
+        app.insert_resource(editor_inspector(EditorPlayState::Stopped, false, 0.5));
+        let before = first_age(&app, e);
+        app.update();
+        let at_half = first_age(&app, e) - before;
+        assert!(
+            (at_half - 0.05).abs() < 1e-5,
+            "one 0.1 s frame at 0.5x must add 0.05 s, got {at_half}"
+        );
+
+        // Playing: the speed is ignored and the clock's own step applies.
+        app.insert_resource(editor_inspector(EditorPlayState::Playing, false, 0.5));
+        let before = first_age(&app, e);
+        app.update();
+        let playing = first_age(&app, e) - before;
+        assert!(
+            (playing - 0.1).abs() < 1e-5,
+            "a running game ticks at the clock's 0.1 s whatever the preview speed, got {playing}"
+        );
     }
 
     #[test]

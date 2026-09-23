@@ -120,6 +120,18 @@ pub enum EditorCommand {
     },
     /// Replace the current world contents with the scene at this path.
     LoadScene(String),
+    /// Queue one burst on an entity's `ParticleEmitter`. See
+    /// `InspectorCmd::ParticleBurst`.
+    ParticleBurst {
+        /// The emitter's entity.
+        entity_id: u64,
+    },
+    /// Replay an effect from its start; `None` restarts every emitter. See
+    /// `InspectorCmd::ParticleRestart` for what "start" means.
+    ParticleRestart {
+        /// One emitter's entity, or every emitter.
+        entity_id: Option<u64>,
+    },
     /// Spawn a named entity with a `GltfAsset` component so the existing
     /// `bsengine-gltf` async loader picks it up. See
     /// `InspectorCmd::SpawnMeshAsset`'s doc comment for the full rationale.

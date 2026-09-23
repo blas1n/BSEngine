@@ -109,6 +109,21 @@ fn update_editor_snapshot(
 
 const MAX_UNDO_HISTORY: usize = 100;
 
+/// Puts an emitter back at its start: every live particle dropped, the
+/// fractional spawn carry cleared, and -- for a burst-only effect -- its
+/// burst queued again, since the burst is what that effect's start looks
+/// like and a restart that left it empty would read as a delete. A
+/// continuous effect simply resumes emitting from nothing, which is what
+/// Unity's Restart and Godot's `restart()` both do.
+fn restart_emitter(emitter: &mut bsengine_core::ParticleEmitter) {
+    emitter.live.clear();
+    emitter.spawn_debt = 0.0;
+    emitter.pending_burst = 0;
+    if emitter.rate <= 0.0 {
+        emitter.burst();
+    }
+}
+
 #[allow(clippy::too_many_arguments)] // Bevy system params; splitting into a struct is a larger refactor
 fn process_editor_commands(
     queue_res: Res<EditorCommandQueueResource>,
@@ -438,6 +453,32 @@ fn process_editor_commands(
                         .entity(entity)
                         .insert(Visible { is_visible: visible });
                 }
+            }
+            // Both through a deferred world closure rather than a query in
+            // `params`: the `ParamSet` above is at Bevy's eight-slot ceiling,
+            // and a ninth query for a component only two commands touch is
+            // not worth restructuring the set for. The closure runs when
+            // `commands` flush, at the end of this system -- the same frame.
+            EditorCommand::ParticleBurst { entity_id } => {
+                commands.add(move |world: &mut World| {
+                    let mut emitters = world.query::<(Entity, &mut bsengine_core::ParticleEmitter)>();
+                    for (entity, mut emitter) in emitters.iter_mut(world) {
+                        if entity.index() as u64 == entity_id {
+                            emitter.burst();
+                        }
+                    }
+                });
+            }
+            EditorCommand::ParticleRestart { entity_id } => {
+                commands.add(move |world: &mut World| {
+                    let mut emitters = world.query::<(Entity, &mut bsengine_core::ParticleEmitter)>();
+                    for (entity, mut emitter) in emitters.iter_mut(world) {
+                        if entity_id.is_some_and(|id| entity.index() as u64 != id) {
+                            continue;
+                        }
+                        restart_emitter(&mut emitter);
+                    }
+                });
             }
             EditorCommand::SetParent {
                 entity_id,
@@ -1982,8 +2023,40 @@ fn populate_inspector(
             visible: e.visible,
             selected: e.selected,
             is_prefab_instance: e.is_prefab_instance,
+            // Filled in by `populate_snapshot_particles`, which runs after
+            // this and reads the live emitter rather than the snapshot.
+            particles: None,
         })
         .collect();
+}
+
+/// Fills `InspectorEntityInfo::particles` for every entity that has an
+/// emitter, from the live component, so the Particles panel shows this
+/// frame's alive count.
+///
+/// After `populate_inspector`, which rebuilds `inspector.entities` from the
+/// cached snapshot every frame and would wipe this. Read here rather than
+/// captured into `EntityInfo` by `update_editor_snapshot` because that
+/// system's query tuple is already at Bevy's arity ceiling and nested once
+/// to get there, and an alive count is not scene state a save would want.
+fn populate_snapshot_particles(
+    inspector: Option<ResMut<InspectorState>>,
+    emitters: Query<(Entity, &bsengine_core::ParticleEmitter)>,
+) {
+    let Some(mut inspector) = inspector else {
+        return;
+    };
+    for (entity, emitter) in emitters.iter() {
+        let id = entity.index() as u64;
+        if let Some(info) = inspector.entities.iter_mut().find(|e| e.id == id) {
+            info.particles = Some(bsengine_core::ParticleSnapshot {
+                alive: emitter.live.len(),
+                rate: emitter.rate,
+                burst_count: emitter.burst_count,
+                enabled: emitter.enabled,
+            });
+        }
+    }
 }
 
 /// Exhaustive match with no wildcard arm — adding a `Primitive` variant
@@ -2147,6 +2220,12 @@ fn apply_inspector_cmds(
                 }
                 continue;
             }
+            InspectorCmd::ParticleBurst { id } => {
+                queue.push(EditorCommand::ParticleBurst { entity_id: id });
+            }
+            InspectorCmd::ParticleRestart { id } => {
+                queue.push(EditorCommand::ParticleRestart { entity_id: id });
+            }
             InspectorCmd::SpawnMeshAsset { name, path } => {
                 queue.push(EditorCommand::SpawnMeshAsset { name, path });
             }
@@ -2295,6 +2374,7 @@ impl Plugin for EditorPlugin {
             crate::timeline_preview::apply_timeline_preview_animation,
         );
         app.add_systems(Update, populate_inspector.after(update_editor_snapshot));
+        app.add_systems(Update, populate_snapshot_particles.after(populate_inspector));
         app.add_systems(Update, populate_reflected_component_snapshot);
         // After the command drain, so a write's "drop the snapshot" is
         // followed by the re-read in the same frame rather than a frame of
@@ -93802,6 +93882,138 @@ mod tests {
         }
         .expect("apply_to_prefab not registered");
         assert!(!out.is_ok());
+    }
+
+    /// An editor app with two emitters: a burst-only one and a continuous
+    /// one, each holding a few live particles, so a restart has something
+    /// to drop and the two kinds of "start" can be told apart.
+    fn app_with_two_emitters() -> (bevy_app::App, bevy_ecs::entity::Entity, bevy_ecs::entity::Entity) {
+        use bsengine_core::{Particle, ParticleEmitter};
+        let mut app = new_app();
+        app.add_plugins(EditorPlugin);
+        let live = || {
+            vec![
+                Particle {
+                    position: glam::Vec3::ZERO,
+                    velocity: glam::Vec3::Y,
+                    age: 0.1,
+                };
+                3
+            ]
+        };
+        let burst_only = app
+            .world_mut()
+            .spawn((
+                Name("Sparks".into()),
+                Transform::default(),
+                ParticleEmitter {
+                    rate: 0.0,
+                    burst_count: 7,
+                    live: live(),
+                    spawn_debt: 0.4,
+                    ..Default::default()
+                },
+            ))
+            .id();
+        let continuous = app
+            .world_mut()
+            .spawn((
+                Name("Smoke".into()),
+                Transform::default(),
+                ParticleEmitter {
+                    rate: 12.0,
+                    burst_count: 5,
+                    live: live(),
+                    spawn_debt: 0.4,
+                    ..Default::default()
+                },
+            ))
+            .id();
+        (app, burst_only, continuous)
+    }
+
+    fn emitter(app: &bevy_app::App, e: bevy_ecs::entity::Entity) -> &bsengine_core::ParticleEmitter {
+        app.world().get::<bsengine_core::ParticleEmitter>(e).unwrap()
+    }
+
+    /// The Particles panel's rows come from the live emitters, after the
+    /// entity snapshot is rebuilt: an alive count that lagged a frame, or
+    /// that was wiped by `populate_inspector`, would show every effect as
+    /// empty.
+    #[test]
+    fn the_inspector_snapshot_carries_each_emitters_live_count() {
+        let (mut app, burst_only, continuous) = app_with_two_emitters();
+        app.update();
+        let insp = app.world().resource::<InspectorState>();
+        let find = |e: bevy_ecs::entity::Entity| {
+            insp.entities
+                .iter()
+                .find(|i| i.id == e.index() as u64)
+                .and_then(|i| i.particles)
+                .expect("an entity with an emitter must carry a particle snapshot")
+        };
+        assert_eq!(find(burst_only).alive, 3);
+        assert_eq!(find(burst_only).rate, 0.0);
+        assert_eq!(find(burst_only).burst_count, 7);
+        assert_eq!(find(continuous).rate, 12.0);
+        assert!(
+            insp.entities
+                .iter()
+                .filter(|i| i.particles.is_some())
+                .count()
+                == 2,
+            "only the two emitters carry one"
+        );
+    }
+
+    /// Burst reaches the one emitter it names and no other; the queued
+    /// count is the emitter's own, as a script's burst would be.
+    #[test]
+    fn particle_burst_queues_a_burst_on_the_named_emitter_only() {
+        let (mut app, burst_only, continuous) = app_with_two_emitters();
+        app.world_mut()
+            .resource_mut::<InspectorState>()
+            .cmd_queue
+            .push(InspectorCmd::ParticleBurst {
+                id: burst_only.index() as u64,
+            });
+        app.update();
+        assert_eq!(emitter(&app, burst_only).pending_burst, 7);
+        assert_eq!(emitter(&app, continuous).pending_burst, 0, "the other emitter is untouched");
+    }
+
+    /// Restart's two meanings of "start": a continuous effect comes back
+    /// empty and emitting, a burst-only effect comes back with its burst
+    /// queued -- and `None` does it to every emitter.
+    #[test]
+    fn particle_restart_drops_live_particles_and_requeues_a_burst_only_effect() {
+        let (mut app, burst_only, continuous) = app_with_two_emitters();
+        assert_eq!(emitter(&app, burst_only).live.len(), 3, "premise: live particles to drop");
+
+        app.world_mut()
+            .resource_mut::<InspectorState>()
+            .cmd_queue
+            .push(InspectorCmd::ParticleRestart {
+                id: Some(continuous.index() as u64),
+            });
+        app.update();
+        let smoke = emitter(&app, continuous);
+        assert!(smoke.live.is_empty(), "restart drops the live particles");
+        assert_eq!(smoke.spawn_debt, 0.0, "and the fractional carry");
+        assert_eq!(smoke.pending_burst, 0, "a continuous effect gets no burst");
+        assert_eq!(emitter(&app, burst_only).live.len(), 3, "the other emitter is untouched");
+
+        app.world_mut()
+            .resource_mut::<InspectorState>()
+            .cmd_queue
+            .push(InspectorCmd::ParticleRestart { id: None });
+        app.update();
+        let sparks = emitter(&app, burst_only);
+        assert!(sparks.live.is_empty(), "Restart All reaches every emitter");
+        assert_eq!(
+            sparks.pending_burst, 7,
+            "a burst-only effect's start is its burst, so it is queued again"
+        );
     }
 
     #[test]

@@ -8,6 +8,9 @@ pub mod hierarchy;
 pub mod inspector;
 /// The Mixer panel: the audio bus tree with a volume fader on each bus.
 pub mod mixer;
+/// The Particles panel: every emitter with its live count, plus the
+/// editor's preview controls.
+pub mod particles;
 /// The Profiler panel: frame timing, per-pass GPU cost, and draw-call/
 /// triangle/texture-memory stats.
 pub mod profiler;
@@ -28,6 +31,7 @@ pub use dock::{
 pub use hierarchy::HierarchyPanel;
 pub use inspector::InspectorPanel;
 pub use mixer::{register_mixer_panel, MixerPanel};
+pub use particles::ParticlePanel;
 pub use profiler::ProfilerPanel;
 pub use reflect_ui::draw_reflect_ui;
 pub use shadergraph::ShaderGraphPanel;

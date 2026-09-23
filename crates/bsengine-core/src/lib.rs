@@ -52,6 +52,9 @@ pub mod mixer_state;
 pub mod nav_mesh;
 /// Nav-mesh-driven pathing agent component and its runtime state.
 pub mod nav_mesh_agent;
+/// Component that asks for the navigation mesh to be baked from the scene's
+/// static colliders, carrying the agent parameters the bake needs.
+pub mod nav_mesh_surface;
 /// Convex decomposition of walkable space into rectangles, and the portals
 /// between them.
 pub mod nav_poly;
@@ -143,8 +146,9 @@ pub use light_probe::{LightProbeVolume, MAX_PROBES};
 pub use logging::init_logging;
 pub use material::{Material, TexturePath};
 pub use mixer_state::{MixerBus, MixerShared, MixerState};
-pub use nav_mesh::NavMesh;
+pub use nav_mesh::{NavBakeParams, NavMesh};
 pub use nav_mesh_agent::{NavAgentState, NavMeshAgent};
+pub use nav_mesh_surface::NavMeshSurface;
 pub use net_input::{LocalHeldKeys, PendingReplays, RemoteHeldKeys, ReplayRequest};
 pub use network_id::{NetworkAuthority, NetworkId};
 pub use occlusion_config::OcclusionCullingEnabled;

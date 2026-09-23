@@ -982,6 +982,11 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     app.register_type::<bsengine_core::Follow>();
     app.register_type::<bsengine_core::LookAt>();
     app.register_type::<bsengine_core::NavMeshAgent>();
+    app.register_type::<bsengine_core::NavMeshSurface>();
+    // `NavMeshSurface::floor_y` -- registered explicitly for the reason the
+    // `Option<BlendTree1D>` line below gives: a field type the registry does
+    // not know does not fail loudly.
+    app.register_type::<Option<f32>>();
     app.register_type::<bsengine_core::Transform>();
     app.register_type::<bsengine_core::GlobalTransform>();
     app.register_type::<bsengine_core::Parent>();

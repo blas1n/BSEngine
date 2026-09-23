@@ -27,7 +27,6 @@ master `134b7bf1` 기준. 열린 PR·이슈 0개, 소스 TODO/FIXME 0개, 워크
 | 파티클 에디터 패널 | `grep -rl "ParticlePanel"` → 0 | 파티클 런타임 자체는 있음 |
 | 임포트 세팅 | `grep -rl "ImportSettings"` → 0 | |
 | 의존성 그래프 시각화 | `grep -rl "DependencyGraph"` → 0 | |
-| 내비 런타임 베이킹 | `grep -rl "runtime_bake\|rebake"` → 라이트 프로브만 매칭 | |
 | 단일 실행 파일 | `grep -rl "embed_assets\|EmbeddedPak"` → 0 | 의도적 범위 밖(로드맵 item 55) |
 
 ### 플랫폼 — 무엇이 검증됐고 무엇이 안 됐나

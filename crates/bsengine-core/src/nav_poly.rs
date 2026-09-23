@@ -55,6 +55,35 @@ impl Rect {
             && point.z <= self.max_z
     }
 
+    /// The rectangle grown by `by` on every side.
+    ///
+    /// An obstacle an agent must keep its whole body clear of is, for the
+    /// agent's centre point, an obstacle this much larger.
+    pub fn inflated(&self, by: f32) -> Rect {
+        Rect::new(
+            self.min_x - by,
+            self.max_x + by,
+            self.min_z - by,
+            self.max_z + by,
+        )
+    }
+
+    /// The rectangle shrunk by `by` on every side, or an empty rectangle when
+    /// it would collapse.
+    ///
+    /// Not `Rect::new` with swapped bounds: that would reorder them and hand
+    /// back a small rectangle in the middle of what should be nothing at all.
+    pub fn inset(&self, by: f32) -> Rect {
+        let min_x = self.min_x + by;
+        let max_x = self.max_x - by;
+        let min_z = self.min_z + by;
+        let max_z = self.max_z - by;
+        if max_x <= min_x || max_z <= min_z {
+            return Rect::new(self.min_x, self.min_x, self.min_z, self.min_z);
+        }
+        Rect::new(min_x, max_x, min_z, max_z)
+    }
+
     /// The centre, at the given height.
     pub fn center(&self, y: f32) -> Vec3 {
         Vec3::new(
@@ -405,9 +434,32 @@ impl NavPolys {
 /// dependency: whoever has the colliders projects them, and this decides what
 /// is walkable.
 pub fn build_from_footprints(surfaces: &[Rect], obstacles: &[Rect], y: f32) -> NavPolys {
+    build_from_footprints_for_agent(surfaces, obstacles, y, 0.0)
+}
+
+/// [`build_from_footprints`] for an agent of the given radius.
+///
+/// The mesh is where the agent's *centre* may go, so everything the agent
+/// must keep clear of is grown by its radius and the walkable area shrinks by
+/// the same amount at its outer edge -- what Unity, Unreal and Godot all call
+/// eroding the navmesh by the agent radius. Without it the funnel pulls every
+/// path taut against obstacle corners and the agent's body clips them.
+///
+/// Erosion is applied to the *union* of the surfaces, not to each surface:
+/// shrinking two touching floor slabs separately would open a seam between
+/// them that no agent could cross. The union's boundary is exactly the set of
+/// strips the surfaces do not cover, so growing those strips -- and insetting
+/// the outer bounds -- erodes the union and nothing else.
+pub fn build_from_footprints_for_agent(
+    surfaces: &[Rect],
+    obstacles: &[Rect],
+    y: f32,
+    agent_radius: f32,
+) -> NavPolys {
     let Some(first) = surfaces.first() else {
         return NavPolys::default();
     };
+    let radius = agent_radius.max(0.0);
     let bounds = surfaces.iter().fold(*first, |acc, r| Rect {
         min_x: acc.min_x.min(r.min_x),
         max_x: acc.max_x.max(r.max_x),
@@ -418,11 +470,15 @@ pub fn build_from_footprints(surfaces: &[Rect], obstacles: &[Rect], y: f32) -> N
     // Anything the surfaces do not cover is as unwalkable as an obstacle. A
     // union of two floor slabs that do not meet leaves a hole between them, and
     // an agent must not path across it.
-    let mut blocking = obstacles.to_vec();
+    let mut blocking: Vec<Rect> = obstacles.iter().map(|o| o.inflated(radius)).collect();
     for strip in decompose(bounds, surfaces) {
-        blocking.push(strip);
+        blocking.push(strip.inflated(radius));
     }
-    NavPolys::build(bounds, &blocking, y)
+    let eroded = bounds.inset(radius);
+    if eroded.is_empty() {
+        return NavPolys::default();
+    }
+    NavPolys::build(eroded, &blocking, y)
 }
 
 #[cfg(test)]
@@ -640,6 +696,61 @@ mod tests {
                 .is_none(),
             "and nothing may path across it"
         );
+    }
+
+    /// Erosion must act on the union of the floor, not on each slab: the
+    /// L-shaped floor here has an inner corner where two slabs meet, and the
+    /// agent must be kept its radius away from the *missing* quadrant and from
+    /// the outer edge, while the seam between the two slabs stays crossable.
+    ///
+    /// Each assertion is paired with its radius-0 counterpart so the test
+    /// measures the erosion, not the decomposition: a point that is unwalkable
+    /// at both radii says nothing about erosion.
+    #[test]
+    fn erosion_shrinks_the_floor_union_by_the_agent_radius() {
+        let l_shape = [
+            Rect::new(0.0, 10.0, 0.0, 5.0),
+            Rect::new(0.0, 5.0, 5.0, 10.0),
+        ];
+        let sharp = build_from_footprints_for_agent(&l_shape, &[], 0.0, 0.0);
+        let eroded = build_from_footprints_for_agent(&l_shape, &[], 0.0, 0.4);
+
+        // The seam between the two slabs (x in 0..5 at z = 5) is interior to
+        // the union, so erosion must not touch it.
+        let across_seam = (Vec3::new(2.5, 0.0, 2.0), Vec3::new(2.5, 0.0, 8.0));
+        assert!(sharp.find_path(across_seam.0, across_seam.1).is_some());
+        assert!(
+            eroded.find_path(across_seam.0, across_seam.1).is_some(),
+            "eroding each slab separately would open a seam here; the union must not"
+        );
+
+        // On the upper slab (x < 5), 0.2 from the missing quadrant's edge at
+        // x = 5. (Not (5.2, 5.2): that is *inside* the missing quadrant and
+        // unwalkable at every radius -- the premise check below is what
+        // caught that fixture the first time.)
+        let near_inner_corner = Vec3::new(4.8, 0.0, 5.2);
+        assert!(
+            sharp.is_walkable(near_inner_corner),
+            "premise: floor at radius 0"
+        );
+        assert!(
+            !eroded.is_walkable(near_inner_corner),
+            "an agent of radius 0.4 cannot stand 0.2 from the missing quadrant"
+        );
+
+        // Just inside the outer edge.
+        let near_outer_edge = Vec3::new(0.2, 0.0, 2.5);
+        assert!(
+            sharp.is_walkable(near_outer_edge),
+            "premise: floor at radius 0"
+        );
+        assert!(
+            !eroded.is_walkable(near_outer_edge),
+            "the outer boundary must be inset by the radius too"
+        );
+
+        // Well inside: unaffected either way.
+        assert!(eroded.is_walkable(Vec3::new(2.5, 0.0, 2.5)));
     }
 
     #[test]

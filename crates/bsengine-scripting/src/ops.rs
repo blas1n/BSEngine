@@ -1550,6 +1550,9 @@ pub enum ScriptCommand {
         /// Whether the navmesh cell is walkable.
         walkable: bool,
     },
+    /// Bake the nav mesh from the physics world's static colliders, replacing
+    /// whatever mesh is current.
+    NavmeshBake(NavmeshBakeParams),
     /// Serialize the current world state to a save file.
     SaveGame {
         /// Filesystem path of the resource to load.
@@ -4016,6 +4019,51 @@ pub fn bsengine_navmesh_set_walkable(x: u32, z: u32, walkable: bool) {
         c.borrow_mut()
             .push(ScriptCommand::NavmeshSetWalkable { x, z, walkable })
     });
+}
+
+/// JS-provided options for `Bsengine.navmesh.bake`. Every field is optional;
+/// an absent one takes `bsengine_core::NavBakeParams`'s default, so
+/// `Bsengine.navmesh.bake()` with no argument bakes for a standard agent.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct NavmeshBakeParams {
+    /// Agent radius; obstacles are grown and the floor eroded by this.
+    pub agent_radius: Option<f32>,
+    /// Agent height; geometry whose underside is above it is a ceiling.
+    pub agent_height: Option<f32>,
+    /// Highest rise an agent steps over rather than treats as a wall.
+    pub step_height: Option<f32>,
+    /// Height of the walkable floor. Absent: the largest static collider's top.
+    pub floor_y: Option<f32>,
+}
+
+impl NavmeshBakeParams {
+    /// The engine-side parameters, with defaults filled in.
+    pub fn resolve(&self) -> bsengine_core::NavBakeParams {
+        let d = bsengine_core::NavBakeParams::default();
+        bsengine_core::NavBakeParams {
+            agent_radius: self.agent_radius.unwrap_or(d.agent_radius),
+            agent_height: self.agent_height.unwrap_or(d.agent_height),
+            step_height: self.step_height.unwrap_or(d.step_height),
+            floor_y: self.floor_y,
+        }
+    }
+}
+
+/// Queue baking the nav mesh from the level's static colliders.
+///
+/// The runtime counterpart of a `NavMeshSurface` component: the same bake,
+/// on demand, for a level whose geometry a script has just changed -- Unity's
+/// `NavMeshSurface.BuildNavMesh()`, Godot's `bake_navigation_mesh()`. Every
+/// agent's cached path is invalidated by the new mesh's generation, so a
+/// destination set before the bake is re-routed on the frame after it.
+///
+/// Same deferred timing as every other `Bsengine.*` mutator: the mesh is
+/// replaced when this tick's commands are applied, after every script's
+/// `onUpdate`.
+#[op2]
+pub fn bsengine_navmesh_bake(#[serde] params: NavmeshBakeParams) {
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::NavmeshBake(params)));
 }
 
 /// Get the current nav-mesh grid state, as a JSON string.
@@ -6534,6 +6582,7 @@ deno_core::extension!(
         bsengine_is_nav_enabled,
         bsengine_navmesh_init,
         bsengine_navmesh_set_walkable,
+        bsengine_navmesh_bake,
         bsengine_navmesh_get_state,
         bsengine_save_game,
         bsengine_load_game,
@@ -9603,6 +9652,47 @@ JSON.stringify(received)
                 c.borrow().is_empty(),
                 "a rejected spawn must queue nothing: {:?}",
                 c.borrow()
+            );
+        });
+    }
+
+    /// The options object is optional and so is every key in it; what the
+    /// script leaves out must come out as the standard agent, and what it
+    /// sets must arrive as set -- read back through `resolve()`, the same
+    /// function the command handler uses.
+    #[test]
+    fn navmesh_bake_enqueues_the_given_options_and_defaults_the_rest() {
+        use bsengine_core::NavBakeParams;
+
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        rt.eval(
+            r#"Bsengine.navmesh.bake();
+               Bsengine.navmesh.bake({ agentRadius: 1.0, floorY: 2.0 });"#,
+        )
+        .unwrap();
+
+        super::COMMAND_BUFFER.with(|c| {
+            let buf = c.borrow();
+            assert_eq!(buf.len(), 2, "two bakes queued: {buf:?}");
+            let super::ScriptCommand::NavmeshBake(bare) = &buf[0] else {
+                panic!("expected NavmeshBake, got {:?}", buf[0]);
+            };
+            assert_eq!(
+                bare.resolve(),
+                NavBakeParams::default(),
+                "no options means the standard agent"
+            );
+            let super::ScriptCommand::NavmeshBake(given) = &buf[1] else {
+                panic!("expected NavmeshBake, got {:?}", buf[1]);
+            };
+            let resolved = given.resolve();
+            assert_eq!(resolved.agent_radius, 1.0);
+            assert_eq!(resolved.floor_y, Some(2.0));
+            assert_eq!(
+                resolved.agent_height,
+                NavBakeParams::default().agent_height,
+                "an option the script did not mention keeps its default"
             );
         });
     }

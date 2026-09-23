@@ -430,6 +430,42 @@ impl PhysicsWorld {
         Some(body.is_kinematic())
     }
 
+    /// World-space bounding boxes, as `(entity, min, max)`, of every collider
+    /// attached to a fixed body that is not a sensor -- the level geometry a
+    /// navigation bake is made from.
+    ///
+    /// Fixed bodies only: dynamic and kinematic bodies are the things that
+    /// walk *on* the mesh, and baking them in would wall every agent inside
+    /// its own footprint. Sensors are excluded because they are triggers,
+    /// not matter -- mini-arena's pickup is a static sensor sphere sitting
+    /// exactly where the enemy needs to walk.
+    ///
+    /// Boxes rather than shapes so the bake in `bsengine-core` needs nothing
+    /// from Rapier. A sphere or capsule therefore blocks its bounding square,
+    /// which is what every collider in this engine projects to anyway (see
+    /// `nav_poly`'s module doc).
+    pub fn static_collider_aabbs(&self) -> Vec<(Entity, Vec3, Vec3)> {
+        self.collider_set
+            .iter()
+            .filter_map(|(handle, collider)| {
+                if collider.is_sensor() {
+                    return None;
+                }
+                let body = self.rigid_body_set.get(collider.parent()?)?;
+                if !body.is_fixed() {
+                    return None;
+                }
+                let entity = *self.collider_entity_map.get(&handle)?;
+                let aabb = collider.compute_aabb();
+                Some((
+                    entity,
+                    Vec3::new(aabb.mins.x, aabb.mins.y, aabb.mins.z),
+                    Vec3::new(aabb.maxs.x, aabb.maxs.y, aabb.maxs.z),
+                ))
+            })
+            .collect()
+    }
+
     /// Returns whether the entity's first collider is a sensor, or `None` if absent.
     pub fn is_collider_sensor(&self, entity: Entity) -> Option<bool> {
         let handle = self.entity_body_map.get(&entity)?;
@@ -882,6 +918,60 @@ mod tests {
              ray's own start point, meaning it hit the chassis at zero \
              distance because the exclusion is missing)",
             info.contact_point_ws.y
+        );
+    }
+
+    /// The three filters a bake relies on, each with a body that would leak
+    /// through if it were missing: the floor (fixed, solid -- in), a crate
+    /// that falls (dynamic -- out), a pickup trigger (fixed but a sensor --
+    /// out). The one box that comes back must also be where the body is, not
+    /// at the origin: a collider's world pose is set from its parent body at
+    /// insertion, and reporting local bounds would put every wall at (0,0,0).
+    #[test]
+    fn static_collider_aabbs_reports_only_solid_fixed_bodies_in_world_space() {
+        use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder};
+
+        let mut world = PhysicsWorld::new(9.81);
+        let mut add = |entity_index: u32, body: rapier3d::prelude::RigidBody, sensor: bool| {
+            let entity = bevy_ecs::prelude::Entity::from_raw(entity_index);
+            let body_handle = world.rigid_body_set.insert(body);
+            let shape = crate::plugin::make_shape(&crate::components::ColliderShape::Box {
+                half_extents: Vec3::new(1.0, 1.0, 1.0).into(),
+            });
+            let collider = ColliderBuilder::new(shape).sensor(sensor).build();
+            let collider_handle = world.add_collider(collider, body_handle);
+            world.collider_entity_map.insert(collider_handle, entity);
+            world.register_entity_body(entity, body_handle);
+            entity
+        };
+        let floor = add(
+            1,
+            RigidBodyBuilder::fixed()
+                .translation(rapier3d::prelude::Vector::new(5.0, 0.0, 5.0))
+                .build(),
+            false,
+        );
+        let _crate_ = add(
+            2,
+            RigidBodyBuilder::dynamic()
+                .translation(rapier3d::prelude::Vector::new(1.0, 3.0, 1.0))
+                .build(),
+            false,
+        );
+        let _pickup = add(3, RigidBodyBuilder::fixed().build(), true);
+
+        let boxes = world.static_collider_aabbs();
+        assert_eq!(
+            boxes.len(),
+            1,
+            "only the solid fixed body may be reported, got {boxes:?}"
+        );
+        let (entity, min, max) = boxes[0];
+        assert_eq!(entity, floor);
+        assert!(
+            (min - Vec3::new(4.0, -1.0, 4.0)).length() < 1e-4
+                && (max - Vec3::new(6.0, 1.0, 6.0)).length() < 1e-4,
+            "the box must be the collider's WORLD bounds around (5,0,5); got {min:?}..{max:?}"
         );
     }
 

@@ -1,4 +1,3 @@
-let navReady = false;
 let humStarted = false;
 const HUM_PATH = "assets/sounds/enemy-hum.wav";
 const CHASE_RANGE = 12.0;
@@ -32,15 +31,14 @@ Bsengine.onMessage("Enemy", "hit", (data) => {
     );
 });
 
+// The navigation mesh is not declared here. Ground carries a NavMeshSurface in
+// main.ron, so the mesh is baked from the arena's static colliders before the
+// first frame this script runs -- the same way a Unity scene with a
+// NavMeshSurface is navigable without any script mentioning it. What this
+// replaced was a hand-declared 40x40 grid: twice the size of the floor, with
+// no obstacle ever marked on it.
 function onUpdate(self) {
     if (Bsengine.isPaused()) return;
-
-    if (!navReady) {
-        // 40x40 grid, 1 unit cells, centered on the arena (matches Ground's
-        // 20x20 half-extent from main.ron).
-        Bsengine.navmesh.init(40, 40, 1.0, -20.0, 0.0, -20.0);
-        navReady = true;
-    }
 
     if (!humStarted) {
         // Positional: the hum comes from wherever the Enemy is, so it pans and

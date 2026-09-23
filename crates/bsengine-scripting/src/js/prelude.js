@@ -747,10 +747,14 @@ var Bsengine = {
         isClicked:      (id)                                => Deno.core.ops.bsengine_ui_is_clicked(id),
     },
 
-    // NavMesh pathfinding — call navmesh.init() first to build the grid
+    // NavMesh pathfinding. A scene with a NavMeshSurface component bakes its
+    // mesh from static colliders by itself; navmesh.bake() re-bakes on demand
+    // (opts: agentRadius, agentHeight, stepHeight, floorY, all optional).
+    // navmesh.init()/setWalkable() hand-declare a grid instead.
     navmesh: {
         init:             (w, d, cs, ox, oy, oz) => Deno.core.ops.bsengine_navmesh_init(w, d, cs, ox ?? 0, oy ?? 0, oz ?? 0),
         setWalkable:      (x, z, v)              => Deno.core.ops.bsengine_navmesh_set_walkable(x, z, !!v),
+        bake:             (opts)                 => Deno.core.ops.bsengine_navmesh_bake(opts ?? {}),
         setDestination:   (name, x, y, z)        => Deno.core.ops.bsengine_set_nav_destination(name, x, y, z),
         clearDestination: (name)                 => Deno.core.ops.bsengine_clear_nav_destination(name),
         setSpeed:         (name, speed)          => Deno.core.ops.bsengine_set_nav_speed(name, speed),

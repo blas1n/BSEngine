@@ -1693,6 +1693,33 @@ fn run_scripts(world: &mut World) {
                     nm.set_walkable(x, z, walkable);
                 }
             }
+            ScriptCommand::NavmeshBake(params) => {
+                // The physics world is where the colliders are; without it
+                // there is nothing to bake from, and an empty mesh would
+                // silently strand every agent, so say so instead.
+                let Some(physics) = world.get_resource::<PhysicsWorld>() else {
+                    tracing::warn!(
+                        "navmesh.bake: no physics world, so no static colliders to bake from"
+                    );
+                    return;
+                };
+                let boxes: Vec<(Vec3, Vec3)> = physics
+                    .static_collider_aabbs()
+                    .into_iter()
+                    .map(|(_, min, max)| (min, max))
+                    .collect();
+                if boxes.is_empty() {
+                    tracing::warn!(
+                        "navmesh.bake: the physics world has no static colliders yet; \
+                         the mesh is unchanged (a scene's bodies exist from its first frame on)"
+                    );
+                    return;
+                }
+                world.insert_resource(bsengine_core::NavMesh::bake_from_aabbs(
+                    &boxes,
+                    &params.resolve(),
+                ));
+            }
             ScriptCommand::SaveGame { path } => {
                 if let Err(e) = crate::save::save_world(world, &path) {
                     tracing::warn!("[save] {}", e);
@@ -5804,6 +5831,80 @@ mod tests {
                 },
             ))
             .id()
+    }
+
+    /// `Bsengine.navmesh.bake` must read the physics world's real static
+    /// colliders and must bake for the agent the script described. The
+    /// observation is a point 0.7 from the pillar: blocked for the radius-1.0
+    /// agent the script asked for, walkable for the default 0.4 -- so a bake
+    /// that happened but ignored the options fails here, and so does one
+    /// that never happened.
+    ///
+    /// The script bakes on its first few ticks rather than once: on the tick
+    /// a body is spawned it is not yet in the physics world, and the handler
+    /// declines to bake an empty level rather than strand every agent.
+    #[test]
+    fn navmesh_bake_from_a_script_bakes_the_physics_worlds_static_colliders_for_its_agent() {
+        let script_path =
+            std::env::temp_dir().join(format!("bsengine_test_navbake_{}.js", std::process::id()));
+        std::fs::write(
+            &script_path,
+            "let ticks = 0;\n\
+             function onUpdate(name) {\n\
+                 ticks++;\n\
+                 if (ticks <= 4) { Bsengine.navmesh.bake({ agentRadius: 1.0 }); }\n\
+             }",
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(bsengine_physics::PhysicsPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: String::new(),
+        });
+        let mut static_box = |at: Vec3, half: Vec3| {
+            app.world_mut().spawn((
+                Transform::from_position(at),
+                bsengine_physics::RigidBody::fixed(),
+                bsengine_physics::Collider::cuboid(half.x, half.y, half.z),
+                bsengine_physics::PhysicsInput {
+                    position: at.into(),
+                    rotation: Default::default(),
+                },
+            ));
+        };
+        static_box(Vec3::new(0.0, -0.5, 0.0), Vec3::new(10.0, 0.5, 10.0)); // floor
+        static_box(Vec3::new(0.0, 1.0, 0.0), Vec3::new(1.0, 1.0, 1.0)); // pillar
+        app.world_mut().spawn((
+            Name("Driver".to_string()),
+            ScriptPath(script_path.to_string_lossy().to_string()),
+        ));
+
+        for _ in 0..8 {
+            app.update();
+        }
+
+        let mesh = app
+            .world()
+            .get_resource::<bsengine_core::NavMesh>()
+            .expect("the bake must have installed a NavMesh resource");
+        assert_eq!((mesh.width, mesh.depth), (0, 0), "a baked mesh has no grid");
+        assert!(
+            !mesh.is_point_walkable(Vec3::ZERO),
+            "premise: the pillar collider reached the bake"
+        );
+        assert!(
+            mesh.is_point_walkable(Vec3::new(2.5, 0.0, 0.0)),
+            "premise: the floor beside it did too"
+        );
+        assert!(
+            !mesh.is_point_walkable(Vec3::new(1.7, 0.0, 0.0)),
+            "0.7 from the pillar is blocked for the radius-1.0 agent the script asked for \
+             (and would be walkable for the default 0.4), so the option reached the bake"
+        );
+
+        let _ = std::fs::remove_file(&script_path);
     }
 
     #[test]

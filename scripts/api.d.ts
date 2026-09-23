@@ -301,6 +301,7 @@ declare namespace Bsengine {
         function normalize(v: unknown): unknown;
     }
     namespace navmesh {
+        function bake(opts?: Record<string, unknown>): void;
         function clearDestination(name: string): void;
         function getState(name: string): string;
         function hasArrived(name: string): boolean;

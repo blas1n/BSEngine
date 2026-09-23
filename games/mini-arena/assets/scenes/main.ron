@@ -28,6 +28,15 @@ SceneDescriptor(entities: [
         texture: Some("assets/textures/checker.png"),
         rigidbody: Some(Static),
         collider: Some((shape: Box(hx: 10.0, hy: 0.5, hz: 10.0), friction: 0.7)),
+        components: [
+            // The navigation mesh is baked from the arena's static colliders
+            // -- this floor, minus anything solid standing on it -- for an
+            // agent of the Enemy's size. The Pickup is a sensor and so is not
+            // an obstacle. Replaces the 40x40 grid enemy.js used to declare
+            // by hand, which was twice the floor and never marked a wall.
+            // Every reflected field has to be present (see HitSparks below).
+            ("bsengine_core::nav_mesh_surface::NavMeshSurface", "(agent_radius: 0.4, agent_height: 1.8, step_height: 0.4, floor_y: None, auto_bake: true)"),
+        ],
     ),
     EntityDescriptor(
         name: "Player",

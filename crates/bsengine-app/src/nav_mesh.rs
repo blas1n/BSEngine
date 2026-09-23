@@ -1,31 +1,98 @@
 use std::collections::HashMap;
 
 use bevy_app::{App, Plugin, Update};
-use bsengine_core::{NavAgentState, NavMesh, NavMeshAgent, Time, Transform};
+use bsengine_core::{
+    NavAgentState, NavBakeParams, NavMesh, NavMeshAgent, NavMeshSurface, Time, Transform,
+};
 use bsengine_ecs::{Entity, IntoSystemConfigs, Query, Res, ResMut, Resource};
+use bsengine_physics::PhysicsWorld;
 use glam::Vec3;
 
 /// Paths `NavMeshAgent` entities across the `NavMesh` resource, moving them toward
-/// their destination each frame with basic separation-based obstacle avoidance.
+/// their destination each frame with basic separation-based obstacle avoidance,
+/// and bakes that resource from the scene's static colliders when a
+/// `NavMeshSurface` asks for it.
 pub struct NavMeshPlugin;
 
-/// Per-entity cached A* path. Keyed by Entity; value is (waypoints, index, destination_it_was_computed_for).
+/// Per-entity cached A* path. Keyed by Entity; value is (waypoints, index,
+/// destination it was computed for, mesh generation it was computed on).
 #[derive(Resource, Default)]
-struct NavCache(HashMap<Entity, (Vec<Vec3>, usize, Option<Vec3>)>);
+struct NavCache(HashMap<Entity, (Vec<Vec3>, usize, Option<Vec3>, u64)>);
+
+/// What the last automatic bake was made from, so the next frame can tell
+/// whether anything it depended on has changed.
+#[derive(Resource, Default)]
+struct NavBakeState {
+    last: Option<(NavBakeParams, usize)>,
+}
 
 impl Plugin for NavMeshPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<NavMesh>()
             .init_resource::<NavCache>()
+            .init_resource::<NavBakeState>()
             .add_systems(
                 Update,
-                navigate_agents.run_if(
-                    |paused: Option<bevy_ecs::prelude::Res<bsengine_core::PauseState>>| {
-                        !paused.map(|p| p.paused).unwrap_or(false)
-                    },
-                ),
+                (
+                    bake_nav_surfaces,
+                    navigate_agents.run_if(
+                        |paused: Option<bevy_ecs::prelude::Res<bsengine_core::PauseState>>| {
+                            !paused.map(|p| p.paused).unwrap_or(false)
+                        },
+                    ),
+                )
+                    .chain(),
             );
     }
+}
+
+/// Bakes the `NavMesh` resource from the physics world's static colliders
+/// whenever a `NavMeshSurface` asks for it and something it was baked from
+/// has changed: the surface's parameters, or the number of static colliders.
+///
+/// Runs every frame and compares, rather than reacting once to the
+/// component's arrival, for the reason `bsengine_physics`'s `spawn_joints`
+/// gives: on the frame a scene loads its bodies do not exist in the physics
+/// world yet, so a one-shot reaction would bake an empty level and never look
+/// again. Counting static colliders is the cheapest signal that covers the
+/// cases that matter -- the load itself, a streamed-in chunk, a wall
+/// destroyed at runtime -- and is what makes this Unreal's dynamic mode
+/// rather than Unity's and Godot's bake-on-request. What it misses is one
+/// static collider replaced by another in the same frame, which
+/// `Bsengine.navmesh.bake` exists for.
+///
+/// Chained before `navigate_agents` so the frame that bakes is the frame
+/// agents start walking the new mesh; the generation stamped on the mesh is
+/// what makes them drop the paths they were walking.
+fn bake_nav_surfaces(
+    surfaces: Query<&NavMeshSurface>,
+    physics: Option<Res<PhysicsWorld>>,
+    mut state: ResMut<NavBakeState>,
+    mut navmesh: ResMut<NavMesh>,
+) {
+    let Some(surface) = surfaces.iter().find(|s| s.auto_bake) else {
+        // Forget the last bake, so a surface added (or re-enabled) later
+        // bakes even when the collider count happens to be unchanged.
+        state.last = None;
+        return;
+    };
+    let Some(physics) = physics else {
+        return;
+    };
+    let boxes: Vec<(Vec3, Vec3)> = physics
+        .static_collider_aabbs()
+        .into_iter()
+        .map(|(_, min, max)| (min, max))
+        .collect();
+    if boxes.is_empty() {
+        return;
+    }
+    let signature = (surface.params(), boxes.len());
+    if state.last == Some(signature) {
+        return;
+    }
+    *navmesh = NavMesh::bake_from_aabbs(&boxes, &signature.0);
+    state.last = Some(signature);
 }
 
 fn navigate_agents(
@@ -66,27 +133,34 @@ fn navigate_agents(
             continue;
         }
 
-        // Recompute path only when destination has changed.
+        // Recompute the path when the destination changed -- or the mesh did.
+        // A path is only valid for the mesh it was computed on. Before the
+        // generation check, a mesh swapped under a moving agent (a script's
+        // `navmesh.init`, a re-bake after a wall appeared) left it walking
+        // its old route until its destination happened to change.
+        let generation = navmesh.generation();
         let needs_recompute = cache
             .0
             .get(&entity)
-            .and_then(|(_, _, for_dest)| *for_dest)
-            .is_none_or(|d| (d - dest).length_squared() > 0.0001);
+            .is_none_or(|(_, _, for_dest, for_gen)| {
+                *for_gen != generation
+                    || for_dest.is_none_or(|d| (d - dest).length_squared() > 0.0001)
+            });
 
         if needs_recompute {
             match navmesh.find_path(transform.position.0, dest) {
                 Some(wp) => {
-                    cache.0.insert(entity, (wp, 0, Some(dest)));
+                    cache.0.insert(entity, (wp, 0, Some(dest), generation));
                 }
                 None => {
-                    cache.0.insert(entity, (vec![], 0, Some(dest)));
+                    cache.0.insert(entity, (vec![], 0, Some(dest), generation));
                     agent.state = NavAgentState::NoPath;
                     continue;
                 }
             }
         }
 
-        let Some((waypoints, idx, _)) = cache.0.get_mut(&entity) else {
+        let Some((waypoints, idx, _, _)) = cache.0.get_mut(&entity) else {
             agent.state = NavAgentState::NoPath;
             continue;
         };
@@ -211,6 +285,176 @@ mod tests {
 
     fn open_app() -> bevy_app::App {
         make_app(NavMesh::new(20, 20, 1.0, Vec3::new(-10.0, 0.0, -10.0)))
+    }
+
+    // ---- baking from the physics world ----
+
+    /// An app with a real physics world, so the bake has colliders to read.
+    /// No `NavMesh` is inserted: what the surface bakes is the only mesh.
+    /// (Distinct from `physics_app` below, which starts from `open_app`'s
+    /// hand-declared grid and a 40x40 floor -- these tests need the floor
+    /// to be exactly the 20x20 slab their walls span.)
+    fn bake_app() -> bevy_app::App {
+        let mut app = crate::new_app();
+        app.add_plugins(bsengine_physics::PhysicsPlugin);
+        app.add_plugins(NavMeshPlugin);
+        let mut t = Time::default();
+        t.set_delta_for_test(0.1);
+        app.insert_resource(t);
+        app
+    }
+
+    /// A static box collider centred at `at`.
+    fn static_box(app: &mut bevy_app::App, at: Vec3, half: Vec3) -> Entity {
+        app.world_mut()
+            .spawn((
+                Transform::from_position(at),
+                bsengine_physics::RigidBody::fixed(),
+                bsengine_physics::Collider::cuboid(half.x, half.y, half.z),
+                bsengine_physics::PhysicsInput {
+                    position: at.into(),
+                    rotation: Default::default(),
+                },
+            ))
+            .id()
+    }
+
+    /// A 20x20 floor whose top face is at y = 0, carrying the surface.
+    fn floor_with_surface(app: &mut bevy_app::App) -> Entity {
+        let floor = static_box(app, Vec3::new(0.0, -0.5, 0.0), Vec3::new(10.0, 0.5, 10.0));
+        app.world_mut()
+            .entity_mut(floor)
+            .insert(NavMeshSurface::default());
+        floor
+    }
+
+    fn agent_state_and_position(app: &mut bevy_app::App, agent: Entity) -> (NavAgentState, Vec3) {
+        let world = app.world();
+        (
+            world.get::<NavMeshAgent>(agent).unwrap().state,
+            world.get::<Transform>(agent).unwrap().position.0,
+        )
+    }
+
+    /// The whole point of the surface: nothing declares a grid, and an agent
+    /// still gets a route around a pillar it has never been told about --
+    /// because the pillar is a static collider and the bake read it. The
+    /// clearance assertion is the part a bake that ignored the agent radius
+    /// would fail; the `Arrived` assertion is the part no bake at all fails.
+    #[test]
+    fn a_nav_mesh_surface_bakes_the_scene_and_agents_route_around_its_obstacles() {
+        let mut app = bake_app();
+        floor_with_surface(&mut app);
+        static_box(&mut app, Vec3::new(0.0, 1.0, 0.0), Vec3::new(1.0, 1.0, 1.0));
+        let before = app.world().resource::<NavMesh>().generation();
+        let agent = app
+            .world_mut()
+            .spawn((
+                NavMeshAgent::new(5.0)
+                    .with_destination(Vec3::new(5.0, 0.0, 0.0))
+                    .with_stopping_distance(0.2),
+                Transform::from_position(Vec3::new(-5.0, 0.0, 0.0)),
+            ))
+            .id();
+
+        let mut closest_to_pillar = f32::INFINITY;
+        for _ in 0..80 {
+            app.update();
+            let (_, p) = agent_state_and_position(&mut app, agent);
+            // Distance from the agent's centre to the pillar's footprint
+            // (|x| <= 1, |z| <= 1); zero means it is inside.
+            let dx = (p.x.abs() - 1.0).max(0.0);
+            let dz = (p.z.abs() - 1.0).max(0.0);
+            closest_to_pillar = closest_to_pillar.min((dx * dx + dz * dz).sqrt());
+        }
+
+        let mesh = app.world().resource::<NavMesh>();
+        assert_ne!(
+            mesh.generation(),
+            before,
+            "premise: the surface must have baked a mesh"
+        );
+        assert!(
+            !mesh.is_point_walkable(Vec3::ZERO),
+            "premise: the pillar is in the mesh, so the straight line is blocked"
+        );
+        let (state, pos) = agent_state_and_position(&mut app, agent);
+        assert_eq!(
+            state,
+            NavAgentState::Arrived,
+            "the agent must reach the far side; it is {state:?} at {pos:?}"
+        );
+        // 0.4 is the default agent radius the bake eroded by; the agent turns
+        // 0.2 short of each waypoint, which is where the slack comes from.
+        assert!(
+            closest_to_pillar >= 0.3,
+            "the agent's centre came within {closest_to_pillar} of the pillar; the bake \
+             erodes by the agent radius so the route must keep clear of it"
+        );
+    }
+
+    /// A wall that appears after the agent is already walking must change its
+    /// mind. Two things have to work for that: the bake system must notice
+    /// the extra static collider and re-bake, and the agent must drop the
+    /// path it cached on the old mesh -- its destination has not changed, so
+    /// the generation is the only thing telling it to.
+    #[test]
+    fn a_static_collider_that_appears_later_re_bakes_and_drops_cached_paths() {
+        let mut app = bake_app();
+        floor_with_surface(&mut app);
+        let agent = app
+            .world_mut()
+            .spawn((
+                NavMeshAgent::new(2.0).with_destination(Vec3::new(5.0, 0.0, 0.0)),
+                Transform::from_position(Vec3::new(-5.0, 0.0, 0.0)),
+            ))
+            .id();
+        for _ in 0..5 {
+            app.update();
+        }
+        let (state, pos) = agent_state_and_position(&mut app, agent);
+        assert_eq!(
+            state,
+            NavAgentState::Moving,
+            "premise: under way on the open floor"
+        );
+        assert!(
+            pos.x > -5.0 && pos.x < -3.0,
+            "premise: partway along its cached straight-line path, at {pos:?}"
+        );
+        let gen_before = app.world().resource::<NavMesh>().generation();
+
+        // A wall across the whole floor, between the agent and its goal.
+        static_box(
+            &mut app,
+            Vec3::new(0.0, 1.0, 0.0),
+            Vec3::new(0.5, 1.0, 10.0),
+        );
+        for _ in 0..40 {
+            app.update();
+        }
+
+        let mesh = app.world().resource::<NavMesh>();
+        assert_ne!(
+            mesh.generation(),
+            gen_before,
+            "premise: the new static collider must have triggered a re-bake"
+        );
+        assert!(
+            !mesh.is_point_walkable(Vec3::ZERO),
+            "premise: the wall is in it"
+        );
+        let (state, pos) = agent_state_and_position(&mut app, agent);
+        assert_eq!(
+            state,
+            NavAgentState::NoPath,
+            "the path cached on the old mesh must be dropped, not walked to its end"
+        );
+        assert!(
+            pos.x < -0.9,
+            "and the agent must not have walked through where the wall now stands; x = {}",
+            pos.x
+        );
     }
 
     #[test]

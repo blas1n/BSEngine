@@ -93932,7 +93932,7 @@ mod tests {
         (app, burst_only, continuous)
     }
 
-    fn emitter<'a>(app: &'a bevy_app::App, e: bevy_ecs::entity::Entity) -> &'a bsengine_core::ParticleEmitter {
+    fn emitter(app: &bevy_app::App, e: bevy_ecs::entity::Entity) -> &bsengine_core::ParticleEmitter {
         app.world().get::<bsengine_core::ParticleEmitter>(e).unwrap()
     }
 

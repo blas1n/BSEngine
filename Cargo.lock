@@ -1012,6 +1012,7 @@ dependencies = [
  "bevy_app",
  "bevy_ecs",
  "bsengine-app",
+ "bsengine-asset",
  "bsengine-catalog",
  "bsengine-core",
  "bsengine-ecs",

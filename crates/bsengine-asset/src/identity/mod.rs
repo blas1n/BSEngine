@@ -20,6 +20,9 @@ use tracing::{info, warn};
 /// rewritten, reporting the ones that must not be, and forgetting the former
 /// paths nothing needs any more.
 pub mod fixup;
+/// Reading and writing an asset's import settings through its sidecar --
+/// the editing side, for the MCP tool and the Inspector.
+pub mod import;
 /// What a scan found, and the lookups the rest of item 30 asks of it.
 pub mod index;
 /// Recording a rename the watcher saw happen: moving the `.meta` along with the
@@ -33,6 +36,10 @@ pub mod scan;
 pub mod sidecar;
 
 pub use fixup::{fixup, FixupReport};
+pub use import::{
+    default_import_settings, import_kind_for, read_import_settings, write_import_settings,
+    ImportError, ImportReport,
+};
 pub use index::AssetIndex;
 pub use scan::scan;
 pub use sidecar::{

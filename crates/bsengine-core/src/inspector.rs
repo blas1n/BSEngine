@@ -75,6 +75,52 @@ pub struct InspectorEntityInfo {
     /// Whether this entity is a prefab instance root (has `PrefabInstance`).
     /// Drives the Hierarchy panel's "Apply to Prefab" context-menu entry.
     pub is_prefab_instance: bool,
+    /// The entity's `ParticleEmitter`, as the Particles panel shows it, or
+    /// `None` when it has none. Filled in by `bsengine-editor` after the
+    /// rest of this snapshot, from the live emitter.
+    pub particles: Option<ParticleSnapshot>,
+}
+
+/// What the Particles panel shows for one emitter: enough to tell a live
+/// effect from a dead one and to reach the buttons that act on it. The
+/// parameters themselves are edited in the Inspector, through reflection,
+/// like any other component's.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ParticleSnapshot {
+    /// Particles currently alive.
+    pub alive: usize,
+    /// Continuous emission rate, per second; zero for a burst-only effect.
+    pub rate: f32,
+    /// How many particles one burst emits.
+    pub burst_count: u32,
+    /// Whether continuous emission is on.
+    pub enabled: bool,
+}
+
+/// How the editor previews particles while the game is stopped -- Unity's
+/// Particle Effect overlay in the Scene view, Godot's editor-time emission.
+///
+/// Read by `ParticlePlugin`'s tick, and only in editor mode with the game
+/// stopped: a running game is not a preview, and its particles play at the
+/// game's own pace whatever this says. A plain `InspectorState` field
+/// rather than an `InspectorCmd`, like `timeline_preview`, because it is
+/// continuous per-frame state, not a one-shot action.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ParticlePreview {
+    /// Freeze every emitter: no emission, no ageing, no motion.
+    pub paused: bool,
+    /// Multiplier on the preview's time step. `1.0` is real time; below it
+    /// is the slow motion an effect is tuned in.
+    pub speed: f32,
+}
+
+impl Default for ParticlePreview {
+    fn default() -> Self {
+        Self {
+            paused: false,
+            speed: 1.0,
+        }
+    }
 }
 
 /// One queued edit request from the editor UI, drained and applied to the
@@ -179,6 +225,22 @@ pub enum InspectorCmd {
         /// What to record. Must be the asset's own kind; the writer refuses
         /// the other and the error lands in `InspectorState::asset_import_error`.
         settings: crate::ImportSettings,
+    },
+    /// Queue one burst on an entity's `ParticleEmitter` -- the Particles
+    /// panel's **Burst**, the same thing `Bsengine.particles.burst` does
+    /// from a script.
+    ParticleBurst {
+        /// The emitter's entity id.
+        id: u64,
+    },
+    /// Replay an effect from its start -- the Particles panel's **Restart**,
+    /// Unity's and Godot's of the same name: every live particle is
+    /// dropped, the fractional spawn carry is cleared, and a burst-only
+    /// effect (rate zero) gets its burst again, since its "start" *is* the
+    /// burst and a restart that left it empty would look like a delete.
+    ParticleRestart {
+        /// One emitter's entity id, or `None` for every emitter in the scene.
+        id: Option<u64>,
     },
     /// Spawn a new named entity with a `GltfAsset { path }` component
     /// attached, so `bsengine-gltf`'s existing `load_gltf_assets` system
@@ -598,6 +660,10 @@ pub struct InspectorState {
     /// `bsengine_editor`'s `update_editor_camera` (the camera half) and
     /// `apply_timeline_preview_animation` (the animation half).
     pub timeline_preview: Option<TimelinePreview>,
+    /// How particles are previewed while the game is stopped; see
+    /// [`ParticlePreview`]. Written by the Particles panel, read by
+    /// `ParticlePlugin`'s tick.
+    pub particle_preview: ParticlePreview,
 
     // Terrain brush tool state. See `TerrainBrushKind`/`TerrainBrushSettings`/
     // `TerrainBrushStroke` above for the full picture.
@@ -697,6 +763,7 @@ impl Default for InspectorState {
             editor_cam_pos: [0.0; 3],
             gizmo_mode: GizmoMode::Translate,
             timeline_preview: None,
+            particle_preview: ParticlePreview::default(),
             terrain_brush_active: false,
             terrain_brush_settings: TerrainBrushSettings::default(),
             terrain_pick: None,

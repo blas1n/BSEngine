@@ -83,6 +83,10 @@ pub fn ensure_builtin_panels(
     map.entry("timeline".to_string()).or_insert_with(|| {
         Box::new(crate::panels::TimelinePanel::default()) as Box<dyn EditorPanel>
     });
+    // Registered, not in the default layout, like the Timeline: reached
+    // from the "Window" menu when a scene has effects to tune.
+    map.entry("particles".to_string())
+        .or_insert_with(|| Box::new(crate::panels::ParticlePanel) as Box<dyn EditorPanel>);
 }
 
 /// Loads a previously saved layout. Returns `None` if the file doesn't

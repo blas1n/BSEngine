@@ -47,7 +47,7 @@ pub fn default_dock_state() -> DockState<String> {
     state
 }
 
-/// Idempotently registers the six built-in panels if they aren't already
+/// Idempotently registers the eight built-in panels if they aren't already
 /// present (e.g. from a previous frame, or pre-registered by app code).
 ///
 /// Shader Graph is registered but is deliberately **not** in
@@ -278,7 +278,7 @@ mod tests {
     }
 
     #[test]
-    fn ensure_builtin_panels_registers_seven_panels() {
+    fn ensure_builtin_panels_registers_eight_panels() {
         let registry = EditorPanelRegistry::default();
         let surface = pollster::block_on(crate::surface::WgpuSurface::new_offscreen(16, 16, false))
             .expect("these tests need an adapter; a skip here would look like a pass");
@@ -296,13 +296,14 @@ mod tests {
             history,
         );
         let map = registry.0.lock().unwrap();
-        assert_eq!(map.len(), 7);
+        assert_eq!(map.len(), 8);
         assert!(map.contains_key("profiler"));
-        // Registered even though `default_dock_state` does not place it:
-        // that registration is what lists it in the Window menu, and
+        // Registered even though `default_dock_state` does not place them:
+        // that registration is what lists them in the Window menu, and
         // without it the tab id in a saved layout renders the "Panel
         // unavailable" placeholder instead of the editor.
         assert!(map.contains_key("shadergraph"));
         assert!(map.contains_key("timeline"));
+        assert!(map.contains_key("particles"));
     }
 }

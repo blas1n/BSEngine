@@ -848,7 +848,17 @@ mod tests {
                 json!({"game": "g", "path": "../../Cargo.toml"}),
                 "may not leave it",
             ),
+            // A real texture in *another* game: without the guard this one
+            // would not fail for any other reason -- the file exists and is
+            // a texture -- so it is the case that tells a guard from the
+            // read failing on its own.
+            (
+                json!({"game": "g", "path": "../other/assets/leak.png", "settings": {"srgb": false}}),
+                "may not leave it",
+            ),
         ];
+        std::fs::create_dir_all(root.join("games/other/assets")).unwrap();
+        std::fs::write(root.join("games/other/assets/leak.png"), b"png bytes").unwrap();
         for (args, expected) in cases {
             let out = (tool.handler)(args.clone());
             assert!(!out.is_ok(), "{args} must be refused");
@@ -863,6 +873,7 @@ mod tests {
             "games/g/assets/models/fox.glb.meta",
             "games/g/assets/scenes/main.ron.meta",
             "Cargo.toml.meta",
+            "games/other/assets/leak.png.meta",
         ] {
             assert!(
                 !root.join(meta).exists(),

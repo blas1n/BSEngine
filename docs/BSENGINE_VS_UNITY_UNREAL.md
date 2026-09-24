@@ -21,7 +21,7 @@ master `134b7bf1` 기준. 열린 PR·이슈 0개, 소스 TODO/FIXME 0개, 워크
 | 항목 | 확인 | 메모 |
 |---|---|---|
 | **macOS FSEvents rename 페어링** | 테스트 5개가 macOS만 `#[ignore]` | **원인 미상.** 같은 코드가 실행마다 다른 raw 이벤트를 냄(3개 vs 1개). 우리 코드 밖일 가능성. 로컬 macOS 없이는 진전 어려움 |
-| GPU 스키닝 | `grep -rl "compute_skin\|skinning_pipeline"` → 0 | ⚠️ **성능 근거 약함** — 릴리스에서 여우 100마리 CPU 스키닝이 2.8ms. 규모 논거로만 유효 |
+| GPU 스키닝 | `grep -rl "compute_skin\|skinning_pipeline"` → 0 | **2026-09-24 격리 측정(릴리스, `skinning_cost_table`)**: 애니메이션 캐릭터당 프레임 0.04~0.05ms — 100마리 **4.2ms**, 300마리 **15.4ms**(60fps 예산 전부). 그중 ~90%가 정점 블렌드+업로드, 조인트 행렬은 100마리 0.4ms. 옛 "100마리 2.8ms"는 전체 씬 델타였음. **구현 착수 결정** — 세 엔진의 현재 수렴점(Unity GPU Batched·Unreal Skin Cache·Godot 4 스켈레톤 컴퓨트)대로 컴퓨트 스키닝, 조인트 합성은 CPU 유지 |
 | 에셋 단위 스트리밍(텍스처 밉) | `grep -rl "mip_stream\|texture_streaming"` → 0 | ⚠️ **필요가 측정된 적 없음.** 씬 스트리밍은 #1866/#1867로 있음 |
 | 비주얼 스크립팅 | `grep -rl "VisualScript\|NodeGraph"` → 0 | |
 | 의존성 그래프 시각화 | `grep -rl "DependencyGraph"` → 0 | |

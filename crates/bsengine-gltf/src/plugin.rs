@@ -979,6 +979,126 @@ mod tests {
         app.insert_resource(bsengine_rhi_wgpu::GpuQueueResource(queue));
     }
 
+    /// The measurement behind the GPU-skinning decision: what CPU skinning
+    /// actually costs per animated character, split into the two halves a
+    /// GPU path would take over -- blending the vertices and uploading them
+    /// -- and the half it would not, composing the joint matrices.
+    ///
+    /// Three apps per `N`, each with `N` skinned foxes playing a clip:
+    /// **full** (joints + blend + upload), **joints only** (the queue resource
+    /// removed after loading, which is what makes `update_skinned_meshes`
+    /// skip the blend and the upload), and **none** (no `SkinnedMeshPlugin`).
+    /// The differences are the costs; dividing by `N` gives them per fox.
+    ///
+    /// Prints a table and asserts nothing. `#[ignore]`d because it is a
+    /// measurement for a human, and only meaningful in release:
+    ///
+    /// ```text
+    /// cargo test --release -p bsengine-gltf skinning_cost_table -- --ignored --nocapture
+    /// ```
+    ///
+    /// ⚠️ A debug-profile number here is roughly 7x the shipped cost (see the
+    /// comparison document's "스케일 수치는 전부 디버그 빌드였다") and says
+    /// nothing about whether GPU skinning is needed.
+    #[test]
+    #[ignore = "measurement, not a gate: run with --release --ignored --nocapture"]
+    fn skinning_cost_table() {
+        use crate::skinned_mesh::{SkinnedMesh, SkinnedMeshPlugin};
+        use std::time::Instant;
+
+        #[derive(Clone, Copy)]
+        enum Variant {
+            Full,
+            JointsOnly,
+            None,
+        }
+
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../games/mini-arena/assets/models/fox.glb");
+        let path = fixture.to_str().unwrap().to_owned();
+
+        // Frames timed per variant, after a warm-up. Enough that the
+        // per-frame mean is steady to two figures on a quiet machine.
+        const WARM_UP: usize = 10;
+        const FRAMES: usize = 120;
+
+        let ms_per_frame = |n: usize, variant: Variant| -> f64 {
+            let mut app = new_app();
+            app.add_plugins(bsengine_asset::AssetPlugin);
+            app.add_plugins(WgpuRHIPlugin::windowed());
+            app.add_plugins(GltfPlugin);
+            if !matches!(variant, Variant::None) {
+                app.add_plugins(SkinnedMeshPlugin);
+            }
+            insert_headless_gpu_registries(&mut app);
+            let entities: Vec<Entity> = (0..n)
+                .map(|_| app.world_mut().spawn(GltfAsset::new(path.clone())).id())
+                .collect();
+            for _ in 0..2000 {
+                app.update();
+                if entities
+                    .iter()
+                    .all(|e| app.world().get::<SkinnedMesh>(*e).is_some())
+                {
+                    break;
+                }
+            }
+            assert!(
+                entities
+                    .iter()
+                    .all(|e| app.world().get::<SkinnedMesh>(*e).is_some()),
+                "premise: all {n} foxes must load and be skinned before timing"
+            );
+            // Every fox plays its clip from a different phase, so the poses
+            // differ and nothing can be shared or cached away by accident.
+            for (i, e) in entities.iter().enumerate() {
+                if let Some(mut player) = app.world_mut().get_mut::<AnimationPlayer>(*e) {
+                    player.time = 0.01 * i as f32;
+                }
+            }
+            if matches!(variant, Variant::JointsOnly) {
+                app.world_mut()
+                    .remove_resource::<bsengine_rhi_wgpu::GpuQueueResource>();
+            }
+            for _ in 0..WARM_UP {
+                app.update();
+            }
+            let start = Instant::now();
+            for _ in 0..FRAMES {
+                app.update();
+            }
+            start.elapsed().as_secs_f64() * 1000.0 / FRAMES as f64
+        };
+
+        let profile = if cfg!(debug_assertions) {
+            "DEBUG (7x the shipped cost -- rerun with --release)"
+        } else {
+            "release"
+        };
+        println!("profile: {profile}; {FRAMES} frames per cell after {WARM_UP} warm-up");
+        println!(
+            "{:>5} {:>10} {:>12} {:>10} | {:>12} {:>12} {:>14}",
+            "N", "full_ms", "joints_ms", "none_ms", "blend+up/fox", "joints/fox", "skinning/fox"
+        );
+        for n in [1usize, 20, 100, 300] {
+            let full = ms_per_frame(n, Variant::Full);
+            let joints = ms_per_frame(n, Variant::JointsOnly);
+            let none = ms_per_frame(n, Variant::None);
+            let blend_upload = (full - joints) / n as f64;
+            let joints_only = (joints - none) / n as f64;
+            println!(
+                "{:>5} {:>10.3} {:>12.3} {:>10.3} | {:>12.4} {:>12.4} {:>14.4}",
+                n,
+                full,
+                joints,
+                none,
+                blend_upload,
+                joints_only,
+                (full - none) / n as f64
+            );
+        }
+    }
+
     #[test]
     fn a_loaded_gltf_keeps_its_handle_so_a_reload_can_reach_it() {
         use bevy_asset::{AssetEvent, AssetServer, Assets};

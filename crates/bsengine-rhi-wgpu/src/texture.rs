@@ -14,7 +14,39 @@ struct GpuTexture {
     width: u32,
     height: u32,
     settings: TextureImportSettings,
+    /// Present for a texture whose mips are streamed; see [`Streamed`].
+    streamed: Option<Streamed>,
 }
+
+/// The streaming side of a texture: the whole mip chain, kept on the CPU so
+/// levels can be brought in and dropped, and which of them the GPU currently
+/// holds.
+///
+/// # Residency is a texture object, not a flag
+///
+/// A `wgpu::Texture` allocates every mip level it is declared with, so a
+/// texture "with only its small mips resident" cannot be one object with
+/// some levels left unwritten -- the memory would be spent regardless, and
+/// the point of streaming is the memory. Unreal reallocates a streamed
+/// texture at each residency change and this does the same: the GPU object
+/// is exactly as large as the resident levels, and raising or lowering
+/// residency builds a new one. `resident_base` is the index into `levels` of
+/// the largest resident level; `0` is fully resident.
+///
+/// The chain stays in RAM for now, which is the price of streaming from
+/// memory rather than from disk. Unity and Unreal stream from disk; that is
+/// the next step, and it changes nothing about how residency is expressed.
+struct Streamed {
+    /// Level 0 first, down to 1x1, as [`mip_chain`] produces them.
+    levels: Vec<(u32, u32, Vec<u8>)>,
+    resident_base: u32,
+}
+
+/// Largest dimension of the levels a streamed texture starts with: enough to
+/// draw a recognisable stand-in immediately, small enough that a scene full of
+/// streamed textures costs almost nothing to bring up. Unity's streaming
+/// starts from its "minimum mip" the same way.
+pub const STREAMING_INITIAL_MAX_DIM: u32 = 64;
 
 /// Owns every GPU texture uploaded for the running app, keyed by a registry-assigned id.
 #[derive(Resource)]
@@ -24,6 +56,9 @@ pub struct GpuTextureRegistry {
     bgl: wgpu::BindGroupLayout,
     textures: HashMap<u64, GpuTexture>,
     next_id: u64,
+    /// The streamed texture `raise_next_pending` last brought a level in
+    /// on, so the next call moves on to another one.
+    last_raised: u64,
 }
 
 impl GpuTextureRegistry {
@@ -36,6 +71,7 @@ impl GpuTextureRegistry {
             bgl,
             textures: HashMap::new(),
             next_id: 1,
+            last_raised: 0,
         }
     }
 
@@ -143,6 +179,54 @@ impl GpuTextureRegistry {
         rgba: &[u8],
         settings: TextureImportSettings,
     ) -> GpuTexture {
+        let levels: Vec<(u32, u32, std::borrow::Cow<'_, [u8]>)> = if settings.mipmaps {
+            mip_chain(width, height, rgba)
+        } else {
+            vec![(width, height, std::borrow::Cow::Borrowed(rgba))]
+        };
+        // A streamed texture starts with only its small levels on the GPU
+        // and keeps the chain to bring the rest in from. Streaming a texture
+        // with no chain would have nothing to stream, so it uploads whole.
+        let streamed = if settings.streaming && levels.len() > 1 {
+            let resident_base = levels
+                .iter()
+                .position(|(w, h, _)| (*w).max(*h) <= STREAMING_INITIAL_MAX_DIM)
+                .unwrap_or(levels.len() - 1) as u32;
+            Some(Streamed {
+                levels: levels
+                    .iter()
+                    .map(|(w, h, p)| (*w, *h, p.to_vec()))
+                    .collect(),
+                resident_base,
+            })
+        } else {
+            None
+        };
+        let resident_base = streamed.as_ref().map_or(0, |s| s.resident_base);
+        let (texture, view) = self.upload_levels(&levels, resident_base, settings);
+        let (sampler, bind_group) = self.sampler_and_bind_group(&view, settings);
+        GpuTexture {
+            _texture: texture,
+            _view: view,
+            _sampler: sampler,
+            bind_group,
+            width,
+            height,
+            settings,
+            streamed,
+        }
+    }
+
+    /// Creates the GPU texture holding `levels[resident_base..]` -- exactly
+    /// those, so its footprint is what is resident -- writes them, and views
+    /// the whole object. Level `resident_base` of the chain is level 0 of the
+    /// object; the sampler never knows the larger levels exist.
+    fn upload_levels(
+        &self,
+        levels: &[(u32, u32, std::borrow::Cow<'_, [u8]>)],
+        resident_base: u32,
+        settings: TextureImportSettings,
+    ) -> (crate::profiler::TrackedTexture, wgpu::TextureView) {
         // The format is what makes `srgb` mean anything: an `…Srgb` view
         // decodes on sample, so the shader receives linear light without a
         // `pow` of its own. Uploaded bytes are identical either way.
@@ -151,21 +235,18 @@ impl GpuTextureRegistry {
         } else {
             wgpu::TextureFormat::Rgba8Unorm
         };
-        let levels: Vec<(u32, u32, std::borrow::Cow<'_, [u8]>)> = if settings.mipmaps {
-            mip_chain(width, height, rgba)
-        } else {
-            vec![(width, height, std::borrow::Cow::Borrowed(rgba))]
-        };
+        let resident = &levels[resident_base as usize..];
+        let (width, height, _) = &resident[0];
         let texture = crate::profiler::create_tracked_texture(
             &self.device,
             &wgpu::TextureDescriptor {
                 label: Some("user texture"),
                 size: wgpu::Extent3d {
-                    width,
-                    height,
+                    width: *width,
+                    height: *height,
                     depth_or_array_layers: 1,
                 },
-                mip_level_count: levels.len() as u32,
+                mip_level_count: resident.len() as u32,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format,
@@ -173,7 +254,7 @@ impl GpuTextureRegistry {
                 view_formats: &[],
             },
         );
-        for (level, (w, h, pixels)) in levels.iter().enumerate() {
+        for (level, (w, h, pixels)) in resident.iter().enumerate() {
             self.queue.write_texture(
                 wgpu::ImageCopyTexture {
                     texture: &texture,
@@ -195,6 +276,104 @@ impl GpuTextureRegistry {
             );
         }
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        (texture, view)
+    }
+
+    /// Whether `id` is a streamed texture.
+    pub fn is_streaming(&self, id: u64) -> bool {
+        self.textures.get(&id).is_some_and(|t| t.streamed.is_some())
+    }
+
+    /// A streamed texture's residency as `(resident_base, level_count)`:
+    /// the chain index of the largest level on the GPU (`0` when fully
+    /// resident) and how many levels the chain has. `None` for a texture
+    /// that is not streamed.
+    pub fn residency(&self, id: u64) -> Option<(u32, u32)> {
+        let s = self.textures.get(&id)?.streamed.as_ref()?;
+        Some((s.resident_base, s.levels.len() as u32))
+    }
+
+    /// Brings one more level of a streamed texture onto the GPU -- the next
+    /// larger one -- rebuilding the GPU object at the new size, so its
+    /// footprint grows by exactly that level. Returns whether a level was
+    /// brought in: `false` for a texture that is not streamed or is already
+    /// fully resident.
+    pub fn raise_residency(&mut self, id: u64) -> bool {
+        self.set_residency(id, |base| base.checked_sub(1))
+    }
+
+    /// Drops the largest resident level of a streamed texture, rebuilding
+    /// the GPU object without it. The smallest level always stays, so the
+    /// texture keeps drawing something. Returns whether a level was dropped.
+    pub fn lower_residency(&mut self, id: u64) -> bool {
+        self.set_residency(id, |base| Some(base + 1))
+    }
+
+    fn set_residency(&mut self, id: u64, next: impl FnOnce(u32) -> Option<u32>) -> bool {
+        let Some(tex) = self.textures.get(&id) else {
+            return false;
+        };
+        let Some(streamed) = tex.streamed.as_ref() else {
+            return false;
+        };
+        let Some(base) = next(streamed.resident_base) else {
+            return false;
+        };
+        if base as usize >= streamed.levels.len() {
+            return false;
+        }
+        let levels: Vec<(u32, u32, std::borrow::Cow<'_, [u8]>)> = streamed
+            .levels
+            .iter()
+            .map(|(w, h, p)| (*w, *h, std::borrow::Cow::Borrowed(p.as_slice())))
+            .collect();
+        let settings = tex.settings;
+        // Rebuilt from the chain rather than copied GPU-to-GPU: the levels
+        // below the one being brought in are a third of its size put
+        // together, so the re-upload costs about what the new level does,
+        // and it keeps this to one queue write per level with no encoder.
+        let (texture, view) = self.upload_levels(&levels, base, settings);
+        let (sampler, bind_group) = self.sampler_and_bind_group(&view, settings);
+        drop(levels);
+        let tex = self.textures.get_mut(&id).expect("looked up above");
+        tex.streamed.as_mut().expect("checked above").resident_base = base;
+        // The bind group is what a draw binds; swapping the texture and view
+        // without it would leave every material sampling the old object,
+        // which the old view keeps alive -- the footprint would grow and
+        // nothing on screen would change.
+        tex._texture = texture;
+        tex._view = view;
+        tex._sampler = sampler;
+        tex.bind_group = bind_group;
+        true
+    }
+
+    /// Brings one level in on the streamed texture that has been waiting
+    /// longest -- round-robin over every streamed texture that is not yet
+    /// fully resident -- and returns its id. `None` when every streamed
+    /// texture is fully resident. What the progressive-loading system calls
+    /// once per frame.
+    pub fn raise_next_pending(&mut self) -> Option<u64> {
+        let mut pending: Vec<u64> = self
+            .textures
+            .iter()
+            .filter(|(_, t)| t.streamed.as_ref().is_some_and(|s| s.resident_base > 0))
+            .map(|(id, _)| *id)
+            .collect();
+        pending.sort_unstable();
+        let next = *pending
+            .iter()
+            .find(|id| **id > self.last_raised)
+            .or_else(|| pending.first())?;
+        self.last_raised = next;
+        self.raise_residency(next).then_some(next)
+    }
+
+    fn sampler_and_bind_group(
+        &self,
+        view: &wgpu::TextureView,
+        settings: TextureImportSettings,
+    ) -> (wgpu::Sampler, wgpu::BindGroup) {
         let (mag_filter, min_filter) = match settings.filter {
             TextureFilter::Linear => (wgpu::FilterMode::Linear, wgpu::FilterMode::Linear),
             TextureFilter::Nearest => (wgpu::FilterMode::Nearest, wgpu::FilterMode::Nearest),
@@ -223,7 +402,7 @@ impl GpuTextureRegistry {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view),
+                    resource: wgpu::BindingResource::TextureView(view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -231,15 +410,7 @@ impl GpuTextureRegistry {
                 },
             ],
         });
-        GpuTexture {
-            _texture: texture,
-            _view: view,
-            _sampler: sampler,
-            bind_group,
-            width,
-            height,
-            settings,
-        }
+        (sampler, bind_group)
     }
 
     /// Looks up a previously loaded texture's bind group by id.
@@ -272,6 +443,21 @@ impl GpuTextureRegistry {
         self.textures
             .get(&id)
             .map(|t| (t._texture.format(), t._texture.mip_level_count()))
+    }
+
+    /// The GPU object's own level-0 dimensions and footprint in bytes, as the
+    /// profiler counts it. For an unstreamed texture that is the image's
+    /// size; for a streamed one it is the largest *resident* level, which is
+    /// what makes residency observable from outside without trusting the
+    /// registry's own bookkeeping.
+    pub fn get_gpu_footprint(&self, id: u64) -> Option<(u32, u32, u64)> {
+        self.textures.get(&id).map(|t| {
+            (
+                t._texture.width(),
+                t._texture.height(),
+                t._texture.size_bytes(),
+            )
+        })
     }
 }
 
@@ -495,5 +681,213 @@ mod tests {
         let chain = mip_chain(5, 3, &[255u8; 5 * 3 * 4]);
         let sizes: Vec<(u32, u32)> = chain.iter().map(|(w, h, _)| (*w, *h)).collect();
         assert_eq!(sizes, vec![(5, 3), (2, 1), (1, 1)]);
+    }
+
+    fn streamed() -> TextureImportSettings {
+        TextureImportSettings {
+            srgb: false,
+            mipmaps: true,
+            streaming: true,
+            ..Default::default()
+        }
+    }
+
+    /// Bytes of an RGBA8 mip chain from a square power-of-two `top` level
+    /// down to 1x1, as the profiler's geometric-series estimate counts it.
+    fn chain_bytes(top: u32, levels: u32) -> u64 {
+        let texels = (top * top) as f64 * (1.0 - 0.25f64.powi(levels as i32)) / 0.75;
+        texels as u64 * 4
+    }
+
+    fn within_one_percent(actual: u64, expected: u64) -> bool {
+        (actual as f64 - expected as f64).abs() <= expected as f64 * 0.01
+    }
+
+    /// The whole point of streaming, in bytes: a 256x256 streamed texture
+    /// starts on the GPU as the 64x64 object holding levels 2..9 -- about
+    /// 21 KiB where the full chain is 341 KiB -- and the profiler counts
+    /// only that. Its logical size stays 256x256, because materials and UI
+    /// lay out against the image, not against what is resident.
+    #[test]
+    fn a_streamed_texture_starts_with_only_its_small_levels_on_the_gpu() {
+        let mut reg = make_registry();
+        let pixels = vec![200u8; 256 * 256 * 4];
+
+        let whole = reg.load_with(256, 256, &pixels, TextureImportSettings::default());
+        let (_, _, whole_bytes) = reg.get_gpu_footprint(whole).unwrap();
+        assert!(
+            within_one_percent(whole_bytes, chain_bytes(256, 9)),
+            "premise: the unstreamed chain is 9 levels of 256x256, {whole_bytes} bytes"
+        );
+        assert!(!reg.is_streaming(whole));
+        assert_eq!(reg.residency(whole), None);
+
+        let id = reg.load_with(256, 256, &pixels, streamed());
+        assert!(reg.is_streaming(id));
+        assert_eq!(
+            reg.residency(id),
+            Some((2, 9)),
+            "levels 256, 128 wait; 64 is the first at or under {STREAMING_INITIAL_MAX_DIM}"
+        );
+        assert_eq!(reg.get_size(id), Some((256, 256)), "the logical size");
+        let (w, h, bytes) = reg.get_gpu_footprint(id).unwrap();
+        assert_eq!(
+            (w, h),
+            (64, 64),
+            "the GPU object is the largest resident level"
+        );
+        assert_eq!(reg.get_gpu_shape(id).map(|s| s.1), Some(7), "levels 64..1");
+        assert!(
+            within_one_percent(bytes, chain_bytes(64, 7)),
+            "and it costs only those levels: {bytes} bytes, not {whole_bytes}"
+        );
+        assert_eq!(reg.get_settings(id), Some(streamed()));
+    }
+
+    /// Each raise brings in exactly the next larger level -- the GPU object
+    /// grows by that level's bytes and nothing else -- until level 0, after
+    /// which raising reports nothing to do. Lowering is the reverse, and
+    /// stops at the smallest level so the texture never becomes nothing.
+    #[test]
+    fn raising_and_lowering_residency_move_one_level_at_a_time() {
+        let mut reg = make_registry();
+        let id = reg.load_with(256, 256, &vec![9u8; 256 * 256 * 4], streamed());
+        let bytes = |reg: &GpuTextureRegistry| reg.get_gpu_footprint(id).unwrap().2;
+        let at_64 = bytes(&reg);
+
+        assert!(reg.raise_residency(id));
+        assert_eq!(reg.residency(id), Some((1, 9)));
+        assert_eq!(
+            reg.get_gpu_footprint(id).map(|f| (f.0, f.1)),
+            Some((128, 128))
+        );
+        assert_eq!(reg.get_gpu_shape(id).map(|s| s.1), Some(8));
+        let at_128 = bytes(&reg);
+        assert!(
+            within_one_percent(at_128 - at_64, 128 * 128 * 4),
+            "one raise adds the 128x128 level and nothing else: {at_64} -> {at_128}"
+        );
+
+        assert!(reg.raise_residency(id));
+        assert_eq!(reg.residency(id), Some((0, 9)), "fully resident");
+        let at_256 = bytes(&reg);
+        assert!(within_one_percent(at_256 - at_128, 256 * 256 * 4));
+        assert!(
+            !reg.raise_residency(id),
+            "nothing above level 0 to bring in"
+        );
+        assert_eq!(reg.residency(id), Some((0, 9)));
+        assert_eq!(bytes(&reg), at_256, "a refused raise must not rebuild");
+
+        assert!(reg.lower_residency(id));
+        assert_eq!(reg.residency(id), Some((1, 9)));
+        assert_eq!(bytes(&reg), at_128, "lowering gives the level's bytes back");
+
+        for _ in 0..7 {
+            assert!(reg.lower_residency(id));
+        }
+        assert_eq!(reg.residency(id), Some((8, 9)), "down to the 1x1 level");
+        assert!(!reg.lower_residency(id), "which always stays");
+        assert_eq!(reg.get_gpu_footprint(id).map(|f| (f.0, f.1)), Some((1, 1)));
+
+        // Neither call means anything for a texture that is not streamed.
+        let plain = reg.load_with(8, 8, &[0u8; 8 * 8 * 4], TextureImportSettings::default());
+        assert!(!reg.raise_residency(plain));
+        assert!(!reg.lower_residency(plain));
+        assert!(!reg.raise_residency(4242), "nor for an id nobody holds");
+    }
+
+    /// `streaming` without `mipmaps` has nothing to stream: one level is
+    /// uploaded whole and the texture is not streamed, rather than being a
+    /// streamed texture that can never change. And an image already at or
+    /// under the initial size starts fully resident, so nothing is pending.
+    #[test]
+    fn streaming_needs_a_chain_and_a_small_image_is_resident_from_the_start() {
+        let mut reg = make_registry();
+        let unmipped = reg.load_with(
+            256,
+            256,
+            &vec![0u8; 256 * 256 * 4],
+            TextureImportSettings {
+                mipmaps: false,
+                ..streamed()
+            },
+        );
+        assert!(!reg.is_streaming(unmipped));
+        assert_eq!(reg.get_gpu_shape(unmipped).map(|s| s.1), Some(1));
+        assert_eq!(reg.get_gpu_footprint(unmipped).map(|f| f.0), Some(256));
+
+        let small = reg.load_with(64, 32, &[0u8; 64 * 32 * 4], streamed());
+        assert!(reg.is_streaming(small), "streamed, with nothing waiting");
+        assert_eq!(reg.residency(small), Some((0, 7)));
+        assert!(!reg.raise_residency(small));
+        assert_eq!(reg.raise_next_pending(), None);
+    }
+
+    /// The progressive loader's step: one level, on the streamed texture
+    /// that has waited longest, so two textures brought up together each
+    /// get a level in turn rather than one finishing before the other
+    /// starts. Textures that are not streamed, or are already whole, are
+    /// never picked, and the call says so once nothing is left.
+    #[test]
+    fn raise_next_pending_takes_turns_over_the_waiting_textures() {
+        let mut reg = make_registry();
+        let plain = reg.load_with(
+            256,
+            256,
+            &vec![0u8; 256 * 256 * 4],
+            TextureImportSettings::default(),
+        );
+        let a = reg.load_with(256, 256, &vec![0u8; 256 * 256 * 4], streamed());
+        let b = reg.load_with(128, 128, &vec![0u8; 128 * 128 * 4], streamed());
+        assert_eq!(
+            (reg.residency(a), reg.residency(b)),
+            (Some((2, 9)), Some((1, 8))),
+            "premise: a needs two raises, b one"
+        );
+
+        let order: Vec<Option<u64>> = (0..4).map(|_| reg.raise_next_pending()).collect();
+        assert_eq!(
+            order,
+            vec![Some(a), Some(b), Some(a), None],
+            "a, then b, then a's last level, then nothing"
+        );
+        assert_eq!(reg.residency(a), Some((0, 9)));
+        assert_eq!(reg.residency(b), Some((0, 8)));
+        assert_eq!(
+            reg.get_gpu_footprint(plain).map(|f| f.0),
+            Some(256),
+            "the unstreamed texture was never touched"
+        );
+    }
+
+    /// A reload -- new pixels, or a sidecar edit -- rebuilds a streamed
+    /// texture at its initial residency, and turning `streaming` off on
+    /// reload uploads it whole: what is resident follows the settings in
+    /// force, not the history of raises.
+    #[test]
+    fn replacing_a_streamed_texture_restarts_it_and_can_stop_streaming_it() {
+        let mut reg = make_registry();
+        let id = reg.load_with(256, 256, &vec![0u8; 256 * 256 * 4], streamed());
+        assert!(reg.raise_residency(id) && reg.raise_residency(id));
+        assert_eq!(reg.residency(id), Some((0, 9)), "premise: fully resident");
+
+        assert!(reg.replace(id, 256, 256, &vec![7u8; 256 * 256 * 4]));
+        assert_eq!(
+            reg.residency(id),
+            Some((2, 9)),
+            "back to the initial levels"
+        );
+        assert_eq!(reg.get_gpu_footprint(id).map(|f| f.0), Some(64));
+
+        assert!(reg.replace_with(
+            id,
+            256,
+            256,
+            &vec![7u8; 256 * 256 * 4],
+            TextureImportSettings::default()
+        ));
+        assert!(!reg.is_streaming(id));
+        assert_eq!(reg.get_gpu_footprint(id).map(|f| f.0), Some(256));
     }
 }

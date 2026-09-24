@@ -461,6 +461,18 @@ impl Harness {
         self.textures.load_with(width, height, rgba, settings)
     }
 
+    /// Brings the next mip level of a streamed texture onto the GPU -- what
+    /// the progressive-loading system does for one texture per frame.
+    pub fn raise_residency(&mut self, id: u64) -> bool {
+        self.textures.raise_residency(id)
+    }
+
+    /// A streamed texture's `(resident_base, level_count)`; `None` if `id`
+    /// is not streamed.
+    pub fn residency(&self, id: u64) -> Option<(u32, u32)> {
+        self.textures.residency(id)
+    }
+
     /// The unit cube with every UV multiplied by `factor`, so a face spans
     /// `factor` repeats of its texture. Only a UV outside `0..1` can show what
     /// a wrap mode does.

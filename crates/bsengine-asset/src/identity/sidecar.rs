@@ -503,6 +503,7 @@ mod tests {
                 mipmaps: true,
                 filter: TextureFilter::Nearest,
                 wrap: TextureWrap::Clamp,
+                streaming: false,
             })),
         };
         let text = tuned.to_ron().expect("serialise");
@@ -516,7 +517,8 @@ mod tests {
              srgb: false,\n        \
              mipmaps: true,\n        \
              filter: Nearest,\n        \
-             wrap: Clamp,\n    \
+             wrap: Clamp,\n        \
+             streaming: false,\n    \
              ))),\n)\n"
         );
         let parsed = Sidecar::from_ron(&text).expect("parse");

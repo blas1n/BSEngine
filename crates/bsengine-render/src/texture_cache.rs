@@ -140,6 +140,29 @@ pub fn reupload_modified_textures(
     }
 }
 
+/// Brings one more mip level onto the GPU for one streamed texture, every
+/// frame, until every streamed texture is whole.
+///
+/// A texture whose sidecar says `streaming: true` uploads with only its
+/// small levels resident (`GpuTextureRegistry::load_with`), so a scene full
+/// of them draws on the first frame at a fraction of the memory and the
+/// upload time. This is the other half: the levels above come in one per
+/// frame, largest texture last, and the registry takes turns between
+/// textures so none finishes before another has started. One level per
+/// frame rather than all pending levels because each raise is a texture
+/// allocation plus a re-upload on the queue, and the scenes this is for
+/// have many textures arriving together; spreading them is what keeps the
+/// frame that follows a scene load from stalling.
+///
+/// Which level a texture *ought* to have -- from its distance to the camera
+/// and a memory budget, as Unity's and Unreal's streamers decide -- is not
+/// yet asked; every streamed texture goes to full residency and stays.
+pub fn stream_textures(registry: Option<ResMut<GpuTextureRegistry>>) {
+    if let Some(mut registry) = registry {
+        registry.raise_next_pending();
+    }
+}
+
 /// Requests, polls and uploads the textures entities are waiting for, then
 /// writes the resulting id onto their `Material`.
 ///
@@ -215,9 +238,103 @@ mod tests {
         app.init_resource::<TextureCache>();
         app.add_systems(
             bevy_app::Update,
-            (resolve_texture_paths, reupload_modified_textures),
+            (
+                resolve_texture_paths,
+                reupload_modified_textures,
+                stream_textures,
+            ),
         );
         app
+    }
+
+    /// A streamed file texture reaches the GPU small and then grows a level
+    /// a frame until it is whole -- counted in frames, so a system that
+    /// raised everything at once, or nothing, both fail. The 256x256
+    /// checker starts at 64x64 (two levels waiting), so it takes exactly two
+    /// updates after the upload to become whole.
+    #[test]
+    fn a_streamed_texture_grows_one_level_per_frame_until_whole() {
+        use bsengine_core::TextureImportSettings;
+
+        let mut app = test_app();
+        app.world_mut()
+            .spawn((Material::default(), TexturePath(REAL_TEXTURE.into())));
+        for _ in 0..60 {
+            app.update();
+        }
+        let gpu_id = app
+            .world()
+            .resource::<TextureCache>()
+            .id_for(REAL_TEXTURE)
+            .expect("premise: the texture uploaded");
+        let handle = app.world().resource::<TextureCache>().by_path[REAL_TEXTURE]
+            .slot
+            .handle()
+            .clone();
+        assert!(
+            !app.world()
+                .resource::<GpuTextureRegistry>()
+                .is_streaming(gpu_id),
+            "premise: without a sidecar the texture is not streamed"
+        );
+
+        // A sidecar edit turning streaming on, as the watcher delivers it:
+        // the same handle, modified, and re-uploaded by the reload system.
+        // The pixels are replaced with a 256x256 image at the same time so
+        // the number of levels waiting (two) does not depend on the size of
+        // the file on disk.
+        {
+            let mut textures = app
+                .world_mut()
+                .resource_mut::<bevy_asset::Assets<TextureAsset>>();
+            let tex = textures.get_mut(&handle).expect("the asset is loaded");
+            tex.width = 256;
+            tex.height = 256;
+            tex.data = vec![90u8; 256 * 256 * 4];
+            tex.settings = TextureImportSettings {
+                streaming: true,
+                ..Default::default()
+            };
+        }
+        // Sampled after every update. The event is read the frame after it
+        // is written, and within that frame the reupload and the streaming
+        // system are unordered, so the first streamed sample is 2 or 1
+        // depending on which ran first; from there it must step down by
+        // exactly one per frame. A system that raised every pending level
+        // at once would show 0 as its first sample; one that never raised
+        // would stay at 2.
+        let mut residency_per_frame = Vec::new();
+        for _ in 0..6 {
+            app.update();
+            let registry = app.world().resource::<GpuTextureRegistry>();
+            residency_per_frame.push(registry.residency(gpu_id).map(|r| r.0));
+        }
+        let streamed: Vec<u32> = residency_per_frame.iter().flatten().copied().collect();
+        let first = *streamed
+            .first()
+            .expect("the modified settings must reach the GPU");
+        assert!(
+            first >= 1,
+            "the first streamed frame must still have a level waiting; got {residency_per_frame:?}"
+        );
+        let expected: Vec<u32> = (0..=first).rev().collect();
+        assert_eq!(
+            &streamed[..expected.len()],
+            &expected[..],
+            "one level per frame down to 0; got {residency_per_frame:?}"
+        );
+        assert!(
+            streamed[expected.len()..].iter().all(|r| *r == 0),
+            "and it stays whole; got {residency_per_frame:?}"
+        );
+        assert_eq!(
+            app.world()
+                .resource::<GpuTextureRegistry>()
+                .get_gpu_footprint(gpu_id)
+                .map(|f| (f.0, f.1)),
+            Some((256, 256)),
+            "and it ends whole"
+        );
     }
 
     /// The property the sidecar story depends on: an asset modified after it
@@ -291,6 +408,50 @@ mod tests {
             Some(data_settings),
             "and the modified import settings"
         );
+    }
+
+    /// The progressive loader is wired into `RenderPlugin`, which is what
+    /// every runtime and the editor add -- a system only the test above
+    /// registers by hand would be a system nothing ships. Driven through the
+    /// registry directly rather than a file, since the wiring is the
+    /// question here and the file path is proven above.
+    #[test]
+    fn render_plugin_brings_a_streamed_textures_levels_in_frame_by_frame() {
+        use bsengine_core::TextureImportSettings;
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(crate::RenderPlugin);
+        with_gpu(&mut app);
+        let id = app
+            .world_mut()
+            .resource_mut::<GpuTextureRegistry>()
+            .load_with(
+                256,
+                256,
+                &vec![0u8; 256 * 256 * 4],
+                TextureImportSettings {
+                    streaming: true,
+                    ..Default::default()
+                },
+            );
+        let residency = |app: &bevy_app::App| {
+            app.world()
+                .resource::<GpuTextureRegistry>()
+                .residency(id)
+                .map(|r| r.0)
+        };
+        assert_eq!(residency(&app), Some(2), "premise: two levels waiting");
+        app.update();
+        assert_eq!(
+            residency(&app),
+            Some(1),
+            "the plugin's Update brings one level in per frame"
+        );
+        app.update();
+        assert_eq!(residency(&app), Some(0));
+        app.update();
+        assert_eq!(residency(&app), Some(0), "and rests once whole");
     }
 
     /// A real image, reached from this crate's directory.

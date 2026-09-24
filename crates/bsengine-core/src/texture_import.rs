@@ -4,10 +4,12 @@
 //! asset settings all answer the same four questions about a texture before
 //! it is uploaded, and every one of them defaults the same way: colour
 //! textures are sRGB, mipmaps are generated, sampling is linear, and UVs
-//! repeat. [`TextureImportSettings::default`] is those answers. The settings
-//! live beside the asset in its `.meta` sidecar (`bsengine_asset`), which is
-//! where Unity and Godot keep theirs too, and are read at load time by the
-//! texture loader.
+//! repeat. [`TextureImportSettings::default`] is those answers. A fifth,
+//! whether the mip chain is streamed in rather than uploaded whole, is asked
+//! per texture by Unity and Unreal and defaults to off here as it does in
+//! Unity (Godot 4 has no texture streaming). The settings live beside the
+//! asset in its `.meta` sidecar (`bsengine_asset`), which is where Unity and
+//! Godot keep theirs too, and are read at load time by the texture loader.
 //!
 //! Before these existed every texture was uploaded the same one way --
 //! linear, no mips, clamped -- which is [`TextureImportSettings::raw`], and
@@ -19,7 +21,7 @@ use serde::{Deserialize, Serialize};
 /// Per-texture import settings.
 ///
 /// Spelled in a sidecar as
-/// `import: Some(Texture((srgb: true, mipmaps: true, filter: Linear, wrap: Repeat)))`.
+/// `import: Some(Texture((srgb: true, mipmaps: true, filter: Linear, wrap: Repeat, streaming: false)))`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TextureImportSettings {
     /// Whether the pixel values are sRGB-encoded, as every colour image an
@@ -40,17 +42,33 @@ pub struct TextureImportSettings {
     pub filter: TextureFilter,
     /// What a UV outside `0..1` samples.
     pub wrap: TextureWrap,
+    /// Whether the texture's mip levels are streamed: only the small levels
+    /// are resident on the GPU at first, and the larger ones are brought in
+    /// afterwards, level by level -- Unity's per-texture "Streaming Mipmaps"
+    /// and the inverse of Unreal's "Never Stream". Off, the whole chain is
+    /// uploaded at load, as every texture was before this existed.
+    ///
+    /// Only meaningful with `mipmaps`; a streamed texture without a chain has
+    /// nothing to stream and is uploaded whole.
+    ///
+    /// `serde(default)` so every sidecar written before this field existed
+    /// still parses -- a missing field is a hard error otherwise, and the
+    /// loader would then read the whole sidecar as the defaults and silently
+    /// drop the settings an author had tuned.
+    #[serde(default)]
+    pub streaming: bool,
 }
 
 impl Default for TextureImportSettings {
     /// The reference engines' defaults: a colour texture, mipmapped,
-    /// sampled linearly, tiling.
+    /// sampled linearly, tiling, not streamed.
     fn default() -> Self {
         Self {
             srgb: true,
             mipmaps: true,
             filter: TextureFilter::Linear,
             wrap: TextureWrap::Repeat,
+            streaming: false,
         }
     }
 }
@@ -70,6 +88,7 @@ impl TextureImportSettings {
             mipmaps: false,
             filter: TextureFilter::Linear,
             wrap: TextureWrap::Clamp,
+            streaming: false,
         }
     }
 }
@@ -124,9 +143,14 @@ mod tests {
     #[test]
     fn the_ron_spelling_is_the_documented_one() {
         let text = ron::to_string(&TextureImportSettings::default()).unwrap();
-        assert_eq!(text, "(srgb:true,mipmaps:true,filter:Linear,wrap:Repeat)");
-        let parsed: TextureImportSettings =
-            ron::from_str("(srgb: false, mipmaps: false, filter: Nearest, wrap: Mirror)").unwrap();
+        assert_eq!(
+            text,
+            "(srgb:true,mipmaps:true,filter:Linear,wrap:Repeat,streaming:false)"
+        );
+        let parsed: TextureImportSettings = ron::from_str(
+            "(srgb: false, mipmaps: false, filter: Nearest, wrap: Mirror, streaming: true)",
+        )
+        .unwrap();
         assert_eq!(
             parsed,
             TextureImportSettings {
@@ -134,7 +158,21 @@ mod tests {
                 mipmaps: false,
                 filter: TextureFilter::Nearest,
                 wrap: TextureWrap::Mirror,
+                streaming: true,
             }
         );
+    }
+
+    /// Every sidecar tuned before `streaming` existed spells the settings
+    /// without it, and must keep meaning what it meant -- not fail, and not
+    /// fall back to the defaults with the author's `srgb: false` lost.
+    #[test]
+    fn a_sidecar_written_before_streaming_existed_still_parses_with_it_off() {
+        let parsed: TextureImportSettings =
+            ron::from_str("(srgb: false, mipmaps: true, filter: Nearest, wrap: Clamp)")
+                .expect("the pre-streaming shape must parse");
+        assert!(!parsed.streaming);
+        assert!(!parsed.srgb, "and the tuned fields must survive");
+        assert_eq!(parsed.filter, TextureFilter::Nearest);
     }
 }

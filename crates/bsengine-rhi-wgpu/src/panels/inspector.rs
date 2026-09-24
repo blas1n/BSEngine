@@ -571,6 +571,13 @@ fn draw_asset_import(ui: &mut egui::Ui, insp: &mut bsengine_core::InspectorState
         ImportSettings::Texture(t) => {
             ui.checkbox(&mut t.srgb, "sRGB");
             ui.checkbox(&mut t.mipmaps, "Mipmaps");
+            ui.add_enabled(
+                t.mipmaps,
+                egui::Checkbox::new(&mut t.streaming, "Streaming"),
+            )
+            .on_disabled_hover_text(
+                "Streaming needs mipmaps: it brings the chain in level by level.",
+            );
             egui::ComboBox::from_label("Filter")
                 .selected_text(format!("{:?}", t.filter))
                 .show_ui(ui, |ui| {
@@ -952,6 +959,7 @@ mod tests {
             "Import Settings",
             "sRGB",
             "Mipmaps",
+            "Streaming",
             "Apply",
             "Revert",
         ] {

@@ -897,7 +897,18 @@ fn node_index_by_name(nodes: &[NodeTransform], name: &str) -> Option<usize> {
 
 /// Blends one rest-pose vertex position through up to 4 joint matrices by
 /// weight — the standard linear blend skinning (LBS) formula.
-fn blend_vertex_position(rest: Vec3, skin: &VertexSkin, joint_matrices: &[Mat4]) -> Vec3 {
+///
+/// The reference the GPU path is held to, not the production path any more:
+/// `bsengine_rhi_wgpu::skinning` does this per vertex in a compute shader,
+/// and the equivalence test in `plugin.rs` compares its output to this,
+/// vertex by vertex, on the real fox. Kept as the definition of what the
+/// shader must compute.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn blend_vertex_position(
+    rest: Vec3,
+    skin: &VertexSkin,
+    joint_matrices: &[Mat4],
+) -> Vec3 {
     let mut result = Vec3::ZERO;
     for i in 0..4 {
         let w = skin.weights[i];
@@ -917,8 +928,13 @@ fn blend_vertex_position(rest: Vec3, skin: &VertexSkin, joint_matrices: &[Mat4])
 /// linear part directly rather than its inverse-transpose; correct under
 /// uniform scale (true for every joint in a typical character rig), a known,
 /// documented simplification versus fully-correct non-uniform-scale normal
-/// skinning.
-fn blend_vertex_normal(rest_normal: Vec3, skin: &VertexSkin, joint_matrices: &[Mat4]) -> Vec3 {
+/// skinning. The compute shader makes the same simplification, on purpose.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn blend_vertex_normal(
+    rest_normal: Vec3,
+    skin: &VertexSkin,
+    joint_matrices: &[Mat4],
+) -> Vec3 {
     let mut result = Vec3::ZERO;
     for i in 0..4 {
         let w = skin.weights[i];
@@ -1158,26 +1174,23 @@ fn update_skinned_meshes(
             skinned.animated_locals = locals;
         }
 
+        // The blend itself runs on the GPU -- see `bsengine_rhi_wgpu::skinning`
+        // for why, and for the measurement. The CPU's job ends at the palette.
+        // A mesh the registry does not know as skinned (a `SkinnedMesh` built
+        // by hand around a plain mesh id) is left drawing its rest pose,
+        // which `skin` reports and nothing here needs to act on.
         if let Some((mesh_registry, queue)) = gpu.as_mut() {
-            let deformed: Vec<Vertex> = skinned
-                .rest_vertices
-                .iter()
-                .zip(&skinned.skin)
-                .map(|(v, s)| {
-                    let pos = blend_vertex_position(Vec3::from(v.position), s, &joint_matrices);
-                    let normal = blend_vertex_normal(Vec3::from(v.normal), s, &joint_matrices);
-                    Vertex {
-                        position: pos.to_array(),
-                        color: v.color,
-                        normal: normal.to_array(),
-                        uv: v.uv,
-                    }
-                })
-                .collect();
-            mesh_registry.update_vertices(&queue.0, skinned.mesh_id, &deformed);
+            mesh_registry.skin(&queue.0, skinned.mesh_id, &joint_matrices);
         }
 
         skinned.joint_matrices = joint_matrices;
+    }
+
+    // Every character's dispatch in one submission. Per-character submits
+    // were measured to cost more than the blend they replaced -- see
+    // `GpuMeshRegistry::skin`.
+    if let Some((mesh_registry, queue)) = gpu.as_mut() {
+        mesh_registry.flush_skinning(&queue.0);
     }
 }
 

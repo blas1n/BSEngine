@@ -401,6 +401,31 @@ impl Harness {
         self.registry.register(&v, &i)
     }
 
+    /// The same cube, registered as a skinned mesh with every vertex bound
+    /// to joint 0 at full weight and room for `joint_count` joints. Until
+    /// [`Self::skin`] it draws at rest, i.e. exactly like [`Self::cube`].
+    pub fn skinned_cube(&mut self, joint_count: u32) -> u64 {
+        let (v, i) = cube_vertices();
+        let skin: Vec<bsengine_rhi_wgpu::GpuVertexSkin> = v
+            .iter()
+            .map(|_| bsengine_rhi_wgpu::GpuVertexSkin {
+                joints: [0, 0, 0, 0],
+                weights: [1.0, 0.0, 0.0, 0.0],
+            })
+            .collect();
+        self.registry.register_skinned(&v, &skin, &i, joint_count)
+    }
+
+    /// Skins a mesh from [`Self::skinned_cube`] with `joints`, on the GPU,
+    /// and flushes the dispatch so the next render sees it -- what the
+    /// skinning system does once per frame for every character.
+    pub fn skin(&mut self, id: u64, joints: &[Mat4]) -> bool {
+        let queue = self.surface.queue_arc();
+        let accepted = self.registry.skin(&queue, id, joints);
+        self.registry.flush_skinning(&queue);
+        accepted
+    }
+
     pub fn plane(&mut self) -> u64 {
         let (v, i) = plane_vertices();
         self.registry.register(&v, &i)

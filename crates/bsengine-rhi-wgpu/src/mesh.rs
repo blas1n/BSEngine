@@ -6,7 +6,7 @@ use tracing::warn;
 use wgpu::util::DeviceExt;
 
 #[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Copy, Clone, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 /// A single GPU mesh vertex: position, vertex color, normal, and UV, packed
 /// for direct upload via `bytemuck`.
 pub struct Vertex {
@@ -39,7 +39,8 @@ pub fn compute_bounding_sphere(vertices: &[Vertex]) -> (Vec3, f32) {
 
 /// A mesh's GPU-resident buffers plus its precomputed bounding sphere.
 pub struct GpuMesh {
-    /// GPU buffer holding this mesh's `Vertex` data.
+    /// GPU buffer holding this mesh's `Vertex` data. For a skinned mesh this
+    /// is also the compute pass's output -- see `crate::skinning`.
     pub vertex_buffer: wgpu::Buffer,
     /// GPU buffer holding this mesh's triangle indices.
     pub index_buffer: wgpu::Buffer,
@@ -47,14 +48,23 @@ pub struct GpuMesh {
     pub index_count: u32,
     /// Local-space bounding sphere (center, radius).
     pub bounds: (Vec3, f32),
+    /// The skinning side of a mesh registered through
+    /// `GpuMeshRegistry::register_skinned`; `None` for every other mesh.
+    pub(crate) skinned: Option<crate::skinning::SkinnedBuffers>,
 }
 
 /// Owns every GPU mesh uploaded for the running app, keyed by a registry-assigned id.
 #[derive(Resource)]
 pub struct GpuMeshRegistry {
-    device: Arc<wgpu::Device>,
-    meshes: HashMap<u64, GpuMesh>,
-    next_id: u64,
+    pub(crate) device: Arc<wgpu::Device>,
+    pub(crate) meshes: HashMap<u64, GpuMesh>,
+    pub(crate) next_id: u64,
+    /// The compute skinning pipeline, built the first time a skinned mesh
+    /// is registered and shared by all of them.
+    pub(crate) skinning: Option<crate::skinning::SkinningPipeline>,
+    /// Meshes `skin` has been asked to pose since the last
+    /// `flush_skinning`, dispatched together in one submission.
+    pub(crate) pending_skins: Vec<u64>,
 }
 
 impl GpuMeshRegistry {
@@ -64,6 +74,8 @@ impl GpuMeshRegistry {
             device,
             meshes: HashMap::new(),
             next_id: 1,
+            skinning: None,
+            pending_skins: Vec::new(),
         }
     }
 
@@ -102,12 +114,27 @@ impl GpuMeshRegistry {
     }
 
     fn build(&self, vertices: &[Vertex], indices: &[u32]) -> GpuMesh {
+        self.build_with_usage(
+            vertices,
+            indices,
+            wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        )
+    }
+
+    /// [`Self::build`] with the vertex buffer's usage chosen by the caller:
+    /// a skinned mesh's buffer is also the compute pass's storage output.
+    pub(crate) fn build_with_usage(
+        &self,
+        vertices: &[Vertex],
+        indices: &[u32],
+        vertex_usage: wgpu::BufferUsages,
+    ) -> GpuMesh {
         let vertex_buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("mesh vbo"),
                 contents: bytemuck::cast_slice(vertices),
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                usage: vertex_usage,
             });
         let index_buffer = self
             .device
@@ -121,6 +148,7 @@ impl GpuMeshRegistry {
             index_buffer,
             index_count: indices.len() as u32,
             bounds: compute_bounding_sphere(vertices),
+            skinned: None,
         }
     }
 

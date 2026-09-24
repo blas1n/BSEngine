@@ -1185,6 +1185,13 @@ fn update_skinned_meshes(
 
         skinned.joint_matrices = joint_matrices;
     }
+
+    // Every character's dispatch in one submission. Per-character submits
+    // were measured to cost more than the blend they replaced -- see
+    // `GpuMeshRegistry::skin`.
+    if let Some((mesh_registry, queue)) = gpu.as_mut() {
+        mesh_registry.flush_skinning(&queue.0);
+    }
 }
 
 #[cfg(test)]

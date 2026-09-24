@@ -1019,6 +1019,108 @@ mod tests {
         app.insert_resource(bsengine_rhi_wgpu::GpuQueueResource(queue));
     }
 
+    /// The compute pass is the CPU reference, vertex for vertex, on the real
+    /// fox at a real pose -- the one assertion compute skinning has to pass.
+    /// `blend_vertex_position`/`blend_vertex_normal` are what the shader was
+    /// written to reproduce and are kept as its definition; this reads the
+    /// vertex buffer the render passes bind and compares. The premises are
+    /// asserted alongside: the palette is not the identity and the pose has
+    /// actually moved the mesh, since at the bind pose a shader that wrote
+    /// the rest vertices back unchanged would match the reference exactly.
+    #[test]
+    fn the_compute_pass_skins_the_fox_exactly_as_the_cpu_reference_does() {
+        use crate::skinned_mesh::{blend_vertex_normal, blend_vertex_position, SkinnedMesh};
+        use glam::{Mat4, Vec3};
+
+        let (mut app, e, _) = load_skinned_fox();
+        {
+            let mut player = app.world_mut().get_mut::<AnimationPlayer>(e).unwrap();
+            player.time = 0.4 * player.duration;
+        }
+        app.update();
+        app.update();
+
+        let skinned = app.world().get::<SkinnedMesh>(e).unwrap().clone();
+        let joints = skinned.joint_matrices.clone();
+        assert!(
+            joints.iter().any(|m| !m.abs_diff_eq(Mat4::IDENTITY, 1e-4)),
+            "premise: the palette must not be the identity ({} joints)",
+            joints.len()
+        );
+        let expected: Vec<(Vec3, Vec3)> = skinned
+            .rest_vertices
+            .iter()
+            .zip(&skinned.skin)
+            .map(|(v, s)| {
+                (
+                    blend_vertex_position(Vec3::from(v.position), s, &joints),
+                    blend_vertex_normal(Vec3::from(v.normal), s, &joints),
+                )
+            })
+            .collect();
+
+        let queue = app
+            .world()
+            .resource::<bsengine_rhi_wgpu::GpuQueueResource>()
+            .0
+            .clone();
+        let mut registry = app.world_mut().resource_mut::<GpuMeshRegistry>();
+        assert!(
+            registry.is_skinned(skinned.mesh_id),
+            "premise: the fox's mesh must have been registered as a skinned mesh"
+        );
+        // The read-back flushes on its own, so it cannot tell a system that
+        // dispatched from one that only queued; this can.
+        assert_eq!(
+            registry.pending_skins(),
+            0,
+            "the skinning system must flush its dispatches every frame"
+        );
+        let got = registry
+            .read_back_vertices(&queue, skinned.mesh_id)
+            .expect("the fox's mesh is registered");
+        assert_eq!(got.len(), expected.len());
+
+        let extent = skinned
+            .rest_vertices
+            .iter()
+            .map(|v| Vec3::from(v.position).abs().max_element())
+            .fold(0.0_f32, f32::max);
+        let moved = got
+            .iter()
+            .zip(&skinned.rest_vertices)
+            .map(|(g, r)| (Vec3::from(g.position) - Vec3::from(r.position)).length())
+            .fold(0.0_f32, f32::max);
+        assert!(
+            moved > 0.02 * extent,
+            "premise: the pose must move the mesh off its rest pose (moved {moved}, extent {extent})"
+        );
+
+        let worst_position = got
+            .iter()
+            .zip(&expected)
+            .map(|(g, (p, _))| (Vec3::from(g.position) - *p).length())
+            .fold(0.0_f32, f32::max);
+        let worst_normal = got
+            .iter()
+            .zip(&expected)
+            .map(|(g, (_, n))| (Vec3::from(g.normal) - *n).length())
+            .fold(0.0_f32, f32::max);
+        assert!(
+            worst_position <= 1e-4 * extent,
+            "the GPU blend must be the CPU blend: worst vertex is off by {worst_position} \
+             on a model {extent} across"
+        );
+        assert!(
+            worst_normal <= 1e-3,
+            "and so must the normals: worst is off by {worst_normal}"
+        );
+        for (g, r) in got.iter().zip(&skinned.rest_vertices) {
+            assert_eq!(g.color, r.color, "colour passes through the blend");
+            assert_eq!(g.uv, r.uv, "uv passes through the blend");
+        }
+    }
+
     /// The measurement behind the GPU-skinning decision: what CPU skinning
     /// actually costs per animated character, split into the two halves a
     /// GPU path would take over -- blending the vertices and uploading them
@@ -1136,99 +1238,6 @@ mod tests {
                 joints_only,
                 (full - none) / n as f64
             );
-        }
-    }
-
-    /// The compute pass is the CPU reference, vertex for vertex, on the real
-    /// fox at a real pose -- the one assertion compute skinning has to pass.
-    /// `blend_vertex_position`/`blend_vertex_normal` are what the shader was
-    /// written to reproduce and are kept as its definition; this reads the
-    /// vertex buffer the render passes bind and compares. The premises are
-    /// asserted alongside: the palette is not the identity and the pose has
-    /// actually moved the mesh, since at the bind pose a shader that wrote
-    /// the rest vertices back unchanged would match the reference exactly.
-    #[test]
-    fn the_compute_pass_skins_the_fox_exactly_as_the_cpu_reference_does() {
-        use crate::skinned_mesh::{blend_vertex_normal, blend_vertex_position, SkinnedMesh};
-        use glam::{Mat4, Vec3};
-
-        let (mut app, e, _) = load_skinned_fox();
-        {
-            let mut player = app.world_mut().get_mut::<AnimationPlayer>(e).unwrap();
-            player.time = 0.4 * player.duration;
-        }
-        app.update();
-        app.update();
-
-        let skinned = app.world().get::<SkinnedMesh>(e).unwrap();
-        let joints = skinned.joint_matrices.clone();
-        assert!(
-            joints.iter().any(|m| !m.abs_diff_eq(Mat4::IDENTITY, 1e-4)),
-            "premise: the palette must not be the identity ({} joints)",
-            joints.len()
-        );
-        let expected: Vec<(Vec3, Vec3)> = skinned
-            .rest_vertices
-            .iter()
-            .zip(&skinned.skin)
-            .map(|(v, s)| {
-                (
-                    blend_vertex_position(Vec3::from(v.position), s, &joints),
-                    blend_vertex_normal(Vec3::from(v.normal), s, &joints),
-                )
-            })
-            .collect();
-
-        let registry = app.world().resource::<GpuMeshRegistry>();
-        assert!(
-            registry.is_skinned(skinned.mesh_id),
-            "premise: the fox's mesh must have been registered as a skinned mesh"
-        );
-        let queue = app
-            .world()
-            .resource::<bsengine_rhi_wgpu::GpuQueueResource>();
-        let got = registry
-            .read_back_vertices(&queue.0, skinned.mesh_id)
-            .expect("the fox's mesh is registered");
-        assert_eq!(got.len(), expected.len());
-
-        let extent = skinned
-            .rest_vertices
-            .iter()
-            .map(|v| Vec3::from(v.position).abs().max_element())
-            .fold(0.0_f32, f32::max);
-        let moved = got
-            .iter()
-            .zip(&skinned.rest_vertices)
-            .map(|(g, r)| (Vec3::from(g.position) - Vec3::from(r.position)).length())
-            .fold(0.0_f32, f32::max);
-        assert!(
-            moved > 0.02 * extent,
-            "premise: the pose must move the mesh off its rest pose (moved {moved}, extent {extent})"
-        );
-
-        let worst_position = got
-            .iter()
-            .zip(&expected)
-            .map(|(g, (p, _))| (Vec3::from(g.position) - *p).length())
-            .fold(0.0_f32, f32::max);
-        let worst_normal = got
-            .iter()
-            .zip(&expected)
-            .map(|(g, (_, n))| (Vec3::from(g.normal) - *n).length())
-            .fold(0.0_f32, f32::max);
-        assert!(
-            worst_position <= 1e-4 * extent,
-            "the GPU blend must be the CPU blend: worst vertex is off by {worst_position} \
-             on a model {extent} across"
-        );
-        assert!(
-            worst_normal <= 1e-3,
-            "and so must the normals: worst is off by {worst_normal}"
-        );
-        for (g, r) in got.iter().zip(&skinned.rest_vertices) {
-            assert_eq!(g.color, r.color, "colour passes through the blend");
-            assert_eq!(g.uv, r.uv, "uv passes through the blend");
         }
     }
 

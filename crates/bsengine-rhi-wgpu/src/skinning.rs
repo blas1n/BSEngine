@@ -340,15 +340,25 @@ impl GpuMeshRegistry {
         self.meshes.get(&id).is_some_and(|m| m.skinned.is_some())
     }
 
-    /// Skins mesh `id` with `joints` -- the finished joint matrices,
-    /// `global * inverse_bind` per joint in joint order -- writing the result
-    /// into the mesh's vertex buffer. One palette upload and one compute
-    /// dispatch, submitted on its own so the next render pass to bind the
-    /// buffer sees the pose.
+    /// Poses mesh `id` with `joints` -- the finished joint matrices,
+    /// `global * inverse_bind` per joint in joint order. The palette is
+    /// uploaded now; the dispatch that writes the mesh's vertex buffer is
+    /// recorded by the next [`GpuMeshRegistry::flush_skinning`], which the
+    /// skinning system calls once per frame after posing every character.
     ///
-    /// Returns whether it happened. `false` for an unregistered or unskinned
-    /// id, or a palette longer than the mesh was registered with -- refused
-    /// with a warning rather than written past the buffer.
+    /// # Why the dispatch is deferred
+    ///
+    /// The first version submitted one command buffer per mesh here, and
+    /// measured in release that cost 0.028 ms per character -- only a third
+    /// less than the CPU blend it replaced, because `queue.submit` is tens of
+    /// microseconds and 300 characters meant 300 submits a frame. The blend
+    /// itself is nearly free; the submission was the whole bill. Recording
+    /// every dispatch into one encoder and submitting once is what actually
+    /// takes the cost off the CPU.
+    ///
+    /// Returns whether the pose was accepted. `false` for an unregistered or
+    /// unskinned id, or a palette longer than the mesh was registered with --
+    /// refused with a warning rather than written past the buffer.
     pub fn skin(&mut self, queue: &wgpu::Queue, id: u64, joints: &[Mat4]) -> bool {
         let Some(mesh) = self.meshes.get(&id) else {
             return false;
@@ -364,43 +374,80 @@ impl GpuMeshRegistry {
             );
             return false;
         }
-        let Some(pipeline) = self.skinning.as_ref() else {
-            // Unreachable in practice: `build_skinned` creates the pipeline
-            // before any mesh can carry `skinned`.
-            return false;
-        };
         if !joints.is_empty() {
             let cols: Vec<[[f32; 4]; 4]> = joints.iter().map(|m| m.to_cols_array_2d()).collect();
             queue.write_buffer(&skinned.palette, 0, bytemuck::cast_slice(&cols));
         }
         let params = [joints.len() as u32, 0, 0, 0];
         queue.write_buffer(&skinned.params, 0, bytemuck::cast_slice(&params));
+        if !self.pending_skins.contains(&id) {
+            self.pending_skins.push(id);
+        }
+        true
+    }
 
+    /// How many meshes have been posed since the last flush -- zero after
+    /// the skinning system has run, which is what its test checks, since
+    /// [`GpuMeshRegistry::read_back_vertices`] flushes on its own and could
+    /// not tell a system that flushed from one that forgot.
+    pub fn pending_skins(&self) -> usize {
+        self.pending_skins.len()
+    }
+
+    /// Dispatches the compute pass for every mesh posed by
+    /// [`GpuMeshRegistry::skin`] since the last flush -- one encoder, one
+    /// compute pass, one submission -- so the next render pass to bind those
+    /// vertex buffers sees the poses. Returns how many meshes were skinned.
+    ///
+    /// Called once per frame by the skinning system after it has posed every
+    /// character; a caller that skins outside that system (a test, a tool)
+    /// flushes itself. A mesh that was replaced or never registered since it
+    /// was posed is skipped rather than dispatched against buffers that no
+    /// longer exist.
+    pub fn flush_skinning(&mut self, queue: &wgpu::Queue) -> usize {
+        let pending = std::mem::take(&mut self.pending_skins);
+        if pending.is_empty() {
+            return 0;
+        }
+        let Some(pipeline) = self.skinning.as_ref() else {
+            // Unreachable in practice: `build_skinned` creates the pipeline
+            // before any mesh can be pending.
+            return 0;
+        };
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("compute skinning"),
             });
+        let mut dispatched = 0;
         {
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("compute skinning"),
                 timestamp_writes: None,
             });
             pass.set_pipeline(&pipeline.pipeline);
-            pass.set_bind_group(0, &skinned.bind_group, &[]);
-            pass.dispatch_workgroups(skinned.vertex_count.div_ceil(WORKGROUP), 1, 1);
+            for id in pending {
+                let Some(skinned) = self.meshes.get(&id).and_then(|m| m.skinned.as_ref()) else {
+                    continue;
+                };
+                pass.set_bind_group(0, &skinned.bind_group, &[]);
+                pass.dispatch_workgroups(skinned.vertex_count.div_ceil(WORKGROUP), 1, 1);
+                dispatched += 1;
+            }
         }
         queue.submit(Some(encoder.finish()));
-        true
+        dispatched
     }
 
-    /// Copies mesh `id`'s vertex buffer back to the CPU and waits for it.
+    /// Copies mesh `id`'s vertex buffer back to the CPU and waits for it,
+    /// flushing any pending skinning first so the read sees the latest pose.
     ///
     /// For tests and tools only -- a round trip through a staging buffer and
     /// a device wait is the one thing a frame must never do. It is how the
     /// equivalence test in `bsengine-gltf` sees what the compute pass wrote,
     /// which no assertion on the CPU side of the registry could.
-    pub fn read_back_vertices(&self, queue: &wgpu::Queue, id: u64) -> Option<Vec<Vertex>> {
+    pub fn read_back_vertices(&mut self, queue: &wgpu::Queue, id: u64) -> Option<Vec<Vertex>> {
+        self.flush_skinning(queue);
         let mesh = self.meshes.get(&id)?;
         let size = mesh.vertex_buffer.size();
         if size == 0 {

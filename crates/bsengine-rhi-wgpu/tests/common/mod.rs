@@ -417,10 +417,13 @@ impl Harness {
     }
 
     /// Skins a mesh from [`Self::skinned_cube`] with `joints`, on the GPU,
-    /// before the next render.
+    /// and flushes the dispatch so the next render sees it -- what the
+    /// skinning system does once per frame for every character.
     pub fn skin(&mut self, id: u64, joints: &[Mat4]) -> bool {
         let queue = self.surface.queue_arc();
-        self.registry.skin(&queue, id, joints)
+        let accepted = self.registry.skin(&queue, id, joints);
+        self.registry.flush_skinning(&queue);
+        accepted
     }
 
     pub fn plane(&mut self) -> u64 {

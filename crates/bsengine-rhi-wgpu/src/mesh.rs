@@ -62,6 +62,9 @@ pub struct GpuMeshRegistry {
     /// The compute skinning pipeline, built the first time a skinned mesh
     /// is registered and shared by all of them.
     pub(crate) skinning: Option<crate::skinning::SkinningPipeline>,
+    /// Meshes `skin` has been asked to pose since the last
+    /// `flush_skinning`, dispatched together in one submission.
+    pub(crate) pending_skins: Vec<u64>,
 }
 
 impl GpuMeshRegistry {
@@ -72,6 +75,7 @@ impl GpuMeshRegistry {
             meshes: HashMap::new(),
             next_id: 1,
             skinning: None,
+            pending_skins: Vec::new(),
         }
     }
 

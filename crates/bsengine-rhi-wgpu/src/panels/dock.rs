@@ -87,6 +87,10 @@ pub fn ensure_builtin_panels(
     // from the "Window" menu when a scene has effects to tune.
     map.entry("particles".to_string())
         .or_insert_with(|| Box::new(crate::panels::ParticlePanel) as Box<dyn EditorPanel>);
+    // Also from the "Window" menu: a question about one asset, asked
+    // occasionally, not a panel every session needs open.
+    map.entry("references".to_string())
+        .or_insert_with(|| Box::new(crate::panels::ReferencesPanel) as Box<dyn EditorPanel>);
 }
 
 /// Loads a previously saved layout. Returns `None` if the file doesn't
@@ -296,7 +300,7 @@ mod tests {
             history,
         );
         let map = registry.0.lock().unwrap();
-        assert_eq!(map.len(), 8);
+        assert_eq!(map.len(), 9);
         assert!(map.contains_key("profiler"));
         // Registered even though `default_dock_state` does not place them:
         // that registration is what lists them in the Window menu, and
@@ -305,5 +309,6 @@ mod tests {
         assert!(map.contains_key("shadergraph"));
         assert!(map.contains_key("timeline"));
         assert!(map.contains_key("particles"));
+        assert!(map.contains_key("references"));
     }
 }

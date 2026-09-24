@@ -14,6 +14,9 @@ pub mod particles;
 /// The Profiler panel: frame timing, per-pass GPU cost, and draw-call/
 /// triangle/texture-memory stats.
 pub mod profiler;
+/// The References panel: the asset dependency graph around the selected
+/// asset, plus the assets nothing reaches.
+pub mod references;
 /// Generic egui widgets for editing `bevy_reflect`-reflected component fields.
 pub mod reflect_ui;
 /// The Shader Graph panel: a node editor for `bsengine-shadergraph` graphs.
@@ -33,6 +36,7 @@ pub use inspector::InspectorPanel;
 pub use mixer::{register_mixer_panel, MixerPanel};
 pub use particles::ParticlePanel;
 pub use profiler::ProfilerPanel;
+pub use references::ReferencesPanel;
 pub use reflect_ui::draw_reflect_ui;
 pub use shadergraph::ShaderGraphPanel;
 pub use timeline::TimelinePanel;

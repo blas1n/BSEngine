@@ -82,6 +82,16 @@ impl Deref for TrackedTexture {
     }
 }
 
+impl TrackedTexture {
+    /// What this texture contributes to [`texture_memory_bytes`]: the size
+    /// computed from its descriptor at creation, every declared mip level
+    /// included. Per texture, so a test can watch one texture's footprint
+    /// while others come and go on other threads.
+    pub fn size_bytes(&self) -> u64 {
+        self.size_bytes
+    }
+}
+
 impl Drop for TrackedTexture {
     fn drop(&mut self) {
         TEXTURE_MEMORY_BYTES.fetch_sub(self.size_bytes, Ordering::Relaxed);

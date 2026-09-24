@@ -23,7 +23,7 @@ master `134b7bf1` 기준. 열린 PR·이슈 0개, 소스 TODO/FIXME 0개, 워크
 | **macOS FSEvents rename 페어링** | 테스트 5개가 macOS만 `#[ignore]` | **원인 미상.** 같은 코드가 실행마다 다른 raw 이벤트를 냄(3개 vs 1개). 우리 코드 밖일 가능성. 로컬 macOS 없이는 진전 어려움 |
 | 텍스처 스트리밍 2단계(거리 기반 목표 밉·메모리 예산·퇴거) | `grep -rn "desired_mip\|texture_budget"` → 0 | 1단계(사이드카 플래그·부분 상주·프레임당 한 레벨 진행 로드)는 #1885로 있음. 아래 절 참조 |
 | 비주얼 스크립팅 | `grep -rl "VisualScript\|NodeGraph"` → 0 | |
-| 의존성 그래프 시각화 | `grep -rl "DependencyGraph"` → 0 | |
+| 의존성 그래프 **시각화**(그래프 패널) | `grep -rl "ReferencesPanel"` → 0 | 데이터(`CookedProject::edges`/`unreferenced`)·MCP `asset_references`·인스펙터 "References" 절은 #1886로 있음. 아래 절 참조 |
 | 단일 실행 파일 | `grep -rl "embed_assets\|EmbeddedPak"` → 0 | 의도적 범위 밖(로드맵 item 55) |
 
 ### 플랫폼 — 무엇이 검증됐고 무엇이 안 됐나
@@ -40,6 +40,15 @@ Wayland**는 아무 플랫폼에서도 검증된 적 없다. 모바일·콘솔 �
 네트워킹 RPC(11파일) · 풀바디 IK(4) · 데칼(11) · 천/소프트바디(3) · SSR(8) ·
 캐스케이드 섀도우(18) · 씬 스트리밍(6) · **GPU 스키닝(#1884, `rhi-wgpu/src/skinning.rs`)** ·
 **텍스처 밉 스트리밍 1단계(#1885, `TextureImportSettings::streaming`)**.
+
+**에셋 의존성 그래프 — 데이터·질의(2026-09-25, #1886).** 세 엔진 조사: Unity는 `AssetDatabase.GetDependencies`
+(의존만, 역참조 뷰어 없음), Unreal은 Reference Viewer(참조자 ← 에셋 → 의존 그래프), Godot 4는 Dependency
+Editor + View Owners + Orphan Resource Explorer. 수렴점은 **에셋별 의존/참조자 + 아무도 안 쓰는 에셋 목록**이라
+그것을 먼저 넣었다. 새 워커를 짜지 않고 **패키저의 정적 걷기(`bsengine_asset::cook`)가 이미 따라가던 참조를
+`(참조자, 에셋)` 간선으로 남기게** 했다(첫 방문에만 기록하면 "누가 쓰나"가 큐 순서에 따라 달라짐). 같은 걷기라
+인스펙터의 "Not reached from the entry scene"은 정확히 "패키지 빌드에 빠진다"와 같은 뜻이다. `cook_project`가
+`project.toml`의 `entry_scene`·`extra_assets`를 읽어 에디터·MCP가 런타임의 매니페스트 타입 없이 같은 걷기를
+쓴다. Unreal식 **그래프 패널은 다음 PR**(위 표).
 
 **텍스처 스트리밍 1단계(2026-09-24, #1885).** 사이드카의 `streaming: true`(Unity의 텍스처별
 "Streaming Mipmaps", Unreal "Never Stream"의 반대; Godot 4엔 없음)가 켜진 텍스처는 로드 시

@@ -56,6 +56,25 @@ pub struct CookedProject {
     /// between runs, and a report a human compares against a previous one has
     /// to be stable.
     pub assets: BTreeSet<String>,
+    /// Every reference the walk followed, as `(referrer, asset)` pairs of
+    /// project-relative paths: the project's dependency graph. The entry
+    /// scene and `extra_assets` hang off [`MANIFEST`], which is the only
+    /// referrer that is not itself an asset.
+    ///
+    /// Kept in full rather than only on first sight of an asset. The walk
+    /// visits each asset once, but a second scene naming the same model is a
+    /// second edge, and it is the edges into an asset -- every one of them --
+    /// that answer "what uses this?" (Unreal's Reference Viewer, Godot's
+    /// View Owners). Recording only the first would answer that question
+    /// with whichever scene the queue happened to pop first.
+    pub edges: BTreeSet<(String, String)>,
+    /// Identified assets the walk never reached, sorted. Godot's "orphan
+    /// resources": nothing names them, so a packaged build leaves them out
+    /// -- which is the fact worth showing an author who wonders why a file
+    /// they added is missing from the build. Only files the scan identifies
+    /// (see `identity::scan`'s allow-list) are candidates; a README beside
+    /// the models is not an asset and is not reported as an unused one.
+    pub unreferenced: BTreeSet<String>,
     /// References that resolve to nothing. A non-empty list fails the build.
     pub missing: Vec<MissingReference>,
     /// Everything else that stopped the cook from seeing a file it reached: a
@@ -75,6 +94,87 @@ impl CookedProject {
     pub fn is_ok(&self) -> bool {
         self.missing.is_empty() && self.problems.is_empty()
     }
+
+    /// The assets `path` references directly, sorted. Empty for a leaf such
+    /// as a texture, and for a path the walk never reached.
+    pub fn dependencies_of(&self, path: &str) -> Vec<&str> {
+        self.edges
+            .iter()
+            .filter(|(from, _)| from == path)
+            .map(|(_, to)| to.as_str())
+            .collect()
+    }
+
+    /// The files that reference `path` directly, sorted; [`MANIFEST`] when
+    /// the manifest names it. Empty for an asset nothing reaches.
+    pub fn referencers_of(&self, path: &str) -> Vec<&str> {
+        let mut found: Vec<&str> = self
+            .edges
+            .iter()
+            .filter(|(_, to)| to == path)
+            .map(|(from, _)| from.as_str())
+            .collect();
+        found.sort_unstable();
+        found.dedup();
+        found
+    }
+}
+
+/// The referrer recorded for what `project.toml` itself names: the entry
+/// scene and `extra_assets`.
+pub const MANIFEST: &str = "project.toml";
+
+/// [`cook`] for a project directory, taking the entry scene and
+/// `extra_assets` from its `project.toml`.
+///
+/// The runtime parses the whole manifest into its own type and calls
+/// [`cook`] with the two fields; the editor and the MCP server, which sit
+/// beside the runtime rather than above it, cannot reach that type. Reading
+/// the two fields here -- and only those two, as untyped TOML -- is what
+/// keeps them from each growing a parser of their own that could drift from
+/// the runtime's on what counts as the entry scene.
+///
+/// # Errors
+///
+/// When `project.toml` cannot be read or parsed, or names no
+/// `[project] entry_scene` (as `InvalidData`), and whatever [`cook`] fails on.
+pub fn cook_project(project_dir: impl AsRef<Path>) -> io::Result<CookedProject> {
+    let project_dir = project_dir.as_ref();
+    let manifest_path = project_dir.join(MANIFEST);
+    let text = std::fs::read_to_string(&manifest_path)
+        .map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", manifest_path.display())))?;
+    let manifest: toml::Value = toml::from_str(&text).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("{}: {e}", manifest_path.display()),
+        )
+    })?;
+    let entry_scene = manifest
+        .get("project")
+        .and_then(|p| p.get("entry_scene"))
+        .and_then(toml::Value::as_str)
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!(
+                    "{}: no [project] entry_scene; the walk has nowhere to start",
+                    manifest_path.display()
+                ),
+            )
+        })?;
+    let extra_assets: Vec<String> = manifest
+        .get("package")
+        .and_then(|p| p.get("extra_assets"))
+        .and_then(toml::Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(toml::Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    cook(project_dir, entry_scene, &extra_assets)
 }
 
 /// Collects every asset the project reaches from `entry_scene`.
@@ -130,7 +230,7 @@ pub fn cook(
     let mut report = CookedProject::default();
     // The referrer travels with the path: a report that says only "missing"
     // leaves the reader grepping for who asked.
-    let mut queue: Vec<(String, String)> = vec![(entry_scene.to_string(), "project.toml".into())];
+    let mut queue: Vec<(String, String)> = vec![(entry_scene.to_string(), MANIFEST.into())];
     // Named by a human rather than guessed at, so these are hard like a scene's
     // references and unlike a script's: a typo in a list somebody wrote on
     // purpose is a mistake worth stopping for. They are walked like anything
@@ -138,7 +238,7 @@ pub fn cook(
     queue.extend(
         extra_assets
             .iter()
-            .map(|path| (path.clone(), "project.toml".to_string())),
+            .map(|path| (path.clone(), MANIFEST.to_string())),
     );
     // Doubles as the cycle guard — a path already visited is never walked
     // again, so a prefab that references itself terminates.
@@ -149,6 +249,10 @@ pub fn cook(
             report.missing.push(MissingReference { referrer, path });
             continue;
         };
+        // Before the visited check, on purpose: the edge is a fact about the
+        // referrer, and a second referrer's edge into an already-walked
+        // asset is as real as the first's (see `CookedProject::edges`).
+        report.edges.insert((referrer, resolved.clone()));
         if !visited.insert(resolved.clone()) {
             continue;
         }
@@ -225,6 +329,11 @@ pub fn cook(
     report.missing.dedup();
     report.script_mentions.sort();
     report.script_mentions.dedup();
+    report.unreferenced = index
+        .paths()
+        .filter(|path| !visited.contains(*path))
+        .map(str::to_string)
+        .collect();
     Ok(report)
 }
 
@@ -869,6 +978,155 @@ mod tests {
                 path: "assets/sounds/never.wav".to_string(),
             }],
             "but it must be reported, or a real typo is invisible"
+        );
+    }
+
+    /// The graph is every edge, not the walk's spanning tree: `hero.glb` is
+    /// named by two scenes, and only a cook that records the second edge
+    /// too can say both use it. The exact set is asserted because a cook
+    /// that recorded nothing, or one edge per asset, each get half of any
+    /// weaker check right.
+    #[test]
+    fn records_every_reference_as_an_edge_from_its_referrer() {
+        let probe = Probe::create();
+        probe.write(
+            "assets/scenes/main.ron",
+            r#"(entities: [(name: "Hero", gltf: Some(Path("assets/models/hero.glb")), script: Some(Path("assets/scripts/hero.js")))])"#,
+        );
+        probe.write(
+            "assets/scripts/hero.js",
+            "const NEXT = \"assets/scenes/level2.ron\";",
+        );
+        probe.write(
+            "assets/scenes/level2.ron",
+            r#"(entities: [(name: "Hero", gltf: Some(Path("assets/models/hero.glb")))])"#,
+        );
+        probe.write("assets/models/hero.glb", "glb");
+
+        let cooked = probe.cook();
+
+        assert!(cooked.is_ok(), "unexpected problems: {:?}", cooked.missing);
+        let edge = |from: &str, to: &str| (from.to_string(), to.to_string());
+        let expected: BTreeSet<(String, String)> = [
+            edge(MANIFEST, "assets/scenes/main.ron"),
+            edge("assets/scenes/main.ron", "assets/models/hero.glb"),
+            edge("assets/scenes/main.ron", "assets/scripts/hero.js"),
+            edge("assets/scripts/hero.js", "assets/scenes/level2.ron"),
+            edge("assets/scenes/level2.ron", "assets/models/hero.glb"),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(cooked.edges, expected);
+        assert_eq!(
+            cooked.referencers_of("assets/models/hero.glb"),
+            vec!["assets/scenes/level2.ron", "assets/scenes/main.ron"],
+            "both scenes use the model, and the walk visited it only once"
+        );
+        assert_eq!(
+            cooked.dependencies_of("assets/scenes/main.ron"),
+            vec!["assets/models/hero.glb", "assets/scripts/hero.js"]
+        );
+        assert!(
+            cooked.dependencies_of("assets/models/hero.glb").is_empty(),
+            "a model is a leaf"
+        );
+        assert_eq!(
+            cooked.referencers_of("assets/scenes/main.ron"),
+            vec![MANIFEST]
+        );
+    }
+
+    /// The assets nothing reaches, and what makes one stop being unreached:
+    /// naming it in `extra_assets`. A README beside the models is not on
+    /// the list, because it was never an asset -- the scan's allow-list, not
+    /// the walk, decides that.
+    #[test]
+    fn lists_the_identified_assets_the_walk_never_reaches() {
+        let probe = Probe::create();
+        probe.write(
+            "assets/scenes/main.ron",
+            r#"(entities: [(name: "Hero", gltf: Some(Path("assets/models/hero.glb")))])"#,
+        );
+        probe.write("assets/models/hero.glb", "glb");
+        probe.write("assets/models/CREDITS.md", "CC-BY");
+        probe.write("assets/textures/unused.png", "png");
+        probe.write("assets/scenes/side.ron", "(entities: [])");
+
+        let cooked = probe.cook();
+
+        assert!(cooked.is_ok(), "unexpected problems: {:?}", cooked.missing);
+        let expected: BTreeSet<String> = ["assets/scenes/side.ron", "assets/textures/unused.png"]
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect();
+        assert_eq!(
+            cooked.unreferenced, expected,
+            "exactly the identified assets the walk never reached"
+        );
+        assert!(
+            !cooked.unreferenced.contains("assets/models/CREDITS.md"),
+            "a file the scan does not identify is not an unused asset"
+        );
+
+        let listed = super::cook(
+            &probe.0,
+            "assets/scenes/main.ron",
+            &["assets/textures/unused.png".to_string()],
+        )
+        .expect("cook");
+        assert!(
+            !listed.unreferenced.contains("assets/textures/unused.png"),
+            "naming an asset in extra_assets reaches it"
+        );
+        assert_eq!(
+            listed.referencers_of("assets/textures/unused.png"),
+            vec![MANIFEST],
+            "and the manifest is its referrer"
+        );
+    }
+
+    /// The manifest-reading entry point takes the walk's roots from
+    /// `project.toml`, both of them, and refuses a manifest with no entry
+    /// scene rather than guessing one.
+    #[test]
+    fn cook_project_starts_from_the_manifests_entry_scene_and_extras() {
+        let probe = Probe::create();
+        probe.write(
+            "project.toml",
+            "[project]\nname = \"P\"\nentry_scene = \"assets/scenes/start.ron\"\n\n\
+             [package]\nextra_assets = [\"assets/models/CREDITS.md\"]\n",
+        );
+        probe.write("assets/scenes/start.ron", "(entities: [])");
+        probe.write("assets/models/CREDITS.md", "CC-BY");
+        probe.write("assets/scenes/main.ron", "(entities: [])");
+
+        let cooked = cook_project(&probe.0).expect("cook from the manifest");
+
+        assert!(cooked.is_ok(), "unexpected problems: {:?}", cooked.missing);
+        assert!(
+            cooked
+                .edges
+                .contains(&(MANIFEST.to_string(), "assets/scenes/start.ron".to_string())),
+            "the entry scene is the manifest's, not a default name; got {:?}",
+            cooked.edges
+        );
+        assert!(
+            cooked
+                .edges
+                .contains(&(MANIFEST.to_string(), "assets/models/CREDITS.md".to_string())),
+            "extra_assets are walked from the manifest too"
+        );
+        assert!(
+            cooked.unreferenced.contains("assets/scenes/main.ron"),
+            "the conventionally named scene is unreached when the manifest names another"
+        );
+
+        probe.write("project.toml", "[project]\nname = \"P\"\n");
+        let err = cook_project(&probe.0).expect_err("no entry scene");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+        assert!(
+            err.to_string().contains("entry_scene"),
+            "the error names the missing field: {err}"
         );
     }
 

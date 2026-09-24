@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 /// Per-texture import settings.
 ///
 /// Spelled in a sidecar as
-/// `import: Some(Texture((srgb: true, mipmaps: true, filter: Linear, wrap: Repeat)))`.
+/// `import: Some(Texture((srgb: true, mipmaps: true, filter: Linear, wrap: Repeat, streaming: false)))`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct TextureImportSettings {
     /// Whether the pixel values are sRGB-encoded, as every colour image an

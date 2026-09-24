@@ -47,6 +47,9 @@ pub mod profiler;
 pub mod sh;
 /// Fitting the directional shadow map's frustum to the camera.
 pub mod shadow;
+/// Compute skinning: blending a skinned mesh's vertices on the GPU, into
+/// the vertex buffer every render pass already binds.
+pub mod skinning;
 /// Swapchain/frame lifecycle and the main scene render pass.
 pub mod surface;
 pub mod taa_jitter;
@@ -58,6 +61,7 @@ pub use mesh::{
     triangle_vertices, GpuMeshRegistry, Vertex,
 };
 pub use plugin::{GpuQueueResource, WgpuRHIPlugin};
+pub use skinning::GpuVertexSkin;
 pub use surface::{
     LightData, MaterialParams, PointLightEntry, ProbeVolumeParams, SpotLightEntry,
     WgpuSurfaceResource,

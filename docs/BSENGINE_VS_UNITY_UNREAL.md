@@ -20,7 +20,7 @@ master `134b7bf1` 기준. 열린 PR·이슈 0개, 소스 TODO/FIXME 0개, 워크
 
 | 항목 | 확인 | 메모 |
 |---|---|---|
-| **macOS FSEvents rename 페어링** | 테스트 5개가 macOS만 `#[ignore]` | **원인 미상.** 같은 코드가 실행마다 다른 raw 이벤트를 냄(3개 vs 1개). 우리 코드 밖일 가능성. 로컬 macOS 없이는 진전 어려움 |
+| **macOS FSEvents rename 페어링** | 백엔드 측정 테스트 2개만 macOS `#[ignore]` | #1888: 엔진이 더는 백엔드의 짝맞춤에 의존하지 않음 — 파일 identity(inode)로 잃어버린 반쪽을 재구성. 런타임 복구 테스트 2개 + 실백엔드 rename 테스트 1개를 macOS에서 다시 켬. 아래 절 참조 |
 | 텍스처 스트리밍 2단계(거리 기반 목표 밉·메모리 예산·퇴거) | `grep -rn "desired_mip\|texture_budget"` → 0 | 1단계(사이드카 플래그·부분 상주·프레임당 한 레벨 진행 로드)는 #1885로 있음. 아래 절 참조 |
 | 비주얼 스크립팅 | `grep -rl "VisualScript\|NodeGraph"` → 0 | |
 | 단일 실행 파일 | `grep -rl "embed_assets\|EmbeddedPak"` → 0 | 의도적 범위 밖(로드맵 item 55) |
@@ -48,6 +48,15 @@ Editor + View Owners + Orphan Resource Explorer. 수렴점은 **에셋별 의존
 인스펙터의 "Not reached from the entry scene"은 정확히 "패키지 빌드에 빠진다"와 같은 뜻이다. `cook_project`가
 `project.toml`의 `entry_scene`·`extra_assets`를 읽어 에디터·MCP가 런타임의 매니페스트 타입 없이 같은 걷기를
 쓴다.
+
+**macOS 워처 — rename 재구성(2026-09-25, #1888).** #1871/#1872가 남긴 문제는 FSEvents가 같은 디렉터리 rename의
+옛 경로 이벤트를 실행마다 다르게 떨어뜨리는 것이었고, 기록기는 디바운서가 짝지은 `[from, to]`만 봤다. 추측으로
+CI를 한 번 더 돌리는 대신 **백엔드와 무관한 메커니즘**을 넣었다: 워처가 감시 대상 파일을 `file_id::FileId`(inode/
+파일 인덱스 — rename에도 변하지 않는 유일한 것)로 기억하고, 경로 하나짜리 이벤트의 identity가 이미 다른(이제 없는)
+경로에 있었다면 그것이 옛 반쪽이 사라진 rename이다. 지워진 경로는 잊어서 재활용된 inode가 옛 파일로 오인되지 않게
+했다. **모든 플랫폼에서 재현되는 테스트**가 디스크에서 rename한 뒤 드레인에 `Create(new)` 하나만 손으로 먹여 사이드카
+이동과 `former_paths`를 단언한다. 백엔드의 짝맞춤을 *측정*하는 테스트 2개는 FSEvents의 사실이므로 macOS에서 그대로
+ignore; 엔진의 성질을 보는 3개는 다시 켰다 — macOS CI가 그 답이다.
 
 **에셋 의존성 그래프 — 시각화(2026-09-25, #1887).** Unreal Reference Viewer 배치 그대로: 선택한 에셋을
 가운데, 참조자를 왼쪽 열, 의존을 오른쪽 열에 놓고 선으로 잇고, 노드를 클릭하면 그 에셋으로 재중심(선택이

@@ -73,6 +73,7 @@ base64            = "0.22"
 # Must stay on the version bevy_asset's own `file_watcher` feature requires, so
 # the workspace never holds two copies of notify.
 notify-debouncer-full = "0.3.1"
+file-id           = "0.2"
 # Both already arrive transitively through bevy_asset; the versions here are the
 # ones it resolves to, so naming them directly adds no second copy. blake3 hashes
 # asset contents for change detection, uuid mints asset identities.

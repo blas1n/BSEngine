@@ -848,6 +848,7 @@ dependencies = [
  "blake3",
  "bsengine-app",
  "bsengine-core",
+ "file-id",
  "image",
  "notify-debouncer-full",
  "ron",

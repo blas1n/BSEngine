@@ -14,6 +14,9 @@ bevy_tasks.workspace = true
 blake3.workspace = true
 image.workspace = true
 notify-debouncer-full.workspace = true
+# For the watcher: a file's identity survives a rename, which is how a rename
+# whose old half the backend never reported is still recognised as one.
+file-id.workspace = true
 ron.workspace = true
 serde.workspace = true
 # For `cook::cook_project`, which reads the two `project.toml` fields the

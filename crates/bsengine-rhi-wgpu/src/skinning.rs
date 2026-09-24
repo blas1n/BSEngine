@@ -52,8 +52,14 @@ pub struct GpuVertexSkin {
     pub weights: [f32; 4],
 }
 
-/// Floats per [`Vertex`], which the shader must agree with.
+/// Floats per [`Vertex`], which the shader hardcodes as `11u`: this is the
+/// check that keeps the two in step, since a `Vertex` that grew a field
+/// would otherwise skin every vertex out of the wrong floats with no error.
 const FLOATS_PER_VERTEX: u64 = (std::mem::size_of::<Vertex>() / 4) as u64;
+const _: () = assert!(
+    FLOATS_PER_VERTEX == 11,
+    "the compute skinning shader hardcodes 11 floats per Vertex"
+);
 /// Threads per workgroup, matching `@workgroup_size` in the shader.
 const WORKGROUP: u32 = 64;
 /// Bytes of the per-dispatch parameter block (`joint_count`, padded).

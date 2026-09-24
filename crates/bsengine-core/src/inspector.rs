@@ -559,6 +559,36 @@ pub struct AssetImportSnapshot {
     pub edit: crate::ImportSettings,
 }
 
+/// What references the asset selected in the Asset Browser, and what it
+/// references -- Unreal's Reference Viewer and Godot's View Owners, as the
+/// Inspector lists them.
+///
+/// Populated by `bsengine-editor`, which walks the project the way the
+/// packager does (`bsengine_asset::cook`), whenever
+/// [`InspectorState::selected_asset`] names an asset this snapshot does not
+/// describe; the panel only draws it. Every click re-reads, because the
+/// walk is the only thing that can notice a scene saved since the last one.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AssetReferencesSnapshot {
+    /// The asset this describes, exactly as `selected_asset` names it.
+    pub path: String,
+    /// Files that name this asset, project-relative and sorted;
+    /// `"project.toml"` when the manifest does (the entry scene, or an
+    /// `extra_assets` entry).
+    pub referencers: Vec<String>,
+    /// Assets this file names, sorted. Empty for a leaf such as a texture.
+    pub dependencies: Vec<String>,
+    /// Whether the walk from the entry scene reaches this asset at all.
+    /// `false` is Godot's orphan resource: nothing names it, and a packaged
+    /// build leaves it out.
+    pub reached: bool,
+    /// Why the walk could not run -- no `project.toml`, or one with no entry
+    /// scene -- shown in place of the lists. Recorded in the snapshot rather
+    /// than left as "nothing yet", so a project without a manifest is not
+    /// walked again every frame.
+    pub error: Option<String>,
+}
+
 /// Editor-side resource holding the current entity snapshot, selection,
 /// pending edit commands, and all viewport/gizmo/camera UI state.
 #[derive(Resource)]
@@ -580,6 +610,10 @@ pub struct InspectorState {
     /// Why `asset_import` could not be read or written, for the Inspector
     /// to show instead of the fields: a broken sidecar, a write that failed.
     pub asset_import_error: Option<String>,
+    /// What references the selected asset and what it references; see
+    /// [`AssetReferencesSnapshot`]. `None` until `bsengine-editor` has
+    /// walked the project for it.
+    pub asset_references: Option<AssetReferencesSnapshot>,
     /// Edit commands queued by the UI this frame, drained by `apply_inspector_cmds`.
     pub cmd_queue: Vec<InspectorCmd>,
     /// Cloned reflected components currently attached to `selected_id`,
@@ -740,6 +774,7 @@ impl Default for InspectorState {
             selected_asset: None,
             asset_import: None,
             asset_import_error: None,
+            asset_references: None,
             cmd_queue: Vec::new(),
             reflected_components: Vec::new(),
             edit_pos: [0.0; 3],
@@ -808,6 +843,7 @@ impl InspectorState {
                 self.selected_asset = None;
                 self.asset_import = None;
                 self.asset_import_error = None;
+                self.asset_references = None;
                 if let Some(info) = self.entities.iter().find(|e| e.id == id) {
                     self.edit_pos = info.position.unwrap_or([0.0; 3]);
                     self.edit_rot = info.rotation.unwrap_or([0.0; 3]);
@@ -835,6 +871,11 @@ impl InspectorState {
         // Cleared even for the same asset: clicking it again is how an
         // author retries after fixing the broken sidecar the error named.
         self.asset_import_error = None;
+        // Likewise dropped on every click, same asset or not: the references
+        // come from a walk of the scene files, and a scene saved since the
+        // last walk is invisible to anything but another walk. Clicking the
+        // asset again is the refresh.
+        self.asset_references = None;
         self.selected_asset = Some(path);
         self.selected_id = None;
         self.prev_selected_id = None;
@@ -904,10 +945,29 @@ mod tests {
             "another asset: the snapshot is stale"
         );
 
+        // The references are dropped on *every* click, unlike the import
+        // snapshot: re-clicking is how an author refreshes them after
+        // saving a scene, and there is no pending edit in them to lose.
+        s.asset_references = Some(AssetReferencesSnapshot {
+            path: "assets/models/fox.glb".to_string(),
+            reached: true,
+            ..Default::default()
+        });
+        s.select_asset("assets/models/fox.glb");
+        assert!(
+            s.asset_references.is_none(),
+            "same asset: the references are re-walked"
+        );
+
+        s.asset_references = Some(AssetReferencesSnapshot::default());
         s.selected_id = Some(1);
         s.sync_selection();
         assert_eq!(s.selected_asset, None, "an entity pick deselects the asset");
         assert!(s.asset_import.is_none());
+        assert!(
+            s.asset_references.is_none(),
+            "and drops the asset's references with it"
+        );
 
         // The Hierarchy clearing its selection is not a pick of anything.
         s.select_asset("assets/models/fox.glb");

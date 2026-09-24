@@ -852,6 +852,7 @@ dependencies = [
  "notify-debouncer-full",
  "ron",
  "serde",
+ "toml",
  "tracing",
  "tracing-subscriber",
  "uuid",

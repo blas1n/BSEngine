@@ -130,6 +130,13 @@ impl AssetIndex {
         self.by_path.is_empty()
     }
 
+    /// Every identified asset's current path, project-relative, in stable
+    /// order. What a walk compares its reached set against to find the
+    /// assets nothing references.
+    pub fn paths(&self) -> impl Iterator<Item = &str> {
+        self.by_path.keys().map(String::as_str)
+    }
+
     /// The identity of the asset at `path`, which must be spelled
     /// project-relative with forward slashes — `assets/models/fox.glb`.
     pub fn guid_for_path(&self, path: &str) -> Option<AssetGuid> {

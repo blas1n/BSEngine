@@ -46,6 +46,7 @@ impl EditorPanel for InspectorPanel {
             // Inspector shows an importer for a selected Project asset.
             if let Some(path) = insp.selected_asset.clone() {
                 draw_asset_import(ui, insp, &path);
+                draw_asset_references(ui, insp, &path);
                 return;
             }
             ui.label("No entity selected.");
@@ -632,6 +633,50 @@ fn draw_asset_import(ui: &mut egui::Ui, insp: &mut bsengine_core::InspectorState
     }
 }
 
+/// The "References" section under a selected asset's import settings: who
+/// names it and what it names -- Godot's View Owners and Unreal's Reference
+/// Viewer as two lists, with the fact an author most often comes here for
+/// said first: whether anything reaches the asset at all. A file nothing
+/// names is left out of a packaged build, and "why is my texture missing
+/// from the build" is answered by this line.
+///
+/// Drawn from `InspectorState::asset_references`, which `bsengine-editor`
+/// fills by walking the project (this crate sits below `bsengine-asset` and
+/// cannot); until it has, or when the walk could not run, that is what the
+/// section says.
+fn draw_asset_references(ui: &mut egui::Ui, insp: &bsengine_core::InspectorState, path: &str) {
+    ui.separator();
+    ui.colored_label(crate::theme::TEXT, "References");
+    // The same guard `draw_asset_import` keeps: a snapshot for another asset
+    // is never drawn under this one's name.
+    let Some(refs) = insp
+        .asset_references
+        .as_ref()
+        .filter(|refs| refs.path == path)
+    else {
+        ui.label("Walking the project...");
+        return;
+    };
+    if let Some(error) = &refs.error {
+        ui.colored_label(egui::Color32::from_rgb(230, 90, 90), error);
+        return;
+    }
+    if !refs.reached {
+        ui.colored_label(
+            egui::Color32::from_rgb(230, 180, 60),
+            "Not reached from the entry scene: a packaged build leaves it out.",
+        );
+    }
+    ui.label(format!("Used by ({})", refs.referencers.len()));
+    for referrer in &refs.referencers {
+        ui.label(format!("  {referrer}"));
+    }
+    ui.label(format!("Uses ({})", refs.dependencies.len()));
+    for dependency in &refs.dependencies {
+        ui.label(format!("  {dependency}"));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -977,6 +1022,97 @@ mod tests {
                 .iter()
                 .any(|t| t.contains("defaults, nothing recorded yet")),
             "an unrecorded snapshot must say so; got {texts:?}"
+        );
+    }
+
+    /// The References section lists who names the asset and what it names,
+    /// counted, and says so when nothing reaches it. A snapshot for another
+    /// asset is not drawn under this one's name, and until the walk has
+    /// run the section says it is waiting rather than showing empty lists
+    /// that would read as "unused".
+    #[test]
+    fn a_selected_asset_lists_its_referencers_and_dependencies() {
+        use bsengine_core::AssetReferencesSnapshot;
+
+        let mut harness = asset_harness("assets/models/fox.glb", texture_defaults());
+        let texts = collect_rendered_texts(&harness.draw().shapes);
+        assert!(
+            texts.iter().any(|t| t == "Walking the project..."),
+            "before the walk the section says so; got {texts:?}"
+        );
+
+        harness.insp.asset_references = Some(AssetReferencesSnapshot {
+            path: "assets/models/fox.glb".to_string(),
+            referencers: vec![
+                "assets/scenes/level2.ron".to_string(),
+                "assets/scenes/main.ron".to_string(),
+            ],
+            dependencies: vec!["assets/textures/fur.png".to_string()],
+            reached: true,
+            error: None,
+        });
+        let texts = collect_rendered_texts(&harness.draw().shapes);
+        for expected in [
+            "References",
+            "Used by (2)",
+            "  assets/scenes/level2.ron",
+            "  assets/scenes/main.ron",
+            "Uses (1)",
+            "  assets/textures/fur.png",
+        ] {
+            assert!(
+                texts.iter().any(|t| t == expected),
+                "{expected:?} must render; got {texts:?}"
+            );
+        }
+        assert!(
+            !texts.iter().any(|t| t.starts_with("Not reached")),
+            "a reached asset carries no warning"
+        );
+
+        harness.insp.asset_references = Some(AssetReferencesSnapshot {
+            path: "assets/textures/unused.png".to_string(),
+            reached: false,
+            ..Default::default()
+        });
+        let texts = collect_rendered_texts(&harness.draw().shapes);
+        assert!(
+            texts.iter().any(|t| t == "Walking the project..."),
+            "a snapshot for another asset is not drawn under this one; got {texts:?}"
+        );
+        assert!(!texts.iter().any(|t| t == "Used by (0)"));
+
+        harness.insp.select_asset("assets/textures/unused.png");
+        harness.insp.asset_import = Some(bsengine_core::AssetImportSnapshot {
+            path: "assets/textures/unused.png".to_string(),
+            settings: texture_defaults(),
+            recorded: false,
+            edit: texture_defaults(),
+        });
+        harness.insp.asset_references = Some(AssetReferencesSnapshot {
+            path: "assets/textures/unused.png".to_string(),
+            reached: false,
+            ..Default::default()
+        });
+        let texts = collect_rendered_texts(&harness.draw().shapes);
+        assert!(
+            texts
+                .iter()
+                .any(|t| t.starts_with("Not reached from the entry scene")),
+            "an unreached asset says a build leaves it out; got {texts:?}"
+        );
+        assert!(texts.iter().any(|t| t == "Used by (0)"));
+
+        harness.insp.asset_references = Some(AssetReferencesSnapshot {
+            path: "assets/textures/unused.png".to_string(),
+            error: Some("no project.toml".to_string()),
+            ..Default::default()
+        });
+        let texts = collect_rendered_texts(&harness.draw().shapes);
+        assert!(texts.iter().any(|t| t == "no project.toml"));
+        assert!(
+            !texts.iter().any(|t| t == "Used by (0)"),
+            "an error replaces the lists rather than joining them"
         );
     }
 

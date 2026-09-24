@@ -143,8 +143,36 @@ pub fn game_tools(root: PathBuf) -> Vec<McpTool> {
     let r3 = root.clone();
     let r4 = root.clone();
     let r5 = root.clone();
+    let r6 = root.clone();
 
     vec![
+        McpTool {
+            name: "asset_references".to_string(),
+            description: "What an asset references and what references it -- Unreal's \
+                Reference Viewer and Godot's View Owners, as a query. Built from the same \
+                static walk the packager uses: every `assets/...` path in every scene \
+                reachable from project.toml's `entry_scene` (and `[package] extra_assets`), \
+                following prefabs, reflected components (a Terrain's textures) and quoted \
+                paths in scripts (`loadScene(\"assets/scenes/level2.ron\")`).\n\n\
+                With `path`: {path, reached, referencers, dependencies}. `referencers` are \
+                the files that name it (`project.toml` when the manifest does), \
+                `dependencies` the assets it names; `reached: false` means nothing names \
+                it and a packaged build leaves it out.\n\
+                Without `path`: the whole graph -- {assets, edges: [[referrer, asset], ...], \
+                unreferenced: [...], missing: [{referrer, path}, ...]}. `unreferenced` are \
+                the assets nothing reaches; `missing` are references to files that do not \
+                exist, which fail packaging."
+                .to_string(),
+            input_schema: Some(json!({
+                "type": "object",
+                "properties": {
+                    "game": { "type": "string", "description": "Game folder name under games/" },
+                    "path": { "type": "string", "description": "Asset path relative to the game root (e.g. 'assets/models/fox.glb'); omit for the whole graph" },
+                },
+                "required": ["game"],
+            })),
+            handler: Box::new(move |args| asset_references(&r6, args)),
+        },
         McpTool {
             name: "asset_import_settings".to_string(),
             description: "Read or change how one asset is imported -- the per-asset settings \
@@ -361,6 +389,64 @@ fn import_settings_json(settings: &ImportSettings) -> Value {
     .unwrap_or(Value::Null)
 }
 
+/// Whether `rel` stays inside the game it is joined onto: relative, and
+/// without a `..` that could climb out. Shared by the tools that take an
+/// asset path, so none of them can be handed `../../Cargo.toml`.
+fn leaves_the_game(rel: &Path) -> bool {
+    rel.is_absolute()
+        || rel.components().any(|c| {
+            matches!(
+                c,
+                std::path::Component::ParentDir | std::path::Component::Prefix(_)
+            )
+        })
+}
+
+fn asset_references(root: &Path, args: Value) -> McpToolOutput {
+    let game = match get_str(&args, "game") {
+        Ok(v) => v.to_string(),
+        Err(e) => return e,
+    };
+    let game_dir = root.join("games").join(&game);
+    if !game_dir.join("project.toml").is_file() {
+        return McpToolOutput::error(&format!(
+            "games/{game}/project.toml not found — run game_create first"
+        ));
+    }
+    let cooked = match bsengine_asset::cook::cook_project(&game_dir) {
+        Ok(c) => c,
+        Err(e) => return McpToolOutput::error(&format!("games/{game}: {e}")),
+    };
+
+    let Some(rel) = args.get("path").and_then(Value::as_str) else {
+        return McpToolOutput::success(json!({
+            "game": game,
+            "assets": cooked.assets,
+            "edges": cooked.edges,
+            "unreferenced": cooked.unreferenced,
+            "missing": cooked.missing,
+        }));
+    };
+    if leaves_the_game(Path::new(rel)) {
+        return McpToolOutput::error(
+            "path must be relative to the game root and may not leave it (no `..`)",
+        );
+    }
+    // The walk keys everything by the project-relative spelling with forward
+    // slashes; a path an agent spelled with backslashes would look up
+    // nothing and report "unreferenced" for a file the entry scene names.
+    let rel = rel.replace('\\', "/");
+    if !game_dir.join(&rel).is_file() {
+        return McpToolOutput::error(&format!("games/{game}/{rel}: no such file"));
+    }
+    McpToolOutput::success(json!({
+        "path": rel,
+        "reached": cooked.assets.contains(&rel),
+        "referencers": cooked.referencers_of(&rel),
+        "dependencies": cooked.dependencies_of(&rel),
+    }))
+}
+
 fn asset_import_settings(root: &Path, args: Value) -> McpToolOutput {
     let game = match get_str(&args, "game") {
         Ok(v) => v.to_string(),
@@ -377,14 +463,7 @@ fn asset_import_settings(root: &Path, args: Value) -> McpToolOutput {
     // trusted with the tree, but a *sidecar* landing beside a non-asset is a
     // file the scan would then refuse to explain, so the cheap check goes in.
     let rel_path = Path::new(&rel);
-    if rel_path.is_absolute()
-        || rel_path.components().any(|c| {
-            matches!(
-                c,
-                std::path::Component::ParentDir | std::path::Component::Prefix(_)
-            )
-        })
-    {
+    if leaves_the_game(rel_path) {
         return McpToolOutput::error(
             "path must be relative to the game root and may not leave it (no `..`)",
         );
@@ -689,6 +768,143 @@ mod tests {
             .into_iter()
             .find(|t| t.name == "asset_import_settings")
             .expect("registered")
+    }
+
+    fn references_tool(root: &Path) -> McpTool {
+        game_tools(root.to_path_buf())
+            .into_iter()
+            .find(|t| t.name == "asset_references")
+            .expect("registered")
+    }
+
+    /// A game whose entry scene names a model and a script, whose script
+    /// names a second scene that names the model again, plus a texture
+    /// nothing names.
+    fn game_with_references(root: &Path) {
+        let write = |rel: &str, text: &str| {
+            let path = root.join("games/g").join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        };
+        write(
+            "project.toml",
+            "[project]\nname = \"G\"\nentry_scene = \"assets/scenes/main.ron\"\n",
+        );
+        write(
+            "assets/scenes/main.ron",
+            r#"(entities: [(name: "Hero", gltf: Some(Path("assets/models/hero.glb")), script: Some(Path("assets/scripts/hero.js")))])"#,
+        );
+        write(
+            "assets/scripts/hero.js",
+            "const NEXT = \"assets/scenes/level2.ron\";",
+        );
+        write(
+            "assets/scenes/level2.ron",
+            r#"(entities: [(name: "Hero", gltf: Some(Path("assets/models/hero.glb")))])"#,
+        );
+        write("assets/models/hero.glb", "glb");
+        write("assets/textures/unused.png", "png");
+    }
+
+    /// Per asset: who names it and what it names, with the second scene
+    /// found through the script -- the walk is the packager's, not a grep
+    /// of the entry scene. The texture nothing names is `reached: false`.
+    #[test]
+    fn asset_references_answers_who_uses_an_asset_and_what_it_uses() {
+        let (_tmp, root) = temp_root();
+        game_with_references(&root);
+        let tool = references_tool(&root);
+
+        let out = (tool.handler)(json!({"game": "g", "path": "assets/models/hero.glb"}));
+        assert!(out.is_ok(), "{:?}", out.error);
+        assert_eq!(out.content["reached"], true);
+        assert_eq!(
+            out.content["referencers"],
+            json!(["assets/scenes/level2.ron", "assets/scenes/main.ron"])
+        );
+        assert_eq!(out.content["dependencies"], json!([]));
+
+        let out = (tool.handler)(json!({"game": "g", "path": "assets/scripts/hero.js"}));
+        assert!(out.is_ok(), "{:?}", out.error);
+        assert_eq!(
+            out.content["referencers"],
+            json!(["assets/scenes/main.ron"])
+        );
+        assert_eq!(
+            out.content["dependencies"],
+            json!(["assets/scenes/level2.ron"]),
+            "a quoted path in a script is a dependency"
+        );
+
+        let out = (tool.handler)(json!({"game": "g", "path": "assets/textures/unused.png"}));
+        assert!(out.is_ok(), "{:?}", out.error);
+        assert_eq!(out.content["reached"], false);
+        assert_eq!(out.content["referencers"], json!([]));
+
+        let out = (tool.handler)(json!({"game": "g", "path": "assets/scenes/main.ron"}));
+        assert_eq!(
+            out.content["referencers"],
+            json!(["project.toml"]),
+            "the entry scene is named by the manifest"
+        );
+    }
+
+    /// Without a path, the whole graph: every edge, the unreached assets
+    /// and the dangling references, so an agent can audit a project in one
+    /// call the way Godot's Orphan Resource Explorer does.
+    #[test]
+    fn asset_references_without_a_path_returns_the_whole_graph() {
+        let (_tmp, root) = temp_root();
+        game_with_references(&root);
+        std::fs::write(
+            root.join("games/g/assets/scenes/level2.ron"),
+            r#"(entities: [(name: "Hero", gltf: Some(Path("assets/models/hero.glb")), texture: Some("assets/textures/gone.png"))])"#,
+        )
+        .unwrap();
+        let tool = references_tool(&root);
+
+        let out = (tool.handler)(json!({"game": "g"}));
+        assert!(out.is_ok(), "{:?}", out.error);
+        let edges = out.content["edges"].as_array().expect("edges");
+        assert!(
+            edges.contains(&json!([
+                "assets/scripts/hero.js",
+                "assets/scenes/level2.ron"
+            ])),
+            "the script -> scene edge is in the graph; got {edges:?}"
+        );
+        assert!(edges.contains(&json!(["project.toml", "assets/scenes/main.ron"])));
+        assert_eq!(
+            out.content["unreferenced"],
+            json!(["assets/textures/unused.png"])
+        );
+        assert_eq!(
+            out.content["missing"],
+            json!([{"referrer": "assets/scenes/level2.ron", "path": "assets/textures/gone.png"}]),
+            "a dangling reference is reported with who made it"
+        );
+    }
+
+    /// The refusals, each without a walk having any effect: a path that
+    /// climbs out of the game, a file that is not there, a game without a
+    /// manifest.
+    #[test]
+    fn asset_references_refuses_paths_outside_the_game_and_missing_files() {
+        let (_tmp, root) = temp_root();
+        game_with_references(&root);
+        let tool = references_tool(&root);
+
+        let out = (tool.handler)(json!({"game": "g", "path": "../g/assets/models/hero.glb"}));
+        assert!(!out.is_ok());
+        assert!(out.error.as_deref().unwrap_or("").contains("may not leave"));
+
+        let out = (tool.handler)(json!({"game": "g", "path": "assets/models/nope.glb"}));
+        assert!(!out.is_ok());
+        assert!(out.error.as_deref().unwrap_or("").contains("no such file"));
+
+        let out = (tool.handler)(json!({"game": "other", "path": "assets/models/hero.glb"}));
+        assert!(!out.is_ok());
+        assert!(out.error.as_deref().unwrap_or("").contains("project.toml"));
     }
 
     /// A game with one texture and one model, neither scanned, so the tool's

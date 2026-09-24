@@ -1528,6 +1528,72 @@ fn populate_asset_import_snapshot(inspector: Option<ResMut<InspectorState>>) {
     }
 }
 
+/// Walks the project for what references the selected asset and what it
+/// references, into `InspectorState::asset_references`, for the Inspector
+/// to list -- Unreal's Reference Viewer and Godot's View Owners.
+///
+/// The walk is the packager's (`bsengine_asset::cook::cook_project`): the
+/// same static pass over every scene reachable from `project.toml`'s entry
+/// scene, following prefabs, reflected components and quoted paths in
+/// scripts. Reusing it is what makes "nothing references this" here mean
+/// exactly "a packaged build leaves this out" there, rather than two walkers
+/// that could disagree.
+///
+/// Once per selection, like `populate_asset_import_snapshot`, since the
+/// walk reads every scene file; `InspectorState::select_asset` drops the
+/// snapshot on every click, so re-clicking is the refresh after a save. A
+/// walk that cannot run at all -- no manifest, or one without an entry
+/// scene -- is recorded in the snapshot's `error` so it is not retried and
+/// re-logged sixty times a second.
+///
+/// The project is `ProjectDir` when the app has one, else the working
+/// directory, which is what the Asset Browser's paths are relative to.
+fn populate_asset_references_snapshot(
+    inspector: Option<ResMut<InspectorState>>,
+    project_dir: Option<Res<bsengine_core::ProjectDir>>,
+) {
+    let Some(mut inspector) = inspector else {
+        return;
+    };
+    let Some(path) = inspector.selected_asset.clone() else {
+        return;
+    };
+    let already = inspector
+        .asset_references
+        .as_ref()
+        .is_some_and(|snapshot| snapshot.path == path);
+    if already {
+        return;
+    }
+    let dir = project_dir.map_or_else(|| ".".to_string(), |d| d.0.clone());
+    let snapshot = match bsengine_asset::cook::cook_project(&dir) {
+        Ok(cooked) => bsengine_core::AssetReferencesSnapshot {
+            referencers: cooked
+                .referencers_of(&path)
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
+            dependencies: cooked
+                .dependencies_of(&path)
+                .into_iter()
+                .map(str::to_string)
+                .collect(),
+            reached: cooked.assets.contains(&path),
+            error: None,
+            path,
+        },
+        Err(e) => {
+            tracing::warn!("references for {path} could not be walked: {e}");
+            bsengine_core::AssetReferencesSnapshot {
+                path,
+                error: Some(e.to_string()),
+                ..Default::default()
+            }
+        }
+    };
+    inspector.asset_references = Some(snapshot);
+}
+
 /// Component types excluded from `populate_snapshot_extra_components`'s
 /// generic capture: `Transform`/`Camera`/`PointLight`/`DirectionalLight`/
 /// `SpotLight`/`Material` already have a dedicated `EntityInfo` field above,
@@ -2383,6 +2449,7 @@ impl Plugin for EditorPlugin {
             Update,
             populate_asset_import_snapshot.after(apply_inspector_cmds),
         );
+        app.add_systems(Update, populate_asset_references_snapshot);
         app.add_systems(
             Update,
             populate_snapshot_extra_components.after(update_editor_snapshot),
@@ -94065,6 +94132,158 @@ mod tests {
         fn drop(&mut self) {
             std::fs::remove_dir_all(&self.dir).ok();
         }
+    }
+
+    /// A throwaway project with a manifest, so the references walk has an
+    /// entry scene to start from: `main.ron` names the model and the
+    /// script, the script names a second scene, and `unused.png` is named
+    /// by nothing.
+    struct ProjectProbe {
+        dir: std::path::PathBuf,
+    }
+
+    impl ProjectProbe {
+        fn new(tag: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!(
+                "bsengine-editor-refs-{tag}-{}",
+                std::process::id()
+            ));
+            let _ = std::fs::remove_dir_all(&dir);
+            let probe = Self { dir };
+            probe.write(
+                "project.toml",
+                "[project]\nname = \"P\"\nentry_scene = \"assets/scenes/main.ron\"\n",
+            );
+            probe.write(
+                "assets/scenes/main.ron",
+                r#"(entities: [(name: "Hero", gltf: Some(Path("assets/models/hero.glb")), script: Some(Path("assets/scripts/hero.js")))])"#,
+            );
+            probe.write(
+                "assets/scripts/hero.js",
+                "const NEXT = \"assets/scenes/level2.ron\";",
+            );
+            probe.write(
+                "assets/scenes/level2.ron",
+                r#"(entities: [(name: "Hero", gltf: Some(Path("assets/models/hero.glb")))])"#,
+            );
+            probe.write("assets/models/hero.glb", "glb");
+            probe.write("assets/textures/unused.png", "png");
+            probe
+        }
+
+        fn write(&self, relative: &str, contents: &str) {
+            let path = self.dir.join(relative);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, contents).unwrap();
+        }
+    }
+
+    impl Drop for ProjectProbe {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.dir).ok();
+        }
+    }
+
+    /// Selecting an asset walks the project into `asset_references`, through
+    /// the real system: a model two scenes name lists both, a leaf lists no
+    /// dependencies, and the texture nothing names is `reached: false`. The
+    /// walk is the packager's, so the second scene is found through the
+    /// script that names it, not because a test listed it.
+    #[test]
+    fn selecting_an_asset_lists_what_references_it_and_what_it_references() {
+        let probe = ProjectProbe::new("walk");
+        let mut app = new_app();
+        app.add_plugins(EditorPlugin);
+        app.insert_resource(bsengine_core::ProjectDir(
+            probe.dir.to_string_lossy().to_string(),
+        ));
+
+        app.world_mut()
+            .resource_mut::<InspectorState>()
+            .select_asset("assets/models/hero.glb");
+        app.update();
+        {
+            let insp = app.world().resource::<InspectorState>();
+            let refs = insp
+                .asset_references
+                .as_ref()
+                .expect("one update after selecting must walk the project");
+            assert_eq!(refs.path, "assets/models/hero.glb");
+            assert_eq!(refs.error, None);
+            assert!(refs.reached, "the entry scene names the model");
+            assert_eq!(
+                refs.referencers,
+                vec!["assets/scenes/level2.ron", "assets/scenes/main.ron"],
+                "both scenes, the second reached only through the script"
+            );
+            assert!(refs.dependencies.is_empty(), "a model is a leaf");
+        }
+
+        app.world_mut()
+            .resource_mut::<InspectorState>()
+            .select_asset("assets/scripts/hero.js");
+        app.update();
+        {
+            let refs = app
+                .world()
+                .resource::<InspectorState>()
+                .asset_references
+                .clone()
+                .expect("re-walked for the new selection");
+            assert_eq!(refs.path, "assets/scripts/hero.js");
+            assert_eq!(refs.referencers, vec!["assets/scenes/main.ron"]);
+            assert_eq!(
+                refs.dependencies,
+                vec!["assets/scenes/level2.ron"],
+                "a quoted path in a script is a dependency"
+            );
+        }
+
+        app.world_mut()
+            .resource_mut::<InspectorState>()
+            .select_asset("assets/textures/unused.png");
+        app.update();
+        let refs = app
+            .world()
+            .resource::<InspectorState>()
+            .asset_references
+            .clone()
+            .expect("walked");
+        assert!(!refs.reached, "nothing names the texture");
+        assert!(refs.referencers.is_empty());
+        assert_eq!(refs.error, None);
+    }
+
+    /// A project the walk cannot start in records why, once, instead of
+    /// leaving the snapshot empty and walking again every frame.
+    #[test]
+    fn a_project_without_a_manifest_records_the_error_in_the_snapshot() {
+        let probe = ProjectProbe::new("no-manifest");
+        std::fs::remove_file(probe.dir.join("project.toml")).unwrap();
+        let mut app = new_app();
+        app.add_plugins(EditorPlugin);
+        app.insert_resource(bsengine_core::ProjectDir(
+            probe.dir.to_string_lossy().to_string(),
+        ));
+
+        app.world_mut()
+            .resource_mut::<InspectorState>()
+            .select_asset("assets/models/hero.glb");
+        app.update();
+        let refs = app
+            .world()
+            .resource::<InspectorState>()
+            .asset_references
+            .clone()
+            .expect("the failure is a snapshot, not an absence");
+        assert!(
+            refs.error
+                .as_deref()
+                .is_some_and(|e| e.contains("project.toml")),
+            "the error names the manifest: {:?}",
+            refs.error
+        );
+        assert!(!refs.reached);
     }
 
     /// The Inspector's whole import-settings loop, through the real

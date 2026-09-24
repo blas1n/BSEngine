@@ -16,6 +16,9 @@ image.workspace = true
 notify-debouncer-full.workspace = true
 ron.workspace = true
 serde.workspace = true
+# For `cook::cook_project`, which reads the two `project.toml` fields the
+# walk starts from; the runtime's full manifest type lives above this crate.
+toml.workspace = true
 tracing.workspace = true
 uuid.workspace = true
 # Only ever built when `test-support` is on; see that feature.

@@ -284,18 +284,14 @@ fn replay(root: &Path) -> std::process::Output {
 /// second silently depended on, which is the shape of coupling this file exists
 /// to remove.
 // macOS: `resolve_watch_prefix` (PR #1872) closed the path-spelling half of
-// PR #1871's finding, but a second, follow-up run showed
-// `bsengine-asset::watcher`'s own rename-pairing tests still fail on macOS
-// for an unrelated reason -- FSEvents not reliably reporting both halves of a
-// same-directory rename (see that crate's `a_rename_is_reported_with_both_the_old_and_the_new_path`
-// for the two differing captures). This test reaches the exact same watcher
-// code, so it inherits that gap, even though `cargo test`'s fail-fast never
-// let this specific test run in that CI attempt to confirm it directly.
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "inherits bsengine-asset::watcher's FSEvents rename-pairing gap, \
-              not the path-spelling issue #1872 already fixed"
-)]
+// PR #1871's finding; FSEvents then turned out not to reliably report both
+// halves of a same-directory rename (see `bsengine-asset::watcher`'s
+// `a_rename_is_reported_with_both_the_old_and_the_new_path` for the two
+// differing captures), which kept this ignored there. The watcher now
+// reconstructs a rename from the file's identity when only its destination
+// is reported, so this runs on macOS again. If it fails there, the cause is
+// something new, not the pairing: that half is measured backend-free in
+// `a_rename_whose_old_half_the_backend_dropped_is_still_recorded`.
 #[test]
 fn a_renamed_asset_is_still_found_by_a_scene_that_names_its_old_path() {
     // Declared before anything that could panic, so it is dropped last and the
@@ -345,13 +341,8 @@ fn a_renamed_asset_is_still_found_by_a_scene_that_names_its_old_path() {
 ///
 /// Without this, the test above would pass just as happily against an engine
 /// that recovered nothing but happened to move the entity for some other reason.
-// macOS: same cause as the test above -- both share
+// macOS: runs again for the same reason as the test above -- both share
 // `rename_the_script_with_the_engine_running`.
-#[cfg_attr(
-    target_os = "macos",
-    ignore = "inherits bsengine-asset::watcher's FSEvents rename-pairing gap, \
-              not the path-spelling issue #1872 already fixed"
-)]
 #[test]
 fn without_the_recorded_former_path_the_same_recording_fails() {
     let probe = create_fixture();

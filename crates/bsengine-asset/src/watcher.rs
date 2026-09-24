@@ -50,6 +50,25 @@
 //! so the only thing that can save such a reference is the project remembering
 //! where the asset used to be. Every paired event is therefore handed to that
 //! recorder before the reload logic discards the source.
+//!
+//! # When the backend drops the old half
+//!
+//! The pairing above is the debouncer's, and it needs the backend to report
+//! *both* paths. FSEvents does not reliably do that for a same-directory
+//! rename: PR #1871 and #1872 captured the same test producing three raw
+//! events on one run and a lone `Create` of the new name on the next, with the
+//! old path never mentioned. An engine that recorded renames only from pairs
+//! could therefore lose a former path on macOS with nothing in the log.
+//!
+//! So this module keeps its own record of what it is watching, keyed by the
+//! one thing a rename does not change: the file's identity on the filesystem
+//! (`file_id::FileId` -- inode and device on Unix, the volume and file index on
+//! Windows). A single-path event for a file whose identity is already known
+//! under a different path that no longer exists is a rename whose old half
+//! was dropped, and it is recorded exactly as a paired one would have been.
+//! Measured backend-independently in
+//! `a_rename_whose_old_half_the_backend_dropped_is_still_recorded`, which feeds
+//! the drain a lone `Create` by hand -- the shape FSEvents was seen to produce.
 
 use crate::identity::rename::{record_rename, Endpoint};
 use crate::identity::scan::ASSETS_DIR;
@@ -59,11 +78,13 @@ use bevy_app::{App, Plugin, Startup, Update};
 use bevy_asset::{AssetPath, AssetServer};
 use bevy_ecs::prelude::{Commands, Res, ResMut, Resource};
 use bsengine_core::ProjectDir;
+use file_id::{get_file_id, FileId};
 use notify_debouncer_full::{
     new_debouncer,
     notify::{RecommendedWatcher, RecursiveMode, Watcher},
     DebounceEventResult, Debouncer, FileIdMap,
 };
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::sync::Mutex;
@@ -193,6 +214,67 @@ struct AssetWatcher {
     /// `<ProjectDir>/assets` in the engine's own spelling, which is what the
     /// reconstructed paths are re-joined onto.
     engine_root: String,
+    /// Every file under the watch root by its filesystem identity, at the
+    /// spelling `notify` reports (`strip_base`-rooted). Seeded at start and
+    /// kept current by [`drain_asset_changes`]; what lets a rename be
+    /// recognised when the backend reported only its destination -- see the
+    /// module docs. The `Mutex` is the same `Sync` shim as the fields above:
+    /// only the drain system touches it.
+    known: Mutex<HashMap<FileId, PathBuf>>,
+}
+
+/// Every regular file under `root`, by identity. Symlinks are skipped for the
+/// reason `identity::scan` skips them: following a directory link could loop,
+/// and a linked file's identity is the target's, not the project's.
+fn seed_known(root: &Path) -> HashMap<FileId, PathBuf> {
+    fn walk(dir: &Path, out: &mut HashMap<FileId, PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+            if kind.is_symlink() {
+                continue;
+            }
+            let path = entry.path();
+            if kind.is_dir() {
+                walk(&path, out);
+            } else if kind.is_file() {
+                if let Ok(id) = get_file_id(&path) {
+                    out.insert(id, path);
+                }
+            }
+        }
+    }
+    let mut out = HashMap::new();
+    walk(root, &mut out);
+    out
+}
+
+/// Records that `path` is where the file with its identity now lives, and
+/// says whether that reveals a rename the backend reported only half of.
+///
+/// `Some((old, new))` when the file's identity was last seen at a different
+/// path that is no longer there: the file moved and the event that would have
+/// said so never came. A path that no longer exists is forgotten instead, so
+/// a later file that happens to be given the same inode (identities are
+/// recycled after a delete) is not mistaken for this one renamed; a real
+/// rename never reports its old path as gone, which is the whole distinction.
+fn reconcile_by_identity(
+    known: &mut HashMap<FileId, PathBuf>,
+    path: &Path,
+) -> Option<(PathBuf, PathBuf)> {
+    if !path.is_file() {
+        known.retain(|_, p| p != path);
+        return None;
+    }
+    let id = get_file_id(path).ok()?;
+    match known.insert(id, path.to_path_buf()) {
+        Some(old) if old != path && !old.exists() => Some((old, path.to_path_buf())),
+        _ => None,
+    }
 }
 
 /// Resolves `p` to the spelling `notify` will actually report paths under it
@@ -312,11 +394,13 @@ fn start_asset_watcher(
         .add_root(&strip_base, RecursiveMode::Recursive);
 
     info!("asset hot reload: watching {engine_root}");
+    let known = Mutex::new(seed_known(&strip_base));
     commands.insert_resource(AssetWatcher {
         _debouncer: Mutex::new(debouncer),
         events: Mutex::new(rx),
         strip_base,
         engine_root,
+        known,
     });
 }
 
@@ -491,6 +575,14 @@ fn drain_asset_changes(
                 return;
             }
         };
+        // Recovered rather than propagated, like the events lock below is
+        // not: what is behind this lock is a cache of what is on disk, and
+        // a panic mid-update leaves it stale, not wrong in a way the next
+        // reconcile cannot correct.
+        let mut known = watcher
+            .known
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         loop {
             match events.try_recv() {
                 Ok(Ok(batch)) => {
@@ -503,8 +595,23 @@ fn drain_asset_changes(
                         // `a_rename_is_reported_with_both_the_old_and_the_new
                         // _path` pins the pair and leaves a backend free to
                         // spell the kind its own way.
-                        if let [from, to] = event.event.paths.as_slice() {
-                            renamed.push((from.clone(), to.clone()));
+                        match event.event.paths.as_slice() {
+                            [from, to] => {
+                                renamed.push((from.clone(), to.clone()));
+                                // Kept current so the next lone event about
+                                // this file compares against where it is.
+                                reconcile_by_identity(&mut known, to);
+                            }
+                            // One path: a create, a write, a delete -- or the
+                            // destination of a rename whose source the
+                            // backend never reported (see the module docs).
+                            // The file's identity tells those apart.
+                            [only] => {
+                                if let Some(pair) = reconcile_by_identity(&mut known, only) {
+                                    renamed.push(pair);
+                                }
+                            }
+                            _ => {}
                         }
                         for path in event.event.paths.iter() {
                             let Some(engine_path) =
@@ -681,6 +788,13 @@ mod tests {
     // between runs: this points to FSEvents itself not reliably reporting
     // both halves of a same-directory rename, not to anything our cache
     // seeding controls. Left ignored rather than guessed at further.
+    //
+    // This measures the *backend*, and stays ignored where the backend is
+    // unreliable. The engine no longer depends on what it measures: the drain
+    // reconstructs a rename from the file's identity when only its new path
+    // is reported (`a_rename_whose_old_half_the_backend_dropped_is_still_recorded`),
+    // which is what let `bsengine-runtime`'s rename-recovery tests run on
+    // macOS again.
     #[cfg_attr(
         target_os = "macos",
         ignore = "FSEvents does not reliably report both halves of the rename \
@@ -1011,6 +1125,157 @@ mod tests {
                 abs_events.iter().map(|e| e.event.kind).collect::<Vec<_>>()
             );
         }
+    }
+
+    // ---- renames the backend reports only half of --------------------------
+
+    /// A watcher whose OS backend watches an unrelated, empty directory, so
+    /// the only events its drain ever sees are the ones a test hands it. That
+    /// is what makes the backend's behaviour a *parameter* here rather than
+    /// whatever this platform happens to do today.
+    fn watcher_fed_by_hand(
+        assets_root: &Path,
+        engine_root: String,
+    ) -> (AssetWatcher, mpsc::Sender<DebounceEventResult>) {
+        let decoy = std::env::temp_dir().join(unique("decoy"));
+        std::fs::create_dir_all(&decoy).unwrap();
+        let (tx, rx) = mpsc::channel();
+        let mut debouncer = new_debouncer(DEBOUNCE, None, tx.clone()).unwrap();
+        debouncer
+            .watcher()
+            .watch(&decoy, RecursiveMode::Recursive)
+            .unwrap();
+        let strip_base = resolve_watch_prefix(assets_root.to_path_buf());
+        let known = Mutex::new(seed_known(&strip_base));
+        (
+            AssetWatcher {
+                _debouncer: Mutex::new(debouncer),
+                events: Mutex::new(rx),
+                strip_base,
+                engine_root,
+                known,
+            },
+            tx,
+        )
+    }
+
+    /// A lone event naming one path, as a backend that dropped a rename's
+    /// old half reports it.
+    fn lone_create(path: PathBuf) -> DebounceEventResult {
+        use notify_debouncer_full::notify::event::{CreateKind, Event, EventKind};
+        Ok(vec![DebouncedEvent::new(
+            Event::new(EventKind::Create(CreateKind::File)).add_path(path),
+            Instant::now(),
+        )])
+    }
+
+    /// The macOS failure, reproduced on every platform: the file is renamed
+    /// on disk and the drain is told only that the new name was created.
+    /// The identity must still move and the old path must still be recorded,
+    /// because a script that names the old path can be recovered by nothing
+    /// else. The premise -- no sidecar beside the new name before the drain
+    /// runs -- is asserted so a test fixture that had one already cannot pass
+    /// this by accident.
+    #[test]
+    fn a_rename_whose_old_half_the_backend_dropped_is_still_recorded() {
+        use crate::identity::{sidecar_path, Sidecar};
+        use bsengine_app::new_app;
+
+        let root = std::env::temp_dir().join(unique("half-rename"));
+        let _guard = ProbeDir(root.clone());
+        let assets = root.join("assets");
+        std::fs::create_dir_all(assets.join("models")).unwrap();
+        let from = assets.join("models").join("hero.glb");
+        std::fs::write(&from, b"glb").unwrap();
+        std::fs::write(
+            sidecar_path(&from),
+            "(guid: \"0193a7c1-8f2e-7c44-9d61-3b5a0e7f2c19\", hash: \"blake3:00\", size: None, former_paths: [])",
+        )
+        .unwrap();
+
+        let engine_root = format!("{}/assets", root.to_string_lossy().replace('\\', "/"));
+        let (watcher, tx) = watcher_fed_by_hand(&assets, engine_root);
+        let strip_base = watcher.strip_base.clone();
+        let mut app = new_app();
+        app.add_plugins(crate::plugin::AssetPlugin);
+        app.insert_resource(watcher);
+        app.add_systems(Update, drain_asset_changes);
+        app.update();
+
+        // The rename happens behind the backend's back, and the drain is
+        // told only about the destination.
+        let to = assets.join("models").join("champion.glb");
+        std::fs::rename(&from, &to).unwrap();
+        assert!(
+            !sidecar_path(&to).exists(),
+            "premise: nothing has identified the new name yet"
+        );
+        tx.send(lone_create(strip_base.join("models").join("champion.glb")))
+            .unwrap();
+        app.update();
+
+        let moved = Sidecar::read(sidecar_path(&to))
+            .expect("readable")
+            .expect("the identity must have followed the asset to its new name");
+        assert_eq!(
+            moved.former_paths,
+            vec!["assets/models/hero.glb".to_string()],
+            "and the old path must be recorded, or nothing can recover a reference to it"
+        );
+        assert!(
+            !sidecar_path(&from).exists(),
+            "the sidecar left behind at the old name would be reported as an orphan"
+        );
+    }
+
+    /// What the identity map must and must not treat as a rename: a file
+    /// re-reported at its own path is nothing, a new file is nothing, and a
+    /// deleted file is forgotten -- so a later file handed the same recycled
+    /// identity is a new file, not the deleted one moved.
+    #[test]
+    fn the_identity_map_forgets_deleted_files_and_ignores_writes_in_place() {
+        let root = std::env::temp_dir().join(unique("identity-map"));
+        let _guard = ProbeDir(root.clone());
+        std::fs::create_dir_all(&root).unwrap();
+        let a = root.join("a.txt");
+        std::fs::write(&a, b"a").unwrap();
+        let mut known = seed_known(&root);
+        assert_eq!(known.len(), 1, "premise: the seed found the one file");
+
+        assert_eq!(
+            reconcile_by_identity(&mut known, &a),
+            None,
+            "a write in place is not a rename"
+        );
+        let b = root.join("b.txt");
+        std::fs::write(&b, b"b").unwrap();
+        assert_eq!(
+            reconcile_by_identity(&mut known, &b),
+            None,
+            "a new file is not a rename"
+        );
+        assert_eq!(known.len(), 2, "but it is now known");
+
+        std::fs::remove_file(&a).unwrap();
+        assert_eq!(reconcile_by_identity(&mut known, &a), None);
+        assert!(
+            !known.values().any(|p| p == &a),
+            "a deleted file is forgotten, so a recycled identity cannot impersonate it"
+        );
+
+        // The rename itself, seen through only its destination.
+        let c = root.join("c.txt");
+        std::fs::rename(&b, &c).unwrap();
+        assert_eq!(
+            reconcile_by_identity(&mut known, &c),
+            Some((b.clone(), c.clone())),
+            "the identity last seen at b, now at c with b gone, is a rename"
+        );
+        assert_eq!(
+            reconcile_by_identity(&mut known, &c),
+            None,
+            "reported once; the map now says c is where it lives"
+        );
     }
 
     // ---- the plugin itself ------------------------------------------------
@@ -1432,17 +1697,14 @@ mod tests {
     // what mints the identity this test follows, and its own atomic sidecar
     // write is itself a rename the watcher sees -- so this covers the recorder
     // not reacting to its own file format as well.
-    // macOS: downstream of the same FSEvents unreliability as
-    // `a_rename_is_reported_with_both_the_old_and_the_new_path` (see its
-    // comment) -- when the rename never gets reported as a pair, there is no
-    // former path to follow the sidecar with. `resolve_watch_prefix` reaches
-    // this test's code path too, but does not change the outcome, since the
-    // remaining gap is FSEvents not always emitting both halves at all.
-    #[cfg_attr(
-        target_os = "macos",
-        ignore = "downstream of FSEvents not reliably reporting both halves \
-                  of a rename -- see a_rename_is_reported_with_both_the_old_and_the_new_path"
-    )]
+    // macOS: was ignored while the recorder depended on FSEvents reporting
+    // the rename as a pair, which it does not reliably do (see
+    // `a_rename_is_reported_with_both_the_old_and_the_new_path`). The drain
+    // now reconstructs the rename from the file's identity when only the new
+    // name is reported, so this runs on macOS again -- and is the one test
+    // that exercises that reconstruction against the *real* backend. If it
+    // fails there, the cause is new; the reconstruction itself is measured
+    // backend-free in `a_rename_whose_old_half_the_backend_dropped_is_still_recorded`.
     #[test]
     fn a_rename_moves_the_sidecar_along_and_records_the_old_path() {
         use crate::identity::{sidecar_path, AssetIdentityPlugin, AssetIndex, Sidecar};
@@ -2069,6 +2331,7 @@ mod tests {
             events: Mutex::new(rx),
             strip_base: std::env::current_dir().unwrap().join("probe/assets"),
             engine_root: "probe/assets".to_string(),
+            known: Mutex::new(HashMap::new()),
         });
 
         let (_, logs) = capture_warnings(|| app.update());

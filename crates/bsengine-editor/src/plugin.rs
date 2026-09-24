@@ -864,6 +864,10 @@ fn process_editor_commands(
                         Ok(()) => {
                             if let Some(insp) = inspector.as_mut() {
                                 insp.current_scene_path = Some(path.clone());
+                                // A saved scene is new references on disk;
+                                // the References panel's graph is walked
+                                // from disk, so ask for it again.
+                                insp.asset_graph_refresh = true;
                             }
                         }
                         Err(e) => tracing::warn!("save_scene: write failed to {path}: {e}"),
@@ -1592,6 +1596,47 @@ fn populate_asset_references_snapshot(
         }
     };
     inspector.asset_references = Some(snapshot);
+}
+
+/// Walks the whole project into `InspectorState::asset_graph` when
+/// `asset_graph_refresh` is set, for the References panel, and clears the
+/// flag. Same walk as `populate_asset_references_snapshot`; that one is
+/// the selected asset's corner, this is the map. On demand rather than per
+/// frame or per selection because the walk reads every scene file, and a
+/// flag rather than a dropped snapshot so the panel keeps drawing the old
+/// graph until the new one is ready.
+fn populate_asset_graph_snapshot(
+    inspector: Option<ResMut<InspectorState>>,
+    project_dir: Option<Res<bsengine_core::ProjectDir>>,
+) {
+    let Some(mut inspector) = inspector else {
+        return;
+    };
+    if !inspector.asset_graph_refresh {
+        return;
+    }
+    inspector.asset_graph_refresh = false;
+    let dir = project_dir.map_or_else(|| ".".to_string(), |d| d.0.clone());
+    let snapshot = match bsengine_asset::cook::cook_project(&dir) {
+        Ok(cooked) => bsengine_core::AssetGraphSnapshot {
+            edges: cooked.edges.into_iter().collect(),
+            unreferenced: cooked.unreferenced.into_iter().collect(),
+            missing: cooked
+                .missing
+                .into_iter()
+                .map(|m| (m.referrer, m.path))
+                .collect(),
+            error: None,
+        },
+        Err(e) => {
+            tracing::warn!("the asset graph could not be walked: {e}");
+            bsengine_core::AssetGraphSnapshot {
+                error: Some(e.to_string()),
+                ..Default::default()
+            }
+        }
+    };
+    inspector.asset_graph = Some(snapshot);
 }
 
 /// Component types excluded from `populate_snapshot_extra_components`'s
@@ -2450,6 +2495,12 @@ impl Plugin for EditorPlugin {
             populate_asset_import_snapshot.after(apply_inspector_cmds),
         );
         app.add_systems(Update, populate_asset_references_snapshot);
+        // After the command drain, so a scene save's request is answered in
+        // the same frame rather than a frame later.
+        app.add_systems(
+            Update,
+            populate_asset_graph_snapshot.after(process_editor_commands),
+        );
         app.add_systems(
             Update,
             populate_snapshot_extra_components.after(update_editor_snapshot),
@@ -94252,6 +94303,102 @@ mod tests {
         assert!(!refs.reached, "nothing names the texture");
         assert!(refs.referencers.is_empty());
         assert_eq!(refs.error, None);
+    }
+
+    /// The whole-project graph is walked when asked and only then: the
+    /// request fills it with the packager's edges, unreached assets and
+    /// dangling references, and a scene edited on disk afterwards is not
+    /// seen until the next request -- which a scene save makes.
+    #[test]
+    fn the_asset_graph_is_walked_on_request_and_again_after_a_scene_save() {
+        let probe = ProjectProbe::new("graph");
+        probe.write(
+            "assets/scenes/level2.ron",
+            r#"(entities: [(name: "Hero", gltf: Some(Path("assets/models/hero.glb")), texture: Some("assets/textures/gone.png"))])"#,
+        );
+        let mut app = new_app();
+        app.add_plugins(EditorPlugin);
+        app.insert_resource(bsengine_core::ProjectDir(
+            probe.dir.to_string_lossy().to_string(),
+        ));
+
+        app.update();
+        assert!(
+            app.world()
+                .resource::<InspectorState>()
+                .asset_graph
+                .is_none(),
+            "premise: nothing asked, nothing walked"
+        );
+
+        app.world_mut()
+            .resource_mut::<InspectorState>()
+            .asset_graph_refresh = true;
+        app.update();
+        let insp = app.world().resource::<InspectorState>();
+        assert!(!insp.asset_graph_refresh, "the request is consumed");
+        let graph = insp.asset_graph.clone().expect("walked on request");
+        assert_eq!(graph.error, None);
+        let edge = |a: &str, b: &str| (a.to_string(), b.to_string());
+        assert!(
+            graph
+                .edges
+                .contains(&edge("assets/scripts/hero.js", "assets/scenes/level2.ron")),
+            "the packager's edges, script mentions included; got {:?}",
+            graph.edges
+        );
+        assert_eq!(graph.unreferenced, vec!["assets/textures/unused.png"]);
+        assert_eq!(
+            graph.missing,
+            vec![edge("assets/scenes/level2.ron", "assets/textures/gone.png")]
+        );
+
+        // The scene changes on disk; without a request the graph is what
+        // it was.
+        probe.write(
+            "assets/scenes/level2.ron",
+            r#"(entities: [(name: "Hero", texture: Some("assets/textures/unused.png"))])"#,
+        );
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<InspectorState>()
+                .asset_graph
+                .as_ref()
+                .map(|g| g.unreferenced.clone()),
+            Some(vec!["assets/textures/unused.png".to_string()]),
+            "no request, no re-walk"
+        );
+
+        // A save of any scene is a request: the saved file here is one the
+        // walk does not reach (the editor writes only what it holds), but
+        // the request it makes re-reads the whole project.
+        app.world()
+            .resource::<EditorCommandQueueResource>()
+            .0
+            .lock()
+            .unwrap()
+            .push(EditorCommand::SaveScene {
+                path: probe
+                    .dir
+                    .join("assets/scenes/saved.ron")
+                    .to_string_lossy()
+                    .to_string(),
+            });
+        app.update();
+        let graph = app
+            .world()
+            .resource::<InspectorState>()
+            .asset_graph
+            .clone()
+            .expect("still there");
+        assert_eq!(
+            graph.unreferenced,
+            vec!["assets/scenes/saved.ron"],
+            "after the save the walk sees level2.ron now naming the texture, and the \
+             freshly saved scene -- which nothing names -- as the one unreached asset"
+        );
+        assert!(graph.missing.is_empty(), "and the dangling reference is gone");
     }
 
     /// A project the walk cannot start in records why, once, instead of

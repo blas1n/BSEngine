@@ -589,6 +589,56 @@ pub struct AssetReferencesSnapshot {
     pub error: Option<String>,
 }
 
+/// The whole project's asset dependency graph, as the References panel
+/// draws it: every `(referrer, asset)` edge the packager's walk followed,
+/// the assets it never reached, and the references that name nothing.
+///
+/// Populated by `bsengine-editor` when [`InspectorState::asset_graph_refresh`]
+/// is set -- by the panel on its first frame and on its Refresh button, and
+/// by a scene save -- rather than every frame or on every selection: the
+/// walk reads every scene in the project, and the panel needs all of it,
+/// not one asset's corner. [`AssetReferencesSnapshot`] is the per-asset
+/// view the Inspector uses; this is the map.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AssetGraphSnapshot {
+    /// `(referrer, asset)`, sorted; `"project.toml"` is the referrer of the
+    /// entry scene and of `extra_assets`.
+    pub edges: Vec<(String, String)>,
+    /// Identified assets nothing reaches, sorted. A packaged build leaves
+    /// them out.
+    pub unreferenced: Vec<String>,
+    /// `(referrer, path)` for every reference to a file that does not
+    /// exist -- what fails packaging.
+    pub missing: Vec<(String, String)>,
+    /// Why the walk could not run (no manifest, no entry scene), shown in
+    /// place of the graph.
+    pub error: Option<String>,
+}
+
+impl AssetGraphSnapshot {
+    /// The files that name `path`, sorted and without duplicates.
+    pub fn referencers_of(&self, path: &str) -> Vec<&str> {
+        let mut found: Vec<&str> = self
+            .edges
+            .iter()
+            .filter(|(_, to)| to == path)
+            .map(|(from, _)| from.as_str())
+            .collect();
+        found.sort_unstable();
+        found.dedup();
+        found
+    }
+
+    /// The assets `path` names, sorted.
+    pub fn dependencies_of(&self, path: &str) -> Vec<&str> {
+        self.edges
+            .iter()
+            .filter(|(from, _)| from == path)
+            .map(|(_, to)| to.as_str())
+            .collect()
+    }
+}
+
 /// Editor-side resource holding the current entity snapshot, selection,
 /// pending edit commands, and all viewport/gizmo/camera UI state.
 #[derive(Resource)]
@@ -614,6 +664,14 @@ pub struct InspectorState {
     /// [`AssetReferencesSnapshot`]. `None` until `bsengine-editor` has
     /// walked the project for it.
     pub asset_references: Option<AssetReferencesSnapshot>,
+    /// The project's whole dependency graph, for the References panel; see
+    /// [`AssetGraphSnapshot`]. `None` until asked for and walked.
+    pub asset_graph: Option<AssetGraphSnapshot>,
+    /// Set by whoever wants `asset_graph` (re)walked -- the panel, a scene
+    /// save -- and cleared by `bsengine-editor` once it has. A flag rather
+    /// than dropping the snapshot, so the panel keeps drawing the old graph
+    /// until the new one is ready instead of flashing empty.
+    pub asset_graph_refresh: bool,
     /// Edit commands queued by the UI this frame, drained by `apply_inspector_cmds`.
     pub cmd_queue: Vec<InspectorCmd>,
     /// Cloned reflected components currently attached to `selected_id`,
@@ -775,6 +833,8 @@ impl Default for InspectorState {
             asset_import: None,
             asset_import_error: None,
             asset_references: None,
+            asset_graph: None,
+            asset_graph_refresh: false,
             cmd_queue: Vec::new(),
             reflected_components: Vec::new(),
             edit_pos: [0.0; 3],

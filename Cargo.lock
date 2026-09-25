@@ -1193,9 +1193,11 @@ dependencies = [
  "bsengine-network",
  "bsengine-physics",
  "bsengine-scene",
+ "bsengine-visualscript",
  "deno_core",
  "glam 0.29.3",
  "kira",
+ "ron",
  "serde",
  "serde_json",
  "tracing",
@@ -1204,6 +1206,14 @@ dependencies = [
 
 [[package]]
 name = "bsengine-shadergraph"
+version = "0.1.0"
+dependencies = [
+ "ron",
+ "serde",
+]
+
+[[package]]
+name = "bsengine-visualscript"
 version = "0.1.0"
 dependencies = [
  "ron",

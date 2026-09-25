@@ -68,6 +68,18 @@ Editor + View Owners + Orphan Resource Explorer. 수렴점은 **에셋별 의존
 `egui`가 스크롤 영역 밖 위젯을 그리지 않아 44개 호출 메뉴는 데이터로 단언했다. 이로써 **비교 문서 표에 단일 실행 파일만
 남았다.**
 
+**비주얼 스크립팅 3단계 — 루프·타이머·스코프 검사(2026-09-26).** 1단계가 남긴 노드 격차를 Blueprint의 이름 그대로
+닫았다: `ForLoop`(first..last, `body`/`completed`/`index`), `WhileLoop`(Blueprint의 폭주 루프 가드처럼 한 프레임
+`LOOP_LIMIT`=100,000회에서 로그를 남기고 끊는다 — 한 프레임은 다른 모든 엔티티의 스크립트가 기다리는 V8 틱이라
+Blueprint의 백만보다 낮게), `Delay`(프레임 수, `Bsengine.setTimeout`으로 다음 프레임에 이어짐), `OnInterval(초)`
+(모듈 레벨 누산기에 `getDeltaTime`을 더해 주기마다 실행), HUD 문자열용 `ToText`/`Concat`. `Call` 표는 44→68개
+(방향 벡터·속도·질량·타이머·카메라 FOV·재질 등, 각각 프렐류드의 시그니처를 확인해 넣음). **`OnCollision`의 `other`와
+`ForLoop`의 `index`는 그 흐름 안에서만 존재하는 값**이라, 밖에서 읽으면 생성된 JS가 첫 프레임에 ReferenceError를
+내던 것을 컴파일 시 `GraphError::OutOfScope`로 막았다(컴파일러가 콜백·루프 본문을 쓰는 동안 스코프 스택을 유지하고,
+흐름 노드 인자와 식 피연산자 두 경로 모두에서 검사 — 1단계에서 한쪽만 검사한 뮤테이션이 살아남았던 그 두 경로).
+`bsengine-scripting`의 E2E는 고정 0.25s 클럭에서 for 본문이 프레임당 3번, 2프레임 딜레이가 정확히 두 번째 프레임에,
+0.5s 인터벌이 두 프레임에 한 번(세 번째 프레임엔 안) 도는 것을 잰다.
+
 **macOS 워처 — rename 재구성(2026-09-25, #1888).** #1871/#1872가 남긴 문제는 FSEvents가 같은 디렉터리 rename의
 옛 경로 이벤트를 실행마다 다르게 떨어뜨리는 것이었고, 기록기는 디바운서가 짝지은 `[from, to]`만 봤다. 추측으로
 CI를 한 번 더 돌리는 대신 **백엔드와 무관한 메커니즘**을 넣었다: 워처가 감시 대상 파일을 `file_id::FileId`(inode/

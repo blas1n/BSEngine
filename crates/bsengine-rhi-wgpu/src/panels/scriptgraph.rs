@@ -446,9 +446,19 @@ fn addable_kinds(panel: &ScriptGraphPanel) -> Vec<(&'static str, Vec<NodeKind>)>
                 NodeKind::OnUpdate,
                 NodeKind::OnKeyPressed("Space".to_string()),
                 NodeKind::OnCollision,
+                NodeKind::OnInterval(1.0),
             ],
         ),
-        ("Flow", vec![NodeKind::Branch, NodeKind::Sequence]),
+        (
+            "Flow",
+            vec![
+                NodeKind::Branch,
+                NodeKind::Sequence,
+                NodeKind::ForLoop,
+                NodeKind::WhileLoop,
+                NodeKind::Delay,
+            ],
+        ),
         (
             "Values",
             vec![
@@ -458,6 +468,8 @@ fn addable_kinds(panel: &ScriptGraphPanel) -> Vec<(&'static str, Vec<NodeKind>)>
                 NodeKind::SelfEntity,
                 NodeKind::GetVar(var.clone()),
                 NodeKind::SetVar(var),
+                NodeKind::ToText,
+                NodeKind::Concat,
             ],
         ),
         (
@@ -509,8 +521,14 @@ fn node_title(kind: &NodeKind) -> String {
         NodeKind::OnUpdate => "On Update".to_string(),
         NodeKind::OnKeyPressed(key) => format!("On Key \"{key}\""),
         NodeKind::OnCollision => "On Collision".to_string(),
+        NodeKind::OnInterval(seconds) => format!("On Interval {seconds}s"),
         NodeKind::Branch => "Branch".to_string(),
         NodeKind::Sequence => "Sequence".to_string(),
+        NodeKind::ForLoop => "For Loop".to_string(),
+        NodeKind::WhileLoop => "While Loop".to_string(),
+        NodeKind::Delay => "Delay".to_string(),
+        NodeKind::ToText => "To Text".to_string(),
+        NodeKind::Concat => "Concat".to_string(),
         NodeKind::Literal(Value::Number(n)) => format!("Literal {n}"),
         NodeKind::Literal(Value::Bool(b)) => format!("Literal {b}"),
         NodeKind::Literal(Value::Text(s)) => format!("Literal \"{s}\""),
@@ -539,6 +557,7 @@ fn menu_label(kind: &NodeKind) -> String {
         NodeKind::Literal(Value::Text(_)) => "Literal Text".to_string(),
         NodeKind::Literal(Value::Bool(_)) => "Literal Bool".to_string(),
         NodeKind::OnKeyPressed(_) => "On Key Pressed".to_string(),
+        NodeKind::OnInterval(_) => "On Interval".to_string(),
         NodeKind::GetVar(_) => "Get Variable".to_string(),
         NodeKind::SetVar(_) => "Set Variable".to_string(),
         NodeKind::Compare(_) => "Compare".to_string(),
@@ -573,7 +592,8 @@ fn error_node(error: &GraphError) -> Option<u32> {
         | GraphError::UnknownOp { node, .. }
         | GraphError::MissingInput { node, .. }
         | GraphError::TypeMismatch { node, .. }
-        | GraphError::AmbiguousFlow { node, .. } => Some(*node),
+        | GraphError::AmbiguousFlow { node, .. }
+        | GraphError::OutOfScope { node, .. } => Some(*node),
         // The node the walk was on when it found itself again: the last one.
         GraphError::Cycle(ids) | GraphError::FlowCycle(ids) => ids.last().copied(),
     }
@@ -623,6 +643,7 @@ pub fn parse_value(text: &str) -> Value {
 fn parameter_text(kind: &NodeKind) -> Option<String> {
     match kind {
         NodeKind::OnKeyPressed(key) => Some(key.clone()),
+        NodeKind::OnInterval(seconds) => Some(seconds.to_string()),
         NodeKind::Literal(value) => Some(value_text(value)),
         NodeKind::GetVar(name) | NodeKind::SetVar(name) | NodeKind::Call(name) => {
             Some(name.clone())
@@ -643,6 +664,15 @@ pub fn apply_parameter(kind: &mut NodeKind, text: &str) -> bool {
             *key = text.to_string();
             true
         }
+        // A period that is not a positive number is refused like a literal's
+        // half-typed text: zero would fire every frame and subtract nothing.
+        NodeKind::OnInterval(seconds) => match text.trim().parse::<f64>() {
+            Ok(v) if v > 0.0 => {
+                *seconds = v;
+                true
+            }
+            _ => false,
+        },
         NodeKind::Literal(Value::Number(n)) => match text.trim().parse::<f64>() {
             Ok(v) => {
                 *n = v;
@@ -1640,7 +1670,12 @@ mod tests {
             NodeKind::OnCollision,
             NodeKind::Branch,
             NodeKind::Sequence,
+            NodeKind::ForLoop,
+            NodeKind::WhileLoop,
+            NodeKind::Delay,
             NodeKind::SelfEntity,
+            NodeKind::ToText,
+            NodeKind::Concat,
             NodeKind::Add,
             NodeKind::Subtract,
             NodeKind::Multiply,
@@ -1654,6 +1689,7 @@ mod tests {
             assert!(all.contains(&&kind), "{kind:?} must be in the menu");
         }
         assert!(all.iter().any(|k| matches!(k, NodeKind::OnKeyPressed(_))));
+        assert!(all.iter().any(|k| matches!(k, NodeKind::OnInterval(_))));
         assert!(all
             .iter()
             .any(|k| matches!(k, NodeKind::Literal(Value::Number(_)))));
@@ -1677,13 +1713,19 @@ mod tests {
             .into_iter()
             .map(|(t, _)| t)
             .collect();
+        // Everything up to the Values group fits the menu's 360px; the Math
+        // and Calls groups are below the fold and covered by the data check.
         for expected in [
             "Events",
             "On Key Pressed",
+            "On Interval",
             "Flow",
+            "For Loop",
+            "While Loop",
+            "Delay",
             "Values",
             "Literal Text",
-            "Math",
+            "To Text",
         ] {
             assert!(
                 texts.iter().any(|t| t == expected),
@@ -1879,11 +1921,32 @@ mod tests {
         assert!(apply_parameter(&mut c, "quit"));
         assert_eq!(c, NodeKind::Call("quit".to_string()));
 
+        // An interval's period: a zero or negative one would compile to an
+        // accumulator that fires every frame, so it is refused like a
+        // half-typed literal is.
+        let mut i = NodeKind::OnInterval(1.0);
+        assert_eq!(parameter_text(&i), Some("1".to_string()));
+        assert!(apply_parameter(&mut i, "0.25"));
+        assert_eq!(i, NodeKind::OnInterval(0.25));
+        assert!(!apply_parameter(&mut i, "0"));
+        assert!(!apply_parameter(&mut i, "-2"));
+        assert!(!apply_parameter(&mut i, "soon"));
+        assert_eq!(i, NodeKind::OnInterval(0.25));
+
         assert!(
             !apply_parameter(&mut NodeKind::Branch, "x"),
             "no parameter, nothing applied"
         );
         assert_eq!(parameter_text(&NodeKind::Branch), None);
+        assert_eq!(
+            error_node(&GraphError::OutOfScope {
+                node: 4,
+                port: "x".to_string(),
+                source: 2
+            }),
+            Some(4),
+            "an out-of-scope read is reported beside the node reading, not the source"
+        );
     }
 
     /// A variable's declared type decides what its ports accept: a `Text`

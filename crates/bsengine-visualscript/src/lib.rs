@@ -29,8 +29,15 @@
 //! is the first frame (a guard, as Unity's `Start` precedes the first
 //! `Update`), `OnKeyPressed` is a per-frame `isKeyPressed` check, and
 //! `OnCollision` registers its callback on that first frame, once `self` is
-//! known. One entry point, one place the generated code can be read from top
-//! to bottom.
+//! known, and `OnInterval` is an accumulator on the frame's delta. One entry
+//! point, one place the generated code can be read from top to bottom.
+//!
+//! Loops are Blueprint's: `ForLoop` and `WhileLoop` run their body inside the
+//! frame, with the while guarded against running away, and `Delay` continues
+//! on a later frame through `Bsengine.setTimeout`. A value that exists only
+//! inside a flow the compiler writes -- a collision's `other`, a loop's
+//! `index` -- may only be read from inside that flow; reading it anywhere
+//! else is refused at compile time rather than thrown at runtime.
 //!
 //! The crate depends on no ECS, GPU or UI types, so it is a leaf both the
 //! editor and asset tooling can use, and compilation is a pure function unit
@@ -43,6 +50,6 @@ pub mod compile;
 pub mod graph;
 pub mod ops;
 
-pub use compile::{compile, Port, PortType, ValueType};
+pub use compile::{compile, Port, PortType, ValueType, HEADER, LOOP_LIMIT};
 pub use graph::{CompareOp, Edge, GraphError, GraphNode, NodeKind, ScriptGraph, Value, Variable};
 pub use ops::{op, OpSpec, OPS};

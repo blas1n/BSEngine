@@ -1060,6 +1060,62 @@ mod tests {
         );
     }
 
+    /// The type check on the ports a *flow* node reads -- a Branch's
+    /// condition, a SetVar's value, an impure call's arguments -- which is a
+    /// different code path from the one an expression's inputs take. A
+    /// mutation that disabled only this path survived every other test in
+    /// this file; these three are what it fails.
+    #[test]
+    fn flow_nodes_type_check_their_inputs_too() {
+        let mut g = bob();
+        g.nodes.push(node(20, NodeKind::Branch));
+        g.nodes.push(node(21, number(1.0)));
+        g.edges.retain(|e| e.from != (0, "then".to_string()));
+        g.edges.push(edge((0, "then"), (20, "exec")));
+        g.edges.push(edge((21, "out"), (20, "condition")));
+        assert_eq!(
+            compile(&g),
+            Err(GraphError::TypeMismatch {
+                node: 20,
+                port: "condition".to_string(),
+                expected: "Bool".to_string(),
+                found: "Number".to_string()
+            })
+        );
+
+        let mut g = bob();
+        g.nodes
+            .push(node(20, NodeKind::SetVar("speed".to_string())));
+        g.nodes.push(node(21, text("fast")));
+        g.edges.push(edge((1, "then"), (20, "exec")));
+        g.edges.push(edge((21, "out"), (20, "value")));
+        assert_eq!(
+            compile(&g),
+            Err(GraphError::TypeMismatch {
+                node: 20,
+                port: "value".to_string(),
+                expected: "Number".to_string(),
+                found: "Text".to_string()
+            })
+        );
+
+        let mut g = bob();
+        g.nodes.push(node(20, call("setVisible")));
+        g.nodes.push(node(21, number(1.0)));
+        g.edges.push(edge((1, "then"), (20, "exec")));
+        g.edges.push(edge((2, "out"), (20, "entity")));
+        g.edges.push(edge((21, "out"), (20, "visible")));
+        assert_eq!(
+            compile(&g),
+            Err(GraphError::TypeMismatch {
+                node: 20,
+                port: "visible".to_string(),
+                expected: "Bool".to_string(),
+                found: "Number".to_string()
+            })
+        );
+    }
+
     /// The port tables the editor draws from agree with what the compiler
     /// does: an impure call has flow ports and a pure one does not, a
     /// variable's ports take the graph's word for their type, and an unknown

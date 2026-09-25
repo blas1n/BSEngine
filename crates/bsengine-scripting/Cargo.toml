@@ -28,6 +28,13 @@ tracing.workspace = true
 
 [dev-dependencies]
 bsengine-catalog.workspace = true
+# The visual scripting end-to-end test compiles a graph to JS and runs it
+# through the real plugin: the graph crate is a leaf, so this is the one
+# place the two meet.
+bsengine-visualscript.workspace = true
+# The demo-graph test reads the committed `.scriptgraph.ron` the way an author
+# saved it, rather than rebuilding it as a literal.
+ron.workspace = true
 bsengine-app.workspace = true
 # The prediction tests spawn a named, networked entity and drive a real
 # movement script over it, which needs `Name` and `glam` directly.

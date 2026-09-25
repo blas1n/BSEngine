@@ -22,7 +22,7 @@ master `134b7bf1` 기준. 열린 PR·이슈 0개, 소스 TODO/FIXME 0개, 워크
 |---|---|---|
 | **macOS FSEvents rename 페어링** | 백엔드 측정 테스트 2개만 macOS `#[ignore]` | #1888: 엔진이 더는 백엔드의 짝맞춤에 의존하지 않음 — 파일 identity(inode)로 잃어버린 반쪽을 재구성. 런타임 복구 테스트 2개 + 실백엔드 rename 테스트 1개를 macOS에서 다시 켬. 아래 절 참조 |
 | 텍스처 스트리밍 2단계(거리 기반 목표 밉·메모리 예산·퇴거) | `grep -rn "desired_mip\|texture_budget"` → 0 | 1단계(사이드카 플래그·부분 상주·프레임당 한 레벨 진행 로드)는 #1885로 있음. 아래 절 참조 |
-| 비주얼 스크립팅 | `grep -rl "VisualScript\|NodeGraph"` → 0 | |
+| 비주얼 스크립팅 **에디터 패널** | `grep -rl "ScriptGraphPanel"` → 0 | 그래프 모델·JS 컴파일러·데모 그래프는 #1889(`bsengine-visualscript`)로 있음. 아래 절 참조 |
 | 단일 실행 파일 | `grep -rl "embed_assets\|EmbeddedPak"` → 0 | 의도적 범위 밖(로드맵 item 55) |
 
 ### 플랫폼 — 무엇이 검증됐고 무엇이 안 됐나
@@ -48,6 +48,18 @@ Editor + View Owners + Orphan Resource Explorer. 수렴점은 **에셋별 의존
 인스펙터의 "Not reached from the entry scene"은 정확히 "패키지 빌드에 빠진다"와 같은 뜻이다. `cook_project`가
 `project.toml`의 `entry_scene`·`extra_assets`를 읽어 에디터·MCP가 런타임의 매니페스트 타입 없이 같은 걷기를
 쓴다.
+
+**비주얼 스크립팅 1단계 — 모델과 컴파일러(2026-09-25, #1889).** 사용자가 "만들자"를 택했고(비교 문서 아래 5절의
+"AI-native와 어긋난다"는 판단은 그대로 남긴다), 셰이더 그래프 선례를 그대로 따랐다: `.scriptgraph.ron` 노드 그래프를
+**런타임이 이미 읽는 `.js`로 컴파일**한다. 런타임·핫리로드·패키저·`api.d.ts`·MCP 도구는 한 줄도 안 바뀌고, 생성된
+텍스트가 1급이라 에이전트가 읽고 고친다. 세 엔진 조사: Unreal Blueprint·Unity Visual Scripting·Godot 3 VisualScript
+(4에서 제거)가 모두 **흐름 포트 + 데이터 포트, 이벤트 노드, Branch/Sequence, 변수, 엔진 API 호출**로 수렴한다 — 그것이
+노드 집합이다(`OnStart`/`OnUpdate`/`OnKeyPressed`/`OnCollision`, `Branch`, `Sequence`, `Literal`, `SelfEntity`,
+`GetVar`/`SetVar`, `Call(op)` 44개, 산술·비교·논리, `Vec3Make`/`Vec3Split`). 갈리는 건 실행 방식(Unreal 컴파일, Unity
+인터프리트)이고 우리는 컴파일. 런타임이 엔티티당 `onUpdate(self)` 하나만 부르므로 모든 이벤트를 거기서 분기한다
+(`OnStart`=첫 프레임 가드, `OnKeyPressed`=`isKeyPressed` 검사, `OnCollision`=첫 프레임에 콜백 등록). 컴파일 출력은
+사람이 쓴 것처럼 읽히도록 **통째로 핀 고정**했고, 생성된 JS가 실제 V8에서 엔티티를 움직이는 것을 `bsengine-scripting`
+테스트가 확인한다. 에디터 패널(Unreal식 노드 캔버스, 셰이더 그래프 패널과 같은 형태)은 다음 PR.
 
 **macOS 워처 — rename 재구성(2026-09-25, #1888).** #1871/#1872가 남긴 문제는 FSEvents가 같은 디렉터리 rename의
 옛 경로 이벤트를 실행마다 다르게 떨어뜨리는 것이었고, 기록기는 디바운서가 짝지은 `[from, to]`만 봤다. 추측으로

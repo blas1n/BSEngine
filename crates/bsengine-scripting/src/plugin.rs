@@ -4429,6 +4429,141 @@ mod tests {
         let _ = std::fs::remove_file(&script_path);
     }
 
+    /// Writes the graph's compiled JavaScript to a temp file, loads it as
+    /// `Hero`'s script through the real plugin, and runs until the script
+    /// has executed plus `extra` frames.
+    ///
+    /// Reads the graph through the same `.scriptgraph.ron` -> `compile` ->
+    /// `.js` file -> `ScriptPath` route an author takes: compiling straight
+    /// into the isolate would skip the half of the contract that involves a
+    /// file the scene names at all.
+    fn run_compiled_graph(
+        tag: &str,
+        graph: &bsengine_visualscript::ScriptGraph,
+        extra: usize,
+    ) -> (bevy_app::App, bevy_ecs::entity::Entity, std::path::PathBuf) {
+        let js = bsengine_visualscript::compile(graph)
+            .unwrap_or_else(|e| panic!("the graph must compile: {e}"));
+        let script_path = std::env::temp_dir().join(format!(
+            "bsengine_test_scriptgraph_{tag}_{}.js",
+            std::process::id()
+        ));
+        std::fs::write(&script_path, &js).unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: String::new(),
+        });
+        let entity = app
+            .world_mut()
+            .spawn((
+                Name("Hero".to_string()),
+                ScriptPath(script_path.to_string_lossy().to_string()),
+                Transform::default(),
+            ))
+            .id();
+        let mut frames = 0;
+        loop {
+            app.update();
+            frames += 1;
+            if app.world().get::<Script>(entity).is_some() {
+                break;
+            }
+            assert!(
+                frames < 300,
+                "the compiled script never arrived, so nothing here was measured"
+            );
+        }
+        for _ in 0..extra {
+            app.update();
+        }
+        (app, entity, script_path)
+    }
+
+    /// A graph compiled by `bsengine-visualscript` is a script like any
+    /// other: loaded from its `.js`, run every frame, changing the world.
+    /// The flow `OnUpdate -> addPosition(self, vec3(0, 1, 0))` must move
+    /// `Hero` one unit per frame, and `OnStart -> setHudText` must have run
+    /// with `self` in hand -- the two facts a compiler that emitted valid
+    /// JavaScript but the wrong `onUpdate` shape would get wrong.
+    #[test]
+    fn a_compiled_script_graph_runs_as_a_script_and_moves_its_entity() {
+        use bsengine_visualscript::{Edge, GraphNode, NodeKind, ScriptGraph, Value};
+
+        let node = |id, kind| GraphNode {
+            id,
+            kind,
+            position: [0.0, 0.0],
+        };
+        let edge = |from: (u32, &str), to: (u32, &str)| Edge {
+            from: (from.0, from.1.to_string()),
+            to: (to.0, to.1.to_string()),
+        };
+        let graph = ScriptGraph {
+            nodes: vec![
+                node(0, NodeKind::OnUpdate),
+                node(1, NodeKind::Call("addPosition".to_string())),
+                node(2, NodeKind::SelfEntity),
+                node(3, NodeKind::Vec3Make),
+                node(4, NodeKind::Literal(Value::Number(0.0))),
+                node(5, NodeKind::Literal(Value::Number(1.0))),
+                node(6, NodeKind::OnStart),
+                node(7, NodeKind::Call("setHudText".to_string())),
+                node(8, NodeKind::Literal(Value::Text("started".to_string()))),
+            ],
+            edges: vec![
+                edge((0, "then"), (1, "exec")),
+                edge((2, "out"), (1, "entity")),
+                edge((3, "out"), (1, "delta")),
+                edge((4, "out"), (3, "x")),
+                edge((5, "out"), (3, "y")),
+                edge((4, "out"), (3, "z")),
+                edge((6, "then"), (7, "exec")),
+                edge((8, "out"), (7, "id")),
+                edge((2, "out"), (7, "text")),
+            ],
+            variables: Vec::new(),
+        };
+
+        let (app, entity, script_path) = run_compiled_graph("moves", &graph, 3);
+        let y = app.world().get::<Transform>(entity).unwrap().position.0.y;
+        assert!(
+            (y - 4.0).abs() < 1e-5,
+            "one addPosition per frame over the arrival frame plus three more: y = {y}"
+        );
+        assert_eq!(
+            app.world().resource::<HudTexts>().0.get("started").cloned(),
+            Some("Hero".to_string()),
+            "OnStart must have run once with `self`"
+        );
+        let _ = std::fs::remove_file(&script_path);
+    }
+
+    /// The demo graph committed with the crate runs, not only parses and
+    /// compiles: with no key held, its `Branch` takes the false arm every
+    /// frame and writes the hint, which only JavaScript that executed can do.
+    #[test]
+    fn the_shipped_demo_graph_runs_and_takes_its_false_arm_without_input() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../games/mini-arena/assets/scripts/bob.scriptgraph.ron"
+        );
+        let text = std::fs::read_to_string(path).expect("the demo graph is committed");
+        let graph: bsengine_visualscript::ScriptGraph =
+            ron::from_str(&text).expect("the demo graph parses");
+
+        let (app, entity, script_path) = run_compiled_graph("demo", &graph, 2);
+        assert_eq!(
+            app.world().resource::<HudTexts>().0.get("bob").cloned(),
+            Some("hold Space".to_string()),
+            "the false arm of the demo's Branch must have run"
+        );
+        let y = app.world().get::<Transform>(entity).unwrap().position.0.y;
+        assert_eq!(y, 0.0, "and the true arm must not have: nothing held Space");
+        let _ = std::fs::remove_file(&script_path);
+    }
+
     /// A script's call reaches the queue the network layer drains, with the
     /// entity resolved to its network id.
     #[test]

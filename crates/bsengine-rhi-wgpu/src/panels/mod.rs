@@ -19,6 +19,8 @@ pub mod profiler;
 pub mod references;
 /// Generic egui widgets for editing `bevy_reflect`-reflected component fields.
 pub mod reflect_ui;
+/// The Script Graph panel: a node editor for `bsengine-visualscript` graphs.
+pub mod scriptgraph;
 /// The Shader Graph panel: a node editor for `bsengine-shadergraph` graphs.
 pub mod shadergraph;
 /// The Timeline panel: draws a cutscene's tracks and scrubs its playhead.
@@ -38,6 +40,7 @@ pub use particles::ParticlePanel;
 pub use profiler::ProfilerPanel;
 pub use references::ReferencesPanel;
 pub use reflect_ui::draw_reflect_ui;
+pub use scriptgraph::ScriptGraphPanel;
 pub use shadergraph::ShaderGraphPanel;
 pub use timeline::TimelinePanel;
 pub use viewport::ViewportPanel;

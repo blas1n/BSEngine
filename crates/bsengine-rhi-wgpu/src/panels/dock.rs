@@ -91,6 +91,11 @@ pub fn ensure_builtin_panels(
     // occasionally, not a panel every session needs open.
     map.entry("references".to_string())
         .or_insert_with(|| Box::new(crate::panels::ReferencesPanel) as Box<dyn EditorPanel>);
+    // A document editor opened for a particular graph, like the Shader
+    // Graph: in the registry for the Window menu, not in the default layout.
+    map.entry("scriptgraph".to_string()).or_insert_with(|| {
+        Box::new(crate::panels::ScriptGraphPanel::default()) as Box<dyn EditorPanel>
+    });
 }
 
 /// Loads a previously saved layout. Returns `None` if the file doesn't
@@ -300,7 +305,7 @@ mod tests {
             history,
         );
         let map = registry.0.lock().unwrap();
-        assert_eq!(map.len(), 9);
+        assert_eq!(map.len(), 10);
         assert!(map.contains_key("profiler"));
         // Registered even though `default_dock_state` does not place them:
         // that registration is what lists them in the Window menu, and
@@ -310,5 +315,6 @@ mod tests {
         assert!(map.contains_key("timeline"));
         assert!(map.contains_key("particles"));
         assert!(map.contains_key("references"));
+        assert!(map.contains_key("scriptgraph"));
     }
 }

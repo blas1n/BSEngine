@@ -1265,6 +1265,27 @@ mod tests {
             (Some((3, 9)), Some((0, 9)))
         );
 
+        // Two textures both past their want: the one further past goes
+        // first even though the other's level is far larger -- a's 32
+        // level (two past) before b's 256 (one past). A filter alone cannot
+        // tell these apart; the ordering can.
+        reg.set_wants(&HashMap::from([(a, 8.0), (b, 128.0)]), 0);
+        assert_eq!(
+            (reg.wanted(a), reg.wanted(b)),
+            (Some(5), Some(1)),
+            "premise: a holds 3 and wants 5, b holds 0 and wants 1"
+        );
+        let over = Some(reg.streamed_resident_bytes() - 1);
+        assert_eq!(
+            reg.step_streaming(over),
+            Some(StreamingStep::Lowered(a)),
+            "the furthest past its want goes first, not the largest"
+        );
+        assert_eq!(
+            (reg.residency(a), reg.residency(b)),
+            (Some((4, 9)), Some((0, 9)))
+        );
+
         // A texture that is not streamed is never in any of this.
         let plain = reg.load_with(8, 8, &[0u8; 8 * 8 * 4], TextureImportSettings::default());
         assert_eq!(reg.wanted(plain), None);

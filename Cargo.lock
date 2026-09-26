@@ -1019,6 +1019,7 @@ dependencies = [
  "bsengine-catalog",
  "bsengine-core",
  "bsengine-ecs",
+ "bsengine-visualscript",
  "ron",
  "serde",
  "serde_json",

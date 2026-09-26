@@ -47,6 +47,63 @@ struct NodeDrag {
     grab_offset: egui::Vec2,
 }
 
+/// The smallest and largest zoom the wheel can reach. Blueprint's range is
+/// about the same; below this a node's ports are closer than a press can
+/// tell apart, above it one node fills the panel.
+const MIN_ZOOM: f32 = 0.4;
+const MAX_ZOOM: f32 = 2.5;
+
+/// How the canvas is looked at: an offset and a magnification, neither part
+/// of the graph. A node's `position` is where it is in the graph; the view
+/// decides where that lands on screen, so a pan or a zoom touches no node
+/// and a saved file never changes because the author scrolled.
+///
+/// The three reference engines converge on this pair of gestures: the wheel
+/// zooms about the pointer (Blueprint, Unity Visual Scripting; Godot wants
+/// Ctrl held) and a drag with a button other than the primary one pans
+/// (Blueprint: right, Unity and Godot: middle). Both non-primary buttons pan
+/// here so either habit works.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct View {
+    /// Added to a graph position before scaling: the graph point drawn at
+    /// the canvas's top-left corner is `-pan`.
+    pub pan: egui::Vec2,
+    /// Screen pixels per graph unit.
+    pub zoom: f32,
+}
+
+impl Default for View {
+    fn default() -> Self {
+        Self {
+            pan: egui::Vec2::ZERO,
+            zoom: 1.0,
+        }
+    }
+}
+
+impl View {
+    /// Where graph point `p` is drawn.
+    fn to_screen(self, canvas: egui::Rect, p: [f32; 2]) -> egui::Pos2 {
+        canvas.min + (egui::vec2(p[0], p[1]) + self.pan) * self.zoom
+    }
+
+    /// The graph point drawn at screen position `s`.
+    fn to_graph(self, canvas: egui::Rect, s: egui::Pos2) -> [f32; 2] {
+        let g = (s - canvas.min) / self.zoom - self.pan;
+        [g.x, g.y]
+    }
+
+    /// Multiplies the zoom by `factor`, keeping the graph point under
+    /// `pointer` where it is on screen -- the wheel zooms *towards* what the
+    /// pointer is on, as every graph editor's does.
+    fn zoom_about(&mut self, canvas: egui::Rect, pointer: egui::Pos2, factor: f32) {
+        let anchor = self.to_graph(canvas, pointer);
+        self.zoom = (self.zoom * factor).clamp(MIN_ZOOM, MAX_ZOOM);
+        let offset = (pointer - canvas.min) / self.zoom;
+        self.pan = offset - egui::vec2(anchor[0], anchor[1]);
+    }
+}
+
 /// Where every node box and every port circle sits on screen this frame.
 #[derive(Default)]
 struct Layout {
@@ -89,6 +146,12 @@ pub struct ScriptGraphPanel {
     /// Which node `param_buffer` was filled for, so a change of selection
     /// refills it rather than carrying one node's text to another.
     param_for: Option<u32>,
+    /// Pan and zoom. Public so a test can read what a gesture did to it;
+    /// never saved with the graph.
+    pub view: View,
+    /// The canvas rect of the last frame, which **Fit** needs and the
+    /// toolbar (drawn before the canvas is allocated) cannot see.
+    last_canvas: Option<egui::Rect>,
 }
 
 impl ScriptGraphPanel {
@@ -208,62 +271,70 @@ impl ScriptGraphPanel {
         }
     }
 
-    /// The node's box: as many rows as the longer of its two port columns.
-    fn node_rect(canvas: egui::Rect, node: &GraphNode) -> egui::Rect {
+    /// The node's box in graph units: as many rows as the longer of its two
+    /// port columns.
+    fn node_size(node: &GraphNode) -> egui::Vec2 {
         let rows = node
             .kind
             .input_ports()
             .len()
             .max(node.kind.output_ports().len())
             .max(1) as f32;
+        egui::vec2(NODE_WIDTH, HEADER_HEIGHT + rows * PORT_ROW_HEIGHT)
+    }
+
+    /// The node's box on screen, through the view.
+    fn node_rect(canvas: egui::Rect, view: View, node: &GraphNode) -> egui::Rect {
         egui::Rect::from_min_size(
-            canvas.min + egui::vec2(node.position[0], node.position[1]),
-            egui::vec2(NODE_WIDTH, HEADER_HEIGHT + rows * PORT_ROW_HEIGHT),
+            view.to_screen(canvas, node.position),
+            Self::node_size(node) * view.zoom,
         )
     }
 
-    fn row_y(rect: egui::Rect, index: usize) -> f32 {
-        rect.top() + HEADER_HEIGHT + (index as f32 + 0.5) * PORT_ROW_HEIGHT
+    fn row_y(rect: egui::Rect, index: usize, zoom: f32) -> f32 {
+        rect.top() + (HEADER_HEIGHT + (index as f32 + 0.5) * PORT_ROW_HEIGHT) * zoom
     }
 
-    fn input_port_pos(rect: egui::Rect, index: usize) -> egui::Pos2 {
-        egui::pos2(rect.left(), Self::row_y(rect, index))
+    fn input_port_pos(rect: egui::Rect, index: usize, zoom: f32) -> egui::Pos2 {
+        egui::pos2(rect.left(), Self::row_y(rect, index, zoom))
     }
 
-    fn output_port_pos(rect: egui::Rect, index: usize) -> egui::Pos2 {
-        egui::pos2(rect.right(), Self::row_y(rect, index))
+    fn output_port_pos(rect: egui::Rect, index: usize, zoom: f32) -> egui::Pos2 {
+        egui::pos2(rect.right(), Self::row_y(rect, index, zoom))
     }
 
     /// Lays every node and port out in `canvas`; a pure function of the
-    /// graph and the canvas rect.
-    fn layout_of(canvas: egui::Rect, graph: &ScriptGraph) -> Layout {
+    /// graph, the canvas rect and the view.
+    fn layout_of(canvas: egui::Rect, view: View, graph: &ScriptGraph) -> Layout {
         let mut layout = Layout::default();
         for node in &graph.nodes {
-            let rect = Self::node_rect(canvas, node);
+            let rect = Self::node_rect(canvas, view, node);
             layout.nodes.entry(node.id).or_insert(rect);
             for (i, port) in node.kind.input_ports().iter().enumerate() {
                 layout
                     .ports
                     .entry((node.id, port.name.to_string()))
-                    .or_insert_with(|| Self::input_port_pos(rect, i));
+                    .or_insert_with(|| Self::input_port_pos(rect, i, view.zoom));
             }
             for (i, port) in node.kind.output_ports().iter().enumerate() {
                 layout
                     .ports
                     .entry((node.id, port.name.to_string()))
-                    .or_insert_with(|| Self::output_port_pos(rect, i));
+                    .or_insert_with(|| Self::output_port_pos(rect, i, view.zoom));
             }
         }
         layout
     }
 
-    /// The nearest port within [`PORT_HIT_RADIUS`] of `pos`, ties broken by
-    /// key so the same press always grabs the same port.
-    fn port_at(layout: &Layout, pos: egui::Pos2) -> Option<(u32, String)> {
+    /// The nearest port within [`PORT_HIT_RADIUS`] (scaled with the zoom,
+    /// so it stays under half a row at every magnification) of `pos`, ties
+    /// broken by key so the same press always grabs the same port.
+    fn port_at(layout: &Layout, pos: egui::Pos2, zoom: f32) -> Option<(u32, String)> {
+        let hit = PORT_HIT_RADIUS * zoom;
         layout
             .ports
             .iter()
-            .filter(|(_, centre)| centre.distance(pos) <= PORT_HIT_RADIUS)
+            .filter(|(_, centre)| centre.distance(pos) <= hit)
             .min_by(|(a_key, a), (b_key, b)| {
                 a.distance(pos)
                     .total_cmp(&b.distance(pos))
@@ -403,13 +474,20 @@ impl ScriptGraphPanel {
         id
     }
 
-    /// A canvas spot no existing node overlaps, walked on a coarse grid.
+    /// A canvas spot no existing node overlaps, walked on a coarse grid from
+    /// the top-left of what is currently on screen -- a node added after a
+    /// pan must land where the author is looking, not at the graph's origin
+    /// they scrolled away from.
     fn free_position(&self) -> [f32; 2] {
         const COLUMN: f32 = NODE_WIDTH + 40.0;
         const ROW: f32 = HEADER_HEIGHT + 4.0 * PORT_ROW_HEIGHT + 24.0;
+        let origin = [20.0 - self.view.pan.x, 20.0 - self.view.pan.y];
         for column in 0..32 {
             for row in 0..16 {
-                let candidate = [20.0 + column as f32 * COLUMN, 20.0 + row as f32 * ROW];
+                let candidate = [
+                    origin[0] + column as f32 * COLUMN,
+                    origin[1] + row as f32 * ROW,
+                ];
                 let taken = self.graph.nodes.iter().any(|n| {
                     (n.position[0] - candidate[0]).abs() < NODE_WIDTH
                         && (n.position[1] - candidate[1]).abs() < ROW
@@ -419,7 +497,37 @@ impl ScriptGraphPanel {
                 }
             }
         }
-        [20.0, 20.0]
+        origin
+    }
+
+    /// Pans and zooms so every node is on screen -- Blueprint's Home /
+    /// "Zoom to Fit", Unity's F. Zooms out as far as the graph needs and in
+    /// no further than 1:1, so a small graph is not blown up to fill the
+    /// panel. Does nothing before the canvas has been drawn once or on an
+    /// empty graph.
+    fn fit_view(&mut self) {
+        let Some(canvas) = self.last_canvas else {
+            return;
+        };
+        let mut bounds: Option<egui::Rect> = None;
+        for node in &self.graph.nodes {
+            let min = egui::pos2(node.position[0], node.position[1]);
+            let rect = egui::Rect::from_min_size(min, Self::node_size(node));
+            bounds = Some(bounds.map_or(rect, |b| b.union(rect)));
+        }
+        let Some(bounds) = bounds else {
+            return;
+        };
+        const MARGIN: f32 = 24.0;
+        let bounds = bounds.expand(MARGIN);
+        let zoom = (canvas.width() / bounds.width())
+            .min(canvas.height() / bounds.height())
+            .min(1.0)
+            .clamp(MIN_ZOOM, MAX_ZOOM);
+        // Centre the bounds: the screen centre maps to the bounds' centre.
+        let centre = bounds.center();
+        self.view.zoom = zoom;
+        self.view.pan = canvas.size() * 0.5 / zoom - centre.to_vec2();
     }
 
     /// A name for a new `GetVar`/`SetVar`: the first declared variable's, so
@@ -737,6 +845,18 @@ impl EditorPanel for ScriptGraphPanel {
             {
                 delete_selected = true;
             }
+            if ui
+                .button(format!("{} Fit", egui_phosphor::regular::ARROWS_IN))
+                .on_hover_text("Pan and zoom so every node is on screen")
+                .clicked()
+            {
+                self.fit_view();
+            }
+            ui.label(
+                egui::RichText::new(format!("{:.0}%", self.view.zoom * 100.0))
+                    .weak()
+                    .small(),
+            );
         });
 
         let mut open_clicked = false;
@@ -931,15 +1051,45 @@ impl EditorPanel for ScriptGraphPanel {
 
         let (canvas, response) =
             ui.allocate_exact_size(ui.available_size(), egui::Sense::click_and_drag());
-        let layout = Self::layout_of(canvas, &self.graph);
+        self.last_canvas = Some(canvas);
 
-        if response.drag_started() {
+        // The view first: a pan or a zoom this frame moves everything, and
+        // the layout the pointer is then tested against must be the moved
+        // one, or a press would grab the port that *was* under it.
+        if response.dragged_by(egui::PointerButton::Secondary)
+            || response.dragged_by(egui::PointerButton::Middle)
+        {
+            self.view.pan += response.drag_delta() / self.view.zoom;
+        }
+        if response.hovered() {
+            let (factor, pointer) = ui.input(|i| {
+                // Ctrl+wheel and pinch arrive as `zoom_delta`; a plain wheel
+                // notch as raw scroll, which egui also folds into
+                // `raw_scroll_delta` when Ctrl is held, so it is read only
+                // when it is not.
+                let plain = i.modifiers.ctrl || i.modifiers.command || i.modifiers.mac_cmd;
+                let wheel = if plain {
+                    1.0
+                } else {
+                    (i.raw_scroll_delta.y * 0.003).exp()
+                };
+                (i.zoom_delta() * wheel, i.pointer.hover_pos())
+            });
+            if factor != 1.0 {
+                if let Some(pointer) = pointer {
+                    self.view.zoom_about(canvas, pointer, factor);
+                }
+            }
+        }
+        let layout = Self::layout_of(canvas, self.view, &self.graph);
+
+        if response.drag_started_by(egui::PointerButton::Primary) {
             let press = ui
                 .ctx()
                 .input(|i| i.pointer.press_origin())
                 .or_else(|| response.interact_pointer_pos());
             if let Some(press) = press {
-                if let Some(port) = Self::port_at(&layout, press) {
+                if let Some(port) = Self::port_at(&layout, press, self.view.zoom) {
                     self.dragging_from = Some(port);
                 } else if let Some(id) = self.node_at(&layout, press) {
                     let origin = layout.nodes[&id].min;
@@ -953,11 +1103,11 @@ impl EditorPanel for ScriptGraphPanel {
         }
 
         if let Some(drag) = self.dragging_node {
-            if response.dragged() {
+            if response.dragged_by(egui::PointerButton::Primary) {
                 if let Some(pointer) = response.interact_pointer_pos() {
                     if let Some(node) = self.graph.nodes.iter_mut().find(|n| n.id == drag.id) {
                         let origin = pointer + drag.grab_offset;
-                        node.position = [origin.x - canvas.min.x, origin.y - canvas.min.y];
+                        node.position = self.view.to_graph(canvas, origin);
                     }
                 }
             } else if response.drag_stopped() {
@@ -969,7 +1119,7 @@ impl EditorPanel for ScriptGraphPanel {
             if let Some(source) = self.dragging_from.take() {
                 if let Some(target) = response
                     .interact_pointer_pos()
-                    .and_then(|pos| Self::port_at(&layout, pos))
+                    .and_then(|pos| Self::port_at(&layout, pos, self.view.zoom))
                 {
                     self.try_connect(source, target);
                 }
@@ -985,13 +1135,14 @@ impl EditorPanel for ScriptGraphPanel {
         let painter = ui.painter_at(canvas);
         let visuals = ui.visuals().clone();
         painter.rect_filled(canvas, egui::Rounding::same(0.0), visuals.extreme_bg_color);
-        let label_font = egui::FontId::proportional(12.0);
-        let title_font = egui::FontId::proportional(13.0);
+        let zoom = self.view.zoom;
+        let label_font = egui::FontId::proportional(12.0 * zoom);
+        let title_font = egui::FontId::proportional(13.0 * zoom);
 
         let Layout {
             nodes: node_rects,
             ports,
-        } = Self::layout_of(canvas, &self.graph);
+        } = Self::layout_of(canvas, self.view, &self.graph);
         self.last_port_positions = ports;
 
         // Wires under the nodes: flow wires thick and light, data wires thin.
@@ -1032,11 +1183,11 @@ impl EditorPanel for ScriptGraphPanel {
             let Some(&rect) = node_rects.get(&node.id) else {
                 continue;
             };
-            let rounding = egui::Rounding::same(4.0);
+            let rounding = egui::Rounding::same(4.0 * zoom);
             painter.rect_filled(rect, rounding, visuals.widgets.inactive.bg_fill);
             let header = egui::Rect::from_min_size(
                 rect.min,
-                egui::vec2(rect.width(), HEADER_HEIGHT.min(rect.height())),
+                egui::vec2(rect.width(), (HEADER_HEIGHT * zoom).min(rect.height())),
             );
             painter.rect_filled(header, rounding, visuals.widgets.active.bg_fill);
             let outline = if self.selected_node == Some(node.id) {
@@ -1046,7 +1197,7 @@ impl EditorPanel for ScriptGraphPanel {
             };
             painter.rect_stroke(rect, rounding, outline);
             painter.text(
-                header.left_center() + egui::vec2(8.0, 0.0),
+                header.left_center() + egui::vec2(8.0 * zoom, 0.0),
                 egui::Align2::LEFT_CENTER,
                 node_title(&node.kind),
                 title_font.clone(),
@@ -1054,11 +1205,12 @@ impl EditorPanel for ScriptGraphPanel {
             );
 
             let resolved = self.variable_type(&node.kind);
+            let radius = PORT_RADIUS * zoom;
             for (i, port) in node.kind.input_ports().iter().enumerate() {
-                let centre = Self::input_port_pos(rect, i);
-                painter.circle_filled(centre, PORT_RADIUS, port_color(port.ty, resolved));
+                let centre = Self::input_port_pos(rect, i, zoom);
+                painter.circle_filled(centre, radius, port_color(port.ty, resolved));
                 painter.text(
-                    centre + egui::vec2(PORT_RADIUS + 4.0, 0.0),
+                    centre + egui::vec2(radius + 4.0 * zoom, 0.0),
                     egui::Align2::LEFT_CENTER,
                     port.name,
                     label_font.clone(),
@@ -1066,10 +1218,10 @@ impl EditorPanel for ScriptGraphPanel {
                 );
             }
             for (i, port) in node.kind.output_ports().iter().enumerate() {
-                let centre = Self::output_port_pos(rect, i);
-                painter.circle_filled(centre, PORT_RADIUS, port_color(port.ty, resolved));
+                let centre = Self::output_port_pos(rect, i, zoom);
+                painter.circle_filled(centre, radius, port_color(port.ty, resolved));
                 painter.text(
-                    centre - egui::vec2(PORT_RADIUS + 4.0, 0.0),
+                    centre - egui::vec2(radius + 4.0 * zoom, 0.0),
                     egui::Align2::RIGHT_CENTER,
                     port.name,
                     label_font.clone(),
@@ -1079,6 +1231,8 @@ impl EditorPanel for ScriptGraphPanel {
         }
 
         if let Some(error) = &self.last_error {
+            // The message stays legible at any zoom: it is read, not part
+            // of the drawing.
             let anchor = error_node(error)
                 .and_then(|id| node_rects.get(&id))
                 .map(|rect| rect.right_top() + egui::vec2(12.0, 0.0))
@@ -1087,7 +1241,7 @@ impl EditorPanel for ScriptGraphPanel {
                 anchor,
                 egui::Align2::LEFT_TOP,
                 error.to_string(),
-                label_font.clone(),
+                egui::FontId::proportional(12.0),
                 visuals.error_fg_color,
             );
         }
@@ -1097,7 +1251,7 @@ impl EditorPanel for ScriptGraphPanel {
                 canvas.left_top() + egui::vec2(12.0, 12.0),
                 egui::Align2::LEFT_TOP,
                 "빈 스크립트 그래프 (empty script graph)",
-                label_font,
+                egui::FontId::proportional(12.0),
                 visuals.weak_text_color(),
             );
         }
@@ -1264,11 +1418,15 @@ mod tests {
         }
 
         fn press(&mut self, pos: egui::Pos2) -> egui::FullOutput {
+            self.press_with(pos, egui::PointerButton::Primary)
+        }
+
+        fn press_with(&mut self, pos: egui::Pos2, button: egui::PointerButton) -> egui::FullOutput {
             self.frame(vec![
                 egui::Event::PointerMoved(pos),
                 egui::Event::PointerButton {
                     pos,
-                    button: egui::PointerButton::Primary,
+                    button,
                     pressed: true,
                     modifiers: egui::Modifiers::default(),
                 },
@@ -1280,12 +1438,38 @@ mod tests {
         }
 
         fn release(&mut self, pos: egui::Pos2) -> egui::FullOutput {
+            self.release_with(pos, egui::PointerButton::Primary)
+        }
+
+        fn release_with(
+            &mut self,
+            pos: egui::Pos2,
+            button: egui::PointerButton,
+        ) -> egui::FullOutput {
             self.frame(vec![egui::Event::PointerButton {
                 pos,
-                button: egui::PointerButton::Primary,
+                button,
                 pressed: false,
                 modifiers: egui::Modifiers::default(),
             }])
+        }
+
+        /// One wheel notch of `dy` points at `pos`: positive is "wheel up",
+        /// which egui reports as content moving down.
+        fn wheel(&mut self, pos: egui::Pos2, dy: f32) -> egui::FullOutput {
+            self.frame(vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0.0, dy),
+                    modifiers: egui::Modifiers::default(),
+                },
+            ])
+        }
+
+        /// The canvas the panel drew into last frame.
+        fn canvas(&self) -> egui::Rect {
+            self.panel.last_canvas.expect("the panel has drawn")
         }
 
         fn port(&self, node: u32, name: &str) -> egui::Pos2 {
@@ -1306,9 +1490,10 @@ mod tests {
                 .kind;
             let first_out = kind.output_ports()[0].name;
             let out = self.port(id, first_out);
+            let zoom = self.panel.view.zoom;
             egui::pos2(
-                out.x - NODE_WIDTH * 0.5,
-                out.y - PORT_ROW_HEIGHT * 0.5 - HEADER_HEIGHT * 0.5,
+                out.x - NODE_WIDTH * 0.5 * zoom,
+                out.y - (PORT_ROW_HEIGHT * 0.5 + HEADER_HEIGHT * 0.5) * zoom,
             )
         }
     }
@@ -1474,6 +1659,220 @@ mod tests {
                 assert_eq!(position_of(&h.panel.graph, n.id), n.position);
             }
         }
+    }
+
+    /// A secondary-button drag over empty canvas moves every port on screen
+    /// by the drag, and no node's position in the graph -- the file the
+    /// author saves must not change because they scrolled. The moved layout
+    /// is then live: a wire dragged between two ports at their *new*
+    /// positions connects. The middle button pans the same way.
+    #[test]
+    fn a_secondary_or_middle_drag_pans_the_view_and_not_the_graph() {
+        let mut graph = demo_graph();
+        graph.edges.retain(|e| e.to != (4, "exec".to_string()));
+        let mut h = Harness::new(graph.clone());
+        h.settle();
+        let before: HashMap<(u32, String), egui::Pos2> = h.panel.last_port_positions.clone();
+        let empty = h.canvas().right_bottom() - egui::vec2(30.0, 30.0);
+        assert!(
+            h.panel
+                .node_at(
+                    &ScriptGraphPanel::layout_of(h.canvas(), h.panel.view, &h.panel.graph),
+                    empty
+                )
+                .is_none(),
+            "the premise: the drag starts on empty canvas"
+        );
+        let delta = egui::vec2(-150.0, 60.0);
+        h.press_with(empty, egui::PointerButton::Secondary);
+        h.drag_to(empty + delta);
+        h.release_with(empty + delta, egui::PointerButton::Secondary);
+        h.draw();
+        assert_eq!(
+            h.panel.view.pan, delta,
+            "at 1:1 a screen pixel is a graph unit"
+        );
+        for (key, pos) in &before {
+            let now = h.port(key.0, &key.1);
+            assert!(
+                (now - (*pos + delta)).length() < 1e-3,
+                "{key:?} moved by {:?}, not the drag {delta:?}",
+                now - *pos
+            );
+        }
+        assert_eq!(h.panel.graph, graph, "a pan changes nothing in the graph");
+        assert!(h.panel.dragging_node.is_none() && h.panel.dragging_from.is_none());
+
+        let from = h.port(1, "true");
+        let to = h.port(4, "exec");
+        h.press(from);
+        h.drag_to(to);
+        h.release(to);
+        assert!(
+            h.panel
+                .graph
+                .edges
+                .contains(&edge((1, "true"), (4, "exec"))),
+            "ports are hit-tested where they are drawn after the pan: {:?}",
+            h.panel.graph.edges
+        );
+
+        let pan_before = h.panel.view.pan;
+        let empty = h.canvas().right_bottom() - egui::vec2(30.0, 30.0);
+        h.press_with(empty, egui::PointerButton::Middle);
+        h.drag_to(empty + egui::vec2(20.0, 0.0));
+        h.release_with(empty + egui::vec2(20.0, 0.0), egui::PointerButton::Middle);
+        assert_eq!(h.panel.view.pan, pan_before + egui::vec2(20.0, 0.0));
+
+        // A secondary drag that starts *on a node* pans too, and moves the
+        // node not at all: only the primary button grabs (Blueprint's
+        // right-drag pans wherever it starts).
+        let pan_before = h.panel.view.pan;
+        let node_before = position_of(&h.panel.graph, 1);
+        let grab = h.node_grab_point(1);
+        h.press_with(grab, egui::PointerButton::Secondary);
+        // A small first step, as a real drag moves a few pixels a frame: the
+        // pan of that frame moves the node by the same few pixels, so the
+        // press is still on it when the grab is tested. One 40 px jump would
+        // carry the node out from under its own press and hide a grab.
+        h.drag_to(grab + egui::vec2(0.0, 8.0));
+        h.drag_to(grab + egui::vec2(0.0, 40.0));
+        h.release_with(grab + egui::vec2(0.0, 40.0), egui::PointerButton::Secondary);
+        assert_eq!(h.panel.view.pan, pan_before + egui::vec2(0.0, 40.0));
+        assert_eq!(position_of(&h.panel.graph, 1), node_before);
+        assert!(h.panel.dragging_node.is_none());
+        // The observable half of "only the primary button grabs": a pan
+        // moves whatever is under the pointer along with it, so a node or
+        // wire the secondary button had grabbed would end exactly where it
+        // started -- but a grab also *selects*, and a pan must not.
+        assert_eq!(
+            h.panel.selected_node, None,
+            "a secondary drag on a node must not select it"
+        );
+
+        // A secondary drag from one port to another pans rather than
+        // wiring, for the same reason.
+        let edges_before = h.panel.graph.edges.clone();
+        let from = h.port(8, "out");
+        let to = h.port(6, "z");
+        assert!(
+            edges_before.contains(&edge((7, "out"), (6, "z")))
+                && !edges_before.contains(&edge((8, "out"), (6, "z"))),
+            "premise: 6.z is fed by 7, and a primary drag from 8 would replace that"
+        );
+        h.press_with(from, egui::PointerButton::Secondary);
+        h.drag_to(to);
+        h.release_with(to, egui::PointerButton::Secondary);
+        assert_eq!(
+            h.panel.graph.edges, edges_before,
+            "a secondary drag between ports must not connect them"
+        );
+        assert!(h.panel.dragging_from.is_none());
+    }
+
+    /// The wheel zooms about the pointer: the port under it stays put on
+    /// screen, every other distance scales by the zoom, and the graph is
+    /// untouched. Under zoom a node drag moves the node by the *graph*
+    /// distance, not the screen distance, so a file dragged at 200% is not
+    /// moved twice as far.
+    #[test]
+    fn the_wheel_zooms_about_the_pointer_and_drags_stay_in_graph_units() {
+        let mut h = Harness::new(demo_graph());
+        h.settle();
+        let anchor = h.port(1, "true");
+        let other_before = h.port(6, "y");
+        h.wheel(anchor, 120.0);
+        h.draw();
+        let zoom = h.panel.view.zoom;
+        assert!(zoom > 1.2, "wheel up must zoom in: {zoom}");
+        let anchor_after = h.port(1, "true");
+        assert!(
+            (anchor_after - anchor).length() < 1e-2,
+            "the port under the pointer must stay where it is: {anchor:?} -> {anchor_after:?}"
+        );
+        let other_after = h.port(6, "y");
+        let expected = anchor + (other_before - anchor) * zoom;
+        assert!(
+            (other_after - expected).length() < 1e-2,
+            "distances from the anchor scale by the zoom: {other_after:?} vs {expected:?}"
+        );
+        assert_eq!(
+            h.panel.graph,
+            demo_graph(),
+            "a zoom changes nothing in the graph"
+        );
+
+        // Wheel down zooms out again, clamped at the floor.
+        for _ in 0..40 {
+            h.wheel(anchor, -200.0);
+        }
+        assert_eq!(h.panel.view.zoom, MIN_ZOOM);
+        for _ in 0..80 {
+            h.wheel(anchor, 200.0);
+        }
+        assert_eq!(h.panel.view.zoom, MAX_ZOOM);
+
+        // At the ceiling, a drag of `delta` on screen is `delta / zoom` in
+        // the graph.
+        h.draw();
+        let before = position_of(&h.panel.graph, 1);
+        let grab = h.node_grab_point(1);
+        let delta = egui::vec2(50.0, -25.0);
+        h.press(grab);
+        h.drag_to(grab + delta);
+        h.release(grab + delta);
+        let after = position_of(&h.panel.graph, 1);
+        let moved = egui::vec2(after[0] - before[0], after[1] - before[1]);
+        assert!(
+            (moved - delta / MAX_ZOOM).length() < 1e-3,
+            "moved {moved:?} in the graph for {delta:?} on screen at {MAX_ZOOM}x"
+        );
+    }
+
+    /// **Fit** brings every node onto the canvas from wherever the view was
+    /// left, zooming out as far as the graph needs and never past 1:1; a
+    /// node added after a pan lands in the visible area.
+    #[test]
+    fn fit_brings_every_node_on_screen_and_new_nodes_land_in_view() {
+        let mut h = Harness::new(demo_graph());
+        h.settle();
+        h.panel.view.pan = egui::vec2(-5000.0, 3000.0);
+        h.panel.view.zoom = 2.0;
+        let lost = h.settle();
+        let canvas = h.canvas();
+        assert!(
+            h.panel
+                .last_port_positions
+                .values()
+                .all(|p| !canvas.contains(*p)),
+            "the premise: nothing is on screen before Fit"
+        );
+        let fit = text_pos(&lost, |t| t.contains("Fit")).expect("the Fit button must render");
+        h.click(fit);
+        h.draw();
+        let canvas = h.canvas();
+        let rects = ScriptGraphPanel::layout_of(canvas, h.panel.view, &h.panel.graph).nodes;
+        for (id, rect) in &rects {
+            assert!(
+                canvas.contains_rect(*rect),
+                "node {id} at {rect:?} must be inside the canvas {canvas:?} after Fit"
+            );
+        }
+        assert!(h.panel.view.zoom <= 1.0, "never enlarged past 1:1");
+        assert_eq!(h.panel.graph, demo_graph());
+
+        // Pan away, add a node: it appears in the visible area.
+        h.panel.view = View {
+            pan: egui::vec2(-2000.0, -2000.0),
+            zoom: 1.0,
+        };
+        h.settle();
+        let position = h.panel.free_position();
+        let on_screen = h.panel.view.to_screen(h.canvas(), position);
+        assert!(
+            h.canvas().contains(on_screen),
+            "a new node goes where the author is looking: {position:?} -> {on_screen:?}"
+        );
     }
 
     /// A flow wire and a data wire, each dragged between compatible ports,

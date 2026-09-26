@@ -66,4 +66,4 @@ pub use surface::{
     LightData, MaterialParams, PointLightEntry, ProbeVolumeParams, SpotLightEntry,
     WgpuSurfaceResource,
 };
-pub use texture::GpuTextureRegistry;
+pub use texture::{GpuTextureRegistry, StreamingStep};

@@ -7,6 +7,31 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 
 static TEXTURE_MEMORY_BYTES: AtomicU64 = AtomicU64::new(0);
 static TEXTURE_COUNT: AtomicU32 = AtomicU32::new(0);
+static STREAMED_TEXTURE_BYTES: AtomicU64 = AtomicU64::new(0);
+static STREAMING_BUDGET_BYTES: AtomicU64 = AtomicU64::new(0);
+static TEXTURES_BELOW_WANTED: AtomicU32 = AtomicU32::new(0);
+
+/// What the texture streamer last reported: bytes the streamed textures
+/// hold between them, the budget they are held to (`0` for none), and how
+/// many of them hold less than the screen asks for. Written once per frame
+/// by `bsengine-render`'s streaming system, read into [`FrameStats`] like
+/// the texture totals are, so the profiler panel and `get_frame_stats` see
+/// the streamer's state without a resource of their own.
+pub fn record_streaming(resident_bytes: u64, budget_bytes: u64, below_wanted: u32) {
+    STREAMED_TEXTURE_BYTES.store(resident_bytes, Ordering::Relaxed);
+    STREAMING_BUDGET_BYTES.store(budget_bytes, Ordering::Relaxed);
+    TEXTURES_BELOW_WANTED.store(below_wanted, Ordering::Relaxed);
+}
+
+/// The last [`record_streaming`] values as
+/// `(resident_bytes, budget_bytes, textures_below_wanted)`.
+pub fn streaming_snapshot() -> (u64, u64, u32) {
+    (
+        STREAMED_TEXTURE_BYTES.load(Ordering::Relaxed),
+        STREAMING_BUDGET_BYTES.load(Ordering::Relaxed),
+        TEXTURES_BELOW_WANTED.load(Ordering::Relaxed),
+    )
+}
 
 /// How many frames of [`FrameStats`] `WgpuSurface` keeps in its rolling
 /// history -- roughly 2 seconds at 60fps. Older frames are dropped as new
@@ -177,6 +202,14 @@ pub struct FrameStats {
     pub texture_memory_bytes: u64,
     /// Snapshot of [`texture_count`] at the time this frame's stats were collected.
     pub texture_count: u32,
+    /// Bytes the streamed textures held between them when the streamer last
+    /// ran; a part of [`Self::texture_memory_bytes`].
+    pub streamed_texture_bytes: u64,
+    /// The budget those bytes are held to, `0` for none.
+    pub streaming_budget_bytes: u64,
+    /// How many streamed textures held less than the screen asked for --
+    /// still coming in, or held down by the budget.
+    pub textures_below_wanted: u32,
 }
 
 #[cfg(test)]
@@ -199,6 +232,17 @@ mod tests {
     // the test failed (expected +16,384, saw +7,389,184), taking the whole
     // `cargo test --workspace` down with it via fail-fast. Moving it back
     // here reintroduces that race. See the header of that file.
+
+    /// What the streamer records is what the frame stats read back. Only
+    /// this test in the binary writes these statics, so unlike the texture
+    /// totals there is nothing to race.
+    #[test]
+    fn the_streaming_snapshot_is_what_was_last_recorded() {
+        record_streaming(12_345, 67_890, 3);
+        assert_eq!(streaming_snapshot(), (12_345, 67_890, 3));
+        record_streaming(0, 0, 0);
+        assert_eq!(streaming_snapshot(), (0, 0, 0));
+    }
 
     #[test]
     fn tracked_texture_derefs_to_wgpu_texture_for_create_view() {

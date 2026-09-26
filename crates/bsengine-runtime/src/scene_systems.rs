@@ -86,6 +86,14 @@ pub struct RenderSection {
     /// cascade's far distance. 0 switches hard, as Unity and Godot do.
     #[serde(default = "default_cascade_blend")]
     pub shadow_cascade_blend: f32,
+    /// The most GPU memory streamed textures may hold between them, in
+    /// mebibytes; 0 for no limit. Unity's streaming budget, Unreal's pool.
+    #[serde(default = "default_texture_streaming_budget_mb")]
+    pub texture_streaming_budget_mb: u32,
+    /// Levels added to every streamed texture's wanted mip: positive holds
+    /// textures smaller than the screen asks for, to save memory.
+    #[serde(default = "default_texture_mip_bias")]
+    pub texture_mip_bias: i32,
 }
 
 fn default_shadow_distance() -> f32 {
@@ -100,6 +108,14 @@ fn default_cascade_blend() -> f32 {
     bsengine_core::shadow_config::DEFAULT_CASCADE_BLEND
 }
 
+fn default_texture_streaming_budget_mb() -> u32 {
+    bsengine_core::texture_streaming_config::DEFAULT_TEXTURE_STREAMING_BUDGET_MB
+}
+
+fn default_texture_mip_bias() -> i32 {
+    bsengine_core::texture_streaming_config::DEFAULT_TEXTURE_MIP_BIAS
+}
+
 // Same rule as `WindowSection` above, and for the same reason: because
 // `ProjectManifest.render` is itself `#[serde(default)]`, this impl and
 // the field-level `#[serde(default = "...")]` must call the same function,
@@ -111,6 +127,8 @@ impl Default for RenderSection {
             shadow_distance: default_shadow_distance(),
             shadow_cascades: default_shadow_cascades(),
             shadow_cascade_blend: default_cascade_blend(),
+            texture_streaming_budget_mb: default_texture_streaming_budget_mb(),
+            texture_mip_bias: default_texture_mip_bias(),
         }
     }
 }
@@ -874,6 +892,47 @@ mod tests {
             assert_eq!(m.render.shadow_cascades, d.cascades, "[render] {label}");
             assert_eq!(m.render.shadow_cascade_blend, d.blend, "[render] {label}");
         }
+        // And the streaming fields, against the constants
+        // `TextureStreamingSettings::default()` is built from.
+        let s = bsengine_core::TextureStreamingSettings::default();
+        for (label, m) in [("absent", &absent), ("empty", &empty)] {
+            assert_eq!(
+                bsengine_core::TextureStreamingSettings::from_manifest(
+                    m.render.texture_streaming_budget_mb,
+                    m.render.texture_mip_bias
+                ),
+                s,
+                "[render] {label}: the streaming fields must fall back to the \
+                 same defaults TextureStreamingSettings uses"
+            );
+        }
+    }
+
+    /// Both streaming fields are read from the file, with values distinct
+    /// from the defaults for the reason `render_section_reads_every_shadow_field`
+    /// gives; `0` is a budget of none, not a missing field.
+    #[test]
+    fn render_section_reads_the_texture_streaming_fields() {
+        let d = bsengine_core::TextureStreamingSettings::default();
+        let m: super::ProjectManifest = toml::from_str(
+            "[project]\nname = \"t\"\nentry_scene = \"s.ron\"\n[render]\n\
+             texture_streaming_budget_mb = 64\ntexture_mip_bias = 1\n",
+        )
+        .unwrap();
+        let s = bsengine_core::TextureStreamingSettings::from_manifest(
+            m.render.texture_streaming_budget_mb,
+            m.render.texture_mip_bias,
+        );
+        assert_eq!(s.budget_bytes, 64 * 1024 * 1024);
+        assert_eq!(s.mip_bias, 1);
+        assert!(s.budget_bytes != d.budget_bytes && s.mip_bias != d.mip_bias);
+
+        let m: super::ProjectManifest = toml::from_str(
+            "[project]\nname = \"t\"\nentry_scene = \"s.ron\"\n[render]\n\
+             texture_streaming_budget_mb = 0\n",
+        )
+        .unwrap();
+        assert_eq!(m.render.texture_streaming_budget_mb, 0, "no budget");
     }
 
     /// Every shadow field must actually be read from the file.

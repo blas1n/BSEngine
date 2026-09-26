@@ -219,6 +219,9 @@ pub fn get_frame_stats(world: &mut World) -> Result<Value, String> {
         "occluded_count": stats.occluded_count,
         "texture_memory_bytes": stats.texture_memory_bytes,
         "texture_count": stats.texture_count,
+        "streamed_texture_bytes": stats.streamed_texture_bytes,
+        "streaming_budget_bytes": stats.streaming_budget_bytes,
+        "textures_below_wanted": stats.textures_below_wanted,
     }))
 }
 

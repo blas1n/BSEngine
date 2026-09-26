@@ -109,6 +109,8 @@ pub mod taa;
 /// Per-texture import settings (sRGB, mipmaps, filter, wrap), stored in an
 /// asset's sidecar and applied at upload.
 pub mod texture_import;
+/// Texture streaming budget and mip bias, set from `project.toml`.
+pub mod texture_streaming_config;
 /// Frame and elapsed-time resource driven by the app's main loop.
 pub mod time;
 /// Cutscene sequencing: a `Timeline` asset of camera/animation/event tracks,
@@ -184,6 +186,7 @@ pub use shield::Shield;
 pub use skybox::{Skybox, SkyboxPath, SkyboxProjection};
 pub use taa::Taa;
 pub use texture_import::{TextureFilter, TextureImportSettings, TextureWrap};
+pub use texture_streaming_config::TextureStreamingSettings;
 pub use time::Time;
 pub use timeline::{
     animations_between, evaluate, events_between, AnimationKey, CameraKey, CameraPose, EventKey,

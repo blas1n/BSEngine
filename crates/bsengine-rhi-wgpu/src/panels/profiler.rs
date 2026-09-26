@@ -80,6 +80,19 @@ impl EditorPanel for ProfilerPanel {
             latest.texture_memory_bytes as f64 / (1024.0 * 1024.0),
             latest.texture_count
         ));
+        let budget = if latest.streaming_budget_bytes == 0 {
+            "no budget".to_string()
+        } else {
+            format!(
+                "budget {:.1} MB",
+                latest.streaming_budget_bytes as f64 / (1024.0 * 1024.0)
+            )
+        };
+        ui.label(format!(
+            "Streamed: {:.2} MB ({budget}), {} below wanted",
+            latest.streamed_texture_bytes as f64 / (1024.0 * 1024.0),
+            latest.textures_below_wanted
+        ));
 
         ui.separator();
         if latest.gpu_timestamps_supported {

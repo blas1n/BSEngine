@@ -134,9 +134,64 @@ Notes:
 - Each entity's script is isolated — multiple entities can each have their own script
 - path is relative to game root (e.g. "assets/scripts/player.js")"#;
 
+const SCRIPT_GRAPH_DOCS: &str = r#"Script graph file format (RON). A graph is nodes with numbered ids, edges
+between named ports, and variables. Flow ports ("exec", "then", "true", "false", "body",
+"completed") decide what runs next; data ports carry values. An edge is
+(from: (node id, output port), to: (node id, input port)).
+
+(
+    nodes: [
+        (id: 0, kind: OnUpdate, position: (0.0, 0.0)),
+        (id: 1, kind: Branch, position: (220.0, 0.0)),
+        (id: 2, kind: Call("isKeyDown"), position: (0.0, 80.0)),
+        (id: 3, kind: Literal(Text("Space")), position: (-200.0, 80.0)),
+        (id: 4, kind: Call("addPosition"), position: (460.0, 0.0)),
+        (id: 5, kind: SelfEntity, position: (220.0, 100.0)),
+        (id: 6, kind: Vec3Make, position: (220.0, 180.0)),
+        (id: 7, kind: Literal(Number(0.0)), position: (0.0, 180.0)),
+        (id: 8, kind: Multiply, position: (0.0, 260.0)),
+        (id: 9, kind: GetVar("speed"), position: (-200.0, 240.0)),
+        (id: 10, kind: Call("getDeltaTime"), position: (-200.0, 300.0)),
+    ],
+    edges: [
+        (from: (0, "then"), to: (1, "exec")),
+        (from: (2, "out"), to: (1, "condition")),
+        (from: (3, "out"), to: (2, "key")),
+        (from: (1, "true"), to: (4, "exec")),
+        (from: (5, "out"), to: (4, "entity")),
+        (from: (6, "out"), to: (4, "delta")),
+        (from: (7, "out"), to: (6, "x")), (from: (8, "out"), to: (6, "y")), (from: (7, "out"), to: (6, "z")),
+        (from: (9, "out"), to: (8, "a")), (from: (10, "out"), to: (8, "b")),
+    ],
+    variables: [(name: "speed", initial: Number(2.0))],
+)
+
+Node kinds and their ports (input -> output):
+  Events (one flow output "then"): OnStart, OnUpdate, OnKeyPressed("Space"), OnInterval(0.5) [seconds],
+    OnCollision (also outputs "other": Entity, readable only downstream of its "then")
+  Flow: Branch (exec, condition: Bool -> true, false); Sequence (exec -> then0, then1, then2);
+    ForLoop (exec, first, last: Number -> body, completed; "index": Number readable only under body);
+    WhileLoop (exec, condition: Bool -> body, completed; stopped after 100000 iterations in one frame);
+    Delay (exec, frames: Number -> completed, run that many frames later)
+  Values: Literal(Number(1.0)) | Literal(Text("a")) | Literal(Bool(true)) (-> out); SelfEntity (-> out: Entity);
+    GetVar("name") (-> out); SetVar("name") (exec, value -> then); ToText (x: Number -> out: Text);
+    Concat (a, b: Text -> out: Text)
+  Math: Add, Subtract, Multiply, Divide (a, b: Number -> out); Compare(Less | LessOrEqual | Greater |
+    GreaterOrEqual | Equal | NotEqual) (a, b -> out: Bool); Not (x -> out); And, Or (a, b -> out);
+    Vec3Make (x, y, z -> out: Vec3); Vec3Split (v -> x, y, z)
+  Call("name"): one of the Bsengine functions below; an impure call has "exec" -> "then" plus a data
+    port per parameter and "out" when it returns something; a pure call (a getter) has only data ports.
+    Types: Number, Bool, Text, Entity (an entity's name; Text and Entity connect to each other), Vec3.
+
+Compiles to one `onUpdate(self)`: OnStart runs on the first frame, OnKeyPressed is an isKeyPressed
+check each frame, OnCollision registers Bsengine.onCollision on the first frame, OnInterval accumulates
+getDeltaTime. Pure nodes are inlined where read; reading a flow-scoped value (OnCollision "other",
+ForLoop "index") outside its flow is a compile error, as is a missing input, a type mismatch, an
+unknown call, a flow output connected twice, and a cycle."#;
+
 /// Builds the `game_create`/`scene_write`/`script_write`/`game_validate`/
-/// `asset_import_settings` tools, each scoped to game projects under
-/// `root/games/`.
+/// `asset_import_settings`/`asset_references`/`script_graph_compile` tools,
+/// each scoped to game projects under `root/games/`.
 pub fn game_tools(root: PathBuf) -> Vec<McpTool> {
     let r1 = root.clone();
     let r2 = root.clone();
@@ -144,8 +199,47 @@ pub fn game_tools(root: PathBuf) -> Vec<McpTool> {
     let r4 = root.clone();
     let r5 = root.clone();
     let r6 = root.clone();
+    let r7 = root.clone();
 
     vec![
+        McpTool {
+            name: "script_graph_compile".to_string(),
+            description: format!(
+                "Compile a visual script graph (`<name>.scriptgraph.ron`, written with \
+                script_write or by hand) to the JavaScript the runtime loads, written beside it \
+                as `<name>.js` -- what the editor's Script Graph panel's Compile button does. \
+                Point a scene entity's `script:` at the `.js`. Returns {{path, js_path, js}} on \
+                success; on a graph error nothing is written and the error names the node and \
+                port to fix. The `.js` starts with a header saying it is generated; the next \
+                compile overwrites it.\n\n\
+                Available Call names: {ops}.\n\n\
+                {SCRIPT_GRAPH_DOCS}",
+                ops = bsengine_visualscript::OPS
+                    .iter()
+                    .map(|o| {
+                        let params: Vec<String> = o
+                            .params
+                            .iter()
+                            .map(|(n, t)| format!("{n}: {}", t.name()))
+                            .collect();
+                        match o.returns {
+                            Some(r) => format!("{}({}) -> {}", o.name, params.join(", "), r.name()),
+                            None => format!("{}({})", o.name, params.join(", ")),
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ),
+            input_schema: Some(json!({
+                "type": "object",
+                "properties": {
+                    "game": { "type": "string", "description": "Game folder name under games/" },
+                    "path": { "type": "string", "description": "Graph path relative to the game root, ending in .scriptgraph.ron (e.g. 'assets/scripts/bob.scriptgraph.ron')" },
+                },
+                "required": ["game", "path"],
+            })),
+            handler: Box::new(move |args| script_graph_compile(&r7, args)),
+        },
         McpTool {
             name: "asset_references".to_string(),
             description: "What an asset references and what references it -- Unreal's \
@@ -444,6 +538,63 @@ fn asset_references(root: &Path, args: Value) -> McpToolOutput {
         "reached": cooked.assets.contains(&rel),
         "referencers": cooked.referencers_of(&rel),
         "dependencies": cooked.dependencies_of(&rel),
+    }))
+}
+
+/// The suffix a graph file carries; the `.js` is the same name without it.
+const SCRIPT_GRAPH_SUFFIX: &str = ".scriptgraph.ron";
+
+fn script_graph_compile(root: &Path, args: Value) -> McpToolOutput {
+    let game = match get_str(&args, "game") {
+        Ok(v) => v.to_string(),
+        Err(e) => return e,
+    };
+    let rel = match get_str(&args, "path") {
+        Ok(v) => v.replace('\\', "/"),
+        Err(e) => return e,
+    };
+    let game_dir = root.join("games").join(&game);
+    if !game_dir.join("project.toml").is_file() {
+        return McpToolOutput::error(&format!(
+            "games/{game}/project.toml not found — run game_create first"
+        ));
+    }
+    // Scoped to the game like the other file-writing tools: this one writes
+    // a `.js` beside whatever `path` names.
+    if leaves_the_game(Path::new(&rel)) {
+        return McpToolOutput::error(
+            "path must be relative to the game root and may not leave it (no `..`)",
+        );
+    }
+    // The suffix is the contract: the `.js` is named by stripping it, and a
+    // file without it would have its `.js` land at a name nothing predicts.
+    let Some(stem) = rel.strip_suffix(SCRIPT_GRAPH_SUFFIX) else {
+        return McpToolOutput::error(&format!(
+            "path must end in {SCRIPT_GRAPH_SUFFIX}; got {rel}"
+        ));
+    };
+    let shown = format!("games/{game}/{rel}");
+    let text = match std::fs::read_to_string(game_dir.join(&rel)) {
+        Ok(t) => t,
+        Err(e) => return McpToolOutput::error(&format!("{shown}: {e}")),
+    };
+    let graph: bsengine_visualscript::ScriptGraph = match ron::from_str(&text) {
+        Ok(g) => g,
+        Err(e) => return McpToolOutput::error(&format!("{shown}: not a script graph: {e}")),
+    };
+    let js = match bsengine_visualscript::compile(&graph) {
+        Ok(js) => js,
+        Err(e) => return McpToolOutput::error(&format!("{shown}: {e}")),
+    };
+    let js_rel = format!("{stem}.js");
+    let js_path = game_dir.join(&js_rel);
+    if let Err(e) = std::fs::write(&js_path, &js) {
+        return McpToolOutput::error(&format!("games/{game}/{js_rel}: {e}"));
+    }
+    McpToolOutput::success(json!({
+        "path": rel,
+        "js_path": js_rel,
+        "js": js,
     }))
 }
 
@@ -775,6 +926,184 @@ mod tests {
             .into_iter()
             .find(|t| t.name == "asset_references")
             .expect("registered")
+    }
+
+    fn graph_tool(root: &Path) -> McpTool {
+        game_tools(root.to_path_buf())
+            .into_iter()
+            .find(|t| t.name == "script_graph_compile")
+            .expect("registered")
+    }
+
+    /// A game with a graph that compiles: `OnUpdate -> log("tick")`.
+    fn game_with_graph(root: &Path) {
+        let write = |rel: &str, text: &str| {
+            let path = root.join("games/g").join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        };
+        write(
+            "project.toml",
+            "[project]\nname = \"G\"\nentry_scene = \"assets/scenes/main.ron\"\n",
+        );
+        write(
+            "assets/scripts/tick.scriptgraph.ron",
+            r#"(
+    nodes: [
+        (id: 0, kind: OnUpdate, position: (0.0, 0.0)),
+        (id: 1, kind: Call("log"), position: (200.0, 0.0)),
+        (id: 2, kind: Literal(Text("tick")), position: (0.0, 60.0)),
+    ],
+    edges: [
+        (from: (0, "then"), to: (1, "exec")),
+        (from: (2, "out"), to: (1, "message")),
+    ],
+)"#,
+        );
+    }
+
+    /// The tool writes exactly what `compile` produces, beside the graph,
+    /// and returns it -- the same file the panel's Compile writes, so a
+    /// scene's `script:` can name it.
+    #[test]
+    fn script_graph_compile_writes_the_js_beside_the_graph() {
+        let (_tmp, root) = temp_root();
+        game_with_graph(&root);
+        let tool = graph_tool(&root);
+        let out =
+            (tool.handler)(json!({"game": "g", "path": "assets/scripts/tick.scriptgraph.ron"}));
+        assert!(out.is_ok(), "{:?}", out.error);
+        assert_eq!(out.content["js_path"], "assets/scripts/tick.js");
+        let js_path = root.join("games/g/assets/scripts/tick.js");
+        let written =
+            std::fs::read_to_string(&js_path).expect("the .js is written beside the graph");
+        assert_eq!(out.content["js"], written);
+        assert!(
+            written.starts_with(bsengine_visualscript::HEADER),
+            "the file says it is generated"
+        );
+        assert!(
+            written.contains("Bsengine.log(\"tick\");"),
+            "the flow compiled: {written}"
+        );
+        assert!(
+            written.contains("function onUpdate(self)"),
+            "the runtime's entry point: {written}"
+        );
+        // Backslashes are accepted and the reply spells the path forward.
+        let out =
+            (tool.handler)(json!({"game": "g", "path": "assets\\scripts\\tick.scriptgraph.ron"}));
+        assert!(out.is_ok(), "{:?}", out.error);
+        assert_eq!(out.content["path"], "assets/scripts/tick.scriptgraph.ron");
+    }
+
+    /// A graph with an error compiles to nothing: no `.js` appears, and the
+    /// error names the node to fix. Then the refusals: a path outside the
+    /// game, a file without the suffix, a file that is not a graph, a game
+    /// without a manifest.
+    #[test]
+    fn script_graph_compile_writes_nothing_for_a_bad_graph_and_refuses_bad_paths() {
+        let (_tmp, root) = temp_root();
+        game_with_graph(&root);
+        // Drop the message edge: `log` is missing its input.
+        let graph = root.join("games/g/assets/scripts/tick.scriptgraph.ron");
+        let text = std::fs::read_to_string(&graph).unwrap();
+        std::fs::write(
+            &graph,
+            text.replace(r#"(from: (2, "out"), to: (1, "message")),"#, ""),
+        )
+        .unwrap();
+        let tool = graph_tool(&root);
+        let out =
+            (tool.handler)(json!({"game": "g", "path": "assets/scripts/tick.scriptgraph.ron"}));
+        assert!(!out.is_ok());
+        let error = out.error.as_deref().unwrap_or("");
+        assert!(
+            error.contains("node 1") && error.contains("message"),
+            "the error names the node and port: {error}"
+        );
+        assert!(
+            !root.join("games/g/assets/scripts/tick.js").exists(),
+            "a failed compile must not leave a .js behind"
+        );
+
+        let out = (tool.handler)(
+            json!({"game": "g", "path": "../g/assets/scripts/tick.scriptgraph.ron"}),
+        );
+        assert!(
+            out.error.as_deref().unwrap_or("").contains("may not leave"),
+            "{:?}",
+            out.error
+        );
+
+        std::fs::write(root.join("games/g/assets/scripts/plain.ron"), "()").unwrap();
+        let out = (tool.handler)(json!({"game": "g", "path": "assets/scripts/plain.ron"}));
+        assert!(
+            out.error
+                .as_deref()
+                .unwrap_or("")
+                .contains(".scriptgraph.ron"),
+            "{:?}",
+            out.error
+        );
+
+        std::fs::write(
+            root.join("games/g/assets/scripts/junk.scriptgraph.ron"),
+            "not ron {{",
+        )
+        .unwrap();
+        let out =
+            (tool.handler)(json!({"game": "g", "path": "assets/scripts/junk.scriptgraph.ron"}));
+        assert!(
+            out.error
+                .as_deref()
+                .unwrap_or("")
+                .contains("not a script graph"),
+            "{:?}",
+            out.error
+        );
+
+        let out =
+            (tool.handler)(json!({"game": "g", "path": "assets/scripts/none.scriptgraph.ron"}));
+        assert!(!out.is_ok(), "a missing file is an error");
+
+        let out =
+            (tool.handler)(json!({"game": "other", "path": "assets/scripts/tick.scriptgraph.ron"}));
+        assert!(
+            out.error.as_deref().unwrap_or("").contains("project.toml"),
+            "{:?}",
+            out.error
+        );
+    }
+
+    /// The tool's description is what an agent authors graphs from: it must
+    /// list every call the compiler accepts, with its signature, so that a
+    /// name added to the op table is documented without anyone remembering.
+    #[test]
+    fn script_graph_compile_describes_every_op_and_the_format() {
+        let (_tmp, root) = temp_root();
+        let tool = graph_tool(&root);
+        for op in bsengine_visualscript::OPS {
+            assert!(
+                tool.description.contains(&format!("{}(", op.name)),
+                "{} is missing from the tool description",
+                op.name
+            );
+        }
+        assert!(tool.description.contains("getDeltaTime() -> Number"));
+        assert!(tool
+            .description
+            .contains("addPosition(entity: Entity, delta: Vec3)"));
+        for kind in [
+            "ForLoop",
+            "WhileLoop",
+            "Delay",
+            "OnInterval",
+            "OnCollision",
+            "Vec3Split",
+        ] {
+            assert!(tool.description.contains(kind), "{kind} is not documented");
+        }
     }
 
     /// A game whose entry scene names a model and a script, whose script

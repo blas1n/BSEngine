@@ -13,6 +13,7 @@ bsengine-asset.workspace = true
 bsengine-catalog.workspace = true
 bsengine-core.workspace = true
 bsengine-ecs.workspace = true
+bsengine-visualscript.workspace = true
 bevy_app.workspace = true
 bevy_ecs.workspace = true
 ron.workspace = true

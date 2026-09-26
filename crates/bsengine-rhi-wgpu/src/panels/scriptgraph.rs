@@ -1731,6 +1731,11 @@ mod tests {
         let node_before = position_of(&h.panel.graph, 1);
         let grab = h.node_grab_point(1);
         h.press_with(grab, egui::PointerButton::Secondary);
+        // A small first step, as a real drag moves a few pixels a frame: the
+        // pan of that frame moves the node by the same few pixels, so the
+        // press is still on it when the grab is tested. One 40 px jump would
+        // carry the node out from under its own press and hide a grab.
+        h.drag_to(grab + egui::vec2(0.0, 8.0));
         h.drag_to(grab + egui::vec2(0.0, 40.0));
         h.release_with(grab + egui::vec2(0.0, 40.0), egui::PointerButton::Secondary);
         assert_eq!(h.panel.view.pan, pan_before + egui::vec2(0.0, 40.0));

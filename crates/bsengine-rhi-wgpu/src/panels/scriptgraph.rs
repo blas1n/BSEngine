@@ -1736,12 +1736,17 @@ mod tests {
         assert_eq!(h.panel.view.pan, pan_before + egui::vec2(0.0, 40.0));
         assert_eq!(position_of(&h.panel.graph, 1), node_before);
         assert!(h.panel.dragging_node.is_none());
+        // The observable half of "only the primary button grabs": a pan
+        // moves whatever is under the pointer along with it, so a node or
+        // wire the secondary button had grabbed would end exactly where it
+        // started -- but a grab also *selects*, and a pan must not.
+        assert_eq!(
+            h.panel.selected_node, None,
+            "a secondary drag on a node must not select it"
+        );
 
-        // And a secondary drag from one port to another pans rather than
-        // wiring: the observable half of "only the primary button grabs".
-        // (A secondary drag on a node body is not observable -- the pan
-        // offsets the pointer's motion exactly, so a grabbed node would end
-        // where it started -- which is why this case is the one asserted.)
+        // A secondary drag from one port to another pans rather than
+        // wiring, for the same reason.
         let edges_before = h.panel.graph.edges.clone();
         let from = h.port(8, "out");
         let to = h.port(6, "z");

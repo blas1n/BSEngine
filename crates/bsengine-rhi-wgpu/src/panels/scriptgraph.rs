@@ -1675,10 +1675,12 @@ mod tests {
         let before: HashMap<(u32, String), egui::Pos2> = h.panel.last_port_positions.clone();
         let empty = h.canvas().right_bottom() - egui::vec2(30.0, 30.0);
         assert!(
-            h.panel.node_at(
-                &ScriptGraphPanel::layout_of(h.canvas(), h.panel.view, &h.panel.graph),
-                empty
-            ) == None,
+            h.panel
+                .node_at(
+                    &ScriptGraphPanel::layout_of(h.canvas(), h.panel.view, &h.panel.graph),
+                    empty
+                )
+                .is_none(),
             "the premise: the drag starts on empty canvas"
         );
         let delta = egui::vec2(-150.0, 60.0);
@@ -1734,6 +1736,28 @@ mod tests {
         assert_eq!(h.panel.view.pan, pan_before + egui::vec2(0.0, 40.0));
         assert_eq!(position_of(&h.panel.graph, 1), node_before);
         assert!(h.panel.dragging_node.is_none());
+
+        // And a secondary drag from one port to another pans rather than
+        // wiring: the observable half of "only the primary button grabs".
+        // (A secondary drag on a node body is not observable -- the pan
+        // offsets the pointer's motion exactly, so a grabbed node would end
+        // where it started -- which is why this case is the one asserted.)
+        let edges_before = h.panel.graph.edges.clone();
+        let from = h.port(8, "out");
+        let to = h.port(6, "z");
+        assert!(
+            edges_before.contains(&edge((7, "out"), (6, "z")))
+                && !edges_before.contains(&edge((8, "out"), (6, "z"))),
+            "premise: 6.z is fed by 7, and a primary drag from 8 would replace that"
+        );
+        h.press_with(from, egui::PointerButton::Secondary);
+        h.drag_to(to);
+        h.release_with(to, egui::PointerButton::Secondary);
+        assert_eq!(
+            h.panel.graph.edges, edges_before,
+            "a secondary drag between ports must not connect them"
+        );
+        assert!(h.panel.dragging_from.is_none());
     }
 
     /// The wheel zooms about the pointer: the port under it stays put on

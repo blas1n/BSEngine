@@ -40,6 +40,39 @@ struct Streamed {
     /// Level 0 first, down to 1x1, as [`mip_chain`] produces them.
     levels: Vec<(u32, u32, Vec<u8>)>,
     resident_base: u32,
+    /// The chain index the texture *ought* to have resident, from the
+    /// largest it is drawn on screen: what [`GpuTextureRegistry::set_wants`]
+    /// records each frame and [`GpuTextureRegistry::step_streaming`] moves
+    /// `resident_base` towards. `0` -- whole -- until something says
+    /// otherwise, so a texture nothing on screen uses (a UI image, a
+    /// particle sheet) streams to full as it did before wants existed.
+    wanted_base: u32,
+}
+
+/// What one [`GpuTextureRegistry::step_streaming`] call did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StreamingStep {
+    /// Brought the next larger level of this texture in.
+    Raised(u64),
+    /// Dropped the largest resident level of this texture.
+    Lowered(u64),
+}
+
+/// The chain index of the smallest level that is at least `pixels` across,
+/// then `bias` levels smaller, clamped to the chain. `pixels` is how large
+/// the texture is drawn on screen; a level that size has one texel per
+/// pixel, which is where more texels stop being visible.
+///
+/// The levels' `(width, height)` are level 0 first, halving. A non-finite
+/// or huge `pixels` wants level 0; zero or negative wants the last level.
+fn wanted_base_for(levels: &[(u32, u32, Vec<u8>)], pixels: f32, bias: i32) -> u32 {
+    let last = levels.len().saturating_sub(1) as i64;
+    // The last index whose larger dimension still covers `pixels`.
+    let base = levels
+        .iter()
+        .rposition(|(w, h, _)| (*w).max(*h) as f32 >= pixels)
+        .unwrap_or(0) as i64;
+    (base + bias as i64).clamp(0, last) as u32
 }
 
 /// Largest dimension of the levels a streamed texture starts with: enough to
@@ -198,6 +231,7 @@ impl GpuTextureRegistry {
                     .map(|(w, h, p)| (*w, *h, p.to_vec()))
                     .collect(),
                 resident_base,
+                wanted_base: 0,
             })
         } else {
             None
@@ -351,8 +385,9 @@ impl GpuTextureRegistry {
     /// Brings one level in on the streamed texture that has been waiting
     /// longest -- round-robin over every streamed texture that is not yet
     /// fully resident -- and returns its id. `None` when every streamed
-    /// texture is fully resident. What the progressive-loading system calls
-    /// once per frame.
+    /// texture is fully resident. What the progressive loader did before
+    /// wants existed; [`step_streaming`](Self::step_streaming) with every
+    /// want at `0` and no budget does the same.
     pub fn raise_next_pending(&mut self) -> Option<u64> {
         let mut pending: Vec<u64> = self
             .textures
@@ -367,6 +402,171 @@ impl GpuTextureRegistry {
             .or_else(|| pending.first())?;
         self.last_raised = next;
         self.raise_residency(next).then_some(next)
+    }
+
+    /// Records, for every streamed texture, how large it is drawn on screen
+    /// this frame -- `pixels` is the largest on-screen extent of anything
+    /// using it -- and so which level it wants resident (see
+    /// [`wanted_base_for`]). A streamed texture absent from `wants` is
+    /// wanted whole: nothing measured says it can be smaller.
+    ///
+    /// `bias` is the project's mip bias, in levels; positive wants smaller.
+    pub fn set_wants(&mut self, wants: &HashMap<u64, f32>, bias: i32) {
+        for (id, tex) in &mut self.textures {
+            let Some(streamed) = tex.streamed.as_mut() else {
+                continue;
+            };
+            streamed.wanted_base = match wants.get(id) {
+                Some(pixels) => wanted_base_for(&streamed.levels, *pixels, bias),
+                None => 0,
+            };
+        }
+    }
+
+    /// The chain index a streamed texture currently wants resident; `None`
+    /// for a texture that is not streamed.
+    pub fn wanted(&self, id: u64) -> Option<u32> {
+        Some(self.textures.get(&id)?.streamed.as_ref()?.wanted_base)
+    }
+
+    /// Bytes the streamed textures hold on the GPU between them, as the
+    /// profiler counts each one.
+    pub fn streamed_resident_bytes(&self) -> u64 {
+        self.textures
+            .values()
+            .filter(|t| t.streamed.is_some())
+            .map(|t| t._texture.size_bytes())
+            .sum()
+    }
+
+    /// How many streamed textures hold less than they want.
+    pub fn textures_below_wanted(&self) -> u32 {
+        self.textures
+            .values()
+            .filter(|t| {
+                t.streamed
+                    .as_ref()
+                    .is_some_and(|s| s.resident_base > s.wanted_base)
+            })
+            .count() as u32
+    }
+
+    /// Moves residency one level towards what the wants and the budget
+    /// say, on one texture, and reports what it did. What the streaming
+    /// system calls once per frame; one level per frame for the reason the
+    /// progressive loader gave -- each change is an allocation and a
+    /// re-upload, and spreading them is what keeps a frame from stalling.
+    ///
+    /// In order of precedence, as Unreal's pool and Unity's budget behave:
+    ///
+    /// 1. **Over budget**: drop the largest resident level of the texture
+    ///    holding the most it does not want (the one furthest from the
+    ///    camera), or, when every texture is at or below its want, of the
+    ///    one with the largest resident level. The budget wins over wants.
+    /// 2. **A texture wants more**: bring the next level in on the one
+    ///    furthest below its want, ties taken in turn -- if that level fits
+    ///    the budget. If it does not, a texture holding a level it does
+    ///    not want gives that up instead, so room appears next frame.
+    /// 3. **A texture holds more than a level above its want**: drop its
+    ///    largest level. One level of slack, so a texture whose want
+    ///    flickers across a level boundary as the camera moves is not
+    ///    rebuilt every frame.
+    ///
+    /// `budget` is the most bytes streamed textures may hold between them;
+    /// `None` is no limit. Returns `None` when nothing needed doing.
+    pub fn step_streaming(&mut self, budget: Option<u64>) -> Option<StreamingStep> {
+        // (id, resident_base, wanted_base, last chain index, largest resident level bytes, next level bytes)
+        let mut streamed: Vec<(u64, u32, u32, u32, u64, u64)> = self
+            .textures
+            .iter()
+            .filter_map(|(id, t)| {
+                let s = t.streamed.as_ref()?;
+                let last = s.levels.len() as u32 - 1;
+                let level_bytes = |i: u32| {
+                    let (w, h, _) = &s.levels[i as usize];
+                    *w as u64 * *h as u64 * 4
+                };
+                let next = s.resident_base.checked_sub(1).map_or(0, level_bytes);
+                Some((
+                    *id,
+                    s.resident_base,
+                    s.wanted_base,
+                    last,
+                    level_bytes(s.resident_base),
+                    next,
+                ))
+            })
+            .collect();
+        streamed.sort_unstable_by_key(|s| s.0);
+        let resident = self.streamed_resident_bytes();
+
+        // The texture holding the most it does not want, largest level
+        // first among equals; `None` when none can be lowered.
+        let most_surplus = |min_surplus: u32| {
+            streamed
+                .iter()
+                .filter(|(_, base, wanted, last, _, _)| {
+                    base < last && wanted.saturating_sub(*base) >= min_surplus
+                })
+                .max_by_key(|(id, base, wanted, _, bytes, _)| {
+                    (wanted.saturating_sub(*base), *bytes, std::cmp::Reverse(*id))
+                })
+                .map(|s| s.0)
+        };
+
+        if let Some(budget) = budget {
+            if resident > budget {
+                let victim = most_surplus(1).or_else(|| {
+                    streamed
+                        .iter()
+                        .filter(|(_, base, _, last, _, _)| base < last)
+                        .max_by_key(|(id, _, _, _, bytes, _)| (*bytes, std::cmp::Reverse(*id)))
+                        .map(|s| s.0)
+                })?;
+                return self
+                    .lower_residency(victim)
+                    .then_some(StreamingStep::Lowered(victim));
+            }
+        }
+
+        // The texture furthest below its want; ties go to the one after the
+        // last raised, so textures brought up together each get a turn.
+        let deficit = streamed
+            .iter()
+            .filter(|(_, base, wanted, _, _, _)| base > wanted)
+            .map(|(id, base, wanted, _, _, _)| (base - wanted, *id))
+            .max_by_key(|(gap, _)| *gap)
+            .map(|(gap, _)| gap);
+        if let Some(gap) = deficit {
+            let mut candidates: Vec<&(u64, u32, u32, u32, u64, u64)> = streamed
+                .iter()
+                .filter(|(_, base, wanted, _, _, _)| base > wanted && base - wanted == gap)
+                .collect();
+            candidates.sort_unstable_by_key(|s| s.0);
+            let next = candidates
+                .iter()
+                .find(|s| s.0 > self.last_raised)
+                .or_else(|| candidates.first())
+                .copied()
+                .expect("a deficit means at least one candidate");
+            let fits = budget.map_or(true, |b| resident + next.5 <= b);
+            if fits {
+                self.last_raised = next.0;
+                return self
+                    .raise_residency(next.0)
+                    .then_some(StreamingStep::Raised(next.0));
+            }
+            if let Some(victim) = most_surplus(1) {
+                return self
+                    .lower_residency(victim)
+                    .then_some(StreamingStep::Lowered(victim));
+            }
+            return None;
+        }
+
+        let victim = most_surplus(2)?;
+        self.lower_residency(victim)
+            .then_some(StreamingStep::Lowered(victim))
     }
 
     fn sampler_and_bind_group(
@@ -858,6 +1058,220 @@ mod tests {
             reg.get_gpu_footprint(plain).map(|f| f.0),
             Some(256),
             "the unstreamed texture was never touched"
+        );
+    }
+
+    /// The level a screen size asks for: the smallest level at least that
+    /// many pixels across, so a texture drawn 100 px tall wants its 128
+    /// level and not its 256; anything at or over level 0's size wants
+    /// level 0; the bias moves the answer along the chain and stops at
+    /// its ends.
+    #[test]
+    fn the_wanted_level_is_the_smallest_that_covers_the_screen_size() {
+        let chain = mip_chain(256, 256, &[0u8; 256 * 256 * 4]);
+        let levels: Vec<(u32, u32, Vec<u8>)> = chain
+            .into_iter()
+            .map(|(w, h, p)| (w, h, p.into_owned()))
+            .collect();
+        let want = |pixels: f32, bias: i32| wanted_base_for(&levels, pixels, bias);
+        assert_eq!(want(100.0, 0), 1, "128 covers 100; 64 does not");
+        assert_eq!(want(128.0, 0), 1, "exactly 128 is still the 128 level");
+        assert_eq!(want(129.0, 0), 0);
+        assert_eq!(want(300.0, 0), 0, "more than level 0 is still level 0");
+        assert_eq!(want(f32::INFINITY, 0), 0);
+        assert_eq!(want(10.0, 0), 4, "16 covers 10");
+        assert_eq!(want(1.0, 0), 8, "the 1x1 level");
+        assert_eq!(want(0.0, 0), 8);
+        assert_eq!(want(100.0, 1), 2, "one level smaller than asked");
+        assert_eq!(want(100.0, -1), 0);
+        assert_eq!(want(300.0, -3), 0, "clamped at the top");
+        assert_eq!(want(1.0, 5), 8, "and at the bottom");
+
+        // A non-square chain is measured by its larger side.
+        let chain = mip_chain(256, 64, &[0u8; 256 * 64 * 4]);
+        let levels: Vec<(u32, u32, Vec<u8>)> = chain
+            .into_iter()
+            .map(|(w, h, p)| (w, h, p.into_owned()))
+            .collect();
+        assert_eq!(wanted_base_for(&levels, 100.0, 0), 1);
+    }
+
+    /// Wants steer the step: a texture drawn small settles at the level its
+    /// screen size asks for and no higher, the texture furthest below its
+    /// want is served first, a texture that comes to want less gives its
+    /// levels back one per step, and one level of slack keeps a want that
+    /// moves by one from rebuilding anything. A streamed texture nothing
+    /// measured is wanted whole, as before.
+    #[test]
+    fn step_streaming_moves_each_texture_towards_its_want() {
+        let mut reg = make_registry();
+        let a = reg.load_with(256, 256, &vec![0u8; 256 * 256 * 4], streamed());
+        let b = reg.load_with(256, 256, &vec![0u8; 256 * 256 * 4], streamed());
+        let c = reg.load_with(256, 256, &vec![0u8; 256 * 256 * 4], streamed());
+        assert_eq!(reg.residency(a), Some((2, 9)), "premise: 64 resident");
+
+        // a is drawn 300 px tall (wants everything), b 40 px (wants 64:
+        // exactly what it holds), c is not drawn at all.
+        let wants = HashMap::from([(a, 300.0), (b, 40.0)]);
+        reg.set_wants(&wants, 0);
+        assert_eq!(
+            (reg.wanted(a), reg.wanted(b), reg.wanted(c)),
+            (Some(0), Some(2), Some(0))
+        );
+        assert_eq!(reg.textures_below_wanted(), 2, "a and c");
+
+        // a and c both want two more levels; they take turns, b is never
+        // touched, and the step reports nothing once both are whole.
+        let steps: Vec<Option<StreamingStep>> = (0..5).map(|_| reg.step_streaming(None)).collect();
+        assert_eq!(
+            steps,
+            vec![
+                Some(StreamingStep::Raised(a)),
+                Some(StreamingStep::Raised(c)),
+                Some(StreamingStep::Raised(a)),
+                Some(StreamingStep::Raised(c)),
+                None
+            ]
+        );
+        assert_eq!(reg.residency(a), Some((0, 9)));
+        assert_eq!(reg.residency(c), Some((0, 9)));
+        assert_eq!(reg.residency(b), Some((2, 9)), "b holds what it wants");
+        assert_eq!(reg.textures_below_wanted(), 0);
+
+        // a moves away: drawn 10 px, it wants the 16 level (index 4). It
+        // gives levels back one per step and stops one short (index 3) --
+        // the slack that stops a want flickering across a boundary from
+        // rebuilding every frame.
+        reg.set_wants(&HashMap::from([(a, 10.0), (b, 40.0), (c, 300.0)]), 0);
+        assert_eq!(reg.wanted(a), Some(4));
+        let steps: Vec<Option<StreamingStep>> = (0..5).map(|_| reg.step_streaming(None)).collect();
+        assert_eq!(
+            steps,
+            vec![
+                Some(StreamingStep::Lowered(a)),
+                Some(StreamingStep::Lowered(a)),
+                Some(StreamingStep::Lowered(a)),
+                None,
+                None
+            ]
+        );
+        assert_eq!(reg.residency(a), Some((3, 9)));
+
+        // Wanting exactly one level less than held changes nothing.
+        reg.set_wants(&HashMap::from([(a, 10.0), (b, 20.0), (c, 300.0)]), 0);
+        assert_eq!(reg.wanted(b), Some(3), "b holds 2, wants 3");
+        assert_eq!(reg.step_streaming(None), None);
+        assert_eq!(reg.residency(b), Some((2, 9)));
+
+        // A raise takes precedence over a lowering when both are due.
+        reg.set_wants(&HashMap::from([(a, 300.0), (b, 5.0), (c, 300.0)]), 0);
+        assert_eq!(reg.step_streaming(None), Some(StreamingStep::Raised(a)));
+    }
+
+    /// The budget wins over wants, as Unreal's pool does: a level that would
+    /// exceed it is not brought in; over it, the texture holding the most it
+    /// does not want gives a level back first, and when nothing has a
+    /// surplus the largest resident level goes; a budget of `None` limits
+    /// nothing. The bias is applied to every want.
+    #[test]
+    fn the_budget_caps_residency_and_evicts_the_least_wanted_first() {
+        let mut reg = make_registry();
+        let a = reg.load_with(256, 256, &vec![0u8; 256 * 256 * 4], streamed());
+        let b = reg.load_with(256, 256, &vec![0u8; 256 * 256 * 4], streamed());
+        let at_64 = reg.streamed_resident_bytes();
+        assert!(
+            within_one_percent(at_64, 2 * chain_bytes(64, 7)),
+            "premise: two 64-level chains, {at_64} bytes"
+        );
+
+        // Both want everything, but the budget has room for one 128 level
+        // and not two: a is raised, b is refused, and nothing is lowered
+        // because nothing holds more than it wants.
+        reg.set_wants(&HashMap::from([(a, 300.0), (b, 300.0)]), 0);
+        let budget = at_64 + 128 * 128 * 4 + 1024;
+        assert_eq!(
+            reg.step_streaming(Some(budget)),
+            Some(StreamingStep::Raised(a))
+        );
+        assert_eq!(
+            reg.step_streaming(Some(budget)),
+            None,
+            "b's 128 level does not fit"
+        );
+        assert_eq!(
+            (reg.residency(a), reg.residency(b)),
+            (Some((1, 9)), Some((2, 9)))
+        );
+        assert_eq!(reg.textures_below_wanted(), 2, "both are held down");
+
+        // Now a wants less (drawn 40 px: the 64 level) and b still wants
+        // everything: a's surplus level goes, which makes room for b next.
+        reg.set_wants(&HashMap::from([(a, 40.0), (b, 300.0)]), 0);
+        assert_eq!(
+            reg.step_streaming(Some(budget)),
+            Some(StreamingStep::Lowered(a))
+        );
+        assert_eq!(
+            reg.step_streaming(Some(budget)),
+            Some(StreamingStep::Raised(b))
+        );
+        assert_eq!(
+            (reg.residency(a), reg.residency(b)),
+            (Some((2, 9)), Some((1, 9)))
+        );
+
+        // The budget shrinks below what is held: b, holding a level it
+        // wants, is still the one with the largest resident level once a
+        // has no surplus, so b gives it back.
+        let tiny = Some(at_64);
+        assert_eq!(reg.step_streaming(tiny), Some(StreamingStep::Lowered(b)));
+        assert_eq!(reg.residency(b), Some((2, 9)));
+        assert!(reg.streamed_resident_bytes() <= at_64);
+        // Still over? No: exactly at. Nothing more is dropped, and b is not
+        // raised either since its level would not fit.
+        assert_eq!(reg.step_streaming(tiny), None);
+
+        // The bias: with +1 every want is one level smaller, so b, drawn
+        // 300 px, wants the 128 level and stops there under no budget.
+        reg.set_wants(&HashMap::from([(a, 40.0), (b, 300.0)]), 1);
+        assert_eq!((reg.wanted(a), reg.wanted(b)), (Some(3), Some(1)));
+        assert_eq!(reg.step_streaming(None), Some(StreamingStep::Raised(b)));
+        assert_eq!(reg.step_streaming(None), None);
+        assert_eq!(reg.residency(b), Some((1, 9)));
+
+        // Eviction order: b whole and wanted whole, a holding one level it
+        // does not want. Over budget, a's unwanted level goes before b's
+        // larger one -- the least wanted first, not the largest.
+        reg.set_wants(&HashMap::from([(a, 20.0), (b, 300.0)]), 0);
+        assert_eq!(
+            (reg.residency(a), reg.wanted(a)),
+            (Some((2, 9)), Some(3)),
+            "premise: a holds 64 and wants 32"
+        );
+        assert_eq!(reg.step_streaming(None), Some(StreamingStep::Raised(b)));
+        assert_eq!(
+            reg.step_streaming(None),
+            None,
+            "a's one level of surplus is within the slack"
+        );
+        let over = Some(reg.streamed_resident_bytes() - 1);
+        assert_eq!(
+            reg.step_streaming(over),
+            Some(StreamingStep::Lowered(a)),
+            "the least wanted level goes, not the largest"
+        );
+        assert_eq!(
+            (reg.residency(a), reg.residency(b)),
+            (Some((3, 9)), Some((0, 9)))
+        );
+
+        // A texture that is not streamed is never in any of this.
+        let plain = reg.load_with(8, 8, &[0u8; 8 * 8 * 4], TextureImportSettings::default());
+        assert_eq!(reg.wanted(plain), None);
+        assert_eq!(
+            reg.step_streaming(Some(1)),
+            Some(StreamingStep::Lowered(b)),
+            "over a budget of 1 byte, b (largest) goes"
         );
     }
 

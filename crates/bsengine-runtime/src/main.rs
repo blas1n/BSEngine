@@ -378,6 +378,10 @@ fn build_windowed_app(project_dir: &str) -> bevy_app::App {
         cascades: manifest.render.shadow_cascades,
         blend: manifest.render.shadow_cascade_blend,
     });
+    app.insert_resource(bsengine_core::TextureStreamingSettings::from_manifest(
+        manifest.render.texture_streaming_budget_mb,
+        manifest.render.texture_mip_bias,
+    ));
     // Before `AssetPlugin`, and that ordering is the whole reason this is a
     // separate plugin: `bevy_asset` builds its sources during that plugin's
     // `build`, so a source registered afterwards is silently ignored -- and a

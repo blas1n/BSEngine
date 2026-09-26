@@ -6848,6 +6848,9 @@ impl WgpuSurface {
             occluded_count,
             texture_memory_bytes: crate::profiler::texture_memory_bytes(),
             texture_count: crate::profiler::texture_count(),
+            streamed_texture_bytes: crate::profiler::streaming_snapshot().0,
+            streaming_budget_bytes: crate::profiler::streaming_snapshot().1,
+            textures_below_wanted: crate::profiler::streaming_snapshot().2,
         };
         {
             let mut history = self.frame_stats_history.lock().unwrap();

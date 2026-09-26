@@ -549,7 +549,7 @@ impl GpuTextureRegistry {
                 .or_else(|| candidates.first())
                 .copied()
                 .expect("a deficit means at least one candidate");
-            let fits = budget.map_or(true, |b| resident + next.5 <= b);
+            let fits = budget.is_none_or(|b| resident + next.5 <= b);
             if fits {
                 self.last_raised = next.0;
                 return self

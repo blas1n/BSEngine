@@ -116,6 +116,39 @@ pub enum NodeKind {
     /// Takes a `Vec3` apart: input `"v"`; outputs `"x"`, `"y"`, `"z"`
     /// (`Number`).
     Vec3Split,
+    /// Runs `body` once per index from `first` to `last` inclusive, then
+    /// `completed` -- Blueprint's ForLoop.
+    ///
+    /// Flow input: `"exec"`. Data inputs: `"first"`, `"last"` (`Number`).
+    /// Flow outputs: `"body"`, `"completed"`. Data output: `"index"`
+    /// (`Number`), readable only downstream of `body`.
+    ForLoop,
+    /// Runs `body` while `condition` holds, then `completed`. Stops after
+    /// [`crate::compile::LOOP_LIMIT`] iterations with a logged warning, as
+    /// Blueprint's runaway-loop guard does, so a condition that never turns
+    /// false cannot hang the frame.
+    ///
+    /// Flow input: `"exec"`. Data input: `"condition"` (`Bool`). Flow
+    /// outputs: `"body"`, `"completed"`.
+    WhileLoop,
+    /// Continues at `completed` after a number of frames -- Blueprint's
+    /// Delay, on `Bsengine.setTimeout`. The flow after it runs on a later
+    /// frame, not this one.
+    ///
+    /// Flow input: `"exec"`. Data input: `"frames"` (`Number`). Flow output:
+    /// `"completed"`.
+    Delay,
+    /// Runs every so many seconds of game time -- Blueprint's looping timer,
+    /// as an accumulator on `getDeltaTime`.
+    ///
+    /// Flow output: `"then"`.
+    OnInterval(f64),
+    /// A number as text, for HUD labels. Data input `"x"` (`Number`);
+    /// output `"out"` (`Text`).
+    ToText,
+    /// Two texts joined. Data inputs `"a"`, `"b"` (`Text`); output `"out"`
+    /// (`Text`).
+    Concat,
 }
 
 /// A node: a stable id plus what it does.
@@ -225,6 +258,19 @@ pub enum GraphError {
         /// The port.
         port: String,
     },
+    /// A value read outside the flow that produces it: a collision's
+    /// `other` or a loop's `index` read from a flow the callback or loop
+    /// body does not enclose. In the generated JavaScript that variable
+    /// does not exist there, and the script would throw on the first frame
+    /// that reached it.
+    OutOfScope {
+        /// The node reading it.
+        node: u32,
+        /// The port it reads it on.
+        port: String,
+        /// The node whose flow-scoped output it is.
+        source: u32,
+    },
 }
 
 impl std::fmt::Display for GraphError {
@@ -272,6 +318,10 @@ impl std::fmt::Display for GraphError {
             GraphError::AmbiguousFlow { node, port } => write!(
                 f,
                 "node {node}'s flow output \"{port}\" is connected to more than one node; a flow can only continue in one place"
+            ),
+            GraphError::OutOfScope { node, port, source } => write!(
+                f,
+                "node {node}'s input \"{port}\" reads a value of node {source} that only exists inside that node's own flow (its loop body or callback)"
             ),
         }
     }
@@ -343,11 +393,28 @@ mod tests {
                     kind: NodeKind::SetVar("speed".to_string()),
                     position: [240.0, 80.0],
                 },
+                GraphNode {
+                    id: 7,
+                    kind: NodeKind::OnInterval(0.5),
+                    position: [0.0, 200.0],
+                },
+                GraphNode {
+                    id: 8,
+                    kind: NodeKind::ForLoop,
+                    position: [120.0, 200.0],
+                },
+                GraphNode {
+                    id: 9,
+                    kind: NodeKind::Delay,
+                    position: [240.0, 200.0],
+                },
             ],
             edges: vec![
                 edge((0, "then"), (5, "exec")),
                 edge((2, "out"), (4, "a")),
                 edge((5, "then"), (6, "exec")),
+                edge((7, "then"), (8, "exec")),
+                edge((8, "completed"), (9, "exec")),
             ],
             variables: vec![Variable {
                 name: "speed".to_string(),
@@ -420,6 +487,16 @@ mod tests {
         }
         .to_string();
         assert!(a.contains('6') && a.contains("then"), "{a}");
+        let s = GraphError::OutOfScope {
+            node: 14,
+            port: "text".to_string(),
+            source: 9,
+        }
+        .to_string();
+        assert!(
+            s.contains("14") && s.contains("text") && s.contains('9'),
+            "{s}"
+        );
     }
 
     /// The demo graph committed with this crate is the artifact a user

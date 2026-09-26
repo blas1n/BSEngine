@@ -4455,6 +4455,10 @@ mod tests {
         app.add_plugins(ScriptingPlugin {
             project_dir: String::new(),
         });
+        // A fixed quarter-second per frame, as `--test` replays run, so that
+        // how often an `OnInterval` fires is a function of the frame count
+        // and not of how fast this machine ran the frames.
+        app.insert_resource(crate::ScriptTimingState::fixed(0.25));
         let entity = app
             .world_mut()
             .spawn((
@@ -4561,6 +4565,142 @@ mod tests {
         );
         let y = app.world().get::<Transform>(entity).unwrap().position.0.y;
         assert_eq!(y, 0.0, "and the true arm must not have: nothing held Space");
+        let _ = std::fs::remove_file(&script_path);
+    }
+
+    /// The loop, timer and interval nodes run as the JavaScript they compile
+    /// to, with the timing each one promises:
+    ///
+    /// - `OnUpdate -> ForLoop 1..3 -> addPosition(0, 1, 0)`: three units of
+    ///   `y` per frame, so the body ran once per index and not once per frame;
+    /// - `OnStart -> WhileLoop (n < 10: n = n + 1) -> Delay 2 frames ->
+    ///   setHudText("delayed", "n=" + n)`: the text is absent one frame after
+    ///   the start and reads `n=10` the frame after -- the while ran to
+    ///   completion inside the frame, and the delay held the continuation for
+    ///   exactly the frames it was given;
+    /// - `OnInterval 0.5s -> addPosition(1, 0, 0)` at a fixed 0.25s per
+    ///   frame: `x` is 1 after two frames and still 1 after three, so the
+    ///   accumulator fires on the period and not every frame.
+    #[test]
+    fn loops_delays_and_intervals_run_with_the_timing_they_promise() {
+        use bsengine_visualscript::{
+            CompareOp, Edge, GraphNode, NodeKind, ScriptGraph, Value, Variable,
+        };
+
+        let node = |id, kind| GraphNode {
+            id,
+            kind,
+            position: [0.0, 0.0],
+        };
+        let edge = |from: (u32, &str), to: (u32, &str)| Edge {
+            from: (from.0, from.1.to_string()),
+            to: (to.0, to.1.to_string()),
+        };
+        let number = |n| NodeKind::Literal(Value::Number(n));
+        let text = |s: &str| NodeKind::Literal(Value::Text(s.to_string()));
+        let call = |s: &str| NodeKind::Call(s.to_string());
+        let graph = ScriptGraph {
+            nodes: vec![
+                node(0, NodeKind::OnUpdate),
+                node(1, NodeKind::ForLoop),
+                node(2, number(1.0)),
+                node(3, number(3.0)),
+                node(4, call("addPosition")),
+                node(5, NodeKind::SelfEntity),
+                node(6, NodeKind::Vec3Make),
+                node(7, number(0.0)),
+                node(9, NodeKind::OnStart),
+                node(10, NodeKind::WhileLoop),
+                node(11, NodeKind::Compare(CompareOp::Less)),
+                node(12, NodeKind::GetVar("n".to_string())),
+                node(13, number(10.0)),
+                node(14, NodeKind::SetVar("n".to_string())),
+                node(15, NodeKind::Add),
+                node(16, NodeKind::Delay),
+                node(17, number(2.0)),
+                node(18, call("setHudText")),
+                node(19, text("delayed")),
+                node(20, NodeKind::Concat),
+                node(21, text("n=")),
+                node(22, NodeKind::ToText),
+                node(23, NodeKind::OnInterval(0.5)),
+                node(24, call("addPosition")),
+                node(25, NodeKind::Vec3Make),
+            ],
+            edges: vec![
+                edge((0, "then"), (1, "exec")),
+                edge((2, "out"), (1, "first")),
+                edge((3, "out"), (1, "last")),
+                edge((1, "body"), (4, "exec")),
+                edge((5, "out"), (4, "entity")),
+                edge((6, "out"), (4, "delta")),
+                edge((7, "out"), (6, "x")),
+                edge((2, "out"), (6, "y")),
+                edge((7, "out"), (6, "z")),
+                edge((9, "then"), (10, "exec")),
+                edge((11, "out"), (10, "condition")),
+                edge((12, "out"), (11, "a")),
+                edge((13, "out"), (11, "b")),
+                edge((10, "body"), (14, "exec")),
+                edge((15, "out"), (14, "value")),
+                edge((12, "out"), (15, "a")),
+                edge((2, "out"), (15, "b")),
+                edge((10, "completed"), (16, "exec")),
+                edge((17, "out"), (16, "frames")),
+                edge((16, "completed"), (18, "exec")),
+                edge((19, "out"), (18, "id")),
+                edge((20, "out"), (18, "text")),
+                edge((21, "out"), (20, "a")),
+                edge((22, "out"), (20, "b")),
+                edge((12, "out"), (22, "x")),
+                edge((23, "then"), (24, "exec")),
+                edge((5, "out"), (24, "entity")),
+                edge((25, "out"), (24, "delta")),
+                edge((2, "out"), (25, "x")),
+                edge((7, "out"), (25, "y")),
+                edge((7, "out"), (25, "z")),
+            ],
+            variables: vec![Variable {
+                name: "n".to_string(),
+                initial: Value::Number(0.0),
+            }],
+        };
+
+        // Two frames have run: the arrival frame and one more.
+        let (mut app, entity, script_path) = run_compiled_graph("loops", &graph, 1);
+        let position =
+            |app: &bevy_app::App| app.world().get::<Transform>(entity).unwrap().position.0;
+        let p = position(&app);
+        assert!(
+            (p.y - 6.0).abs() < 1e-5,
+            "the for loop's body must run three times per frame: y = {}",
+            p.y
+        );
+        assert!(
+            (p.x - 1.0).abs() < 1e-5,
+            "0.5s at 0.25s per frame is one firing in two frames: x = {}",
+            p.x
+        );
+        assert_eq!(
+            app.world().resource::<HudTexts>().0.get("delayed"),
+            None,
+            "a two-frame delay must not have elapsed one frame after the start"
+        );
+
+        app.update();
+        let p = position(&app);
+        assert_eq!(
+            app.world().resource::<HudTexts>().0.get("delayed").cloned(),
+            Some("n=10".to_string()),
+            "the delayed continuation must run on the second frame after the \
+             start, with the while loop's final count in hand"
+        );
+        assert!(
+            (p.x - 1.0).abs() < 1e-5,
+            "the interval must not fire on the third frame: x = {}",
+            p.x
+        );
+        assert!((p.y - 9.0).abs() < 1e-5, "y = {}", p.y);
         let _ = std::fs::remove_file(&script_path);
     }
 

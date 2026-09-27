@@ -151,11 +151,11 @@ pub fn reupload_modified_textures(
 /// and whose viewport is `screen_height` pixels tall. Infinite when the
 /// camera is inside the sphere.
 ///
-/// The number a texture's wanted level is read from: drawn across this
-/// many pixels, a level with this many texels has one per pixel and more
-/// are not visible. It assumes the texture is laid once over the object,
-/// which is what a model's UVs usually do and what Unity assumes for a
-/// renderer without a texel-density override.
+/// The number a texture's wanted level is read from, once divided by how
+/// many times the mesh lays the texture across itself
+/// (`GpuMeshRegistry::get_uv_extent`): drawn across this many pixels per
+/// repeat, a level with this many texels has one per pixel and more are
+/// not visible.
 fn projected_pixels(radius: f32, distance: f32, tan_half_fov: f32, screen_height: f32) -> f32 {
     let clear = distance - radius;
     if clear <= 0.0 {
@@ -230,22 +230,30 @@ pub fn stream_textures(
                 .length()
                 .max(model.y_axis.truncate().length())
                 .max(model.z_axis.truncate().length());
-            // The mesh's own sphere when it is registered; otherwise the unit
-            // sphere, which is what the primitives and any mesh not yet on
-            // the GPU are taken to be. Erring large wants a larger level,
-            // never a blurrier one.
-            let (local_center, local_radius) = meshes
+            // The mesh's own sphere and UV extent when it is registered;
+            // otherwise the unit sphere laid over once, which is what the
+            // primitives and any mesh not yet on the GPU are taken to be.
+            // Erring large wants a larger level, never a blurrier one.
+            let (local_center, local_radius, uv_extent) = meshes
                 .as_deref()
-                .and_then(|m| m.get_bounds(mr.mesh_id))
-                .unwrap_or((Vec3::ZERO, 1.0));
+                .and_then(|m| {
+                    let (center, radius) = m.get_bounds(mr.mesh_id)?;
+                    Some((center, radius, m.get_uv_extent(mr.mesh_id)?))
+                })
+                .unwrap_or((Vec3::ZERO, 1.0, 1.0));
             let center = (model * local_center.extend(1.0)).truncate();
             let radius = local_radius * max_scale;
+            // Per repeat of the texture: a mesh that tiles it four times
+            // shows each repeat a quarter as large and wants two levels
+            // less; one that samples a quarter of an atlas shows that
+            // quarter four times as large and wants two levels more. What
+            // Unity's texel density and Unreal's TexelFactor feed in.
             let pixels = projected_pixels(
                 radius,
                 (center - cam_pos).length(),
                 tan_half_fov,
                 screen_height,
-            );
+            ) / uv_extent;
             let want = wants.entry(id).or_insert(0.0);
             *want = want.max(pixels);
         }
@@ -344,10 +352,39 @@ mod tests {
             16, 16, false,
         ))
         .expect("these tests need an adapter; a skip here would look like a pass");
+        app.insert_resource(GpuMeshRegistry::new(surface.device_arc()));
         app.insert_resource(GpuTextureRegistry::new(
             surface.device_arc(),
             surface.queue_arc(),
         ));
+    }
+
+    /// An octahedron of radius 1 -- the same bounding sphere the unit-sphere
+    /// fallback assumes, so a test that registers it changes only the UV
+    /// extent -- with its UVs spanning `0..uv_extent`.
+    fn octahedron(uv_extent: f32) -> (Vec<bsengine_rhi_wgpu::Vertex>, Vec<u32>) {
+        let positions = [
+            [1.0, 0.0, 0.0],
+            [-1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, -1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.0, 0.0, -1.0],
+        ];
+        let vertices = positions
+            .iter()
+            .enumerate()
+            .map(|(i, p)| bsengine_rhi_wgpu::Vertex {
+                position: *p,
+                color: [1.0; 3],
+                normal: *p,
+                uv: [
+                    if i % 2 == 0 { uv_extent } else { 0.0 },
+                    if i < 3 { uv_extent } else { 0.0 },
+                ],
+            })
+            .collect();
+        (vertices, vec![0, 2, 4, 1, 3, 5])
     }
 
     fn test_app() -> bevy_app::App {
@@ -625,6 +662,88 @@ mod tests {
             residency(&app),
             Some(2),
             "raised back up to the biased want"
+        );
+    }
+
+    /// How the mesh lays the texture over itself decides the want along
+    /// with the distance: the same octahedron at the same 33 units that
+    /// wants the 64 level when its UVs span the texture once wants the 16
+    /// level (two smaller) when they tile it four times, and the whole 256
+    /// (two larger) when they sample a quarter of it. The bounding sphere
+    /// is the unit sphere in every case, so nothing but the UV extent
+    /// moves the answer -- a streamer that ignored it would want 64 in all
+    /// three.
+    #[test]
+    fn a_meshs_uv_extent_scales_the_level_it_wants() {
+        use bsengine_core::{Camera, ScreenSize};
+
+        let mut app = test_app();
+        app.insert_resource(ScreenSize {
+            width: 1280,
+            height: 720,
+        });
+        app.world_mut().spawn((
+            Camera::default(),
+            Transform {
+                position: Vec3::new(0.0, 0.0, 33.0).into(),
+                ..Default::default()
+            },
+        ));
+        let (once, tiled, atlas) = {
+            let mut meshes = app.world_mut().resource_mut::<GpuMeshRegistry>();
+            let (v, i) = octahedron(1.0);
+            let once = meshes.register(&v, &i);
+            let (v, i) = octahedron(4.0);
+            let tiled = meshes.register(&v, &i);
+            let (v, i) = octahedron(0.25);
+            let atlas = meshes.register(&v, &i);
+            assert_eq!(meshes.get_uv_extent(tiled), Some(4.0), "premise");
+            assert_eq!(meshes.get_uv_extent(atlas), Some(0.25), "premise");
+            let (_, radius) = meshes.get_bounds(once).unwrap();
+            assert!((radius - 1.0).abs() < 1e-6, "premise: the unit sphere");
+            (once, tiled, atlas)
+        };
+        let entity = app
+            .world_mut()
+            .spawn((
+                MeshRenderer { mesh_id: once },
+                Transform::default(),
+                Material::default(),
+                TexturePath(REAL_TEXTURE.into()),
+            ))
+            .id();
+        for _ in 0..60 {
+            app.update();
+        }
+        let gpu_id = restream_as_256(&mut app);
+        let wanted =
+            |app: &bevy_app::App| app.world().resource::<GpuTextureRegistry>().wanted(gpu_id);
+        let use_mesh = |app: &mut bevy_app::App, mesh_id: u64| {
+            app.world_mut()
+                .get_mut::<MeshRenderer>(entity)
+                .unwrap()
+                .mesh_id = mesh_id;
+        };
+
+        for _ in 0..3 {
+            app.update();
+        }
+        assert_eq!(wanted(&app), Some(2), "laid once at 39 px: the 64 level");
+
+        use_mesh(&mut app, tiled);
+        app.update();
+        assert_eq!(
+            wanted(&app),
+            Some(4),
+            "tiled four times, each repeat is 10 px: the 16 level"
+        );
+
+        use_mesh(&mut app, atlas);
+        app.update();
+        assert_eq!(
+            wanted(&app),
+            Some(0),
+            "a quarter of an atlas drawn 156 px tall: the whole texture"
         );
     }
 

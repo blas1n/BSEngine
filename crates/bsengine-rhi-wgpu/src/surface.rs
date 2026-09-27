@@ -6620,6 +6620,11 @@ impl WgpuSurface {
                             });
 
                             let entities_snapshot = insp.entities.clone();
+                            // Before the dock draws: a graph double-clicked
+                            // in the Asset Browser last frame needs its
+                            // panel docked and in front for this frame's
+                            // `ui()` to take the request.
+                            crate::panels::focus_panel_for_open_request(&mut dock_state, insp);
                             let mut panels_guard = registry.0.lock().unwrap();
                             let type_registry_guard = type_registry.map(|r| r.read());
                             let mut tab_viewer = crate::panels::BseTabViewer {

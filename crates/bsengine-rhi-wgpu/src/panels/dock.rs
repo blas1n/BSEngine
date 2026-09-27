@@ -98,6 +98,40 @@ pub fn ensure_builtin_panels(
     });
 }
 
+/// The panel that edits an asset of `path`'s kind, by the suffixes the
+/// graph editors own; `None` for anything else (a scene is loaded by the
+/// browser itself, a texture is inspected, a script is edited elsewhere).
+pub fn panel_for_asset(path: &str) -> Option<&'static str> {
+    let lower = path.to_ascii_lowercase();
+    if lower.ends_with(".scriptgraph.ron") {
+        Some("scriptgraph")
+    } else if lower.ends_with(".shadergraph.ron") {
+        Some("shadergraph")
+    } else {
+        None
+    }
+}
+
+/// Docks and focuses the panel an open request is for, so that the panel's
+/// `ui()` runs this frame and can take the request. A panel not docked
+/// anywhere is pushed onto the focused leaf (where the author is looking,
+/// as Unity opens a Shader Graph window in front); one docked but behind
+/// another tab is brought to the front. Nothing happens for a request no
+/// panel owns, and the request itself is left for the panel to take.
+pub fn focus_panel_for_open_request(dock_state: &mut DockState<String>, insp: &InspectorState) {
+    let Some(id) = insp.open_asset_request.as_deref().and_then(panel_for_asset) else {
+        return;
+    };
+    let id = id.to_string();
+    match dock_state.find_tab(&id) {
+        Some((surface, node, tab)) => {
+            dock_state.set_active_tab((surface, node, tab));
+            dock_state.set_focused_node_and_surface((surface, node));
+        }
+        None => dock_state.push_to_focused_leaf(id),
+    }
+}
+
 /// Loads a previously saved layout. Returns `None` if the file doesn't
 /// exist (expected on first run) or fails to parse (logged as a warning —
 /// this is not the expected case, so it's worth surfacing).
@@ -238,6 +272,74 @@ mod tests {
                 &"profiler".to_string(),
                 &"viewport".to_string()
             ]
+        );
+    }
+
+    /// The tab a double-clicked graph opens in: pushed when it is docked
+    /// nowhere, made the active tab when it sits behind another, and left
+    /// alone (request and layout both) for an asset no panel owns.
+    #[test]
+    fn an_open_request_docks_or_fronts_the_panel_that_edits_the_asset() {
+        assert_eq!(
+            panel_for_asset("assets/scripts/bob.scriptgraph.ron"),
+            Some("scriptgraph")
+        );
+        assert_eq!(
+            panel_for_asset("assets/shaders/Scroll.ShaderGraph.RON"),
+            Some("shadergraph")
+        );
+        assert_eq!(panel_for_asset("assets/scenes/main.ron"), None);
+
+        let mut state = default_dock_state();
+        assert!(
+            state.find_tab(&"scriptgraph".to_string()).is_none(),
+            "premise: the default layout has no Script Graph tab"
+        );
+        let mut insp = InspectorState::default();
+
+        // No request: nothing docked.
+        focus_panel_for_open_request(&mut state, &insp);
+        assert!(state.find_tab(&"scriptgraph".to_string()).is_none());
+
+        // A request for an asset no panel owns: nothing docked either.
+        insp.request_open_asset("assets/scenes/main.ron");
+        focus_panel_for_open_request(&mut state, &insp);
+        assert!(state.find_tab(&"scriptgraph".to_string()).is_none());
+        assert!(state.find_tab(&"shadergraph".to_string()).is_none());
+
+        // A script graph: the tab appears, active in its leaf, and the
+        // request is still there for the panel to take.
+        insp.request_open_asset("assets/scripts/bob.scriptgraph.ron");
+        focus_panel_for_open_request(&mut state, &insp);
+        let (surface, node, tab) = state
+            .find_tab(&"scriptgraph".to_string())
+            .expect("the Script Graph tab must be docked");
+        let active = match &state[surface][node] {
+            Node::Leaf { active, .. } => *active,
+            other => panic!("a tab lives in a leaf, got {other:?}"),
+        };
+        assert_eq!(active, tab, "and it is the tab in front");
+        assert!(insp.open_asset_request.is_some(), "left for the panel");
+
+        // Another tab pushed onto the same leaf takes the front; the next
+        // request brings the Script Graph back without docking it twice.
+        state.push_to_focused_leaf("references".to_string());
+        let (_, node2, tab2) = state.find_tab(&"references".to_string()).unwrap();
+        assert_eq!(node2, node, "premise: pushed onto the same leaf");
+        assert_ne!(tab2, tab);
+        focus_panel_for_open_request(&mut state, &insp);
+        let active = match &state[surface][node] {
+            Node::Leaf { active, .. } => *active,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(active, tab, "brought back to the front");
+        assert_eq!(
+            state
+                .iter_all_tabs()
+                .filter(|(_, t)| *t == "scriptgraph")
+                .count(),
+            1,
+            "docked once, not once per request"
         );
     }
 

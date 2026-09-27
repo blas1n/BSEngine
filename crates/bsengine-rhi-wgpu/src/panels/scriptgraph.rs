@@ -820,7 +820,19 @@ impl EditorPanel for ScriptGraphPanel {
         "Script Graph".to_string()
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _ctx: &mut EditorPanelContext) {
+    fn ui(&mut self, ui: &mut egui::Ui, ctx: &mut EditorPanelContext) {
+        // A graph double-clicked in the Asset Browser: opened here, and the
+        // view reset so the author sees it from its origin.
+        if let Some(path) = ctx.insp.take_open_asset_request(".scriptgraph.ron") {
+            self.status = Some(match self.open(&path) {
+                Ok(()) => {
+                    self.view = View::default();
+                    format!("opened {path}")
+                }
+                Err(e) => e,
+            });
+        }
+
         let mut add_kind: Option<NodeKind> = None;
         let mut delete_selected = false;
         let mut add_button: Option<egui::Response> = None;
@@ -2159,6 +2171,67 @@ mod tests {
             compile(&h.panel.graph),
             Err(GraphError::UnknownNode(_))
         ));
+    }
+
+    /// An open request from the Asset Browser is taken on the next frame
+    /// and the graph replaced, with the view reset; a request for a shader
+    /// graph is left where it is, for that panel.
+    #[test]
+    fn an_open_request_for_a_script_graph_is_taken_and_opened() {
+        let path = demo_graph_copy("panel_open_request");
+        let mut h = Harness::new(ScriptGraph::default());
+        h.panel.view = View {
+            pan: egui::vec2(-300.0, 40.0),
+            zoom: 1.7,
+        };
+        h.settle();
+        assert_eq!(h.panel.path, None, "premise: nothing open");
+
+        h.insp
+            .request_open_asset("assets/shaders/scroll.shadergraph.ron");
+        h.draw();
+        assert_eq!(
+            h.insp.open_asset_request.as_deref(),
+            Some("assets/shaders/scroll.shadergraph.ron"),
+            "a shader graph request is not this panel's to take"
+        );
+        assert_eq!(h.panel.path, None);
+
+        h.insp.request_open_asset(path.display().to_string());
+        h.draw();
+        assert_eq!(h.insp.open_asset_request, None, "taken");
+        assert_eq!(h.panel.path.as_deref(), Some(path.as_path()));
+        let on_disk: ScriptGraph = ron::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(h.panel.graph, on_disk, "the file's graph is what is edited");
+        assert_ne!(
+            h.panel.graph,
+            ScriptGraph::default(),
+            "premise: the file is not empty"
+        );
+        assert_eq!(h.panel.view, View::default(), "seen from its origin");
+        assert!(
+            h.panel
+                .status
+                .as_deref()
+                .is_some_and(|s| s.starts_with("opened")),
+            "{:?}",
+            h.panel.status
+        );
+
+        // A request for a file that is not there: reported, nothing replaced.
+        h.insp
+            .request_open_asset("assets/scripts/nope.scriptgraph.ron");
+        h.draw();
+        assert_eq!(h.insp.open_asset_request, None);
+        assert_eq!(h.panel.path.as_deref(), Some(path.as_path()), "kept");
+        assert!(
+            h.panel
+                .status
+                .as_deref()
+                .is_some_and(|s| s.contains("nope")),
+            "{:?}",
+            h.panel.status
+        );
     }
 
     /// The panel is not a second code path to JavaScript, and what reaches

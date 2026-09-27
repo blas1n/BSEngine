@@ -592,7 +592,15 @@ impl EditorPanel for ShaderGraphPanel {
         "Shader Graph".to_string()
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _ctx: &mut EditorPanelContext) {
+    fn ui(&mut self, ui: &mut egui::Ui, ctx: &mut EditorPanelContext) {
+        // A graph double-clicked in the Asset Browser.
+        if let Some(path) = ctx.insp.take_open_asset_request(".shadergraph.ron") {
+            self.status = Some(match self.open(&path) {
+                Ok(()) => format!("opened {path}"),
+                Err(e) => e,
+            });
+        }
+
         // The toolbar first, so the canvas below it gets whatever is left.
         let mut add_kind: Option<NodeKind> = None;
         let mut delete_selected = false;
@@ -1607,6 +1615,47 @@ mod tests {
             ),
             "the graph must not compile to UnknownNode: {:?}",
             compile(&h.panel.graph)
+        );
+    }
+
+    /// An open request from the Asset Browser is taken on the next frame
+    /// and the graph replaced; a request for a script graph is left where
+    /// it is, for that panel.
+    #[test]
+    fn an_open_request_for_a_shader_graph_is_taken_and_opened() {
+        let path = demo_graph_copy("panel_open_request");
+        let mut h = Harness::new(ShaderGraph::default());
+        h.settle();
+        assert_eq!(h.panel.path, None, "premise: nothing open");
+
+        h.insp
+            .request_open_asset("assets/scripts/bob.scriptgraph.ron");
+        h.draw();
+        assert_eq!(
+            h.insp.open_asset_request.as_deref(),
+            Some("assets/scripts/bob.scriptgraph.ron"),
+            "a script graph request is not this panel's to take"
+        );
+        assert_eq!(h.panel.path, None);
+
+        h.insp.request_open_asset(path.display().to_string());
+        h.draw();
+        assert_eq!(h.insp.open_asset_request, None, "taken");
+        assert_eq!(h.panel.path.as_deref(), Some(path.as_path()));
+        let on_disk: ShaderGraph = ron::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(h.panel.graph, on_disk, "the file's graph is what is edited");
+        assert_ne!(
+            h.panel.graph,
+            ShaderGraph::default(),
+            "premise: the file is not empty"
+        );
+        assert!(
+            h.panel
+                .status
+                .as_deref()
+                .is_some_and(|s| s.starts_with("opened")),
+            "{:?}",
+            h.panel.status
         );
     }
 

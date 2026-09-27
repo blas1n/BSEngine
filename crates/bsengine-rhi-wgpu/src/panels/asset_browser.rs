@@ -31,6 +31,13 @@ pub enum AssetKind {
     Prefab,
     /// A `.js` script file, draggable onto an entity to attach it.
     Script,
+    /// A `.scriptgraph.ron` visual script; double-click opens it in the
+    /// Script Graph panel. Named before the generic `.ron` rule, or it
+    /// would be a `Scene` and a double-click would try to load it as one.
+    ScriptGraph,
+    /// A `.shadergraph.ron` shader graph; double-click opens it in the
+    /// Shader Graph panel.
+    ShaderGraph,
     /// A `.glb`/`.gltf` model file, draggable into the viewport to spawn it.
     Mesh,
     /// A `.png`/`.jpg`/`.jpeg` image file, shown with a decoded thumbnail.
@@ -44,6 +51,15 @@ pub enum AssetKind {
 /// here, since a bare path string can't be checked against the filesystem
 /// in a pure function — this function only looks at the extension string.
 fn categorize_by_extension(path: &Path) -> AssetKind {
+    // The graph kinds carry a two-part suffix, so they are told apart
+    // before the extension alone says "a `.ron` file".
+    let lower = path.to_string_lossy().to_ascii_lowercase();
+    if lower.ends_with(".scriptgraph.ron") {
+        return AssetKind::ScriptGraph;
+    }
+    if lower.ends_with(".shadergraph.ron") {
+        return AssetKind::ShaderGraph;
+    }
     let is_ron = path
         .extension()
         .and_then(|e| e.to_str())
@@ -599,6 +615,8 @@ impl AssetBrowserPanel {
             // does (see viewport.rs's drop handling).
             AssetKind::Prefab => egui_phosphor::regular::CUBE,
             AssetKind::Script => egui_phosphor::regular::FILE_JS,
+            AssetKind::ScriptGraph => egui_phosphor::regular::FLOW_ARROW,
+            AssetKind::ShaderGraph => egui_phosphor::regular::GRAPH,
             AssetKind::Mesh => egui_phosphor::regular::CUBE,
             AssetKind::Texture => egui_phosphor::regular::FILE_IMAGE,
             AssetKind::Other => egui_phosphor::regular::FILE,
@@ -642,6 +660,18 @@ impl AssetBrowserPanel {
                 AssetKind::Scene => {
                     if response.double_clicked() {
                         self.pending_load_scene = Some(entry.path.to_string_lossy().to_string());
+                    }
+                }
+                // A double-click opens a document asset in its editor, as
+                // it does in Unity's Project panel, Unreal's Content
+                // Browser and Godot's FileSystem dock; the request goes
+                // through `InspectorState` because the panel that will open
+                // it may not even be docked yet, and the dock host is what
+                // can dock and focus it.
+                AssetKind::ScriptGraph | AssetKind::ShaderGraph => {
+                    if response.double_clicked() {
+                        ctx.insp
+                            .request_open_asset(entry.path.to_string_lossy().to_string());
                     }
                 }
                 // A single click selects the asset for the Inspector, which
@@ -763,6 +793,152 @@ mod tests {
             categorize_by_extension(Path::new("no_extension")),
             AssetKind::Other
         );
+    }
+
+    /// The graph kinds are told apart before the `.ron` rule -- they were
+    /// `Scene` until they had a kind, and a double-click tried to load one
+    /// as a scene -- in any case, and even under a `prefabs/` directory.
+    #[test]
+    fn graph_files_are_their_own_kinds_not_scenes() {
+        assert_eq!(
+            categorize_by_extension(Path::new("scripts/bob.scriptgraph.ron")),
+            AssetKind::ScriptGraph
+        );
+        assert_eq!(
+            categorize_by_extension(Path::new("shaders/scroll.shadergraph.ron")),
+            AssetKind::ShaderGraph
+        );
+        assert_eq!(
+            categorize_by_extension(Path::new("shaders/Scroll.ShaderGraph.RON")),
+            AssetKind::ShaderGraph
+        );
+        assert_eq!(
+            categorize_by_extension(Path::new("prefabs/x.scriptgraph.ron")),
+            AssetKind::ScriptGraph
+        );
+        assert_eq!(
+            categorize_by_extension(Path::new("scripts/scriptgraph.ron")),
+            AssetKind::Scene,
+            "only the two-part suffix is a graph"
+        );
+    }
+
+    /// A double-click on a graph tile asks for it to be opened in its
+    /// editor and does not try to load it as a scene; a single click does
+    /// neither. Driven through the real `ui()` like the texture test.
+    #[test]
+    fn double_clicking_a_graph_tile_requests_its_editor_and_not_a_scene_load() {
+        use bsengine_core::InspectorState;
+
+        let tmp = std::env::temp_dir().join(format!(
+            "bse_asset_browser_open_graph_{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let graph = tmp.join("bob.scriptgraph.ron");
+        std::fs::write(&graph, "(nodes: [], edges: [])").unwrap();
+
+        let mut panel = AssetBrowserPanel {
+            root: tmp.clone(),
+            current_dir: tmp.clone(),
+            cache_root: tmp.join("cache"),
+            ..Default::default()
+        };
+        let mut insp = InspectorState::default();
+        let entities: Vec<bsengine_core::InspectorEntityInfo> = Vec::new();
+
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::empty());
+        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(600.0, 400.0));
+        let run =
+            |events: Vec<egui::Event>, panel: &mut AssetBrowserPanel, insp: &mut InspectorState| {
+                ctx.run(
+                    egui::RawInput {
+                        screen_rect: Some(screen_rect),
+                        events,
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            let mut pctx = EditorPanelContext {
+                                insp,
+                                entities_snapshot: &entities,
+                                cursor_pos: (0.0, 0.0),
+                                type_registry: None,
+                            };
+                            panel.ui(ui, &mut pctx);
+                        });
+                    },
+                )
+            };
+
+        let first = run(Vec::new(), &mut panel, &mut insp);
+        let icon = AssetBrowserPanel::icon_for_kind(AssetKind::ScriptGraph);
+        let mut pos = None;
+        fn walk(shapes: &[egui::epaint::ClippedShape], icon: &str, pos: &mut Option<egui::Pos2>) {
+            for clipped in shapes {
+                match &clipped.shape {
+                    egui::Shape::Text(t) if t.galley.text() == icon => *pos = Some(t.pos),
+                    egui::Shape::Vec(inner) => {
+                        let nested: Vec<egui::epaint::ClippedShape> = inner
+                            .iter()
+                            .cloned()
+                            .map(|shape| egui::epaint::ClippedShape {
+                                clip_rect: clipped.clip_rect,
+                                shape,
+                            })
+                            .collect();
+                        walk(&nested, icon, pos);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        walk(&first.shapes, icon, &mut pos);
+        let pos = pos.expect("premise: the graph tile's icon button must render");
+        let click = |pressed: bool| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::default(),
+        };
+
+        // One click: nothing.
+        let _ = run(
+            vec![egui::Event::PointerMoved(pos), click(true), click(false)],
+            &mut panel,
+            &mut insp,
+        );
+        assert_eq!(
+            insp.open_asset_request, None,
+            "a single click opens nothing"
+        );
+        assert_eq!(panel.pending_load_scene, None);
+
+        // Two clicks in one frame: a double-click.
+        let _ = run(
+            vec![
+                egui::Event::PointerMoved(pos),
+                click(true),
+                click(false),
+                click(true),
+                click(false),
+            ],
+            &mut panel,
+            &mut insp,
+        );
+        assert_eq!(
+            insp.open_asset_request.as_deref(),
+            Some(graph.to_string_lossy().as_ref()),
+            "the double-click must ask for the graph by the path the tile carries"
+        );
+        assert_eq!(
+            panel.pending_load_scene, None,
+            "and must not try to load it as a scene"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

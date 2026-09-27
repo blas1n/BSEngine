@@ -1148,19 +1148,36 @@ mod tests {
         );
         let _ = std::fs::remove_file(&blocker);
 
+        // A complete, well-formed file of a *previous layout version* under
+        // the right name: only the magic tells it apart, and it must be
+        // rewritten, not read as if its bytes meant what this version's do.
         let (mut reg, dir) = make_registry_with_cache("bad_file");
         std::fs::create_dir_all(&dir).unwrap();
         let name = mip_cache_name(256, 256, &pixels);
-        std::fs::write(dir.join(&name), b"BSMIPS00 garbage").unwrap();
+        let (mut stale, _) = encode_mip_cache(&mip_chain(256, 256, &pixels));
+        stale[..8].copy_from_slice(b"BSMIPS00");
+        std::fs::write(dir.join(&name), &stale).unwrap();
         let id = reg.load_with(256, 256, &pixels, streamed());
         assert_eq!(reg.mip_cache_file(id), Some(dir.join(&name).as_path()));
-        let dims: Vec<(u32, u32)> = (0..9).map(|i| (256 >> i, 256 >> i)).collect();
-        assert!(
-            read_mip_cache_table(&dir.join(&name), &dims).is_some(),
-            "rewritten with the real chain"
+        let rewritten = std::fs::read(dir.join(&name)).unwrap();
+        assert_eq!(
+            &rewritten[..8],
+            MIP_CACHE_MAGIC,
+            "the stale file was rewritten in this version's layout"
         );
+        let dims: Vec<(u32, u32)> = (0..9).map(|i| (256 >> i, 256 >> i)).collect();
+        assert!(read_mip_cache_table(&dir.join(&name), &dims).is_some());
         assert!(reg.raise_residency(id));
         assert_eq!(reg.residency(id), Some((1, 9)));
+
+        // And a file too short to hold a header at all.
+        std::fs::write(dir.join(&name), b"BSMIPS01 garbage").unwrap();
+        let again = reg.load_with(256, 256, &pixels, streamed());
+        assert_eq!(reg.mip_cache_file(again), Some(dir.join(&name).as_path()));
+        assert!(
+            read_mip_cache_table(&dir.join(&name), &dims).is_some(),
+            "rewritten"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

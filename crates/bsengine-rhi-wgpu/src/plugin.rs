@@ -106,7 +106,18 @@ fn create_surface_system(world: &mut World, mode: SurfaceMode) {
         return;
     };
     let registry = GpuMeshRegistry::new(surface.device.clone());
-    let tex_registry = GpuTextureRegistry::new(surface.device.clone(), surface.queue.clone());
+    let mut tex_registry = GpuTextureRegistry::new(surface.device.clone(), surface.queue.clone());
+    // Streamed textures' mip cache files go under the project, beside the
+    // Asset Browser's thumbnail cache (`games/*/.bsengine_cache/` is
+    // ignored by git); the working directory when no project is named.
+    let project = world
+        .get_resource::<bsengine_core::ProjectDir>()
+        .filter(|p| !p.0.is_empty())
+        .map_or_else(
+            || std::path::PathBuf::from("."),
+            |p| std::path::PathBuf::from(&p.0),
+        );
+    tex_registry.set_mip_cache_root(Some(project.join(".bsengine_cache").join("mips")));
     world.insert_resource(GpuQueueResource(surface.queue.clone()));
     world.insert_resource(WgpuSurfaceResource(surface));
     world.insert_resource(registry);

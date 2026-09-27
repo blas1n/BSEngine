@@ -2687,17 +2687,32 @@ impl WgpuSurface {
     /// `texture.rs`, and this file's own tests) that need a real device to
     /// construct a registry against, without paying for `new_offscreen`'s
     /// full pipeline build.
+    ///
+    /// **One device for the whole test binary**, handed out as clones. Each
+    /// `request_device` costs real adapter memory and the tests in this
+    /// binary run in parallel, so a device per call is a device per test
+    /// thread; Windows CI's WARP adapter ran out at around forty of them
+    /// ("Not enough memory left to request device"), in whichever test
+    /// asked last -- three new texture tests were enough to tip it, and the
+    /// failures landed on two old ones. Registries built on the shared
+    /// device are still independent objects; nothing here is per-device
+    /// state a test could see another's through.
     #[cfg(test)]
     pub(crate) async fn headless_device_for_testing() -> (Arc<wgpu::Device>, Arc<wgpu::Queue>) {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
-        let (_adapter, device, queue, _timestamp_supported, _instancing_supported) =
-            Self::request_device(&instance, None)
-                .await
-                .expect("headless device for test");
-        (device, queue)
+        static SHARED: std::sync::OnceLock<(Arc<wgpu::Device>, Arc<wgpu::Queue>)> =
+            std::sync::OnceLock::new();
+        SHARED
+            .get_or_init(|| {
+                let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+                    backends: wgpu::Backends::all(),
+                    ..Default::default()
+                });
+                let (_adapter, device, queue, _timestamp_supported, _instancing_supported) =
+                    pollster::block_on(Self::request_device(&instance, None))
+                        .expect("headless device for test");
+                (device, queue)
+            })
+            .clone()
     }
 
     /// Everything after the output target is settled: pipelines, buffers, bind

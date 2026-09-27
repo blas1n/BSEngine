@@ -1,6 +1,7 @@
 use bsengine_core::{TextureFilter, TextureImportSettings, TextureWrap};
 use bsengine_ecs::Resource;
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 struct GpuTexture {
@@ -33,12 +34,26 @@ struct GpuTexture {
 /// residency builds a new one. `resident_base` is the index into `levels` of
 /// the largest resident level; `0` is fully resident.
 ///
-/// The chain stays in RAM for now, which is the price of streaming from
-/// memory rather than from disk. Unity and Unreal stream from disk; that is
-/// the next step, and it changes nothing about how residency is expressed.
+/// # Where the levels that are not resident live
+///
+/// Unity keeps a texture's mips in its imported Library copy, Unreal in the
+/// cooked `.ubulk`, Godot in the `.ctex` under `.godot/imported/`: a file
+/// with every level laid out for reading one at a time, made once at
+/// import, so that streaming a level in is a read and not a decode. This
+/// does the same with a **mip cache file** under the registry's cache
+/// directory ([`GpuTextureRegistry::set_mip_cache_root`]), written the first
+/// time a streamed texture with those pixels is uploaded and keyed by a
+/// hash of the pixels, so a re-imported image gets a new file and two
+/// identical images share one. With the file in place the registry keeps
+/// **no copy of the chain in RAM**: every rebuild reads the levels it
+/// uploads from the file. Without a cache directory, or when the file
+/// cannot be written (a read-only install), the chain stays in RAM as it
+/// did before the cache existed -- streaming still works, it just costs the
+/// memory.
 struct Streamed {
-    /// Level 0 first, down to 1x1, as [`mip_chain`] produces them.
-    levels: Vec<(u32, u32, Vec<u8>)>,
+    source: MipSource,
+    /// `(width, height)` of every level, level 0 first, down to 1x1.
+    dims: Vec<(u32, u32)>,
     resident_base: u32,
     /// The chain index the texture *ought* to have resident, from the
     /// largest it is drawn on screen: what [`GpuTextureRegistry::set_wants`]
@@ -47,6 +62,137 @@ struct Streamed {
     /// otherwise, so a texture nothing on screen uses (a UI image, a
     /// particle sheet) streams to full as it did before wants existed.
     wanted_base: u32,
+}
+
+/// Where a streamed texture's levels are read from at each rebuild.
+enum MipSource {
+    /// The whole chain in RAM, level 0 first.
+    Memory(Vec<(u32, u32, Vec<u8>)>),
+    /// A mip cache file; `table[i]` is level `i`'s `(offset, len)` in it.
+    Disk {
+        path: PathBuf,
+        table: Vec<(u64, u64)>,
+    },
+}
+
+/// The first bytes of a mip cache file. The digit is the layout version:
+/// a reader that finds another rewrites the file rather than trusting it.
+const MIP_CACHE_MAGIC: &[u8; 8] = b"BSMIPS01";
+
+impl Streamed {
+    /// The levels from `base` down to the smallest, as [`upload_levels`]
+    /// wants them. From RAM, a borrow; from the cache file, one read per
+    /// level.
+    ///
+    /// # Errors
+    ///
+    /// The cache file is gone or short -- the levels it held are not on
+    /// the GPU and cannot be brought there, so the caller leaves residency
+    /// where it is.
+    fn levels_from(
+        &self,
+        base: u32,
+    ) -> std::io::Result<Vec<(u32, u32, std::borrow::Cow<'_, [u8]>)>> {
+        match &self.source {
+            MipSource::Memory(levels) => Ok(levels[base as usize..]
+                .iter()
+                .map(|(w, h, p)| (*w, *h, std::borrow::Cow::Borrowed(p.as_slice())))
+                .collect()),
+            MipSource::Disk { path, table } => {
+                use std::io::{Read, Seek, SeekFrom};
+                let mut file = std::fs::File::open(path)?;
+                let mut out = Vec::with_capacity(self.dims.len() - base as usize);
+                for (i, (w, h)) in self.dims.iter().enumerate().skip(base as usize) {
+                    let (offset, len) = table[i];
+                    let mut bytes = vec![0u8; len as usize];
+                    file.seek(SeekFrom::Start(offset))?;
+                    file.read_exact(&mut bytes)?;
+                    out.push((*w, *h, std::borrow::Cow::Owned(bytes)));
+                }
+                Ok(out)
+            }
+        }
+    }
+
+    /// Bytes of the chain this texture holds in RAM: the whole chain from
+    /// memory, nothing from a cache file. What makes the cache's saving
+    /// observable without trusting it.
+    fn ram_bytes(&self) -> u64 {
+        match &self.source {
+            MipSource::Memory(levels) => levels.iter().map(|(_, _, p)| p.len() as u64).sum(),
+            MipSource::Disk { .. } => 0,
+        }
+    }
+}
+
+/// Serialises a chain as a mip cache file: the magic, the level count,
+/// then per level `(width, height, offset, len)` as little-endian
+/// `u32, u32, u64, u64`, then the levels' RGBA bytes back to back. Returns
+/// the bytes and the table [`MipSource::Disk`] reads by.
+fn encode_mip_cache(
+    levels: &[(u32, u32, std::borrow::Cow<'_, [u8]>)],
+) -> (Vec<u8>, Vec<(u64, u64)>) {
+    let header_len = MIP_CACHE_MAGIC.len() + 4 + levels.len() * 24;
+    let mut out = Vec::with_capacity(header_len + levels.iter().map(|l| l.2.len()).sum::<usize>());
+    out.extend_from_slice(MIP_CACHE_MAGIC);
+    out.extend_from_slice(&(levels.len() as u32).to_le_bytes());
+    let mut table = Vec::with_capacity(levels.len());
+    let mut offset = header_len as u64;
+    for (w, h, pixels) in levels {
+        let len = pixels.len() as u64;
+        out.extend_from_slice(&w.to_le_bytes());
+        out.extend_from_slice(&h.to_le_bytes());
+        out.extend_from_slice(&offset.to_le_bytes());
+        out.extend_from_slice(&len.to_le_bytes());
+        table.push((offset, len));
+        offset += len;
+    }
+    for (_, _, pixels) in levels {
+        out.extend_from_slice(pixels);
+    }
+    (out, table)
+}
+
+/// Reads a mip cache file's header and checks it describes exactly `dims`
+/// with every level's bytes present. `None` for a file of another version,
+/// another chain, or one cut short -- which is rewritten, not trusted.
+fn read_mip_cache_table(path: &Path, dims: &[(u32, u32)]) -> Option<Vec<(u64, u64)>> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut header = vec![0u8; MIP_CACHE_MAGIC.len() + 4 + dims.len() * 24];
+    file.read_exact(&mut header).ok()?;
+    if &header[..8] != MIP_CACHE_MAGIC {
+        return None;
+    }
+    let count = u32::from_le_bytes(header[8..12].try_into().ok()?) as usize;
+    if count != dims.len() {
+        return None;
+    }
+    let file_len = file.metadata().ok()?.len();
+    let mut table = Vec::with_capacity(count);
+    for (i, (w, h)) in dims.iter().enumerate() {
+        let at = 12 + i * 24;
+        let fw = u32::from_le_bytes(header[at..at + 4].try_into().ok()?);
+        let fh = u32::from_le_bytes(header[at + 4..at + 8].try_into().ok()?);
+        let offset = u64::from_le_bytes(header[at + 8..at + 16].try_into().ok()?);
+        let len = u64::from_le_bytes(header[at + 16..at + 24].try_into().ok()?);
+        if (fw, fh) != (*w, *h) || len != *w as u64 * *h as u64 * 4 || offset + len > file_len {
+            return None;
+        }
+        table.push((offset, len));
+    }
+    Some(table)
+}
+
+/// The cache file name for a chain: a hash of level 0's pixels and size,
+/// so the file follows the image's content and not its path -- a
+/// re-imported image lands in a new file, two identical images in one.
+fn mip_cache_name(width: u32, height: u32, rgba: &[u8]) -> String {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(&width.to_le_bytes());
+    hasher.update(&height.to_le_bytes());
+    hasher.update(rgba);
+    format!("{}.mips", hasher.finalize().to_hex())
 }
 
 /// What one [`GpuTextureRegistry::step_streaming`] call did.
@@ -65,12 +211,12 @@ pub enum StreamingStep {
 ///
 /// The levels' `(width, height)` are level 0 first, halving. A non-finite
 /// or huge `pixels` wants level 0; zero or negative wants the last level.
-fn wanted_base_for(levels: &[(u32, u32, Vec<u8>)], pixels: f32, bias: i32) -> u32 {
-    let last = levels.len().saturating_sub(1) as i64;
+fn wanted_base_for(dims: &[(u32, u32)], pixels: f32, bias: i32) -> u32 {
+    let last = dims.len().saturating_sub(1) as i64;
     // The last index whose larger dimension still covers `pixels`.
-    let base = levels
+    let base = dims
         .iter()
-        .rposition(|(w, h, _)| (*w).max(*h) as f32 >= pixels)
+        .rposition(|(w, h)| (*w).max(*h) as f32 >= pixels)
         .unwrap_or(0) as i64;
     (base + bias as i64).clamp(0, last) as u32
 }
@@ -92,6 +238,12 @@ pub struct GpuTextureRegistry {
     /// The streamed texture `raise_next_pending` last brought a level in
     /// on, so the next call moves on to another one.
     last_raised: u64,
+    /// Where streamed textures' mip cache files go; `None` keeps every
+    /// chain in RAM. See [`Streamed`].
+    mip_cache_root: Option<PathBuf>,
+    /// Whether the cache directory has already been reported unusable, so
+    /// a read-only install logs it once rather than per texture.
+    mip_cache_warned: bool,
 }
 
 impl GpuTextureRegistry {
@@ -105,6 +257,80 @@ impl GpuTextureRegistry {
             textures: HashMap::new(),
             next_id: 1,
             last_raised: 0,
+            mip_cache_root: None,
+            mip_cache_warned: false,
+        }
+    }
+
+    /// Sets the directory streamed textures' mip cache files are written
+    /// to and read from -- the project's `.bsengine_cache/mips`, beside the
+    /// Asset Browser's thumbnail cache, for an app; a scratch directory for
+    /// a test. `None` (the default) keeps every chain in RAM. Textures
+    /// already uploaded keep the source they have.
+    pub fn set_mip_cache_root(&mut self, root: Option<PathBuf>) {
+        self.mip_cache_root = root;
+        self.mip_cache_warned = false;
+    }
+
+    /// The mip cache directory, if one is set.
+    pub fn mip_cache_root(&self) -> Option<&Path> {
+        self.mip_cache_root.as_deref()
+    }
+
+    /// Bytes of mip chain a streamed texture holds in RAM: its whole chain
+    /// when it streams from memory, none when it streams from its cache
+    /// file. `None` for a texture that is not streamed.
+    pub fn chain_ram_bytes(&self, id: u64) -> Option<u64> {
+        Some(self.textures.get(&id)?.streamed.as_ref()?.ram_bytes())
+    }
+
+    /// The cache file a streamed texture reads its levels from, or `None`
+    /// when it streams from memory or is not streamed.
+    pub fn mip_cache_file(&self, id: u64) -> Option<&Path> {
+        match &self.textures.get(&id)?.streamed.as_ref()?.source {
+            MipSource::Disk { path, .. } => Some(path),
+            MipSource::Memory(_) => None,
+        }
+    }
+
+    /// Writes the chain to its cache file under the cache root (or finds
+    /// it already there) and returns a source reading from it; `None` when
+    /// there is no root or the file cannot be written, in which case the
+    /// caller keeps the chain in RAM.
+    fn cache_chain(
+        &mut self,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+        levels: &[(u32, u32, std::borrow::Cow<'_, [u8]>)],
+    ) -> Option<MipSource> {
+        let root = self.mip_cache_root.clone()?;
+        let path = root.join(mip_cache_name(width, height, rgba));
+        let dims: Vec<(u32, u32)> = levels.iter().map(|(w, h, _)| (*w, *h)).collect();
+        if let Some(table) = read_mip_cache_table(&path, &dims) {
+            return Some(MipSource::Disk { path, table });
+        }
+        let (bytes, table) = encode_mip_cache(levels);
+        // Written beside its final name and renamed into place, so a
+        // reader never sees a file that is half there.
+        let tmp = path.with_extension(format!("mips.{}.tmp", std::process::id()));
+        let written = std::fs::create_dir_all(&root)
+            .and_then(|()| std::fs::write(&tmp, &bytes))
+            .and_then(|()| std::fs::rename(&tmp, &path));
+        match written {
+            Ok(()) => Some(MipSource::Disk { path, table }),
+            Err(e) => {
+                let _ = std::fs::remove_file(&tmp);
+                if !self.mip_cache_warned {
+                    self.mip_cache_warned = true;
+                    tracing::warn!(
+                        "[texture] cannot write the mip cache under {}: {e}; streamed textures \
+                         keep their mip chains in RAM instead",
+                        root.display()
+                    );
+                }
+                None
+            }
         }
     }
 
@@ -206,7 +432,7 @@ impl GpuTextureRegistry {
     }
 
     fn build(
-        &self,
+        &mut self,
         width: u32,
         height: u32,
         rgba: &[u8],
@@ -218,18 +444,28 @@ impl GpuTextureRegistry {
             vec![(width, height, std::borrow::Cow::Borrowed(rgba))]
         };
         // A streamed texture starts with only its small levels on the GPU
-        // and keeps the chain to bring the rest in from. Streaming a texture
-        // with no chain would have nothing to stream, so it uploads whole.
+        // and keeps the chain -- in its cache file when there is one, else
+        // in RAM -- to bring the rest in from. Streaming a texture with no
+        // chain would have nothing to stream, so it uploads whole.
         let streamed = if settings.streaming && levels.len() > 1 {
             let resident_base = levels
                 .iter()
                 .position(|(w, h, _)| (*w).max(*h) <= STREAMING_INITIAL_MAX_DIM)
                 .unwrap_or(levels.len() - 1) as u32;
+            let dims: Vec<(u32, u32)> = levels.iter().map(|(w, h, _)| (*w, *h)).collect();
+            let source = self
+                .cache_chain(width, height, rgba, &levels)
+                .unwrap_or_else(|| {
+                    MipSource::Memory(
+                        levels
+                            .iter()
+                            .map(|(w, h, p)| (*w, *h, p.to_vec()))
+                            .collect(),
+                    )
+                });
             Some(Streamed {
-                levels: levels
-                    .iter()
-                    .map(|(w, h, p)| (*w, *h, p.to_vec()))
-                    .collect(),
+                source,
+                dims,
                 resident_base,
                 wanted_base: 0,
             })
@@ -324,7 +560,7 @@ impl GpuTextureRegistry {
     /// that is not streamed.
     pub fn residency(&self, id: u64) -> Option<(u32, u32)> {
         let s = self.textures.get(&id)?.streamed.as_ref()?;
-        Some((s.resident_base, s.levels.len() as u32))
+        Some((s.resident_base, s.dims.len() as u32))
     }
 
     /// Brings one more level of a streamed texture onto the GPU -- the next
@@ -353,20 +589,26 @@ impl GpuTextureRegistry {
         let Some(base) = next(streamed.resident_base) else {
             return false;
         };
-        if base as usize >= streamed.levels.len() {
+        if base as usize >= streamed.dims.len() {
             return false;
         }
-        let levels: Vec<(u32, u32, std::borrow::Cow<'_, [u8]>)> = streamed
-            .levels
-            .iter()
-            .map(|(w, h, p)| (*w, *h, std::borrow::Cow::Borrowed(p.as_slice())))
-            .collect();
-        let settings = tex.settings;
         // Rebuilt from the chain rather than copied GPU-to-GPU: the levels
         // below the one being brought in are a third of its size put
-        // together, so the re-upload costs about what the new level does,
-        // and it keeps this to one queue write per level with no encoder.
-        let (texture, view) = self.upload_levels(&levels, base, settings);
+        // together, so the re-upload (and, from a cache file, the re-read)
+        // costs about what the new level does, and it keeps this to one
+        // queue write per level with no encoder.
+        let levels = match streamed.levels_from(base) {
+            Ok(levels) => levels,
+            Err(e) => {
+                tracing::warn!(
+                    "[texture] texture {id}'s mip cache file could not be read ({e}); its \
+                     residency stays where it is"
+                );
+                return false;
+            }
+        };
+        let settings = tex.settings;
+        let (texture, view) = self.upload_levels(&levels, 0, settings);
         let (sampler, bind_group) = self.sampler_and_bind_group(&view, settings);
         drop(levels);
         let tex = self.textures.get_mut(&id).expect("looked up above");
@@ -417,7 +659,7 @@ impl GpuTextureRegistry {
                 continue;
             };
             streamed.wanted_base = match wants.get(id) {
-                Some(pixels) => wanted_base_for(&streamed.levels, *pixels, bias),
+                Some(pixels) => wanted_base_for(&streamed.dims, *pixels, bias),
                 None => 0,
             };
         }
@@ -481,10 +723,10 @@ impl GpuTextureRegistry {
             .iter()
             .filter_map(|(id, t)| {
                 let s = t.streamed.as_ref()?;
-                let last = s.levels.len() as u32 - 1;
+                let last = s.dims.len() as u32 - 1;
                 let level_bytes = |i: u32| {
-                    let (w, h, _) = &s.levels[i as usize];
-                    *w as u64 * *h as u64 * 4
+                    let (w, h) = s.dims[i as usize];
+                    w as u64 * h as u64 * 4
                 };
                 let next = s.resident_base.checked_sub(1).map_or(0, level_bytes);
                 Some((
@@ -724,6 +966,219 @@ mod tests {
     fn make_registry() -> GpuTextureRegistry {
         let (device, queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
         GpuTextureRegistry::new(device, queue)
+    }
+
+    /// A registry whose streamed textures cache their chains under a fresh
+    /// scratch directory named for the test.
+    fn make_registry_with_cache(test_name: &str) -> (GpuTextureRegistry, PathBuf) {
+        let dir =
+            std::env::temp_dir().join(format!("bse_mip_cache_{test_name}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut reg = make_registry();
+        reg.set_mip_cache_root(Some(dir.clone()));
+        (reg, dir)
+    }
+
+    fn mips_files(dir: &Path) -> Vec<PathBuf> {
+        let Ok(read) = std::fs::read_dir(dir) else {
+            return Vec::new();
+        };
+        let mut files: Vec<PathBuf> = read
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|x| x == "mips"))
+            .collect();
+        files.sort();
+        files
+    }
+
+    /// With a cache directory, a streamed texture's chain goes to one
+    /// `.mips` file and **nothing of it stays in RAM** -- the saving the
+    /// cache exists for, measured rather than assumed -- while the GPU
+    /// side is exactly what it is without a cache. Identical pixels share
+    /// the file; different pixels get their own; an unstreamed texture
+    /// writes none.
+    #[test]
+    fn a_cache_dir_moves_the_chain_out_of_ram_into_one_file_per_image() {
+        let (mut reg, dir) = make_registry_with_cache("one_file");
+        let pixels = vec![200u8; 256 * 256 * 4];
+
+        // Premise: without a cache the chain is held in RAM, and it is the
+        // whole chain.
+        let ram_reg = {
+            let mut r = make_registry();
+            let id = r.load_with(256, 256, &pixels, streamed());
+            (r, id)
+        };
+        assert!(
+            within_one_percent(
+                ram_reg.0.chain_ram_bytes(ram_reg.1).unwrap(),
+                chain_bytes(256, 9)
+            ),
+            "premise: a registry without a cache holds the whole chain in RAM"
+        );
+        assert_eq!(ram_reg.0.mip_cache_file(ram_reg.1), None);
+
+        let id = reg.load_with(256, 256, &pixels, streamed());
+        assert_eq!(
+            reg.chain_ram_bytes(id),
+            Some(0),
+            "the chain is on disk, not in RAM"
+        );
+        assert_eq!(
+            reg.residency(id),
+            Some((2, 9)),
+            "and residency is as without a cache"
+        );
+        assert_eq!(
+            reg.get_gpu_footprint(id).map(|f| (f.0, f.1)),
+            Some((64, 64))
+        );
+        let files = mips_files(&dir);
+        assert_eq!(files.len(), 1, "one cache file: {files:?}");
+        assert_eq!(reg.mip_cache_file(id), Some(files[0].as_path()));
+        let expected_len = (chain_bytes(256, 9) as usize) + 8 + 4 + 9 * 24;
+        assert!(
+            within_one_percent(
+                std::fs::metadata(&files[0]).unwrap().len(),
+                expected_len as u64
+            ),
+            "the file holds the header and every level"
+        );
+
+        // The same pixels again: the file is reused, not written twice.
+        let mtime = std::fs::metadata(&files[0]).unwrap().modified().unwrap();
+        let again = reg.load_with(256, 256, &pixels, streamed());
+        assert_eq!(mips_files(&dir).len(), 1);
+        assert_eq!(reg.mip_cache_file(again), Some(files[0].as_path()));
+        assert_eq!(
+            std::fs::metadata(&files[0]).unwrap().modified().unwrap(),
+            mtime
+        );
+
+        // Different pixels: a second file. An unstreamed texture: none.
+        let other = reg.load_with(256, 256, &vec![9u8; 256 * 256 * 4], streamed());
+        assert_eq!(mips_files(&dir).len(), 2);
+        assert_ne!(reg.mip_cache_file(other), reg.mip_cache_file(id));
+        let plain = reg.load_with(256, 256, &pixels, TextureImportSettings::default());
+        assert_eq!(mips_files(&dir).len(), 2);
+        assert_eq!(reg.chain_ram_bytes(plain), None);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Raising reads the level from the cache file -- so bytes changed in
+    /// the file are what the next raise uploads -- and a file that has
+    /// gone leaves residency where it is rather than uploading nothing.
+    /// Lowering and raising back keep working from the file, with the
+    /// same residency sequence as from memory.
+    #[test]
+    fn levels_are_read_from_the_cache_file_at_each_raise() {
+        let (mut reg, dir) = make_registry_with_cache("read_back");
+        let id = reg.load_with(256, 256, &vec![50u8; 256 * 256 * 4], streamed());
+        let file = reg.mip_cache_file(id).unwrap().to_path_buf();
+
+        // The level a raise will bring in next is the 128 one (index 1):
+        // overwrite it in the file and see the read return the new bytes.
+        let dims: Vec<(u32, u32)> = (0..9).map(|i| (256 >> i, 256 >> i)).collect();
+        let table = read_mip_cache_table(&file, &dims).expect("the file must parse");
+        let (offset, len) = table[1];
+        assert_eq!(len, 128 * 128 * 4);
+        {
+            use std::io::{Seek, SeekFrom, Write};
+            let mut f = std::fs::OpenOptions::new().write(true).open(&file).unwrap();
+            f.seek(SeekFrom::Start(offset)).unwrap();
+            f.write_all(&vec![7u8; len as usize]).unwrap();
+        }
+        let streamed = reg.textures[&id].streamed.as_ref().unwrap();
+        let levels = streamed.levels_from(1).expect("readable");
+        assert_eq!(levels.len(), 8, "levels 128 down to 1");
+        assert_eq!((levels[0].0, levels[0].1), (128, 128));
+        assert!(
+            levels[0].2.iter().all(|b| *b == 7),
+            "the 128 level is read from the file, tampering and all"
+        );
+        assert!(
+            levels[1].2.iter().all(|b| *b == 50),
+            "the 64 level below it is untouched"
+        );
+
+        assert!(
+            reg.raise_residency(id),
+            "a raise reads the file and rebuilds"
+        );
+        assert_eq!(reg.residency(id), Some((1, 9)));
+        assert_eq!(reg.get_gpu_footprint(id).map(|f| f.0), Some(128));
+        assert!(reg.lower_residency(id));
+        assert_eq!(reg.residency(id), Some((2, 9)));
+        assert_eq!(reg.chain_ram_bytes(id), Some(0), "still nothing in RAM");
+
+        // The file gone: the raise is refused and nothing changes.
+        std::fs::remove_file(&file).unwrap();
+        assert!(!reg.raise_residency(id), "no file, no level to bring in");
+        assert_eq!(reg.residency(id), Some((2, 9)));
+        assert_eq!(reg.get_gpu_footprint(id).map(|f| f.0), Some(64));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A cache directory that cannot be created -- here, a path that is a
+    /// file -- is reported and the chain stays in RAM: streaming keeps
+    /// working exactly as without a cache, only the memory is spent. A file
+    /// of another layout under the right name is rewritten, not trusted.
+    #[test]
+    fn an_unusable_cache_dir_falls_back_to_memory_and_a_bad_file_is_rewritten() {
+        let blocker =
+            std::env::temp_dir().join(format!("bse_mip_cache_blocker_{}", std::process::id()));
+        std::fs::write(&blocker, b"not a directory").unwrap();
+        let mut reg = make_registry();
+        reg.set_mip_cache_root(Some(blocker.join("mips")));
+        let pixels = vec![3u8; 256 * 256 * 4];
+        let id = reg.load_with(256, 256, &pixels, streamed());
+        assert_eq!(reg.mip_cache_file(id), None, "no file could be written");
+        assert!(
+            reg.chain_ram_bytes(id).unwrap() > 0,
+            "so the chain is kept in RAM"
+        );
+        assert!(reg.raise_residency(id) && reg.raise_residency(id));
+        assert_eq!(
+            reg.residency(id),
+            Some((0, 9)),
+            "and streaming works from it"
+        );
+        let _ = std::fs::remove_file(&blocker);
+
+        // A complete, well-formed file of a *previous layout version* under
+        // the right name: only the magic tells it apart, and it must be
+        // rewritten, not read as if its bytes meant what this version's do.
+        let (mut reg, dir) = make_registry_with_cache("bad_file");
+        std::fs::create_dir_all(&dir).unwrap();
+        let name = mip_cache_name(256, 256, &pixels);
+        let (mut stale, _) = encode_mip_cache(&mip_chain(256, 256, &pixels));
+        stale[..8].copy_from_slice(b"BSMIPS00");
+        std::fs::write(dir.join(&name), &stale).unwrap();
+        let id = reg.load_with(256, 256, &pixels, streamed());
+        assert_eq!(reg.mip_cache_file(id), Some(dir.join(&name).as_path()));
+        let rewritten = std::fs::read(dir.join(&name)).unwrap();
+        assert_eq!(
+            &rewritten[..8],
+            MIP_CACHE_MAGIC,
+            "the stale file was rewritten in this version's layout"
+        );
+        let dims: Vec<(u32, u32)> = (0..9).map(|i| (256 >> i, 256 >> i)).collect();
+        assert!(read_mip_cache_table(&dir.join(&name), &dims).is_some());
+        assert!(reg.raise_residency(id));
+        assert_eq!(reg.residency(id), Some((1, 9)));
+
+        // And a file too short to hold a header at all.
+        std::fs::write(dir.join(&name), b"BSMIPS01 garbage").unwrap();
+        let again = reg.load_with(256, 256, &pixels, streamed());
+        assert_eq!(reg.mip_cache_file(again), Some(dir.join(&name).as_path()));
+        assert!(
+            read_mip_cache_table(&dir.join(&name), &dims).is_some(),
+            "rewritten"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -1069,10 +1524,7 @@ mod tests {
     #[test]
     fn the_wanted_level_is_the_smallest_that_covers_the_screen_size() {
         let chain = mip_chain(256, 256, &[0u8; 256 * 256 * 4]);
-        let levels: Vec<(u32, u32, Vec<u8>)> = chain
-            .into_iter()
-            .map(|(w, h, p)| (w, h, p.into_owned()))
-            .collect();
+        let levels: Vec<(u32, u32)> = chain.iter().map(|(w, h, _)| (*w, *h)).collect();
         let want = |pixels: f32, bias: i32| wanted_base_for(&levels, pixels, bias);
         assert_eq!(want(100.0, 0), 1, "128 covers 100; 64 does not");
         assert_eq!(want(128.0, 0), 1, "exactly 128 is still the 128 level");
@@ -1089,10 +1541,7 @@ mod tests {
 
         // A non-square chain is measured by its larger side.
         let chain = mip_chain(256, 64, &[0u8; 256 * 64 * 4]);
-        let levels: Vec<(u32, u32, Vec<u8>)> = chain
-            .into_iter()
-            .map(|(w, h, p)| (w, h, p.into_owned()))
-            .collect();
+        let levels: Vec<(u32, u32)> = chain.iter().map(|(w, h, _)| (*w, *h)).collect();
         assert_eq!(wanted_base_for(&levels, 100.0, 0), 1);
     }
 

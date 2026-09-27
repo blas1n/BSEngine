@@ -37,6 +37,35 @@ pub fn compute_bounding_sphere(vertices: &[Vertex]) -> (Vec3, f32) {
     (center, radius)
 }
 
+/// How many times a texture is laid across a mesh: the larger of its UV
+/// range's width and height. `1` for a mesh whose UVs span `0..1` once,
+/// `4` for one tiled four times, `0.25` for one that samples a quarter of
+/// an atlas. What Unreal's `TexelFactor` and Unity's UV density measure at
+/// import so that texture streaming can ask for the level the *screen*
+/// needs: a tiled texture is drawn smaller per repeat and wants less, an
+/// atlas region is drawn larger and wants more. `1` for a mesh with no
+/// vertices or with every UV alike, where nothing is being repeated.
+pub fn compute_uv_extent(vertices: &[Vertex]) -> f32 {
+    if vertices.is_empty() {
+        return 1.0;
+    }
+    let (min, max) = vertices.iter().fold(
+        ([f32::MAX, f32::MAX], [f32::MIN, f32::MIN]),
+        |(min, max), v| {
+            (
+                [min[0].min(v.uv[0]), min[1].min(v.uv[1])],
+                [max[0].max(v.uv[0]), max[1].max(v.uv[1])],
+            )
+        },
+    );
+    let extent = (max[0] - min[0]).max(max[1] - min[1]);
+    if extent.is_finite() && extent > 1e-6 {
+        extent
+    } else {
+        1.0
+    }
+}
+
 /// A mesh's GPU-resident buffers plus its precomputed bounding sphere.
 pub struct GpuMesh {
     /// GPU buffer holding this mesh's `Vertex` data. For a skinned mesh this
@@ -48,6 +77,9 @@ pub struct GpuMesh {
     pub index_count: u32,
     /// Local-space bounding sphere (center, radius).
     pub bounds: (Vec3, f32),
+    /// How many times a texture is laid across the mesh; see
+    /// [`compute_uv_extent`].
+    pub uv_extent: f32,
     /// The skinning side of a mesh registered through
     /// `GpuMeshRegistry::register_skinned`; `None` for every other mesh.
     pub(crate) skinned: Option<crate::skinning::SkinnedBuffers>,
@@ -148,6 +180,7 @@ impl GpuMeshRegistry {
             index_buffer,
             index_count: indices.len() as u32,
             bounds: compute_bounding_sphere(vertices),
+            uv_extent: compute_uv_extent(vertices),
             skinned: None,
         }
     }
@@ -160,6 +193,12 @@ impl GpuMeshRegistry {
     /// Looks up a previously registered mesh's local-space bounding sphere by id.
     pub fn get_bounds(&self, id: u64) -> Option<(Vec3, f32)> {
         self.meshes.get(&id).map(|m| m.bounds)
+    }
+
+    /// How many times a texture is laid across a registered mesh; see
+    /// [`compute_uv_extent`]. `None` for an id nobody registered.
+    pub fn get_uv_extent(&self, id: u64) -> Option<f32> {
+        self.meshes.get(&id).map(|m| m.uv_extent)
     }
 
     /// Overwrites a previously registered mesh's vertex buffer contents in
@@ -624,6 +663,58 @@ mod tests {
                 "vertex outside sphere: d={d} radius={radius}"
             );
         }
+    }
+
+    /// The UV extent is the larger side of the UV range: once for the
+    /// unit cube, the tiling factor for tiled UVs, a fraction for an atlas
+    /// region, and one -- never zero, which the streamer would divide by
+    /// -- for a mesh with no vertices or with every UV alike. Registered
+    /// meshes report it, replaced ones recompute it.
+    #[test]
+    fn uv_extent_is_how_many_times_the_texture_is_laid_across_the_mesh() {
+        let (mut verts, indices) = cube_vertices();
+        assert!((compute_uv_extent(&verts) - 1.0).abs() < 1e-6, "0..1 once");
+        for v in &mut verts {
+            v.uv = [v.uv[0] * 4.0, v.uv[1] * 4.0];
+        }
+        assert!(
+            (compute_uv_extent(&verts) - 4.0).abs() < 1e-6,
+            "tiled four times"
+        );
+        for v in &mut verts {
+            v.uv = [0.5 + v.uv[0] / 16.0, 0.25 + v.uv[1] / 16.0];
+        }
+        assert!(
+            (compute_uv_extent(&verts) - 0.25).abs() < 1e-6,
+            "a quarter of an atlas, wherever in it"
+        );
+        for v in &mut verts {
+            v.uv = [0.3, 0.7];
+        }
+        assert_eq!(
+            compute_uv_extent(&verts),
+            1.0,
+            "every UV alike: nothing repeats"
+        );
+        assert_eq!(compute_uv_extent(&[]), 1.0);
+
+        use crate::surface::WgpuSurface;
+        let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
+        let mut registry = GpuMeshRegistry::new(device);
+        let (verts, indices2) = cube_vertices();
+        let id = registry.register(&verts, &indices2);
+        assert_eq!(registry.get_uv_extent(id), Some(1.0));
+        let mut tiled = verts.clone();
+        for v in &mut tiled {
+            v.uv = [v.uv[0] * 2.0, v.uv[1] * 3.0];
+        }
+        assert!(registry.replace(id, &tiled, &indices));
+        assert_eq!(
+            registry.get_uv_extent(id),
+            Some(3.0),
+            "recomputed on replace"
+        );
+        assert_eq!(registry.get_uv_extent(4242), None);
     }
 
     #[test]

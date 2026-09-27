@@ -672,6 +672,13 @@ pub struct InspectorState {
     /// than dropping the snapshot, so the panel keeps drawing the old graph
     /// until the new one is ready instead of flashing empty.
     pub asset_graph_refresh: bool,
+    /// A document asset the author asked to open in its editor -- a script
+    /// graph or a shader graph double-clicked in the Asset Browser, as a
+    /// double-click opens an asset's editor in Unity, Unreal and Godot
+    /// alike. The dock host docks and focuses the panel for it, and that
+    /// panel takes the request ([`Self::take_open_asset_request`]) and
+    /// opens the file. Set by [`Self::request_open_asset`].
+    pub open_asset_request: Option<String>,
     /// Edit commands queued by the UI this frame, drained by `apply_inspector_cmds`.
     pub cmd_queue: Vec<InspectorCmd>,
     /// Cloned reflected components currently attached to `selected_id`,
@@ -835,6 +842,7 @@ impl Default for InspectorState {
             asset_references: None,
             asset_graph: None,
             asset_graph_refresh: false,
+            open_asset_request: None,
             cmd_queue: Vec::new(),
             reflected_components: Vec::new(),
             edit_pos: [0.0; 3],
@@ -940,11 +948,66 @@ impl InspectorState {
         self.selected_id = None;
         self.prev_selected_id = None;
     }
+
+    /// Asks for `path` to be opened in the panel that edits its kind; see
+    /// [`Self::open_asset_request`]. A second request before the first was
+    /// taken replaces it -- the author double-clicked something else.
+    pub fn request_open_asset(&mut self, path: impl Into<String>) {
+        self.open_asset_request = Some(path.into());
+    }
+
+    /// Takes the pending open request if its path ends in `suffix` -- the
+    /// panel for `.scriptgraph.ron` files takes only those, leaving a
+    /// `.shadergraph.ron` request for the panel that edits it. `None` when
+    /// there is no request or it is for another kind.
+    pub fn take_open_asset_request(&mut self, suffix: &str) -> Option<String> {
+        let ends = self.open_asset_request.as_deref().is_some_and(|p| {
+            p.to_ascii_lowercase()
+                .ends_with(&suffix.to_ascii_lowercase())
+        });
+        if ends {
+            self.open_asset_request.take()
+        } else {
+            None
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A request is taken only by the kind it names, case-insensitively,
+    /// and a newer request replaces an untaken one.
+    #[test]
+    fn an_open_request_is_taken_only_by_its_own_kind() {
+        let mut s = InspectorState::default();
+        assert_eq!(s.take_open_asset_request(".scriptgraph.ron"), None);
+        s.request_open_asset("assets/scripts/bob.scriptgraph.ron");
+        assert_eq!(
+            s.take_open_asset_request(".shadergraph.ron"),
+            None,
+            "the shader graph panel must leave a script graph alone"
+        );
+        assert_eq!(
+            s.open_asset_request.as_deref(),
+            Some("assets/scripts/bob.scriptgraph.ron"),
+            "and the request is still there for its own panel"
+        );
+        assert_eq!(
+            s.take_open_asset_request(".scriptgraph.ron").as_deref(),
+            Some("assets/scripts/bob.scriptgraph.ron")
+        );
+        assert_eq!(s.open_asset_request, None, "taken once");
+
+        s.request_open_asset("assets/shaders/A.ShaderGraph.RON");
+        s.request_open_asset("assets/shaders/b.shadergraph.ron");
+        assert_eq!(
+            s.take_open_asset_request(".shadergraph.ron").as_deref(),
+            Some("assets/shaders/b.shadergraph.ron"),
+            "the newer request replaces the older"
+        );
+    }
 
     #[test]
     fn default_has_no_selection() {

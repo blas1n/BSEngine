@@ -68,6 +68,71 @@ struct Streamed {
     /// otherwise, so a texture nothing on screen uses (a UI image, a
     /// particle sheet) streams to full as it did before wants existed.
     wanted_base: u32,
+    /// The level a worker thread is reading out of the cache file for this
+    /// texture, if one is; see [`PendingRead`]. A texture with a read in
+    /// flight is left alone by [`GpuTextureRegistry::step_streaming`] until
+    /// it lands, so the level arrives for the residency it was read for.
+    pending: Option<PendingRead>,
+}
+
+/// One level of a streamed texture, being read from its cache file on a
+/// worker thread.
+///
+/// The read is off the frame thread because that is the whole point of a
+/// cache file: a level's bytes come from disk, and a disk -- a laptop's, a
+/// network drive's, anything but a warm SSD -- can take longer than a frame
+/// to hand them over. Unreal issues an asynchronous IO request per mip and
+/// uploads on the frame it arrives; Unity's streaming loads in the
+/// background and applies the result. This is that: [`GpuTextureRegistry::raise_residency`]
+/// starts the read and returns, and [`GpuTextureRegistry::poll_reads`], once
+/// a frame, uploads whatever has arrived.
+///
+/// A thread per read rather than a pool: a raise is one level, at most a
+/// few per second across every streamed texture, and the thread's whole job
+/// is one `read_exact`.
+struct PendingRead {
+    /// The chain index the read is for -- the new resident base.
+    base: u32,
+    /// Filled once by the worker; `None` until then. A slot rather than a
+    /// channel because the registry is a resource and a `Receiver` is not
+    /// `Sync`.
+    result: Arc<std::sync::Mutex<Option<std::io::Result<Vec<u8>>>>>,
+}
+
+impl PendingRead {
+    /// Starts reading `len` bytes at `offset` of `path` -- one level of the
+    /// cache file -- on a worker thread.
+    fn start(path: PathBuf, offset: u64, len: u64, base: u32) -> Self {
+        let result = Arc::new(std::sync::Mutex::new(None));
+        let slot = Arc::clone(&result);
+        std::thread::spawn(move || {
+            let read = read_level_from_file(&path, offset, len);
+            *slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(read);
+        });
+        Self { base, result }
+    }
+
+    /// The read's outcome, once the worker has written it.
+    fn take(&self) -> Option<std::io::Result<Vec<u8>>> {
+        self.result
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .take()
+    }
+}
+
+/// Reads one level's `len` bytes at `offset` of the cache file at `path`.
+///
+/// # Errors
+///
+/// The file is gone or short.
+fn read_level_from_file(path: &Path, offset: u64, len: u64) -> std::io::Result<Vec<u8>> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path)?;
+    let mut bytes = vec![0u8; len as usize];
+    file.seek(SeekFrom::Start(offset))?;
+    file.read_exact(&mut bytes)?;
+    Ok(bytes)
 }
 
 /// Where a streamed texture's levels are read from at each rebuild.
@@ -86,15 +151,15 @@ enum MipSource {
 const MIP_CACHE_MAGIC: &[u8; 8] = b"BSMIPS01";
 
 impl Streamed {
-    /// The levels from `base` down to the smallest, as [`upload_levels`]
-    /// wants them. From RAM, a borrow; from the cache file, one read per
-    /// level.
+    /// The levels from `base` down to the smallest, read whole -- what a
+    /// raise used to do on the frame thread, kept for tests that check what
+    /// a cache file holds. The registry itself now reads one level at a
+    /// time, off the frame thread (see [`PendingRead`]).
     ///
     /// # Errors
     ///
-    /// The cache file is gone or short -- the levels it held are not on
-    /// the GPU and cannot be brought there, so the caller leaves residency
-    /// where it is.
+    /// The cache file is gone or short.
+    #[cfg(test)]
     fn levels_from(
         &self,
         base: u32,
@@ -105,14 +170,10 @@ impl Streamed {
                 .map(|(w, h, p)| (*w, *h, std::borrow::Cow::Borrowed(p.as_slice())))
                 .collect()),
             MipSource::Disk { path, table } => {
-                use std::io::{Read, Seek, SeekFrom};
-                let mut file = std::fs::File::open(path)?;
                 let mut out = Vec::with_capacity(self.dims.len() - base as usize);
                 for (i, (w, h)) in self.dims.iter().enumerate().skip(base as usize) {
                     let (offset, len) = table[i];
-                    let mut bytes = vec![0u8; len as usize];
-                    file.seek(SeekFrom::Start(offset))?;
-                    file.read_exact(&mut bytes)?;
+                    let bytes = read_level_from_file(path, offset, len)?;
                     out.push((*w, *h, std::borrow::Cow::Owned(bytes)));
                 }
                 Ok(out)
@@ -190,6 +251,18 @@ fn read_mip_cache_table(path: &Path, dims: &[(u32, u32)]) -> Option<Vec<(u64, u6
     Some(table)
 }
 
+/// The GPU format a texture's settings ask for. The format is what makes
+/// `srgb` mean anything: an `…Srgb` view decodes on sample, so the shader
+/// receives linear light without a `pow` of its own. Uploaded bytes are
+/// identical either way.
+fn format_for(settings: TextureImportSettings) -> wgpu::TextureFormat {
+    if settings.srgb {
+        wgpu::TextureFormat::Rgba8UnormSrgb
+    } else {
+        wgpu::TextureFormat::Rgba8Unorm
+    }
+}
+
 /// The cache file name for a chain: a hash of level 0's pixels and size,
 /// so the file follows the image's content and not its path -- a
 /// re-imported image lands in a new file, two identical images in one.
@@ -246,6 +319,12 @@ pub struct GpuTextureRegistry {
     /// The streamed texture `raise_next_pending` last brought a level in
     /// on, so the next call moves on to another one.
     last_raised: u64,
+    /// How many levels have been read out of cache files, and how many
+    /// bytes, counted as each read lands. What makes "lowering never touches
+    /// the disk" and "a raise reads one level and no more" observable
+    /// without trusting the code that does it.
+    disk_reads: u64,
+    disk_read_bytes: u64,
     /// Where streamed textures' mip cache files go; `None` keeps every
     /// chain in RAM. See [`Streamed`].
     mip_cache_root: Option<PathBuf>,
@@ -266,6 +345,8 @@ impl GpuTextureRegistry {
             next_id: 1,
             next_generation: 1,
             last_raised: 0,
+            disk_reads: 0,
+            disk_read_bytes: 0,
             mip_cache_root: None,
             mip_cache_warned: false,
         }
@@ -481,6 +562,7 @@ impl GpuTextureRegistry {
                 dims,
                 resident_base,
                 wanted_base: 0,
+                pending: None,
             })
         } else {
             None
@@ -519,14 +601,7 @@ impl GpuTextureRegistry {
         resident_base: u32,
         settings: TextureImportSettings,
     ) -> (crate::profiler::TrackedTexture, wgpu::TextureView) {
-        // The format is what makes `srgb` mean anything: an `…Srgb` view
-        // decodes on sample, so the shader receives linear light without a
-        // `pow` of its own. Uploaded bytes are identical either way.
-        let format = if settings.srgb {
-            wgpu::TextureFormat::Rgba8UnormSrgb
-        } else {
-            wgpu::TextureFormat::Rgba8Unorm
-        };
+        let format = format_for(settings);
         let resident = &levels[resident_base as usize..];
         let (width, height, _) = &resident[0];
         let texture = crate::profiler::create_tracked_texture(
@@ -592,53 +667,268 @@ impl GpuTextureRegistry {
     }
 
     /// Brings one more level of a streamed texture onto the GPU -- the next
-    /// larger one -- rebuilding the GPU object at the new size, so its
-    /// footprint grows by exactly that level. Returns whether a level was
-    /// brought in: `false` for a texture that is not streamed or is already
-    /// fully resident.
+    /// larger one. From a chain in RAM that happens now: the GPU object is
+    /// rebuilt at the new size, the level written and the rest copied from
+    /// the old object, so its footprint grows by exactly that level. From a
+    /// cache file the level is read on a worker thread and the rebuild
+    /// happens in [`Self::poll_reads`] once the bytes have arrived; until
+    /// then residency is unchanged and the texture is left alone.
+    ///
+    /// Returns whether a level was brought in or its read started: `false`
+    /// for a texture that is not streamed, is already fully resident, or has
+    /// a read in flight.
     pub fn raise_residency(&mut self, id: u64) -> bool {
-        self.set_residency(id, |base| base.checked_sub(1))
-    }
-
-    /// Drops the largest resident level of a streamed texture, rebuilding
-    /// the GPU object without it. The smallest level always stays, so the
-    /// texture keeps drawing something. Returns whether a level was dropped.
-    pub fn lower_residency(&mut self, id: u64) -> bool {
-        self.set_residency(id, |base| Some(base + 1))
-    }
-
-    fn set_residency(&mut self, id: u64, next: impl FnOnce(u32) -> Option<u32>) -> bool {
         let Some(tex) = self.textures.get(&id) else {
             return false;
         };
         let Some(streamed) = tex.streamed.as_ref() else {
             return false;
         };
-        let Some(base) = next(streamed.resident_base) else {
+        if streamed.pending.is_some() {
+            return false;
+        }
+        let Some(base) = streamed.resident_base.checked_sub(1) else {
             return false;
         };
+        match &streamed.source {
+            MipSource::Memory(levels) => {
+                let level = levels[base as usize].2.as_slice();
+                let (texture, view) = self.rebuild_object(
+                    &tex._texture,
+                    streamed.resident_base,
+                    base,
+                    &streamed.dims,
+                    Some(level),
+                    tex.settings,
+                );
+                self.install_object(id, base, texture, view);
+                true
+            }
+            MipSource::Disk { path, table } => {
+                let (offset, len) = table[base as usize];
+                let pending = PendingRead::start(path.clone(), offset, len, base);
+                let tex = self.textures.get_mut(&id).expect("looked up above");
+                tex.streamed.as_mut().expect("checked above").pending = Some(pending);
+                true
+            }
+        }
+    }
+
+    /// Drops the largest resident level of a streamed texture, rebuilding
+    /// the GPU object without it: the levels that stay are copied
+    /// GPU-to-GPU, so lowering reads nothing from RAM or disk. The smallest
+    /// level always stays, so the texture keeps drawing something. Returns
+    /// whether a level was dropped; `false` while a read is in flight, since
+    /// that level was read for the residency it was requested at.
+    pub fn lower_residency(&mut self, id: u64) -> bool {
+        let Some(tex) = self.textures.get(&id) else {
+            return false;
+        };
+        let Some(streamed) = tex.streamed.as_ref() else {
+            return false;
+        };
+        if streamed.pending.is_some() {
+            return false;
+        }
+        let base = streamed.resident_base + 1;
         if base as usize >= streamed.dims.len() {
             return false;
         }
-        // Rebuilt from the chain rather than copied GPU-to-GPU: the levels
-        // below the one being brought in are a third of its size put
-        // together, so the re-upload (and, from a cache file, the re-read)
-        // costs about what the new level does, and it keeps this to one
-        // queue write per level with no encoder.
-        let levels = match streamed.levels_from(base) {
-            Ok(levels) => levels,
-            Err(e) => {
-                tracing::warn!(
-                    "[texture] texture {id}'s mip cache file could not be read ({e}); its \
-                     residency stays where it is"
-                );
-                return false;
+        let (texture, view) = self.rebuild_object(
+            &tex._texture,
+            streamed.resident_base,
+            base,
+            &streamed.dims,
+            None,
+            tex.settings,
+        );
+        self.install_object(id, base, texture, view);
+        true
+    }
+
+    /// Uploads every level whose read has arrived, one texture at a time,
+    /// and returns the ids whose residency changed. What the streaming
+    /// system calls once a frame, before it decides the next step.
+    ///
+    /// A read that failed -- the cache file gone or short -- leaves
+    /// residency where it is and is reported; the texture is then free to be
+    /// asked again, which is what makes a file put back reachable.
+    pub fn poll_reads(&mut self) -> Vec<u64> {
+        let mut arrived: Vec<(u64, u32, std::io::Result<Vec<u8>>)> = Vec::new();
+        for (id, tex) in &mut self.textures {
+            let Some(streamed) = tex.streamed.as_mut() else {
+                continue;
+            };
+            let Some(pending) = streamed.pending.as_ref() else {
+                continue;
+            };
+            if let Some(result) = pending.take() {
+                let base = pending.base;
+                streamed.pending = None;
+                arrived.push((*id, base, result));
             }
-        };
-        let settings = tex.settings;
-        let (texture, view) = self.upload_levels(&levels, 0, settings);
+        }
+        arrived.sort_unstable_by_key(|(id, _, _)| *id);
+
+        let mut landed = Vec::new();
+        for (id, base, result) in arrived {
+            let bytes = match result {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    tracing::warn!(
+                        "[texture] texture {id}'s mip cache file could not be read ({e}); its \
+                         residency stays where it is"
+                    );
+                    continue;
+                }
+            };
+            self.disk_reads += 1;
+            self.disk_read_bytes += bytes.len() as u64;
+            let tex = &self.textures[&id];
+            let streamed = tex
+                .streamed
+                .as_ref()
+                .expect("a read was pending on a streamed texture");
+            let (texture, view) = self.rebuild_object(
+                &tex._texture,
+                streamed.resident_base,
+                base,
+                &streamed.dims,
+                Some(&bytes),
+                tex.settings,
+            );
+            self.install_object(id, base, texture, view);
+            landed.push(id);
+        }
+        landed
+    }
+
+    /// Whether a level is being read for `id` right now.
+    pub fn has_pending_read(&self, id: u64) -> bool {
+        self.textures
+            .get(&id)
+            .and_then(|t| t.streamed.as_ref())
+            .is_some_and(|s| s.pending.is_some())
+    }
+
+    /// How many levels have been read out of cache files so far, and how
+    /// many bytes: `(reads, bytes)`.
+    pub fn disk_reads(&self) -> (u64, u64) {
+        (self.disk_reads, self.disk_read_bytes)
+    }
+
+    /// Level 0 of the object behind `id`, read back from the GPU: what a
+    /// test uses to see that the bytes a raise brought in -- or a lower
+    /// kept -- are the ones on the GPU, rather than trusting the rebuild.
+    #[cfg(test)]
+    pub(crate) fn read_level0_for_testing(&self, id: u64) -> Vec<u8> {
+        let tex = &self.textures[&id];
+        crate::output::read_pixels(
+            &self.device,
+            &self.queue,
+            &tex._texture,
+            tex._texture.width(),
+            tex._texture.height(),
+        )
+    }
+
+    /// The GPU object for residency `base`, built out of the one for
+    /// `old_base`: every level both hold is copied GPU-to-GPU, and when
+    /// `base` is the lower of the two its one new level -- the largest -- is
+    /// written from `new_level`. A raise therefore costs one level's write
+    /// and a lower costs no upload at all; before this a change of residency
+    /// re-uploaded every resident level from the chain, and from a cache
+    /// file re-read them first.
+    fn rebuild_object(
+        &self,
+        old: &wgpu::Texture,
+        old_base: u32,
+        base: u32,
+        dims: &[(u32, u32)],
+        new_level: Option<&[u8]>,
+        settings: TextureImportSettings,
+    ) -> (crate::profiler::TrackedTexture, wgpu::TextureView) {
+        let count = dims.len() as u32 - base;
+        let (width, height) = dims[base as usize];
+        let texture = crate::profiler::create_tracked_texture(
+            &self.device,
+            &wgpu::TextureDescriptor {
+                label: Some("user texture"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: count,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: format_for(settings),
+                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_DST
+                    | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[],
+            },
+        );
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("streamed texture rebuild"),
+            });
+        for level in 0..count {
+            let chain = base + level;
+            let (w, h) = dims[chain as usize];
+            let extent = wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            };
+            let destination = wgpu::ImageCopyTexture {
+                texture: &texture,
+                mip_level: level,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            };
+            if chain >= old_base {
+                encoder.copy_texture_to_texture(
+                    wgpu::ImageCopyTexture {
+                        texture: old,
+                        mip_level: chain - old_base,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    destination,
+                    extent,
+                );
+            } else {
+                let bytes =
+                    new_level.expect("a level the old object lacks is the one being brought in");
+                self.queue.write_texture(
+                    destination,
+                    bytes,
+                    wgpu::ImageDataLayout {
+                        offset: 0,
+                        bytes_per_row: Some(4 * w),
+                        rows_per_image: None,
+                    },
+                    extent,
+                );
+            }
+        }
+        self.queue.submit(std::iter::once(encoder.finish()));
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        (texture, view)
+    }
+
+    /// Makes `texture` the object behind `id`, at residency `base`.
+    fn install_object(
+        &mut self,
+        id: u64,
+        base: u32,
+        texture: crate::profiler::TrackedTexture,
+        view: wgpu::TextureView,
+    ) {
+        let settings = self.textures[&id].settings;
         let (sampler, bind_group) = self.sampler_and_bind_group(&view, settings);
-        drop(levels);
         let generation = self.next_generation();
         let tex = self.textures.get_mut(&id).expect("looked up above");
         tex.streamed.as_mut().expect("checked above").resident_base = base;
@@ -651,7 +941,6 @@ impl GpuTextureRegistry {
         tex._sampler = sampler;
         tex.bind_group = bind_group;
         tex.generation = generation;
-        true
     }
 
     /// Brings one level in on the streamed texture that has been waiting
@@ -664,7 +953,11 @@ impl GpuTextureRegistry {
         let mut pending: Vec<u64> = self
             .textures
             .iter()
-            .filter(|(_, t)| t.streamed.as_ref().is_some_and(|s| s.resident_base > 0))
+            .filter(|(_, t)| {
+                t.streamed
+                    .as_ref()
+                    .is_some_and(|s| s.resident_base > 0 && s.pending.is_none())
+            })
             .map(|(id, _)| *id)
             .collect();
         pending.sort_unstable();
@@ -753,6 +1046,12 @@ impl GpuTextureRegistry {
             .iter()
             .filter_map(|(id, t)| {
                 let s = t.streamed.as_ref()?;
+                // A texture with a level in flight is neither raised again
+                // nor lowered: the level was read for the residency it was
+                // asked at, and lands there in `poll_reads`.
+                if s.pending.is_some() {
+                    return None;
+                }
                 let last = s.dims.len() as u32 - 1;
                 let level_bytes = |i: u32| {
                     let (w, h) = s.dims[i as usize];
@@ -1179,16 +1478,43 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Raising reads the level from the cache file -- so bytes changed in
-    /// the file are what the next raise uploads -- and a file that has
-    /// gone leaves residency where it is rather than uploading nothing.
-    /// Lowering and raising back keep working from the file, with the
-    /// same residency sequence as from memory.
+    /// Runs `poll_reads` until the read in flight on `id` has landed or
+    /// failed: a worker thread reads the level, and a test has no way to
+    /// know when it is done but to ask. Returns what landed.
+    fn wait_for_read(reg: &mut GpuTextureRegistry, id: u64) -> Vec<u64> {
+        let start = std::time::Instant::now();
+        while reg.has_pending_read(id) {
+            let landed = reg.poll_reads();
+            if !landed.is_empty() {
+                return landed;
+            }
+            assert!(
+                start.elapsed() < std::time::Duration::from_secs(10),
+                "the read never finished"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        Vec::new()
+    }
+
+    /// A raise from a cache file reads exactly the level it brings in, on a
+    /// worker thread -- residency is unchanged, and the texture is left
+    /// alone, until the read lands in `poll_reads` -- and what lands is what
+    /// the file holds: bytes changed in the file are what the GPU gets.
+    /// Lowering reads nothing: the levels that stay are copied on the GPU.
+    /// A file that has gone leaves residency where it is and the texture
+    /// free to be asked again.
     #[test]
-    fn levels_are_read_from_the_cache_file_at_each_raise() {
+    fn a_raise_reads_one_level_off_the_frame_thread_and_a_lower_reads_nothing() {
         let (mut reg, dir) = make_registry_with_cache("read_back");
         let id = reg.load_with(256, 256, &vec![50u8; 256 * 256 * 4], streamed());
         let file = reg.mip_cache_file(id).unwrap().to_path_buf();
+        assert_eq!(reg.residency(id), Some((2, 9)));
+        assert_eq!(
+            reg.disk_reads(),
+            (0, 0),
+            "premise: the upload read nothing back"
+        );
 
         // The level a raise will bring in next is the 128 one (index 1):
         // overwrite it in the file and see the read return the new bytes.
@@ -1205,32 +1531,132 @@ mod tests {
         let streamed = reg.textures[&id].streamed.as_ref().unwrap();
         let levels = streamed.levels_from(1).expect("readable");
         assert_eq!(levels.len(), 8, "levels 128 down to 1");
-        assert_eq!((levels[0].0, levels[0].1), (128, 128));
         assert!(
-            levels[0].2.iter().all(|b| *b == 7),
-            "the 128 level is read from the file, tampering and all"
-        );
-        assert!(
-            levels[1].2.iter().all(|b| *b == 50),
-            "the 64 level below it is untouched"
+            levels[0].2.iter().all(|b| *b == 7) && levels[1].2.iter().all(|b| *b == 50),
+            "premise: the file holds the tampered 128 level over the untouched 64"
         );
 
-        assert!(
-            reg.raise_residency(id),
-            "a raise reads the file and rebuilds"
+        let before = reg.generation(id).unwrap();
+        assert!(reg.raise_residency(id), "the read starts");
+        assert_eq!(
+            reg.residency(id),
+            Some((2, 9)),
+            "and nothing changes until it lands"
         );
+        assert!(reg.has_pending_read(id));
+        assert!(!reg.raise_residency(id), "one read in flight per texture");
+        assert!(!reg.lower_residency(id), "and no lowering under it");
+        assert_eq!(
+            reg.step_streaming(None),
+            None,
+            "step_streaming leaves a texture with a read in flight alone"
+        );
+
+        assert_eq!(wait_for_read(&mut reg, id), vec![id], "the read lands");
         assert_eq!(reg.residency(id), Some((1, 9)));
         assert_eq!(reg.get_gpu_footprint(id).map(|f| f.0), Some(128));
+        assert_ne!(
+            reg.generation(id),
+            Some(before),
+            "a landed level is a rebuild of the object"
+        );
+        assert_eq!(
+            reg.disk_reads(),
+            (1, 128 * 128 * 4),
+            "exactly the one level was read, and no more"
+        );
+        assert!(
+            reg.read_level0_for_testing(id).iter().all(|b| *b == 7),
+            "the GPU holds the file's bytes, tampering and all"
+        );
+
         assert!(reg.lower_residency(id));
         assert_eq!(reg.residency(id), Some((2, 9)));
+        assert_eq!(
+            reg.disk_reads(),
+            (1, 128 * 128 * 4),
+            "lowering read nothing from the file"
+        );
         assert_eq!(reg.chain_ram_bytes(id), Some(0), "still nothing in RAM");
+        assert!(
+            reg.read_level0_for_testing(id).iter().all(|b| *b == 50),
+            "the 64 level that stays was copied on the GPU from the object that had it"
+        );
 
-        // The file gone: the raise is refused and nothing changes.
+        // The file gone: the read fails, residency stays, and the texture is
+        // free to be asked again.
         std::fs::remove_file(&file).unwrap();
-        assert!(!reg.raise_residency(id), "no file, no level to bring in");
+        assert!(reg.raise_residency(id), "the read starts");
+        assert!(
+            wait_for_read(&mut reg, id).is_empty(),
+            "no file, no level to bring in"
+        );
         assert_eq!(reg.residency(id), Some((2, 9)));
+        assert!(!reg.has_pending_read(id), "and it can be asked again");
+        assert_eq!(reg.disk_reads(), (1, 128 * 128 * 4));
         assert_eq!(reg.get_gpu_footprint(id).map(|f| f.0), Some(64));
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Not a check but a measurement, so `#[ignore]`d: what a raise costs
+    /// the frame thread from a cache file, for a 2048x2048 chain (the
+    /// largest the test device allows; a level 0 of 16 MiB), against what
+    /// the old path paid to read the whole chain synchronously. Run with
+    /// `cargo test --release -p bsengine-rhi-wgpu --lib -- --ignored measure_raise --nocapture`;
+    /// a debug build's numbers say nothing (validation layers, unoptimised
+    /// copies).
+    #[test]
+    #[ignore]
+    fn measure_raise_cost_from_a_cache_file() {
+        use std::time::Instant;
+        let (mut reg, dir) = make_registry_with_cache("measure");
+        let pixels = vec![120u8; 2048 * 2048 * 4];
+        let id = reg.load_with(2048, 2048, &pixels, streamed());
+        drop(pixels);
+
+        // The old path, for scale: every level from the base down, read
+        // whole on the frame thread -- which is what a raise to base 0 did.
+        let t = Instant::now();
+        let whole = reg.textures[&id]
+            .streamed
+            .as_ref()
+            .unwrap()
+            .levels_from(0)
+            .unwrap();
+        let read_whole = t.elapsed();
+        let whole_bytes: usize = whole.iter().map(|l| l.2.len()).sum();
+        drop(whole);
+
+        // The new path, level by level up to full residency.
+        let mut rows = Vec::new();
+        while reg.residency(id).unwrap().0 > 0 {
+            let base = reg.residency(id).unwrap().0 - 1;
+            let t = Instant::now();
+            assert!(reg.raise_residency(id));
+            let request = t.elapsed();
+            let waited = Instant::now();
+            let landing = loop {
+                let t = Instant::now();
+                let landed = reg.poll_reads();
+                let poll = t.elapsed();
+                if !landed.is_empty() {
+                    break poll;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            };
+            rows.push((base, request, waited.elapsed(), landing));
+        }
+        println!(
+            "old path: reading the whole chain ({whole_bytes} bytes) on the frame thread: {read_whole:?}"
+        );
+        for (base, request, wait, landing) in rows {
+            let (w, h) = reg.textures[&id].streamed.as_ref().unwrap().dims[base as usize];
+            println!(
+                "level {base} ({w}x{h}): request on the frame thread {request:?}, arrived after \
+                 {wait:?}, landing (upload + GPU copies) on the frame thread {landing:?}"
+            );
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1280,6 +1706,7 @@ mod tests {
         let dims: Vec<(u32, u32)> = (0..9).map(|i| (256 >> i, 256 >> i)).collect();
         assert!(read_mip_cache_table(&dir.join(&name), &dims).is_some());
         assert!(reg.raise_residency(id));
+        assert_eq!(wait_for_read(&mut reg, id), vec![id]);
         assert_eq!(reg.residency(id), Some((1, 9)));
 
         // And a file too short to hold a header at all.

@@ -25,7 +25,7 @@ master `bf2c649b` 기준. 열린 PR·이슈 0개, 소스 TODO/FIXME 0개, 워크
 | ~~텍스처 스트리밍 2단계(거리 기반 목표 밉·메모리 예산·퇴거)~~ | `grep -rn "wanted_base\|budget_bytes" crates/` | 2026-09-26 구현(아래 "텍스처 스트리밍 2단계" 절): 카메라 거리·화면 크기 기반 목표 밉, `[render]` 예산·밉 바이어스, 예산 초과 시 퇴거, 프로파일러 스탯. 디스크에서 스트리밍(체인을 RAM에 둠)은 여전히 없음 |
 | ~~단일 실행 파일~~ | `grep -rn "BSEMBED1\|PackageMode::Single" crates/` | 2026-09-28 구현(아래 "단일 실행 파일" 절): `--mode single`이 아카이브(매니페스트 포함)를 exe 꼬리에 임베드, macOS는 옆에 |
 | ~~**스카이박스·터레인이 `TextureCache`를 안 거침 → `release_pixels` 기본 off**~~ | `grep -n "&tex.data" crates/bsengine-render/src/plugin.rs crates/bsengine-app/src/terrain.rs` → 0 | 2026-09-28 닫힘, 두 PR: #1901이 둘을 `TextureCache::upload`로 돌리고(스카이박스는 GPU→GPU 복사 + 세대 카운터), 그다음 PR이 기본값을 `true`로(Unity의 Read/Write Enabled 반대). 아래 "`release_pixels` 기본값 on"·"스카이박스·터레인 레이어가 `TextureCache`를 거친다" 절. **2026-09-28 사용자 결정: 아래 세 항목을 이 순서로 하나씩** |
-| **디스크 밉 읽기가 동기** | `grep -n "levels_from(base)" crates/bsengine-rhi-wgpu/src/texture.rs` → `set_residency` 안에서 파일 읽기 | 3단계(#1895)의 레벨 읽기가 프레임 스레드에서 `File::open`+`read_exact`. 프레임당 한 레벨이라 SSD에선 ms지만 HDD·네트워크 드라이브면 히치. Unreal(비동기 IO 요청 후 도착 프레임에 업로드)·Unity(백그라운드 로드 후 적용)처럼 읽기를 스레드에 넘기고 도착한 레벨만 올릴 것. ⚠️ 측정은 `--release`로, 히치는 로드 *후* 프레임과 비교(씬 스트리밍 #1866 때 로드 *전* 프레임과 비교해 16ms 히치로 오독한 전례) |
+| ~~**디스크 밉 읽기가 동기**~~ | `grep -n "levels_from(base)" crates/bsengine-rhi-wgpu/src/texture.rs` → 0(`PendingRead`·`poll_reads`) | 2026-09-28 닫힘(아래 "디스크 밉 읽기 비동기" 절): 올리기는 새 레벨 하나만 워커 스레드에서 읽어 도착한 프레임에 GPU 복사+쓰기로 재구성, 내리기는 디스크·CPU 없이 GPU 복사. 릴리스 측정치는 그 절에 |
 | **텍스처 압축/포맷 변환 없음** | `grep -rn "TextureFormat::Bc\|TEXTURE_COMPRESSION\|Astc\|Etc2" crates/` → 0 | 모든 텍스처가 RGBA8로 올라감. 세 엔진 모두 임포트 때 압축(Unity: 플랫폼별 BC/ASTC/ETC, Unreal: DXT/BC7, Godot: `.ctex`에 S3TC/ETC2/ASTC 선택). 임포트 세팅(#1878)에 압축 옵션 추가 + 인코더(BC1/BC3/BC7; 데스크톱 wgpu의 `TEXTURE_COMPRESSION_BC`) + 밉 캐시가 압축 블록을 저장. 셋 중 가장 큼(새 의존성·포맷 정책) — 그래서 마지막 |
 
 **순서(2026-09-28, 사용자 "하나씩 순차"):** 공유 GPU 사본 → 디스크 읽기 비동기 → 텍스처 압축. 앞의 둘이 작고
@@ -162,6 +162,24 @@ release_pixels`의 기본을 `true`로: 사이드카가 없는 파일, 필드가
 `has_skybox`·`loaded_skybox_path`·업로드 횟수·세대를 관측하도록 다시 썼다 — "중간 전환 시 옛 요청 포기"는 캐시 설계에서
 구조적으로 무의미해졌고(둘 다 캐시에 남지만 화면엔 `SkyboxPath`가 원하는 것만), 대신 "전환 뒤 되돌리면 재업로드 없이 복사"를
 잰다. 기본값 뒤집기(Unity의 Read/Write 반대 = 해제 on)는 다음 PR.
+
+**디스크 밉 읽기 비동기(2026-09-28).** 남은 작업 ②. 3단계(#1895)의 `set_residency`는 프레임 스레드에서 캐시 파일을 열어
+상주 레벨 전부를 읽었고(올리기), 내리기도 작은 레벨들을 다시 읽어 재업로드했다. Unreal은 밉당 비동기 IO 요청을 내고 도착한
+프레임에 업로드, Unity는 백그라운드에서 로드해 적용 — 그대로 따랐다. `raise_residency`는 캐시 파일이면 **새 레벨 하나만**
+워커 스레드(`PendingRead`: 스레드 하나, `read_exact` 하나; 결과는 `Arc<Mutex<Option<…>>>` 슬롯 — 레지스트리가 리소스라
+`Receiver`는 `!Sync`)로 읽기 시작하고 즉시 돌아온다. 상주는 그대로이고 읽기 중인 텍스처는 `step_streaming`·raise·lower가
+전부 건드리지 않는다(읽은 레벨이 요청 당시 상주에 착륙해야 하므로). `poll_reads`가 프레임마다(`stream_textures`가 `set_wants`
+전에) 도착한 바이트로 객체를 재구성한다. **재구성(`rebuild_object`)은 새 레벨 하나만 쓰고 옛 객체가 이미 가진 레벨은
+GPU→GPU 복사**(#1901의 `COPY_SRC`) — 그래서 **내리기는 디스크도 RAM도 전혀 안 읽고**, RAM 체인의 올리기도 전체 재업로드가
+아니라 레벨 하나 쓰기가 됐다. 실패한 읽기(파일 없음)는 경고 후 상주 유지·재요청 가능. 관측: `disk_reads() -> (횟수, 바이트)`
+(착륙 시 카운트), `has_pending_read`, 테스트 전용 `read_level0_for_testing`(GPU 레벨 0을 읽어 파일에서 변조한 바이트가 실제로
+GPU에 올라갔는지 확인). 테스트: 요청 직후 상주 불변·중복 요청 거부·착륙 후 (1, 128²·4) 읽기·GPU 바이트 = 파일·내리기 0 읽기·
+복사된 64 레벨 = 원본·파일 삭제 시 실패 처리; 렌더 플러그인은 자기 프레임만으로 캐시 파일 텍스처를 완전 상주까지(읽기 정확히
+2회). 뮤테이션 A1~A7. **릴리스 측정(2048², 레벨0 16MiB, NVMe, `measure_raise_cost_from_a_cache_file`)**: 옛 경로가 체인 전체
+22.4MB를 프레임 스레드에서 읽는 데 **6.6ms**(base 0으로 올릴 때 그렇게 읽었다; 그 위에 전 레벨 재업로드). 새 경로는 요청이
+프레임 스레드에서 **46~97µs**, 레벨은 워커에서 1.3~5.4ms 뒤 도착, 착륙(레벨 하나 `write_texture` + GPU 복사)이 프레임
+스레드에서 **0.2~1.7ms**(가장 큰 레벨 1.70ms). NVMe에서도 프레임당 ~5ms를 덜고, 느린 디스크에선 프레임이 읽기를 기다리는
+일 자체가 없어진다. ⚠️ 테스트 디바이스의 2D 한계가 2048이라 4096²는 만들 수 없다(첫 측정이 그것으로 실패).
 
 **단일 실행 파일 — `--mode single`(2026-09-28).** 로드맵 item 55에서 의도적으로 범위 밖에 뒀던 마지막 항목. 선례는 갈린다:
 Unity(`exe + Data/`)·Unreal(`exe + Content/Paks/`)은 단일 파일을 만들지 않고, **Godot만 "Embed PCK"로 `.pck`를 내보내기

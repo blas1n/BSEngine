@@ -1325,7 +1325,8 @@ mod tests {
                 filter: TextureFilter::Nearest,
                 wrap: TextureWrap::Clamp,
                 streaming: false,
-                release_pixels: false,
+                // Never edited, so the field's default: on.
+                release_pixels: true,
             },
             "the second edit keeps the first's srgb: false"
         );

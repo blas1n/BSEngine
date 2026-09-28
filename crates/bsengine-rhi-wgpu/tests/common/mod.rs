@@ -573,7 +573,15 @@ struct VertOut {{
     /// a test that renders the same image both ways is what says the copy
     /// carries the image and not only its size.
     pub fn set_test_skybox_via_registry(&mut self, width: u32, height: u32, rgba: &[u8]) {
-        let id = self.textures.load_from_rgba(width, height, rgba);
+        // As a colour image with a default sidecar uploads: sRGB, which is
+        // also how `set_test_skybox_image` takes the same bytes, so the two
+        // paths differ in nothing but the copy. Mipmaps off, since the sky
+        // pass samples level 0 and the direct path has only that.
+        let settings = bsengine_core::TextureImportSettings {
+            mipmaps: false,
+            ..Default::default()
+        };
+        let id = self.textures.load_with(width, height, rgba, settings);
         let source = self.textures.get_texture(id).expect("just uploaded");
         self.surface.set_skybox_from_texture(source);
     }

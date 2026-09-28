@@ -4228,8 +4228,13 @@ impl WgpuSurface {
     }
 
     /// The skybox's own texture object, empty: `width` x `height`, one level,
-    /// sRGB. Filled by whichever `set_skybox_from_*` asked for it.
-    fn new_skybox_texture(&self, width: u32, height: u32) -> crate::profiler::TrackedTexture {
+    /// of `format`. Filled by whichever `set_skybox_from_*` asked for it.
+    fn new_skybox_texture(
+        &self,
+        width: u32,
+        height: u32,
+        format: wgpu::TextureFormat,
+    ) -> crate::profiler::TrackedTexture {
         crate::profiler::create_tracked_texture(
             &self.device,
             &wgpu::TextureDescriptor {
@@ -4242,7 +4247,7 @@ impl WgpuSurface {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                format,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             },
@@ -4250,12 +4255,13 @@ impl WgpuSurface {
     }
 
     /// Uploads already-decoded RGBA8 pixel data as the active skybox
-    /// texture, rebuilding the sampler/bind groups/pipeline around it.
+    /// texture, rebuilding the sampler/bind groups/pipeline around it. The
+    /// bytes are taken as sRGB, as a colour image's are.
     ///
     /// The pixel-test harness's way in. The engine's own skybox goes through
     /// [`Self::set_skybox_from_texture`], out of the texture registry.
     pub fn set_skybox_from_rgba(&mut self, width: u32, height: u32, rgba: &[u8]) {
-        let texture = self.new_skybox_texture(width, height);
+        let texture = self.new_skybox_texture(width, height, wgpu::TextureFormat::Rgba8UnormSrgb);
         self.queue.write_texture(
             texture.as_image_copy(),
             rgba,
@@ -4280,19 +4286,24 @@ impl WgpuSurface {
     /// registry replaces its object under the same id -- a hot reload, a
     /// streamed level arriving -- and a bind group is immutable: it would keep
     /// the old object alive and on screen while every material moved on. The
-    /// copy also fixes the format and the sampler (`Repeat` across, clamped at
-    /// the poles) the skybox pass and the IBL convolution were written for,
-    /// whatever the image's own import settings say.
+    /// copy also gives the skybox the sampler (`Repeat` across, clamped at the
+    /// poles) its pass and the IBL convolution were written for, whatever the
+    /// image's own import settings say.
     ///
     /// Why from the registry at all: it is the one GPU copy of an image, and
     /// reading the pixels out of `Assets` instead is what a material's upload
     /// may already have released (`TextureImportSettings::release_pixels`).
     ///
     /// `source` must have been created with `COPY_SRC`; the registry's are.
-    /// Its format may be sRGB or not -- the two are copy-compatible.
+    /// The copy is made in `source`'s own format -- an image whose sidecar
+    /// says `srgb: false` stays linear on the sky, as it does on a material.
+    /// Deliberately not a copy *across* the sRGB/linear pair: WebGPU calls
+    /// the two copy-compatible and Vulkan and D3D12 agree, but on Metal
+    /// (macOS CI) such a copy produced a black sky with no validation error,
+    /// and a pixel test is what caught it.
     pub fn set_skybox_from_texture(&mut self, source: &wgpu::Texture) {
         let (width, height) = (source.width(), source.height());
-        let texture = self.new_skybox_texture(width, height);
+        let texture = self.new_skybox_texture(width, height, source.format());
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {

@@ -577,7 +577,7 @@ impl GpuTextureRegistry {
                 );
             }
             settings.compression = TextureCompression::None;
-        } else if width % 4 != 0 || height % 4 != 0 {
+        } else if !width.is_multiple_of(4) || !height.is_multiple_of(4) {
             tracing::warn!(
                 "[texture] a {width}x{height} texture asks for {:?}, but a block-compressed \
                  texture must be a multiple of 4 on each side; it uploads uncompressed",

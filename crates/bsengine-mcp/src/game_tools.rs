@@ -283,10 +283,10 @@ pub fn game_tools(root: PathBuf) -> Vec<McpTool> {
                 \"Mirror\", default Repeat), `streaming` (bool, default false -- upload only \
                 the mip levels up to 64 px at load and bring the larger ones in one per \
                 frame afterwards; needs `mipmaps`), `release_pixels` (bool, default false -- \
-                drop the decoded pixels from system memory once a material or UI image has \
-                uploaded them, the opposite of Unity's Read/Write Enabled; for material and \
-                UI textures only, since the skybox and terrain layers read the pixels for \
-                themselves and will skip an image whose pixels were released).\n\
+                drop the decoded pixels from system memory once the texture is on the GPU, \
+                the opposite of Unity's Read/Write Enabled; safe for any image the GPU \
+                samples, including the skybox and terrain layers, but not for a terrain \
+                splatmap, which is read on the CPU).\n\
                 Models (glb, gltf): `scale` (number > 0, default 1.0 -- baked into vertices, \
                 skeleton, bind matrices and animation keys; 0.01 brings a centimetre file to \
                 metres), `import_animations` (bool, default true).\n\n\

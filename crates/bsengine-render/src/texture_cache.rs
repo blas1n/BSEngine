@@ -65,14 +65,27 @@ impl TextureCache {
         self.by_path.values().filter(|c| c.id.is_some()).count()
     }
 
+    /// The handle this cache retains for a path it has requested. Retained,
+    /// not cloned weak: dropping it would free the asset and turn the next
+    /// reload into a silent no-op, and a test that wants to prove hot reload
+    /// can reach an image asks here for the id to watch.
+    pub fn asset_handle(&self, path: &str) -> Option<&bevy_asset::Handle<TextureAsset>> {
+        self.by_path.get(path).map(|c| c.slot.handle())
+    }
+
     /// Requests `path` if this is the first time anyone asked, polls it, and
     /// uploads it once it arrives. Returns the GPU id when there is one.
     ///
     /// Split out of [`resolve_texture_paths`] so that callers with nowhere to
     /// write an id -- UI images, which are not entities -- go through exactly
     /// the same request-once, upload-once path that entities do, rather than a
-    /// second copy of it that could diverge.
-    fn ensure_uploaded(
+    /// second copy of it that could diverge. Public for the same reason: the
+    /// skybox and a terrain's layers used to request and upload their own
+    /// copies of an image straight from `Assets`, which is what kept
+    /// `TextureImportSettings::release_pixels` unsafe for any image one of
+    /// them shared with a material. One owner of the GPU copy, everyone
+    /// asks it by path.
+    pub fn upload(
         &mut self,
         path: &str,
         asset_server: &bevy_asset::AssetServer,
@@ -344,7 +357,7 @@ pub fn resolve_texture_paths(
         if material.texture_id.is_some() {
             continue;
         }
-        let id = cache.ensure_uploaded(
+        let id = cache.upload(
             wanted.0.as_str(),
             &asset_server,
             &mut textures,
@@ -364,12 +377,7 @@ pub fn resolve_texture_paths(
         for widget in &ui.widgets {
             if let bsengine_core::UiWidget::Image { texture_path, .. } = widget {
                 if !texture_path.is_empty() {
-                    cache.ensure_uploaded(
-                        texture_path,
-                        &asset_server,
-                        &mut textures,
-                        &mut registry,
-                    );
+                    cache.upload(texture_path, &asset_server, &mut textures, &mut registry);
                 }
             }
         }

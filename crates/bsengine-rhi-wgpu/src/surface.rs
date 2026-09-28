@@ -2699,20 +2699,54 @@ impl WgpuSurface {
     /// state a test could see another's through.
     #[cfg(test)]
     pub(crate) async fn headless_device_for_testing() -> (Arc<wgpu::Device>, Arc<wgpu::Queue>) {
-        static SHARED: std::sync::OnceLock<(Arc<wgpu::Device>, Arc<wgpu::Queue>)> =
+        let shared = Self::shared_test_device();
+        (shared.0.clone(), shared.1.clone())
+    }
+
+    /// The one device tests share, with what `request_device` found out about
+    /// it: `(device, queue, timestamp_supported, instancing_supported)`.
+    fn shared_test_device() -> &'static (Arc<wgpu::Device>, Arc<wgpu::Queue>, bool, bool) {
+        static SHARED: std::sync::OnceLock<(Arc<wgpu::Device>, Arc<wgpu::Queue>, bool, bool)> =
             std::sync::OnceLock::new();
-        SHARED
-            .get_or_init(|| {
-                let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-                    backends: wgpu::Backends::all(),
-                    ..Default::default()
-                });
-                let (_adapter, device, queue, _timestamp_supported, _instancing_supported) =
-                    pollster::block_on(Self::request_device(&instance, None))
-                        .expect("headless device for test");
-                (device, queue)
-            })
-            .clone()
+        SHARED.get_or_init(|| {
+            let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+                backends: wgpu::Backends::all(),
+                ..Default::default()
+            });
+            let (_adapter, device, queue, timestamp_supported, instancing_supported) =
+                pollster::block_on(Self::request_device(&instance, None))
+                    .expect("headless device for test");
+            (device, queue, timestamp_supported, instancing_supported)
+        })
+    }
+
+    /// [`Self::new_offscreen`] on the device every test in this process
+    /// shares, for a test that needs a *surface* -- pipelines, a skybox, a
+    /// frame to read back -- and not only a device to build registries on.
+    /// Goes through the same [`Self::build`] as both real constructors, so
+    /// what such a test exercises is the pipelines a real frame uses; what
+    /// it does not do is ask the adapter for another device, which is the
+    /// budget [`Self::headless_device_for_testing`] exists to protect.
+    ///
+    /// Not `#[cfg(test)]`: the render crate's tests need it too, and a
+    /// `cfg(test)` item is compiled only for this crate's own test binary.
+    #[doc(hidden)]
+    pub fn offscreen_for_testing(width: u32, height: u32) -> Result<Self, String> {
+        let (device, queue, timestamp_supported, instancing_supported) =
+            Self::shared_test_device().clone();
+        let texture = crate::output::create_offscreen_texture(&device, width, height);
+        Self::build(
+            device,
+            queue,
+            crate::output::Output::Offscreen {
+                texture,
+                width,
+                height,
+            },
+            false,
+            timestamp_supported,
+            instancing_supported,
+        )
     }
 
     /// Everything after the output target is settled: pipelines, buffers, bind
@@ -4193,10 +4227,15 @@ impl WgpuSurface {
         (texture, sampler, bgl, bind_group)
     }
 
-    /// Uploads already-decoded RGBA8 pixel data as the active skybox
-    /// texture, rebuilding the sampler/bind groups/pipeline around it.
-    pub fn set_skybox_from_rgba(&mut self, width: u32, height: u32, rgba: &[u8]) {
-        let texture = crate::profiler::create_tracked_texture(
+    /// The skybox's own texture object, empty: `width` x `height`, one level,
+    /// of `format`. Filled by whichever `set_skybox_from_*` asked for it.
+    fn new_skybox_texture(
+        &self,
+        width: u32,
+        height: u32,
+        format: wgpu::TextureFormat,
+    ) -> crate::profiler::TrackedTexture {
+        crate::profiler::create_tracked_texture(
             &self.device,
             &wgpu::TextureDescriptor {
                 label: Some("skybox texture"),
@@ -4208,11 +4247,21 @@ impl WgpuSurface {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                format,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                 view_formats: &[],
             },
-        );
+        )
+    }
+
+    /// Uploads already-decoded RGBA8 pixel data as the active skybox
+    /// texture, rebuilding the sampler/bind groups/pipeline around it. The
+    /// bytes are taken as sRGB, as a colour image's are.
+    ///
+    /// The pixel-test harness's way in. The engine's own skybox goes through
+    /// [`Self::set_skybox_from_texture`], out of the texture registry.
+    pub fn set_skybox_from_rgba(&mut self, width: u32, height: u32, rgba: &[u8]) {
+        let texture = self.new_skybox_texture(width, height, wgpu::TextureFormat::Rgba8UnormSrgb);
         self.queue.write_texture(
             texture.as_image_copy(),
             rgba,
@@ -4227,6 +4276,56 @@ impl WgpuSurface {
                 depth_or_array_layers: 1,
             },
         );
+        self.install_skybox_texture(texture);
+    }
+
+    /// Makes level 0 of `source` -- a texture the registry owns -- the active
+    /// skybox, by GPU-to-GPU copy into a texture of this skybox's own.
+    ///
+    /// A copy rather than a bind group over the registry's view, because the
+    /// registry replaces its object under the same id -- a hot reload, a
+    /// streamed level arriving -- and a bind group is immutable: it would keep
+    /// the old object alive and on screen while every material moved on. The
+    /// copy also gives the skybox the sampler (`Repeat` across, clamped at the
+    /// poles) its pass and the IBL convolution were written for, whatever the
+    /// image's own import settings say.
+    ///
+    /// Why from the registry at all: it is the one GPU copy of an image, and
+    /// reading the pixels out of `Assets` instead is what a material's upload
+    /// may already have released (`TextureImportSettings::release_pixels`).
+    ///
+    /// `source` must have been created with `COPY_SRC`; the registry's are.
+    /// The copy is made in `source`'s own format -- an image whose sidecar
+    /// says `srgb: false` stays linear on the sky, as it does on a material.
+    /// Deliberately not a copy *across* the sRGB/linear pair: WebGPU calls
+    /// the two copy-compatible and Vulkan and D3D12 agree, but on Metal
+    /// (macOS CI) such a copy produced a black sky with no validation error,
+    /// and a pixel test is what caught it.
+    pub fn set_skybox_from_texture(&mut self, source: &wgpu::Texture) {
+        let (width, height) = (source.width(), source.height());
+        let texture = self.new_skybox_texture(width, height, source.format());
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("skybox copy"),
+            });
+        encoder.copy_texture_to_texture(
+            source.as_image_copy(),
+            texture.as_image_copy(),
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        self.queue.submit(std::iter::once(encoder.finish()));
+        self.install_skybox_texture(texture);
+    }
+
+    /// Everything a skybox needs around its texture: sampler, bind groups,
+    /// pipeline, the IBL maps convolved from it, and the light bind group
+    /// that samples those.
+    fn install_skybox_texture(&mut self, texture: crate::profiler::TrackedTexture) {
         let tex_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("skybox sampler"),

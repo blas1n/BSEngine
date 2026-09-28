@@ -581,10 +581,10 @@ fn draw_asset_import(ui: &mut egui::Ui, insp: &mut bsengine_core::InspectorState
             );
             ui.checkbox(&mut t.release_pixels, "Release pixels after upload")
                 .on_hover_text(
-                    "Drops the decoded pixels from system memory once a material or UI \
-                     image has uploaded them (the opposite of Unity's Read/Write Enabled). \
-                     Material and UI textures only: the skybox and terrain layers read the \
-                     pixels for themselves and skip an image whose pixels were released.",
+                    "Drops the decoded pixels from system memory once the texture is on \
+                     the GPU (the opposite of Unity's Read/Write Enabled). Safe for any \
+                     image the GPU samples, including the skybox and terrain layers; not \
+                     for a terrain splatmap, which is read on the CPU.",
                 );
             egui::ComboBox::from_label("Filter")
                 .selected_text(format!("{:?}", t.filter))

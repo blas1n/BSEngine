@@ -187,6 +187,54 @@ fn a_rough_surface_barely_reflects() {
     );
 }
 
+/// The engine's own skybox no longer feeds pixels to the surface: it uploads
+/// the image into the texture registry, as any texture, and the surface
+/// copies the registry's object (`set_skybox_from_texture`). A mirror
+/// reflecting a structured sky is what shows the copy carried the *image* --
+/// the bright cap lands on the surface exactly as it does when the same
+/// pixels go in directly. A flat sky would pass with a copy that carried
+/// only the size and a single colour.
+#[test]
+fn a_sky_copied_out_of_the_texture_registry_renders_as_the_same_sky_uploaded_directly() {
+    let mut h = Harness::new();
+    let plane = h.plane();
+    let mirror = surface(plane, 1.0, 0.0, Vec3::ONE);
+    let (w, ht, data) = sky_with_a_bright_cap(4);
+
+    let without = h.render(&mirror);
+
+    h.set_test_skybox_image(w, ht, &data);
+    let direct = h.render(&mirror);
+    h.clear_test_skybox();
+    assert!(
+        !h.has_ibl(),
+        "premise: the direct sky is gone before the copy goes in"
+    );
+
+    h.set_test_skybox_via_registry(w, ht, &data);
+    assert!(
+        h.has_ibl(),
+        "the copied sky builds the IBL maps like the direct one"
+    );
+    let copied = h.render(&mirror);
+
+    // Premise: the sky is what the mirror shows, so the frames with it are
+    // not the frame without it.
+    assert_ne!(
+        direct.centre(),
+        without.centre(),
+        "premise: the mirror must reflect the sky at all"
+    );
+    assert_eq!(
+        copied.centre(),
+        direct.centre(),
+        "the sky copied out of the registry must render exactly as the same pixels \
+         uploaded directly: {:?} vs {:?}",
+        copied.centre(),
+        direct.centre()
+    );
+}
+
 #[test]
 fn a_scene_with_no_skybox_is_pixel_identical() {
     let mut h = Harness::new();

@@ -62,9 +62,17 @@ pub struct TextureImportSettings {
     /// Enabled", which keeps a CPU copy an author can read back. Off, the
     /// pixels stay in `Assets<TextureAsset>` for as long as the texture is
     /// used, which is one image's worth of RAM per texture on top of the
-    /// GPU copy. On, a material's or UI image's upload releases them; the
-    /// asset keeps its size, settings and hot-reload handle, and a file
-    /// change loads fresh pixels for one more upload.
+    /// GPU copy. On, the texture cache's upload releases them; the asset
+    /// keeps its size, settings and hot-reload handle, and a file change
+    /// loads fresh pixels for one more upload.
+    ///
+    /// **On by default**, as in Unity, where Read/Write Enabled is off
+    /// unless an author turns it on. It started off (#1897) while the
+    /// skybox and terrain layers still read the pixels for themselves; now
+    /// that they take their copy from the texture cache there is no
+    /// consumer left that a released image surprises. A sidecar that says
+    /// `false` keeps the pixels, which is the switch for an image something
+    /// reads on the CPU.
     ///
     /// Safe for any image the GPU samples: materials, UI images, the skybox
     /// and a terrain's layers all take their copy from the one the texture
@@ -73,14 +81,23 @@ pub struct TextureImportSettings {
     /// releases it -- unless the same file is also a material's texture,
     /// which the terrain reports and gives up on.
     ///
-    /// Still off by default: flipping it to Unity's default is its own change.
-    #[serde(default)]
+    /// `#[serde(default)]` here means a sidecar written before the field
+    /// existed reads as *on* -- the field's default, not the old behaviour.
+    /// Deliberate: those sidecars were written when there was no choice to
+    /// make, and the choice Unity makes for them is the one made here.
+    #[serde(default = "default_release_pixels")]
     pub release_pixels: bool,
+}
+
+/// What `release_pixels` is when a sidecar does not say: on, see the field.
+fn default_release_pixels() -> bool {
+    true
 }
 
 impl Default for TextureImportSettings {
     /// The reference engines' defaults: a colour texture, mipmapped,
-    /// sampled linearly, tiling, not streamed, pixels kept.
+    /// sampled linearly, tiling, not streamed, pixels released once on the
+    /// GPU.
     fn default() -> Self {
         Self {
             srgb: true,
@@ -88,7 +105,7 @@ impl Default for TextureImportSettings {
             filter: TextureFilter::Linear,
             wrap: TextureWrap::Repeat,
             streaming: false,
-            release_pixels: false,
+            release_pixels: default_release_pixels(),
         }
     }
 }
@@ -96,7 +113,8 @@ impl Default for TextureImportSettings {
 impl TextureImportSettings {
     /// What a texture built from bytes in memory gets, and what every
     /// texture got before import settings existed: linear values, one mip
-    /// level, clamped UVs.
+    /// level, clamped UVs. `release_pixels` is off because there is no
+    /// asset to release from: these bytes never went through `Assets`.
     ///
     /// Kept as the behaviour of the settings-less upload path on purpose.
     /// The pixel tests build their probe textures from a handful of texels
@@ -151,12 +169,20 @@ mod tests {
             (d.filter, d.wrap),
             (TextureFilter::Linear, TextureWrap::Repeat)
         );
+        assert!(
+            d.release_pixels,
+            "released once on the GPU, as Unity's Read/Write Enabled is off by default"
+        );
 
         let r = TextureImportSettings::raw();
         assert!(!r.srgb && !r.mipmaps);
         assert_eq!(
             (r.filter, r.wrap),
             (TextureFilter::Linear, TextureWrap::Clamp)
+        );
+        assert!(
+            !r.release_pixels,
+            "bytes from memory have no asset to release from"
         );
     }
 
@@ -166,10 +192,10 @@ mod tests {
         let text = ron::to_string(&TextureImportSettings::default()).unwrap();
         assert_eq!(
             text,
-            "(srgb:true,mipmaps:true,filter:Linear,wrap:Repeat,streaming:false,release_pixels:false)"
+            "(srgb:true,mipmaps:true,filter:Linear,wrap:Repeat,streaming:false,release_pixels:true)"
         );
         let parsed: TextureImportSettings = ron::from_str(
-            "(srgb: false, mipmaps: false, filter: Nearest, wrap: Mirror, streaming: true, release_pixels: true)",
+            "(srgb: false, mipmaps: false, filter: Nearest, wrap: Mirror, streaming: true, release_pixels: false)",
         )
         .unwrap();
         assert_eq!(
@@ -180,7 +206,7 @@ mod tests {
                 filter: TextureFilter::Nearest,
                 wrap: TextureWrap::Mirror,
                 streaming: true,
-                release_pixels: true,
+                release_pixels: false,
             }
         );
     }
@@ -188,20 +214,25 @@ mod tests {
     /// Every sidecar tuned before `streaming` or `release_pixels` existed
     /// spells the settings without them, and must keep meaning what it
     /// meant -- not fail, and not fall back to the defaults with the
-    /// author's `srgb: false` lost.
+    /// author's `srgb: false` lost. `release_pixels` reads as on, the
+    /// field's default and Unity's: those sidecars were written when there
+    /// was no choice to make.
     #[test]
     fn a_sidecar_written_before_streaming_existed_still_parses_with_it_off() {
         let parsed: TextureImportSettings =
             ron::from_str("(srgb: false, mipmaps: true, filter: Nearest, wrap: Clamp)")
                 .expect("the pre-streaming shape must parse");
         assert!(!parsed.streaming);
-        assert!(!parsed.release_pixels);
+        assert!(
+            parsed.release_pixels,
+            "an old sidecar takes the field's default, which is on"
+        );
         assert!(!parsed.srgb, "and the tuned fields must survive");
         assert_eq!(parsed.filter, TextureFilter::Nearest);
         let parsed: TextureImportSettings = ron::from_str(
             "(srgb: false, mipmaps: true, filter: Nearest, wrap: Clamp, streaming: true)",
         )
         .expect("the pre-release_pixels shape must parse");
-        assert!(parsed.streaming && !parsed.release_pixels);
+        assert!(parsed.streaming && parsed.release_pixels);
     }
 }

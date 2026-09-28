@@ -142,6 +142,7 @@ impl Plugin for TerrainPlugin {
 /// `terrain_chunking::generate_chunks` and spawns one entity per chunk.
 /// `spawn_bodies` (bsengine-physics) picks up the new `RigidBody`/`Collider`
 /// pairs automatically -- no new physics-sync code needed.
+#[allow(clippy::too_many_arguments)] // Bevy system params; the cache made it eight
 fn generate_terrain_chunks(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
@@ -825,6 +826,33 @@ mod tests {
             "expected one chunk entity per (chunk_count.0 * chunk_count.1)"
         );
 
+        // The four layers are the texture cache's uploads, not the terrain's
+        // own: every chunk's ids are exactly the ids the cache holds for the
+        // four paths, and the cache uploaded exactly four images. A terrain
+        // that uploaded its own copies would carry ids the cache never
+        // handed out, and `release_pixels` would be back to unsafe.
+        let cache = app.world().resource::<TextureCache>();
+        let terrain = app.world().get::<Terrain>(terrain_entity).expect("terrain");
+        let layer_paths = [
+            &terrain.layer0_texture_path,
+            &terrain.layer1_texture_path,
+            &terrain.layer2_texture_path,
+            &terrain.layer3_texture_path,
+        ];
+        let cached: Vec<u64> = layer_paths
+            .iter()
+            .map(|path| {
+                cache
+                    .id_for(path)
+                    .unwrap_or_else(|| panic!("the cache must hold layer {path}"))
+            })
+            .collect();
+        assert_eq!(
+            cache.uploaded_count(),
+            4,
+            "four layer images, four uploads -- none by the terrain itself"
+        );
+
         for chunk in &chunk_entities {
             let splat = app
                 .world()
@@ -841,6 +869,11 @@ mod tests {
                     "layer_texture_ids[{i}] must be a real registered id, got {id}"
                 );
             }
+            assert_eq!(
+                splat.layer_texture_ids.as_slice(),
+                cached.as_slice(),
+                "every chunk must draw the cache's copy of each layer"
+            );
         }
     }
 

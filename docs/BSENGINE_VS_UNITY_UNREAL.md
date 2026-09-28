@@ -26,7 +26,7 @@ master `bf2c649b` 기준. 열린 PR·이슈 0개, 소스 TODO/FIXME 0개, 워크
 | ~~단일 실행 파일~~ | `grep -rn "BSEMBED1\|PackageMode::Single" crates/` | 2026-09-28 구현(아래 "단일 실행 파일" 절): `--mode single`이 아카이브(매니페스트 포함)를 exe 꼬리에 임베드, macOS는 옆에 |
 | ~~**스카이박스·터레인이 `TextureCache`를 안 거침 → `release_pixels` 기본 off**~~ | `grep -n "&tex.data" crates/bsengine-render/src/plugin.rs crates/bsengine-app/src/terrain.rs` → 0 | 2026-09-28 닫힘, 두 PR: #1901이 둘을 `TextureCache::upload`로 돌리고(스카이박스는 GPU→GPU 복사 + 세대 카운터), 그다음 PR이 기본값을 `true`로(Unity의 Read/Write Enabled 반대). 아래 "`release_pixels` 기본값 on"·"스카이박스·터레인 레이어가 `TextureCache`를 거친다" 절. **2026-09-28 사용자 결정: 아래 세 항목을 이 순서로 하나씩** |
 | ~~**디스크 밉 읽기가 동기**~~ | `grep -n "levels_from(base)" crates/bsengine-rhi-wgpu/src/texture.rs` → 0(`PendingRead`·`poll_reads`) | 2026-09-28 닫힘(아래 "디스크 밉 읽기 비동기" 절): 올리기는 새 레벨 하나만 워커 스레드에서 읽어 도착한 프레임에 GPU 복사+쓰기로 재구성, 내리기는 디스크·CPU 없이 GPU 복사. 릴리스 측정치는 그 절에 |
-| **텍스처 압축/포맷 변환 없음** | `grep -rn "TextureFormat::Bc\|TEXTURE_COMPRESSION\|Astc\|Etc2" crates/` → 0 | 모든 텍스처가 RGBA8로 올라감. 세 엔진 모두 임포트 때 압축(Unity: 플랫폼별 BC/ASTC/ETC, Unreal: DXT/BC7, Godot: `.ctex`에 S3TC/ETC2/ASTC 선택). 임포트 세팅(#1878)에 압축 옵션 추가 + 인코더(BC1/BC3/BC7; 데스크톱 wgpu의 `TEXTURE_COMPRESSION_BC`) + 밉 캐시가 압축 블록을 저장. 셋 중 가장 큼(새 의존성·포맷 정책) — 그래서 마지막 |
+| ~~**텍스처 압축/포맷 변환 없음**~~ | `grep -rn "TextureFormat::Bc1\|TEXTURE_COMPRESSION_BC" crates/bsengine-rhi-wgpu/src/` → `texture.rs`·`surface.rs`·`profiler.rs` | 2026-09-28 닫힘(아래 "텍스처 압축" 절): 임포트 세팅 `compression: None|Bc1|Bc3`(기본 None), texpresso(순수 Rust) 클러스터 핏으로 업로드 때 인코드, 압축 체인은 밉 캐시(`BSMIPS02`, 인코딩 태그)에 저장해 한 번만 인코드, `TEXTURE_COMPRESSION_BC` 없는 디바이스·4의 배수 아닌 이미지는 RGBA8 폴백(경고). ASTC/ETC2(모바일)·BC7은 여전히 없음 |
 
 **순서(2026-09-28, 사용자 "하나씩 순차"):** 공유 GPU 사본 → 디스크 읽기 비동기 → 텍스처 압축. 앞의 둘이 작고
 스트리밍 경로를 정리하며, 압축은 `TextureAsset.data`가 담는 것과 밉 캐시가 저장하는 것을 바꾸므로 정리된 기반 위에.
@@ -180,6 +180,28 @@ GPU에 올라갔는지 확인). 테스트: 요청 직후 상주 불변·중복 �
 프레임 스레드에서 **46~97µs**, 레벨은 워커에서 1.3~5.4ms 뒤 도착, 착륙(레벨 하나 `write_texture` + GPU 복사)이 프레임
 스레드에서 **0.2~1.7ms**(가장 큰 레벨 1.70ms). NVMe에서도 프레임당 ~5ms를 덜고, 느린 디스크에선 프레임이 읽기를 기다리는
 일 자체가 없어진다. ⚠️ 테스트 디바이스의 2D 한계가 2048이라 4096²는 만들 수 없다(첫 측정이 그것으로 실패).
+
+**텍스처 압축 — BC1/BC3(2026-09-28).** 남은 작업 ③, 셋 중 마지막. 세 엔진 모두 임포트 때 압축하고 런타임은 블록을 그대로
+올린다(Unity: 플랫폼별 DXT/BC7/ASTC, Unreal: DXT1/DXT5/BC7, Godot: `.ctex`에 S3TC/ETC2). 그대로 따르되 데스크톱 wgpu가 주는
+`TEXTURE_COMPRESSION_BC`만: 임포트 세팅에 `compression: None | Bc1 | Bc3`(`.meta`·Inspector 콤보·MCP `asset_import_settings`),
+**기본은 None** — 픽셀 테스트·E2E가 정확한 텍셀을 단언하고, Unity도 압축은 플랫폼 기본이지 파일 기본이 아니다. 인코더는
+**texpresso**(libsquish의 순수 Rust 포팅; ISPC(intel_tex_2)도 C++(basis-universal)도 빌드에 안 들어옴) 클러스터 핏 + rayon —
+품질 쪽을 고른 건 결과가 디스크에 캐시돼 이미지당 한 번만 치르기 때문. **밉 체인은 RGBA8로 만든 뒤 레벨마다 인코드**(압축된
+이미지의 밉은 블록 아티팩트의 블러). 압축 체인은 **스트리밍 여부와 무관하게 항상 밉 캐시에 저장**(`BSMIPS02`: 헤더에 인코딩
+태그, 파일명 해시에도 태그 — 같은 이미지의 RGBA8 체인과 BC1 체인은 다른 파일, 4×4 이미지의 BC1과 BC3는 길이가 같아 태그가
+가른다). 두 번째 업로드부터는 인코드 0회(`encodes()` 카운터). 스트리밍 올리기는 캐시 파일에서 **압축 블록을 읽어** 그대로
+`write_texture`. 지원 없는 디바이스는 RGBA8 폴백(한 번 경고), **4의 배수가 아닌 이미지도 RGBA8 폴백**(이미지마다 경고; Unity가
+같은 경고로 거부한다. wgpu는 BC 텍스처 레벨 0이 블록 배수가 아니면 `create_texture`를 거부). 그래서 **스트리밍 바닥**
+(`Streamed::floor`): 압축 체인의 상주는 레벨 0부터 이어지는 4의 배수 레벨 중 마지막(64²면 4×4, 96²면 12×12)까지만 내려간다 —
+2×2·1×1은 어떤 객체의 *밉*으로는 있어도 객체의 레벨 0은 못 된다. `set_wants`도 예산 퇴거도 그 바닥에서 멈춘다. 복사·쓰기
+extent는 블록 단위로 올림(`copy_extent_for`; 2×2 밉을 2×2로 쓰면 `Copy width is not a multiple of block width`). 객체의 포맷은
+업로드 때 한 번 정해 `GpuTexture::format`에 두고 재구성은 그걸 쓴다(세팅에서 매번 다시 정하면 두 검사를 같은 답으로 반복해야
+함). 프로파일러 `level_bytes`가 블록 단위로 세므로 예산·풋프린트가 실제 크기(64² BC1 전체 체인 = 343블록×8B = 2,744B, RGBA8은
+21,844B). 스카이박스 GPU→GPU 복사는 원본 포맷 그대로라 압축 스카이박스도 된다. 테스트: 레지스트리 단위 3개(포맷·블록 풋프린트·
+폴백·인코드 횟수 / 캐시 파일 한 번 인코드·RGBA8 체인과 분리·스트리밍 올리기가 압축 블록 읽음 / 바닥·want 클램프·예산 0에서
+None·66×40 폴백), 픽셀 2개(`pixels_compression.rs`: 4×4 블록 정렬 흑백 체커는 BC1이 무손실이라 **RGBA8 렌더와 채널 차 ≤ 1**을
+전체 프레임에서 단언 + 메모리 1/8·1/4; 전제로 양쪽 색이 화면에 있음을 센다 — 첫 판은 카메라 z=4에서 전부 어두워 전제가 잡았다).
+뮤테이션 T1~T9. ASTC/ETC2(모바일 타깃 없음)·BC7(texpresso에 없음)은 남는다.
 
 **단일 실행 파일 — `--mode single`(2026-09-28).** 로드맵 item 55에서 의도적으로 범위 밖에 뒀던 마지막 항목. 선례는 갈린다:
 Unity(`exe + Data/`)·Unreal(`exe + Content/Paks/`)은 단일 파일을 만들지 않고, **Godot만 "Embed PCK"로 `.pck`를 내보내기

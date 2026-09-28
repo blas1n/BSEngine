@@ -185,7 +185,7 @@ pub use shadow_config::ShadowSettings;
 pub use shield::Shield;
 pub use skybox::{Skybox, SkyboxPath, SkyboxProjection};
 pub use taa::Taa;
-pub use texture_import::{TextureFilter, TextureImportSettings, TextureWrap};
+pub use texture_import::{TextureCompression, TextureFilter, TextureImportSettings, TextureWrap};
 pub use texture_streaming_config::TextureStreamingSettings;
 pub use time::Time;
 pub use timeline::{

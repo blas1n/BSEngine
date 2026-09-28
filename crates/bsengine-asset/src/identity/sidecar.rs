@@ -505,6 +505,7 @@ mod tests {
                 wrap: TextureWrap::Clamp,
                 streaming: false,
                 release_pixels: false,
+                compression: bsengine_core::TextureCompression::None,
             })),
         };
         let text = tuned.to_ron().expect("serialise");
@@ -520,7 +521,8 @@ mod tests {
              filter: Nearest,\n        \
              wrap: Clamp,\n        \
              streaming: false,\n        \
-             release_pixels: false,\n    \
+             release_pixels: false,\n        \
+             compression: None,\n    \
              ))),\n)\n"
         );
         let parsed = Sidecar::from_ron(&text).expect("parse");

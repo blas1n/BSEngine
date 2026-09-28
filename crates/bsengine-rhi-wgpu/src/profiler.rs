@@ -77,17 +77,33 @@ pub(crate) fn bytes_per_texel(format: wgpu::TextureFormat) -> u64 {
     }
 }
 
-fn texture_size_bytes(desc: &wgpu::TextureDescriptor) -> u64 {
-    let texels_per_mip0 =
-        desc.size.width as u64 * desc.size.height as u64 * desc.size.depth_or_array_layers as u64;
-    // Full mip chain sums to a bit less than 4/3 of the base level; mip_level_count
-    // is almost always 1 in this crate today, so this only matters if that changes.
-    let mip_factor = if desc.mip_level_count <= 1 {
-        1.0
-    } else {
-        (1.0 - 0.25f64.powi(desc.mip_level_count as i32)) / 0.75
+/// Bytes one mip level of `width` x `height` takes in `format`: texels times
+/// bytes per texel, or, for a block-compressed format, 4x4 blocks (rounded
+/// up -- a 1x1 level is still one block) times bytes per block. The number
+/// the texture registry writes per level and the streaming budget is spent
+/// in, so it lives here beside the footprint that sums it.
+pub(crate) fn level_bytes(format: wgpu::TextureFormat, width: u32, height: u32) -> u64 {
+    let blocks = |bytes_per_block: u64| {
+        (width as u64).div_ceil(4) * (height as u64).div_ceil(4) * bytes_per_block
     };
-    ((texels_per_mip0 as f64) * mip_factor) as u64 * bytes_per_texel(desc.format)
+    match format {
+        wgpu::TextureFormat::Bc1RgbaUnorm | wgpu::TextureFormat::Bc1RgbaUnormSrgb => blocks(8),
+        wgpu::TextureFormat::Bc3RgbaUnorm | wgpu::TextureFormat::Bc3RgbaUnormSrgb => blocks(16),
+        other => width as u64 * height as u64 * bytes_per_texel(other),
+    }
+}
+
+fn texture_size_bytes(desc: &wgpu::TextureDescriptor) -> u64 {
+    // Level by level rather than by the 4/3 rule of thumb: a
+    // block-compressed level is a whole number of blocks, and the streaming
+    // budget counts exactly what the registry uploads.
+    (0..desc.mip_level_count)
+        .map(|level| {
+            let width = (desc.size.width >> level).max(1);
+            let height = (desc.size.height >> level).max(1);
+            level_bytes(desc.format, width, height) * desc.size.depth_or_array_layers as u64
+        })
+        .sum()
 }
 
 /// A `wgpu::Texture` whose GPU memory footprint is counted in the global

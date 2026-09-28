@@ -530,7 +530,7 @@ fn component_header_id(type_path: &str) -> egui::Id {
 /// snapshot to edit, or neither -- the frame between selection and the
 /// editor's read.
 fn draw_asset_import(ui: &mut egui::Ui, insp: &mut bsengine_core::InspectorState, path: &str) {
-    use bsengine_core::{ImportSettings, TextureFilter, TextureWrap};
+    use bsengine_core::{ImportSettings, TextureCompression, TextureFilter, TextureWrap};
 
     let file_name = std::path::Path::new(path)
         .file_name()
@@ -599,6 +599,20 @@ fn draw_asset_import(ui: &mut egui::Ui, insp: &mut bsengine_core::InspectorState
                     ui.selectable_value(&mut t.wrap, TextureWrap::Clamp, "Clamp");
                     ui.selectable_value(&mut t.wrap, TextureWrap::Mirror, "Mirror");
                 });
+            egui::ComboBox::from_label("Compression")
+                .selected_text(format!("{:?}", t.compression))
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(&mut t.compression, TextureCompression::None, "None");
+                    ui.selectable_value(&mut t.compression, TextureCompression::Bc1, "BC1");
+                    ui.selectable_value(&mut t.compression, TextureCompression::Bc3, "BC3");
+                })
+                .response
+                .on_hover_text(
+                    "Block compression on the GPU, as every engine does at import: BC1 for an \
+                     opaque colour texture (an eighth of the memory), BC3 when the alpha \
+                     channel matters (a quarter). Lossy; the compressed levels are cached \
+                     under .bsengine_cache so the encode is paid once.",
+                );
         }
         ImportSettings::Model(m) => {
             ui.horizontal(|ui| {

@@ -473,6 +473,22 @@ impl Harness {
         self.textures.residency(id)
     }
 
+    /// The GPU object's level-0 size and footprint in bytes, as the
+    /// profiler counts it -- what says a compressed upload is smaller.
+    pub fn gpu_footprint(&self, id: u64) -> Option<(u32, u32, u64)> {
+        self.textures.get_gpu_footprint(id)
+    }
+
+    /// The GPU format and level count a texture went up as.
+    pub fn gpu_shape(&self, id: u64) -> Option<(wgpu::TextureFormat, u32)> {
+        self.textures.get_gpu_shape(id)
+    }
+
+    /// Whether this device uploads BC1/BC3 textures compressed at all.
+    pub fn bc_supported(&self) -> bool {
+        self.textures.bc_supported()
+    }
+
     /// The unit cube with every UV multiplied by `factor`, so a face spans
     /// `factor` repeats of its texture. Only a UV outside `0..1` can show what
     /// a wrap mode does.

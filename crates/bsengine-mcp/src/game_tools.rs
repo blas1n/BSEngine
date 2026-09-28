@@ -1327,6 +1327,7 @@ mod tests {
                 streaming: false,
                 // Never edited, so the field's default: on.
                 release_pixels: true,
+                compression: bsengine_core::TextureCompression::None,
             },
             "the second edit keeps the first's srgb: false"
         );

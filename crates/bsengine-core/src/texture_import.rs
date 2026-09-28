@@ -87,6 +87,45 @@ pub struct TextureImportSettings {
     /// make, and the choice Unity makes for them is the one made here.
     #[serde(default = "default_release_pixels")]
     pub release_pixels: bool,
+    /// How the texture is stored on the GPU: as it was decoded, or block
+    /// compressed at import. Every reference engine compresses at import
+    /// (Unity per platform, Unreal's `TC_Default` as DXT1/DXT5, Godot's
+    /// "VRAM Compressed" `.ctex`), because a compressed texture is a
+    /// quarter to an eighth of the memory and the bandwidth, and the loss
+    /// is invisible on a colour texture. The compressed levels are written
+    /// to the project's mip cache once, so the encode is paid at first
+    /// import and not at every load.
+    ///
+    /// Off by default here, unlike the reference engines: this engine's
+    /// pixel tests and E2E recordings assert exact texel values, and a
+    /// default that made every texture lossy would change what they see.
+    /// Turning the default over is its own change, as `release_pixels`'s
+    /// was.
+    ///
+    /// `serde(default)` so every sidecar written before this field existed
+    /// still parses, as uncompressed.
+    #[serde(default)]
+    pub compression: TextureCompression,
+}
+
+/// Block compression for a texture's GPU copy.
+///
+/// The two desktop formats every engine starts from: BC1 (DXT1) for an
+/// opaque colour texture, four bits per texel; BC3 (DXT5) for one with an
+/// alpha channel worth keeping, eight. Chosen by the author rather than by
+/// looking at the alpha channel, as Unreal's `TC_Default` does: an image
+/// with an all-opaque alpha and one with a mask look the same to a scan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub enum TextureCompression {
+    /// RGBA8 as decoded. Lossless, four bytes per texel.
+    #[default]
+    None,
+    /// BC1 / DXT1: 8 bytes per 4x4 block, half a byte per texel. No alpha
+    /// worth the name (one bit, unused here).
+    Bc1,
+    /// BC3 / DXT5: 16 bytes per 4x4 block, one byte per texel; BC1 colour
+    /// with an interpolated alpha channel.
+    Bc3,
 }
 
 /// What `release_pixels` is when a sidecar does not say: on, see the field.
@@ -106,6 +145,7 @@ impl Default for TextureImportSettings {
             wrap: TextureWrap::Repeat,
             streaming: false,
             release_pixels: default_release_pixels(),
+            compression: TextureCompression::None,
         }
     }
 }
@@ -128,6 +168,7 @@ impl TextureImportSettings {
             wrap: TextureWrap::Clamp,
             streaming: false,
             release_pixels: false,
+            compression: TextureCompression::None,
         }
     }
 }
@@ -192,10 +233,10 @@ mod tests {
         let text = ron::to_string(&TextureImportSettings::default()).unwrap();
         assert_eq!(
             text,
-            "(srgb:true,mipmaps:true,filter:Linear,wrap:Repeat,streaming:false,release_pixels:true)"
+            "(srgb:true,mipmaps:true,filter:Linear,wrap:Repeat,streaming:false,release_pixels:true,compression:None)"
         );
         let parsed: TextureImportSettings = ron::from_str(
-            "(srgb: false, mipmaps: false, filter: Nearest, wrap: Mirror, streaming: true, release_pixels: false)",
+            "(srgb: false, mipmaps: false, filter: Nearest, wrap: Mirror, streaming: true, release_pixels: false, compression: Bc3)",
         )
         .unwrap();
         assert_eq!(
@@ -207,6 +248,7 @@ mod tests {
                 wrap: TextureWrap::Mirror,
                 streaming: true,
                 release_pixels: false,
+                compression: TextureCompression::Bc3,
             }
         );
     }
@@ -234,5 +276,14 @@ mod tests {
         )
         .expect("the pre-release_pixels shape must parse");
         assert!(parsed.streaming && parsed.release_pixels);
+        let parsed: TextureImportSettings = ron::from_str(
+            "(srgb: false, mipmaps: true, filter: Nearest, wrap: Clamp, streaming: true, release_pixels: false)",
+        )
+        .expect("the pre-compression shape must parse");
+        assert_eq!(
+            parsed.compression,
+            TextureCompression::None,
+            "a sidecar from before compression existed is uncompressed, as it was"
+        );
     }
 }

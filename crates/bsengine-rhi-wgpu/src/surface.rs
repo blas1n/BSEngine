@@ -2654,11 +2654,23 @@ impl WgpuSurface {
             .get_downlevel_capabilities()
             .flags
             .contains(wgpu::DownlevelFlags::VERTEX_STORAGE);
-        let required_features = if timestamp_supported {
+        let mut required_features = if timestamp_supported {
             wgpu::Features::TIMESTAMP_QUERY
         } else {
             wgpu::Features::empty()
         };
+        // Block-compressed textures (`TextureImportSettings::compression`).
+        // Every desktop adapter has it, the software ones CI runs on
+        // included, but as with timestamps it is asked for only where it
+        // exists: an unsupported feature fails the whole device request.
+        // The registry checks `device.features()` and uploads such a
+        // texture uncompressed where the feature is missing.
+        if adapter
+            .features()
+            .contains(wgpu::Features::TEXTURE_COMPRESSION_BC)
+        {
+            required_features |= wgpu::Features::TEXTURE_COMPRESSION_BC;
+        }
 
         let (device, queue) = adapter
             .request_device(

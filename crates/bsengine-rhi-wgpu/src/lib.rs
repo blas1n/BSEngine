@@ -13,6 +13,9 @@
 #![allow(clippy::type_complexity)]
 #![warn(missing_docs)]
 
+/// Sweeping files nobody has used for a while out of a cache directory,
+/// and touching the ones that are used.
+pub mod cache_sweep;
 /// Decals, accumulated into a buffer the opaque pass folds into its albedo.
 pub mod decals;
 pub mod froxel;

@@ -117,7 +117,17 @@ fn create_surface_system(world: &mut World, mode: SurfaceMode) {
             || std::path::PathBuf::from("."),
             |p| std::path::PathBuf::from(&p.0),
         );
-    tex_registry.set_mip_cache_root(Some(project.join(".bsengine_cache").join("mips")));
+    let mips = project.join(".bsengine_cache").join("mips");
+    // Cache files are keyed by their pixels, so every re-import leaves the
+    // previous chain behind as a file nothing opens again. Swept here, once
+    // per process and before the registry reads any of them, so a file the
+    // sweep removes is never one a texture already streams from.
+    crate::cache_sweep::sweep_unused_files(
+        &mips,
+        crate::cache_sweep::UNUSED_FILE_AGE,
+        std::time::SystemTime::now(),
+    );
+    tex_registry.set_mip_cache_root(Some(mips));
     world.insert_resource(GpuQueueResource(surface.queue.clone()));
     world.insert_resource(WgpuSurfaceResource(surface));
     world.insert_resource(registry);
@@ -155,14 +165,53 @@ mod tests {
         );
     }
 
+    /// Also where the texture registry's mip cache lands -- under the
+    /// project's `.bsengine_cache/mips` -- and that startup sweeps it:
+    /// a chain nobody has used for longer than the limit is gone before
+    /// the first texture uploads, one used recently stays. One test for
+    /// the three because each offscreen app costs a wgpu device, and on
+    /// Windows CI those run out.
     #[test]
     fn offscreen_mode_creates_a_surface_with_no_window_handle() {
+        use crate::cache_sweep::{write_aged, DAY};
+        use crate::texture::GpuTextureRegistry;
+        use std::time::{Duration, SystemTime};
+
+        let project =
+            std::env::temp_dir().join(format!("bse_rhi_plugin_project_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&project);
+        let mips = project.join(".bsengine_cache").join("mips");
+        std::fs::create_dir_all(&mips).unwrap();
+        let now = SystemTime::now();
+        write_aged(&mips.join("stale.mips"), &[1u8; 64], now, 30 * DAY);
+        write_aged(&mips.join("used.mips"), &[1u8; 64], now, 2 * DAY);
+        write_aged(&mips.join("new.mips"), &[1u8; 64], now, Duration::ZERO);
+
         let mut app = new_app();
+        app.insert_resource(bsengine_core::ProjectDir(
+            project.to_string_lossy().into_owned(),
+        ));
         app.add_plugins(WgpuRHIPlugin::offscreen(64, 64, false));
         app.update();
         assert!(
             app.world().get_resource::<WgpuSurfaceResource>().is_some(),
             "offscreen mode must create a WgpuSurfaceResource without a WindowHandle"
         );
+        assert_eq!(
+            app.world()
+                .get_resource::<GpuTextureRegistry>()
+                .and_then(|r| r.mip_cache_root().map(|p| p.to_path_buf())),
+            Some(mips.clone()),
+            "the mip cache lives under the project's .bsengine_cache"
+        );
+        assert!(
+            !mips.join("stale.mips").exists(),
+            "a chain unused for 30 days is swept at startup"
+        );
+        assert!(
+            mips.join("used.mips").exists() && mips.join("new.mips").exists(),
+            "chains used within the limit are kept"
+        );
+        let _ = std::fs::remove_dir_all(&project);
     }
 }

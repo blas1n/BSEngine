@@ -15,6 +15,14 @@ struct GpuTexture {
     width: u32,
     height: u32,
     settings: TextureImportSettings,
+    /// The format the object is in, decided once at upload by
+    /// [`GpuTextureRegistry::upload_format`] and kept, so that a rebuild for
+    /// streaming copies levels between two objects of one format. It is not
+    /// a function of `settings` alone: a requested compression is refused
+    /// on a device without the feature and on an image that is not whole
+    /// blocks, and re-deciding at each rebuild would have to repeat both
+    /// checks -- and get them the same -- or copy BC1 blocks into RGBA8.
+    format: wgpu::TextureFormat,
     /// Present for a texture whose mips are streamed; see [`Streamed`].
     streamed: Option<Streamed>,
     /// Which GPU object this is, counted registry-wide: a new number every
@@ -61,6 +69,16 @@ struct Streamed {
     /// `(width, height)` of every level, level 0 first, down to 1x1.
     dims: Vec<(u32, u32)>,
     resident_base: u32,
+    /// The deepest chain index `resident_base` may sit at. The last level
+    /// for an uncompressed texture; for a block-compressed one the last
+    /// level of the run from level 0 whose sides are all multiples of 4,
+    /// because the object's level 0 must be whole blocks -- wgpu refuses to
+    /// create a 2x2 BC1 texture (`NotMultipleOfBlockWidth`), while a 2x2
+    /// *mip* of a larger object is fine, padded to its block. So a
+    /// compressed 64x64 chain streams between 64 and 4, holding 2x2 and 1x1
+    /// as mips of whatever object is current, and never becomes an object
+    /// of its own at those sizes. See [`residency_floor`].
+    floor: u32,
     /// The chain index the texture *ought* to have resident, from the
     /// largest it is drawn on screen: what [`GpuTextureRegistry::set_wants`]
     /// records each frame and [`GpuTextureRegistry::step_streaming`] moves
@@ -148,7 +166,9 @@ enum MipSource {
 
 /// The first bytes of a mip cache file. The digit is the layout version:
 /// a reader that finds another rewrites the file rather than trusting it.
-const MIP_CACHE_MAGIC: &[u8; 8] = b"BSMIPS01";
+/// `02` added the encoding tag after the level count, when the file began
+/// to hold block-compressed levels as well as RGBA8 ones.
+const MIP_CACHE_MAGIC: &[u8; 8] = b"BSMIPS02";
 
 impl Streamed {
     /// The levels from `base` down to the smallest, read whole -- what a
@@ -192,17 +212,20 @@ impl Streamed {
     }
 }
 
-/// Serialises a chain as a mip cache file: the magic, the level count,
-/// then per level `(width, height, offset, len)` as little-endian
-/// `u32, u32, u64, u64`, then the levels' RGBA bytes back to back. Returns
-/// the bytes and the table [`MipSource::Disk`] reads by.
+/// Serialises a chain as a mip cache file: the magic, the level count, the
+/// encoding tag ([`encoding_tag`]), then per level `(width, height, offset,
+/// len)` as little-endian `u32, u32, u64, u64`, then the levels' bytes back
+/// to back -- RGBA8 or the format's blocks. Returns the bytes and the table
+/// [`MipSource::Disk`] reads by.
 fn encode_mip_cache(
     levels: &[(u32, u32, std::borrow::Cow<'_, [u8]>)],
+    format: wgpu::TextureFormat,
 ) -> (Vec<u8>, Vec<(u64, u64)>) {
-    let header_len = MIP_CACHE_MAGIC.len() + 4 + levels.len() * 24;
+    let header_len = MIP_CACHE_HEADER_LEN + levels.len() * 24;
     let mut out = Vec::with_capacity(header_len + levels.iter().map(|l| l.2.len()).sum::<usize>());
     out.extend_from_slice(MIP_CACHE_MAGIC);
     out.extend_from_slice(&(levels.len() as u32).to_le_bytes());
+    out.extend_from_slice(&encoding_tag(format).to_le_bytes());
     let mut table = Vec::with_capacity(levels.len());
     let mut offset = header_len as u64;
     for (w, h, pixels) in levels {
@@ -220,13 +243,21 @@ fn encode_mip_cache(
     (out, table)
 }
 
+/// Magic, level count, encoding tag.
+const MIP_CACHE_HEADER_LEN: usize = 8 + 4 + 4;
+
 /// Reads a mip cache file's header and checks it describes exactly `dims`
-/// with every level's bytes present. `None` for a file of another version,
-/// another chain, or one cut short -- which is rewritten, not trusted.
-fn read_mip_cache_table(path: &Path, dims: &[(u32, u32)]) -> Option<Vec<(u64, u64)>> {
+/// in `format`'s encoding with every level's bytes present. `None` for a
+/// file of another version, another chain, another encoding, or one cut
+/// short -- which is rewritten, not trusted.
+fn read_mip_cache_table(
+    path: &Path,
+    dims: &[(u32, u32)],
+    format: wgpu::TextureFormat,
+) -> Option<Vec<(u64, u64)>> {
     use std::io::Read;
     let mut file = std::fs::File::open(path).ok()?;
-    let mut header = vec![0u8; MIP_CACHE_MAGIC.len() + 4 + dims.len() * 24];
+    let mut header = vec![0u8; MIP_CACHE_HEADER_LEN + dims.len() * 24];
     file.read_exact(&mut header).ok()?;
     if &header[..8] != MIP_CACHE_MAGIC {
         return None;
@@ -235,15 +266,22 @@ fn read_mip_cache_table(path: &Path, dims: &[(u32, u32)]) -> Option<Vec<(u64, u6
     if count != dims.len() {
         return None;
     }
+    let tag = u32::from_le_bytes(header[12..16].try_into().ok()?);
+    if tag != encoding_tag(format) {
+        return None;
+    }
     let file_len = file.metadata().ok()?.len();
     let mut table = Vec::with_capacity(count);
     for (i, (w, h)) in dims.iter().enumerate() {
-        let at = 12 + i * 24;
+        let at = MIP_CACHE_HEADER_LEN + i * 24;
         let fw = u32::from_le_bytes(header[at..at + 4].try_into().ok()?);
         let fh = u32::from_le_bytes(header[at + 4..at + 8].try_into().ok()?);
         let offset = u64::from_le_bytes(header[at + 8..at + 16].try_into().ok()?);
         let len = u64::from_le_bytes(header[at + 16..at + 24].try_into().ok()?);
-        if (fw, fh) != (*w, *h) || len != *w as u64 * *h as u64 * 4 || offset + len > file_len {
+        if (fw, fh) != (*w, *h)
+            || len != crate::profiler::level_bytes(format, *w, *h)
+            || offset + len > file_len
+        {
             return None;
         }
         table.push((offset, len));
@@ -251,25 +289,147 @@ fn read_mip_cache_table(path: &Path, dims: &[(u32, u32)]) -> Option<Vec<(u64, u6
     Some(table)
 }
 
-/// The GPU format a texture's settings ask for. The format is what makes
-/// `srgb` mean anything: an `…Srgb` view decodes on sample, so the shader
-/// receives linear light without a `pow` of its own. Uploaded bytes are
-/// identical either way.
+/// Every level of a cache file, read whole -- what an unstreamed
+/// compressed texture does at load instead of encoding again.
+///
+/// # Errors
+///
+/// The file is gone or short.
+fn read_all_levels(
+    path: &Path,
+    dims: &[(u32, u32)],
+    table: &[(u64, u64)],
+) -> std::io::Result<Vec<(u32, u32, std::borrow::Cow<'static, [u8]>)>> {
+    dims.iter()
+        .zip(table)
+        .map(|((w, h), (offset, len))| {
+            read_level_from_file(path, *offset, *len)
+                .map(|bytes| (*w, *h, std::borrow::Cow::Owned(bytes)))
+        })
+        .collect()
+}
+
+/// The GPU format a texture's settings ask for, on a device that has
+/// (`bc_supported`) or lacks block compression -- lacking it, the texture
+/// goes up as RGBA8 and looks the same at eight times the memory. The
+/// `…Srgb` variants are what make `srgb` mean anything: such a view decodes
+/// on sample, so the shader receives linear light without a `pow` of its
+/// own. Uploaded bytes are identical either way.
 fn format_for(settings: TextureImportSettings) -> wgpu::TextureFormat {
-    if settings.srgb {
-        wgpu::TextureFormat::Rgba8UnormSrgb
-    } else {
-        wgpu::TextureFormat::Rgba8Unorm
+    use bsengine_core::TextureCompression;
+    match (settings.compression, settings.srgb) {
+        (TextureCompression::None, true) => wgpu::TextureFormat::Rgba8UnormSrgb,
+        (TextureCompression::None, false) => wgpu::TextureFormat::Rgba8Unorm,
+        (TextureCompression::Bc1, true) => wgpu::TextureFormat::Bc1RgbaUnormSrgb,
+        (TextureCompression::Bc1, false) => wgpu::TextureFormat::Bc1RgbaUnorm,
+        (TextureCompression::Bc3, true) => wgpu::TextureFormat::Bc3RgbaUnormSrgb,
+        (TextureCompression::Bc3, false) => wgpu::TextureFormat::Bc3RgbaUnorm,
     }
 }
 
-/// The cache file name for a chain: a hash of level 0's pixels and size,
-/// so the file follows the image's content and not its path -- a
-/// re-imported image lands in a new file, two identical images in one.
-fn mip_cache_name(width: u32, height: u32, rgba: &[u8]) -> String {
+/// The block encoder for a format, `None` for an uncompressed one.
+fn block_encoder(format: wgpu::TextureFormat) -> Option<texpresso::Format> {
+    match format {
+        wgpu::TextureFormat::Bc1RgbaUnorm | wgpu::TextureFormat::Bc1RgbaUnormSrgb => {
+            Some(texpresso::Format::Bc1)
+        }
+        wgpu::TextureFormat::Bc3RgbaUnorm | wgpu::TextureFormat::Bc3RgbaUnormSrgb => {
+            Some(texpresso::Format::Bc3)
+        }
+        _ => None,
+    }
+}
+
+/// What a cache file records about how its levels are encoded, so a file
+/// written for one encoding is never read as another. Today the level
+/// lengths already tell the three apart -- a block-aligned level is 64ab
+/// bytes in RGBA8, 16ab in BC3 and 8ab in BC1 -- and the file name's hash
+/// carries the tag too, so the check is a third guard; it is here for the
+/// encoding whose lengths coincide with one of these (BC7 is 16 bytes a
+/// block, exactly BC3's), so that adding it cannot read a BC3 file as BC7.
+/// sRGB is not part of it -- the bytes are the same either way and only the
+/// view differs.
+fn encoding_tag(format: wgpu::TextureFormat) -> u32 {
+    match block_encoder(format) {
+        None => 0,
+        Some(texpresso::Format::Bc1) => 1,
+        Some(texpresso::Format::Bc3) => 3,
+        Some(_) => unreachable!("only BC1 and BC3 are produced"),
+    }
+}
+
+/// One RGBA8 level encoded into `format`'s blocks, or the level itself for
+/// an uncompressed format.
+///
+/// The encoder is texpresso's cluster fit -- the quality setting, not the
+/// fast range fit -- parallel over block rows. Quality wins because the
+/// result is cached to disk and paid once per image; the range fit's
+/// banding would be paid on every frame the texture is looked at.
+fn encode_level<'a>(
+    format: wgpu::TextureFormat,
+    width: u32,
+    height: u32,
+    rgba: &'a [u8],
+) -> std::borrow::Cow<'a, [u8]> {
+    let Some(encoder) = block_encoder(format) else {
+        return std::borrow::Cow::Borrowed(rgba);
+    };
+    let mut out = vec![0u8; encoder.compressed_size(width as usize, height as usize)];
+    encoder.compress(
+        rgba,
+        width as usize,
+        height as usize,
+        texpresso::Params::default(),
+        &mut out,
+    );
+    std::borrow::Cow::Owned(out)
+}
+
+/// Bytes per row of one level as `write_texture` wants it: texels times
+/// four, or blocks across times bytes per block.
+fn bytes_per_row_for(format: wgpu::TextureFormat, width: u32) -> u32 {
+    match block_encoder(format) {
+        Some(encoder) => width.div_ceil(4) * encoder.block_size() as u32,
+        None => 4 * width,
+    }
+}
+
+/// The extent a copy of one `width` x `height` level is issued with: the
+/// level itself, or for a block format the whole blocks that cover it.
+/// wgpu validates a copy in blocks, and a mip level below 4x4 -- 2x2, 1x1,
+/// the tail of every chain -- is one block with padding, so its copy is the
+/// block; issued at the level's own size it fails with `Copy width is not
+/// a multiple of block width` at the first compressed chain uploaded.
+fn copy_extent_for(format: wgpu::TextureFormat, width: u32, height: u32) -> wgpu::Extent3d {
+    let (block_width, block_height) = format.block_dimensions();
+    wgpu::Extent3d {
+        width: width.div_ceil(block_width) * block_width,
+        height: height.div_ceil(block_height) * block_height,
+        depth_or_array_layers: 1,
+    }
+}
+
+/// The deepest chain index a streamed texture's residency may reach; see
+/// [`Streamed::floor`]. For a block format, the last of the run of levels
+/// from level 0 that are whole blocks; level 0 itself always is, because
+/// [`GpuTextureRegistry::upload_format`] refuses compression otherwise.
+fn residency_floor(dims: &[(u32, u32)], format: wgpu::TextureFormat) -> u32 {
+    let (block_width, block_height) = format.block_dimensions();
+    dims.iter()
+        .take_while(|(w, h)| w % block_width == 0 && h % block_height == 0)
+        .count()
+        .saturating_sub(1) as u32
+}
+
+/// The cache file name for a chain: a hash of level 0's pixels, its size
+/// and the encoding, so the file follows the image's content and not its
+/// path -- a re-imported image lands in a new file, two identical images in
+/// one, and the same image compressed two ways in two.
+fn mip_cache_name(width: u32, height: u32, rgba: &[u8], format: wgpu::TextureFormat) -> String {
     let mut hasher = blake3::Hasher::new();
     hasher.update(&width.to_le_bytes());
     hasher.update(&height.to_le_bytes());
+    hasher.update(&encoding_tag(format).to_le_bytes());
     hasher.update(rgba);
     format!("{}.mips", hasher.finalize().to_hex())
 }
@@ -331,12 +491,25 @@ pub struct GpuTextureRegistry {
     /// Whether the cache directory has already been reported unusable, so
     /// a read-only install logs it once rather than per texture.
     mip_cache_warned: bool,
+    /// Whether the device has `TEXTURE_COMPRESSION_BC`. Without it a
+    /// texture whose sidecar asks for BC1/BC3 uploads as RGBA8 instead --
+    /// said once (`compression_warned`), since it is a property of the
+    /// machine and not of any one texture.
+    bc_supported: bool,
+    compression_warned: bool,
+    /// How many chains have been block-encoded, as opposed to read back
+    /// from the mip cache. What makes "encoded once, then cached"
+    /// observable.
+    encodes: u64,
 }
 
 impl GpuTextureRegistry {
     /// Creates an empty registry bound to the given wgpu device/queue.
     pub fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
         let bgl = Self::create_bgl(&device);
+        let bc_supported = device
+            .features()
+            .contains(wgpu::Features::TEXTURE_COMPRESSION_BC);
         Self {
             device,
             queue,
@@ -349,7 +522,70 @@ impl GpuTextureRegistry {
             disk_read_bytes: 0,
             mip_cache_root: None,
             mip_cache_warned: false,
+            bc_supported,
+            compression_warned: false,
+            encodes: 0,
         }
+    }
+
+    /// Whether textures asking for BC1/BC3 actually go up compressed on this
+    /// device.
+    pub fn bc_supported(&self) -> bool {
+        self.bc_supported
+    }
+
+    /// How many chains have been block-encoded so far; one that came back
+    /// from the mip cache does not count.
+    pub fn encodes(&self) -> u64 {
+        self.encodes
+    }
+
+    /// Makes this registry behave as on a device without block compression,
+    /// so the fallback can be tested on one that has it.
+    #[cfg(test)]
+    pub(crate) fn pretend_bc_unsupported_for_testing(&mut self) {
+        self.bc_supported = false;
+    }
+
+    /// The format a `width` x `height` texture goes up in on this device.
+    /// A requested compression is refused, and the texture goes up as RGBA8
+    /// looking the same, in two cases: the device lacks the feature (said
+    /// once, since every texture in the project would say it), and the
+    /// image is not a multiple of 4 on each side (said per image, since it
+    /// is that image's problem to fix). The second is the rule every BC
+    /// consumer has -- a block-compressed texture's level 0 is whole blocks
+    /// -- and wgpu enforces it at `create_texture`; Unity refuses to
+    /// compress such an image with the same warning, rather than padding
+    /// it to a size the artist did not draw.
+    fn upload_format(
+        &mut self,
+        mut settings: TextureImportSettings,
+        width: u32,
+        height: u32,
+    ) -> wgpu::TextureFormat {
+        use bsengine_core::TextureCompression;
+        if settings.compression == TextureCompression::None {
+            return format_for(settings);
+        }
+        if !self.bc_supported {
+            if !self.compression_warned {
+                self.compression_warned = true;
+                tracing::warn!(
+                    "[texture] this device has no block-compressed texture support; textures \
+                     asking for {:?} upload uncompressed",
+                    settings.compression
+                );
+            }
+            settings.compression = TextureCompression::None;
+        } else if !width.is_multiple_of(4) || !height.is_multiple_of(4) {
+            tracing::warn!(
+                "[texture] a {width}x{height} texture asks for {:?}, but a block-compressed \
+                 texture must be a multiple of 4 on each side; it uploads uncompressed",
+                settings.compression
+            );
+            settings.compression = TextureCompression::None;
+        }
+        format_for(settings)
     }
 
     /// Sets the directory streamed textures' mip cache files are written
@@ -393,39 +629,103 @@ impl GpuTextureRegistry {
         height: u32,
         rgba: &[u8],
         levels: &[(u32, u32, std::borrow::Cow<'_, [u8]>)],
+        format: wgpu::TextureFormat,
     ) -> Option<MipSource> {
         let root = self.mip_cache_root.clone()?;
-        let path = root.join(mip_cache_name(width, height, rgba));
+        let path = root.join(mip_cache_name(width, height, rgba, format));
         let dims: Vec<(u32, u32)> = levels.iter().map(|(w, h, _)| (*w, *h)).collect();
-        if let Some(table) = read_mip_cache_table(&path, &dims) {
+        if let Some(table) = read_mip_cache_table(&path, &dims, format) {
             // A hit is a use: without this the startup sweep
             // (`cache_sweep`) would judge the file by when it was written
             // and remove a chain that every session reads.
             crate::cache_sweep::touch(&path);
             return Some(MipSource::Disk { path, table });
         }
-        let (bytes, table) = encode_mip_cache(levels);
+        let table = self.write_mip_cache(&root, &path, levels, format)?;
+        Some(MipSource::Disk { path, table })
+    }
+
+    /// Writes `levels` as the cache file at `path`, returning its table;
+    /// `None`, said once, when the directory cannot be written.
+    fn write_mip_cache(
+        &mut self,
+        root: &Path,
+        path: &Path,
+        levels: &[(u32, u32, std::borrow::Cow<'_, [u8]>)],
+        format: wgpu::TextureFormat,
+    ) -> Option<Vec<(u64, u64)>> {
+        let (bytes, table) = encode_mip_cache(levels, format);
         // Written beside its final name and renamed into place, so a
         // reader never sees a file that is half there.
         let tmp = path.with_extension(format!("mips.{}.tmp", std::process::id()));
-        let written = std::fs::create_dir_all(&root)
+        let written = std::fs::create_dir_all(root)
             .and_then(|()| std::fs::write(&tmp, &bytes))
-            .and_then(|()| std::fs::rename(&tmp, &path));
+            .and_then(|()| std::fs::rename(&tmp, path));
         match written {
-            Ok(()) => Some(MipSource::Disk { path, table }),
+            Ok(()) => Some(table),
             Err(e) => {
                 let _ = std::fs::remove_file(&tmp);
                 if !self.mip_cache_warned {
                     self.mip_cache_warned = true;
                     tracing::warn!(
                         "[texture] cannot write the mip cache under {}: {e}; streamed textures \
-                         keep their mip chains in RAM instead",
+                         keep their mip chains in RAM instead, and compressed ones are encoded \
+                         at every load",
                         root.display()
                     );
                 }
                 None
             }
         }
+    }
+
+    /// The levels as they go to the GPU. For an uncompressed format, the
+    /// chain as given. For a block format, the compressed levels: read back
+    /// from the mip cache when the file is there -- so the encode is paid
+    /// once per image and encoding, at first import, as the reference
+    /// engines pay it at import -- and encoded, and written to the cache,
+    /// when it is not.
+    fn encoded_levels<'a>(
+        &mut self,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+        raw: Vec<(u32, u32, std::borrow::Cow<'a, [u8]>)>,
+        format: wgpu::TextureFormat,
+    ) -> Vec<(u32, u32, std::borrow::Cow<'a, [u8]>)> {
+        if block_encoder(format).is_none() {
+            return raw;
+        }
+        let dims: Vec<(u32, u32)> = raw.iter().map(|(w, h, _)| (*w, *h)).collect();
+        let cached = self.mip_cache_root.as_ref().map(|root| {
+            let path = root.join(mip_cache_name(width, height, rgba, format));
+            (root.clone(), path)
+        });
+        if let Some((_, path)) = &cached {
+            if let Some(table) = read_mip_cache_table(path, &dims, format) {
+                if let Ok(levels) = read_all_levels(path, &dims, &table) {
+                    crate::cache_sweep::touch(path);
+                    return levels;
+                }
+            }
+        }
+        self.encodes += 1;
+        let encoded: Vec<(u32, u32, std::borrow::Cow<'a, [u8]>)> = raw
+            .iter()
+            .map(|(w, h, pixels)| {
+                (
+                    *w,
+                    *h,
+                    std::borrow::Cow::Owned(encode_level(format, *w, *h, pixels).into_owned()),
+                )
+            })
+            .collect();
+        if let Some((root, path)) = cached {
+            // Written now so the next load reads it; a streamed texture's
+            // `cache_chain` then finds the very same file.
+            let _ = self.write_mip_cache(&root, &path, &encoded, format);
+        }
+        encoded
     }
 
     fn create_bgl(device: &wgpu::Device) -> wgpu::BindGroupLayout {
@@ -532,23 +832,30 @@ impl GpuTextureRegistry {
         rgba: &[u8],
         settings: TextureImportSettings,
     ) -> GpuTexture {
-        let levels: Vec<(u32, u32, std::borrow::Cow<'_, [u8]>)> = if settings.mipmaps {
+        let raw: Vec<(u32, u32, std::borrow::Cow<'_, [u8]>)> = if settings.mipmaps {
             mip_chain(width, height, rgba)
         } else {
             vec![(width, height, std::borrow::Cow::Borrowed(rgba))]
         };
+        // The chain is built in RGBA8 and encoded afterwards, level by
+        // level: a mip of a compressed image would otherwise be a blur of
+        // block artefacts, and every reference engine filters first too.
+        let format = self.upload_format(settings, width, height);
+        let levels = self.encoded_levels(width, height, rgba, raw, format);
         // A streamed texture starts with only its small levels on the GPU
         // and keeps the chain -- in its cache file when there is one, else
         // in RAM -- to bring the rest in from. Streaming a texture with no
         // chain would have nothing to stream, so it uploads whole.
         let streamed = if settings.streaming && levels.len() > 1 {
-            let resident_base = levels
+            let dims: Vec<(u32, u32)> = levels.iter().map(|(w, h, _)| (*w, *h)).collect();
+            let floor = residency_floor(&dims, format);
+            let resident_base = (levels
                 .iter()
                 .position(|(w, h, _)| (*w).max(*h) <= STREAMING_INITIAL_MAX_DIM)
-                .unwrap_or(levels.len() - 1) as u32;
-            let dims: Vec<(u32, u32)> = levels.iter().map(|(w, h, _)| (*w, *h)).collect();
+                .unwrap_or(levels.len() - 1) as u32)
+                .min(floor);
             let source = self
-                .cache_chain(width, height, rgba, &levels)
+                .cache_chain(width, height, rgba, &levels, format)
                 .unwrap_or_else(|| {
                     MipSource::Memory(
                         levels
@@ -561,6 +868,7 @@ impl GpuTextureRegistry {
                 source,
                 dims,
                 resident_base,
+                floor,
                 wanted_base: 0,
                 pending: None,
             })
@@ -568,7 +876,7 @@ impl GpuTextureRegistry {
             None
         };
         let resident_base = streamed.as_ref().map_or(0, |s| s.resident_base);
-        let (texture, view) = self.upload_levels(&levels, resident_base, settings);
+        let (texture, view) = self.upload_levels(&levels, resident_base, format);
         let (sampler, bind_group) = self.sampler_and_bind_group(&view, settings);
         GpuTexture {
             _texture: texture,
@@ -578,6 +886,7 @@ impl GpuTextureRegistry {
             width,
             height,
             settings,
+            format,
             streamed,
             generation: self.next_generation(),
         }
@@ -599,9 +908,8 @@ impl GpuTextureRegistry {
         &self,
         levels: &[(u32, u32, std::borrow::Cow<'_, [u8]>)],
         resident_base: u32,
-        settings: TextureImportSettings,
+        format: wgpu::TextureFormat,
     ) -> (crate::profiler::TrackedTexture, wgpu::TextureView) {
-        let format = format_for(settings);
         let resident = &levels[resident_base as usize..];
         let (width, height, _) = &resident[0];
         let texture = crate::profiler::create_tracked_texture(
@@ -638,14 +946,10 @@ impl GpuTextureRegistry {
                 pixels,
                 wgpu::ImageDataLayout {
                     offset: 0,
-                    bytes_per_row: Some(4 * w),
+                    bytes_per_row: Some(bytes_per_row_for(format, *w)),
                     rows_per_image: None,
                 },
-                wgpu::Extent3d {
-                    width: *w,
-                    height: *h,
-                    depth_or_array_layers: 1,
-                },
+                copy_extent_for(format, *w, *h),
             );
         }
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -699,7 +1003,7 @@ impl GpuTextureRegistry {
                     base,
                     &streamed.dims,
                     Some(level),
-                    tex.settings,
+                    tex.format,
                 );
                 self.install_object(id, base, texture, view);
                 true
@@ -731,7 +1035,10 @@ impl GpuTextureRegistry {
             return false;
         }
         let base = streamed.resident_base + 1;
-        if base as usize >= streamed.dims.len() {
+        // The floor is the last level for an uncompressed texture; for a
+        // compressed one it stops short of the levels that cannot be an
+        // object's level 0. See `Streamed::floor`.
+        if base > streamed.floor {
             return false;
         }
         let (texture, view) = self.rebuild_object(
@@ -740,7 +1047,7 @@ impl GpuTextureRegistry {
             base,
             &streamed.dims,
             None,
-            tex.settings,
+            tex.format,
         );
         self.install_object(id, base, texture, view);
         true
@@ -795,7 +1102,7 @@ impl GpuTextureRegistry {
                 base,
                 &streamed.dims,
                 Some(&bytes),
-                tex.settings,
+                tex.format,
             );
             self.install_object(id, base, texture, view);
             landed.push(id);
@@ -846,7 +1153,7 @@ impl GpuTextureRegistry {
         base: u32,
         dims: &[(u32, u32)],
         new_level: Option<&[u8]>,
-        settings: TextureImportSettings,
+        format: wgpu::TextureFormat,
     ) -> (crate::profiler::TrackedTexture, wgpu::TextureView) {
         let count = dims.len() as u32 - base;
         let (width, height) = dims[base as usize];
@@ -862,7 +1169,7 @@ impl GpuTextureRegistry {
                 mip_level_count: count,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: format_for(settings),
+                format,
                 usage: wgpu::TextureUsages::TEXTURE_BINDING
                     | wgpu::TextureUsages::COPY_DST
                     | wgpu::TextureUsages::COPY_SRC,
@@ -877,11 +1184,7 @@ impl GpuTextureRegistry {
         for level in 0..count {
             let chain = base + level;
             let (w, h) = dims[chain as usize];
-            let extent = wgpu::Extent3d {
-                width: w,
-                height: h,
-                depth_or_array_layers: 1,
-            };
+            let extent = copy_extent_for(format, w, h);
             let destination = wgpu::ImageCopyTexture {
                 texture: &texture,
                 mip_level: level,
@@ -907,7 +1210,7 @@ impl GpuTextureRegistry {
                     bytes,
                     wgpu::ImageDataLayout {
                         offset: 0,
-                        bytes_per_row: Some(4 * w),
+                        bytes_per_row: Some(bytes_per_row_for(format, w)),
                         rows_per_image: None,
                     },
                     extent,
@@ -982,7 +1285,7 @@ impl GpuTextureRegistry {
                 continue;
             };
             streamed.wanted_base = match wants.get(id) {
-                Some(pixels) => wanted_base_for(&streamed.dims, *pixels, bias),
+                Some(pixels) => wanted_base_for(&streamed.dims, *pixels, bias).min(streamed.floor),
                 None => 0,
             };
         }
@@ -1052,10 +1355,15 @@ impl GpuTextureRegistry {
                 if s.pending.is_some() {
                     return None;
                 }
-                let last = s.dims.len() as u32 - 1;
+                // `floor`, not the last level: a compressed texture's
+                // residency cannot go below it, so for the budget it is the
+                // "cannot be lowered" end, or the step would pick it as a
+                // victim every frame and lower nothing.
+                let last = s.floor;
+                let format = t.format;
                 let level_bytes = |i: u32| {
                     let (w, h) = s.dims[i as usize];
-                    w as u64 * h as u64 * 4
+                    crate::profiler::level_bytes(format, w, h)
                 };
                 let next = s.resident_base.checked_sub(1).map_or(0, level_bytes);
                 Some((
@@ -1519,7 +1827,8 @@ mod tests {
         // The level a raise will bring in next is the 128 one (index 1):
         // overwrite it in the file and see the read return the new bytes.
         let dims: Vec<(u32, u32)> = (0..9).map(|i| (256 >> i, 256 >> i)).collect();
-        let table = read_mip_cache_table(&file, &dims).expect("the file must parse");
+        let table = read_mip_cache_table(&file, &dims, wgpu::TextureFormat::Rgba8UnormSrgb)
+            .expect("the file must parse");
         let (offset, len) = table[1];
         assert_eq!(len, 128 * 128 * 4);
         {
@@ -1596,6 +1905,240 @@ mod tests {
         assert_eq!(reg.disk_reads(), (1, 128 * 128 * 4));
         assert_eq!(reg.get_gpu_footprint(id).map(|f| f.0), Some(64));
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A texture asking for BC1 goes up in BC1 blocks, at half a byte a
+    /// texel where RGBA8 is four, with every level a whole number of
+    /// blocks -- the 1x1 level is one 8-byte block, not half a byte. BC3 is
+    /// a byte a texel. And on a device without block compression the same
+    /// request goes up as RGBA8, encoding nothing.
+    #[test]
+    fn a_compressed_texture_uploads_in_blocks_and_falls_back_without_support() {
+        use bsengine_core::TextureCompression;
+        let mut reg = make_registry();
+        assert!(
+            reg.bc_supported(),
+            "premise: this device must have block compression"
+        );
+        let pixels = vec![200u8; 64 * 64 * 4];
+        let bc1 = TextureImportSettings {
+            compression: TextureCompression::Bc1,
+            ..Default::default()
+        };
+        let id = reg.load_with(64, 64, &pixels, bc1);
+        assert_eq!(
+            reg.get_gpu_shape(id),
+            Some((wgpu::TextureFormat::Bc1RgbaUnormSrgb, 7)),
+            "the setting reaches the format, with the whole chain"
+        );
+        let (w, h, bytes) = reg.get_gpu_footprint(id).unwrap();
+        assert_eq!((w, h), (64, 64));
+        // Levels 64, 32, 16, 8, 4, 2, 1: 256 + 64 + 16 + 4 + 1 + 1 + 1 blocks.
+        assert_eq!(bytes, 343 * 8, "whole blocks per level, 8 bytes each");
+        let plain = reg.load_from_rgba(64, 64, &pixels);
+        assert_eq!(reg.get_gpu_footprint(plain).unwrap().2, 64 * 64 * 4);
+        assert_eq!(reg.encodes(), 1, "one chain was encoded");
+
+        let bc3 = TextureImportSettings {
+            compression: TextureCompression::Bc3,
+            mipmaps: false,
+            ..Default::default()
+        };
+        let id3 = reg.load_with(64, 64, &pixels, bc3);
+        assert_eq!(
+            reg.get_gpu_shape(id3),
+            Some((wgpu::TextureFormat::Bc3RgbaUnormSrgb, 1))
+        );
+        assert_eq!(reg.get_gpu_footprint(id3).unwrap().2, 256 * 16);
+        assert_eq!(reg.encodes(), 2);
+
+        reg.pretend_bc_unsupported_for_testing();
+        let fallback = reg.load_with(64, 64, &pixels, bc1);
+        assert_eq!(
+            reg.get_gpu_shape(fallback),
+            Some((wgpu::TextureFormat::Rgba8UnormSrgb, 7)),
+            "without the feature the texture goes up uncompressed"
+        );
+        // 4 bytes times 4096 + 1024 + 256 + 64 + 16 + 4 + 1 texels.
+        assert_eq!(reg.get_gpu_footprint(fallback).unwrap().2, 4 * 5461);
+        assert_eq!(reg.encodes(), 2, "and nothing was encoded for it");
+    }
+
+    /// A block-compressed object's level 0 must be whole blocks -- wgpu
+    /// refuses to create a 2x2 BC1 texture -- so a streamed compressed
+    /// chain's residency stops at the last level of the run from level 0
+    /// that is a multiple of 4 on each side, where an uncompressed one goes
+    /// down to 1x1; the wants and the budget stop there with it. And an
+    /// image that is not a multiple of 4 to begin with is not compressed at
+    /// all: it goes up as RGBA8 with a warning, as Unity does.
+    #[test]
+    fn a_compressed_texture_keeps_whole_blocks_at_level_0() {
+        use bsengine_core::TextureCompression;
+        let mut reg = make_registry();
+        assert!(
+            reg.bc_supported(),
+            "premise: block compression on this device"
+        );
+        let pixels = vec![90u8; 96 * 96 * 4];
+        let streamed = |compression| TextureImportSettings {
+            compression,
+            streaming: true,
+            ..Default::default()
+        };
+        let bc1 = reg.load_with(
+            64,
+            64,
+            &pixels[..64 * 64 * 4],
+            streamed(TextureCompression::Bc1),
+        );
+        let plain = reg.load_with(
+            64,
+            64,
+            &pixels[..64 * 64 * 4],
+            streamed(TextureCompression::None),
+        );
+        // 96, 48, 24, 12 are whole blocks; 6, 3, 2, 1 are not.
+        let odd = reg.load_with(96, 96, &pixels, streamed(TextureCompression::Bc1));
+        let lowest = |reg: &mut GpuTextureRegistry, id: u64| {
+            while reg.lower_residency(id) {}
+            reg.residency(id).unwrap().0
+        };
+        assert_eq!(
+            lowest(&mut reg, plain),
+            6,
+            "premise: an uncompressed chain lowers all the way to 1x1"
+        );
+        assert_eq!(lowest(&mut reg, bc1), 4, "a compressed one stops at 4x4");
+        assert_eq!(
+            reg.get_gpu_shape(bc1),
+            Some((wgpu::TextureFormat::Bc1RgbaUnormSrgb, 3)),
+            "holding 4, 2 and 1 as the mips of the 4x4 object"
+        );
+        assert_eq!(
+            lowest(&mut reg, odd),
+            3,
+            "96 stops at 12x12, the last whole-block level"
+        );
+
+        // The wants clamp to the same floor, so the step never asks for
+        // less than can be built...
+        let wants = HashMap::from([(bc1, 1.0), (plain, 1.0), (odd, 1.0)]);
+        reg.set_wants(&wants, 0);
+        assert_eq!(
+            reg.wanted(plain),
+            Some(6),
+            "premise: a 1-pixel want reaches the last level"
+        );
+        assert_eq!(reg.wanted(bc1), Some(4));
+        assert_eq!(reg.wanted(odd), Some(3));
+        // ... and a budget nothing fits in finds nothing left to drop,
+        // rather than a 2x2 BC1 object to fail on.
+        assert_eq!(reg.step_streaming(Some(0)), None);
+
+        let before = reg.encodes();
+        let unaligned = reg.load_with(
+            66,
+            40,
+            &pixels[..66 * 40 * 4],
+            TextureImportSettings {
+                compression: TextureCompression::Bc1,
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            reg.get_gpu_shape(unaligned).map(|s| s.0),
+            Some(wgpu::TextureFormat::Rgba8UnormSrgb),
+            "66 is not a multiple of 4: uncompressed"
+        );
+        assert_eq!(reg.encodes(), before, "and nothing was encoded for it");
+    }
+
+    /// The encode is paid once. With a cache directory the compressed chain
+    /// is written to a cache file at the first upload and read back at the
+    /// next, encoding nothing; the file holds the blocks, not the pixels,
+    /// and is not mistaken for the RGBA8 chain of the same image, which is
+    /// its own file. A streamed compressed texture raises its levels out
+    /// of that same file, compressed.
+    #[test]
+    fn a_compressed_chain_is_encoded_once_and_read_from_the_cache_after() {
+        use bsengine_core::TextureCompression;
+        let (mut reg, dir) = make_registry_with_cache("compressed");
+        assert!(
+            reg.bc_supported(),
+            "premise: block compression on this device"
+        );
+        let pixels = vec![77u8; 128 * 128 * 4];
+        let bc1 = TextureImportSettings {
+            compression: TextureCompression::Bc1,
+            ..Default::default()
+        };
+        let first = reg.load_with(128, 128, &pixels, bc1);
+        assert_eq!(reg.encodes(), 1);
+        let files = mips_files(&dir);
+        assert_eq!(files.len(), 1, "one cache file: {files:?}");
+        let dims: Vec<(u32, u32)> = (0..8).map(|i| (128 >> i, 128 >> i)).collect();
+        let table = read_mip_cache_table(&files[0], &dims, wgpu::TextureFormat::Bc1RgbaUnormSrgb)
+            .expect("the file holds the BC1 chain");
+        assert_eq!(
+            table[0].1,
+            32 * 32 * 8,
+            "level 0 is 32x32 blocks of 8 bytes"
+        );
+        assert!(
+            read_mip_cache_table(&files[0], &dims, wgpu::TextureFormat::Rgba8UnormSrgb).is_none(),
+            "and is not read as an RGBA8 chain"
+        );
+
+        let second = reg.load_with(128, 128, &pixels, bc1);
+        assert_eq!(reg.encodes(), 1, "the second upload came out of the cache");
+        assert_eq!(mips_files(&dir).len(), 1);
+        assert_eq!(reg.get_gpu_footprint(second), reg.get_gpu_footprint(first));
+
+        reg.load_with(
+            128,
+            128,
+            &pixels,
+            TextureImportSettings {
+                streaming: true,
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            mips_files(&dir).len(),
+            2,
+            "the RGBA8 chain of the same image is its own file"
+        );
+
+        let streamed = reg.load_with(
+            128,
+            128,
+            &pixels,
+            TextureImportSettings {
+                compression: TextureCompression::Bc1,
+                streaming: true,
+                ..Default::default()
+            },
+        );
+        assert_eq!(reg.encodes(), 1, "still the cached blocks");
+        assert_eq!(mips_files(&dir).len(), 2, "and the same file");
+        assert_eq!(
+            reg.residency(streamed),
+            Some((1, 8)),
+            "the 64 level is resident"
+        );
+        assert!(reg.raise_residency(streamed));
+        assert_eq!(wait_for_read(&mut reg, streamed), vec![streamed]);
+        assert_eq!(reg.residency(streamed), Some((0, 8)));
+        assert_eq!(
+            reg.disk_reads(),
+            (1, 32 * 32 * 8),
+            "the level read in is the compressed one"
+        );
+        assert_eq!(
+            reg.get_gpu_shape(streamed).map(|s| s.0),
+            Some(wgpu::TextureFormat::Bc1RgbaUnormSrgb)
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1691,8 +2234,11 @@ mod tests {
         // rewritten, not read as if its bytes meant what this version's do.
         let (mut reg, dir) = make_registry_with_cache("bad_file");
         std::fs::create_dir_all(&dir).unwrap();
-        let name = mip_cache_name(256, 256, &pixels);
-        let (mut stale, _) = encode_mip_cache(&mip_chain(256, 256, &pixels));
+        let name = mip_cache_name(256, 256, &pixels, wgpu::TextureFormat::Rgba8UnormSrgb);
+        let (mut stale, _) = encode_mip_cache(
+            &mip_chain(256, 256, &pixels),
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+        );
         stale[..8].copy_from_slice(b"BSMIPS00");
         std::fs::write(dir.join(&name), &stale).unwrap();
         let id = reg.load_with(256, 256, &pixels, streamed());
@@ -1704,18 +2250,61 @@ mod tests {
             "the stale file was rewritten in this version's layout"
         );
         let dims: Vec<(u32, u32)> = (0..9).map(|i| (256 >> i, 256 >> i)).collect();
-        assert!(read_mip_cache_table(&dir.join(&name), &dims).is_some());
+        assert!(
+            read_mip_cache_table(&dir.join(&name), &dims, wgpu::TextureFormat::Rgba8UnormSrgb)
+                .is_some()
+        );
         assert!(reg.raise_residency(id));
         assert_eq!(wait_for_read(&mut reg, id), vec![id]);
         assert_eq!(reg.residency(id), Some((1, 9)));
 
         // And a file too short to hold a header at all.
-        std::fs::write(dir.join(&name), b"BSMIPS01 garbage").unwrap();
+        std::fs::write(dir.join(&name), b"BSMIPS02 garbage").unwrap();
         let again = reg.load_with(256, 256, &pixels, streamed());
         assert_eq!(reg.mip_cache_file(again), Some(dir.join(&name).as_path()));
         assert!(
-            read_mip_cache_table(&dir.join(&name), &dims).is_some(),
+            read_mip_cache_table(&dir.join(&name), &dims, wgpu::TextureFormat::Rgba8UnormSrgb)
+                .is_some(),
             "rewritten"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The header's encoding tag is checked on its own, not only through
+    /// the level lengths: a file whose levels are BC1-sized but whose tag
+    /// says another encoding is not read as BC1. The lengths would pass it
+    /// -- which is the case a future 16-bytes-a-block encoding (BC7) would
+    /// present against BC3 -- so this is what makes the tag a check at all.
+    #[test]
+    fn a_cache_file_is_read_only_as_the_encoding_tag_says() {
+        use std::borrow::Cow;
+        let dir = std::env::temp_dir().join("bsengine-mips-encoding_tag");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let bc1 = wgpu::TextureFormat::Bc1RgbaUnormSrgb;
+        let dims = [(8u32, 8u32), (4, 4), (2, 2), (1, 1)];
+        let levels: Vec<(u32, u32, Cow<'_, [u8]>)> = dims
+            .iter()
+            .map(|&(w, h)| {
+                let len = crate::profiler::level_bytes(bc1, w, h) as usize;
+                (w, h, Cow::Owned(vec![0u8; len]))
+            })
+            .collect();
+        let (bytes, _) = encode_mip_cache(&levels, bc1);
+        let path = dir.join("tagged.mips");
+        std::fs::write(&path, &bytes).unwrap();
+        assert!(
+            read_mip_cache_table(&path, &dims, bc1).is_some(),
+            "premise: as written, the file reads as BC1"
+        );
+
+        let mut retagged = bytes.clone();
+        retagged[12..16]
+            .copy_from_slice(&encoding_tag(wgpu::TextureFormat::Bc3RgbaUnormSrgb).to_le_bytes());
+        std::fs::write(&path, &retagged).unwrap();
+        assert!(
+            read_mip_cache_table(&path, &dims, bc1).is_none(),
+            "the same levels under a BC3 tag are not read as BC1, though every length fits"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }

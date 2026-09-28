@@ -432,6 +432,19 @@ fn upload_pending_skybox(
     let Some(tex) = texture_assets.get(load.slot.handle()) else {
         return;
     };
+    // The skybox reads the pixels for itself; an image whose sidecar says
+    // `release_pixels` and that a material uploaded first has none left.
+    // Said once -- recording the path is what stops this running again --
+    // rather than uploading nothing, which wgpu refuses with a panic.
+    if tex.pixels_released {
+        tracing::warn!(
+            "skybox: '{wanted}' has `release_pixels` set in its sidecar and its pixels are \
+             already gone from memory; the skybox reads them for itself, so turn the setting \
+             off for that image"
+        );
+        surface.0.set_loaded_skybox_path(wanted);
+        return;
+    }
     surface
         .0
         .set_skybox_from_rgba(tex.width, tex.height, &tex.data);
@@ -477,6 +490,11 @@ fn rebuild_modified_skybox(
         let Some(tex) = texture_assets.get(handle) else {
             continue;
         };
+        // The release of the pixels is itself a modification; nothing to
+        // rebuild from, and the skybox on screen is current.
+        if tex.pixels_released {
+            continue;
+        }
         let Some(surface) = surface.as_mut() else {
             continue;
         };

@@ -57,11 +57,28 @@ pub struct TextureImportSettings {
     /// drop the settings an author had tuned.
     #[serde(default)]
     pub streaming: bool,
+    /// Whether the decoded pixels are dropped from system memory once the
+    /// texture is on the GPU -- the opposite of Unity's "Read/Write
+    /// Enabled", which keeps a CPU copy an author can read back. Off, the
+    /// pixels stay in `Assets<TextureAsset>` for as long as the texture is
+    /// used, which is one image's worth of RAM per texture on top of the
+    /// GPU copy. On, a material's or UI image's upload releases them; the
+    /// asset keeps its size, settings and hot-reload handle, and a file
+    /// change loads fresh pixels for one more upload.
+    ///
+    /// Off by default, unlike Unity, because two uploaders here read the
+    /// pixels for themselves instead of sharing the material path's GPU
+    /// copy: the skybox and terrain layers. An image used by one of those
+    /// *and* a material would have its pixels released before they read
+    /// them; they say so and skip the image rather than upload nothing.
+    /// Turn this on for material and UI textures only.
+    #[serde(default)]
+    pub release_pixels: bool,
 }
 
 impl Default for TextureImportSettings {
     /// The reference engines' defaults: a colour texture, mipmapped,
-    /// sampled linearly, tiling, not streamed.
+    /// sampled linearly, tiling, not streamed, pixels kept.
     fn default() -> Self {
         Self {
             srgb: true,
@@ -69,6 +86,7 @@ impl Default for TextureImportSettings {
             filter: TextureFilter::Linear,
             wrap: TextureWrap::Repeat,
             streaming: false,
+            release_pixels: false,
         }
     }
 }
@@ -89,6 +107,7 @@ impl TextureImportSettings {
             filter: TextureFilter::Linear,
             wrap: TextureWrap::Clamp,
             streaming: false,
+            release_pixels: false,
         }
     }
 }
@@ -145,10 +164,10 @@ mod tests {
         let text = ron::to_string(&TextureImportSettings::default()).unwrap();
         assert_eq!(
             text,
-            "(srgb:true,mipmaps:true,filter:Linear,wrap:Repeat,streaming:false)"
+            "(srgb:true,mipmaps:true,filter:Linear,wrap:Repeat,streaming:false,release_pixels:false)"
         );
         let parsed: TextureImportSettings = ron::from_str(
-            "(srgb: false, mipmaps: false, filter: Nearest, wrap: Mirror, streaming: true)",
+            "(srgb: false, mipmaps: false, filter: Nearest, wrap: Mirror, streaming: true, release_pixels: true)",
         )
         .unwrap();
         assert_eq!(
@@ -159,20 +178,28 @@ mod tests {
                 filter: TextureFilter::Nearest,
                 wrap: TextureWrap::Mirror,
                 streaming: true,
+                release_pixels: true,
             }
         );
     }
 
-    /// Every sidecar tuned before `streaming` existed spells the settings
-    /// without it, and must keep meaning what it meant -- not fail, and not
-    /// fall back to the defaults with the author's `srgb: false` lost.
+    /// Every sidecar tuned before `streaming` or `release_pixels` existed
+    /// spells the settings without them, and must keep meaning what it
+    /// meant -- not fail, and not fall back to the defaults with the
+    /// author's `srgb: false` lost.
     #[test]
     fn a_sidecar_written_before_streaming_existed_still_parses_with_it_off() {
         let parsed: TextureImportSettings =
             ron::from_str("(srgb: false, mipmaps: true, filter: Nearest, wrap: Clamp)")
                 .expect("the pre-streaming shape must parse");
         assert!(!parsed.streaming);
+        assert!(!parsed.release_pixels);
         assert!(!parsed.srgb, "and the tuned fields must survive");
         assert_eq!(parsed.filter, TextureFilter::Nearest);
+        let parsed: TextureImportSettings = ron::from_str(
+            "(srgb: false, mipmaps: true, filter: Nearest, wrap: Clamp, streaming: true)",
+        )
+        .expect("the pre-release_pixels shape must parse");
+        assert!(parsed.streaming && !parsed.release_pixels);
     }
 }

@@ -211,6 +211,23 @@ fn generate_terrain_chunks(
         let Some(tex3) = textures.get(pending.layers[3].handle()) else {
             continue;
         };
+        // A layer whose pixels a material's upload already released
+        // (`release_pixels` in its sidecar) has nothing to upload from, and
+        // uploading nothing is a wgpu validation panic. Said once, like a
+        // failed load, and the terrain is given up rather than retried.
+        let released = [tex0, tex1, tex2, tex3]
+            .iter()
+            .position(|t| t.pixels_released);
+        if let Some(i) = released {
+            warn!(
+                "[terrain] layer {i} of '{}' has `release_pixels` set in its sidecar and its \
+                 pixels are already gone from memory; a terrain layer reads the pixels for \
+                 itself, so turn the setting off for that image",
+                terrain.heightmap_path
+            );
+            commands.entity(entity).remove::<PendingTerrain>();
+            continue;
+        }
         let Some(tex_reg) = tex_registry.as_mut() else {
             continue;
         };

@@ -305,204 +305,118 @@ fn rebuild_modified_shaders(
     }
 }
 
-/// The skybox image this engine asked for, and how far it has got.
-#[derive(Debug)]
-struct PendingSkyboxLoad {
-    /// The path this request was made for, so a `SkyboxPath` change mid-load
-    /// abandons the old request instead of uploading a texture nobody asked
-    /// for any more.
-    path: String,
-    /// The load itself. See [`bsengine_asset::AssetSlot`].
-    slot: bsengine_asset::AssetSlot<bsengine_asset::TextureAsset>,
+/// The skybox the surface shows: the path it came from and the
+/// `GpuTextureRegistry::generation` of the registry object it was copied
+/// from, so a rebuilt object -- a hot reload, a streamed level arriving -- is
+/// copied again and a frame never keeps drawing a sky the registry has moved
+/// on from. `None` while nothing is shown.
+///
+/// Internal to [`sync_skybox`], like `bsengine_gltf`'s `PendingGltf`:
+/// `SkyboxPath` stays a plain `String`, so scene RON, the scripting API and
+/// the MCP tools are unaffected by how a load is tracked.
+#[derive(bevy_ecs::prelude::Resource, Default, Debug)]
+struct ShownSkybox {
+    shown: Option<(String, u64)>,
+    /// The path a give-up was already reported for, so it is said once.
+    warned: Option<String>,
 }
 
-/// The skybox load in flight, if any.
-///
-/// One slot rather than a map: there is only ever one skybox.
-///
-/// Internal to this system, like `bsengine_gltf`'s `PendingGltf`: `SkyboxPath`
-/// stays a plain `String`, so scene RON, the scripting API and the MCP tools
-/// are unaffected by how a load is tracked.
-#[derive(bevy_ecs::prelude::Resource, Default)]
-struct PendingSkybox(Option<PendingSkyboxLoad>);
+impl ShownSkybox {
+    /// The generation of the registry object the shown sky was copied from,
+    /// for tests that watch it change.
+    #[cfg(test)]
+    fn generation(&self) -> Option<u64> {
+        self.shown.as_ref().map(|(_, generation)| *generation)
+    }
+}
 
-/// Keeps the surface's skybox in sync with `SkyboxPath`, reading the image
-/// through `Assets<TextureAsset>` and uploading it with
-/// `set_skybox_from_rgba`.
+/// Keeps the surface's skybox in sync with `SkyboxPath`, through the texture
+/// cache.
 ///
-/// Item 23 split the surface's old blocking `set_skybox` (path in, `image::open`,
-/// upload) into decode and upload halves; this is the consumer that split was
-/// for, and the blocking half has since been deleted outright — nothing in the
-/// engine may stall a frame on a file read any more. It gets its own system
-/// rather than staying in
+/// The image is requested, polled and uploaded by
+/// [`crate::texture_cache::TextureCache::upload`], exactly as a material's or a
+/// UI image's is, and the skybox copies the registry's GPU object
+/// (`WgpuSurface::set_skybox_from_texture`). It used to request its own handle
+/// and upload the pixels out of `Assets` for itself, which is the reason
+/// `TextureImportSettings::release_pixels` had to stay off by default: an image
+/// a material had uploaded first had no pixels left for the skybox to read.
+/// One owner of the GPU copy, and this asks it by path.
+///
+/// Copied again whenever the registry rebuilds the object behind the id --
+/// its generation changes on a hot reload (the cache re-uploads a modified
+/// asset under the same id) and on every streamed level that arrives -- and
+/// whenever the surface stops showing the path (a rebuilt surface). That is
+/// the whole of the bookkeeping: the separate reload system that listened for
+/// asset events is gone with the handle it matched them against.
+///
+/// Item 23 split the surface's old blocking `set_skybox` (path in,
+/// `image::open`, upload) into decode and upload halves, and the blocking half
+/// has since been deleted outright -- nothing in the engine may stall a frame
+/// on a file read. This gets its own system rather than staying in
 /// `render_frame` because that function is already at Bevy 0.14's
 /// 16-top-level-param ceiling (see the comment on its `render_queries` param),
 /// and because waiting across frames is not a render pass's job.
 ///
-/// The missing `WgpuSurfaceResource` case is *not* an early return: only the
-/// upload needs the GPU, so requesting, polling and failure detection run
-/// regardless. A real surface needs a real winit window (see
-/// `compile_pending_shaders_runs_before_render_frame`), so an early return
-/// would make the give-up path unreachable in every test this workspace can
-/// write.
-fn upload_pending_skybox(
+/// Without a `GpuTextureRegistry` nothing can be uploaded and the request is
+/// made on the first frame one exists, as for materials. A load the cache
+/// gave up on is reported once.
+fn sync_skybox(
     mut surface: Option<ResMut<WgpuSurfaceResource>>,
     skybox_path: Option<Res<SkyboxPath>>,
-    texture_assets: bevy_ecs::prelude::Res<bevy_asset::Assets<bsengine_asset::TextureAsset>>,
+    mut cache: ResMut<crate::texture_cache::TextureCache>,
     asset_server: bevy_ecs::prelude::Res<bevy_asset::AssetServer>,
-    mut pending: ResMut<PendingSkybox>,
+    mut textures: ResMut<bevy_asset::Assets<bsengine_asset::TextureAsset>>,
+    registry: Option<ResMut<bsengine_rhi_wgpu::GpuTextureRegistry>>,
+    mut shown: ResMut<ShownSkybox>,
 ) {
-    let Some(skybox_path) = skybox_path else {
-        return;
-    };
-    let wanted = skybox_path.0.as_deref();
-
-    // Already showing exactly what's asked for. A `Ready` slot naming that same
-    // path is the uploaded skybox's own retained handle -- clearing it frees
-    // the image and turns the next `AssetServer::reload` into a silent no-op,
-    // so it stays. Anything else in the slot is a request for a path nobody
-    // wants any more, so let it go.
-    if surface
-        .as_ref()
-        .is_some_and(|s| s.0.loaded_skybox_path() == wanted)
-    {
-        let holds_the_wanted_skybox = match (&pending.0, wanted) {
-            (Some(load), Some(wanted)) => load.slot.is_ready() && load.path == wanted,
-            _ => false,
-        };
-        if pending.0.is_some() && !holds_the_wanted_skybox {
-            pending.0 = None;
-        }
-        return;
-    }
-
+    let wanted = skybox_path.and_then(|p| p.0.clone());
     let Some(wanted) = wanted else {
-        // The skybox was turned off; drop the in-flight request with it.
+        // Off. Cleared once: the IBL maps go with the skybox, and clearing
+        // an already-clear surface every frame would keep dropping nothing.
         if let Some(surface) = surface.as_mut() {
-            surface.0.clear_skybox();
+            if surface.0.has_skybox() {
+                surface.0.clear_skybox();
+            }
         }
-        if pending.0.is_some() {
-            pending.0 = None;
+        shown.shown = None;
+        return;
+    };
+    let Some(mut registry) = registry else {
+        return;
+    };
+    let Some(id) = cache.upload(&wanted, &asset_server, &mut textures, &mut registry) else {
+        if cache.gave_up(&wanted) && shown.warned.as_deref() != Some(wanted.as_str()) {
+            tracing::warn!("skybox: cannot read '{wanted}'");
+            shown.warned = Some(wanted);
         }
         return;
     };
-
-    // `SkyboxPath` changed mid-load: abandon the old request rather than
-    // upload a texture nobody asked for any more.
-    if pending.0.as_ref().is_some_and(|load| load.path != wanted) {
-        pending.0 = None;
-    }
-
-    // Requested exactly once, on the first frame this path is wanted, and
-    // polled from then on. `AssetSlot::requesting` goes through `load_async`
-    // rather than `bsengine_asset::load` because that dispatcher takes a
-    // `sync_loader` closure for its `LoadMode::Sync` arm and there is no
-    // synchronous texture loader in this codebase: item 23 only ever wrote
-    // `TextureAssetLoader`, for the async path. This used to call
-    // `AssetServer::load` directly for that reason, which is precisely how the
-    // skybox stayed invisible to `AssetStatuses` until it failed -- `load_async`
-    // is the recording half of `load` with the unreachable `Sync` arm left out.
-    let load = pending.0.get_or_insert_with(|| PendingSkyboxLoad {
-        path: wanted.to_string(),
-        slot: bsengine_asset::AssetSlot::requesting(&asset_server, wanted),
-    });
-
-    if let bsengine_asset::Polled::Failed(e) = load.slot.poll(&asset_server, &texture_assets) {
-        tracing::warn!("skybox: cannot read '{wanted}': {e}");
-        return;
-    }
-
-    // The pixels are here; only the upload needs the GPU. Reaching this at all
-    // means the dedupe check above found the surface *not* showing this path --
-    // i.e. the image arrived before `WgpuSurfaceResource` did -- so upload now
-    // if a surface has since appeared. That makes the dedupe check match from
-    // the next frame on, so this runs exactly once.
-    // No "already uploaded" flag guards this: `set_loaded_skybox_path` below
-    // makes the dedupe check at the top of this function match from the next
-    // frame on, which is what stops a re-upload -- and it is also what lets a
-    // surface that was rebuilt get its skybox back. A flag here would pass the
-    // tests and quietly break that second case. (Measured: adding one changed
-    // nothing any test could see.)
-    if !load.slot.is_ready() {
-        return;
-    }
+    let generation = registry
+        .generation(id)
+        .expect("an id the cache returned is loaded");
     let Some(surface) = surface.as_mut() else {
         return;
     };
-    let Some(tex) = texture_assets.get(load.slot.handle()) else {
-        return;
-    };
-    // The skybox reads the pixels for itself; an image whose sidecar says
-    // `release_pixels` and that a material uploaded first has none left.
-    // Said once -- recording the path is what stops this running again --
-    // rather than uploading nothing, which wgpu refuses with a panic.
-    if tex.pixels_released {
-        tracing::warn!(
-            "skybox: '{wanted}' has `release_pixels` set in its sidecar and its pixels are \
-             already gone from memory; the skybox reads them for itself, so turn the setting \
-             off for that image"
-        );
-        surface.0.set_loaded_skybox_path(wanted);
+    // Already showing this path, copied from this very object: nothing to do.
+    // Both halves matter. The surface's own record is what lets a rebuilt
+    // surface get its skybox back; the generation is what makes a hot reload
+    // or a streamed level reach the screen.
+    let current = surface.0.loaded_skybox_path() == Some(wanted.as_str())
+        && shown
+            .shown
+            .as_ref()
+            .is_some_and(|(path, from)| *path == wanted && *from == generation);
+    if current {
         return;
     }
-    surface
-        .0
-        .set_skybox_from_rgba(tex.width, tex.height, &tex.data);
-    // `set_skybox_from_rgba` doesn't record the path (that bookkeeping lived in
-    // the now-deleted blocking `set_skybox`), so do it here — the dedupe check
-    // above is what stops this re-uploading every frame.
-    surface.0.set_loaded_skybox_path(wanted);
-}
-
-/// Re-uploads the skybox when its image is replaced.
-///
-/// `set_skybox_from_rgba` rebuilds the texture, sampler, bind groups and
-/// pipeline around the new pixels and replaces `WgpuSurface::skybox` wholesale,
-/// so no explicit invalidation is needed.
-///
-/// Separate from `upload_pending_skybox` rather than folded into it because
-/// that function returns early the moment the surface already shows the wanted
-/// path -- which is every reloadable skybox. A reload is the one case where
-/// re-uploading the path already on screen is the whole point.
-///
-/// Without a `WgpuSurfaceResource` this does nothing and leaves the `Ready`
-/// state alone: the image is already in `Assets` and the handle is still
-/// retained, so the next reload is reached just the same.
-fn rebuild_modified_skybox(
-    mut events: bevy_ecs::prelude::EventReader<
-        bevy_asset::AssetEvent<bsengine_asset::TextureAsset>,
-    >,
-    mut surface: Option<ResMut<WgpuSurfaceResource>>,
-    texture_assets: Res<bevy_asset::Assets<bsengine_asset::TextureAsset>>,
-    pending: Res<PendingSkybox>,
-) {
-    for event in events.read() {
-        let bevy_asset::AssetEvent::Modified { id } = event else {
-            continue;
-        };
-        let Some(load) = pending.0.as_ref().filter(|load| load.slot.is_ready()) else {
-            continue;
-        };
-        let (path, handle) = (&load.path, load.slot.handle());
-        if handle.id() != *id {
-            continue;
-        }
-        let Some(tex) = texture_assets.get(handle) else {
-            continue;
-        };
-        // The release of the pixels is itself a modification; nothing to
-        // rebuild from, and the skybox on screen is current.
-        if tex.pixels_released {
-            continue;
-        }
-        let Some(surface) = surface.as_mut() else {
-            continue;
-        };
-        surface
-            .0
-            .set_skybox_from_rgba(tex.width, tex.height, &tex.data);
-        surface.0.set_loaded_skybox_path(path);
-    }
+    let texture = registry
+        .get_texture(id)
+        .expect("an id the cache returned is loaded");
+    surface.0.set_skybox_from_texture(texture);
+    // `set_skybox_from_texture` doesn't record the path (that bookkeeping
+    // lived in the now-deleted blocking `set_skybox`), so do it here.
+    surface.0.set_loaded_skybox_path(&wanted);
+    shown.shown = Some((wanted, generation));
 }
 
 /// Pixels scrolled per unit of wheel delta.
@@ -1156,7 +1070,7 @@ impl Plugin for RenderPlugin {
             .register_asset_loader(crate::shader_asset::ShaderSourceLoader)
             .init_resource::<UiState>()
             .init_resource::<PendingShaders>()
-            .init_resource::<PendingSkybox>()
+            .init_resource::<ShownSkybox>()
             .init_resource::<crate::texture_cache::TextureCache>()
             .add_event::<WindowResized>()
             .add_event::<KeyInput>()
@@ -1176,8 +1090,7 @@ impl Plugin for RenderPlugin {
                     bsengine_core::propagate_global_transforms,
                     compile_pending_shaders,
                     rebuild_modified_shaders,
-                    upload_pending_skybox,
-                    rebuild_modified_skybox,
+                    sync_skybox,
                     render_frame,
                 )
                     .chain(),
@@ -1187,7 +1100,7 @@ impl Plugin for RenderPlugin {
 
 #[cfg(test)]
 mod tests {
-    use super::{CompileStatus, PendingShader, PendingShaders, PendingSkybox, RenderPlugin};
+    use super::{CompileStatus, PendingShader, PendingShaders, RenderPlugin, ShownSkybox};
     use crate::components::{LodLevels, MeshRenderer, Occluder};
     use bsengine_app::new_app;
     use bsengine_core::{Camera, GlobalTransform, Material, Parent, PointLight, Transform};
@@ -1245,8 +1158,8 @@ mod tests {
             });
         let skybox_idx = names
             .iter()
-            .position(|n| n.contains("upload_pending_skybox"))
-            .unwrap_or_else(|| panic!("upload_pending_skybox not found in PostUpdate: {names:?}"));
+            .position(|n| n.contains("sync_skybox"))
+            .unwrap_or_else(|| panic!("sync_skybox not found in PostUpdate: {names:?}"));
         let render_idx = names
             .iter()
             .position(|n| n.contains("render_frame"))
@@ -1260,8 +1173,8 @@ mod tests {
         );
         assert!(
             skybox_idx < render_idx,
-            "upload_pending_skybox (index {skybox_idx}) must run before render_frame \
-             (index {render_idx}) so a skybox uploaded this frame is available to its \
+            "sync_skybox (index {skybox_idx}) must run before render_frame \
+             (index {render_idx}) so a skybox copied this frame is available to its \
              has_skybox check; actual PostUpdate order: {names:?}"
         );
     }
@@ -1313,56 +1226,6 @@ mod tests {
             "rebuild_modified_shaders (index {rebuild_idx}) must run before \
              render_frame (index {render_idx}) so a shader recompiled this frame \
              is the one drawn with; actual PostUpdate order: {names:?}"
-        );
-    }
-
-    // Same structural argument again, for the skybox's reload half.
-    // `rebuild_modified_skybox` must sit *after* `upload_pending_skybox`
-    // (which is what puts the slot into `Ready`, the only state the rebuild
-    // looks at -- ahead of it, the very first Modified event would find an
-    // empty slot) and *before* `render_frame` (or the frame draws the stale
-    // sky the reload was meant to replace). Both are `.chain()` edges today;
-    // a reorder that starves the rebuild has to fail here.
-    #[test]
-    fn rebuild_modified_skybox_runs_between_upload_and_render_frame() {
-        let mut app = new_app();
-        app.add_plugins(bsengine_asset::AssetPlugin);
-        app.add_plugins(RenderPlugin);
-        // Schedules are only populated with their executable system list
-        // after at least one run.
-        app.update();
-
-        let schedule = app
-            .get_schedule(bevy_app::PostUpdate)
-            .expect("RenderPlugin registers systems into PostUpdate");
-        let names: Vec<String> = schedule
-            .systems()
-            .expect("schedule is initialized after app.update()")
-            .map(|(_, system)| system.name().to_string())
-            .collect();
-
-        let find = |needle: &str| {
-            names
-                .iter()
-                .position(|n| n.contains(needle))
-                .unwrap_or_else(|| panic!("{needle} not found in PostUpdate: {names:?}"))
-        };
-        let upload_idx = find("upload_pending_skybox");
-        let rebuild_idx = find("rebuild_modified_skybox");
-        let render_idx = find("render_frame");
-
-        assert!(
-            upload_idx < rebuild_idx,
-            "upload_pending_skybox (index {upload_idx}) must run before \
-             rebuild_modified_skybox (index {rebuild_idx}): it is what records \
-             the Ready handle the rebuild matches Modified events against; \
-             actual PostUpdate order: {names:?}"
-        );
-        assert!(
-            rebuild_idx < render_idx,
-            "rebuild_modified_skybox (index {rebuild_idx}) must run before \
-             render_frame (index {render_idx}) so a skybox re-uploaded this \
-             frame is the one drawn; actual PostUpdate order: {names:?}"
         );
     }
 
@@ -1804,70 +1667,146 @@ mod tests {
         0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
     ];
 
-    // The skybox half of the same precondition
-    // `a_compiled_shader_keeps_its_handle_so_a_reload_can_reach_it` pins for
-    // shaders: `AssetEvent::Modified` only fires while a strong handle to the
-    // asset still exists, so the moment the last one drops,
-    // `Assets::track_assets` frees the image in PreUpdate and
-    // `AssetServer::reload` on that path is a silent no-op. `Ready` -- which
-    // retains the handle instead of clearing the slot on a successful upload --
-    // is what makes `rebuild_modified_skybox` reachable at all.
-    //
-    // There is no `WgpuSurfaceResource` here (a real one needs a real winit
-    // window; see `compile_pending_shaders_runs_before_render_frame`), so the
-    // upload itself cannot run and the re-uploaded skybox cannot be observed.
-    // `Ready` therefore means "image decoded and handle retained", reached
-    // whether or not the upload happened -- and the two assertions after it,
-    // not the state alone, are what prove the retention is real: a `clone_weak`
-    // handle satisfies `Ready(_)` while still letting the image be freed.
-    #[test]
-    fn an_uploaded_skybox_keeps_its_handle_so_a_reload_can_reach_it() {
-        use bevy_asset::{AssetEvent, AssetServer, Assets};
-        use bevy_ecs::event::{Events, ManualEventReader};
-        use bsengine_asset::TextureAsset;
+    /// A real offscreen surface on the device every test in the process
+    /// shares (`WgpuSurface::offscreen_for_testing`), and the registries on
+    /// it, so the skybox system runs for real: the cache uploads, the surface
+    /// copies, and `has_skybox`/`loaded_skybox_path` say what happened. The
+    /// tests that used to run without one could only watch a request's
+    /// bookkeeping, and that bookkeeping is gone now that the cache does the
+    /// requesting.
+    fn with_surface(app: &mut bevy_app::App) {
+        let surface = bsengine_rhi_wgpu::surface::WgpuSurface::offscreen_for_testing(16, 16)
+            .expect("these tests need an adapter; a skip here would look like a pass");
+        app.insert_resource(GpuMeshRegistry::new(surface.device_arc()));
+        app.insert_resource(bsengine_rhi_wgpu::GpuTextureRegistry::new(
+            surface.device_arc(),
+            surface.queue_arc(),
+        ));
+        app.insert_resource(bsengine_rhi_wgpu::WgpuSurfaceResource(surface));
+    }
 
+    /// The asset and render plugins on a real surface, plus a 1x1 PNG at a
+    /// fresh path under the temp directory named for `test`.
+    fn skybox_app(test: &str) -> (bevy_app::App, std::path::PathBuf) {
         let dir = std::env::temp_dir().join(format!(
-            "bsengine_test_skybox_reload_{}",
+            "bsengine_test_skybox_{test}_{}",
             std::process::id()
         ));
         std::fs::create_dir_all(&dir).unwrap();
         let png = dir.join("sky.png");
         std::fs::write(&png, MINIMAL_PNG_1X1).unwrap();
-        let path = png.to_string_lossy().to_string();
-
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
         app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(RenderPlugin);
-        app.insert_resource(bsengine_core::SkyboxPath(Some(path.clone())));
+        with_surface(&mut app);
+        (app, png)
+    }
 
-        let mut ready = false;
+    fn surface_of(app: &bevy_app::App) -> &bsengine_rhi_wgpu::surface::WgpuSurface {
+        &app.world()
+            .resource::<bsengine_rhi_wgpu::WgpuSurfaceResource>()
+            .0
+    }
+
+    fn shown_generation(app: &bevy_app::App) -> Option<u64> {
+        app.world().resource::<ShownSkybox>().generation()
+    }
+
+    fn uploaded(app: &bevy_app::App) -> usize {
+        app.world()
+            .resource::<crate::texture_cache::TextureCache>()
+            .uploaded_count()
+    }
+
+    /// Runs frames until `done`, at most 200; whether it got there.
+    fn run_until(app: &mut bevy_app::App, done: impl Fn(&bevy_app::App) -> bool) -> bool {
         for _ in 0..200 {
             app.update();
-            if app
-                .world()
-                .resource::<PendingSkybox>()
-                .0
-                .as_ref()
-                .is_some_and(|load| load.slot.is_ready())
-            {
-                ready = true;
-                break;
+            if done(app) {
+                return true;
             }
         }
-        assert!(
-            ready,
-            "the skybox slot must end up Ready, still holding its handle -- \
-             clearing it frees the asset and makes reload a silent no-op"
-        );
+        false
+    }
 
-        let asset_id = {
-            let pending = &app.world().resource::<PendingSkybox>().0;
-            let Some(load) = pending.as_ref() else {
-                unreachable!("just asserted Ready")
-            };
-            load.slot.handle().id()
-        };
+    /// The whole path, on a real surface: the image goes through the texture
+    /// cache (one upload, the cache's), the surface copies the registry's
+    /// object and records the path, the IBL maps are convolved from it, and
+    /// what is shown is the generation the registry holds now.
+    #[test]
+    fn a_skybox_is_shown_out_of_the_texture_cache() {
+        let (mut app, png) = skybox_app("shown");
+        let path = png.to_string_lossy().to_string();
+        app.insert_resource(bsengine_core::SkyboxPath(Some(path.clone())));
+
+        assert!(
+            run_until(&mut app, |a| surface_of(a).has_skybox()),
+            "the skybox must appear"
+        );
+        let surface = surface_of(&app);
+        assert_eq!(surface.loaded_skybox_path(), Some(path.as_str()));
+        assert!(
+            surface.has_ibl(),
+            "the environment maps are convolved from it"
+        );
+        assert_eq!(
+            uploaded(&app),
+            1,
+            "one upload, the cache's -- the skybox no longer uploads for itself"
+        );
+        let id = app
+            .world()
+            .resource::<crate::texture_cache::TextureCache>()
+            .id_for(&path)
+            .expect("the cache holds the skybox image");
+        let registry = app
+            .world()
+            .resource::<bsengine_rhi_wgpu::GpuTextureRegistry>();
+        assert_eq!(
+            shown_generation(&app),
+            registry.generation(id),
+            "copied from the object the registry holds now"
+        );
+        let _ = std::fs::remove_file(&png);
+    }
+
+    // The skybox half of the same precondition
+    // `a_compiled_shader_keeps_its_handle_so_a_reload_can_reach_it` pins for
+    // shaders: `AssetEvent::Modified` only fires while a strong handle to the
+    // asset still exists, so the moment the last one drops,
+    // `Assets::track_assets` frees the image in PreUpdate and
+    // `AssetServer::reload` on that path is a silent no-op. The cache retains
+    // the handle (`TextureCache::asset_handle`) -- and the two assertions
+    // after the load, not the handle's existence, are what prove the
+    // retention is real: a `clone_weak` handle exists while still letting
+    // the image be freed.
+    //
+    // With a real surface this goes one step further than the shader test:
+    // the reload must reach the *screen*. The cache re-uploads the modified
+    // asset under the same id, the registry's generation changes, and the
+    // surface copies again -- without a second upload.
+    #[test]
+    fn an_uploaded_skybox_keeps_its_handle_so_a_reload_reaches_the_screen() {
+        use bevy_asset::{AssetEvent, AssetServer, Assets};
+        use bevy_ecs::event::{Events, ManualEventReader};
+        use bsengine_asset::TextureAsset;
+
+        let (mut app, png) = skybox_app("reload");
+        let path = png.to_string_lossy().to_string();
+        app.insert_resource(bsengine_core::SkyboxPath(Some(path.clone())));
+        assert!(
+            run_until(&mut app, |a| surface_of(a).has_skybox()),
+            "the skybox must appear before it can be reloaded"
+        );
+        let first_generation = shown_generation(&app).expect("shown");
+
+        let asset_id = app
+            .world()
+            .resource::<crate::texture_cache::TextureCache>()
+            .asset_handle(&path)
+            .expect("the cache retains the handle it loaded the skybox through")
+            .id();
 
         // A few more frames so `track_assets` (PreUpdate) has had every chance
         // to free the image. It only survives this if something still holds a
@@ -1897,7 +1836,7 @@ mod tests {
             let _ = reader.read(events).count();
         }
 
-        app.world().resource::<AssetServer>().reload(path);
+        app.world().resource::<AssetServer>().reload(path.clone());
         let mut saw_modified = false;
         for _ in 0..60 {
             app.update();
@@ -1917,13 +1856,31 @@ mod tests {
              and hot reload is impossible for the skybox"
         );
 
+        assert!(
+            run_until(&mut app, |a| shown_generation(a) != Some(first_generation)),
+            "the reload must reach the screen: the registry rebuilt its object and the \
+             surface must have copied the new one"
+        );
+        assert_eq!(
+            surface_of(&app).loaded_skybox_path(),
+            Some(path.as_str()),
+            "and it is still this path that is shown"
+        );
+        assert_eq!(
+            uploaded(&app),
+            1,
+            "a reload replaces the object under its id; it is not a second upload"
+        );
+
         let _ = std::fs::remove_file(&png);
     }
 
-    // The skybox is the one consumer that never went through
+    // The skybox used to be the one consumer that never went through
     // `bsengine_asset::load` -- that dispatcher wants a `sync_loader` closure
     // for its `Sync` arm and this codebase has no synchronous texture loader --
-    // so it is the one that could silently stay invisible to `AssetStatuses`.
+    // so it was the one that could silently stay invisible to `AssetStatuses`.
+    // It now loads through the texture cache, whose `AssetSlot::requesting`
+    // records the request; this is what says the routing survived the move.
     //
     // A *successful* load is what proves the routing. A failing one would be
     // reported anyway: `UntypedAssetLoadFailedEvent` reaches the collector
@@ -1947,6 +1904,8 @@ mod tests {
         app.add_plugins(AssetStatusPlugin);
         app.add_plugins(WgpuRHIPlugin::windowed());
         app.add_plugins(RenderPlugin);
+        // The cache only requests once it has a registry to upload into.
+        with_surface(&mut app);
         app.insert_resource(bsengine_core::SkyboxPath(Some(path.clone())));
 
         let mut status = AssetStatus::Unknown;
@@ -1969,45 +1928,31 @@ mod tests {
     }
 
     // The skybox equivalent of the shader test above, and for the same
-    // reason: `upload_pending_skybox` requests the texture once and polls the
-    // handle it kept. Re-requesting the path each frame would reset the failed
-    // load to `Loading` and restart it, so the give-up state would never be
-    // reached and this would spin forever.
+    // reason: the cache requests the texture once and polls the handle it
+    // kept. Re-requesting the path each frame would reset the failed load to
+    // `Loading` and restart it, so the give-up state would never be reached
+    // and this would spin forever.
     #[test]
     fn missing_skybox_is_given_up_on_instead_of_retried_forever() {
-        let mut app = new_app();
-        app.add_plugins(bsengine_asset::AssetPlugin);
-        app.add_plugins(WgpuRHIPlugin::windowed());
-        app.add_plugins(RenderPlugin);
-        app.insert_resource(bsengine_core::SkyboxPath(Some(
-            "definitely/not/a/real/sky.png".to_string(),
-        )));
+        let (mut app, png) = skybox_app("missing");
+        let missing = "definitely/not/a/real/sky.png";
+        app.insert_resource(bsengine_core::SkyboxPath(Some(missing.to_string())));
 
         let gave_up = |app: &bsengine_app::App| {
             app.world()
-                .resource::<PendingSkybox>()
-                .0
-                .as_ref()
-                .is_some_and(|load| load.slot.gave_up())
+                .resource::<crate::texture_cache::TextureCache>()
+                .gave_up(missing)
         };
-
-        let mut settled = false;
-        for _ in 0..200 {
-            app.update();
-            if gave_up(&app) {
-                settled = true;
-                break;
-            }
-        }
-        assert!(settled, "an unloadable skybox path must end up given up on");
+        assert!(
+            run_until(&mut app, gave_up),
+            "an unloadable skybox path must end up given up on"
+        );
 
         // Then *stays* given up on, on every frame rather than merely on the
         // one this happens to sample. A loop that re-requests the failed path
         // also passes through `GaveUp` repeatedly, so a single reading taken
         // after N frames cannot tell a give-up from an infinite retry -- which
-        // is the entire property this test is named for. Measured: re-clearing
-        // the slot when it reports `gave_up` leaves the end-state assertion
-        // green and fails this one.
+        // is the entire property this test is named for.
         for frame in 0..60 {
             app.update();
             assert!(
@@ -2016,95 +1961,151 @@ mod tests {
                  something re-requested the failed path"
             );
         }
+        assert!(
+            !surface_of(&app).has_skybox(),
+            "and nothing was shown in its place"
+        );
+        let _ = std::fs::remove_file(&png);
     }
 
-    // Changing `SkyboxPath` mid-load must abandon the in-flight request and
-    // start the new one, or the old texture lands on screen a frame after the
-    // user asked for a different sky. Two frames is the whole story: the first
-    // reaches the request arm (empty slot -> `Loading`, returns immediately),
-    // the second reaches the abandon-and-re-request branch.
+    // Changing `SkyboxPath` must put the new sky on screen and only that one,
+    // and switching back must not upload again: the cache still holds the
+    // first image, and the surface copies it a second time.
     //
-    // The handle is asserted on, not just the retained path string: the
-    // give-up arm writes the *wanted* path next to the *old* handle, so an
-    // implementation that kept polling the abandoned load can still end up
-    // with "second/sky.png" in the slot. Only the handle says which load is
-    // actually in flight.
+    // The old version of this test switched *mid-load* and asserted on which
+    // request was in flight. With the cache requesting, a switch mid-load
+    // leaves both loads running -- harmless, the first is one cached image --
+    // and what matters is only ever what the surface shows, which needs a
+    // real surface to say.
     #[test]
-    fn skybox_path_change_mid_load_requests_the_new_path_instead() {
-        let mut app = new_app();
-        app.add_plugins(bsengine_asset::AssetPlugin);
-        app.add_plugins(WgpuRHIPlugin::windowed());
-        app.add_plugins(RenderPlugin);
-        app.insert_resource(bsengine_core::SkyboxPath(Some("first/sky.png".to_string())));
+    fn changing_the_skybox_path_shows_the_new_sky_and_keeps_the_old_upload() {
+        let (mut app, first) = skybox_app("switch");
+        let second = first.with_file_name("sky2.png");
+        std::fs::write(&second, MINIMAL_PNG_1X1).unwrap();
+        let (first, second) = (
+            first.to_string_lossy().to_string(),
+            second.to_string_lossy().to_string(),
+        );
 
-        app.update();
-        let pending = &app.world().resource::<PendingSkybox>().0;
+        app.insert_resource(bsengine_core::SkyboxPath(Some(first.clone())));
         assert!(
-            pending.as_ref().is_some_and(|load| {
-                matches!(load.slot, bsengine_asset::AssetSlot::Loading(_))
-                    && load.path == "first/sky.png"
-            }),
-            "precondition: one frame must leave the first path in flight, got {pending:?}"
+            run_until(&mut app, |a| surface_of(a).loaded_skybox_path()
+                == Some(first.as_str())),
+            "precondition: the first sky is shown"
         );
 
         app.world_mut()
             .resource_mut::<bsengine_core::SkyboxPath>()
-            .0 = Some("second/sky.png".to_string());
-        app.update();
+            .0 = Some(second.clone());
+        assert!(
+            run_until(&mut app, |a| surface_of(a).loaded_skybox_path()
+                == Some(second.as_str())),
+            "the second sky must replace the first"
+        );
+        assert_eq!(uploaded(&app), 2, "two images, two uploads");
 
-        let pending = &app.world().resource::<PendingSkybox>().0;
-        let Some((path, handle)) = pending.as_ref().and_then(|load| match &load.slot {
-            bsengine_asset::AssetSlot::Loading(handle) => Some((&load.path, handle)),
-            _ => None,
-        }) else {
-            panic!("a changed SkyboxPath must leave a load for the new path in flight, got {pending:?}");
-        };
-        assert_eq!(
-            path, "second/sky.png",
-            "the retained path must be the newly wanted one"
+        app.world_mut()
+            .resource_mut::<bsengine_core::SkyboxPath>()
+            .0 = Some(first.clone());
+        assert!(
+            run_until(&mut app, |a| surface_of(a).loaded_skybox_path()
+                == Some(first.as_str())),
+            "switching back must show the first sky again"
         );
         assert_eq!(
-            handle.path().map(ToString::to_string).as_deref(),
-            Some("second/sky.png"),
-            "the retained handle must be the one requested for the new path -- keeping the \
-             old path's handle means the abandoned load is still being polled and its \
-             texture can still be uploaded"
+            uploaded(&app),
+            2,
+            "switching back copies the image the cache still holds; it does not upload it again"
         );
+        let _ = std::fs::remove_file(&first);
+        let _ = std::fs::remove_file(&second);
     }
 
-    // Setting `SkyboxPath.0` to `None` mid-load must drop the in-flight
-    // request with it. Left in place, the load completes a frame or two later
-    // and uploads a sky the user has already switched off. Observable without
-    // a surface: with no `WgpuSurfaceResource` the dedupe check above can't
-    // match, so control reaches the skybox-off arm, which clears `pending`
-    // whether or not there is a surface to clear.
+    // `SkyboxPath.0 = None` must take the sky off the screen -- and its IBL
+    // maps with it -- and putting the path back must show it again without
+    // a second upload.
     #[test]
-    fn turning_the_skybox_off_mid_load_drops_the_in_flight_request() {
-        let mut app = new_app();
-        app.add_plugins(bsengine_asset::AssetPlugin);
-        app.add_plugins(WgpuRHIPlugin::windowed());
-        app.add_plugins(RenderPlugin);
-        app.insert_resource(bsengine_core::SkyboxPath(Some("some/sky.png".to_string())));
-
-        app.update();
-        let pending = &app.world().resource::<PendingSkybox>().0;
+    fn turning_the_skybox_off_clears_it_and_on_again_needs_no_new_upload() {
+        let (mut app, png) = skybox_app("off");
+        let path = png.to_string_lossy().to_string();
+        app.insert_resource(bsengine_core::SkyboxPath(Some(path.clone())));
         assert!(
-            pending
-                .as_ref()
-                .is_some_and(|load| matches!(load.slot, bsengine_asset::AssetSlot::Loading(_))),
-            "precondition: one frame must leave a load in flight, got {pending:?}"
+            run_until(&mut app, |a| surface_of(a).has_skybox()),
+            "precondition: the sky is shown"
         );
 
         app.world_mut()
             .resource_mut::<bsengine_core::SkyboxPath>()
             .0 = None;
         app.update();
+        let surface = surface_of(&app);
+        assert!(!surface.has_skybox(), "off must clear the sky");
+        assert!(!surface.has_ibl(), "and the maps convolved from it");
+        assert_eq!(shown_generation(&app), None);
 
-        let pending = &app.world().resource::<PendingSkybox>().0;
+        app.world_mut()
+            .resource_mut::<bsengine_core::SkyboxPath>()
+            .0 = Some(path.clone());
         assert!(
-            pending.is_none(),
-            "turning the skybox off must drop the in-flight request, got {pending:?}"
+            run_until(&mut app, |a| surface_of(a).has_skybox()),
+            "on again must show it again"
         );
+        assert_eq!(
+            uploaded(&app),
+            1,
+            "the cache still had the image; showing it again is a copy, not an upload"
+        );
+        let _ = std::fs::remove_file(&png);
+    }
+
+    // The registry rebuilds the object behind an id on a hot reload and on
+    // every streamed level that arrives, and a bind group over the old object
+    // would keep drawing it. The generation is what the skybox watches; here
+    // the object is rebuilt directly, the way the cache's reload does it, and
+    // the sky must be copied again from the new one.
+    #[test]
+    fn a_rebuilt_registry_object_is_copied_onto_the_skybox_again() {
+        let (mut app, png) = skybox_app("rebuilt");
+        let path = png.to_string_lossy().to_string();
+        app.insert_resource(bsengine_core::SkyboxPath(Some(path.clone())));
+        assert!(
+            run_until(&mut app, |a| surface_of(a).has_skybox()),
+            "precondition: the sky is shown"
+        );
+        let before = shown_generation(&app).expect("shown");
+        let id = app
+            .world()
+            .resource::<crate::texture_cache::TextureCache>()
+            .id_for(&path)
+            .expect("cached");
+
+        {
+            let mut registry = app
+                .world_mut()
+                .resource_mut::<bsengine_rhi_wgpu::GpuTextureRegistry>();
+            let settings = registry.get_settings(id).expect("loaded");
+            assert!(
+                registry.replace_with(id, 1, 1, &[10, 20, 30, 255], settings),
+                "premise: the object behind the id was rebuilt"
+            );
+            assert_ne!(
+                registry.generation(id),
+                Some(before),
+                "premise: a rebuild changes the generation"
+            );
+        }
+        app.update();
+
+        let after = shown_generation(&app).expect("still shown");
+        assert_ne!(after, before, "the sky must have been copied again");
+        assert_eq!(
+            Some(after),
+            app.world()
+                .resource::<bsengine_rhi_wgpu::GpuTextureRegistry>()
+                .generation(id),
+            "from the object the registry holds now"
+        );
+        let _ = std::fs::remove_file(&png);
     }
 
     #[test]

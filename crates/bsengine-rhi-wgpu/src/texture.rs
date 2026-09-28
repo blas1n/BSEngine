@@ -17,6 +17,12 @@ struct GpuTexture {
     settings: TextureImportSettings,
     /// Present for a texture whose mips are streamed; see [`Streamed`].
     streamed: Option<Streamed>,
+    /// Which GPU object this is, counted registry-wide: a new number every
+    /// time the object behind an id is rebuilt -- a hot reload, a streamed
+    /// level in or out. A consumer holding its own copy of the object (the
+    /// skybox) compares this to know when its copy is stale, which no field
+    /// of the pixels can tell it: a reload can bring identical dimensions.
+    generation: u64,
 }
 
 /// The streaming side of a texture: the whole mip chain, kept on the CPU so
@@ -235,6 +241,8 @@ pub struct GpuTextureRegistry {
     bgl: wgpu::BindGroupLayout,
     textures: HashMap<u64, GpuTexture>,
     next_id: u64,
+    /// The next [`GpuTexture::generation`]; see there.
+    next_generation: u64,
     /// The streamed texture `raise_next_pending` last brought a level in
     /// on, so the next call moves on to another one.
     last_raised: u64,
@@ -256,6 +264,7 @@ impl GpuTextureRegistry {
             bgl,
             textures: HashMap::new(),
             next_id: 1,
+            next_generation: 1,
             last_raised: 0,
             mip_cache_root: None,
             mip_cache_warned: false,
@@ -488,7 +497,16 @@ impl GpuTextureRegistry {
             height,
             settings,
             streamed,
+            generation: self.next_generation(),
         }
+    }
+
+    /// A fresh [`GpuTexture::generation`] for an object about to replace,
+    /// or become, the one behind an id.
+    fn next_generation(&mut self) -> u64 {
+        let generation = self.next_generation;
+        self.next_generation += 1;
+        generation
     }
 
     /// Creates the GPU texture holding `levels[resident_base..]` -- exactly
@@ -524,7 +542,13 @@ impl GpuTextureRegistry {
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
                 format,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                // `COPY_SRC` because the skybox takes its image from here
+                // (`WgpuSurface::set_skybox_from_texture`) rather than from
+                // the pixels in `Assets`, which a material's upload may
+                // already have released.
+                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_DST
+                    | wgpu::TextureUsages::COPY_SRC,
                 view_formats: &[],
             },
         );
@@ -615,6 +639,7 @@ impl GpuTextureRegistry {
         let (texture, view) = self.upload_levels(&levels, 0, settings);
         let (sampler, bind_group) = self.sampler_and_bind_group(&view, settings);
         drop(levels);
+        let generation = self.next_generation();
         let tex = self.textures.get_mut(&id).expect("looked up above");
         tex.streamed.as_mut().expect("checked above").resident_base = base;
         // The bind group is what a draw binds; swapping the texture and view
@@ -625,6 +650,7 @@ impl GpuTextureRegistry {
         tex._view = view;
         tex._sampler = sampler;
         tex.bind_group = bind_group;
+        tex.generation = generation;
         true
     }
 
@@ -877,6 +903,21 @@ impl GpuTextureRegistry {
         self.textures.get(&id).map(|t| (t.width, t.height))
     }
 
+    /// The GPU object currently behind `id`: what a consumer that keeps its
+    /// own copy (the skybox) copies from. Its level 0 is the largest
+    /// *resident* level of a streamed texture, and its size says which.
+    pub fn get_texture(&self, id: u64) -> Option<&wgpu::Texture> {
+        self.textures.get(&id).map(|t| &*t._texture)
+    }
+
+    /// A number that changes whenever the object behind `id` is rebuilt
+    /// (hot reload, a streamed level in or out) and never otherwise, so a
+    /// consumer holding a copy of it knows when to copy again. See
+    /// [`GpuTexture::generation`].
+    pub fn generation(&self, id: u64) -> Option<u64> {
+        self.textures.get(&id).map(|t| t.generation)
+    }
+
     /// The import settings a texture was uploaded with.
     pub fn get_settings(&self, id: u64) -> Option<TextureImportSettings> {
         self.textures.get(&id).map(|t| t.settings)
@@ -994,6 +1035,49 @@ mod tests {
             .collect();
         files.sort();
         files
+    }
+
+    /// The generation is what a consumer holding its own copy of an object
+    /// (the skybox) watches, so it must change on exactly the events that
+    /// rebuild the object -- a level in, a level out, a reload -- and on
+    /// nothing else: another texture's rebuild must not touch it, or the
+    /// skybox would copy itself again every time anything streamed.
+    #[test]
+    fn the_generation_changes_on_every_rebuild_of_an_object_and_only_its_own() {
+        let mut reg = make_registry();
+        let pixels = vec![9u8; 256 * 256 * 4];
+        let streamed_id = reg.load_with(256, 256, &pixels, streamed());
+        let plain_id = reg.load_from_rgba(2, 2, &[1u8; 16]);
+        let (g0, p0) = (
+            reg.generation(streamed_id).unwrap(),
+            reg.generation(plain_id).unwrap(),
+        );
+        assert_ne!(g0, p0, "every object gets its own number");
+        assert_eq!(reg.generation(999), None, "an id nothing loaded has none");
+
+        assert!(reg.raise_residency(streamed_id));
+        let g1 = reg.generation(streamed_id).unwrap();
+        assert_ne!(g1, g0, "a level in rebuilds the object");
+        assert!(reg.lower_residency(streamed_id));
+        let g2 = reg.generation(streamed_id).unwrap();
+        assert!(g2 != g1 && g2 != g0, "a level out rebuilds it again");
+        assert!(reg.replace(streamed_id, 256, 256, &pixels));
+        let g3 = reg.generation(streamed_id).unwrap();
+        assert!(g3 != g2, "a reload rebuilds it");
+        assert_eq!(
+            reg.generation(plain_id),
+            Some(p0),
+            "none of which touches another texture's object"
+        );
+        // A reload rebuilds a streamed texture with only its initial levels
+        // resident, so the object handed out is the current one *at its
+        // resident size* -- 64 across, not the image's 256 -- which is what
+        // the skybox copies and shows until the levels stream back in.
+        assert!(
+            reg.get_texture(streamed_id)
+                .is_some_and(|t| t.width() == STREAMING_INITIAL_MAX_DIM),
+            "the object handed out is the current one, at its resident size"
+        );
     }
 
     /// With a cache directory, a streamed texture's chain goes to one

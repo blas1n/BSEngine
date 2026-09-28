@@ -16,6 +16,7 @@ use bsengine_core::{GlobalTransform, Transform};
 use bsengine_ecs::{Commands, Component, Entity, Query, Res, ResMut, Without};
 use bsengine_physics::{Collider, ColliderShape, PhysicsInput, RigidBody};
 use bsengine_render::components::{LodLevels, Occluder, TerrainSplat};
+use bsengine_render::texture_cache::TextureCache;
 use bsengine_render::MeshRenderer;
 use bsengine_rhi_wgpu::{GpuMeshRegistry, GpuTextureRegistry};
 use glam::{Quat, Vec3};
@@ -73,19 +74,25 @@ pub use bsengine_scene::Terrain;
 /// `#[derive(Component)]` type must be registered") only applies to public
 /// types for exactly this reason.
 ///
-/// Also tracks the 4 layer texture loads (`layer0..3_texture_path`), so a
-/// `Terrain`'s chunks aren't spawned until its heightmap AND all 4 diffuse
-/// layers have arrived -- `generate_terrain_chunks` needs all 5 to build the
-/// `TerrainSplat` it attaches to each chunk.
+/// The 4 layer textures (`layer0..3_texture_path`) are *not* tracked here.
+/// They go through `bsengine_render::texture_cache::TextureCache`, which
+/// requests, polls and uploads them exactly as it does a material's texture,
+/// so an image a terrain shares with a material is one GPU copy and not two
+/// -- and so the cache can release the pixels from `Assets` after the upload
+/// (`TextureImportSettings::release_pixels`) without a terrain finding them
+/// gone. `generate_terrain_chunks` asks the cache for all 4 every frame until
+/// it has ids for them and the heightmap has arrived; it needs all 5 to build
+/// the `TerrainSplat` it attaches to each chunk.
 ///
 /// `splatmap` additionally tracks the optional 6th asset named by
 /// `Terrain::splatmap_path`: `None` when the `Terrain` has no splatmap (the
 /// procedural-weights path, unchanged), `Some` with its own in-flight
-/// `AssetSlot` when it does.
+/// `AssetSlot` when it does. It stays a slot of its own because its pixels
+/// are read on the CPU, for the blend weights baked into the chunk vertices;
+/// it is data, not a texture the GPU samples.
 #[derive(Component)]
 struct PendingTerrain {
     heightmap: bsengine_asset::AssetSlot<HeightmapAsset>,
-    layers: [bsengine_asset::AssetSlot<TextureAsset>; 4],
     splatmap: Option<bsengine_asset::AssetSlot<TextureAsset>>,
 }
 
@@ -119,6 +126,12 @@ impl Plugin for TerrainPlugin {
         app.register_type::<Terrain>()
             .register_type::<TerrainChunksGenerated>()
             .register_type::<TerrainChunkOf>()
+            // The layers go through the texture cache (see `PendingTerrain`).
+            // `RenderPlugin` owns the cache in every real app; initialised
+            // here too so a terrain works -- and its tests run -- in an app
+            // built without the renderer, and `init_resource` leaves an
+            // existing one alone.
+            .init_resource::<TextureCache>()
             .add_systems(Update, generate_terrain_chunks);
     }
 }
@@ -133,7 +146,8 @@ fn generate_terrain_chunks(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     heightmaps: Res<Assets<HeightmapAsset>>,
-    textures: Res<Assets<TextureAsset>>,
+    mut textures: ResMut<Assets<TextureAsset>>,
+    mut texture_cache: ResMut<TextureCache>,
     mut mesh_registry: Option<ResMut<GpuMeshRegistry>>,
     mut tex_registry: Option<ResMut<GpuTextureRegistry>>,
     mut query: Query<
@@ -146,21 +160,11 @@ fn generate_terrain_chunks(
         let Some(mut pending) = pending else {
             let heightmap_handle =
                 asset_server.load::<HeightmapAsset>(terrain.heightmap_path.clone());
-            let layer_paths = [
-                terrain.layer0_texture_path.clone(),
-                terrain.layer1_texture_path.clone(),
-                terrain.layer2_texture_path.clone(),
-                terrain.layer3_texture_path.clone(),
-            ];
-            let layers = layer_paths.map(|p| {
-                bsengine_asset::AssetSlot::from_handle(asset_server.load::<TextureAsset>(p))
-            });
             let splatmap = terrain.splatmap_path.as_ref().map(|p| {
                 bsengine_asset::AssetSlot::from_handle(asset_server.load::<TextureAsset>(p.clone()))
             });
             commands.entity(entity).insert(PendingTerrain {
                 heightmap: bsengine_asset::AssetSlot::from_handle(heightmap_handle),
-                layers,
                 splatmap,
             });
             continue;
@@ -170,22 +174,16 @@ fn generate_terrain_chunks(
             pending.heightmap.poll(&asset_server, &heightmaps),
             Polled::Failed(_)
         );
-        let mut any_layer_failed = false;
-        for slot in pending.layers.iter_mut() {
-            if matches!(slot.poll(&asset_server, &textures), Polled::Failed(_)) {
-                any_layer_failed = true;
-            }
-        }
         let splatmap_failed = pending
             .splatmap
             .as_mut()
             .map(|s| matches!(s.poll(&asset_server, &textures), Polled::Failed(_)))
             .unwrap_or(false);
-        if heightmap_failed || any_layer_failed || splatmap_failed {
+        if heightmap_failed || splatmap_failed {
             // A failed load never resolves, so the path is dropped entirely --
             // otherwise a missing file retries silently forever.
             warn!(
-                "[terrain] cannot load heightmap or a layer texture for '{}'",
+                "[terrain] cannot load the heightmap or splatmap for '{}'",
                 terrain.heightmap_path
             );
             commands.entity(entity).remove::<PendingTerrain>();
@@ -199,35 +197,6 @@ fn generate_terrain_chunks(
         let Some(heightmap) = heightmaps.get(&heightmap_handle) else {
             continue;
         };
-        let Some(tex0) = textures.get(pending.layers[0].handle()) else {
-            continue;
-        };
-        let Some(tex1) = textures.get(pending.layers[1].handle()) else {
-            continue;
-        };
-        let Some(tex2) = textures.get(pending.layers[2].handle()) else {
-            continue;
-        };
-        let Some(tex3) = textures.get(pending.layers[3].handle()) else {
-            continue;
-        };
-        // A layer whose pixels a material's upload already released
-        // (`release_pixels` in its sidecar) has nothing to upload from, and
-        // uploading nothing is a wgpu validation panic. Said once, like a
-        // failed load, and the terrain is given up rather than retried.
-        let released = [tex0, tex1, tex2, tex3]
-            .iter()
-            .position(|t| t.pixels_released);
-        if let Some(i) = released {
-            warn!(
-                "[terrain] layer {i} of '{}' has `release_pixels` set in its sidecar and its \
-                 pixels are already gone from memory; a terrain layer reads the pixels for \
-                 itself, so turn the setting off for that image",
-                terrain.heightmap_path
-            );
-            commands.entity(entity).remove::<PendingTerrain>();
-            continue;
-        }
         let Some(tex_reg) = tex_registry.as_mut() else {
             continue;
         };
@@ -235,16 +204,36 @@ fn generate_terrain_chunks(
             continue;
         };
 
-        // Shared by every chunk of this `Terrain` entity -- uploaded once per
-        // frame this branch is reached, which only happens once (chunks are
-        // spawned and `TerrainChunksGenerated`/`PendingTerrain` are updated
-        // before the next frame's query would see this entity again).
-        let layer_ids: [u64; 4] = [
-            tex_reg.load_with(tex0.width, tex0.height, &tex0.data, tex0.settings),
-            tex_reg.load_with(tex1.width, tex1.height, &tex1.data, tex1.settings),
-            tex_reg.load_with(tex2.width, tex2.height, &tex2.data, tex2.settings),
-            tex_reg.load_with(tex3.width, tex3.height, &tex3.data, tex3.settings),
+        // The four layers, through the texture cache: requested the first
+        // time this runs, polled every frame after, uploaded once each and
+        // shared by every chunk of this `Terrain` -- and shared with any
+        // material that draws the same image, which is why the cache and not
+        // this system owns the upload (see `PendingTerrain`). A layer the
+        // cache gave up on is given up here too, like a failed heightmap.
+        let layer_paths = [
+            terrain.layer0_texture_path.as_str(),
+            terrain.layer1_texture_path.as_str(),
+            terrain.layer2_texture_path.as_str(),
+            terrain.layer3_texture_path.as_str(),
         ];
+        let mut layer_ids = [0u64; 4];
+        let mut all_uploaded = true;
+        for (id, path) in layer_ids.iter_mut().zip(layer_paths) {
+            match texture_cache.upload(path, &asset_server, &mut textures, tex_reg) {
+                Some(uploaded) => *id = uploaded,
+                None => all_uploaded = false,
+            }
+        }
+        if !all_uploaded {
+            if let Some(i) = layer_paths.iter().position(|p| texture_cache.gave_up(p)) {
+                warn!(
+                    "[terrain] cannot load layer {i} ('{}') of '{}'",
+                    layer_paths[i], terrain.heightmap_path
+                );
+                commands.entity(entity).remove::<PendingTerrain>();
+            }
+            continue;
+        }
 
         let params = crate::terrain_chunking::ChunkParams {
             chunk_count: terrain.chunk_count,
@@ -258,6 +247,22 @@ fn generate_terrain_chunks(
                 let Some(tex) = textures.get(slot.handle()) else {
                     continue;
                 };
+                // The splatmap is read here, on the CPU, for the blend
+                // weights baked into the chunk vertices. Nothing uploads it
+                // as a texture, so nothing releases its pixels -- unless the
+                // same image is also some material's texture, in which case
+                // that upload may have. Said once, and the terrain is given
+                // up, rather than baking weights out of an empty buffer.
+                if tex.pixels_released {
+                    warn!(
+                        "[terrain] the splatmap of '{}' is also used as a material texture and \
+                         its pixels were released after that upload (`release_pixels`); a \
+                         splatmap is read on the CPU, so turn the setting off for that image",
+                        terrain.heightmap_path
+                    );
+                    commands.entity(entity).remove::<PendingTerrain>();
+                    continue;
+                }
                 Some(crate::terrain_chunking::SplatmapOverride {
                     width: tex.width,
                     height: tex.height,

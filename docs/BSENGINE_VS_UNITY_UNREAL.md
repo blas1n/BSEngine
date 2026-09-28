@@ -134,6 +134,21 @@ Godot은 `.godot/imported/`의 `.ctex` — **밉이 전부 들어 있는 쿡 파
 128 레벨을 덮어쓴 뒤 raise가 그 바이트를 읽는 것, 파일 삭제 후 raise 거부, 디렉터리 불가 시 RAM 폴백, 잘못된 파일 재작성.
 `Assets<TextureAsset>`의 원본 픽셀은 핫리로드 핸들이 붙들고 있어 그대로 — 다음 단계가 있다면 그것.
 
+**스카이박스·터레인 레이어가 `TextureCache`를 거친다(2026-09-28).** #1897이 `release_pixels`를 옵트인으로 둔 이유 하나를
+지운다. 스카이박스는 자기 `AssetSlot`으로 이미지를 요청해 `tex.data`를 `set_skybox_from_rgba`로 올렸고, 터레인은 레이어 4장을
+자기 슬롯으로 받아 `load_with`로 올렸다 — 머티리얼이 같은 이미지를 먼저 올려 픽셀을 해제하면 둘은 빈 버퍼를 만났다. 이제 둘 다
+`TextureCache::upload(path)`(공개로 승격)로 **캐시가 소유한 하나의 GPU 사본**의 id를 받는다. 스카이박스는 그 레지스트리 객체를
+`set_skybox_from_texture`로 **GPU→GPU 복사**해 자기 텍스처(sRGB·자체 샘플러: 가로 Repeat·극 Clamp)를 만든다 — 레지스트리
+뷰 위에 바인드 그룹을 만들면 핫리로드·스트리밍으로 객체가 바뀔 때 옛 객체를 붙들고 계속 그리기 때문. 그 변경을 알기 위해
+`GpuTextureRegistry`에 **텍스처별 세대 번호**(`generation(id)`: 리로드·레벨 in/out마다 새 번호, 다른 텍스처엔 무영향)를 두고
+`sync_skybox`가 매 프레임 비교해 다시 복사한다; 에셋 이벤트를 듣던 `rebuild_modified_skybox`는 사라졌다. 레지스트리 텍스처는
+`COPY_SRC`를 얻었다. 터레인 스플랫맵은 CPU에서 블렌드 가중치로 읽는 **데이터**라 슬롯을 유지하고 아무도 업로드·해제하지
+않는다(같은 파일이 머티리얼 텍스처이기도 하면 경고 후 포기). ⚠️ 옛 스카이박스 테스트 5개는 `PendingSkybox` 내부(슬롯·핸들)를
+봤는데 그 기계가 없어져, **공유 디바이스 위 실제 오프스크린 서피스**(`WgpuSurface::offscreen_for_testing`, 디바이스 예산 0)에서
+`has_skybox`·`loaded_skybox_path`·업로드 횟수·세대를 관측하도록 다시 썼다 — "중간 전환 시 옛 요청 포기"는 캐시 설계에서
+구조적으로 무의미해졌고(둘 다 캐시에 남지만 화면엔 `SkyboxPath`가 원하는 것만), 대신 "전환 뒤 되돌리면 재업로드 없이 복사"를
+잰다. 기본값 뒤집기(Unity의 Read/Write 반대 = 해제 on)는 다음 PR.
+
 **단일 실행 파일 — `--mode single`(2026-09-28).** 로드맵 item 55에서 의도적으로 범위 밖에 뒀던 마지막 항목. 선례는 갈린다:
 Unity(`exe + Data/`)·Unreal(`exe + Content/Paks/`)은 단일 파일을 만들지 않고, **Godot만 "Embed PCK"로 `.pck`를 내보내기
 템플릿 바이너리 뒤에 붙이고 끝에 오프셋+매직을 써서 실행 중인 바이너리가 자기 꼬리를 읽는다.** 사용자가 "가장 좋은 쪽"을

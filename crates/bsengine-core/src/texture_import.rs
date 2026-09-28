@@ -66,12 +66,14 @@ pub struct TextureImportSettings {
     /// asset keeps its size, settings and hot-reload handle, and a file
     /// change loads fresh pixels for one more upload.
     ///
-    /// Off by default, unlike Unity, because two uploaders here read the
-    /// pixels for themselves instead of sharing the material path's GPU
-    /// copy: the skybox and terrain layers. An image used by one of those
-    /// *and* a material would have its pixels released before they read
-    /// them; they say so and skip the image rather than upload nothing.
-    /// Turn this on for material and UI textures only.
+    /// Safe for any image the GPU samples: materials, UI images, the skybox
+    /// and a terrain's layers all take their copy from the one the texture
+    /// cache uploads. The one image read on the CPU is a terrain's splatmap
+    /// (blend weights baked into vertices); it is never uploaded, so nothing
+    /// releases it -- unless the same file is also a material's texture,
+    /// which the terrain reports and gives up on.
+    ///
+    /// Still off by default: flipping it to Unity's default is its own change.
     #[serde(default)]
     pub release_pixels: bool,
 }

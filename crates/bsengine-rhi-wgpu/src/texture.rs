@@ -1600,9 +1600,9 @@ mod tests {
     }
 
     /// Not a check but a measurement, so `#[ignore]`d: what a raise costs
-    /// the frame thread from a cache file, for a 4096x4096 chain, against
-    /// what the old path paid to read the whole chain synchronously. Run
-    /// with
+    /// the frame thread from a cache file, for a 2048x2048 chain (the
+    /// largest the test device allows; a level 0 of 16 MiB), against what
+    /// the old path paid to read the whole chain synchronously. Run with
     /// `cargo test --release -p bsengine-rhi-wgpu --lib -- --ignored measure_raise --nocapture`;
     /// a debug build's numbers say nothing (validation layers, unoptimised
     /// copies).
@@ -1611,8 +1611,8 @@ mod tests {
     fn measure_raise_cost_from_a_cache_file() {
         use std::time::Instant;
         let (mut reg, dir) = make_registry_with_cache("measure");
-        let pixels = vec![120u8; 4096 * 4096 * 4];
-        let id = reg.load_with(4096, 4096, &pixels, streamed());
+        let pixels = vec![120u8; 2048 * 2048 * 4];
+        let id = reg.load_with(2048, 2048, &pixels, streamed());
         drop(pixels);
 
         // The old path, for scale: every level from the base down, read

@@ -282,7 +282,11 @@ pub fn game_tools(root: PathBuf) -> Vec<McpTool> {
                 (\"Linear\" | \"Nearest\", default Linear), `wrap` (\"Repeat\" | \"Clamp\" | \
                 \"Mirror\", default Repeat), `streaming` (bool, default false -- upload only \
                 the mip levels up to 64 px at load and bring the larger ones in one per \
-                frame afterwards; needs `mipmaps`).\n\
+                frame afterwards; needs `mipmaps`), `release_pixels` (bool, default false -- \
+                drop the decoded pixels from system memory once a material or UI image has \
+                uploaded them, the opposite of Unity's Read/Write Enabled; for material and \
+                UI textures only, since the skybox and terrain layers read the pixels for \
+                themselves and will skip an image whose pixels were released).\n\
                 Models (glb, gltf): `scale` (number > 0, default 1.0 -- baked into vertices, \
                 skeleton, bind matrices and animation keys; 0.01 brings a centimetre file to \
                 metres), `import_animations` (bool, default true).\n\n\
@@ -1320,6 +1324,7 @@ mod tests {
                 filter: TextureFilter::Nearest,
                 wrap: TextureWrap::Clamp,
                 streaming: false,
+                release_pixels: false,
             },
             "the second edit keeps the first's srgb: false"
         );

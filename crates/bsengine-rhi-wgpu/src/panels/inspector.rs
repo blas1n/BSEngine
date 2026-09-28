@@ -579,6 +579,13 @@ fn draw_asset_import(ui: &mut egui::Ui, insp: &mut bsengine_core::InspectorState
             .on_disabled_hover_text(
                 "Streaming needs mipmaps: it brings the chain in level by level.",
             );
+            ui.checkbox(&mut t.release_pixels, "Release pixels after upload")
+                .on_hover_text(
+                    "Drops the decoded pixels from system memory once a material or UI \
+                     image has uploaded them (the opposite of Unity's Read/Write Enabled). \
+                     Material and UI textures only: the skybox and terrain layers read the \
+                     pixels for themselves and skip an image whose pixels were released.",
+                );
             egui::ComboBox::from_label("Filter")
                 .selected_text(format!("{:?}", t.filter))
                 .show_ui(ui, |ui| {

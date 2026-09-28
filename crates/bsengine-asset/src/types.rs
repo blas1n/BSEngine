@@ -15,6 +15,20 @@ pub struct TextureAsset {
     /// defaults when it has none. Carried with the pixels so every uploader
     /// -- materials, terrain layers, the skybox -- honours the same record.
     pub settings: TextureImportSettings,
+    /// Whether `data` has been dropped after an upload, under
+    /// `settings.release_pixels`. `data` is then empty and stays so until
+    /// the file is loaded again; an uploader that finds this set has
+    /// nothing to upload and must say so rather than upload nothing.
+    pub pixels_released: bool,
+}
+
+impl TextureAsset {
+    /// Drops the pixels, keeping the size and settings -- what an uploader
+    /// does once the GPU has them and the sidecar says not to keep a copy.
+    pub fn release_pixels(&mut self) {
+        self.data = Vec::new();
+        self.pixels_released = true;
+    }
 }
 
 /// A decoded heightmap: 16-bit grayscale values, row-major, `width * height`
@@ -40,13 +54,17 @@ mod tests {
 
     #[test]
     fn texture_asset_has_dimensions() {
-        let tex = TextureAsset {
+        let mut tex = TextureAsset {
             width: 256,
             height: 256,
             data: vec![0u8; 256 * 256 * 4],
             settings: TextureImportSettings::default(),
+            pixels_released: false,
         };
         assert_eq!(tex.width, 256);
         assert_eq!(tex.data.len(), 256 * 256 * 4);
+        tex.release_pixels();
+        assert!(tex.pixels_released && tex.data.is_empty());
+        assert_eq!((tex.width, tex.height), (256, 256), "the size is kept");
     }
 }

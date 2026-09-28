@@ -55,7 +55,7 @@ mod tests {
         );
         assert_eq!(
             ron::to_string(&ImportSettings::Texture(TextureImportSettings::default())).unwrap(),
-            "Texture((srgb:true,mipmaps:true,filter:Linear,wrap:Repeat,streaming:false))"
+            "Texture((srgb:true,mipmaps:true,filter:Linear,wrap:Repeat,streaming:false,release_pixels:false))"
         );
         assert_eq!(
             ImportSettings::Model(ModelImportSettings::default()).kind(),

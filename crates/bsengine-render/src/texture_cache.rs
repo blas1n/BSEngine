@@ -76,7 +76,7 @@ impl TextureCache {
         &mut self,
         path: &str,
         asset_server: &bevy_asset::AssetServer,
-        textures: &bevy_asset::Assets<TextureAsset>,
+        textures: &mut bevy_asset::Assets<TextureAsset>,
         registry: &mut GpuTextureRegistry,
     ) -> Option<u64> {
         // Requested here, the first time anyone asks for this path, so
@@ -95,6 +95,7 @@ impl TextureCache {
                 if let Some(tex) = textures.get(entry.slot.handle()) {
                     entry.id =
                         Some(registry.load_with(tex.width, tex.height, &tex.data, tex.settings));
+                    release_if_asked(textures, entry.slot.handle(), path);
                 }
             }
             bsengine_asset::Polled::Failed(e) => {
@@ -119,7 +120,7 @@ impl TextureCache {
 pub fn reupload_modified_textures(
     mut events: bevy_ecs::prelude::EventReader<bevy_asset::AssetEvent<TextureAsset>>,
     cache: Res<TextureCache>,
-    textures: Res<bevy_asset::Assets<TextureAsset>>,
+    mut textures: ResMut<bevy_asset::Assets<TextureAsset>>,
     mut registry: Option<ResMut<GpuTextureRegistry>>,
 ) {
     for event in events.read() {
@@ -136,13 +137,42 @@ pub fn reupload_modified_textures(
             let (Some(gpu_id), Some(tex)) = (entry.id, textures.get(entry.slot.handle())) else {
                 continue;
             };
+            // Releasing the pixels below is itself a modification of the
+            // asset, and the event for it arrives here a frame later: there
+            // is nothing to upload from it, and the GPU copy is current.
+            if tex.pixels_released {
+                continue;
+            }
             if !registry.replace_with(gpu_id, tex.width, tex.height, &tex.data, tex.settings) {
                 tracing::warn!(
                     "[texture] '{path}' was modified but its GPU texture {gpu_id} is no longer \
                      registered; whatever samples it keeps the pre-edit pixels"
                 );
             }
+            release_if_asked(&mut textures, entry.slot.handle(), path);
         }
+    }
+}
+
+/// Drops an uploaded texture's pixels from `Assets` when its sidecar says
+/// to (`TextureImportSettings::release_pixels`) -- the CPU copy Unity frees
+/// unless "Read/Write Enabled" is on. The asset keeps its size, settings
+/// and handle, so hot reload still reaches it; the file's next load brings
+/// fresh pixels for one more upload, after which they are released again.
+fn release_if_asked(
+    textures: &mut bevy_asset::Assets<TextureAsset>,
+    handle: &bevy_asset::Handle<TextureAsset>,
+    path: &str,
+) {
+    let wants_release = textures
+        .get(handle)
+        .is_some_and(|t| t.settings.release_pixels && !t.pixels_released);
+    if !wants_release {
+        return;
+    }
+    if let Some(tex) = textures.get_mut(handle) {
+        tex.release_pixels();
+        tracing::debug!("[texture] '{path}' is on the GPU; its pixels are released from RAM");
     }
 }
 
@@ -301,7 +331,7 @@ pub fn resolve_texture_paths(
     mut wanting: Query<(&TexturePath, &mut Material)>,
     ui_state: Option<Res<bsengine_core::UiState>>,
     asset_server: Res<bevy_asset::AssetServer>,
-    textures: Res<bevy_asset::Assets<TextureAsset>>,
+    mut textures: ResMut<bevy_asset::Assets<TextureAsset>>,
     registry: Option<ResMut<GpuTextureRegistry>>,
 ) {
     let Some(mut registry) = registry else {
@@ -314,7 +344,12 @@ pub fn resolve_texture_paths(
         if material.texture_id.is_some() {
             continue;
         }
-        let id = cache.ensure_uploaded(wanted.0.as_str(), &asset_server, &textures, &mut registry);
+        let id = cache.ensure_uploaded(
+            wanted.0.as_str(),
+            &asset_server,
+            &mut textures,
+            &mut registry,
+        );
         if let Some(id) = id {
             material.texture_id = Some(id);
         }
@@ -329,7 +364,12 @@ pub fn resolve_texture_paths(
         for widget in &ui.widgets {
             if let bsengine_core::UiWidget::Image { texture_path, .. } = widget {
                 if !texture_path.is_empty() {
-                    cache.ensure_uploaded(texture_path, &asset_server, &textures, &mut registry);
+                    cache.ensure_uploaded(
+                        texture_path,
+                        &asset_server,
+                        &mut textures,
+                        &mut registry,
+                    );
                 }
             }
         }
@@ -745,6 +785,107 @@ mod tests {
             Some(0),
             "a quarter of an atlas drawn 156 px tall: the whole texture"
         );
+    }
+
+    /// With `release_pixels` in the sidecar, the pixels leave `Assets` once
+    /// the texture is on the GPU -- and only then: the GPU copy is the same
+    /// size as before, the asset keeps its size and handle, and the
+    /// modification the release itself is does not re-upload nothing. A
+    /// later real edit, with fresh pixels, is uploaded and released again.
+    /// Without the setting the pixels stay, as they always did.
+    #[test]
+    fn release_pixels_drops_the_cpu_copy_once_the_texture_is_on_the_gpu() {
+        use bsengine_core::TextureImportSettings;
+
+        let mut app = test_app();
+        app.world_mut()
+            .spawn((Material::default(), TexturePath(REAL_TEXTURE.into())));
+        for _ in 0..60 {
+            app.update();
+        }
+        let gpu_id = app
+            .world()
+            .resource::<TextureCache>()
+            .id_for(REAL_TEXTURE)
+            .expect("premise: the texture uploaded");
+        let handle = app.world().resource::<TextureCache>().by_path[REAL_TEXTURE]
+            .slot
+            .handle()
+            .clone();
+        let asset = |app: &bevy_app::App| {
+            let textures = app.world().resource::<bevy_asset::Assets<TextureAsset>>();
+            let t = textures.get(&handle).expect("the asset is loaded");
+            (t.data.len(), t.pixels_released, t.width)
+        };
+        let (bytes, released, width) = asset(&app);
+        assert!(bytes > 0 && !released, "premise: pixels kept by default");
+        let footprint = app
+            .world()
+            .resource::<GpuTextureRegistry>()
+            .get_gpu_footprint(gpu_id)
+            .unwrap();
+
+        // The sidecar edit, as the watcher delivers it: the same asset,
+        // modified, with the setting on and 256x256 pixels of a new value.
+        {
+            let mut textures = app
+                .world_mut()
+                .resource_mut::<bevy_asset::Assets<TextureAsset>>();
+            let tex = textures.get_mut(&handle).unwrap();
+            tex.width = 256;
+            tex.height = 256;
+            tex.data = vec![90u8; 256 * 256 * 4];
+            tex.settings = TextureImportSettings {
+                release_pixels: true,
+                ..Default::default()
+            };
+        }
+        for _ in 0..4 {
+            app.update();
+        }
+        let (bytes, released, width_after) = asset(&app);
+        assert_eq!(bytes, 0, "the pixels are released");
+        assert!(released);
+        assert_eq!(width_after, 256, "the size is kept");
+        assert_eq!(
+            app.world()
+                .resource::<GpuTextureRegistry>()
+                .get_gpu_footprint(gpu_id)
+                .map(|f| (f.0, f.1)),
+            Some((256, 256)),
+            "the GPU copy was uploaded from the pixels before they went"
+        );
+        assert_ne!(
+            footprint.0, 256,
+            "premise: the original is not 256 wide, so the upload is observable (was {width})"
+        );
+
+        // A real edit arrives with pixels: uploaded (the GPU object is the
+        // new size) and released again.
+        {
+            let mut textures = app
+                .world_mut()
+                .resource_mut::<bevy_asset::Assets<TextureAsset>>();
+            let tex = textures.get_mut(&handle).unwrap();
+            tex.width = 128;
+            tex.height = 128;
+            tex.data = vec![7u8; 128 * 128 * 4];
+            tex.pixels_released = false;
+        }
+        for _ in 0..4 {
+            app.update();
+        }
+        assert_eq!(
+            app.world()
+                .resource::<GpuTextureRegistry>()
+                .get_gpu_footprint(gpu_id)
+                .map(|f| (f.0, f.1)),
+            Some((128, 128)),
+            "the edit reached the GPU"
+        );
+        let (bytes, released, _) = asset(&app);
+        assert_eq!(bytes, 0, "and its pixels were released again");
+        assert!(released);
     }
 
     /// The property the sidecar story depends on: an asset modified after it

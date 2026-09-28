@@ -40,6 +40,7 @@ impl AssetLoader for TextureAssetLoader {
             height,
             data: img.into_raw(),
             settings,
+            pixels_released: false,
         })
     }
 }

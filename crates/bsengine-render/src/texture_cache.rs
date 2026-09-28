@@ -252,6 +252,15 @@ pub fn stream_textures(
     let Some(mut registry) = registry else {
         return;
     };
+    // Levels read off the frame thread since last frame land first, so the
+    // step below sees the residency they made and never asks for them twice.
+    let landed = registry.poll_reads();
+    if !landed.is_empty() {
+        tracing::debug!(
+            "[texture] {} streamed level(s) arrived from disk",
+            landed.len()
+        );
+    }
     let settings = settings.map(|s| *s).unwrap_or_default();
     let budget = (settings.budget_bytes > 0).then_some(settings.budget_bytes);
 
@@ -1035,6 +1044,64 @@ mod tests {
         assert_eq!(residency(&app), Some(0));
         app.update();
         assert_eq!(residency(&app), Some(0), "and rests once whole");
+    }
+
+    /// The same, from a cache file: each level is read on a worker thread
+    /// and lands on a later frame, through the plugin's own polling -- no
+    /// test code asks the registry for it. Counted by reads rather than by
+    /// frames, since how many frames a read takes is the disk's business.
+    #[test]
+    fn render_plugin_brings_a_streamed_textures_levels_in_from_a_cache_file() {
+        use bsengine_core::TextureImportSettings;
+
+        let dir =
+            std::env::temp_dir().join(format!("bse_render_stream_disk_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(crate::RenderPlugin);
+        with_gpu(&mut app);
+        let id = {
+            let mut registry = app.world_mut().resource_mut::<GpuTextureRegistry>();
+            registry.set_mip_cache_root(Some(dir.clone()));
+            registry.load_with(
+                256,
+                256,
+                &vec![0u8; 256 * 256 * 4],
+                TextureImportSettings {
+                    streaming: true,
+                    ..Default::default()
+                },
+            )
+        };
+        fn registry(app: &bevy_app::App) -> &GpuTextureRegistry {
+            app.world().resource::<GpuTextureRegistry>()
+        }
+        assert!(
+            registry(&app).mip_cache_file(id).is_some(),
+            "premise: the chain went to a cache file"
+        );
+        assert_eq!(registry(&app).residency(id), Some((2, 9)));
+
+        // A worker reads each level; frames go by until it lands. Two
+        // hundred frames is far more than two reads of a few hundred
+        // kilobytes need, and a loop that never gets there is the failure.
+        let mut frames = 0;
+        while registry(&app).residency(id) != Some((0, 9)) {
+            app.update();
+            frames += 1;
+            assert!(
+                frames < 200,
+                "the levels never all arrived through the plugin's frames"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        assert_eq!(
+            registry(&app).disk_reads(),
+            (2, 128 * 128 * 4 + 256 * 256 * 4),
+            "two levels, read once each, and nothing else"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A real image, reached from this crate's directory.

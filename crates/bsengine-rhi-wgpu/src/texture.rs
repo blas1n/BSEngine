@@ -341,10 +341,14 @@ fn block_encoder(format: wgpu::TextureFormat) -> Option<texpresso::Format> {
 }
 
 /// What a cache file records about how its levels are encoded, so a file
-/// written for one encoding is never read as another: the bytes of a BC1
-/// level and an RGBA8 level of the same size differ in length, but BC1 and
-/// BC3 levels of a 4x4 image do not. sRGB is not part of it -- the bytes
-/// are the same either way and only the view differs.
+/// written for one encoding is never read as another. Today the level
+/// lengths already tell the three apart -- a block-aligned level is 64ab
+/// bytes in RGBA8, 16ab in BC3 and 8ab in BC1 -- and the file name's hash
+/// carries the tag too, so the check is a third guard; it is here for the
+/// encoding whose lengths coincide with one of these (BC7 is 16 bytes a
+/// block, exactly BC3's), so that adding it cannot read a BC3 file as BC7.
+/// sRGB is not part of it -- the bytes are the same either way and only the
+/// view differs.
 fn encoding_tag(format: wgpu::TextureFormat) -> u32 {
     match block_encoder(format) {
         None => 0,
@@ -2262,6 +2266,45 @@ mod tests {
             read_mip_cache_table(&dir.join(&name), &dims, wgpu::TextureFormat::Rgba8UnormSrgb)
                 .is_some(),
             "rewritten"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The header's encoding tag is checked on its own, not only through
+    /// the level lengths: a file whose levels are BC1-sized but whose tag
+    /// says another encoding is not read as BC1. The lengths would pass it
+    /// -- which is the case a future 16-bytes-a-block encoding (BC7) would
+    /// present against BC3 -- so this is what makes the tag a check at all.
+    #[test]
+    fn a_cache_file_is_read_only_as_the_encoding_tag_says() {
+        use std::borrow::Cow;
+        let dir = std::env::temp_dir().join("bsengine-mips-encoding_tag");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let bc1 = wgpu::TextureFormat::Bc1RgbaUnormSrgb;
+        let dims = [(8u32, 8u32), (4, 4), (2, 2), (1, 1)];
+        let levels: Vec<(u32, u32, Cow<'_, [u8]>)> = dims
+            .iter()
+            .map(|&(w, h)| {
+                let len = crate::profiler::level_bytes(bc1, w, h) as usize;
+                (w, h, Cow::Owned(vec![0u8; len]))
+            })
+            .collect();
+        let (bytes, _) = encode_mip_cache(&levels, bc1);
+        let path = dir.join("tagged.mips");
+        std::fs::write(&path, &bytes).unwrap();
+        assert!(
+            read_mip_cache_table(&path, &dims, bc1).is_some(),
+            "premise: as written, the file reads as BC1"
+        );
+
+        let mut retagged = bytes.clone();
+        retagged[12..16]
+            .copy_from_slice(&encoding_tag(wgpu::TextureFormat::Bc3RgbaUnormSrgb).to_le_bytes());
+        std::fs::write(&path, &retagged).unwrap();
+        assert!(
+            read_mip_cache_table(&path, &dims, bc1).is_none(),
+            "the same levels under a BC3 tag are not read as BC1, though every length fits"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }

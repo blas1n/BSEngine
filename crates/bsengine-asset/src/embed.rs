@@ -202,6 +202,12 @@ mod tests {
     /// The magic alone is not an archive. A trailer whose offsets do not put
     /// the archive exactly before it is a damaged build and must be an
     /// error, not `None` -- `None` would start the game out of loose files.
+    ///
+    /// The corruption is one byte of offset, on purpose: a reader that did
+    /// not check the offsets would read that span without complaint and hand
+    /// back an archive off by one, so it is this case and not a wildly wrong
+    /// length (which fails at the allocation or the read anyway) that tells
+    /// a checking reader from a trusting one.
     #[test]
     fn a_trailer_whose_offsets_do_not_fit_is_an_error_not_an_absence() {
         let dir = scratch("damaged");
@@ -211,13 +217,17 @@ mod tests {
         std::fs::write(&path, &single).expect("write");
         assert!(read_embedded(&path).expect("read").is_some());
 
-        // Corrupt the length field: the archive now claims to end past the
-        // trailer's start.
-        let len_at = single.len() - TRAILER_LEN + 8;
-        single[len_at..len_at + 8].copy_from_slice(&(u64::MAX / 2).to_le_bytes());
+        // Corrupt the offset by one: the archive now claims to start a byte
+        // early and so to end a byte before the trailer.
+        let offset_at = single.len() - TRAILER_LEN;
+        let offset = u64::from_le_bytes(single[offset_at..offset_at + 8].try_into().unwrap());
+        single[offset_at..offset_at + 8].copy_from_slice(&(offset - 1).to_le_bytes());
         let path = dir.join("damaged.exe");
         std::fs::write(&path, &single).expect("write");
-        assert!(read_embedded(&path).is_err(), "damaged: an error");
+        assert!(
+            read_embedded(&path).is_err(),
+            "damaged: an error, not the bytes the offsets happen to span"
+        );
         assert!(strip(&single).is_err());
 
         // A file that is just the magic, with nothing that could be a trailer

@@ -24,7 +24,7 @@ master `bf2c649b` 기준. 열린 PR·이슈 0개, 소스 TODO/FIXME 0개, 워크
 | **macOS FSEvents rename 페어링** | 백엔드 측정 테스트 2개만 macOS `#[ignore]` | #1888: 엔진이 더는 백엔드의 짝맞춤에 의존하지 않음 — 파일 identity(inode)로 잃어버린 반쪽을 재구성. 런타임 복구 테스트 2개 + 실백엔드 rename 테스트 1개를 macOS에서 다시 켬. 아래 절 참조 |
 | ~~텍스처 스트리밍 2단계(거리 기반 목표 밉·메모리 예산·퇴거)~~ | `grep -rn "wanted_base\|budget_bytes" crates/` | 2026-09-26 구현(아래 "텍스처 스트리밍 2단계" 절): 카메라 거리·화면 크기 기반 목표 밉, `[render]` 예산·밉 바이어스, 예산 초과 시 퇴거, 프로파일러 스탯. 디스크에서 스트리밍(체인을 RAM에 둠)은 여전히 없음 |
 | ~~단일 실행 파일~~ | `grep -rn "BSEMBED1\|PackageMode::Single" crates/` | 2026-09-28 구현(아래 "단일 실행 파일" 절): `--mode single`이 아카이브(매니페스트 포함)를 exe 꼬리에 임베드, macOS는 옆에 |
-| **스카이박스·터레인이 `TextureCache`를 안 거침 → `release_pixels` 기본 off** | `grep -n "&tex.data" crates/bsengine-render/src/plugin.rs crates/bsengine-app/src/terrain.rs` → 3곳(스카이박스 업로드·재빌드, 터레인 레이어) | 둘이 `Assets<TextureAsset>`의 픽셀을 직접 읽어 자기 GPU 사본을 올리므로 #1897의 원본 픽셀 해제는 옵트인이고, 켜면 그 둘은 경고+스킵. 둘을 `TextureCache`의 공유 GPU 사본(`id_for`)으로 돌리면 Unity의 Read/Write Enabled 반대 기본값(해제 on)이 가능. **2026-09-28 사용자 결정: 아래 세 항목을 이 순서로 하나씩** |
+| ~~**스카이박스·터레인이 `TextureCache`를 안 거침 → `release_pixels` 기본 off**~~ | `grep -n "&tex.data" crates/bsengine-render/src/plugin.rs crates/bsengine-app/src/terrain.rs` → 0 | 2026-09-28 닫힘, 두 PR: #1901이 둘을 `TextureCache::upload`로 돌리고(스카이박스는 GPU→GPU 복사 + 세대 카운터), 그다음 PR이 기본값을 `true`로(Unity의 Read/Write Enabled 반대). 아래 "`release_pixels` 기본값 on"·"스카이박스·터레인 레이어가 `TextureCache`를 거친다" 절. **2026-09-28 사용자 결정: 아래 세 항목을 이 순서로 하나씩** |
 | **디스크 밉 읽기가 동기** | `grep -n "levels_from(base)" crates/bsengine-rhi-wgpu/src/texture.rs` → `set_residency` 안에서 파일 읽기 | 3단계(#1895)의 레벨 읽기가 프레임 스레드에서 `File::open`+`read_exact`. 프레임당 한 레벨이라 SSD에선 ms지만 HDD·네트워크 드라이브면 히치. Unreal(비동기 IO 요청 후 도착 프레임에 업로드)·Unity(백그라운드 로드 후 적용)처럼 읽기를 스레드에 넘기고 도착한 레벨만 올릴 것. ⚠️ 측정은 `--release`로, 히치는 로드 *후* 프레임과 비교(씬 스트리밍 #1866 때 로드 *전* 프레임과 비교해 16ms 히치로 오독한 전례) |
 | **텍스처 압축/포맷 변환 없음** | `grep -rn "TextureFormat::Bc\|TEXTURE_COMPRESSION\|Astc\|Etc2" crates/` → 0 | 모든 텍스처가 RGBA8로 올라감. 세 엔진 모두 임포트 때 압축(Unity: 플랫폼별 BC/ASTC/ETC, Unreal: DXT/BC7, Godot: `.ctex`에 S3TC/ETC2/ASTC 선택). 임포트 세팅(#1878)에 압축 옵션 추가 + 인코더(BC1/BC3/BC7; 데스크톱 wgpu의 `TEXTURE_COMPRESSION_BC`) + 밉 캐시가 압축 블록을 저장. 셋 중 가장 큼(새 의존성·포맷 정책) — 그래서 마지막 |
 
@@ -140,6 +140,13 @@ Godot은 `.godot/imported/`의 `.ctex` — **밉이 전부 들어 있는 쿡 파
 `mip_cache_file`. 테스트는 파일 하나·RAM 0·GPU 풋프린트 동일, 같은 픽셀 재사용(mtime 불변)·다른 픽셀 새 파일, 파일의
 128 레벨을 덮어쓴 뒤 raise가 그 바이트를 읽는 것, 파일 삭제 후 raise 거부, 디렉터리 불가 시 RAM 폴백, 잘못된 파일 재작성.
 `Assets<TextureAsset>`의 원본 픽셀은 핫리로드 핸들이 붙들고 있어 그대로 — 다음 단계가 있다면 그것.
+
+**`release_pixels` 기본값 on(2026-09-28).** 스카이박스·터레인이 캐시를 거치게 된 뒤(아래 문단) 남은 마지막 단계. Unity는
+Read/Write Enabled가 기본 off — 업로드 뒤 CPU 사본을 버린다 — 이고 저자가 켜야 남는다. 여기서도 `TextureImportSettings::
+release_pixels`의 기본을 `true`로: 사이드카가 없는 파일, 필드가 생기기 전에 쓴 사이드카(`#[serde(default = …)]`가 필드 기본을
+줌 — "옛 동작"이 아니라 Unity의 선택) 모두 업로드 뒤 해제. `false`로 쓰면 유지(CPU에서 읽는 이미지용 — 터레인 스플랫맵이
+동시에 머티리얼 텍스처인 경우). `raw()`(메모리 바이트 업로드)는 해제할 에셋이 없으니 그대로 off. 핀된 RON 문자열 두 곳·옛
+사이드카 테스트·캐시 테스트의 전제("기본은 유지" → "기본은 해제, false면 유지")를 바꿈. 이로써 위 표의 첫 줄이 닫힌다.
 
 **스카이박스·터레인 레이어가 `TextureCache`를 거친다(2026-09-28).** #1897이 `release_pixels`를 옵트인으로 둔 이유 하나를
 지운다. 스카이박스는 자기 `AssetSlot`으로 이미지를 요청해 `tex.data`를 `set_skybox_from_rgba`로 올렸고, 터레인은 레이어 4장을

@@ -495,6 +495,10 @@ mod tests {
             tex.width = 256;
             tex.height = 256;
             tex.data = vec![90u8; 256 * 256 * 4];
+            // What a reload produces: fresh pixels, not yet released. Without
+            // this the upload above has released the asset (the default) and
+            // the re-upload rightly skips a modification with nothing in it.
+            tex.pixels_released = false;
             tex.settings = TextureImportSettings {
                 streaming: true,
                 ..Default::default()
@@ -563,6 +567,8 @@ mod tests {
         tex.width = 256;
         tex.height = 256;
         tex.data = vec![90u8; 256 * 256 * 4];
+        // As a reload leaves the asset: fresh pixels, not yet released.
+        tex.pixels_released = false;
         tex.settings = TextureImportSettings {
             streaming: true,
             ..Default::default()
@@ -795,12 +801,13 @@ mod tests {
         );
     }
 
-    /// With `release_pixels` in the sidecar, the pixels leave `Assets` once
-    /// the texture is on the GPU -- and only then: the GPU copy is the same
-    /// size as before, the asset keeps its size and handle, and the
-    /// modification the release itself is does not re-upload nothing. A
-    /// later real edit, with fresh pixels, is uploaded and released again.
-    /// Without the setting the pixels stay, as they always did.
+    /// The pixels leave `Assets` once the texture is on the GPU -- by
+    /// default, as Unity's Read/Write Enabled is off by default -- and only
+    /// then: the asset keeps its size and handle, and the modification the
+    /// release itself is does not re-upload nothing. A sidecar saying
+    /// `release_pixels: false` keeps them, with the fresh pixels reaching
+    /// the GPU first; and a later edit with the setting back on is uploaded
+    /// and released again.
     #[test]
     fn release_pixels_drops_the_cpu_copy_once_the_texture_is_on_the_gpu() {
         use bsengine_core::TextureImportSettings;
@@ -826,15 +833,25 @@ mod tests {
             (t.data.len(), t.pixels_released, t.width)
         };
         let (bytes, released, width) = asset(&app);
-        assert!(bytes > 0 && !released, "premise: pixels kept by default");
+        assert!(
+            bytes == 0 && released,
+            "released after the first upload, by default (a file with no sidecar)"
+        );
+        assert!(width > 0, "the size is kept");
         let footprint = app
             .world()
             .resource::<GpuTextureRegistry>()
             .get_gpu_footprint(gpu_id)
             .unwrap();
+        assert_eq!(
+            (footprint.0, footprint.1),
+            (width, width),
+            "premise: the GPU copy was made from the pixels before they went"
+        );
 
         // The sidecar edit, as the watcher delivers it: the same asset,
-        // modified, with the setting on and 256x256 pixels of a new value.
+        // modified, with the setting turned *off* and 256x256 pixels of a
+        // new value. Uploaded, and kept.
         {
             let mut textures = app
                 .world_mut()
@@ -843,8 +860,9 @@ mod tests {
             tex.width = 256;
             tex.height = 256;
             tex.data = vec![90u8; 256 * 256 * 4];
+            tex.pixels_released = false;
             tex.settings = TextureImportSettings {
-                release_pixels: true,
+                release_pixels: false,
                 ..Default::default()
             };
         }
@@ -852,24 +870,28 @@ mod tests {
             app.update();
         }
         let (bytes, released, width_after) = asset(&app);
-        assert_eq!(bytes, 0, "the pixels are released");
-        assert!(released);
-        assert_eq!(width_after, 256, "the size is kept");
+        assert_eq!(
+            bytes,
+            256 * 256 * 4,
+            "a sidecar saying false keeps the pixels"
+        );
+        assert!(!released);
+        assert_eq!(width_after, 256);
         assert_eq!(
             app.world()
                 .resource::<GpuTextureRegistry>()
                 .get_gpu_footprint(gpu_id)
                 .map(|f| (f.0, f.1)),
             Some((256, 256)),
-            "the GPU copy was uploaded from the pixels before they went"
+            "and the edit reached the GPU"
         );
         assert_ne!(
             footprint.0, 256,
             "premise: the original is not 256 wide, so the upload is observable (was {width})"
         );
 
-        // A real edit arrives with pixels: uploaded (the GPU object is the
-        // new size) and released again.
+        // The setting back to its default, with another edit: uploaded (the
+        // GPU object is the new size) and released again.
         {
             let mut textures = app
                 .world_mut()
@@ -878,7 +900,7 @@ mod tests {
             tex.width = 128;
             tex.height = 128;
             tex.data = vec![7u8; 128 * 128 * 4];
-            tex.pixels_released = false;
+            tex.settings = TextureImportSettings::default();
         }
         for _ in 0..4 {
             app.update();
@@ -945,6 +967,8 @@ mod tests {
             tex.width = 2;
             tex.height = 2;
             tex.data = vec![0u8; 16];
+            // As a reload leaves the asset: fresh pixels, not yet released.
+            tex.pixels_released = false;
             tex.settings = data_settings;
         }
         for _ in 0..3 {

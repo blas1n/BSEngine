@@ -54,10 +54,10 @@ fn package_and_replay(mode: &str) -> Output {
     )
 }
 
-/// The same, for any project and recording.
-fn package_and_replay_project(project_rel: &str, recording_rel: &str, mode: &str) -> Output {
-    let root = repo_root();
-    let project = root.join(project_rel);
+/// Packages `project_rel` in `mode` into a fresh directory and returns it,
+/// without running anything.
+fn package_project(project_rel: &str, mode: &str) -> Output {
+    let project = repo_root().join(project_rel);
     let output = Output::new();
 
     let status = Command::new(env!("CARGO_BIN_EXE_bsengine-runtime"))
@@ -73,6 +73,21 @@ fn package_and_replay_project(project_rel: &str, recording_rel: &str, mode: &str
         status.success(),
         "packaging {project_rel} as {mode} failed: {status}"
     );
+    output
+}
+
+/// The runtime's file name, which is also the packaged executable's.
+fn runtime_file_name() -> &'static str {
+    Path::new(env!("CARGO_BIN_EXE_bsengine-runtime"))
+        .file_name()
+        .and_then(|name| name.to_str())
+        .expect("runtime file name")
+}
+
+/// The same, for any project and recording.
+fn package_and_replay_project(project_rel: &str, recording_rel: &str, mode: &str) -> Output {
+    let project = repo_root().join(project_rel);
+    let output = package_project(project_rel, mode);
 
     // The recording is not an asset — nothing references it, and `scan`
     // excludes `assets/tests/` by name — so it is correctly absent from the
@@ -83,11 +98,7 @@ fn package_and_replay_project(project_rel: &str, recording_rel: &str, mode: &str
     );
     let recording = project.join(recording_rel);
 
-    let packaged_exe = output.0.join(
-        Path::new(env!("CARGO_BIN_EXE_bsengine-runtime"))
-            .file_name()
-            .expect("runtime file name"),
-    );
+    let packaged_exe = output.0.join(runtime_file_name());
     assert!(packaged_exe.is_file(), "the build must carry an executable");
 
     // `current_dir` is not incidental. `bevy_asset` roots at the process
@@ -163,6 +174,60 @@ fn a_pak_packaged_game_replays_its_recording_from_the_archive() {
         "a pak build must not also carry loose assets -- with them present the \
          replay proves nothing about the archive, since it could have read the \
          files instead"
+    );
+}
+
+/// The single-file half: the executable carries the archive, the archive
+/// carries the manifest, and nothing else is written -- so a passing replay
+/// can only have read the game out of the executable. As with the pak test,
+/// the absences are the load-bearing assertions: with a `project.toml` or an
+/// `assets/` on disk the runtime could have read those instead.
+///
+/// On macOS the archive sits beside the binary (a Mach-O with bytes past its
+/// load commands fails code-signature validation; see `cook::PackageMode`),
+/// so the build there is two files -- and still no loose manifest.
+#[test]
+fn a_single_file_build_replays_its_recording_from_the_executable() {
+    let output = package_and_replay("single");
+
+    assert!(
+        !output.0.join("assets").exists(),
+        "no loose assets, or the replay proves nothing about the archive"
+    );
+    assert!(
+        !output.0.join("project.toml").exists(),
+        "the manifest travels inside the archive; loose, the runtime could have read it from disk"
+    );
+    if cfg!(target_os = "macos") {
+        assert!(
+            output.0.join("game.pak").is_file(),
+            "macOS: the archive sits beside the binary"
+        );
+    } else {
+        assert!(
+            !output.0.join("game.pak").exists(),
+            "one file: the archive is inside the executable, not beside it"
+        );
+    }
+
+    // The "one file" claim itself, on a build nothing has run yet: a run
+    // writes its save data and its cache beside the executable, as a run of
+    // any build does, so the directory above is no longer the build alone.
+    let fresh = package_project("games/mini-arena", "single");
+    let mut names: Vec<String> = std::fs::read_dir(&fresh.0)
+        .expect("list the build")
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    let expected: Vec<String> = if cfg!(target_os = "macos") {
+        vec![runtime_file_name().to_string(), "game.pak".to_string()]
+    } else {
+        vec![runtime_file_name().to_string()]
+    };
+    assert_eq!(
+        names, expected,
+        "a single-file build is exactly this (two files on macOS, see above)"
     );
 }
 

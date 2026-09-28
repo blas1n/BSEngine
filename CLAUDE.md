@@ -68,7 +68,7 @@ have one already downloaded, or expect a slow first build.
 cargo run -p bsengine-runtime -- games/mini-arena           # windowed
 cargo run -p bsengine-runtime -- games/mini-arena --frames 5 # quit after N frames
 cargo run -p bsengine-runtime -- --test games/mini-arena    # headless test mode
-cargo run -p bsengine-runtime -- --package games/mini-arena --mode loose|pak
+cargo run -p bsengine-runtime -- --package games/mini-arena --mode loose|pak|single
 ```
 
 ---

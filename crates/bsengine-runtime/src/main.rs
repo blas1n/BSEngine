@@ -55,11 +55,12 @@ fn main() {
                 "--mode" => {
                     let value = args
                         .next()
-                        .unwrap_or_else(|| panic!("--mode requires loose or pak"));
+                        .unwrap_or_else(|| panic!("--mode requires loose, pak or single"));
                     mode = Some(match value.as_str() {
                         "loose" => bsengine_asset::cook::PackageMode::Loose,
                         "pak" => bsengine_asset::cook::PackageMode::Pak,
-                        other => panic!("unknown --mode {other}; expected loose or pak"),
+                        "single" => bsengine_asset::cook::PackageMode::Single,
+                        other => panic!("unknown --mode {other}; expected loose, pak or single"),
                     });
                 }
                 other => panic!("unknown argument after project dir: {other}"),
@@ -270,29 +271,86 @@ fn run_package(
     0
 }
 
-/// Opens `<project_dir>/game.pak` when this is a packaged build, and installs
-/// it for scene reads.
+/// Opens the archive this run plays from, when it is a packaged build, and
+/// installs it for scene reads: the one embedded in this executable by
+/// `--mode single`, or else `<project_dir>/game.pak` from `--mode pak`.
 ///
 /// Returns the archive so the caller can also hand it to
 /// [`bsengine_asset::PakAssetPlugin`], which must be added **before**
 /// `AssetPlugin` — `bevy_asset` builds its sources during that plugin's
 /// `build`, so a source registered afterwards is silently ignored.
 ///
+/// The embedded archive is looked for first, and a build that has one never
+/// looks beside itself: a single-file build is complete by definition, and a
+/// `game.pak` lying next to it belongs to something else.
+///
 /// A missing archive is the ordinary unpackaged case and means loose files. One
 /// that is present but unreadable is not: it would leave the game reading
 /// whatever files happen to be lying around instead of the build it shipped
 /// with, so it stops here rather than degrading into a half-working game.
 fn open_pak(project_dir: &str) -> Option<std::sync::Arc<bsengine_asset::pak::Pak>> {
-    let path = std::path::Path::new(project_dir).join(bsengine_asset::cook::PAK_FILE_NAME);
-    if !path.is_file() {
-        return None;
-    }
-    let pak = std::sync::Arc::new(
-        bsengine_asset::pak::Pak::open(&path)
-            .unwrap_or_else(|e| panic!("Cannot read {}: {e}", path.display())),
-    );
+    let pak = match embedded_pak() {
+        Some(pak) => pak,
+        None => {
+            let path = std::path::Path::new(project_dir).join(bsengine_asset::cook::PAK_FILE_NAME);
+            if !path.is_file() {
+                return None;
+            }
+            bsengine_asset::pak::Pak::open(&path)
+                .unwrap_or_else(|e| panic!("Cannot read {}: {e}", path.display()))
+        }
+    };
+    let pak = std::sync::Arc::new(pak);
     bsengine_asset::pak_source::install(pak.clone(), project_dir);
     Some(pak)
+}
+
+/// The archive embedded in this executable, if this is a single-file build.
+///
+/// A damaged trailer is a panic, for the reason `open_pak` gives for an
+/// unreadable `game.pak`: the player launched *this* build, and starting a
+/// different game out of whatever files surround it is worse than stopping.
+fn embedded_pak() -> Option<bsengine_asset::pak::Pak> {
+    let exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(e) => {
+            tracing::warn!("cannot locate this executable ({e}); assuming it embeds no archive");
+            return None;
+        }
+    };
+    match bsengine_asset::embed::read_embedded(&exe) {
+        Ok(Some(bytes)) => Some(
+            bsengine_asset::pak::Pak::from_bytes(bytes).unwrap_or_else(|e| {
+                panic!("Cannot read the archive embedded in {}: {e}", exe.display())
+            }),
+        ),
+        Ok(None) => None,
+        Err(e) => panic!("Cannot read {}: {e}", exe.display()),
+    }
+}
+
+/// The project manifest: out of the archive when the build carries it there
+/// (`--mode single` stores it as [`bsengine_asset::cook::MANIFEST_ENTRY`]),
+/// and from `<project_dir>/project.toml` otherwise.
+///
+/// Takes the archive [`open_pak`] returned rather than looking it up, so the
+/// order -- archive first, then the manifest that may live inside it -- is
+/// visible at the call site instead of hidden in a global.
+fn read_manifest(project_dir: &str, pak: Option<&bsengine_asset::pak::Pak>) -> ProjectManifest {
+    let manifest_path = format!("{project_dir}/project.toml");
+    let (text, source) = match pak.and_then(|pak| pak.get(bsengine_asset::cook::MANIFEST_ENTRY)) {
+        Some(bytes) => (
+            String::from_utf8(bytes.to_vec())
+                .unwrap_or_else(|e| panic!("The manifest in the archive is not UTF-8: {e}")),
+            "the manifest in the archive".to_string(),
+        ),
+        None => (
+            std::fs::read_to_string(&manifest_path)
+                .unwrap_or_else(|e| panic!("Cannot read {manifest_path}: {e}")),
+            manifest_path,
+        ),
+    };
+    toml::from_str(&text).unwrap_or_else(|e| panic!("Cannot parse {source}: {e}"))
 }
 
 /// Opens the game's window and runs it until it is closed -- or, with
@@ -355,12 +413,10 @@ fn quit_after_frames(app: &mut bevy_app::App, frames: u32) {
 /// Stops short of `run()` so [`run_windowed`] can add the `--frames` limit
 /// before the event loop takes the app.
 fn build_windowed_app(project_dir: &str) -> bevy_app::App {
-    let manifest_path = format!("{project_dir}/project.toml");
-
-    let manifest_str = std::fs::read_to_string(&manifest_path)
-        .unwrap_or_else(|e| panic!("Cannot read {manifest_path}: {e}"));
-    let manifest: ProjectManifest = toml::from_str(&manifest_str)
-        .unwrap_or_else(|e| panic!("Cannot parse {manifest_path}: {e}"));
+    // The archive before the manifest: a single-file build keeps its manifest
+    // inside the archive, so there is nothing to read until that is open.
+    let pak = open_pak(project_dir);
+    let manifest = read_manifest(project_dir, pak.as_deref());
 
     let scene_path = format!("{}/{}", project_dir, manifest.project.entry_scene);
     let title = manifest
@@ -387,7 +443,7 @@ fn build_windowed_app(project_dir: &str) -> bevy_app::App {
     // `build`, so a source registered afterwards is silently ignored -- and a
     // silently ignored pak source means a packaged build quietly reading loose
     // files instead of its own archive.
-    if let Some(pak) = open_pak(project_dir) {
+    if let Some(pak) = pak {
         app.add_plugins(bsengine_asset::PakAssetPlugin {
             pak,
             project_dir: project_dir.to_string(),

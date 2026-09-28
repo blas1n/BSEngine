@@ -35,11 +35,10 @@ use crate::test_query::{eval_op, eval_path, run_query};
 /// whatever the project's entry scene currently is (which changes as a
 /// multi-level game's "real" entry point evolves during development).
 pub fn build_test_app(project_dir: &str, scene_override: Option<&str>, fast_render: bool) -> App {
-    let manifest_path = format!("{project_dir}/project.toml");
-    let manifest_str = std::fs::read_to_string(&manifest_path)
-        .unwrap_or_else(|e| panic!("Cannot read {manifest_path}: {e}"));
-    let manifest: ProjectManifest = toml::from_str(&manifest_str)
-        .unwrap_or_else(|e| panic!("Cannot parse {manifest_path}: {e}"));
+    // The archive before the manifest, as in `build_windowed_app`: a
+    // single-file build keeps its manifest inside the archive.
+    let pak = crate::open_pak(project_dir);
+    let manifest: ProjectManifest = crate::read_manifest(project_dir, pak.as_deref());
     let relative_scene = scene_override.unwrap_or(&manifest.project.entry_scene);
     let scene_path = format!("{project_dir}/{relative_scene}");
 
@@ -57,7 +56,7 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>, fast_rend
     // `build`, so a source registered afterwards is silently ignored -- and a
     // silently ignored pak source means a packaged build quietly reading loose
     // files instead of its own archive.
-    if let Some(pak) = crate::open_pak(project_dir) {
+    if let Some(pak) = pak {
         app.add_plugins(bsengine_asset::PakAssetPlugin {
             pak,
             project_dir: project_dir.to_string(),

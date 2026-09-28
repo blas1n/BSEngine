@@ -33,6 +33,8 @@
 /// Collects exactly the assets a project reaches and writes a build that runs
 /// without the editor. Backs `bsengine-runtime --package`.
 pub mod cook;
+/// An archive embedded in the executable itself: the single-file build.
+pub mod embed;
 /// `AssetLoader` backing `LoadMode::Async` for `HeightmapAsset`.
 pub mod heightmap_loader;
 /// `AssetGuid` and the `.meta` sidecar that gives an asset an identity

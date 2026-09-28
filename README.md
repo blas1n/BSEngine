@@ -145,7 +145,8 @@ purpose, so a typo in it is a mistake rather than a guess.
 mode = "pak"          # or "loose" (the default)
 ```
 
-`--mode <loose|pak>` on the command line overrides the setting for one build.
+`--mode <loose|pak|single>` on the command line overrides the setting for one
+build.
 
 **`loose`** writes `assets/` as ordinary files beside the executable. Any tool
 can open them, which is what makes it the default and the mode to reach for when
@@ -153,16 +154,24 @@ a build misbehaves.
 
 **`pak`** writes a single `game.pak` instead — an index plus the asset bytes,
 the shape Unreal, Unity and Godot all use. Fewer files to ship, and only this
-engine can read them.
+engine can read them. The build is `exe + project.toml + game.pak`.
 
-The build is then `exe + project.toml + game.pak`: **fewer files, but still not
-one file.** Embedding the archive into the executable, the way Godot embeds a
-`.pck`, is the route to a literal single file and is not implemented.
+**`single`** goes one step further, the way Godot's "Embed PCK" does: the
+archive, with `project.toml` inside it, is appended to the executable behind a
+small trailer, and the runtime reads its own binary to find it. The build is
+**one file**. Run it from anywhere — nothing is read from beside it; only the
+`.bsengine_cache/` a run writes lands in the working directory. The exception
+is macOS, where the archive is written beside the binary instead: a Mach-O
+with bytes past its load commands fails code-signature validation, and on
+Apple silicon an unsignable binary does not run (Godot declines to embed there
+for the same reason). That build is `exe + game.pak`, still with no loose
+manifest.
 
 One asset kind cannot be packed: a `.gltf` that references sibling `.bin` or
 image files resolves them through the filesystem, which an archive has none of.
-`--mode pak` fails the build and names them rather than shipping a game that
-loses its meshes at run time. A `.glb` is self-contained and packs fine.
+`--mode pak` and `--mode single` fail the build and name them rather than
+shipping a game that loses its meshes at run time. A `.glb` is self-contained
+and packs fine.
 
 ---
 

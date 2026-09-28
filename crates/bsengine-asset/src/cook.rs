@@ -353,6 +353,16 @@ pub enum PackageMode {
     /// One [`PAK_FILE_NAME`] archive. Fewer files to ship, at the cost of
     /// needing this engine to read them.
     Pak,
+    /// One file: the archive, with the manifest inside it as
+    /// [`MANIFEST_ENTRY`], embedded in the executable (see [`crate::embed`]).
+    /// The shape Godot's "Embed PCK" makes; Unity and Unreal make none.
+    ///
+    /// On macOS the archive sits beside the binary instead -- a Mach-O with
+    /// bytes past its load commands fails code-signature validation, and on
+    /// Apple silicon an unsignable binary does not run; Godot declines to
+    /// embed there for the same reason. The build is then two files, and the
+    /// manifest still travels inside the archive.
+    Single,
 }
 
 /// The archive's name inside a build.
@@ -360,6 +370,12 @@ pub enum PackageMode {
 /// Fixed rather than configurable: the runtime has to find it before it has
 /// read anything that could have told it where to look.
 pub const PAK_FILE_NAME: &str = "game.pak";
+
+/// The manifest's key inside a single-file build's archive.
+///
+/// The same spelling as the file, so the entry reads as what it is. It cannot
+/// collide with an asset: every asset key starts with `assets/`.
+pub const MANIFEST_ENTRY: &str = MANIFEST;
 
 /// Cooks `project_dir` and writes a runnable build into `out_dir`.
 ///
@@ -415,17 +431,18 @@ pub fn package(
     }
 
     std::fs::create_dir_all(out_dir)?;
-    copy(
-        &project_dir.join("project.toml"),
-        &out_dir.join("project.toml"),
-    )?;
     let exe_name = runtime_exe.file_name().ok_or_else(|| {
         io::Error::new(io::ErrorKind::InvalidInput, "the runtime has no file name")
     })?;
-    copy(runtime_exe, &out_dir.join(exe_name))?;
+    // A single-file build carries its manifest inside the archive; the other
+    // two ship it loose, as the bootstrap the runtime reads first.
+    if mode != PackageMode::Single {
+        copy(&project_dir.join(MANIFEST), &out_dir.join(MANIFEST))?;
+    }
 
     match mode {
         PackageMode::Loose => {
+            copy(runtime_exe, &out_dir.join(exe_name))?;
             for asset in &cooked.assets {
                 copy(&project_dir.join(asset), &out_dir.join(asset))?;
                 // An asset without a sidecar is normal — nothing has scanned the
@@ -438,47 +455,87 @@ pub fn package(
             }
         }
         PackageMode::Pak => {
-            // A `.gltf` resolves its buffers and images through sibling files
-            // on disk, which an archive has none of — `bsengine-gltf`'s loader
-            // documents why a byte reader cannot replicate that. Refused here so
-            // the build fails with a sentence somebody can act on, rather than
-            // shipping and losing its meshes at run time, where a failed asset
-            // load is only a warning. `.glb` is self-contained and packs fine.
-            let unpackable: Vec<&String> = cooked
-                .assets
-                .iter()
-                .filter(|asset| extension_of(asset).is_some_and(|e| e.eq_ignore_ascii_case("gltf")))
-                .collect();
-            if !unpackable.is_empty() {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!(
-                        "these assets cannot go in an archive because they read \
-                         sibling files from disk: {}. Convert them to .glb, or \
-                         package with --mode loose.",
-                        unpackable
-                            .iter()
-                            .map(|a| a.as_str())
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    ),
-                ));
-            }
-
-            // Sidecars are deliberately NOT packed, though loose mode ships
-            // them. They exist so the engine can recover a reference whose
-            // asset has moved, and nothing moves inside a sealed archive —
-            // every path in it was resolved by the cook that wrote it, and no
-            // rename can reach it afterwards.
-            let mut entries = Vec::with_capacity(cooked.assets.len());
-            for asset in &cooked.assets {
-                entries.push((asset.clone(), std::fs::read(project_dir.join(asset))?));
-            }
+            copy(runtime_exe, &out_dir.join(exe_name))?;
+            let entries = archive_entries(project_dir, &cooked)?;
             crate::pak::write_pak(out_dir.join(PAK_FILE_NAME), &entries)?;
+        }
+        PackageMode::Single => {
+            let mut entries = archive_entries(project_dir, &cooked)?;
+            entries.push((
+                MANIFEST_ENTRY.to_string(),
+                std::fs::read(project_dir.join(MANIFEST))?,
+            ));
+            let archive = crate::pak::write_pak_bytes(&entries)?;
+            // Read rather than copied, because the runtime doing the packaging
+            // may itself be a single-file build, and its archive must not
+            // ride along under the new one. `embed::strip` is what removes it.
+            let runtime = std::fs::read(runtime_exe)?;
+            let out_exe = out_dir.join(exe_name);
+            if cfg!(target_os = "macos") {
+                // See `PackageMode::Single`: beside the binary, not inside it.
+                std::fs::write(&out_exe, crate::embed::strip(&runtime)?)?;
+                std::fs::write(out_dir.join(PAK_FILE_NAME), archive)?;
+            } else {
+                std::fs::write(&out_exe, crate::embed::append(&runtime, &archive)?)?;
+            }
+            // `fs::write` makes an ordinary file; on Unix that is one without
+            // the execute bit, which `copy` would have carried over. The
+            // permissions of the runtime being packaged are exactly the ones
+            // the build should have.
+            std::fs::set_permissions(&out_exe, std::fs::metadata(runtime_exe)?.permissions())?;
         }
     }
 
     Ok(cooked)
+}
+
+/// The cooked assets as archive entries, for the two archive modes.
+///
+/// A `.gltf` resolves its buffers and images through sibling files on disk,
+/// which an archive has none of — `bsengine-gltf`'s loader documents why a
+/// byte reader cannot replicate that. Refused here so the build fails with a
+/// sentence somebody can act on, rather than shipping and losing its meshes at
+/// run time, where a failed asset load is only a warning. `.glb` is
+/// self-contained and packs fine.
+///
+/// Sidecars are deliberately NOT packed, though loose mode ships them. They
+/// exist so the engine can recover a reference whose asset has moved, and
+/// nothing moves inside a sealed archive — every path in it was resolved by
+/// the cook that wrote it, and no rename can reach it afterwards.
+///
+/// # Errors
+///
+/// When an asset cannot go in an archive, or cannot be read.
+fn archive_entries(
+    project_dir: &Path,
+    cooked: &CookedProject,
+) -> io::Result<Vec<(String, Vec<u8>)>> {
+    let unpackable: Vec<&String> = cooked
+        .assets
+        .iter()
+        .filter(|asset| extension_of(asset).is_some_and(|e| e.eq_ignore_ascii_case("gltf")))
+        .collect();
+    if !unpackable.is_empty() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "these assets cannot go in an archive because they read \
+                 sibling files from disk: {}. Convert them to .glb, or \
+                 package with --mode loose.",
+                unpackable
+                    .iter()
+                    .map(|a| a.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        ));
+    }
+
+    let mut entries = Vec::with_capacity(cooked.assets.len());
+    for asset in &cooked.assets {
+        entries.push((asset.clone(), std::fs::read(project_dir.join(asset))?));
+    }
+    Ok(entries)
 }
 
 /// Collects references from RON documents nested *inside* a scene's strings.
@@ -1269,6 +1326,163 @@ mod tests {
             !in_archive.contains(&"assets/textures/unused.png"),
             "and nothing it did not"
         );
+    }
+
+    /// The archive a single-file build carries, wherever this platform puts
+    /// it: inside the executable, or beside it on macOS.
+    fn single_build_archive(out: &Path, exe_name: &str) -> crate::pak::Pak {
+        if cfg!(target_os = "macos") {
+            crate::pak::Pak::open(out.join(PAK_FILE_NAME))
+                .expect("open the archive beside the binary")
+        } else {
+            let embedded = crate::embed::read_embedded(&out.join(exe_name))
+                .expect("read the executable")
+                .expect("the executable must carry an archive");
+            crate::pak::Pak::from_bytes(embedded).expect("open the embedded archive")
+        }
+    }
+
+    /// One file, and everything the game needs is inside it: the executable's
+    /// own bytes first and untouched, then an archive holding the collected
+    /// set and the manifest -- and nothing loose beside it, because with a
+    /// `project.toml` or an `assets/` on disk the runtime could read those and
+    /// "single file" would be unproven.
+    #[test]
+    fn single_mode_writes_one_executable_carrying_the_archive_and_the_manifest() {
+        let probe = Probe::create();
+        let manifest = "[project]\nname = \"P\"\nentry_scene = \"assets/scenes/main.ron\"\n";
+        probe.write("project.toml", manifest);
+        probe.write(
+            "assets/scenes/main.ron",
+            r#"(entities: [(name: "Hero", gltf: Some(Path("assets/models/hero.glb")))])"#,
+        );
+        probe.write("assets/models/hero.glb", "glb");
+        probe.write("assets/textures/unused.png", "png");
+        let exe = probe.fake_runtime();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755))
+                .expect("make the fake runtime executable");
+        }
+        let out = probe.0.join("dist");
+
+        let cooked = package(
+            &probe.0,
+            "assets/scenes/main.ron",
+            &[],
+            PackageMode::Single,
+            &exe,
+            &out,
+        )
+        .expect("package");
+        assert!(cooked.is_ok(), "unexpected problems: {:?}", cooked.missing);
+
+        assert!(
+            !out.join("project.toml").exists(),
+            "the manifest travels inside the archive, not beside the executable"
+        );
+        assert!(!out.join("assets").exists(), "no loose assets");
+        let out_exe = out.join("fake-runtime.exe");
+        let bytes = std::fs::read(&out_exe).expect("read the build");
+        assert_eq!(
+            crate::embed::strip(&bytes).expect("strip"),
+            b"MZ".as_slice(),
+            "the executable's own bytes come first and untouched"
+        );
+        if cfg!(target_os = "macos") {
+            assert!(
+                out.join(PAK_FILE_NAME).is_file(),
+                "macOS: the archive sits beside the binary"
+            );
+            assert_eq!(bytes, b"MZ", "and the binary is exactly the runtime");
+        } else {
+            assert!(
+                !out.join(PAK_FILE_NAME).exists(),
+                "one file: no archive beside it"
+            );
+            assert_eq!(
+                std::fs::read_dir(&out).expect("list").count(),
+                1,
+                "the build directory holds the executable and nothing else"
+            );
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_ne!(
+                std::fs::metadata(&out_exe)
+                    .expect("metadata")
+                    .permissions()
+                    .mode()
+                    & 0o111,
+                0,
+                "the build must still be executable: fs::write drops the bit copy kept"
+            );
+        }
+
+        let pak = single_build_archive(&out, "fake-runtime.exe");
+        assert_eq!(
+            pak.get(MANIFEST_ENTRY)
+                .map(|b| std::str::from_utf8(b).expect("utf-8")),
+            Some(manifest),
+            "the manifest is in the archive under its own name"
+        );
+        assert_eq!(pak.get("assets/models/hero.glb"), Some(b"glb".as_slice()));
+        assert!(pak.get("assets/scenes/main.ron").is_some());
+        assert_eq!(
+            pak.get("assets/textures/unused.png"),
+            None,
+            "the archive holds the collected set and nothing else"
+        );
+    }
+
+    /// `--package` run from a single-file build: the runtime doing the
+    /// packaging carries a game already, and the new build must carry only
+    /// the new one -- otherwise every build made from a build grows by one
+    /// dead archive.
+    #[test]
+    fn packaging_from_a_single_file_runtime_replaces_its_archive() {
+        let probe = Probe::create();
+        probe.write(
+            "project.toml",
+            "[project]\nname = \"P\"\nentry_scene = \"assets/scenes/main.ron\"\n",
+        );
+        probe.write("assets/scenes/main.ron", "(entities: [])");
+        let exe = probe.fake_runtime();
+        let old_archive = crate::pak::write_pak_bytes(&[(
+            "assets/old.txt".to_string(),
+            b"from the previous game".to_vec(),
+        )])
+        .expect("old archive");
+        std::fs::write(
+            &exe,
+            crate::embed::append(b"MZ", &old_archive).expect("append"),
+        )
+        .expect("write a single-file runtime");
+        // Premise: the runtime really carries the old game.
+        assert!(crate::embed::read_embedded(&exe).expect("read").is_some());
+        let out = probe.0.join("dist");
+
+        package(
+            &probe.0,
+            "assets/scenes/main.ron",
+            &[],
+            PackageMode::Single,
+            &exe,
+            &out,
+        )
+        .expect("package");
+
+        let bytes = std::fs::read(out.join("fake-runtime.exe")).expect("read the build");
+        assert_eq!(
+            crate::embed::strip(&bytes).expect("strip"),
+            b"MZ".as_slice(),
+            "the old archive is gone from the executable"
+        );
+        let pak = single_build_archive(&out, "fake-runtime.exe");
+        assert_eq!(pak.get("assets/old.txt"), None, "and its entries with it");
+        assert!(pak.get("assets/scenes/main.ron").is_some());
     }
 
     /// A leftover from a previous run is exactly what "only used assets"

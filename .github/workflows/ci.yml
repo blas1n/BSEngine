@@ -312,11 +312,13 @@ jobs:
             exit 1
           fi
 
-          # Both modes: a project can cook cleanly and still fail to pack --
+          # Every mode: a project can cook cleanly and still fail to pack --
           # a .gltf that reads sibling files from disk cannot go in an archive,
-          # and `--mode pak` is what says so.
+          # and `--mode pak` is what says so. `single` embeds that archive in
+          # the runtime binary (beside it on macOS), so it also proves the
+          # trailer round-trips on each platform's executable format.
           status=0
-          for mode in loose pak; do
+          for mode in loose pak single; do
             for project in "${projects[@]}"; do
               out="$(mktemp -d)/dist"
               echo "::group::$project ($mode)"
@@ -330,5 +332,5 @@ jobs:
               rm -rf "$out"
             done
           done
-          echo "packaged ${#projects[@]} project(s) in 2 mode(s)"
+          echo "packaged ${#projects[@]} project(s) in 3 mode(s)"
           exit $status

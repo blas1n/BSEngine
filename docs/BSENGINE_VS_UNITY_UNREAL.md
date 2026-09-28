@@ -134,6 +134,21 @@ Godot은 `.godot/imported/`의 `.ctex` — **밉이 전부 들어 있는 쿡 파
 128 레벨을 덮어쓴 뒤 raise가 그 바이트를 읽는 것, 파일 삭제 후 raise 거부, 디렉터리 불가 시 RAM 폴백, 잘못된 파일 재작성.
 `Assets<TextureAsset>`의 원본 픽셀은 핫리로드 핸들이 붙들고 있어 그대로 — 다음 단계가 있다면 그것.
 
+**`.bsengine_cache` 정리 — 안 쓴 파일 스윕(2026-09-28).** 썸네일(`<blake3(경로)>-<mtime>.png`)과 밉 캐시(`<blake3(픽셀)>.mips`)는
+둘 다 내용으로 키를 매겨서, 이미지를 고칠 때마다 옛 파일이 아무도 안 여는 고아로 남았다(두 캐시의 테스트가 "고아는 정리
+안 함"이라고 자백하고 있었음). 세 엔진 모두 캐시가 내용 키라 같은 문제가 있고, 정책을 명시한 건 Unreal의 DDC 하나:
+파일시스템 백엔드의 `DeleteUnused`+`UnusedFileAge`(일 단위, 배포 설정은 10~34일, 5.4의 삭제 전용 레거시 캐시는 8일)로
+**시작 시 스윕하고, 쓰는 파일은 touch로 살린다**(Unity는 Library를 지우면 재임포트, Accelerator는 크기 기준 퇴거; Godot은
+`.godot/imported/`가 그냥 자란다). 구현: `cache_sweep::sweep_unused_files(root, 14일)`이 디렉터리 바로 아래 파일 중 mtime이
+한도보다 오래된 것을 지운다(하위 디렉터리 진입 없음, 없는 디렉터리는 만들지 않음). 밉 캐시는 `WgpuRHIPlugin`이 레지스트리에
+루트를 주기 *전에*, 썸네일은 에셋 브라우저의 첫 `ui()`가 타일을 그리기 *전에* 한 번 스윕하므로 스윕과 읽기가 같은 파일을
+두고 경합하지 않는다. 캐시 히트(`cache_chain`이 파일을 찾을 때, `read_disk_cache`가 디코드에 성공할 때)는 mtime을 갱신한다
+— atime은 Windows(NTFS 기본 off)·Linux(`relatime`) 어느 쪽도 못 믿어서 Unreal처럼 mtime. ⚠️ 옛 테스트가 "같은 픽셀
+재사용 = mtime 불변"으로 재사용을 관측했는데 touch가 그 관측자를 깨뜨려, **파일 끝 바이트를 바꿔 두고 살아남는지**로
+바꿨다(재작성이면 원복됨). 테스트: 스윕 단위(오래된 것만·하위 디렉터리 무시·없는 루트 no-op·바이트 수), touch가 다음
+스윕에서 살림, 플러그인 시작 스윕(같은 오프스크린 테스트에 합침 — 디바이스 예산), 에셋 브라우저 첫 `ui()` 스윕, 두 캐시의
+히트 touch.
+
 **에셋 브라우저 더블클릭이 그래프 편집기를 연다(2026-09-27).** Unity(Project 패널)·Unreal(Content Browser)·Godot(FileSystem
 독) 모두 더블클릭이 에셋의 편집기를 여는 데서 수렴. 지금까지는 `.scriptgraph.ron`/`.shadergraph.ron`이 `.ron` 규칙 때문에
 **Scene으로 분류돼 더블클릭이 씬 로드를 시도**했다. 두 종류(`AssetKind::ScriptGraph`/`ShaderGraph`, 두 부분 접미사를 `.ron`

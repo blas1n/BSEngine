@@ -204,6 +204,11 @@ pub struct AssetBrowserPanel {
     /// same convention as `assets_root()`), unsafe to rely on across tests
     /// that may run concurrently on separate threads.
     cache_root: PathBuf,
+    /// Whether `cache_root` has been swept of unused files this session
+    /// (see `ensure_cache_swept`). Once, at the first `ui()`, like the
+    /// watcher: this file's tests build panels by the dozen and call
+    /// `thumbnail_for` directly, and none of those should sweep anything.
+    cache_swept: bool,
     /// Live filesystem watch on `root`, started lazily by
     /// `ensure_watcher_started`. `None` before the first `ui()` call, and
     /// permanently `None` if starting one ever failed (a missing `root`, or
@@ -238,6 +243,7 @@ impl Default for AssetBrowserPanel {
             thumbnail_cache: std::collections::HashMap::new(),
             tree_cache: std::collections::HashMap::new(),
             cache_root: PathBuf::from(".bsengine_cache/thumbnails"),
+            cache_swept: false,
             watcher: None,
             watcher_start_attempted: false,
             gpu: None,
@@ -270,6 +276,7 @@ impl EditorPanel for AssetBrowserPanel {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, ctx: &mut EditorPanelContext) {
+        self.ensure_cache_swept();
         self.ensure_watcher_started();
         self.drain_watcher_changes();
 
@@ -335,6 +342,26 @@ impl AssetBrowserPanel {
     /// -- a failed attempt (missing `root`, or a real watcher error) is
     /// never retried, matching `AssetWatcherPlugin`/`PrefabWatcherPlugin`'s
     /// own "try once at Startup" behaviour.
+    /// Sweeps thumbnails nobody has used for longer than
+    /// `cache_sweep::UNUSED_FILE_AGE` out of `cache_root`, once per panel,
+    /// before the first tile is drawn. A thumbnail's file is named for its
+    /// source's path *and mtime*, so every edit to an image orphans the
+    /// previous file: without a sweep the directory only ever grows. Runs
+    /// before any thumbnail is read so the sweep and a read never race
+    /// over the same file, and reads touch what they hit (see
+    /// `read_disk_cache`) so a thumbnail shown every day is never "unused".
+    fn ensure_cache_swept(&mut self) {
+        if self.cache_swept {
+            return;
+        }
+        self.cache_swept = true;
+        crate::cache_sweep::sweep_unused_files(
+            &self.cache_root,
+            crate::cache_sweep::UNUSED_FILE_AGE,
+            std::time::SystemTime::now(),
+        );
+    }
+
     fn ensure_watcher_started(&mut self) {
         if self.watcher_start_attempted {
             return;
@@ -719,6 +746,10 @@ impl AssetBrowserPanel {
 /// source, never propagate this as an error.
 fn read_disk_cache(cache_path: &Path) -> Option<image::RgbaImage> {
     let img = image::open(cache_path).ok()?;
+    // A hit is a use: the sweep in `ensure_cache_swept` judges files by
+    // their modification time, and without this a thumbnail decoded once
+    // and shown every session would be removed the moment it turned old.
+    crate::cache_sweep::touch(cache_path);
     Some(img.to_rgba8())
 }
 
@@ -1279,12 +1310,120 @@ mod tests {
         assert_eq!(
             second_files.len(),
             2,
-            "expected the old cache file to remain (orphaned, by design) and a new \
-             one to appear after the source's mtime changed, got {second_files:?}"
+            "expected the old cache file to remain (orphaned: only the startup sweep \
+             removes files, by age) and a new one to appear after the source's mtime \
+             changed, got {second_files:?}"
         );
         assert!(
             first_files.is_subset(&second_files),
-            "the original cache file must still be present (orphans are not cleaned up)"
+            "the original cache file must still be present (a decode never removes \
+             files; `ensure_cache_swept` does, once, by age)"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// The first `ui()` sweeps `cache_root`: a thumbnail nobody has used
+    /// for longer than the limit is removed, one used recently is kept,
+    /// and the sweep runs before any tile is drawn. Driven through the
+    /// real `ui()` because that is where the sweep is wired, and a panel
+    /// built for `thumbnail_for` alone must not sweep (the sibling tests
+    /// rely on it).
+    #[test]
+    fn the_first_ui_sweeps_thumbnails_unused_for_longer_than_the_limit() {
+        use crate::cache_sweep::{write_aged, DAY};
+        use bsengine_core::InspectorState;
+
+        let tmp =
+            std::env::temp_dir().join(format!("bse_thumb_cache_sweep_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let cache_root = tmp.join("cache");
+        std::fs::create_dir_all(&cache_root).unwrap();
+        let now = std::time::SystemTime::now();
+        write_aged(&cache_root.join("stale.png"), b"png bytes", now, 30 * DAY);
+        write_aged(&cache_root.join("used.png"), b"png bytes", now, 2 * DAY);
+
+        let mut panel = AssetBrowserPanel {
+            root: tmp.clone(),
+            current_dir: tmp.clone(),
+            cache_root: cache_root.clone(),
+            ..Default::default()
+        };
+        // Premise: building the panel sweeps nothing.
+        assert!(cache_root.join("stale.png").exists());
+
+        let mut insp = InspectorState::default();
+        let entities: Vec<bsengine_core::InspectorEntityInfo> = Vec::new();
+        let ctx = egui::Context::default();
+        ctx.set_fonts(egui::FontDefinitions::empty());
+        let screen_rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(600.0, 400.0));
+        let _ = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(screen_rect),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let mut pctx = EditorPanelContext {
+                        insp: &mut insp,
+                        entities_snapshot: &entities,
+                        cursor_pos: (0.0, 0.0),
+                        type_registry: None,
+                    };
+                    panel.ui(ui, &mut pctx);
+                });
+            },
+        );
+
+        assert!(
+            !cache_root.join("stale.png").exists(),
+            "a thumbnail unused for 30 days is swept by the first ui()"
+        );
+        assert!(
+            cache_root.join("used.png").exists(),
+            "one used two days ago is kept"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// A disk-cache hit refreshes the file's modification time, so a
+    /// thumbnail shown every session never reads as unused to the sweep.
+    /// The file is aged past the limit first, so a refreshed time is a
+    /// change and not the write's own timestamp still being new.
+    #[test]
+    fn a_disk_cache_hit_touches_the_cached_file() {
+        use crate::cache_sweep::{mtime, set_mtime, DAY};
+
+        let tmp =
+            std::env::temp_dir().join(format!("bse_thumb_cache_touch_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let png_path = tmp.join("swatch.png");
+        write_solid_test_png(&png_path, [10, 10, 10, 255]);
+        let cache_root = tmp.join("cache");
+
+        let mut first = panel_with_cache_root(cache_root.clone());
+        let ctx = egui::Context::default();
+        assert!(first.thumbnail_for(&ctx, &png_path).is_some());
+        let cached: Vec<_> = std::fs::read_dir(&cache_root)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .collect();
+        assert_eq!(cached.len(), 1);
+        let cache_file = &cached[0];
+        let old = std::time::SystemTime::now() - 30 * DAY;
+        set_mtime(cache_file, old);
+
+        let mut second = panel_with_cache_root(cache_root.clone());
+        assert!(
+            second.thumbnail_for(&ctx, &png_path).is_some(),
+            "the second panel must hit the disk cache"
+        );
+        assert!(
+            mtime(cache_file) > std::time::SystemTime::now() - DAY,
+            "the hit refreshed the file's modification time (was {old:?})"
         );
 
         let _ = std::fs::remove_dir_all(&tmp);

@@ -1054,12 +1054,10 @@ mod tests {
         // a byte changed in it survives, which a rewrite would undo -- and
         // the reuse is recorded as a use, so a file read every session is
         // not what the startup sweep (`cache_sweep`) judges by its age.
-        // The file is aged past the sweep's limit first, so "refreshed"
-        // is a change and not the write's own timestamp still being new.
-        crate::cache_sweep::set_mtime(
-            &files[0],
-            std::time::SystemTime::now() - 30 * crate::cache_sweep::DAY,
-        );
+        // The file is aged past the sweep's limit *after* the tampering
+        // write (which sets its own timestamp: aged before it, the
+        // assertion below passed with the touch deleted), so "refreshed"
+        // is the reuse's doing and nothing else's.
         let len = std::fs::metadata(&files[0]).unwrap().len();
         {
             use std::io::{Seek, SeekFrom, Write};
@@ -1070,6 +1068,8 @@ mod tests {
             f.seek(SeekFrom::Start(len - 1)).unwrap();
             f.write_all(&[123]).unwrap();
         }
+        let aged = std::time::SystemTime::now() - 30 * crate::cache_sweep::DAY;
+        crate::cache_sweep::set_mtime(&files[0], aged);
         let again = reg.load_with(256, 256, &pixels, streamed());
         assert_eq!(mips_files(&dir).len(), 1);
         assert_eq!(reg.mip_cache_file(again), Some(files[0].as_path()));
@@ -1081,7 +1081,7 @@ mod tests {
         assert!(
             crate::cache_sweep::mtime(&files[0])
                 > std::time::SystemTime::now() - crate::cache_sweep::DAY,
-            "and the reuse refreshed its modification time"
+            "and the reuse refreshed its modification time (was {aged:?})"
         );
 
         // Different pixels: a second file. An unstreamed texture: none.

@@ -1,6 +1,5 @@
 use bevy_app::{App, Plugin, PostUpdate, Startup, Update};
 use bevy_ecs::prelude::{EventReader, IntoSystemConfigs, Local, ParamSet, Query, ResMut};
-use rayon::prelude::*;
 use bsengine_core::{
     AmbientOcclusion, Bloom, Camera, CustomShader, DirectionalLight, EditorPanelRegistry,
     EditorPlayState, GlobalTransform, HudTexts, InspectorState, Material, PointLight, SkyboxPath,
@@ -14,6 +13,7 @@ use bsengine_rhi_wgpu::{
 };
 use bsengine_window::WindowResized;
 use glam::{Mat4, Vec3, Vec4};
+use rayon::prelude::*;
 
 use crate::components::{LodLevels, MeshRenderer, Occluder, TerrainSplat};
 use crate::lod::select_lod_level;

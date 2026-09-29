@@ -59,7 +59,7 @@ core ← ecs ← app ← window / input
 ### Editor MCP (bsengine-editor)
 AI-native editor backend exposed via the Model Context Protocol. An AI agent can drive the editor entirely through MCP tool calls.
 
-**Tool categories (~700 tools):**
+**Tool categories (145 tools):**
 - Entity spawn, despawn, duplicate, batch spawn
 - Transform: position, rotation, scale (set/move/snap/align)
 - Hierarchy: parent/child management
@@ -67,11 +67,11 @@ AI-native editor backend exposed via the Model Context Protocol. An AI agent can
 - Camera: spawn, update FOV
 - Mesh: attach/detach renderer
 - Tags: add/remove/query tags per entity
-- Selection: select/deselect by any property
-- Query: get/count entities filtered by any property
+- Selection: select/deselect an entity, all, or whatever a query matches
+- Query: `query_entities` -- conditions on any field (`where`/`any`), sort, limit, and a verb (get, count, select, deselect, select_only, tags, bounds)
 - Scene: save, load, clear
 
-Full select/deselect/count symmetry: every `get_entities_with_X` filter has a matching `select_`, `deselect_`, and `count_` variant.
+One query tool rather than a tool per filter: the editor once had about a thousand `select_/deselect_/count_/get_entities_with_X` variants, which an agent paid for in context on every request and which still could not combine two conditions.
 
 ### Scripting (bsengine-scripting)
 - JavaScript runtime via Deno Core (V8)

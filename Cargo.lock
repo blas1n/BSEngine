@@ -1085,6 +1085,7 @@ dependencies = [
  "bsengine-window",
  "glam 0.29.3",
  "pollster",
+ "rayon",
  "tracing",
 ]
 

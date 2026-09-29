@@ -1,5 +1,6 @@
 use bevy_app::{App, Plugin, PostUpdate, Startup, Update};
 use bevy_ecs::prelude::{EventReader, IntoSystemConfigs, Local, ParamSet, Query, ResMut};
+use rayon::prelude::*;
 use bsengine_core::{
     AmbientOcclusion, Bloom, Camera, CustomShader, DirectionalLight, EditorPanelRegistry,
     EditorPlayState, GlobalTransform, HudTexts, InspectorState, Material, PointLight, SkyboxPath,
@@ -743,19 +744,39 @@ fn render_frame(
             );
         }
     }
-    // Shared immutably by the closure below, which also captures
-    // `occluded_count` mutably; without this reborrow the closure would try
-    // to take `occlusion_buf` (a `Local`, i.e. a smart pointer held by
-    // value) by unique borrow.
+    // A plain shared reference for the culling closure below, which runs on
+    // several threads: `occlusion_buf` is a `Local` (a smart pointer held by
+    // value) and the closure must capture a `&OcclusionBuffer`, which is
+    // `Sync`, not the `Local` itself.
     let occlusion_buf = &*occlusion_buf;
-    let mut occluded_count: u32 = 0;
 
-    let draw_calls: Vec<(u64, Mat4, Option<u64>, MaterialParams, Option<String>)> = render_queries
-        .p1()
-        .iter_mut()
-        .filter_map(|(mr, t, gt, mat, vis, cs, mut lod)| {
+    // Per-entity culling in parallel. Each entity's work -- its model
+    // matrix, the frustum test, the occlusion-buffer scan, the LOD pick --
+    // reads shared, unchanging data and writes only that entity's own
+    // `LodLevels`, which each item carries as its own `Mut`, so nothing is
+    // shared mutably across threads. Measured (release, scale-level) at
+    // about 1.06 ms of the renderer's ECS side for 1,238 entities, most of
+    // it the occlusion scan; the reference engines cull in jobs for the same
+    // reason (Unity's culling jobs, Unreal's parallel view-visibility pass).
+    //
+    // Bevy's own `par_iter` would run serially here -- the workspace builds
+    // `bevy_ecs` without `multi_threaded`, deliberately: gameplay keeps one
+    // thread and one order (measured in #1910) -- so the query is gathered
+    // into a Vec and rayon splits that. rayon's `collect` keeps the input
+    // order, so the draw list comes out exactly as the serial loop made it.
+    enum Culled {
+        Drawn(DrawCall),
+        Hidden,
+        Occluded,
+    }
+    type DrawCall = (u64, Mat4, Option<u64>, MaterialParams, Option<String>);
+    let mut mesh_query = render_queries.p1();
+    let candidates: Vec<_> = mesh_query.iter_mut().collect();
+    let culled: Vec<Culled> = candidates
+        .into_par_iter()
+        .map(|(mr, t, gt, mat, vis, cs, mut lod)| {
             if !vis.map(|v| v.is_visible).unwrap_or(true) {
-                return None;
+                return Culled::Hidden;
             }
             let model = gt.map(|g| g.to_matrix()).unwrap_or_else(|| t.to_matrix());
             let mut world_center: Option<Vec3> = None;
@@ -770,7 +791,7 @@ fn render_frame(
                     .max(model.z_axis.truncate().length());
                 let world_radius = local_radius * max_scale.max(1.0);
                 if !sphere_visible_in_frustum(view_proj, center, world_radius) {
-                    return None;
+                    return Culled::Hidden;
                 }
                 // Only entities that survived the frustum test get here, so
                 // the two culling stages compose instead of duplicating
@@ -789,8 +810,7 @@ fn render_frame(
                         Vec3::splat(world_radius),
                     )
                 {
-                    occluded_count += 1;
-                    return None;
+                    return Culled::Occluded;
                 }
             }
             let effective_mesh_id = if let Some(lod) = lod.as_deref_mut() {
@@ -819,13 +839,24 @@ fn render_frame(
                     opacity: m.opacity,
                 })
                 .unwrap_or_default();
-            Some((
+            Culled::Drawn((
                 effective_mesh_id,
                 model,
                 tex_id,
                 mat_params,
                 cs.map(|c| c.path.clone()),
             ))
+        })
+        .collect();
+    let occluded_count = culled
+        .iter()
+        .filter(|c| matches!(c, Culled::Occluded))
+        .count() as u32;
+    let draw_calls: Vec<DrawCall> = culled
+        .into_iter()
+        .filter_map(|c| match c {
+            Culled::Drawn(d) => Some(d),
+            Culled::Hidden | Culled::Occluded => None,
         })
         .collect();
 
@@ -2458,6 +2489,15 @@ mod tests {
                 .expect("candidate still carries its LodLevels")
                 .current_index = None;
         }
+        // Two more that are not drawn for other reasons -- behind the camera
+        // (outside the frustum) and hidden -- so the count below has to tell
+        // "occluded" apart from "not drawn": a count of everything culled
+        // would read 3.
+        let behind_camera = spawn_lod_candidate(&mut app, mesh_id, Vec3::new(0.0, 0.0, 60.0));
+        let invisible = spawn_lod_candidate(&mut app, mesh_id, Vec3::new(-25.0, 0.0, -20.0));
+        app.world_mut()
+            .entity_mut(invisible)
+            .insert(bsengine_core::Visible { is_visible: false });
         app.world_mut()
             .insert_resource(bsengine_core::OcclusionCullingEnabled(true));
         app.update();
@@ -2473,6 +2513,22 @@ mod tests {
             Some(0),
             "an entity beside the occluder is visible and must NOT be \
              culled -- a false cull is a visible rendering bug"
+        );
+        assert_eq!(
+            (lod_index(&app, behind_camera), lod_index(&app, invisible)),
+            (None, None),
+            "premise: the entity behind the camera and the hidden one are not drawn"
+        );
+        let stats = app
+            .world()
+            .resource::<bsengine_rhi_wgpu::WgpuSurfaceResource>()
+            .0
+            .latest_frame_stats()
+            .expect("a frame rendered");
+        assert_eq!(
+            stats.occluded_count, 1,
+            "exactly one entity was occluded; the frustum-culled and the hidden one are \
+             not occlusion culls"
         );
     }
 

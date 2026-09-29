@@ -17,6 +17,7 @@ bevy_reflect.workspace = true
 bsengine-asset.workspace = true
 glam.workspace = true
 tracing.workspace = true
+rayon.workspace = true
 
 [dev-dependencies]
 bsengine-app.workspace = true

@@ -215,10 +215,7 @@ fn run_package(
     // The runtime refuses to start on a bad `[input]` binding; a package
     // that cannot start is worse than a package that was never made.
     if let Err(e) = manifest.input.actions() {
-        eprintln!(
-            "package: {manifest_path} [input]:
-{e}"
-        );
+        eprintln!("package: {manifest_path} [input]:\n{e}");
         return 1;
     }
 
@@ -362,10 +359,7 @@ pub(crate) fn insert_input_actions(app: &mut bevy_app::App, manifest: &ProjectMa
         Ok(actions) => {
             app.insert_resource(actions);
         }
-        Err(e) => panic!(
-            "Cannot use project.toml's [input] table:
-{e}"
-        ),
+        Err(e) => panic!("Cannot use project.toml's [input] table:\n{e}"),
     }
 }
 

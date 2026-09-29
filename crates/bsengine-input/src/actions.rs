@@ -337,13 +337,12 @@ impl ActionState {
 /// stretched back over 0..1 -- Godot's action strength. Without the stretch
 /// a stick at full travel would read `1 - deadzone` and never reach 1, and
 /// "walk at half speed at half travel" would be off by the deadzone.
+///
+/// One clamp does both ends: travel inside the deadzone, or the other way,
+/// comes out negative and is clamped to 0.
 fn axis_strength(raw: f32, positive: bool, deadzone: f32) -> f32 {
     let along = if positive { raw } else { -raw };
-    if along <= deadzone {
-        0.0
-    } else {
-        ((along - deadzone) / (1.0 - deadzone)).min(1.0)
-    }
+    ((along - deadzone) / (1.0 - deadzone)).clamp(0.0, 1.0)
 }
 
 /// The devices an action reads, borrowed for one evaluation.

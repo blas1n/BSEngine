@@ -1136,8 +1136,9 @@ fn filmic(x: vec3<f32>) -> vec3<f32> {
 }
 
 // The exact sRGB transfer functions (IEC 61966-2-1), not a 2.2 power: the
-// grade below round-trips through them, and an approximate pair would shift
-// every graded frame even at identity settings.
+// grade's pivot (display 0.5) and luma are defined on the values the screen
+// shows, and a 2.2 curve puts those values somewhere else -- visibly so in
+// the darks, where the two curves differ most.
 fn linear_to_srgb(c: vec3<f32>) -> vec3<f32> {
     let lo = c * 12.92;
     let hi = 1.055 * pow(max(c, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.4)) - 0.055;

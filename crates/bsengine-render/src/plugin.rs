@@ -1,5 +1,5 @@
 use bevy_app::{App, Plugin, PostUpdate, Startup, Update};
-use bevy_ecs::prelude::{EventReader, IntoSystemConfigs, Local, ParamSet, Query, ResMut};
+use bevy_ecs::prelude::{Entity, EventReader, IntoSystemConfigs, Local, ParamSet, Query, ResMut};
 use bsengine_core::{
     AmbientOcclusion, Bloom, Camera, CustomShader, DirectionalLight, EditorPanelRegistry,
     EditorPlayState, GlobalTransform, HudTexts, InspectorState, Material, PointLight, SkyboxPath,
@@ -532,6 +532,7 @@ fn render_frame(
         probe_volumes,
         shadow_settings,
         decal_query,
+        reflection_probe_query,
     ): (
         Option<Res<bsengine_core::OcclusionCullingEnabled>>,
         Local<crate::occlusion::OcclusionBuffer>,
@@ -548,6 +549,13 @@ fn render_frame(
         // tuple of `SystemParam`s counts as one. `probe_volumes` above is a
         // `Query` here for exactly the same reason.
         Query<(&bsengine_core::Decal, &Transform, Option<&GlobalTransform>)>,
+        // Same tuple, same reason as the two queries above.
+        Query<(
+            Entity,
+            &bsengine_core::ReflectionProbe,
+            &Transform,
+            Option<&GlobalTransform>,
+        )>,
     ),
 ) {
     let (Some(mut surface), Some(registry)) = (surface, registry) else {
@@ -711,6 +719,33 @@ fn render_frame(
     // the trilinear lookup in the scene shader are both written against an
     // AABB. `half_extents` is therefore taken as world units directly, not
     // scaled by the transform.
+    // Reflection probes, in entity order so the same set of probes is the
+    // same list from frame to frame: the surface re-captures whenever the
+    // list differs, and an order shuffled by an unrelated archetype move
+    // would re-capture for nothing. Axis-aligned boxes in world units, for
+    // the reason the light-probe volume's comment below gives.
+    let mut reflection_probes: Vec<(Entity, bsengine_rhi_wgpu::ReflectionProbeParams)> =
+        reflection_probe_query
+            .iter()
+            .map(|(entity, probe, t, gt)| {
+                let center = gt
+                    .map(|g| g.to_matrix().w_axis.truncate())
+                    .unwrap_or(t.position.0);
+                (
+                    entity,
+                    bsengine_rhi_wgpu::ReflectionProbeParams {
+                        center,
+                        half_extents: *probe.half_extents,
+                        box_projection: probe.box_projection,
+                        intensity: probe.intensity,
+                    },
+                )
+            })
+            .collect();
+    reflection_probes.sort_by_key(|(entity, _)| *entity);
+    let reflection_probes: Vec<bsengine_rhi_wgpu::ReflectionProbeParams> =
+        reflection_probes.into_iter().map(|(_, p)| p).collect();
+
     let light_probes = probe_volumes.iter().next().map(|(volume, t, gt)| {
         let centre = gt
             .map(|g| g.to_matrix().w_axis.truncate())
@@ -1058,6 +1093,7 @@ fn render_frame(
         frame_index,
         unjittered_view_proj,
         light_probes,
+        &reflection_probes,
         fog,
     ) {
         Ok(clicked) => {
@@ -2362,6 +2398,91 @@ mod tests {
             "an entity 200 units from the camera, with switch_distances \
              [10.0, 50.0], must have selected a LOD level beyond LOD0 -- got \
              current_index = None"
+        );
+    }
+
+    /// `ReflectionProbe` entities reach the surface: each one's box, at its
+    /// *world* position, in entity order, and a change to one re-captures.
+    /// Read back from what the surface actually captured
+    /// (`reflection_probes_captured`), not from a copy of the conversion.
+    ///
+    /// The second probe is a child of an entity at x = 10, so its world
+    /// position disagrees with its local `Transform`: the capture must be
+    /// taken where the probe *is*. (A root entity's `GlobalTransform` is
+    /// recomputed from its `Transform` each frame, so a hand-set one on a
+    /// root would not have made the two differ.) Not `fast_render`,
+    /// which never captures -- that would make the empty list the answer to
+    /// every question here.
+    #[test]
+    fn reflection_probe_entities_are_captured_at_their_world_position() {
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::offscreen(64, 64, false));
+        app.add_plugins(RenderPlugin);
+        app.update();
+        app.world_mut().spawn((
+            Camera::default(),
+            Transform::from_position(Vec3::new(0.0, 0.0, 10.0)),
+        ));
+        let first = app
+            .world_mut()
+            .spawn((
+                bsengine_core::ReflectionProbe {
+                    half_extents: Vec3::new(1.0, 2.0, 3.0).into(),
+                    box_projection: true,
+                    intensity: 0.5,
+                },
+                Transform::from_position(Vec3::new(1.0, 2.0, 3.0)),
+            ))
+            .id();
+        let parent = app
+            .world_mut()
+            .spawn(Transform::from_position(Vec3::new(10.0, 0.0, 0.0)))
+            .id();
+        app.world_mut().spawn((
+            bsengine_core::ReflectionProbe::default(),
+            Transform::from_position(Vec3::new(1.0, 1.0, 1.0)),
+            GlobalTransform::default(),
+            Parent(parent),
+        ));
+        app.update();
+
+        let captured = |app: &bevy_app::App| {
+            app.world()
+                .resource::<bsengine_rhi_wgpu::WgpuSurfaceResource>()
+                .0
+                .reflection_probes_captured()
+                .to_vec()
+        };
+        let probes = captured(&app);
+        assert_eq!(probes.len(), 2, "both probes captured: {probes:?}");
+        assert_eq!(probes[0].center, Vec3::new(1.0, 2.0, 3.0));
+        assert_eq!(probes[0].half_extents, Vec3::new(1.0, 2.0, 3.0));
+        assert!(probes[0].box_projection);
+        assert_eq!(probes[0].intensity, 0.5);
+        assert_eq!(
+            probes[1].center,
+            Vec3::new(11.0, 1.0, 1.0),
+            "the child probe is captured at its world position, not its local one"
+        );
+
+        app.world_mut()
+            .get_mut::<bsengine_core::ReflectionProbe>(first)
+            .unwrap()
+            .intensity = 2.0;
+        app.update();
+        assert_eq!(
+            captured(&app)[0].intensity,
+            2.0,
+            "a changed probe is re-captured with its new settings"
+        );
+
+        app.world_mut().despawn(first);
+        app.update();
+        assert_eq!(
+            captured(&app).len(),
+            1,
+            "a removed probe stops being captured, rather than lingering"
         );
     }
 

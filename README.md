@@ -49,6 +49,9 @@ core ← ecs ← app ← window / input
 - Point lights and spot lights with attenuation
 - Cook-Torrance PBR materials
 - Frustum culling via bounding sphere test
+- Reflection probes (`ReflectionProbe`): a cubemap captured once where the probe
+  stands, prefiltered like the sky, optionally box-projected; where boxes nest,
+  the smallest wins (no blending)
 
 ### Scene (bsengine-scene)
 - Entity spawn/despawn with named entities

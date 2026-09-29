@@ -700,7 +700,7 @@ mod tests {
         let totals = totals.lock().unwrap();
         let mut rows: Vec<(&String, Duration)> =
             totals.iter().map(|(n, (d, _))| (n, *d / FRAMES)).collect();
-        rows.sort_by(|a, b| b.1.cmp(&a.1));
+        rows.sort_by_key(|r| std::cmp::Reverse(r.1));
         let in_systems: Duration = rows.iter().map(|r| r.1).sum();
         println!(
             "frame {:.3} ms, of which systems {:.3} ms ({} systems); release: {}",

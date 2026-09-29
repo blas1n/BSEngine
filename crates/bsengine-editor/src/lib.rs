@@ -3,8 +3,8 @@
 //! `EditorPlugin` wires up the editor's ECS systems; `EditorCommand` is the
 //! command layer an AI agent or UI drives the editor through (spawn,
 //! transform, hierarchy, tags, selection, ...), snapshotted each frame via
-//! `EditorSnapshot`/`EntityInfo` for the ~700 MCP tools described in the
-//! project README.
+//! `EditorSnapshot`/`EntityInfo` for the editor MCP tools (see the
+//! project README), `query_entities` among them.
 // Bevy ECS system params (Query<(A, B, C, ...)>, ParamSet<(...)>) routinely
 // exceed clippy's type-complexity threshold; that's the idiom, not a real
 // complexity problem. Bevy itself disables this lint crate-wide for the

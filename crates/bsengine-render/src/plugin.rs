@@ -465,6 +465,7 @@ fn render_frame(
             Option<&Taa>,
             Option<&bsengine_core::VolumetricFog>,
             Option<&bsengine_core::ScreenSpaceReflections>,
+            Option<&bsengine_core::ColorGrading>,
         )>,
         Query<(
             &MeshRenderer,
@@ -620,11 +621,12 @@ fn render_frame(
         taa,
         fog,
         ssr,
+        color_grading,
     ) = render_queries
         .p0()
         .iter()
         .next()
-        .map(|(cam, t, b, tm, ao, taa, fog, ssr)| {
+        .map(|(cam, t, b, tm, ao, taa, fog, ssr, grade)| {
             let proj = cam.projection_matrix();
             (
                 proj * t.view_matrix(),
@@ -636,12 +638,14 @@ fn render_frame(
                 taa.copied(),
                 fog.copied(),
                 ssr.copied(),
+                grade.copied(),
             )
         })
         .unwrap_or((
             Mat4::IDENTITY,
             Vec3::ZERO,
             Mat4::IDENTITY,
+            None,
             None,
             None,
             None,
@@ -1095,6 +1099,7 @@ fn render_frame(
         light_probes,
         &reflection_probes,
         fog,
+        color_grading,
     ) {
         Ok(clicked) => {
             if let Some(ref mut state) = ui_state {
@@ -2484,6 +2489,46 @@ mod tests {
             1,
             "a removed probe stops being captured, rather than lingering"
         );
+    }
+
+    /// A camera's `ColorGrading` reaches the renderer, and taking it off
+    /// takes it away again -- absent has to mean "no grade", not "the last
+    /// grade the renderer saw".
+    #[test]
+    fn a_cameras_colour_grading_reaches_the_renderer() {
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::offscreen(64, 64, false));
+        app.add_plugins(RenderPlugin);
+        app.update();
+        let grade = bsengine_core::ColorGrading {
+            enabled: true,
+            contrast: 1.5,
+            saturation: 0.25,
+            color_filter: Vec3::new(1.0, 0.5, 0.25).into(),
+        };
+        let camera = app
+            .world_mut()
+            .spawn((
+                Camera::default(),
+                Transform::from_position(Vec3::new(0.0, 0.0, 10.0)),
+                grade,
+            ))
+            .id();
+        app.update();
+        let seen = |app: &bevy_app::App| {
+            app.world()
+                .resource::<bsengine_rhi_wgpu::WgpuSurfaceResource>()
+                .0
+                .last_color_grading()
+        };
+        assert_eq!(seen(&app), Some(grade));
+
+        app.world_mut()
+            .entity_mut(camera)
+            .remove::<bsengine_core::ColorGrading>();
+        app.update();
+        assert_eq!(seen(&app), None, "removing the component removes the grade");
     }
 
     /// The regression test that matters: an entity beside a large occluder

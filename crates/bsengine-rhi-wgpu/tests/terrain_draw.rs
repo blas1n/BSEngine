@@ -93,6 +93,8 @@ fn a_terrain_draw_call_does_not_panic_alongside_regular_draw_calls() {
         &[],
         // No fog, so the apply pass stays a passthrough.
         None,
+        // No colour grade either.
+        None,
     );
 
     assert!(

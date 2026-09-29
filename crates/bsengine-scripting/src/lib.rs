@@ -200,18 +200,30 @@ mod dts_tests {
             ("bsengine_get_entity_names".to_string(), sig("String")),
             ("bsengine_get_left_stick".to_string(), sig("Vec<f32>")),
             ("bsengine_get_entity_count".to_string(), sig("u32")),
+            (
+                "bsengine_network_call_rpc".to_string(),
+                crate::dts::OpSig::default(),
+            ),
         ]);
         let out = crate::dts::render(
             &[
                 find("getEntityNames"),
                 find("getLeftStick"),
                 find("getEntityCount"),
+                find("network.callRpc"),
             ],
             &ops,
         );
         assert!(out.contains("function getEntityNames(): unknown;"), "{out}");
         assert!(out.contains("function getLeftStick(): unknown;"), "{out}");
         assert!(out.contains("function getEntityCount(): number;"), "{out}");
+        // `callRpc` exits early with a bare `return;` and otherwise calls a
+        // void op: it returns nothing, and an early exit is not a value.
+        let call_rpc = out
+            .lines()
+            .find(|l| l.contains("function callRpc("))
+            .unwrap_or_else(|| panic!("callRpc was not rendered:\n{out}"));
+        assert!(call_rpc.ends_with("): void;"), "{call_rpc}");
     }
 
     /// A parameter is typed from its op slot only when it arrives there

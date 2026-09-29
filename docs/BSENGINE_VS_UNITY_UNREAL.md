@@ -75,6 +75,15 @@ TAA, SSR, 데칼, 볼류메트릭 포그, 라이트 프로브, IBL, 래그돌, �
 지금 이 경로를 타는 게임은 없다(모든 `.meta`가 기본값). 고칠 방향: `cook`이 압축 텍스처의 블록 체인을 인코드해 pak에
 넣고, 런타임은 pak의 블록을 먼저 읽는다.
 
+**→ 닫힘(2026-09-29, 4단계 첫 PR).** `--package`가 사이드카에 압축이 켜진 텍스처마다 밉 캐시 파일을 미리 만든다
+(`bsengine_asset::cook::package_with_precook` + `bsengine_rhi_wgpu::precook_mip_cache`; 에셋 크레이트는 GPU 크레이트에
+의존하면 안 되므로 함수로 넘긴다). 파일 이름은 디코드된 픽셀·크기·인코딩의 해시라 런타임이 찾는 이름과 같고, 바이트까지
+같음을 테스트가 단언한다. 두는 곳은 `.bsengine_shipped/mips`: loose 패키지는 그 디렉터리, pak·단일 실행 파일은 같은
+접두사의 아카이브 항목. **쓰기 가능한 캐시(`.bsengine_cache/mips`)와 일부러 분리** — 그쪽은 시작할 때 2주 미사용 파일을
+청소하므로, 거기 두면 한 달 만에 켠 플레이어가 동봉 파일을 잃는다. 레지스트리는 인코드 전에 동봉 파일을 먼저 찾고
+(`set_shipped_mip_cache`), 창·헤드리스 런타임은 pak이 있으면 아카이브 조회를 설치한다. 확인:
+`grep -n "precook_mip_cache\|SHIPPED_MIP_DIR" crates/bsengine-rhi-wgpu/src/texture.rs`.
+
 ### 순서 (2026-09-29, 사용자 결정)
 
 **기록 → 삭제·정리 → 구조 수정 → 나머지 기능 격차.**

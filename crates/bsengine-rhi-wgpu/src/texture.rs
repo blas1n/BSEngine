@@ -259,6 +259,22 @@ fn read_mip_cache_table(
     let mut file = std::fs::File::open(path).ok()?;
     let mut header = vec![0u8; MIP_CACHE_HEADER_LEN + dims.len() * 24];
     file.read_exact(&mut header).ok()?;
+    parse_mip_cache_table(&header, file.metadata().ok()?.len(), dims, format)
+}
+
+/// The checks [`read_mip_cache_table`] makes, on a header already in hand:
+/// from a file, or from bytes a package shipped (see
+/// [`GpuTextureRegistry::set_shipped_mip_cache`]). `file_len` is the whole
+/// file's length, so a table pointing past its end is refused.
+fn parse_mip_cache_table(
+    header: &[u8],
+    file_len: u64,
+    dims: &[(u32, u32)],
+    format: wgpu::TextureFormat,
+) -> Option<Vec<(u64, u64)>> {
+    if header.len() < MIP_CACHE_HEADER_LEN + dims.len() * 24 {
+        return None;
+    }
     if &header[..8] != MIP_CACHE_MAGIC {
         return None;
     }
@@ -270,7 +286,6 @@ fn read_mip_cache_table(
     if tag != encoding_tag(format) {
         return None;
     }
-    let file_len = file.metadata().ok()?.len();
     let mut table = Vec::with_capacity(count);
     for (i, (w, h)) in dims.iter().enumerate() {
         let at = MIP_CACHE_HEADER_LEN + i * 24;
@@ -287,6 +302,26 @@ fn read_mip_cache_table(
         table.push((offset, len));
     }
     Some(table)
+}
+
+/// Every level of a cache file already in memory -- the copy a package
+/// shipped -- or `None` if it does not describe `dims` in `format`'s
+/// encoding.
+fn levels_from_bytes(
+    bytes: &[u8],
+    dims: &[(u32, u32)],
+    format: wgpu::TextureFormat,
+) -> Option<Vec<(u32, u32, std::borrow::Cow<'static, [u8]>)>> {
+    let table = parse_mip_cache_table(bytes, bytes.len() as u64, dims, format)?;
+    Some(
+        dims.iter()
+            .zip(&table)
+            .map(|((w, h), (offset, len))| {
+                let range = *offset as usize..(*offset + *len) as usize;
+                (*w, *h, std::borrow::Cow::Owned(bytes[range].to_vec()))
+            })
+            .collect(),
+    )
 }
 
 /// Every level of a cache file, read whole -- what an unstreamed
@@ -434,6 +469,54 @@ fn mip_cache_name(width: u32, height: u32, rgba: &[u8], format: wgpu::TextureFor
     format!("{}.mips", hasher.finalize().to_hex())
 }
 
+/// The mip cache file a packaged game needs for one texture, made ahead of
+/// time: `(file name, file bytes)`, the same name and bytes the registry
+/// would write the first time it uploaded this image with these settings.
+/// `None` for a texture that is not block-compressed, or one the registry
+/// would upload uncompressed anyway (a side not a multiple of 4), or bytes
+/// that do not decode -- the packager then ships nothing extra for it and
+/// the runtime does what it always did.
+///
+/// For the packager (`bsengine_asset::cook::package_with_precook`), which
+/// must not depend on this GPU crate; the runtime's `--package` passes this
+/// function in. Decodes as the texture loader does (`load_from_memory` then
+/// RGBA8) -- the file name is a hash of the decoded pixels, so a different
+/// decode would ship a file no runtime ever asks for. Assumes the player's
+/// device has BC support, as every desktop GPU does; one without it falls
+/// back to RGBA8 and never looks the file up.
+pub fn precook_mip_cache(
+    file_bytes: &[u8],
+    settings: TextureImportSettings,
+) -> Option<(String, Vec<u8>)> {
+    if settings.compression == bsengine_core::TextureCompression::None {
+        return None;
+    }
+    let image = image::load_from_memory(file_bytes).ok()?.to_rgba8();
+    let (width, height) = image.dimensions();
+    if !width.is_multiple_of(4) || !height.is_multiple_of(4) {
+        return None;
+    }
+    let rgba = image.as_raw();
+    let raw = if settings.mipmaps {
+        mip_chain(width, height, rgba)
+    } else {
+        vec![(width, height, std::borrow::Cow::Borrowed(rgba.as_slice()))]
+    };
+    let format = format_for(settings);
+    let levels: Vec<(u32, u32, std::borrow::Cow<'_, [u8]>)> = raw
+        .iter()
+        .map(|(w, h, pixels)| {
+            (
+                *w,
+                *h,
+                std::borrow::Cow::Owned(encode_level(format, *w, *h, pixels).into_owned()),
+            )
+        })
+        .collect();
+    let (bytes, _) = encode_mip_cache(&levels, format);
+    Some((mip_cache_name(width, height, rgba, format), bytes))
+}
+
 /// What one [`GpuTextureRegistry::step_streaming`] call did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StreamingStep {
@@ -501,7 +584,22 @@ pub struct GpuTextureRegistry {
     /// from the mip cache. What makes "encoded once, then cached"
     /// observable.
     encodes: u64,
+    /// Cache files a package carries, looked up by file name before any
+    /// chain is encoded; see [`Self::set_shipped_mip_cache`].
+    shipped_mip_cache: Option<ShippedMipCache>,
 }
+
+/// Looks a mip cache file up by name in what a package shipped -- a pak
+/// archive's `.bsengine_cache/mips/` entries -- and returns its bytes.
+pub type ShippedMipCache = Arc<dyn Fn(&str) -> Option<Vec<u8>> + Send + Sync>;
+
+/// Where a package keeps the mip cache files its packager made ahead of
+/// time (`precook_mip_cache`): a directory of a loose package, an entry
+/// prefix inside a pak archive. Not the writable cache directory
+/// (`.bsengine_cache/mips`) on purpose -- that one is swept of files unused
+/// for two weeks at startup, and a player who has not played in two weeks
+/// must not lose what shipped with the game and encode it all again.
+pub const SHIPPED_MIP_DIR: &str = ".bsengine_shipped/mips";
 
 impl GpuTextureRegistry {
     /// Creates an empty registry bound to the given wgpu device/queue.
@@ -525,6 +623,7 @@ impl GpuTextureRegistry {
             bc_supported,
             compression_warned: false,
             encodes: 0,
+            shipped_mip_cache: None,
         }
     }
 
@@ -596,6 +695,22 @@ impl GpuTextureRegistry {
     pub fn set_mip_cache_root(&mut self, root: Option<PathBuf>) {
         self.mip_cache_root = root;
         self.mip_cache_warned = false;
+    }
+
+    /// Where to look for cache files a package shipped, before encoding a
+    /// block-compressed chain. The reference engines never compress on the
+    /// player's machine -- Unity builds compressed data into its bundles,
+    /// Unreal cooks it into the pak, Godot imports to `.ctex` -- and neither
+    /// does a packaged BSEngine game: the packager writes each compressed
+    /// texture's cache file (`precook_mip_cache`) into [`SHIPPED_MIP_DIR`]
+    /// of a loose package or under that prefix inside an archive, and this
+    /// lookup finds it -- `WgpuRHIPlugin` installs one for the directory, and
+    /// the runtime one for its archive. Before this, every player paid the
+    /// encode on first run -- about half a second per 2048² texture -- and a
+    /// read-only install paid it on every run, since the cache it wrote to
+    /// could not be written.
+    pub fn set_shipped_mip_cache(&mut self, lookup: Option<ShippedMipCache>) {
+        self.shipped_mip_cache = lookup;
     }
 
     /// The mip cache directory, if one is set.
@@ -709,17 +824,27 @@ impl GpuTextureRegistry {
                 }
             }
         }
-        self.encodes += 1;
-        let encoded: Vec<(u32, u32, std::borrow::Cow<'a, [u8]>)> = raw
-            .iter()
-            .map(|(w, h, pixels)| {
-                (
-                    *w,
-                    *h,
-                    std::borrow::Cow::Owned(encode_level(format, *w, *h, pixels).into_owned()),
-                )
-            })
-            .collect();
+        let shipped = self.shipped_mip_cache.as_ref().and_then(|lookup| {
+            let bytes = lookup(&mip_cache_name(width, height, rgba, format))?;
+            levels_from_bytes(&bytes, &dims, format)
+        });
+        let encoded: Vec<(u32, u32, std::borrow::Cow<'a, [u8]>)> = match shipped {
+            Some(levels) => levels,
+            None => {
+                self.encodes += 1;
+                raw.iter()
+                    .map(|(w, h, pixels)| {
+                        (
+                            *w,
+                            *h,
+                            std::borrow::Cow::Owned(
+                                encode_level(format, *w, *h, pixels).into_owned(),
+                            ),
+                        )
+                    })
+                    .collect()
+            }
+        };
         if let Some((root, path)) = cached {
             // Written now so the next load reads it; a streamed texture's
             // `cache_chain` then finds the very same file.
@@ -2307,6 +2432,107 @@ mod tests {
             "the same levels under a BC3 tag are not read as BC1, though every length fits"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A 64x64 PNG with more than one colour, and its decoded pixels as the
+    /// texture loader would hand them over.
+    fn png_fixture() -> (Vec<u8>, Vec<u8>) {
+        let mut img = image::RgbaImage::new(64, 64);
+        for (x, y, p) in img.enumerate_pixels_mut() {
+            *p = image::Rgba([(x * 4) as u8, (y * 4) as u8, ((x ^ y) * 4) as u8, 255]);
+        }
+        let mut png = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        let rgba = image::load_from_memory(&png).unwrap().to_rgba8().into_raw();
+        (png, rgba)
+    }
+
+    /// The packager's file is the runtime's file: `precook_mip_cache` on the
+    /// image's bytes names and fills exactly the cache file the registry
+    /// writes the first time it uploads the decoded pixels. A different name
+    /// would ship a file no runtime ever asks for; different bytes would
+    /// ship a chain nobody encoded the way the runtime would.
+    #[test]
+    fn a_precooked_file_is_byte_for_byte_the_one_the_registry_writes() {
+        use bsengine_core::TextureCompression;
+        let (png, rgba) = png_fixture();
+        let settings = TextureImportSettings {
+            compression: TextureCompression::Bc1,
+            ..Default::default()
+        };
+        let (name, bytes) = precook_mip_cache(&png, settings).expect("a BC1 texture precooks");
+
+        let (mut reg, dir) = make_registry_with_cache("precooked_matches");
+        assert!(
+            reg.bc_supported(),
+            "premise: block compression on this device"
+        );
+        reg.load_with(64, 64, &rgba, settings);
+        assert_eq!(reg.encodes(), 1, "premise: the registry encoded it itself");
+        let files = mips_files(&dir);
+        assert_eq!(files.len(), 1, "{files:?}");
+        assert_eq!(files[0].file_name().unwrap().to_str().unwrap(), name);
+        assert_eq!(std::fs::read(&files[0]).unwrap(), bytes, "same bytes");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        // Nothing to precook: uncompressed, or not whole blocks (the
+        // registry uploads that one as RGBA8 and never asks).
+        assert!(precook_mip_cache(&png, TextureImportSettings::default()).is_none());
+        let mut odd = Vec::new();
+        image::RgbaImage::new(66, 40)
+            .write_to(&mut std::io::Cursor::new(&mut odd), image::ImageFormat::Png)
+            .unwrap();
+        assert!(precook_mip_cache(&odd, settings).is_none());
+    }
+
+    /// With a shipped file for the texture, the registry encodes nothing --
+    /// even with no writable cache directory at all, which is a read-only
+    /// install -- and uploads the shipped blocks. Without one it encodes, as
+    /// before: the premise that `encodes() == 0` is not simply how this
+    /// registry behaves.
+    #[test]
+    fn a_shipped_mip_cache_file_means_nothing_is_encoded_on_the_players_machine() {
+        use bsengine_core::TextureCompression;
+        let (png, rgba) = png_fixture();
+        let settings = TextureImportSettings {
+            compression: TextureCompression::Bc1,
+            ..Default::default()
+        };
+        let (name, bytes) = precook_mip_cache(&png, settings).unwrap();
+
+        let mut without = make_registry();
+        without.set_shipped_mip_cache(Some(Arc::new(|_: &str| None)));
+        without.load_with(64, 64, &rgba, settings);
+        assert_eq!(
+            without.encodes(),
+            1,
+            "premise: nothing shipped, so it encodes"
+        );
+
+        let asked = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let log = Arc::clone(&asked);
+        let mut reg = make_registry();
+        assert!(
+            reg.mip_cache_root().is_none(),
+            "premise: no cache directory"
+        );
+        reg.set_shipped_mip_cache(Some(Arc::new(move |n: &str| {
+            log.lock().unwrap().push(n.to_string());
+            (n == name).then(|| bytes.clone())
+        })));
+        let id = reg.load_with(64, 64, &rgba, settings);
+        assert_eq!(
+            reg.encodes(),
+            0,
+            "the shipped chain was used, not re-encoded"
+        );
+        assert_eq!(asked.lock().unwrap().len(), 1, "looked up once");
+        assert_eq!(
+            reg.get_gpu_shape(id),
+            Some((wgpu::TextureFormat::Bc1RgbaUnormSrgb, 7)),
+            "and it went up compressed, whole chain"
+        );
     }
 
     #[test]

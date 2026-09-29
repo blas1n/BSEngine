@@ -226,13 +226,16 @@ fn run_package(
     // says what this one invocation should.
     let mode = mode_override.unwrap_or(manifest.package.mode);
 
-    let cooked = match bsengine_asset::cook::package(
+    // With each block-compressed texture's mip cache made here, so no
+    // player's machine encodes one (see `install_shipped_mips`).
+    let cooked = match bsengine_asset::cook::package_with_precook(
         project_dir,
         &manifest.project.entry_scene,
         &manifest.package.extra_assets,
         mode,
         &exe,
         std::path::Path::new(out_dir),
+        Some(&bsengine_rhi_wgpu::precook_mip_cache),
     ) {
         Ok(cooked) => cooked,
         Err(e) => {
@@ -267,7 +270,11 @@ fn run_package(
         return 1;
     }
 
-    println!("packaged {} asset(s) into {out_dir}", cooked.assets.len());
+    println!(
+        "packaged {} asset(s) into {out_dir}, with {} precooked compressed texture(s)",
+        cooked.assets.len(),
+        cooked.precooked_mips.len()
+    );
     0
 }
 
@@ -444,6 +451,7 @@ fn build_windowed_app(project_dir: &str) -> bevy_app::App {
     // silently ignored pak source means a packaged build quietly reading loose
     // files instead of its own archive.
     if let Some(pak) = pak {
+        crate::install_shipped_mips(&mut app, &pak);
         app.add_plugins(bsengine_asset::PakAssetPlugin {
             pak,
             project_dir: project_dir.to_string(),
@@ -571,4 +579,61 @@ fn build_windowed_app(project_dir: &str) -> bevy_app::App {
     }
 
     app
+}
+
+/// Gives the texture registry the archive's precooked mip cache files --
+/// what `--package` made for each block-compressed texture
+/// (`bsengine_rhi_wgpu::precook_mip_cache`) -- so a pak or single-file build
+/// encodes nothing on the player's machine. A loose package needs no help:
+/// the registry reads its `SHIPPED_MIP_DIR` directory by itself.
+fn install_shipped_mips(app: &mut bevy_app::App, pak: &std::sync::Arc<bsengine_asset::pak::Pak>) {
+    let pak = std::sync::Arc::clone(pak);
+    app.insert_resource(bsengine_rhi_wgpu::ShippedMipCacheResource(
+        std::sync::Arc::new(move |name: &str| {
+            pak.get(&format!("{}/{name}", bsengine_rhi_wgpu::SHIPPED_MIP_DIR))
+                .map(<[u8]>::to_vec)
+        }),
+    ));
+}
+
+#[cfg(test)]
+mod tests {
+    /// The packager writes precooked files where the runtime reads them.
+    /// The two crates cannot share the constant (the asset crate must not
+    /// depend on the GPU crate), so this pins them together: a rename on
+    /// one side alone would ship every file where no runtime looks.
+    #[test]
+    fn the_packager_ships_mips_where_the_runtime_looks_for_them() {
+        assert_eq!(
+            bsengine_asset::cook::PRECOOKED_MIP_DIR,
+            bsengine_rhi_wgpu::SHIPPED_MIP_DIR
+        );
+    }
+
+    /// The archive lookup `install_shipped_mips` gives the registry finds a
+    /// precooked file by its bare name -- the name the registry asks for --
+    /// and nothing that is not there.
+    #[test]
+    fn the_archive_lookup_finds_a_shipped_file_by_its_name() {
+        let path = std::env::temp_dir().join(format!("bse-shipped-{}.pak", std::process::id()));
+        bsengine_asset::pak::write_pak(
+            &path,
+            &[(
+                format!("{}/abc.mips", bsengine_rhi_wgpu::SHIPPED_MIP_DIR),
+                b"blocks".to_vec(),
+            )],
+        )
+        .unwrap();
+        let pak = std::sync::Arc::new(bsengine_asset::pak::Pak::open(&path).unwrap());
+        let mut app = bevy_app::App::new();
+        super::install_shipped_mips(&mut app, &pak);
+        let lookup = app
+            .world()
+            .resource::<bsengine_rhi_wgpu::ShippedMipCacheResource>()
+            .0
+            .clone();
+        assert_eq!(lookup("abc.mips").as_deref(), Some(&b"blocks"[..]));
+        assert_eq!(lookup("other.mips"), None);
+        let _ = std::fs::remove_file(&path);
+    }
 }

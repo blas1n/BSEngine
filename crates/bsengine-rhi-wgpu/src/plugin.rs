@@ -13,6 +13,13 @@ use std::sync::Arc;
 #[derive(Resource)]
 pub struct GpuQueueResource(pub Arc<wgpu::Queue>);
 
+/// The runtime's lookup for mip cache files shipped inside its pak archive,
+/// inserted before the surface is created; the texture registry is given it
+/// in place of the loose-package directory lookup. See
+/// [`crate::GpuTextureRegistry::set_shipped_mip_cache`].
+#[derive(Resource)]
+pub struct ShippedMipCacheResource(pub crate::texture::ShippedMipCache);
+
 /// Where `WgpuRHIPlugin` gets its render target from.
 #[derive(Clone, Copy, Debug)]
 pub enum SurfaceMode {
@@ -128,6 +135,18 @@ fn create_surface_system(world: &mut World, mode: SurfaceMode) {
         std::time::SystemTime::now(),
     );
     tex_registry.set_mip_cache_root(Some(mips));
+    // What the package shipped: the archive lookup a pak or single-file
+    // build's runtime inserted, else the loose package's own directory --
+    // which a development project simply does not have, so every lookup
+    // misses and the registry encodes and caches as it always did.
+    let shipped = world
+        .get_resource::<ShippedMipCacheResource>()
+        .map(|r| r.0.clone())
+        .unwrap_or_else(|| {
+            let dir = project.join(crate::texture::SHIPPED_MIP_DIR);
+            std::sync::Arc::new(move |name: &str| std::fs::read(dir.join(name)).ok())
+        });
+    tex_registry.set_shipped_mip_cache(Some(shipped));
     world.insert_resource(GpuQueueResource(surface.queue.clone()));
     world.insert_resource(WgpuSurfaceResource(surface));
     world.insert_resource(registry);
@@ -150,9 +169,10 @@ fn handle_window_resize(
 
 #[cfg(test)]
 mod tests {
-    use super::WgpuRHIPlugin;
+    use super::{ShippedMipCacheResource, WgpuRHIPlugin};
     use crate::surface::WgpuSurfaceResource;
     use bsengine_app::new_app;
+    use std::sync::Arc;
 
     #[test]
     fn windowed_mode_creates_no_surface_without_a_window_handle() {
@@ -212,6 +232,108 @@ mod tests {
             mips.join("used.mips").exists() && mips.join("new.mips").exists(),
             "chains used within the limit are kept"
         );
+        let _ = std::fs::remove_dir_all(&project);
+    }
+
+    /// A 64x64 BC1 texture's PNG bytes, decoded pixels and precooked file.
+    fn precooked_fixture() -> (
+        Vec<u8>,
+        bsengine_core::TextureImportSettings,
+        String,
+        Vec<u8>,
+    ) {
+        let mut img = image::RgbaImage::new(64, 64);
+        for (x, y, p) in img.enumerate_pixels_mut() {
+            *p = image::Rgba([(x * 4) as u8, (y * 4) as u8, 90, 255]);
+        }
+        let mut png = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        let settings = bsengine_core::TextureImportSettings {
+            compression: bsengine_core::TextureCompression::Bc1,
+            ..Default::default()
+        };
+        let (name, bytes) = crate::texture::precook_mip_cache(&png, settings).unwrap();
+        let rgba = image::load_from_memory(&png).unwrap().to_rgba8().into_raw();
+        (rgba, settings, name, bytes)
+    }
+
+    /// A loose package's precooked files are found where the packager put
+    /// them -- `SHIPPED_MIP_DIR` under the project -- and survive the
+    /// startup sweep however old they are: they sit outside the swept cache
+    /// directory, so a player back after a month does not lose what shipped
+    /// with the game and encode it all again.
+    #[test]
+    fn a_loose_packages_shipped_mips_are_used_and_never_swept() {
+        use crate::cache_sweep::{write_aged, DAY};
+        use crate::texture::GpuTextureRegistry;
+
+        let (rgba, settings, name, bytes) = precooked_fixture();
+        let project =
+            std::env::temp_dir().join(format!("bse_rhi_shipped_project_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&project);
+        let shipped = project.join(crate::texture::SHIPPED_MIP_DIR);
+        std::fs::create_dir_all(&shipped).unwrap();
+        write_aged(
+            &shipped.join(&name),
+            &bytes,
+            std::time::SystemTime::now(),
+            40 * DAY,
+        );
+
+        let mut app = new_app();
+        app.insert_resource(bsengine_core::ProjectDir(
+            project.to_string_lossy().into_owned(),
+        ));
+        app.add_plugins(WgpuRHIPlugin::offscreen(64, 64, false));
+        app.update();
+        assert!(
+            shipped.join(&name).exists(),
+            "a shipped file forty days old is not swept"
+        );
+        let mut registry = app.world_mut().resource_mut::<GpuTextureRegistry>();
+        assert!(
+            registry.bc_supported(),
+            "premise: block compression on this device"
+        );
+        registry.load_with(64, 64, &rgba, settings);
+        assert_eq!(registry.encodes(), 0, "the shipped chain was used");
+        let _ = std::fs::remove_dir_all(&project);
+    }
+
+    /// A pak or single-file build's runtime inserts its archive lookup
+    /// before the surface exists; the registry takes that one, and finds a
+    /// file no directory holds.
+    #[test]
+    fn the_runtimes_archive_lookup_takes_the_place_of_the_directory() {
+        use crate::texture::GpuTextureRegistry;
+
+        let (rgba, settings, name, bytes) = precooked_fixture();
+        let asked = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let count = Arc::clone(&asked);
+        let project =
+            std::env::temp_dir().join(format!("bse_rhi_archive_project_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&project);
+        let mut app = new_app();
+        // A scratch project, so the cache the registry writes lands there
+        // and not beside this crate.
+        app.insert_resource(bsengine_core::ProjectDir(
+            project.to_string_lossy().into_owned(),
+        ));
+        app.insert_resource(ShippedMipCacheResource(Arc::new(move |n: &str| {
+            count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            (n == name).then(|| bytes.clone())
+        })));
+        app.add_plugins(WgpuRHIPlugin::offscreen(64, 64, false));
+        app.update();
+        let mut registry = app.world_mut().resource_mut::<GpuTextureRegistry>();
+        registry.load_with(64, 64, &rgba, settings);
+        assert_eq!(
+            asked.load(std::sync::atomic::Ordering::Relaxed),
+            1,
+            "the archive lookup was asked"
+        );
+        assert_eq!(registry.encodes(), 0, "and its chain used");
         let _ = std::fs::remove_dir_all(&project);
     }
 }

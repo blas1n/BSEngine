@@ -57,6 +57,7 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>, fast_rend
     // silently ignored pak source means a packaged build quietly reading loose
     // files instead of its own archive.
     if let Some(pak) = pak {
+        crate::install_shipped_mips(&mut app, &pak);
         app.add_plugins(bsengine_asset::PakAssetPlugin {
             pak,
             project_dir: project_dir.to_string(),
@@ -739,6 +740,47 @@ mod tests {
         )
         .unwrap();
         dir
+    }
+
+    /// An app started from a pak build carries the archive's lookup for
+    /// precooked mip caches, and one started from a project folder does not
+    /// -- the second is the premise that the first is the archive's doing.
+    /// Without the lookup, the precooked files inside the archive would ship
+    /// and never be read.
+    #[test]
+    fn an_app_started_from_a_pak_build_reads_its_shipped_mips() {
+        let project = write_two_scene_project();
+        let from_folder = build_test_app(project.path().to_str().unwrap(), None, true);
+        assert!(
+            from_folder
+                .world()
+                .get_resource::<bsengine_rhi_wgpu::ShippedMipCacheResource>()
+                .is_none(),
+            "premise: a project folder has no archive to look in"
+        );
+
+        let out = tempfile::tempdir().unwrap();
+        let exe = project.path().join("runtime.exe");
+        std::fs::write(&exe, "MZ").unwrap();
+        let dist = out.path().join("dist");
+        let cooked = bsengine_asset::cook::package(
+            project.path(),
+            "assets/scenes/a.ron",
+            &[],
+            bsengine_asset::cook::PackageMode::Pak,
+            &exe,
+            &dist,
+        )
+        .unwrap();
+        assert!(cooked.is_ok(), "{:?}", cooked.missing);
+        let from_pak = build_test_app(dist.to_str().unwrap(), None, true);
+        assert!(
+            from_pak
+                .world()
+                .get_resource::<bsengine_rhi_wgpu::ShippedMipCacheResource>()
+                .is_some(),
+            "a pak build's app looks in its archive"
+        );
     }
 
     /// Every entity name currently in the world.

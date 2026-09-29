@@ -11,6 +11,80 @@
 
 ---
 
+## 상용 엔진 표준 기능 대비 격차 (2026-09-29 셀프 리뷰, 전부 grep으로 부재 확인함)
+
+master `e3b5c728` 기준. 아래 "현재 남은 작업" 표는 2026-09-28에 비었지만, **그 표는 작업하다 드러난 격차만 모은
+것이라 상용 엔진과의 격차 목록이 아니었다.** 이번에는 Unity·Unreal·Godot이 모두 기본 제공하는 기능 목록을 먼저
+세우고 코드에서 하나씩 grep했다. 확인 명령은 전부 `crates/`의 `.rs`·`.wgsl`을 대상으로 하고 대소문자를 무시한다
+(`grep -rliE "<패턴>" crates --include=*.rs --include=*.wgsl`).
+
+⚠️ **함정 기록:** 첫 검사는 `grep -E "(?i)..."`로 했다가 모든 패턴이 0을 냈다 — `grep -E`는 `(?i)`를 모르므로 존재하는
+천 솔버마저 "없음"으로 나왔다. 존재하는 것 하나를 먼저 같은 방식으로 찾아 **정상성 검사**를 하고 나서 0을 믿을 것.
+
+⚠️ **"예전에 있었다"의 정체:** DOF·모션 블러·컬러 그레이딩·캐릭터 컨트롤러·반사 프로브·입력 맵은 git 이력에 `feat:
+<이름> component`로 추가된 적이 있다. 전부 렌더/물리 구현 없이 필드만 있던 **zoo 컴포넌트**였고 `8a623ca7`(#1705)·
+`00a86d12`에서 삭제됐다. 이력 검색(`git log -S`)으로 "있었다"고 판단하지 말 것.
+
+### 코드에 없는 것
+
+| 영역 | 항목 | 패턴 → 결과 | 세 엔진 |
+|---|---|---|---|
+| 게임플레이 | **캐릭터 컨트롤러** | `character_?controller\|move_and_slide` → 0 | Unity `CharacterController`, Unreal `CharacterMovementComponent`, Godot `CharacterBody3D.move_and_slide` |
+| 게임플레이 | **입력 액션 맵·리바인딩** | `InputAction\|action_?map\|rebind` → 0 | Unity Input System, Unreal Enhanced Input, Godot `InputMap` |
+| 애니메이션 | 루트 모션 | `root_?motion` → 0 | 셋 다 |
+| 애니메이션 | 애니메이션 이벤트 | `AnimationEvent\|anim_?event` → 0 | Unity Animation Event, Unreal Anim Notify, Godot 메서드 트랙 |
+| 애니메이션 | 모프 타깃(블렌드셰이프) | `morph_?target\|blend_?shape` → 0 | 셋 다(glTF도 morph target을 담음) |
+| 렌더링 | **반사 프로브** | `reflection_?probe` → 0 | Unity Reflection Probe, Unreal Sphere/Box Reflection Capture, Godot `ReflectionProbe` |
+| 렌더링 | **DOF** | `depth_?of_?field\|bokeh_scale` → 1(`scripting/src/ops.rs` 삭제된 스냅샷의 주석) | 셋 다 |
+| 렌더링 | 모션 블러 | `motion_?blur\|shutter_angle` → 1(같은 주석) | 셋 다 |
+| 렌더링 | **컬러 그레이딩 LUT** | `color_?grading\|colou?r_lut` → 0 | 셋 다 |
+| 렌더링 | MSAA/FXAA/SMAA(TAA 외 AA) | `msaa\|fxaa\|smaa` → 0 | 셋 다 |
+| 렌더링 | 라이트맵 베이크 | `light_?map` → 0 | 셋 다(Unreal Lightmass, Unity Progressive, Godot LightmapGI) |
+| 렌더링 | 동적 GI | `ddgi\|voxel_?gi\|sdfgi\|global_illumination` → 0 | Unreal Lumen, Godot SDFGI/VoxelGI, Unity APV(확산만) |
+| 렌더링 | 에어리어 라이트 | `area_?light\|rect_?light` → 0 | Unreal Rect Light, Unity HDRP Area Light; Godot 없음 |
+| 렌더링 | HDR 디스플레이 출력 | `hdr_output\|bt2020\|hdr10` → 0 | Unity·Unreal; Godot 4.x 진행 중 |
+| 콘텐츠 | 로컬라이제이션 | `locali[sz]ation\|string_?table` → 0 | 셋 다 |
+| AI | 비헤이비어 트리 | `behaviou?r_?tree\|blackboard` → 2(둘 다 "블랙보드"라는 비유 주석) | Unreal 기본, Unity·Godot은 에셋/플러그인 |
+| 운영 | 크래시 핸들러·리포트 | `panic::set_hook\|minidump\|crash_?report` → 0 | 셋 다 |
+| 플랫폼 | 웹·모바일 | `wasm32\|target_os = "android"\|target_os = "ios"` → 0 | 셋 다(콘솔은 셋 다 별도 SDK) |
+
+**있는 것으로 확인된 것**(존재만, 품질 비교는 아님): 메시 LOD(`LodLevels`), 오클루전·프러스텀 컬링, SSAO, 블룸, 톤맵·노출,
+TAA, SSR, 데칼, 볼류메트릭 포그, 라이트 프로브, IBL, 래그돌, 차량, IK, 리타기팅, 타임라인, 에디터 언두, 세이브, 게임패드, 오디오
+리버브 버스·오클루전, 천, 내비메시, 네트워킹 RPC, 터레인, 비주얼 스크립팅, 셰이더 그래프.
+
+### 구조 문제
+
+- **ECS가 단일 스레드.** `Cargo.toml`의 `bevy_ecs`·`bevy_app`이 `default-features = false`에 `multi_threaded`가 없어 모든
+  스케줄이 단일 스레드 실행기로 돈다(`grep -c multi_threaded Cargo.toml` → 0). 렌더도 별도 스레드 없이 같은 스레드. Unity
+  (Job System·DOTS)·Unreal(태스크 그래프·렌더 스레드)과 규모 차이의 뿌리.
+- **에디터 플러그인 한 파일이 94,553줄**(`crates/bsengine-editor/src/plugin.rs`; 제품 코드 약 3만 줄 + 30,272행부터 테스트).
+  다음으로 큰 것은 `scripting/src/ops.rs` 11,939줄, `rhi-wgpu/src/surface.rs` 8,490줄.
+- **삭제된 zoo 컴포넌트의 주석 잔재.** `scripting/src/ops.rs`에 `// <이름>: <필드들>` 형태 220줄(1888~2110행), DOF·모션 블러·컬러
+  그레이딩 스냅샷 자리에는 static 없이 주석만 남음.
+- **실제 GPU 검증 없음.** CI는 lavapipe(Ubuntu)·Metal(macOS)·Windows 러너라 BC 압축·성능 수치가 실제 데스크톱 GPU에서
+  확인된 적 없다(아래 "플랫폼" 절과 같은 사실).
+
+### 내 최근 작업의 결함 — 압축 텍스처가 패키지에 인코딩된 채 실리지 않는다
+
+세 엔진 모두 **빌드 때** 압축된 블록을 게임에 싣는다(Unity Library → 빌드, Unreal 쿠킹, Godot `.ctex`). #1904는 **런타임 첫
+업로드 때** 인코드하고 결과를 `<프로젝트>/.bsengine_cache/mips`에 캐시한다. 패키저(`bsengine-asset/src/cook.rs`)는 밉
+캐시를 다루지 않으므로(`grep -ciE "compress|mips" crates/bsengine-asset/src/cook.rs` → 0):
+- 플레이어마다 첫 실행에 2048² 한 장당 약 0.5초(릴리스)를 프레임 스레드에서 치른다.
+- 캐시 디렉터리에 쓸 수 없는 설치 위치(읽기 전용)에서는 **매 실행** 인코드한다(쓰기 실패 시 체인이 RAM에만 남음).
+- 기본값이 `None`이라 E2E·패키징 테스트는 이 경로를 한 번도 지나지 않는다 — 그래서 CI가 못 잡았다.
+지금 이 경로를 타는 게임은 없다(모든 `.meta`가 기본값). 고칠 방향: `cook`이 압축 텍스처의 블록 체인을 인코드해 pak에
+넣고, 런타임은 pak의 블록을 먼저 읽는다.
+
+### 순서 (2026-09-29, 사용자 결정)
+
+**기록 → 삭제·정리 → 구조 수정 → 나머지 기능 격차.**
+1. **기록** — 이 절.
+2. **삭제·정리** — zoo 주석 잔재 등 죽은 코드. 구조 작업 전에 해서 옮길 코드를 줄인다.
+3. **구조** — 에디터 플러그인 파일 분할(기계적, 위험 낮음, 이후 모든 작업의 충돌을 줄임)을 먼저, 그다음 ECS 멀티스레딩.
+   기능을 넣기 전에 해서 새 기능이 단일 스레드를 전제로 짜이지 않게 한다.
+4. **기능 격차** — 맨 앞은 위 압축 패키징 결함, 그다음 게임을 만들 때 먼저 부딪히는 것(캐릭터 컨트롤러, 입력 액션 맵),
+   그다음 기본 후처리(반사 프로브, DOF, 컬러 그레이딩).
+
 ## 현재 남은 작업 (2026-09-28, 전부 grep으로 부재 확인함)
 
 master `bf2c649b` 기준. 열린 PR·이슈 0개, 소스 TODO/FIXME 0개, 워크스페이스 2,176 +

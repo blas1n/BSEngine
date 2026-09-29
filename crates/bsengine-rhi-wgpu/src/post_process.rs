@@ -3101,11 +3101,13 @@ impl PostProcessState {
     /// Binds `source` as the colour LUT, copying its first mip into a texture
     /// of the post pass's own; `None` unbinds it.
     ///
-    /// The copy is into [`LUT_FORMAT`], the *linear* view of the same bytes:
-    /// a strip is stored as an sRGB image, and sampling it through an sRGB
-    /// view would decode its texels to linear, while the grade reads them as
-    /// the display values they are. wgpu allows a copy between two formats
-    /// that differ only in sRGB-ness, which is exactly this one.
+    /// The copy keeps the source's format and is *read* through a
+    /// [`LUT_FORMAT`] view, the linear reading of the same bytes: a strip is
+    /// stored as an sRGB image, and sampling it through an sRGB view would
+    /// decode its texels to linear, while the grade reads them as the
+    /// display values they are. Not a copy *into* the linear format: wgpu
+    /// allows copies that differ only in sRGB-ness, but Metal's left the
+    /// destination empty.
     ///
     /// Refused, leaving the previous LUT bound, for a source that is not a
     /// strip (width = height squared, at least 2 slices) or not 8-bit RGBA --
@@ -3155,9 +3157,15 @@ impl PostProcessState {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: LUT_FORMAT,
+                // The source's own format, so the copy is between identical
+                // formats: Metal's blit copy between an sRGB and a linear
+                // format left the destination empty (the LUT read black on
+                // macOS CI while Vulkan and D3D12 copied the bytes).
+                format: source.format(),
                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[],
+                // ... and the linear reading comes from a *view* instead:
+                // WebGPU's sanctioned way to reinterpret sRGB-ness.
+                view_formats: &[LUT_FORMAT],
             },
         );
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -3173,7 +3181,10 @@ impl PostProcessState {
             },
         );
         queue.submit(std::iter::once(encoder.finish()));
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let view = texture.create_view(&wgpu::TextureViewDescriptor {
+            format: Some(LUT_FORMAT),
+            ..Default::default()
+        });
         self.composite_config_bg = make_composite_config_bg(
             device,
             &self.composite_config_bgl,

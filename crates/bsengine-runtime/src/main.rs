@@ -212,6 +212,12 @@ fn run_package(
             return 1;
         }
     };
+    // The runtime refuses to start on a bad `[input]` binding; a package
+    // that cannot start is worse than a package that was never made.
+    if let Err(e) = manifest.input.actions() {
+        eprintln!("package: {manifest_path} [input]:\n{e}");
+        return 1;
+    }
 
     let exe = match std::env::current_exe() {
         Ok(exe) => exe,
@@ -343,6 +349,20 @@ fn embedded_pak() -> Option<bsengine_asset::pak::Pak> {
 /// Takes the archive [`open_pak`] returned rather than looking it up, so the
 /// order -- archive first, then the manifest that may live inside it -- is
 /// visible at the call site instead of hidden in a global.
+/// `project.toml`'s `[input]` actions, inserted before `InputPlugin` so its
+/// `init_resource` leaves them alone. A bad binding stops the game at start,
+/// as a manifest that does not parse does: an action bound to a typo would
+/// otherwise ship as a button that silently does nothing. `package` checks
+/// the same thing, so a packaged build never reaches this panic.
+pub(crate) fn insert_input_actions(app: &mut bevy_app::App, manifest: &ProjectManifest) {
+    match manifest.input.actions() {
+        Ok(actions) => {
+            app.insert_resource(actions);
+        }
+        Err(e) => panic!("Cannot use project.toml's [input] table:\n{e}"),
+    }
+}
+
 fn read_manifest(project_dir: &str, pak: Option<&bsengine_asset::pak::Pak>) -> ProjectManifest {
     let manifest_path = format!("{project_dir}/project.toml");
     let (text, source) = match pak.and_then(|pak| pak.get(bsengine_asset::cook::MANIFEST_ENTRY)) {
@@ -457,6 +477,7 @@ fn build_windowed_app(project_dir: &str) -> bevy_app::App {
             project_dir: project_dir.to_string(),
         });
     }
+    insert_input_actions(&mut app, &manifest);
     // From `project.toml`'s `[network]` table. Inserted before the plugins so
     // `NetworkPlugin`'s `init_resource` finds it already present and leaves it
     // alone -- registering it afterwards would overwrite the project's settings

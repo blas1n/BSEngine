@@ -175,6 +175,57 @@ and packs fine.
 
 ---
 
+## Input actions
+
+Name what the player does, not which key does it:
+
+```toml
+[input]
+deadzone = 0.2          # stick travel below this reads 0; the default
+
+[input.actions]
+jump       = ["Space", "Gamepad:South"]
+fire       = ["Mouse:Left", "Gamepad:RightTrigger"]
+move_left  = ["A", "Left", "Gamepad:LeftStickX-"]
+move_right = ["D", "Right", "Gamepad:LeftStickX+"]
+```
+
+```js
+if (Bsengine.isActionDown("jump")) jump();          // this frame's press
+const x = Bsengine.getAxis("move_left", "move_right"); // -1..1
+const v = Bsengine.getVector("move_left", "move_right", "move_back", "move_forward");
+```
+
+A binding is a key name (`"Space"`, `"E"`, `"1"`, `"ShiftLeft"`), `Mouse:Left|Right|Middle`,
+a gamepad button (`Gamepad:South`, `Gamepad:DPadUp`, …), a stick direction
+(`Gamepad:LeftStickX+`, `Gamepad:RightStickY-`, Y positive up) or a trigger
+(`Gamepad:LeftTrigger`). An action's strength is its strongest binding: 1 for a
+held button, and for a stick its travel past the deadzone stretched back over
+0..1, so full travel reaches 1. `getVector` is clamped to length 1, so a
+diagonal is not faster than a straight line. This is Godot's `InputMap`, and
+the part Unity's Input System and Unreal's Enhanced Input share with it; there
+are no mapping contexts or hold/tap interactions — build those from
+`isActionDown` and a timer.
+
+`isActionPressed` / `isActionDown` / `isActionUp` / `getActionStrength` follow
+the key functions' naming: *Pressed* is held, *Down*/*Up* are this frame's edges.
+A rebinding screen uses `getActionBindings(action)` and
+`setActionBindings(action, ["J", "Gamepad:North"])`, which applies from the next
+frame and does not persist by itself — store it with `setSaveField` if the game
+should remember it (Unity likewise leaves saving binding overrides to the game).
+
+**Mistakes stop things rather than doing nothing.** A bad binding in
+`project.toml` stops the game at start, and `--package` refuses to build it,
+naming every bad binding with its action. An unknown action name, or a bad
+binding passed to `setActionBindings`, throws in the script. A key name the
+engine does not know (`isKeyDown("space")`) throws the same way.
+
+For an entity a remote peer drives, actions — like keys — are read from that
+peer's input, and only its **key** bindings count: peers send key state, not
+sticks or buttons.
+
+---
+
 ## Networking
 
 ```toml

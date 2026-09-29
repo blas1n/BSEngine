@@ -248,6 +248,98 @@ pub struct GamepadSticks {
     pub right_trigger: f32,
 }
 
+/// Canonical key-name table: the names scripts pass to `Bsengine.isKeyPressed`,
+/// the headless test runtime's `press_key`/`release_key` commands, and the
+/// key half of an input action's bindings in `project.toml`.
+///
+/// Every `KeyCode` but `Unknown` is here. It used to hold the eleven keys the
+/// first games happened to need, while the input layer produced forty more:
+/// a script asking for `"E"`, `"1"` or `"ShiftLeft"` read "not held" forever
+/// and nothing said why, and a recording could not press them either. The
+/// `every_key_code_has_a_script_name` test (bsengine-scripting) matches on `KeyCode` exhaustively,
+/// so a key added to the enum without a row here does not compile.
+///
+/// Digits are `"0"`–`"9"` (Unity's and Godot's spelling), modifiers keep their
+/// side (`"ShiftLeft"`) because the input layer reports them that way.
+pub const KEY_NAMES: &[(KeyCode, &str)] = &[
+    (KeyCode::A, "A"),
+    (KeyCode::B, "B"),
+    (KeyCode::C, "C"),
+    (KeyCode::D, "D"),
+    (KeyCode::E, "E"),
+    (KeyCode::F, "F"),
+    (KeyCode::G, "G"),
+    (KeyCode::H, "H"),
+    (KeyCode::I, "I"),
+    (KeyCode::J, "J"),
+    (KeyCode::K, "K"),
+    (KeyCode::L, "L"),
+    (KeyCode::M, "M"),
+    (KeyCode::N, "N"),
+    (KeyCode::O, "O"),
+    (KeyCode::P, "P"),
+    (KeyCode::Q, "Q"),
+    (KeyCode::R, "R"),
+    (KeyCode::S, "S"),
+    (KeyCode::T, "T"),
+    (KeyCode::U, "U"),
+    (KeyCode::V, "V"),
+    (KeyCode::W, "W"),
+    (KeyCode::X, "X"),
+    (KeyCode::Y, "Y"),
+    (KeyCode::Z, "Z"),
+    (KeyCode::Key0, "0"),
+    (KeyCode::Key1, "1"),
+    (KeyCode::Key2, "2"),
+    (KeyCode::Key3, "3"),
+    (KeyCode::Key4, "4"),
+    (KeyCode::Key5, "5"),
+    (KeyCode::Key6, "6"),
+    (KeyCode::Key7, "7"),
+    (KeyCode::Key8, "8"),
+    (KeyCode::Key9, "9"),
+    (KeyCode::Space, "Space"),
+    (KeyCode::Enter, "Enter"),
+    (KeyCode::Escape, "Escape"),
+    (KeyCode::Backspace, "Backspace"),
+    (KeyCode::Tab, "Tab"),
+    (KeyCode::Delete, "Delete"),
+    (KeyCode::Home, "Home"),
+    (KeyCode::End, "End"),
+    (KeyCode::Up, "Up"),
+    (KeyCode::Down, "Down"),
+    (KeyCode::Left, "Left"),
+    (KeyCode::Right, "Right"),
+    (KeyCode::Minus, "Minus"),
+    (KeyCode::Equals, "Equals"),
+    (KeyCode::Period, "Period"),
+    (KeyCode::Comma, "Comma"),
+    (KeyCode::ShiftLeft, "ShiftLeft"),
+    (KeyCode::ShiftRight, "ShiftRight"),
+    (KeyCode::ControlLeft, "ControlLeft"),
+    (KeyCode::ControlRight, "ControlRight"),
+    (KeyCode::AltLeft, "AltLeft"),
+    (KeyCode::AltRight, "AltRight"),
+];
+
+impl KeyCode {
+    /// The key a [`KEY_NAMES`] name stands for, if any.
+    pub fn from_name(name: &str) -> Option<KeyCode> {
+        KEY_NAMES
+            .iter()
+            .find(|(_, n)| *n == name)
+            .map(|(code, _)| *code)
+    }
+
+    /// This key's [`KEY_NAMES`] name; `None` only for [`KeyCode::Unknown`].
+    pub fn name(self) -> Option<&'static str> {
+        KEY_NAMES
+            .iter()
+            .find(|(code, _)| *code == self)
+            .map(|(_, n)| *n)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

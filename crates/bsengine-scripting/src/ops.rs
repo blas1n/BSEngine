@@ -969,6 +969,14 @@ pub enum ScriptCommand {
         /// Filesystem path the scene was loaded from.
         path: String,
     },
+    /// Rebind an input action. The bindings were parsed when the command was
+    /// queued, so applying it cannot fail on a bad string.
+    SetActionBindings {
+        /// The action's name.
+        action: String,
+        /// Its new bindings, as binding strings.
+        bindings: Vec<String>,
+    },
     /// Set the skybox texture used for the background/environment.
     SetSkybox {
         /// Filesystem path of the resource to load.
@@ -1495,6 +1503,13 @@ thread_local! {
     // Entity name lookup for raycast results: entity.to_bits() → name
     pub(crate) static ENTITY_NAME_MAP: RefCell<HashMap<u64, String>> =
         RefCell::new(HashMap::new());
+
+    // Input actions (`[input.actions]` in project.toml): this frame's
+    // reading of each, and each one's bindings as strings.
+    pub(crate) static ACTION_SNAPSHOT: RefCell<HashMap<String, bsengine_input::ActionValue>> =
+        RefCell::new(HashMap::new());
+    pub(crate) static ACTION_BINDINGS_SNAPSHOT: RefCell<std::collections::BTreeMap<String, Vec<String>>> =
+        const { RefCell::new(std::collections::BTreeMap::new()) };
 
     // Gamepad button state (bit 0=South..15=DPadRight)
     pub(crate) static GAMEPAD_BUTTON_SNAPSHOT: RefCell<u16> = const { RefCell::new(0) };
@@ -2093,6 +2108,118 @@ pub fn bsengine_key_names() -> String {
         .map(|(_, name)| *name)
         .collect();
     serde_json::to_string(&names).unwrap_or_else(|_| "[]".to_string())
+}
+
+/// Every input action's name, as a JSON array. The prelude checks names
+/// against it and throws on a miss, as it does for key names.
+#[op2]
+#[string]
+pub fn bsengine_action_names() -> String {
+    ACTION_BINDINGS_SNAPSHOT.with(|b| {
+        let bindings = b.borrow();
+        let names: Vec<&String> = bindings.keys().collect();
+        serde_json::to_string(&names).unwrap_or_else(|_| "[]".to_string())
+    })
+}
+
+/// `action`'s reading for `entity` as `[strength, pressed, just_pressed,
+/// just_released]`, the last three as 0 or 1.
+///
+/// An entity driven by a remote peer is read from that peer's keys, as
+/// `isKeyPressed` is (see `key_pressed_for`): otherwise a server simulating
+/// a client's player through `isActionPressed("jump")` would jump whenever
+/// the *server's* keyboard did. Only key bindings count for such an entity,
+/// at strength 1 -- the peer replicates key names, not sticks or buttons.
+#[op2]
+#[serde]
+pub fn bsengine_action_value(#[string] entity: String, #[string] action: String) -> Vec<f32> {
+    action_value_for(&entity, &action).to_vec()
+}
+
+/// The body of [`bsengine_action_value`], callable from tests.
+pub(crate) fn action_value_for(entity: &str, action: &str) -> [f32; 4] {
+    let flag = |b: bool| if b { 1.0 } else { 0.0 };
+    let remote = REMOTE_INPUT.with(|r| r.borrow().contains_key(entity));
+    if remote {
+        let keys: Vec<String> = ACTION_BINDINGS_SNAPSHOT.with(|b| {
+            b.borrow()
+                .get(action)
+                .map(|list| {
+                    list.iter()
+                        .filter(|text| bsengine_input::KeyCode::from_name(text).is_some())
+                        .cloned()
+                        .collect()
+                })
+                .unwrap_or_default()
+        });
+        let held = keys.iter().any(|k| key_pressed_for(entity, k));
+        let was = keys.iter().any(|k| was_held_for(entity, k));
+        return [
+            flag(held),
+            flag(held),
+            flag(held && !was),
+            flag(was && !held),
+        ];
+    }
+    let v = ACTION_SNAPSHOT.with(|s| s.borrow().get(action).copied().unwrap_or_default());
+    [
+        v.strength,
+        flag(v.pressed),
+        flag(v.just_pressed),
+        flag(v.just_released),
+    ]
+}
+
+/// What `action` is bound to, as a JSON array of binding strings, or `null`
+/// for a name that is not an action.
+#[op2]
+#[string]
+pub fn bsengine_get_action_bindings(#[string] action: String) -> String {
+    ACTION_BINDINGS_SNAPSHOT.with(|b| match b.borrow().get(&action) {
+        Some(list) => serde_json::to_string(list).unwrap_or_else(|_| "[]".to_string()),
+        None => "null".to_string(),
+    })
+}
+
+/// Rebinds `action` to `bindings_json` (a JSON array of binding strings).
+/// Returns "" on success, otherwise what was wrong -- the prelude throws it.
+///
+/// Every binding is parsed here, before anything is queued, so a rebinding
+/// screen that offers a bad string fails at the call rather than leaving the
+/// action half-rebound a frame later. The snapshot is updated at once, so
+/// `getActionBindings` right after this call reads the new bindings; the
+/// readings follow from the next frame, when the queued command has reached
+/// `InputActions` -- Unity's rebinding likewise applies on the next update.
+#[op2]
+#[string]
+pub fn bsengine_set_action_bindings(
+    #[string] action: String,
+    #[string] bindings_json: String,
+) -> String {
+    let texts: Vec<String> = match serde_json::from_str(&bindings_json) {
+        Ok(texts) => texts,
+        Err(_) => return "setActionBindings takes an array of binding strings".to_string(),
+    };
+    if !ACTION_BINDINGS_SNAPSHOT.with(|b| b.borrow().contains_key(&action)) {
+        return format!("unknown action {action:?}");
+    }
+    let errors: Vec<String> = texts
+        .iter()
+        .filter_map(|text| bsengine_input::Binding::parse(text).err())
+        .collect();
+    if !errors.is_empty() {
+        return errors.join("; ");
+    }
+    ACTION_BINDINGS_SNAPSHOT.with(|b| {
+        b.borrow_mut().insert(action.clone(), texts.clone());
+    });
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetActionBindings {
+            action,
+            bindings: texts,
+        })
+    });
+    String::new()
 }
 
 /// Get the names of all named entities, as a JSON array string.
@@ -5077,6 +5204,10 @@ deno_core::extension!(
         bsengine_is_key_down,
         bsengine_is_key_up,
         bsengine_key_names,
+        bsengine_action_names,
+        bsengine_action_value,
+        bsengine_get_action_bindings,
+        bsengine_set_action_bindings,
         bsengine_get_entity_names,
         bsengine_entity_exists,
         bsengine_get_entity_count,
@@ -5421,6 +5552,176 @@ mod tests {
                 r.contains("unknown key name"),
                 "registering a handler for a key with no such name should throw, got: {r}"
             );
+        }
+
+        fn set_actions(pairs: &[(&str, &[&str])]) {
+            crate::ops::ACTION_BINDINGS_SNAPSHOT.with(|b| {
+                *b.borrow_mut() = pairs
+                    .iter()
+                    .map(|(n, list)| (n.to_string(), list.iter().map(|s| s.to_string()).collect()))
+                    .collect();
+            });
+        }
+
+        fn set_value(action: &str, strength: f32, just_pressed: bool) {
+            crate::ops::ACTION_SNAPSHOT.with(|s| {
+                s.borrow_mut().insert(
+                    action.to_string(),
+                    bsengine_input::ActionValue {
+                        strength,
+                        pressed: strength > 0.0,
+                        just_pressed,
+                        just_released: false,
+                    },
+                );
+            });
+        }
+
+        fn clear_actions() {
+            crate::ops::ACTION_SNAPSHOT.with(|s| s.borrow_mut().clear());
+            crate::ops::ACTION_BINDINGS_SNAPSHOT.with(|s| s.borrow_mut().clear());
+        }
+
+        /// An entity a remote peer drives reads its actions from that peer's
+        /// keys, and this machine's action state must not leak in -- the same
+        /// guarantee `isKeyPressed` gives, for the same reason: a server
+        /// simulating a client's player would otherwise jump when the server
+        /// operator pressed Space.
+        #[test]
+        fn an_action_on_a_remote_entity_reads_the_peers_keys_only() {
+            use crate::ops::action_value_for;
+            clear();
+            clear_actions();
+            set_actions(&[("jump", &["Space", "Gamepad:South"]), ("fire", &["E"])]);
+            set_value("jump", 1.0, true);
+            set_value("fire", 0.0, false);
+            REMOTE_INPUT.with(|r| r.borrow_mut().insert("Remote".into(), set(&["E"])));
+
+            assert_eq!(
+                action_value_for("Local", "jump"),
+                [1.0, 1.0, 1.0, 0.0],
+                "premise: this machine is holding jump"
+            );
+            assert_eq!(
+                action_value_for("Remote", "jump"),
+                [0.0, 0.0, 0.0, 0.0],
+                "the peer is not holding jump, whatever this keyboard does"
+            );
+            assert_eq!(
+                action_value_for("Remote", "fire"),
+                [1.0, 1.0, 1.0, 0.0],
+                "the peer's E is fire, and it went down this frame"
+            );
+
+            REMOTE_INPUT_PREVIOUS.with(|r| r.borrow_mut().insert("Remote".into(), set(&["E"])));
+            assert_eq!(
+                action_value_for("Remote", "fire"),
+                [1.0, 1.0, 0.0, 0.0],
+                "held since last frame: no new edge"
+            );
+            REMOTE_INPUT.with(|r| r.borrow_mut().insert("Remote".into(), set(&[])));
+            assert_eq!(
+                action_value_for("Remote", "fire"),
+                [0.0, 0.0, 0.0, 1.0],
+                "let go this frame"
+            );
+            clear();
+            clear_actions();
+        }
+
+        /// The script-facing half: names are checked, `getAxis` and the
+        /// length-clamped `getVector` are built from strengths, and a
+        /// rebinding is validated before it is queued.
+        #[test]
+        fn action_functions_check_names_combine_strengths_and_validate_rebinding() {
+            use crate::runtime::ScriptRuntime;
+            clear();
+            clear_actions();
+            let mut rt = ScriptRuntime::new_with_ops();
+            rt.exec_source(super::super::BOOTSTRAP_JS, "<bootstrap>")
+                .unwrap();
+            let eval = |rt: &mut ScriptRuntime, js: &str| rt.eval(js).unwrap();
+            let catch = |js: &str| {
+                format!(
+                    r#"(() => {{ try {{ {js}; return "no throw"; }} catch (e) {{ return e.message; }} }})()"#
+                )
+            };
+
+            let r = eval(&mut rt, &catch(r#"Bsengine.isActionPressed("jump")"#));
+            assert!(r.contains("declares no [input.actions]"), "{r}");
+
+            set_actions(&[
+                ("left", &["A"]),
+                ("right", &["D"]),
+                ("down", &["S"]),
+                ("up", &["W"]),
+                ("jump", &["Space"]),
+            ]);
+            set_value("right", 1.0, false);
+            set_value("up", 1.0, false);
+            set_value("left", 0.25, false);
+
+            let r = eval(&mut rt, &catch(r#"Bsengine.isActionDown("jmup")"#));
+            assert!(
+                r.contains("unknown action \"jmup\"") && r.contains("jump"),
+                "an unknown action names itself and the real ones: {r}"
+            );
+
+            let r = eval(&mut rt, r#"String(Bsengine.getAxis("left", "right"))"#);
+            assert!(r.contains("0.75"), "right 1 minus left 0.25: {r}");
+
+            set_value("left", 0.0, false);
+            let r = eval(
+                &mut rt,
+                r#"(() => { const v = Bsengine.getVector("left", "right", "down", "up");
+                            return v.x.toFixed(4) + "," + v.y.toFixed(4); })()"#,
+            );
+            assert!(
+                r.contains("0.7071,0.7071"),
+                "diagonal clamped to length 1: {r}"
+            );
+
+            let r = eval(
+                &mut rt,
+                &catch(r#"Bsengine.setActionBindings("jump", ["space"])"#),
+            );
+            assert!(r.contains("unknown key") && r.contains("\"space\""), "{r}");
+            let r = eval(
+                &mut rt,
+                &catch(r#"Bsengine.setActionBindings("jmup", ["J"])"#),
+            );
+            assert!(r.contains("unknown action"), "{r}");
+            let queued = |kind: &str| {
+                crate::ops::COMMAND_BUFFER.with(|c| {
+                    c.borrow()
+                        .iter()
+                        .filter(|cmd| format!("{cmd:?}").starts_with(kind))
+                        .count()
+                })
+            };
+            assert_eq!(
+                queued("SetActionBindings"),
+                0,
+                "a refused rebinding must queue nothing"
+            );
+
+            let r = eval(
+                &mut rt,
+                r#"Bsengine.setActionBindings("jump", ["J", "Gamepad:South"]);
+                   JSON.stringify(Bsengine.getActionBindings("jump"))"#,
+            );
+            assert!(
+                r.contains(r#"["J","Gamepad:South"]"#),
+                "read back at once: {r}"
+            );
+            assert_eq!(
+                queued("SetActionBindings"),
+                1,
+                "and queued for InputActions"
+            );
+            crate::ops::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());
+            clear();
+            clear_actions();
         }
 
         /// The fallback, which is what keeps every existing single-player script

@@ -30,7 +30,7 @@ master `e3b5c728` 기준. 아래 "현재 남은 작업" 표는 2026-09-28에 비
 | 영역 | 항목 | 패턴 → 결과 | 세 엔진 |
 |---|---|---|---|
 | 게임플레이 | ~~**캐릭터 컨트롤러**~~ → **키네마틱** 캐릭터 컨트롤러, 닫힘 | ⚠️ 이 행의 원래 판정(`character_?controller\|move_and_slide` → 0)은 틀렸다: 동적 강체용 `CharacterBody`(item 27, 회전 잠금 + 착지 레이)가 이미 있었고 이름이 달라 grep이 놓쳤다. 없던 것은 세 엔진의 주력인 키네마틱 스윕·슬라이드 방식 → 2026-09-29 `CharacterController`(Rapier KCC: 벽 슬라이드·경사 한계·계단 오르기·바닥 붙기, `Bsengine.moveCharacter`·`isCharacterGrounded`)로 닫힘. 확인: `grep -n "pub struct CharacterController" crates/bsengine-physics/src/components.rs` | Unity `CharacterController`, Unreal `CharacterMovementComponent`, Godot `CharacterBody3D.move_and_slide` |
-| 게임플레이 | **입력 액션 맵·리바인딩** | `InputAction\|action_?map\|rebind` → 0 | Unity Input System, Unreal Enhanced Input, Godot `InputMap` |
+| 게임플레이 | ~~**입력 액션 맵·리바인딩**~~ 닫힘 | `InputAction\|action_?map\|rebind` → 0(판정 맞음; `catalog --concept` input/action/binding/key/axis로도 재확인) → 2026-09-29 `project.toml`의 `[input.actions]` + `InputActions`/`ActionState`(bsengine-input) + `isActionPressed/Down/Up`·`getActionStrength`·`getAxis`·`getVector`·`get/setActionBindings`로 닫힘. 키·마우스·게임패드 버튼·스틱 방향·트리거 바인딩, 데드존 재정규화(Godot식), 잘못된 바인딩은 시작·패키징에서 실패. 매핑 컨텍스트·홀드/탭 인터랙션은 없음. 같은 작업에서 스크립트가 키 11개만 읽던 결함과 `onKeyDown`이 #1829 이후 한 번도 안 불리던 결함을 찾아 #1916으로 고침. 확인: `grep -n "pub struct InputActions" crates/bsengine-input/src/actions.rs` | Unity Input System, Unreal Enhanced Input, Godot `InputMap` |
 | 애니메이션 | 루트 모션 | `root_?motion` → 0 | 셋 다 |
 | 애니메이션 | 애니메이션 이벤트 | `AnimationEvent\|anim_?event` → 0 | Unity Animation Event, Unreal Anim Notify, Godot 메서드 트랙 |
 | 애니메이션 | 모프 타깃(블렌드셰이프) | `morph_?target\|blend_?shape` → 0 | 셋 다(glTF도 morph target을 담음) |

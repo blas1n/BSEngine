@@ -30,6 +30,54 @@ pub struct ProjectManifest {
     pub package: PackageSection,
     #[serde(default)]
     pub network: NetworkSection,
+    #[serde(default)]
+    pub input: InputSection,
+}
+
+/// `project.toml`'s `[input]` table: the project's named actions.
+///
+/// ```toml
+/// [input]
+/// deadzone = 0.2
+///
+/// [input.actions]
+/// jump = ["Space", "Gamepad:South"]
+/// move_right = ["D", "Right", "Gamepad:LeftStickX+"]
+/// ```
+///
+/// Kept as strings here and parsed by [`InputSection::actions`], so that a
+/// bad binding is reported in the input crate's own words -- every bad one,
+/// with its action -- rather than as a serde error pointing at a line.
+#[derive(Deserialize)]
+pub struct InputSection {
+    /// Stick travel below which an axis binding reads 0.
+    #[serde(default = "default_input_deadzone")]
+    pub deadzone: f32,
+    /// Action name -> its bindings.
+    #[serde(default)]
+    pub actions: std::collections::BTreeMap<String, Vec<String>>,
+}
+
+fn default_input_deadzone() -> f32 {
+    bsengine_input::actions::DEFAULT_DEADZONE
+}
+
+// Same rule as `WindowSection` below: an absent `[input]` table and an
+// empty one must agree, so both go through the same default function.
+impl Default for InputSection {
+    fn default() -> Self {
+        Self {
+            deadzone: default_input_deadzone(),
+            actions: Default::default(),
+        }
+    }
+}
+
+impl InputSection {
+    /// The parsed actions, or every problem with them.
+    pub fn actions(&self) -> Result<bsengine_input::InputActions, String> {
+        bsengine_input::InputActions::from_config(&self.actions, self.deadzone)
+    }
 }
 
 #[derive(Deserialize)]

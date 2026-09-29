@@ -252,3 +252,57 @@ fn a_pak_build_loads_a_second_scene_through_the_shim() {
         "nothing to fall back to, so the second scene came out of the archive"
     );
 }
+
+/// A project whose `[input.actions]` holds a bad binding does not package:
+/// the build would refuse to start on the player's machine, and a package
+/// that cannot start is worse than none. The same project with the binding
+/// fixed packages, which is what pins the refusal on the binding rather than
+/// on anything else about this small project.
+#[test]
+fn packaging_refuses_a_bad_input_binding_and_names_it() {
+    let project = Output::new();
+    std::fs::create_dir_all(project.0.join("assets/scenes")).unwrap();
+    std::fs::write(
+        project.0.join("assets/scenes/main.ron"),
+        r#"SceneDescriptor(entities: [EntityDescriptor(name: "Only")])"#,
+    )
+    .unwrap();
+    let package = |binding: &str| {
+        std::fs::write(
+            project.0.join("project.toml"),
+            format!(
+                "[project]\nname = \"Bindings\"\nentry_scene = \"assets/scenes/main.ron\"\n\n\
+                 [input.actions]\njump = [\"{binding}\"]\n"
+            ),
+        )
+        .unwrap();
+        let out = Output::new();
+        let run = Command::new(env!("CARGO_BIN_EXE_bsengine-runtime"))
+            .arg("--package")
+            .arg(&project.0)
+            .arg("--out")
+            .arg(&out.0)
+            .arg("--mode")
+            .arg("loose")
+            .output()
+            .expect("run --package");
+        let exe_made = out.0.join(runtime_file_name()).exists();
+        (run, exe_made)
+    };
+
+    let (good, good_exe) = package("Space");
+    assert!(
+        good.status.success() && good_exe,
+        "premise: the project packages with a good binding: {}",
+        String::from_utf8_lossy(&good.stderr)
+    );
+
+    let (bad, bad_exe) = package("space");
+    let stderr = String::from_utf8_lossy(&bad.stderr);
+    assert!(!bad.status.success(), "a bad binding must fail the build");
+    assert!(!bad_exe, "and leave no executable behind");
+    assert!(
+        stderr.contains("action \"jump\"") && stderr.contains("\"space\""),
+        "the failure names the action and the binding: {stderr}"
+    );
+}

@@ -158,6 +158,31 @@ function _key(key) {
     return key;
 }
 
+// The same check for action names. Not cached while empty: a script's
+// top-level code runs before the first frame's snapshot, and caching the
+// empty list then would make every later call throw.
+var _actionNameSet = null;
+function _actionNames() {
+    if (_actionNameSet === null || _actionNameSet.size === 0) {
+        _actionNameSet = new Set(JSON.parse(Deno.core.ops.bsengine_action_names()));
+    }
+    return _actionNameSet;
+}
+function _action(action) {
+    const names = _actionNames();
+    if (!names.has(action)) {
+        throw new Error(
+            "unknown action " + JSON.stringify(action) + "; "
+            + (names.size === 0
+                ? "project.toml declares no [input.actions]"
+                : "actions are " + Array.from(names).join(", ")));
+    }
+    return action;
+}
+function _actionValue(action) {
+    return Deno.core.ops.bsengine_action_value(Bsengine._currentEntity, _action(action));
+}
+
 var Bsengine = {
     Vec3: _V3,
     Quat: _Q,
@@ -207,6 +232,30 @@ var Bsengine = {
     isKeyPressed:   (key)                  => Deno.core.ops.bsengine_is_key_pressed(Bsengine._currentEntity, _key(key)),
     isKeyDown:      (key)                  => Deno.core.ops.bsengine_is_key_down(Bsengine._currentEntity, _key(key)),
     isKeyUp:        (key)                  => Deno.core.ops.bsengine_is_key_up(Bsengine._currentEntity, _key(key)),
+    // Input actions, from `[input.actions]` in project.toml -- Godot's
+    // Input.is_action_pressed / get_axis / get_vector, with this API's
+    // Pressed = held, Down/Up = this frame's edge. Read for the running
+    // entity, so a remote player's actions come from that peer's keys.
+    isActionPressed:   (action) => _actionValue(action)[1] === 1,
+    isActionDown:      (action) => _actionValue(action)[2] === 1,
+    isActionUp:        (action) => _actionValue(action)[3] === 1,
+    getActionStrength: (action) => _actionValue(action)[0],
+    getAxis: (negative, positive) => _actionValue(positive)[0] - _actionValue(negative)[0],
+    // Clamped to length 1, as Godot's get_vector is: W and D together would
+    // otherwise move ~1.41 times faster diagonally than straight.
+    getVector: (negX, posX, negY, posY) => {
+        let x = _actionValue(posX)[0] - _actionValue(negX)[0];
+        let y = _actionValue(posY)[0] - _actionValue(negY)[0];
+        const len = Math.hypot(x, y);
+        if (len > 1) { x /= len; y /= len; }
+        return { x, y };
+    },
+    getActionNames:    ()       => Array.from(_actionNames()),
+    getActionBindings: (action) => JSON.parse(Deno.core.ops.bsengine_get_action_bindings(_action(action))),
+    setActionBindings: (action, bindings) => {
+        const err = Deno.core.ops.bsengine_set_action_bindings(_action(action), JSON.stringify(bindings));
+        if (err) throw new Error(err);
+    },
     pause:          ()                     => Deno.core.ops.bsengine_pause(),
     resume:         ()                     => Deno.core.ops.bsengine_resume(),
     isPaused:       ()                     => Deno.core.ops.bsengine_is_paused(),

@@ -6,6 +6,8 @@
 //! ECS resources.
 #![warn(missing_docs)]
 
+/// Named actions ("jump") bound to keys, buttons and stick directions.
+pub mod actions;
 /// Translates platform (winit/gilrs) input events into BSEngine's own input types.
 pub mod convert;
 /// The `InputPlugin` bevy plugin and the per-frame `MouseState` resource.
@@ -15,9 +17,10 @@ pub mod state;
 /// Input event and resource type definitions (keys, buttons, cursor, gamepad).
 pub mod types;
 
-pub use plugin::{InputPlugin, MouseState};
+pub use actions::{ActionState, ActionValue, Binding, GamepadAxis, InputActions};
+pub use plugin::{InputPlugin, InputSystems, MouseState};
 pub use state::Input;
 pub use types::{
     CursorMoved, ElementState, GamepadButton, GamepadSticks, KeyCode, KeyInput, MouseButton,
-    MouseInput, MouseMotion, MouseWheel,
+    MouseInput, MouseMotion, MouseWheel, KEY_NAMES,
 };

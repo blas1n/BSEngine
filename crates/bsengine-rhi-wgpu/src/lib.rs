@@ -66,8 +66,8 @@ pub use mesh::{
 pub use plugin::{GpuQueueResource, ShippedMipCacheResource, WgpuRHIPlugin};
 pub use skinning::GpuVertexSkin;
 pub use surface::{
-    LightData, MaterialParams, PointLightEntry, ProbeVolumeParams, SpotLightEntry,
-    WgpuSurfaceResource,
+    LightData, MaterialParams, PointLightEntry, ProbeVolumeParams, ReflectionProbeParams,
+    SpotLightEntry, WgpuSurfaceResource,
 };
 pub use texture::{
     precook_mip_cache, GpuTextureRegistry, ShippedMipCache, StreamingStep, SHIPPED_MIP_DIR,

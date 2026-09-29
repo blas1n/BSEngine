@@ -34,7 +34,7 @@ master `e3b5c728` 기준. 아래 "현재 남은 작업" 표는 2026-09-28에 비
 | 애니메이션 | 루트 모션 | `root_?motion` → 0 | 셋 다 |
 | 애니메이션 | 애니메이션 이벤트 | `AnimationEvent\|anim_?event` → 0 | Unity Animation Event, Unreal Anim Notify, Godot 메서드 트랙 |
 | 애니메이션 | 모프 타깃(블렌드셰이프) | `morph_?target\|blend_?shape` → 0 | 셋 다(glTF도 morph target을 담음) |
-| 렌더링 | **반사 프로브** | `reflection_?probe` → 0 | Unity Reflection Probe, Unreal Sphere/Box Reflection Capture, Godot `ReflectionProbe` |
+| 렌더링 | ~~**반사 프로브**~~ 닫힘 | `reflection_?probe` → 0(`catalog --concept` reflection/cubemap/specular도 0 확인) → 2026-09-30 `ReflectionProbe`(bsengine-core): 프로브 위치에서 큐브맵 1회 캡처(라이트 프로브 캡처 셰이더 재사용, 하드웨어 큐브 규약으로 Y 플립) → 하늘과 같은 `prefilter_from_cubemap` → 큐브 배열(최대 4) 슬롯, 박스 안에서 스카이 스페큘러를 **대체**, 박스 투영 선택(기본 꺼짐, Unity·Godot와 같음), 겹치면 가장 작은 박스 우선. 블렌딩·실시간 갱신·SSR과의 합성 규칙은 없음. 확인: `grep -n "pub struct ReflectionProbe" crates/bsengine-core/src/reflection_probe.rs` | Unity Reflection Probe, Unreal Sphere/Box Reflection Capture, Godot `ReflectionProbe` |
 | 렌더링 | **DOF** | `depth_?of_?field\|bokeh_scale` → 1(`scripting/src/ops.rs` 삭제된 스냅샷의 주석) | 셋 다 |
 | 렌더링 | 모션 블러 | `motion_?blur\|shutter_angle` → 1(같은 주석) | 셋 다 |
 | 렌더링 | **컬러 그레이딩 LUT** | `color_?grading\|colou?r_lut` → 0 | 셋 다 |

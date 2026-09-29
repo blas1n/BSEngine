@@ -236,6 +236,10 @@ pub struct Scene {
     /// for one. A test that wants a surface outside the volume moves the
     /// surface, not the box.
     pub light_probes: Option<bsengine_core::LightProbeVolume>,
+    /// Reflection probes, as the render system hands them to the surface --
+    /// with their centres, since this harness has no entities to take a
+    /// position from. Empty means none: the sky (or nothing) is reflected.
+    pub reflection_probes: Vec<bsengine_rhi_wgpu::ReflectionProbeParams>,
     /// Volumetric fog for this camera, or `None` for no fog at all -- which is
     /// exactly what an absent component means on a real camera, and what every
     /// other test file in this directory leaves it as.
@@ -264,6 +268,7 @@ impl Default for Scene {
             ssr: None,
             taa: None,
             light_probes: None,
+            reflection_probes: Vec::new(),
             fog: None,
             hud: HashMap::new(),
             with_skybox: false,
@@ -788,6 +793,9 @@ struct VertOut {{
                 // not ask for a volume keeps rendering exactly as it did before
                 // light probes existed.
                 light_probes,
+                // Empty uploads `count: 0`, so every scene without probes
+                // keeps the sky's specular exactly as before.
+                &scene.reflection_probes,
                 // `None` uploads `enabled: 0`, so the fog apply pass is an
                 // exact passthrough and every scene that does not ask for fog
                 // renders as it did before the froxel volumes existed.

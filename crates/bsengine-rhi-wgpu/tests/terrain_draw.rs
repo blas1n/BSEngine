@@ -89,6 +89,8 @@ fn a_terrain_draw_call_does_not_panic_alongside_regular_draw_calls() {
         Mat4::IDENTITY,
         // No probe volume either; terrain chunks are not captured into probes.
         None,
+        // Nor any reflection probe.
+        &[],
         // No fog, so the apply pass stays a passthrough.
         None,
     );

@@ -133,6 +133,25 @@ struct ProbeUniform {
 // at the fragment's own pixel -- it is a screen-space buffer, so there is no
 // uv to sample and no filtering to want.
 @group(2) @binding(10) var decal_buffer: texture_2d<f32>;
+// Reflection probes: each a captured, prefiltered cubemap (six layers of
+// `reflection_cubes` per probe, mips by roughness exactly like
+// `prefilter_cube`) and the box it governs. Bound every frame; `count` 0
+// means none, and the IBL specular stands.
+struct ReflectionProbeEntry {
+    center: vec3<f32>,
+    intensity: f32,
+    half_extents: vec3<f32>,
+    box_projection: u32,
+};
+struct ReflectionProbeUniform {
+    count: u32,
+    max_mip: f32,
+    _pad0: u32,
+    _pad1: u32,
+    entries: array<ReflectionProbeEntry, 4>,
+};
+@group(2) @binding(12) var<uniform> reflection_probes: ReflectionProbeUniform;
+@group(2) @binding(13) var reflection_cubes: texture_cube_array<f32>;
 
 struct VertIn {
     @location(0) pos: vec3<f32>,
@@ -300,6 +319,44 @@ fn fresnel_schlick_roughness(cos_theta: f32, f0: vec3<f32>, roughness: f32) -> v
     let inv_rough = vec3<f32>(1.0 - roughness);
     return f0 + (max(inv_rough, f0) - f0) * pow(clamp(1.0 - cos_theta, 0.0, 1.0), 5.0);
 }
+// The reflection probe governing `world_pos`: the smallest box containing it,
+// or -1 for none. Smallest rather than first, so a probe placed inside a room
+// covered by a larger hall probe wins inside the room -- the containment rule
+// Unity's and Godot's importance/priority defaults amount to for nested boxes.
+fn reflection_probe_at(world_pos: vec3<f32>) -> i32 {
+    var best = -1;
+    var best_volume = 3.4e38;
+    for (var i = 0u; i < min(reflection_probes.count, 4u); i = i + 1u) {
+        let e = reflection_probes.entries[i];
+        if (all(abs(world_pos - e.center) <= e.half_extents)) {
+            let volume = e.half_extents.x * e.half_extents.y * e.half_extents.z;
+            if (volume < best_volume) {
+                best = i32(i);
+                best_volume = volume;
+            }
+        }
+    }
+    return best;
+}
+
+// The direction to look up in probe `e`'s cube for reflection ray `r` leaving
+// `world_pos`. Without box projection that is `r` itself: the capture is
+// treated as infinitely far away, like the sky. With it, the ray is followed
+// to the box wall it leaves through and the cube is read toward that point as
+// seen from the capture position -- so a reflected door sits where the door
+// is, instead of sliding with the viewer. (The per-axis far-plane distance is
+// the larger of the two slab intersections; the nearest of those is the exit.)
+fn reflection_probe_dir(e: ReflectionProbeEntry, world_pos: vec3<f32>, r: vec3<f32>) -> vec3<f32> {
+    if (e.box_projection == 0u) {
+        return r;
+    }
+    let to_max = (e.center + e.half_extents - world_pos) / r;
+    let to_min = (e.center - e.half_extents - world_pos) / r;
+    let far = max(to_max, to_min);
+    let t = min(min(far.x, far.y), far.z);
+    return world_pos + r * t - e.center;
+}
+
 // True when `world_pos` is inside the baked volume's box. Outside it there are
 // no surrounding probes to interpolate between, so the IBL path stands.
 fn inside_probe_volume(world_pos: vec3<f32>) -> bool {
@@ -487,31 +544,57 @@ fn fs_main(in: VertOut) -> SceneOut {
     // both branches are skipped.
     let f_ibl = fresnel_schlick_roughness(n_dot_v, f0, roughness);
     let kd_ibl = (vec3<f32>(1.0) - f_ibl) * (1.0 - metallic);
+    // The ambient term is kept as its two halves until the end -- diffuse
+    // and specular -- because the two kinds of probe each replace one half:
+    // a light probe the diffuse, a reflection probe the specular. Summed once
+    // at the bottom by the same `+` the old single expressions used, so a
+    // frame with neither kind of probe is bit-for-bit what it was.
     var specular_ibl = vec3<f32>(0.0, 0.0, 0.0);
-    var ambient_term = light.ambient * albedo;
+    var diffuse_term = light.ambient * albedo;
+    let r = reflect(-v, n);
     if (light.ibl_enabled != 0u) {
         let irradiance = textureSample(irradiance_cube, ibl_sampler, n).rgb;
-        let diffuse_ibl = irradiance * albedo * kd_ibl;
+        diffuse_term = irradiance * albedo * kd_ibl;
 
-        let r = reflect(-v, n);
         let prefiltered = textureSampleLevel(
             prefilter_cube, ibl_sampler, r, roughness * light.ibl_max_mip
         ).rgb;
         let brdf = textureSample(brdf_lut, ibl_sampler, vec2<f32>(n_dot_v, roughness)).rg;
         specular_ibl = prefiltered * (f_ibl * brdf.x + brdf.y);
-
-        ambient_term = diffuse_ibl + specular_ibl;
+    }
+    let reflection_probe = reflection_probe_at(in.world_pos);
+    if (reflection_probe >= 0) {
+        // REPLACES the sky's specular, never adds to it: the probe captured
+        // the sky too, wherever it could see it, so adding would reflect the
+        // sky twice. Works without a skybox as well -- the BRDF LUT is built
+        // at startup and always bound, and a probe in a sky-less scene is
+        // exactly where the room's own reflection matters most.
+        let e = reflection_probes.entries[reflection_probe];
+        let dir = reflection_probe_dir(e, in.world_pos, r);
+        let captured = textureSampleLevel(
+            reflection_cubes, ibl_sampler, dir, reflection_probe,
+            roughness * reflection_probes.max_mip
+        ).rgb;
+        // `textureSampleLevel`, not `textureSample`: this branch depends on
+        // the fragment's position, and implicit-derivative sampling is only
+        // allowed in uniform control flow. The LUT has one mip, so level 0 is
+        // the same read.
+        let brdf = textureSampleLevel(
+            brdf_lut, ibl_sampler, vec2<f32>(n_dot_v, roughness), 0.0
+        ).rg;
+        specular_ibl = captured * (f_ibl * brdf.x + brdf.y) * e.intensity;
     }
     if (probes.enabled != 0u && inside_probe_volume(in.world_pos)) {
         // REPLACES the ambient/IBL irradiance, never adds to it. The probes
         // captured the real scene *including the skybox background and the flat
         // ambient term*, so their SH already carries the sky's contribution;
         // adding would double-count sky light and wash the scene out. The
-        // specular half is kept as-is -- probes are a diffuse-only, L2
-        // representation and carry no reflection to replace it with.
+        // specular half is left to the IBL or reflection probe above --
+        // light probes are a diffuse-only, L2 representation.
         let probe_irradiance = eval_probe_sh(in.world_pos, n);
-        ambient_term = probe_irradiance * albedo * kd_ibl + specular_ibl;
+        diffuse_term = probe_irradiance * albedo * kd_ibl;
     }
+    let ambient_term = diffuse_term + specular_ibl;
     let color = ambient_term + lo + model_data.emissive;
     var out: SceneOut;
     out.colour = vec4<f32>(color, model_data.opacity);
@@ -1638,6 +1721,61 @@ pub struct ProbeVolumeParams {
     pub resolution: [u32; 3],
 }
 
+/// Where [`WgpuSurface::capture_cube_faces`] renders to, and how.
+struct CubeCaptureTarget<'a> {
+    /// Six layers per captured position.
+    texture: &'a wgpu::Texture,
+    /// Depth for one face at the texture's size, cleared per face.
+    depth_view: &'a wgpu::TextureView,
+    /// The mesh pipeline; its front face must match `flip_y`.
+    pipeline: &'a wgpu::RenderPipeline,
+    /// Lay the faces out in the hardware cube convention.
+    flip_y: bool,
+}
+
+/// One reflection probe as [`WgpuSurface::render_frame`] receives it: where
+/// its capture is taken and the box it governs.
+///
+/// Re-captured under the same rule as [`ProbeVolumeParams`]: when the list of
+/// these differs from the last capture, not when the scene inside changes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ReflectionProbeParams {
+    /// World-space capture position and box centre.
+    pub center: Vec3,
+    /// World-space half-size of the box.
+    pub half_extents: Vec3,
+    /// Whether reflections are box-projected onto the box's walls.
+    pub box_projection: bool,
+    /// Brightness multiplier on the reflection.
+    pub intensity: f32,
+}
+
+/// Side of one captured reflection-probe face, and of each face of the
+/// prefiltered cube it becomes. The same size as the sky's prefiltered map
+/// ([`crate::ibl::PREFILTER_CUBE_SIZE`]), because the capture *is* fed to that
+/// same prefilter and copied mip for mip into the probe's slot.
+const REFLECTION_FACE_SIZE: u32 = crate::ibl::PREFILTER_CUBE_SIZE;
+
+/// Mirrors the WGSL `ReflectionProbeEntry`: two vec3 + scalar rows, 32 bytes.
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct ReflectionProbeEntryData {
+    center: [f32; 3],
+    intensity: f32,
+    half_extents: [f32; 3],
+    box_projection: u32,
+}
+
+/// Mirrors the WGSL `ReflectionProbeUniform`.
+#[repr(C)]
+#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct ReflectionProbeUniformData {
+    count: u32,
+    max_mip: f32,
+    _pad: [u32; 2],
+    entries: [ReflectionProbeEntryData; bsengine_core::MAX_REFLECTION_PROBES],
+}
+
 /// World positions of one volume's probes, in the order the scene shader
 /// indexes them: x fastest, then y, then z.
 ///
@@ -2192,6 +2330,11 @@ struct LightBindings<'a> {
     decal_view: &'a wgpu::TextureView,
     /// This frame's decal normal buffer, cleared the same way.
     decal_normal_view: &'a wgpu::TextureView,
+    /// The reflection probes' boxes. Always present; `count` is 0 when none
+    /// has been captured.
+    reflection_probe_buffer: &'a wgpu::Buffer,
+    /// Every reflection probe's prefiltered cube, as one cube array.
+    reflection_cubes_view: &'a wgpu::TextureView,
 }
 
 /// Builds the light bind group. The single place the group-2 binding numbers
@@ -2253,6 +2396,14 @@ fn create_light_bind_group(
             wgpu::BindGroupEntry {
                 binding: 11,
                 resource: wgpu::BindingResource::TextureView(bindings.decal_normal_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 12,
+                resource: bindings.reflection_probe_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 13,
+                resource: wgpu::BindingResource::TextureView(bindings.reflection_cubes_view),
             },
         ],
     })
@@ -2354,6 +2505,22 @@ pub struct WgpuSurface {
     /// bake-once policy: a bake happens when a volume appears or its own
     /// parameters change, and never otherwise.
     baked_probe_volume: Option<ProbeVolumeParams>,
+    /// The reflection probes' boxes, bound at group 2 binding 12.
+    reflection_probe_buffer: wgpu::Buffer,
+    /// Every captured reflection probe's prefiltered cube, six layers per
+    /// slot, bound as a cube array at binding 13.
+    reflection_cubes: crate::profiler::TrackedTexture,
+    reflection_cubes_view: wgpu::TextureView,
+    /// One probe's six capture faces, re-used for each probe in turn.
+    reflection_capture_texture: crate::profiler::TrackedTexture,
+    _reflection_capture_depth: crate::profiler::TrackedTexture,
+    reflection_capture_depth_view: wgpu::TextureView,
+    /// See the comment where it is built: the capture pipeline with its
+    /// winding reversed for the clip-space flip.
+    reflection_capture_pipeline: wgpu::RenderPipeline,
+    /// The probes [`Self::reflection_cubes`] currently holds, in slot order.
+    /// Compared against each frame's list exactly as `baked_probe_volume` is.
+    captured_reflection_probes: Vec<ReflectionProbeParams>,
     /// Layout of the skybox's texture+sampler group. Held here rather than
     /// built inside `set_skybox_from_rgba` because `probe_capture_sky_pipeline`
     /// is built once at construction and has to bind `SkyboxState::texture_bg`
@@ -2599,6 +2766,13 @@ impl WgpuSurface {
     /// true for `bsengine-runtime`'s CI replay path.
     pub fn is_fast_render(&self) -> bool {
         self.fast_render
+    }
+
+    /// The reflection probes the cube array currently holds, in slot order:
+    /// what the scene shader is sampling. Empty until a frame with probes
+    /// has run, and always empty under `fast_render`, which never captures.
+    pub fn reflection_probes_captured(&self) -> &[ReflectionProbeParams] {
+        &self.captured_reflection_probes
     }
 
     /// Whether the shadow passes batch objects sharing a mesh into one
@@ -3104,6 +3278,31 @@ impl WgpuSurface {
                     },
                     count: None,
                 },
+                // 12 and 13 are the reflection probes: their boxes, and their
+                // prefiltered cubes as one cube array. In this group, like the
+                // light probes at 9, so the capture pipeline -- which shares
+                // the layout but never declares them -- cannot reflect its
+                // own earlier captures back into a new one.
+                wgpu::BindGroupLayoutEntry {
+                    binding: 12,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 13,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::CubeArray,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
 
@@ -3385,6 +3584,87 @@ impl WgpuSurface {
             bytemuck::bytes_of(&<ProbeUniformData as bytemuck::Zeroable>::zeroed()),
         );
 
+        // Reflection probes: the uniform (zeroed to `count: 0`, for the same
+        // reason `probe_buffer` is), the cube array every probe's prefiltered
+        // capture is copied into, and the one-probe capture target the copies
+        // come from. Fixed size, so the bind group never has to follow them.
+        let reflection_probe_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("reflection probe uniform"),
+            usage: wgpu::BufferUsages::UNIFORM
+                | wgpu::BufferUsages::COPY_DST
+                | wgpu::BufferUsages::COPY_SRC,
+            size: std::mem::size_of::<ReflectionProbeUniformData>() as u64,
+            mapped_at_creation: false,
+        });
+        queue.write_buffer(
+            &reflection_probe_buffer,
+            0,
+            bytemuck::bytes_of(&<ReflectionProbeUniformData as bytemuck::Zeroable>::zeroed()),
+        );
+        let reflection_cubes = crate::profiler::create_tracked_texture(
+            &device,
+            &wgpu::TextureDescriptor {
+                label: Some("reflection probe cubes"),
+                size: wgpu::Extent3d {
+                    width: REFLECTION_FACE_SIZE,
+                    height: REFLECTION_FACE_SIZE,
+                    depth_or_array_layers: (bsengine_core::MAX_REFLECTION_PROBES * 6) as u32,
+                },
+                mip_level_count: crate::ibl::PREFILTER_MIP_LEVELS,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: crate::ibl::ENV_CUBE_FORMAT,
+                // COPY_SRC so a test can read a probe's slot back and check
+                // what the scene shader is about to sample.
+                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_DST
+                    | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[],
+            },
+        );
+        let reflection_cubes_view = reflection_cubes.create_view(&wgpu::TextureViewDescriptor {
+            label: Some("reflection probe cube array view"),
+            dimension: Some(wgpu::TextureViewDimension::CubeArray),
+            ..Default::default()
+        });
+        let reflection_capture_texture = crate::profiler::create_tracked_texture(
+            &device,
+            &wgpu::TextureDescriptor {
+                label: Some("reflection probe capture"),
+                size: wgpu::Extent3d {
+                    width: REFLECTION_FACE_SIZE,
+                    height: REFLECTION_FACE_SIZE,
+                    depth_or_array_layers: 6,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: PROBE_CAPTURE_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            },
+        );
+        let reflection_capture_depth = crate::profiler::create_tracked_texture(
+            &device,
+            &wgpu::TextureDescriptor {
+                label: Some("reflection probe capture depth"),
+                size: wgpu::Extent3d {
+                    width: REFLECTION_FACE_SIZE,
+                    height: REFLECTION_FACE_SIZE,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: DEPTH_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            },
+        );
+        let reflection_capture_depth_view =
+            reflection_capture_depth.create_view(&wgpu::TextureViewDescriptor::default());
+
         // Before the light bind group, which binds its view. A resize
         // rebuilds both, in this order, for the same reason.
         let decals = crate::decals::DecalResources::new(
@@ -3416,6 +3696,8 @@ impl WgpuSurface {
                 probe_buffer: &probe_buffer,
                 decal_view: &decals.view,
                 decal_normal_view: &decals.normal_view,
+                reflection_probe_buffer: &reflection_probe_buffer,
+                reflection_cubes_view: &reflection_cubes_view,
             },
         );
 
@@ -3674,6 +3956,55 @@ impl WgpuSurface {
                     topology: wgpu::PrimitiveTopology::TriangleList,
                     cull_mode: Some(wgpu::Face::Back),
                     front_face: wgpu::FrontFace::Ccw,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            });
+
+        // The probe capture pipeline with the winding reversed. A reflection
+        // capture is *sampled as a cubemap*, so its faces must be laid out in
+        // the hardware cube convention (`ibl.rs`'s `cube_face_direction`),
+        // and `CUBE_FACE_DIRS`'s faces come out of a top-left-origin
+        // framebuffer vertically flipped against it -- on all six faces,
+        // checked face by face. The capture fixes that by flipping clip-space
+        // Y (`REFLECTION_CAPTURE_FLIP`), which mirrors every triangle; this
+        // pipeline's `Cw` front face is what keeps back-face culling culling
+        // the backs rather than the fronts. Light probes need neither: their
+        // captures are read back texel by texel through
+        // `probe_face_texel_direction`, never sampled as a cube.
+        let reflection_capture_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("reflection capture pipeline"),
+                layout: Some(&probe_capture_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &probe_capture_shader,
+                    entry_point: "vs_capture",
+                    buffers: std::slice::from_ref(&vertex_buffer_layout),
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &probe_capture_shader,
+                    entry_point: "fs_capture",
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: PROBE_CAPTURE_FORMAT,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    cull_mode: Some(wgpu::Face::Back),
+                    front_face: wgpu::FrontFace::Cw,
                     ..Default::default()
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
@@ -4103,6 +4434,14 @@ impl WgpuSurface {
             probe_buffer,
             // Nothing baked yet, and `probe_buffer` was just zeroed to match.
             baked_probe_volume: None,
+            reflection_probe_buffer,
+            reflection_cubes,
+            reflection_cubes_view,
+            reflection_capture_texture,
+            _reflection_capture_depth: reflection_capture_depth,
+            reflection_capture_depth_view,
+            reflection_capture_pipeline,
+            captured_reflection_probes: Vec::new(),
             sky_tex_bgl,
             egui_ctx,
             egui_renderer,
@@ -4544,6 +4883,8 @@ impl WgpuSurface {
                 probe_buffer: &self.probe_buffer,
                 decal_view: &self.decals.view,
                 decal_normal_view: &self.decals.normal_view,
+                reflection_probe_buffer: &self.reflection_probe_buffer,
+                reflection_cubes_view: &self.reflection_cubes_view,
             },
         );
         self.light_bind_group = bind_group;
@@ -4757,11 +5098,54 @@ impl WgpuSurface {
         tex_registry: Option<&crate::texture::GpuTextureRegistry>,
         positions: &[Vec3],
     ) {
+        let positions = &positions[..positions.len().min(bsengine_core::MAX_PROBES)];
+        self.capture_cube_faces(
+            encoder,
+            cascades,
+            draw_calls,
+            registry,
+            tex_registry,
+            positions,
+            CubeCaptureTarget {
+                texture: &self.probe_capture_texture,
+                depth_view: &self.probe_capture_depth_view,
+                pipeline: &self.probe_capture_pipeline,
+                flip_y: false,
+            },
+        );
+    }
+
+    /// Renders the scene into six faces per position of `target.texture`,
+    /// at layer `position * 6 + face`: the shared body of the light-probe
+    /// and reflection-probe captures. See [`Self::capture_probes`] for the
+    /// contract on the light and model buffers.
+    ///
+    /// With `target.flip_y` the faces are laid out in the hardware cube
+    /// convention (see where `reflection_capture_pipeline` is built), for a
+    /// capture that will be sampled as a cubemap.
+    #[allow(clippy::too_many_arguments)]
+    fn capture_cube_faces(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        cascades: &crate::shadow::DirectionalCascades,
+        draw_calls: &[(u64, Mat4, Option<u64>, MaterialParams, Option<String>)],
+        registry: &GpuMeshRegistry,
+        tex_registry: Option<&crate::texture::GpuTextureRegistry>,
+        positions: &[Vec3],
+        target: CubeCaptureTarget,
+    ) {
         let (light_view_proj, cascade_layer) = cascades.widest();
-        let probe_count = positions.len().min(bsengine_core::MAX_PROBES);
+        let probe_count = positions.len();
         if probe_count == 0 {
             return;
         }
+        // Clip-space Y flip. Its own inverse, so the sky's inverse matrix
+        // takes it on the right: `(F * M)^-1 = M^-1 * F`.
+        let flip = if target.flip_y {
+            Mat4::from_scale(Vec3::new(1.0, -1.0, 1.0))
+        } else {
+            Mat4::IDENTITY
+        };
 
         // Every face's uniform is written up front, before a single pass is
         // encoded, because `queue.write_buffer` is ordered against *submits*,
@@ -4775,9 +5159,9 @@ impl WgpuSurface {
             for (face, vp) in view_projs.iter().enumerate() {
                 let slot = probe_idx * 6 + face;
                 let data = ProbeCaptureUniformData {
-                    view_proj: vp.to_cols_array_2d(),
+                    view_proj: (flip * *vp).to_cols_array_2d(),
                     light_view_proj: light_view_proj.to_cols_array_2d(),
-                    inv_view_proj: sky_vp_invs[face].to_cols_array_2d(),
+                    inv_view_proj: (sky_vp_invs[face] * flip).to_cols_array_2d(),
                     probe_pos: position.to_array(),
                     cascade_layer,
                 };
@@ -4792,15 +5176,13 @@ impl WgpuSurface {
         for probe_idx in 0..probe_count {
             for face in 0..6usize {
                 let slot = probe_idx * 6 + face;
-                let layer_view =
-                    self.probe_capture_texture
-                        .create_view(&wgpu::TextureViewDescriptor {
-                            label: Some("probe capture layer view"),
-                            dimension: Some(wgpu::TextureViewDimension::D2),
-                            base_array_layer: slot as u32,
-                            array_layer_count: Some(1),
-                            ..Default::default()
-                        });
+                let layer_view = target.texture.create_view(&wgpu::TextureViewDescriptor {
+                    label: Some("probe capture layer view"),
+                    dimension: Some(wgpu::TextureViewDimension::D2),
+                    base_array_layer: slot as u32,
+                    array_layer_count: Some(1),
+                    ..Default::default()
+                });
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("probe capture pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -4821,7 +5203,7 @@ impl WgpuSurface {
                         },
                     })],
                     depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: &self.probe_capture_depth_view,
+                        view: target.depth_view,
                         depth_ops: Some(wgpu::Operations {
                             load: wgpu::LoadOp::Clear(1.0),
                             store: wgpu::StoreOp::Store,
@@ -4835,7 +5217,7 @@ impl WgpuSurface {
                     occlusion_query_set: None,
                 });
                 let uniform_offset = (slot as u64 * PROBE_CAPTURE_STRIDE) as u32;
-                pass.set_pipeline(&self.probe_capture_pipeline);
+                pass.set_pipeline(target.pipeline);
                 pass.set_bind_group(0, &self.probe_capture_bind_group, &[uniform_offset]);
                 pass.set_bind_group(2, &self.light_bind_group, &[]);
                 for (i, (mesh_id, _, tex_id, _, _)) in draw_calls.iter().enumerate() {
@@ -5030,6 +5412,119 @@ impl WgpuSurface {
             .write_buffer(&self.probe_buffer, 0, bytemuck::bytes_of(&data));
     }
 
+    /// Captures each reflection probe and fills its slot of
+    /// [`Self::reflection_cubes`], then uploads the boxes; with an empty list,
+    /// uploads `count: 0`.
+    ///
+    /// Per probe: six faces rendered from its centre (the light-probe
+    /// capture, flipped into the cube convention), submitted; the sky's own
+    /// [`crate::ibl::prefilter_from_cubemap`] over them, so a probe's
+    /// roughness mips mean exactly what the sky's do; then each mip copied
+    /// into the probe's six layers. Probes are captured one at a time into
+    /// one target, each submitted before the next rewrites the capture
+    /// uniforms -- `queue.write_buffer` is ordered against submits, not
+    /// passes.
+    ///
+    /// A probe does not see other probes' reflections: the capture shader
+    /// never declares bindings 12 and 13. Unity and Godot capture a probe
+    /// with reflections of previous bounces only on request; one bounce is
+    /// their default too.
+    ///
+    /// Expensive -- per probe 6 scene passes plus the prefilter's 30 -- and so
+    /// run only when the probe list changes, like [`Self::bake_probes`].
+    fn bake_reflection_probes(
+        &self,
+        cascades: &crate::shadow::DirectionalCascades,
+        draw_calls: &[(u64, Mat4, Option<u64>, MaterialParams, Option<String>)],
+        registry: &GpuMeshRegistry,
+        tex_registry: Option<&crate::texture::GpuTextureRegistry>,
+        probes: &[ReflectionProbeParams],
+    ) {
+        let probes = &probes[..probes.len().min(bsengine_core::MAX_REFLECTION_PROBES)];
+        let mut data = <ReflectionProbeUniformData as bytemuck::Zeroable>::zeroed();
+        let capture_cube_view =
+            self.reflection_capture_texture
+                .create_view(&wgpu::TextureViewDescriptor {
+                    label: Some("reflection capture cube view"),
+                    dimension: Some(wgpu::TextureViewDimension::Cube),
+                    ..Default::default()
+                });
+        for (slot, probe) in probes.iter().enumerate() {
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("reflection probe capture encoder"),
+                });
+            self.capture_cube_faces(
+                &mut encoder,
+                cascades,
+                draw_calls,
+                registry,
+                tex_registry,
+                &[probe.center],
+                CubeCaptureTarget {
+                    texture: &self.reflection_capture_texture,
+                    depth_view: &self.reflection_capture_depth_view,
+                    pipeline: &self.reflection_capture_pipeline,
+                    flip_y: true,
+                },
+            );
+            self.queue.submit(std::iter::once(encoder.finish()));
+
+            let (prefiltered, _view) = crate::ibl::prefilter_from_cubemap(
+                &self.device,
+                &self.queue,
+                &capture_cube_view,
+                &self.ibl_sampler,
+            );
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("reflection probe copy encoder"),
+                });
+            for mip in 0..crate::ibl::PREFILTER_MIP_LEVELS {
+                let size = (REFLECTION_FACE_SIZE >> mip).max(1);
+                encoder.copy_texture_to_texture(
+                    wgpu::ImageCopyTexture {
+                        texture: &prefiltered,
+                        mip_level: mip,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    wgpu::ImageCopyTexture {
+                        texture: &self.reflection_cubes,
+                        mip_level: mip,
+                        origin: wgpu::Origin3d {
+                            x: 0,
+                            y: 0,
+                            z: (slot * 6) as u32,
+                        },
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    wgpu::Extent3d {
+                        width: size,
+                        height: size,
+                        depth_or_array_layers: 6,
+                    },
+                );
+            }
+            self.queue.submit(std::iter::once(encoder.finish()));
+
+            data.entries[slot] = ReflectionProbeEntryData {
+                center: probe.center.to_array(),
+                intensity: probe.intensity,
+                half_extents: probe.half_extents.to_array(),
+                box_projection: u32::from(probe.box_projection),
+            };
+        }
+        data.count = probes.len() as u32;
+        data.max_mip = (crate::ibl::PREFILTER_MIP_LEVELS - 1) as f32;
+        // Written even for an empty list, for the reason `bake_probes` gives:
+        // removing the last probe must stop its reflection, not freeze it.
+        self.queue
+            .write_buffer(&self.reflection_probe_buffer, 0, bytemuck::bytes_of(&data));
+    }
+
     /// Reads [`Self::probe_buffer`] back, so a test can assert on what the
     /// shader is actually about to sample rather than on a CPU-side mirror of
     /// it. Blocks on a buffer map; not for use in a frame.
@@ -5118,6 +5613,7 @@ impl WgpuSurface {
         frame_index: u32,
         unjittered_view_proj: Mat4,
         light_probes: Option<ProbeVolumeParams>,
+        reflection_probes: &[ReflectionProbeParams],
         fog: Option<bsengine_core::VolumetricFog>,
     ) -> Result<std::collections::HashSet<String>, String> {
         // Wall-clock CPU time for this call, for `FrameStats::cpu_frame_time_ms`.
@@ -5309,6 +5805,28 @@ impl WgpuSurface {
         if self.baked_probe_volume != volume_to_bake {
             self.bake_probes(cascades, draw_calls, registry, tex_registry, volume_to_bake);
             self.baked_probe_volume = volume_to_bake;
+        }
+
+        // --- reflection probe capture ---
+        // Same place and same rules as the light-probe bake above: after the
+        // uniforms it reuses are written, never under `fast_render`, and only
+        // when the list of probes differs from the one last captured.
+        let reflections_to_capture: &[ReflectionProbeParams] = if self.fast_render {
+            &[]
+        } else {
+            &reflection_probes[..reflection_probes
+                .len()
+                .min(bsengine_core::MAX_REFLECTION_PROBES)]
+        };
+        if self.captured_reflection_probes != reflections_to_capture {
+            self.bake_reflection_probes(
+                cascades,
+                draw_calls,
+                registry,
+                tex_registry,
+                reflections_to_capture,
+            );
+            self.captured_reflection_probes = reflections_to_capture.to_vec();
         }
 
         // Per-frame draw-call/triangle counters for the profiler. Local to
@@ -7915,15 +8433,58 @@ mod tests {
     #[test]
     fn the_scene_shader_replaces_the_ibl_irradiance_inside_a_probe_volume() {
         assert!(
-            MESH_WGSL.contains("ambient_term = probe_irradiance * albedo * kd_ibl + specular_ibl;"),
-            "the probe branch must assign `ambient_term`, replacing whatever the \
+            MESH_WGSL.contains("diffuse_term = probe_irradiance * albedo * kd_ibl;"),
+            "the probe branch must assign the diffuse half, replacing whatever the \
              ambient/IBL path produced"
         );
-        for adding in ["ambient_term +=", "ambient_term = ambient_term +"] {
+        for adding in [
+            "ambient_term +=",
+            "ambient_term = ambient_term +",
+            "diffuse_term +=",
+            "diffuse_term = diffuse_term +",
+        ] {
             assert!(
                 !MESH_WGSL.contains(adding),
                 "`{adding}` accumulates onto the ambient term; probe irradiance \
                  already contains the sky, so adding double-counts it"
+            );
+        }
+    }
+
+    /// The reflection-probe counterpart: inside a probe's box its capture
+    /// **replaces** the sky's specular. The capture already saw the sky
+    /// wherever the sky was visible, so adding would reflect it twice -- and,
+    /// as with the light probes above, the result is merely brighter, which
+    /// no pixel test flags on its own.
+    #[test]
+    fn the_scene_shader_replaces_the_sky_specular_inside_a_reflection_probe() {
+        assert!(
+            MESH_WGSL
+                .contains("specular_ibl = captured * (f_ibl * brdf.x + brdf.y) * e.intensity;"),
+            "the reflection branch must assign `specular_ibl`"
+        );
+        for adding in ["specular_ibl +=", "specular_ibl = specular_ibl +"] {
+            assert!(
+                !MESH_WGSL.contains(adding),
+                "`{adding}` adds the probe's reflection to the sky's"
+            );
+        }
+    }
+
+    /// The shader's probe array and loop bound are hand-written literals;
+    /// only this ties them to `MAX_REFLECTION_PROBES`, which sizes the
+    /// uniform and the cube array. Raising one without the other would read
+    /// past the uniform or leave probes unconsidered.
+    #[test]
+    fn the_scene_shader_reflection_array_is_sized_from_max_reflection_probes() {
+        let n = bsengine_core::MAX_REFLECTION_PROBES;
+        for expected in [
+            format!("entries: array<ReflectionProbeEntry, {n}>"),
+            format!("min(reflection_probes.count, {n}u)"),
+        ] {
+            assert!(
+                MESH_WGSL.contains(&expected),
+                "MESH_WGSL must declare `{expected}` for MAX_REFLECTION_PROBES = {n}"
             );
         }
     }
@@ -8120,6 +8681,126 @@ mod tests {
             scene
         }
 
+        /// Adds another emissive quad, `corners` in the same order
+        /// [`Self::new`] takes them, and re-uploads the model buffer.
+        fn push_quad(&mut self, corners: [Vec3; 4], emissive: Vec3) {
+            let normal = (corners[1] - corners[0])
+                .cross(corners[2] - corners[0])
+                .normalize();
+            let vertices: Vec<crate::mesh::Vertex> = corners
+                .iter()
+                .map(|p| crate::mesh::Vertex {
+                    position: p.to_array(),
+                    color: [1.0, 1.0, 1.0],
+                    normal: normal.to_array(),
+                    uv: [0.0, 0.0],
+                })
+                .collect();
+            let mesh_id = self.registry.register(&vertices, &[0, 1, 2, 0, 2, 3]);
+            self.draw_calls.push((
+                mesh_id,
+                Mat4::IDENTITY,
+                None,
+                MaterialParams {
+                    metallic: 0.0,
+                    roughness: 1.0,
+                    emissive,
+                    base_color: Vec3::ZERO,
+                    opacity: 1.0,
+                },
+                None,
+            ));
+            self.upload_uniforms();
+        }
+
+        /// Captures reflection probes through the real bake, with the same
+        /// stand-in cascades [`Self::bake`] uses.
+        fn bake_reflections(&self, probes: &[ReflectionProbeParams]) {
+            self.surface.bake_reflection_probes(
+                &crate::shadow::DirectionalCascades::new(
+                    Vec3::new(0.0, -1.0, 0.0),
+                    Mat4::perspective_rh(1.0, 1.0, 0.1, 60.0)
+                        * Mat4::look_at_rh(Vec3::new(0.0, 20.0, 0.0), Vec3::ZERO, Vec3::Z),
+                    60.0,
+                    1,
+                    0.0,
+                ),
+                &self.draw_calls,
+                &self.registry,
+                None,
+                probes,
+            );
+        }
+
+        /// Mip 0 of reflection slot `slot`: six faces of
+        /// `REFLECTION_FACE_SIZE`^2 RGB texels, in layer order -- exactly
+        /// what the scene shader samples at roughness 0.
+        fn read_reflection_slot(&self, slot: usize) -> Vec<Vec<Vec3>> {
+            const BYTES_PER_TEXEL: u32 = 8;
+            let row = REFLECTION_FACE_SIZE * BYTES_PER_TEXEL;
+            let padded = row.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
+                * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+            let layer_bytes = (padded * REFLECTION_FACE_SIZE) as u64;
+            let device = &self.surface.device;
+            let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("reflection slot readback"),
+                size: layer_bytes * 6,
+                usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            let mut encoder = device.create_command_encoder(&Default::default());
+            encoder.copy_texture_to_buffer(
+                wgpu::ImageCopyTexture {
+                    texture: &self.surface.reflection_cubes,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: (slot * 6) as u32,
+                    },
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::ImageCopyBuffer {
+                    buffer: &buffer,
+                    layout: wgpu::ImageDataLayout {
+                        offset: 0,
+                        bytes_per_row: Some(padded),
+                        rows_per_image: Some(REFLECTION_FACE_SIZE),
+                    },
+                },
+                wgpu::Extent3d {
+                    width: REFLECTION_FACE_SIZE,
+                    height: REFLECTION_FACE_SIZE,
+                    depth_or_array_layers: 6,
+                },
+            );
+            self.surface.queue.submit(std::iter::once(encoder.finish()));
+            let slice = buffer.slice(..);
+            slice.map_async(wgpu::MapMode::Read, |r| r.expect("map reflection slot"));
+            device.poll(wgpu::Maintain::Wait);
+            let mapped = slice.get_mapped_range();
+            let half = |t: &[u8], i: usize| f16_bits_to_f32(u16::from_le_bytes([t[i], t[i + 1]]));
+            let faces = (0..6u64)
+                .map(|face| {
+                    let mut texels = Vec::new();
+                    for y in 0..REFLECTION_FACE_SIZE {
+                        for x in 0..REFLECTION_FACE_SIZE {
+                            let at = (face * layer_bytes
+                                + (y * padded) as u64
+                                + (x * BYTES_PER_TEXEL) as u64)
+                                as usize;
+                            let t = &mapped[at..];
+                            texels.push(Vec3::new(half(t, 0), half(t, 2), half(t, 4)));
+                        }
+                    }
+                    texels
+                })
+                .collect();
+            drop(mapped);
+            buffer.unmap();
+            faces
+        }
+
         /// `capture_probes` reads `model_buffer` and `light_buffer` rather
         /// than writing them -- `render_frame` fills both before any pass runs.
         /// A test that skips this bakes whatever was left in GPU memory.
@@ -8236,6 +8917,7 @@ mod tests {
                 0,
                 Mat4::IDENTITY,
                 volume,
+                &[],
                 None,
             )
         }
@@ -8274,6 +8956,135 @@ mod tests {
     /// `(y, z, x)`, so this un-permutes it.
     fn dominant_direction_red(sh: &crate::sh::ShL2) -> Vec3 {
         Vec3::new(sh.coeffs[3].x, sh.coeffs[1].x, sh.coeffs[2].x).normalize()
+    }
+
+    /// A reflection probe's slot is laid out in the hardware cube convention
+    /// the scene shader samples it through (`ibl.rs`'s
+    /// `cube_face_direction`): each face's texel `(u, v)` holds what the
+    /// probe sees in direction `cube_face_direction(face, (u, v))`.
+    ///
+    /// Two quads, each occupying one *corner* of a face -- +X upper and
+    /// toward +Z, +Y toward +X and -Z -- and four texels checked per face:
+    /// the one inside the corner lit, and its mirror images across each
+    /// axis of the face dark. A vertical flip (what the unflipped capture
+    /// produces on every face), a horizontal mirror, a swapped face or a
+    /// capture pipeline that culls its front faces each fail a different
+    /// one of them; "lit somewhere" would pass most.
+    #[test]
+    fn a_reflection_capture_is_laid_out_in_the_hardware_cube_convention() {
+        let glow = Vec3::new(0.0, 4.0, 0.0);
+        // +X wall, the region y in [1, 4], z in [1, 4]. Counter-clockwise
+        // as seen from the origin (screen right is +Z looking along +X).
+        let mut scene = ProbeBakeScene::new(
+            [
+                Vec3::new(5.0, 1.0, 1.0),
+                Vec3::new(5.0, 1.0, 4.0),
+                Vec3::new(5.0, 4.0, 4.0),
+                Vec3::new(5.0, 4.0, 1.0),
+            ],
+            glow,
+        );
+        // Ceiling, the region x in [1, 4], z in [-4, -1], facing down.
+        scene.push_quad(
+            [
+                Vec3::new(1.0, 5.0, -4.0),
+                Vec3::new(4.0, 5.0, -4.0),
+                Vec3::new(4.0, 5.0, -1.0),
+                Vec3::new(1.0, 5.0, -1.0),
+            ],
+            glow,
+        );
+        scene.bake_reflections(&[ReflectionProbeParams {
+            center: Vec3::ZERO,
+            half_extents: Vec3::splat(6.0),
+            box_projection: false,
+            intensity: 1.0,
+        }]);
+        let faces = scene.read_reflection_slot(0);
+
+        let n = REFLECTION_FACE_SIZE;
+        let texel = |face: usize, u: f32, v: f32| {
+            let x = ((u * n as f32) as u32).min(n - 1);
+            let y = ((v * n as f32) as u32).min(n - 1);
+            faces[face][(y * n + x) as usize]
+        };
+        let lit = |c: Vec3| c.y > 1.0;
+
+        // +X is layer 0: direction (1, -(2v-1), -(2u-1)). The quad is at
+        // y > 0 (v < 0.5) and z > 0 (u < 0.5).
+        for (u, v, want, what) in [
+            (0.2, 0.2, true, "the quad's own corner (+Y, +Z)"),
+            (0.8, 0.2, false, "the mirror across u (+Y, -Z)"),
+            (0.2, 0.8, false, "the mirror across v (-Y, +Z)"),
+            (0.8, 0.8, false, "the opposite corner"),
+        ] {
+            let c = texel(0, u, v);
+            assert_eq!(lit(c), want, "+X face at ({u}, {v}), {what}: {c}");
+        }
+        // +Y is layer 2: direction (2u-1, 1, 2v-1). The quad is at x > 0
+        // (u > 0.5) and z < 0 (v < 0.5).
+        for (u, v, want, what) in [
+            (0.8, 0.2, true, "the quad's own corner (+X, -Z)"),
+            (0.2, 0.2, false, "the mirror across u (-X, -Z)"),
+            (0.8, 0.8, false, "the mirror across v (+X, +Z)"),
+            (0.2, 0.8, false, "the opposite corner"),
+        ] {
+            let c = texel(2, u, v);
+            assert_eq!(lit(c), want, "+Y face at ({u}, {v}), {what}: {c}");
+        }
+        // And no other face sees either quad at its centre.
+        for face in [1usize, 3, 4, 5] {
+            let c = texel(face, 0.5, 0.5);
+            assert!(!lit(c), "face {face}'s centre should be background: {c}");
+        }
+    }
+
+    /// The sky in a reflection capture is upright too. The sky is drawn by
+    /// its own pipeline through the inverse face matrix, not the mesh
+    /// pipeline, so the clip-space flip has to reach it separately -- the
+    /// quad test above would pass with the sky upside down. A two-texel sky,
+    /// red above the horizon and green below: the +X face's upper texels
+    /// must read red and its lower ones green, +Y's centre red, -Y's green.
+    #[test]
+    fn a_reflection_capture_of_the_sky_is_upright() {
+        // No geometry in view: the quad is far behind the probe and small.
+        let mut scene = ProbeBakeScene::new(
+            [
+                Vec3::new(-50.0, -0.1, -0.1),
+                Vec3::new(-50.0, -0.1, 0.1),
+                Vec3::new(-50.0, 0.1, 0.1),
+                Vec3::new(-50.0, 0.1, -0.1),
+            ],
+            Vec3::ZERO,
+        );
+        scene
+            .surface
+            .set_skybox_from_rgba(1, 2, &[255, 0, 0, 255, 0, 255, 0, 255]);
+        scene.bake_reflections(&[ReflectionProbeParams {
+            center: Vec3::ZERO,
+            half_extents: Vec3::splat(6.0),
+            box_projection: false,
+            intensity: 1.0,
+        }]);
+        let faces = scene.read_reflection_slot(0);
+        let n = REFLECTION_FACE_SIZE;
+        let texel = |face: usize, u: f32, v: f32| {
+            let x = ((u * n as f32) as u32).min(n - 1);
+            let y = ((v * n as f32) as u32).min(n - 1);
+            faces[face][(y * n + x) as usize]
+        };
+        let red = |c: Vec3| c.x > 0.5 && c.y < 0.2;
+        let green = |c: Vec3| c.y > 0.5 && c.x < 0.2;
+
+        let (top, bottom) = (texel(0, 0.5, 0.05), texel(0, 0.5, 0.95));
+        assert!(red(top), "+X face, top edge looks up at red sky: {top}");
+        assert!(
+            green(bottom),
+            "+X face, bottom edge looks down at green: {bottom}"
+        );
+        let (up, down) = (texel(2, 0.5, 0.5), texel(3, 0.5, 0.5));
+        assert!(red(up), "+Y face looks straight up at red: {up}");
+        assert!(green(down), "-Y face looks straight down at green: {down}");
     }
 
     /// The end-to-end version of `probe_face_texel_direction_matches_...`:

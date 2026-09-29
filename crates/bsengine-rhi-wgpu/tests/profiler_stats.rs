@@ -80,7 +80,11 @@ fn gpu_pass_times_are_consistent_with_gpu_timestamps_supported() {
         assert!(
             stats.gpu_pass_times_ms.iter().any(|p| p.name == "main"),
             "the timings name the frame's passes, the main pass among them: {:?}",
-            stats.gpu_pass_times_ms.iter().map(|p| &p.name).collect::<Vec<_>>()
+            stats
+                .gpu_pass_times_ms
+                .iter()
+                .map(|p| &p.name)
+                .collect::<Vec<_>>()
         );
     } else {
         assert!(
@@ -131,5 +135,33 @@ fn objects_drawn_counts_every_instance_even_when_draw_calls_batch_them() {
          make draw calls fewer than objects, never more",
         stats.objects_drawn,
         stats.draw_calls
+    );
+}
+
+/// The readback ring is reused: after many more frames than it has slots,
+/// the timings a frame reports are still only a few frames old. A ring whose
+/// slots were never freed after reading would fill in three frames and then
+/// report the same stale timings forever, their age growing every frame.
+#[test]
+fn gpu_pass_times_stay_a_few_frames_old_as_the_readback_ring_recycles() {
+    let mut h = Harness::new();
+    h.render(&Scene::default());
+    let supported = h.frame_stats().gpu_timestamps_supported;
+    eprintln!("gpu_timestamps_supported = {supported}");
+    if !supported {
+        assert_eq!(h.frame_stats().gpu_pass_times_frames_ago, None);
+        return;
+    }
+    for _ in 0..30 {
+        h.render(&Scene::default());
+    }
+    let age = h
+        .frame_stats()
+        .gpu_pass_times_frames_ago
+        .expect("30 frames in, timings have arrived");
+    assert!(
+        age <= 4,
+        "after 30 frames the newest timings are {age} frames old; a three-slot ring \
+         that recycles keeps them within a few"
     );
 }

@@ -2445,6 +2445,8 @@ pub struct WgpuSurface {
     /// `FrameStats::gpu_pass_times_ms` reports, from a frame
     /// `TIMESTAMP_READBACK_RING - 1` or so frames ago.
     latest_gpu_pass_times: Vec<crate::profiler::PassTiming>,
+    /// The frame number [`Self::latest_gpu_pass_times`] came from.
+    latest_gpu_pass_frame: Option<u64>,
     /// Frames rendered, to tell which ready readback is the newest.
     timestamp_frame: u64,
     /// Rolling history of completed frames' stats, shared with
@@ -4136,6 +4138,7 @@ impl WgpuSurface {
             timestamp_readbacks,
             timestamp_next_slot: 0,
             latest_gpu_pass_times: Vec::new(),
+            latest_gpu_pass_frame: None,
             timestamp_frame: 0,
             frame_stats_history: std::sync::Arc::new(std::sync::Mutex::new(
                 std::collections::VecDeque::with_capacity(
@@ -4720,8 +4723,9 @@ impl WgpuSurface {
                 ReadbackState::Free | ReadbackState::Pending => {}
             }
         }
-        if let Some((_, timings)) = newest {
+        if let Some((frame, timings)) = newest {
             self.latest_gpu_pass_times = timings;
+            self.latest_gpu_pass_frame = Some(frame);
         }
     }
 
@@ -7031,6 +7035,9 @@ impl WgpuSurface {
         let frame_stats = crate::profiler::FrameStats {
             cpu_frame_time_ms: frame_start.elapsed().as_secs_f32() * 1000.0,
             gpu_pass_times_ms,
+            gpu_pass_times_frames_ago: self
+                .latest_gpu_pass_frame
+                .map(|f| (self.timestamp_frame - f) as u32),
             gpu_timestamps_supported: self.timestamp_supported,
             draw_calls: frame_draw_calls,
             objects_drawn: frame_objects_drawn,

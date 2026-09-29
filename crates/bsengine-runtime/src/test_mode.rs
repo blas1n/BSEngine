@@ -648,7 +648,11 @@ mod tests {
                 attrs.record(&mut v);
                 let short = v.0.unwrap_or_default();
                 let short = short.rsplit("::").next().unwrap_or(&short).to_string();
-                let label = if kind == "system" { short } else { format!("{short} (commands)") };
+                let label = if kind == "system" {
+                    short
+                } else {
+                    format!("{short} (commands)")
+                };
                 if let Some(span) = ctx.span(id) {
                     span.extensions_mut().replace(Name(label));
                 }
@@ -663,7 +667,9 @@ mod tests {
             fn on_exit(&self, id: &tracing::span::Id, ctx: Context<'_, S>) {
                 if let Some(span) = ctx.span(id) {
                     let ext = span.extensions();
-                    if let (Some(Name(n)), Some(Entered(t))) = (ext.get::<Name>(), ext.get::<Entered>()) {
+                    if let (Some(Name(n)), Some(Entered(t))) =
+                        (ext.get::<Name>(), ext.get::<Entered>())
+                    {
                         let mut totals = self.0.lock().unwrap();
                         let e = totals.entry(n.clone()).or_default();
                         e.0 += t.elapsed();

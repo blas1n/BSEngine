@@ -39,7 +39,7 @@ pub enum NetworkAuthority {
 /// Unique network identity for a replicated entity.
 /// The networking layer uses this to match server entities to client entities
 /// and route state updates to the correct ECS entity.
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Reflect)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Default, Reflect)]
 #[reflect(Component, Default)]
 pub struct NetworkId {
     /// Globally unique, stable identifier assigned at spawn time.
@@ -81,15 +81,6 @@ impl NetworkId {
     /// Returns `true` if this entity replicates across the network.
     pub fn is_replicated(&self) -> bool {
         !matches!(self.authority, NetworkAuthority::Local)
-    }
-}
-
-impl Default for NetworkId {
-    fn default() -> Self {
-        Self {
-            id: 0,
-            authority: NetworkAuthority::default(),
-        }
     }
 }
 

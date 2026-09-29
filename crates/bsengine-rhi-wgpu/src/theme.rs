@@ -47,36 +47,36 @@ pub fn build_visuals() -> egui::Visuals {
     visuals.extreme_bg_color = BG;
     visuals.faint_bg_color = BG_RAISED;
     visuals.selection.bg_fill = ACCENT_WASH;
-    visuals.selection.stroke = Stroke::new(1.0, ACCENT);
+    visuals.selection.stroke = Stroke::new(1.0_f32, ACCENT);
 
     visuals.widgets.noninteractive.bg_fill = BG;
     visuals.widgets.noninteractive.weak_bg_fill = BG;
-    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, TEXT);
-    visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, DIVIDER);
+    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, TEXT);
+    visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, DIVIDER);
     visuals.widgets.noninteractive.rounding = ROUNDING;
 
     visuals.widgets.inactive.bg_fill = BG_RAISED;
     visuals.widgets.inactive.weak_bg_fill = BG_RAISED;
-    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, TEXT);
-    visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, DIVIDER);
+    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, TEXT);
+    visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, DIVIDER);
     visuals.widgets.inactive.rounding = ROUNDING;
 
     visuals.widgets.hovered.bg_fill = DIVIDER;
     visuals.widgets.hovered.weak_bg_fill = DIVIDER;
-    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, TEXT);
-    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0, ACCENT);
+    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, TEXT);
+    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, ACCENT);
     visuals.widgets.hovered.rounding = ROUNDING;
 
     visuals.widgets.active.bg_fill = ACCENT;
     visuals.widgets.active.weak_bg_fill = ACCENT;
-    visuals.widgets.active.fg_stroke = Stroke::new(1.0, BG);
-    visuals.widgets.active.bg_stroke = Stroke::new(1.0, ACCENT);
+    visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, BG);
+    visuals.widgets.active.bg_stroke = Stroke::new(1.0_f32, ACCENT);
     visuals.widgets.active.rounding = ROUNDING;
 
     visuals.widgets.open.bg_fill = DIVIDER;
-    visuals.widgets.open.bg_stroke = Stroke::new(1.0, ACCENT);
+    visuals.widgets.open.bg_stroke = Stroke::new(1.0_f32, ACCENT);
     visuals.widgets.open.weak_bg_fill = DIVIDER;
-    visuals.widgets.open.fg_stroke = Stroke::new(1.0, TEXT);
+    visuals.widgets.open.fg_stroke = Stroke::new(1.0_f32, TEXT);
     visuals.widgets.open.rounding = ROUNDING;
 
     visuals

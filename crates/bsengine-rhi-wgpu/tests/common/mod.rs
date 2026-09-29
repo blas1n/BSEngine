@@ -24,6 +24,10 @@ use glam::{Mat4, Quat, Vec3};
 pub const WIDTH: u32 = 200;
 pub const HEIGHT: u32 = 150;
 
+/// One draw as `WgpuSurface` takes it: mesh, transform, texture, material,
+/// custom shader path.
+type DrawCall = (u64, Mat4, Option<u64>, MaterialParams, Option<String>);
+
 /// One object in a frame.
 pub struct Draw {
     pub mesh: u64,
@@ -697,7 +701,7 @@ struct VertOut {{
         let view = Mat4::look_at_rh(scene.camera_pos, scene.look_at, Vec3::Y);
         let view_proj = proj * view;
 
-        let draw_calls: Vec<(u64, Mat4, Option<u64>, MaterialParams, Option<String>)> = scene
+        let draw_calls: Vec<DrawCall> = scene
             .draws
             .iter()
             .map(|d| {

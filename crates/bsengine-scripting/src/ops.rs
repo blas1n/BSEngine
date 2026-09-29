@@ -1613,6 +1613,14 @@ thread_local! {
         RefCell::new(HashMap::new());
     pub(crate) static WORLD_TRANSFORM_SNAPSHOT: RefCell<HashMap<String, (Vec3, Quat, Vec3)>> =
         RefCell::new(HashMap::new());
+    /// Whether each named entity's timeline is playing, and the events its
+    /// timeline fired this frame.
+    ///
+    /// Events live here rather than in a queue a script drains, so a script
+    /// sees a cutscene's beat on the frame it happens and never afterwards --
+    /// the same reason `TimelineEvents` is cleared every pass.
+    pub(crate) static TIMELINE_SNAPSHOT: RefCell<(HashMap<String, bool>, Vec<String>)> =
+        RefCell::new((HashMap::new(), Vec::new()));
     /// Held keys per entity **name**, for entities whose input arrives over the
     /// network rather than from this process's keyboard.
     ///
@@ -1625,14 +1633,6 @@ thread_local! {
     /// keyboard answers for it. **That fallback is what keeps every existing
     /// single-player script working unchanged**, and it is why introducing this
     /// map changes no behaviour on its own.
-    /// Whether each named entity's timeline is playing, and the events its
-    /// timeline fired this frame.
-    ///
-    /// Events live here rather than in a queue a script drains, so a script
-    /// sees a cutscene's beat on the frame it happens and never afterwards --
-    /// the same reason `TimelineEvents` is cleared every pass.
-    pub(crate) static TIMELINE_SNAPSHOT: RefCell<(HashMap<String, bool>, Vec<String>)> =
-        RefCell::new((HashMap::new(), Vec::new()));
     pub(crate) static REMOTE_INPUT: RefCell<HashMap<String, HashSet<String>>> =
         RefCell::new(HashMap::new());
     /// The same, as of the previous frame, so just-pressed and just-released can
@@ -1765,10 +1765,6 @@ thread_local! {
     pub(crate) static CHILDREN_SNAPSHOT: RefCell<HashMap<String, Vec<String>>> =
         RefCell::new(HashMap::new());
 
-    // tag label → [entity names]
-
-    // entity name → [tag labels]
-
     // sound id → playback state string ("playing", "pausing", "paused", etc.)
     pub(crate) static SOUND_STATE_SNAPSHOT: RefCell<HashMap<u32, String>> =
         RefCell::new(HashMap::new());
@@ -1817,8 +1813,6 @@ thread_local! {
     pub(crate) static PROJECT_DIR: RefCell<ProjectDir> =
         const { RefCell::new(ProjectDir(String::new())) };
 
-    // entity name → (current_health, max_health)
-
     // entity name → (clip, time, speed, looping, playing)
     pub(crate) static ANIMATION_SNAPSHOT: RefCell<HashMap<String, (String, f32, f32, bool, bool)>> =
         RefCell::new(HashMap::new());
@@ -1829,12 +1823,6 @@ thread_local! {
     // entity name → remaining lifetime seconds
     pub(crate) static LIFETIME_SNAPSHOT: RefCell<HashMap<String, f32>> =
         RefCell::new(HashMap::new());
-
-    // entity name → (current, max, exhausted)
-
-    // entity name → (current, max)
-
-    // entity name → (base, effective)
 
     // entity name → (heat_stacks, max_stacks, amplify_per_stack, stack_duration, just_scalded, just_cooled, enabled)
     // entity name → (radius, interval, timer, just_pulsed, enabled)
@@ -2115,85 +2103,27 @@ thread_local! {
     pub(crate) static SAVE_DATA_SNAPSHOT: RefCell<HashMap<String, HashMap<String, String>>> =
         RefCell::new(HashMap::new());
 
-    // entity name → (level, current_xp, progress, is_max)
-
-    // entity name → (current, max, prestige, is_max, progress_fraction)
-
-    // entity name → (remaining, progress, is_ready)
-
     // entity name → (elapsed, duration, fraction, is_finished, just_finished)
     pub(crate) static TIMER_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, bool, bool)>> =
         RefCell::new(HashMap::new());
-
-    // entity name → (current, max_capacity, reserve, reserve_max, just_emptied, just_reloaded, enabled)
-
-    // entity name → (rate, delay_after_damage, delay_timer, enabled)
-
-    // entity name → (fuel, max_fuel, low_threshold, just_emptied, is_low, enabled)
-
-    // entity name → (current, max_charge, is_charging, is_fully_charged, enabled)
-
-    // entity name → (flat_reduction, percent_reduction, durability, max_durability, enabled)
-
-    // entity name → (impulse, max_jumps, jumps_remaining, wants_jump, enabled)
-
-    // entity name → (speed_multiplier, is_sprinting, is_exhausted, just_started, just_stopped, enabled)
-
-    // entity name → (speed, duration, cooldown, cooldown_timer, max_charges, charges, is_active, is_invincible, can_dash, enabled)
 
     // entity name → (speed, angular_speed, stopping_distance, state_u8, enabled)
     // state: 0=Idle, 1=Moving, 2=Arrived, 3=NoPath
     pub(crate) static NAV_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, u8, bool)>> =
         RefCell::new(HashMap::new());
 
-    // entity name → (force, vertical_boost, hits_remaining, blocks_new, enabled)
-
-    // entity name → (speed, gravity_scale, piercing, range, distance_traveled)
-
-    // entity name → (state_u8, anchor_x, anchor_y, anchor_z, max_range, hook_speed, pull_force, rope_length, enabled)
-
-    // entity name → (range, prompt, trigger_u8, hold_duration, enabled)
-
-    // entity name → (trauma, amplitude, decay_rate, frequency)
-
-    // entity name → (step_interval, distance_accumulated, volume, audio_prefix, surface_u8, min_speed, enabled)
-
-    // entity name → (vx, vy, vz, turbulence, turbulence_frequency, radius)
-
-    // entity name → (current_index, line_count, looping, enabled, is_finished, current_speaker, current_text)
-
-    // entity name → (progress, edge_width, edge_r, edge_g, edge_b, edge_a, noise_scale, enabled)
-
-    // entity name → (color_r, color_g, color_b, color_a, intensity, contributes_to_bloom, enabled)
-
-    // entity name → (cell_x, cell_y, cell_z, off_x, off_y, off_z, enabled)
-
-    // entity name → (style_u8, color_r, color_g, color_b, color_a, size, thickness, gap, spread, max_spread, spread_decay, enabled)
-
     // entity name → (intensity, threshold, radius, softness, enabled)
     pub(crate) static BLOOM_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, f32, bool)>> =
         RefCell::new(HashMap::new());
-
-    // entity name → (color_r, color_g, color_b, intensity, mode_u32, fade_rate, pulse_speed, pulse_phase, peak_intensity, enabled)
-
-    // entity name → (intensity, enabled)
-
-    // entity name → (lut_path, exposure, contrast, saturation, hue_shift, brightness, enabled)
 
     // entity name → (radius, bias, intensity, sample_count, enabled)
     pub(crate) static AMBIENT_OCCLUSION_SNAPSHOT: RefCell<HashMap<String, (f32, f32, f32, u32, bool)>> =
         RefCell::new(HashMap::new());
 
-    // entity name → (focal_distance, focal_range, max_blur, bokeh_scale, enabled)
-
-    // entity name → (shutter_angle, sample_count, enabled)
-
     // entity name → (mode_u32, exposure, enabled)
     // ToneMappingMode: None=0, Reinhard=1, ReinhardLuminance=2, Aces=3, Filmic=4
     pub(crate) static TONE_MAP_SNAPSHOT: RefCell<HashMap<String, (u32, f32, bool)>> =
         RefCell::new(HashMap::new());
-
-    // entity name → (fraction, pool, max_pool, absorbed_total, just_depleted, enabled)
 
     // entity name → (intensity, smoothness, r, g, b, enabled)
     // entity name → (r, g, b, a, density, start_distance, end_distance, mode_u32, enabled)
@@ -2213,119 +2143,6 @@ thread_local! {
     // entity name → (target_name, up_x, up_y, up_z)
     pub(crate) static LOOK_AT_SNAPSHOT: RefCell<HashMap<String, (String, f32, f32, f32)>> =
         RefCell::new(HashMap::new());
-    // entity name → mode (0 = Full, 1 = Vertical)
-    // entity name → (r, g, b, a, width, mode, visible)
-    // OutlineMode: Outer=0, Inner=1, Center=2
-    // entity name → z-index (i32; 0 = default draw order)
-    // entity name → layer bitmask (u32)
-    // entity name → (preset_u32, norm_x, norm_y, offset_x, offset_y)
-    // AnchorPreset: Center=0, TopLeft=1, TopCenter=2, TopRight=3,
-    //   MiddleLeft=4, MiddleRight=5, BottomLeft=6, BottomCenter=7, BottomRight=8, Custom=9
-    // entity name → (layer_mask, enabled)
-    // entity name → (amount, type_u32, custom_id, multiplier, piercing)
-    // DamageType: Physical=0, Fire=1, Ice=2, Lightning=3, Poison=4, Custom=5 (custom_id relevant)
-    // entity name → (tag, team_u32, enabled); team=u32::MAX means None/shared
-    // entity name → (id, kind_u32, custom_id, value, duration, ticks_every_frame, enabled)
-    // EffectKind: StatMultiplier=0, DamageOverTime=1, Immobilize=2, Silence=3, Custom=4
-    // entity name → (ability_name, cooldown, cooldown_remaining, max_charges, charges, charge_regen_time, charge_regen_accumulated, enabled)
-    // entity name → (alert_duration, timer, detection_radius, just_triggered, just_calmed, enabled)
-    // entity name → (duration, timer, power_multiplier, just_amplified, just_faded, enabled)
-    // entity name → (capacity, current, regen_rate, regen_delay, regen_timer, just_broken, just_restored, enabled)
-    // entity name → (priority, broadcast_radius, duration, timer, lit, just_lit, just_extinguished, enabled)
-    // entity name → (duration, timer, reduction_fraction, just_broken, just_recovered, enabled)
-    // entity name → (duration, timer, allows_rotation, allows_attack, just_rooted, just_freed, enabled)
-    // entity name → (reduction, duration, timer, just_slowed, just_recovered, enabled)
-    // entity name → (severity_u32, timer, just_stunned, just_recovered, enabled)
-    // StunSeverity: Light=0, Heavy=1, Knockdown=2
-    // entity name → (burn_rate, stacks, max_stacks, remaining, duration, intensity, just_ignited, just_extinguished, ignitable, enabled)
-    // entity name → (stacks, max_stacks, damage_per_stack_per_tick, tick_interval, tick_timer, duration, duration_timer, heal_reduction, just_applied, just_cleared, enabled)
-    // entity name → (stacks, max_stacks, damage_per_stack_per_tick, base_tick_interval, min_tick_interval, tick_timer, duration, duration_timer, virulent, just_poisoned, just_cured, enabled)
-    // entity name → (state_u32, cold_buildup, chill_threshold, freeze_threshold, cold_decay_rate, chill_slow, frozen_duration, frozen_timer, just_frozen, just_thawed, immune, enabled)
-    // FreezeState: Normal=0, Chilled=1, Frozen=2
-    // entity name → (duration, timer, range_limit, aim_deviation_rad, just_blinded, just_unblinded, enabled)
-    // entity name → (duration, timer, just_charmed, just_uncharmed, enabled)
-    // entity name → (duration, timer, chance, just_confused, just_unconfused, enabled)
-    // entity name → (duration, timer, speed_fraction, prevents_jump, just_crippled, just_recovered, enabled)
-    // entity name → (duration, timer, slow_fraction, aim_deviation_rad, just_dazed, just_undazed, enabled)
-    // entity name → (duration, timer, just_disarmed, just_rearmed, enabled)
-    // entity name → (duration, timer, aim_deviation_rad, ability_suppress_chance, just_concussed, just_cleared, enabled)
-    // entity name → (stacks, max_stacks, decay_rate, armor_reduction_per_stack, just_corroded, just_cleared, enabled)
-    // entity name → (kind_u32, strength, duration, timer, just_cursed, just_lifted, enabled)
-    // CurseKind: DamageDown=0, SpeedDown=1, ArmorDown=2, DamageTakenUp=3, Custom=4
-    // entity name → (radius, pulse_interval, pulse_timer, buildup_per_pulse, just_pulsed, enabled)
-    // entity name → (active, countdown, max_countdown, just_doomed, just_expired, enabled)
-    // entity name → (duration, timer, damage_fraction, flee_chance, just_demoralized, just_recovered, enabled)
-    // entity name → (phase_u32, dx, dy, dz, speed, duration, timer, invincible, cooldown, wants_dodge, allow_airborne, chain_count, max_chain, enabled)
-    // DodgePhase: Idle=0, Rolling=1, Cooldown=2
-    // entity name → (rate, duration, timer, just_drained, just_expired, enabled)
-    // entity name → (duration, timer, potency_multiplier, just_empowered, just_faded, enabled)
-    // entity name → (duration, timer, regen_fraction, max_pool_fraction, just_enervated, just_restored, enabled)
-    // entity name → (duration, timer, just_entangled, just_unentangled, enabled)
-    // entity name → (duration, timer, damage_multiplier, just_exposed, just_recovered, enabled)
-    // entity name → (level, recovery_rate, threshold, penalty_speed, penalty_regen, just_exhausted, just_recovered, enabled)
-    // entity name → (state_u32, duration, timer, flee_speed_multiplier, just_feared, just_calmed, enabled)
-    // FearState: Calm=0, Frightened=1, Fleeing=2
-    // entity name → (duration, timer, damage_amplification, move_speed_penalty, just_fractured, just_healed, enabled)
-    // entity name → (duration, timer, cold_damage_per_second, action_speed_fraction, just_frostbitten, just_thawed, enabled)
-    // entity name → (fury_factor, max_speed_bonus, just_peaked, enabled)
-    // entity name → (duration, timer, speed_multiplier, just_galvanized, just_worn_off, enabled)
-    // entity name → (effective_multiplier, stack_count, max_stacks, enabled)
-    // entity name → (duration, timer, stray_chance, damage_multiplier, just_entered, just_exited, enabled)
-    // entity name → (duration, timer, detection_range_fraction, just_hazed, just_cleared, enabled)
-    // entity name → (temperature, resting_temp, heat_threshold, cold_threshold, decay_rate, resistance, state_u32, enabled)
-    // ThermalState: Normal=0, Overheated=1, Frozen=2
-    // entity name → (stacks, max_stacks, duration, timer, reduction_per_stack, just_applied, just_expired, enabled)
-    // entity name → (duration, timer, speed_fraction, prevents_dash, just_hobbled, just_recovered, enabled)
-    // entity name → (stacks, threshold, decay_rate, just_ignited, just_extinguished, enabled)
-    // entity name → (charged, bonus_damage, just_charged, just_consumed, enabled)
-    // entity name → (damage_type_mask, effect_type_mask, enabled)
-    // entity name → (force, just_impacted, impact_count, normal_x, normal_y, normal_z, enabled)
-    // entity name → (duration, timer, radius, damage_reduction, just_activated, just_deactivated, enabled)
-    // entity name → (threshold, resistance, just_interrupted, interrupt_count, enabled)
-    // entity name → (stacks, timer, flash_interval, flash_visible, just_became_invincible, just_lost_invincibility, enabled)
-    // entity name → (duration, timer, buff_reduction, debuff_reduction, just_began, just_ended, enabled)
-    // entity name → (duration, timer, aim_penalty_rad, damage_fraction, just_jeered, just_rallied, enabled)
-    // entity name → (state_u32, thrust_x, thrust_y, thrust_z, thrust_force, fuel, max_fuel, fuel_drain_rate, fuel_regen_rate, wants_thrust, regen_in_air, enabled)
-    // JetpackState: Idle=0, Thrusting=1, Depleted=2
-    // entity name → (duration, timer, chain_chance, chain_fraction, just_jolted, just_expired, enabled)
-    // entity name → (accumulated, threshold, decay_rate, just_destabilized, enabled)
-    // entity name → (charges, max_charges, just_juked, enabled)
-    // entity name → (duration, timer, speed_fraction, just_kneeled, just_risen, enabled)
-    // entity name → (duration, timer, heal_rate, interruption_threshold, just_began, just_completed, just_interrupted, enabled)
-    // entity name → (stacks, max_stacks, damage_per_stack_per_second, duration, timer, just_lacerated, just_closed, enabled)
-    // entity name → (current_load, max_load, speed_penalty, enabled)
-    // entity name → (intensity, decay_rate, damage_penalty, speed_penalty, just_lamented, just_recovered, enabled)
-    // entity name → (duration, timer, base_damage, speed_scale, speed_threshold, just_struck, just_ended, enabled)
-    // entity name → (lapsing, interval_timer, duration_timer, interval, lapse_duration, just_lapsed, just_focused, enabled)
-    // entity name → (pull_force, damage, duration, timer, just_connected, just_released, enabled)
-    // entity name → (active, timer, damage_per_second, just_latched, just_released, enabled)
-    // entity name → (phase_u32, hang_x, hang_y, hang_z, climb_duration, climb_timer, detection_range, can_grab, enabled)
-    // LedgePhase: None=0, Hanging=1, ClimbingUp=2, Dropping=3
-    // entity name → (fraction, flat, last_leeched, total_leeched, just_leeched, enabled)
-    // entity name → (phase_u32, dir_x, dir_y, dir_z, target_x, target_y, target_z, speed, range, traveled, recovery_time, recovery_timer, cooldown, cooldown_timer, ground_only, just_lunged, hit_registered, enabled)
-    // LungePhase: Idle=0, Thrusting=1, Recovery=2, Cooldown=3
-    // entity name → (state_u32, pos_x, pos_y, pos_z, radius, strength, duration, timer, just_activated, just_expired, enabled)
-    // LureState: Inactive=0, Active=1, Expired=2
-    // entity name → (detection_range_fraction, ambush_multiplier, lurking, just_lurked, just_struck, enabled)
-    // entity name → (mode_u32, radius, strength, falloff, affects_projectiles, affects_entities, enabled)
-    // MagnetMode: Attract=0, Repel=1
-    // entity name → (stacks, max_stacks, speed_fraction_per_stack, bleed_per_stack_per_second, just_maimed, just_healed, enabled)
-    // entity name → (stacks, max_stacks, damage_amplify_per_stack, decay_interval, decay_timer, just_stacked, just_cleared, enabled)
-    // entity name → (mark_count, total_damage_bonus, just_marked, just_unmarked, enabled)
-    // entity name → (phase_u32, dir_x, dir_y, dir_z, reach, arc_angle, windup_time, active_time, recovery_time, timer, hit_count, max_hits, combo_step, combo_buffered, can_cancel_recovery, enabled)
-    // MeleePhase: Idle=0, Windup=1, Active=2, Recovery=3
-    // entity name → (mend_pool, rate, just_depleted, enabled)
-    // entity name → (can_merge, merge_weight, max_weight, just_merged, enabled)
-    // entity name → (path, submesh_index, cast_shadow, receive_shadow)
-    // entity name → (icon, cr, cg, cb, ca, size, category, rotate_with_entity, clamp_to_edge, enabled)
-    // entity name → (duration, timer, misdirect_chance, just_created, just_faded, enabled)
-    // entity name → (cur_x, cur_y, cur_z, damping, max_speed, enabled)
-    // entity name → (morale, decay_rate, damage_bonus, speed_bonus, just_peaked, just_broke, enabled)
-    // entity name → (form, target_form, morph_time, morph_timer, is_morphing, just_started, just_finished, enabled)
-    // entity name → (rider_count, max_riders, speed_scale, forced_dismount_damage, enabled)
-    // forced_dismount_damage = -1.0 if None
-    // entity name → (duration, timer, sound_radius_fraction, just_muffled, just_unmuffled, enabled)
-    // entity name → (id_str, authority_kind[0=Server,1=Client,2=Local], peer_id_str)
     /// Calls that arrived since the last frame, as a JSON array.
     ///
     /// JSON rather than a typed structure because the only consumer is the
@@ -2338,67 +2155,6 @@ thread_local! {
     // (is_server, is_connected, my_peer_id, peer_count)
     pub(crate) static NETWORK_STATE_SNAPSHOT: RefCell<(bool, bool, u64, u32)> =
         const { RefCell::new((false, false, 0, 0)) };
-    // entity name → (duration, timer, dodge_chance, speed_bonus_fraction, just_quickened, just_faded, enabled)
-    // entity name → (state_u32, suspicion, decay_rate, alert_threshold, alarm_threshold, last_x, last_y, last_z, investigate_timer, max_investigate_time, has_last_known, enabled)
-    // entity name → (satiety, decay_rate, regen_scale, just_starved, enabled)
-    // entity name → (charge_time, charge_timer, radius, damage, just_primed, just_discharged, enabled)
-    // entity name → (role_u32, state_u32, display_name, template_id_or_empty, faction_id, alert, alert_decay, enabled)
-    // entity name → (duration, timer, blocks_buffs, blocks_debuffs, just_activated, just_expired, enabled)
-    // entity name → (duration, timer, damage_fraction, just_numbed, just_worn_off, enabled)
-    // entity name → (shape_kind[0=Circle,1=Box,2=Capsule], p1, p2, p3, dynamic, carve_depth, bounding_radius, enabled)
-    // entity name → (stacks, max_stacks, dmg_mult_per_stack, just_stacked, just_consumed, enabled)
-    // entity name → (radius, speed, angle, ax, ay, az, altitude, enabled)
-    // entity name → (duration, timer, just_began, just_endured, just_failed, enabled)
-    // entity name → (axis_kind[0=Translation,1=Rotation], dx, dy, dz, amplitude, frequency, phase, phase_offset, scalar_offset, enabled)
-    // entity name → (combat_time, max_bonus_time, defense_bonus, in_combat, just_peaked, enabled)
-    // entity name → (current, max_pool, decay_rate, just_gained, just_depleted, enabled)
-    // entity name → (state[0=Normal,1=Warning,2=Overheated,3=Cooling], heat, max_heat, warn_threshold, cool_threshold, cool_rate, forced_cool_rate, just_overheated, just_cooled, enabled)
-    // entity name → (duration, timer, cost_multiplier, just_overloaded, just_recovered, enabled)
-    // entity name → (duration, timer, armor_penetration, just_overpowered, just_faded, enabled)
-    // entity name → (current, max_overshield, decay_rate, just_granted, just_depleted, enabled)
-    // entity name → (state_kind, startup_dur, active_dur, recovery_dur, timer, parry_count, just_opened, just_succeeded, just_missed, just_finished, enabled)
-    // entity name → (patience_level, max_patience, patience_bonus, just_primed, just_spent, enabled)
-    // entity name → (duration, timer, armor_bonus, just_petrified, just_unpetrified, enabled)
-    // entity name → (is_phased, duration, timer, cooldown, cooldown_timer, just_phased, just_unphased, enabled)
-    // entity name → (max_pierce, pierce_chance, pierced_this_attack, just_pierced, enabled)
-    // entity name → (active, timer, duration, knockback_immune, just_pinned, just_freed, enabled)
-    // entity name → (duration, timer, avoidance_chance, just_began, just_ended, enabled)
-    // entity name → (active, timer, just_began, just_ended, enabled)
-    // entity name → (hp_threshold, crit_bonus, pluck_active, just_triggered, just_recovered, enabled)
-    // entity name → (current, max, regen_rate, broken, just_broken, just_restored, enabled)
-    // entity name → (duration, timer, damage, knockdown_duration, min_range, max_range, just_leaped, just_landed, enabled)
-    // entity name → (is_prone, stand_up_duration, stand_up_timer, movement_penalty, attack_penalty, just_fell_prone, just_stood_up, enabled)
-    // entity name → (duration, timer, guard_radius, redirect_fraction, just_began, just_ended, enabled)
-    // entity name → (hp_threshold, damage_bonus, prideful, just_humbled, just_restored, enabled)
-    // entity name → (duration, timer, aggro_multiplier, radius, just_provoked, just_expired, enabled)
-    // entity name → (duration, timer, speed_bonus_fraction, ambush_damage_multiplier, ambush_consumed, just_prowling, just_faded, enabled)
-    // entity name → (mode_kind, is_active, radius, max_radius, interval, timer, falloff, pulse_count, just_pulsed, enabled)
-    // entity name → (state, xp_reward, enabled)
-    // entity name → (range, scan_interval, scan_timer, enabled)
-    // entity name → (phase, rage, max_rage, rage_per_damage, activation_threshold, damage_multiplier, defense_multiplier, just_entered_rage, just_left_rage, enabled)
-    // entity name → (duration, timer, aura_radius, speed_bonus_fraction, damage_bonus_fraction, just_rallied, just_ended, enabled)
-    // entity name → (stacks, max_stacks, damage_per_stack, speed_per_stack, decay_interval, decay_timer, just_stacked, just_ended, enabled)
-    // entity name → (active, timer, damage_bonus, attack_speed_bonus, just_triggered, just_expired, enabled)
-    // entity name → (duration, timer, leech_fraction, just_reaving, just_faded, enabled)
-    // entity name → (rebound_coefficient, min_speed, last_rebound_speed, just_rebounded, enabled)
-    // entity name → (current, max, rate, just_recharged, just_depleted, enabled)
-    // entity name → (duration, timer, damage_bonus, defense_penalty, just_entered, just_exited, enabled)
-    // entity name → (is_alone, damage_bonus, defense_bonus, just_became_alone, just_joined_group, enabled)
-    // entity name → (kick_force, angular_kick, recovery_speed, yaw_fraction, max_position_offset, max_angular_offset, enabled)
-    // entity name → (is_active, damage_multiplier, window_duration, window_timer, just_activated, just_reflected, just_closed, enabled)
-    // entity name → (timer, just_triggered, just_evaded, just_missed, enabled)
-    // entity name → (duration, timer, push_force, radius, just_activated, just_deactivated, enabled)
-    // entity name → (active, timer, regen_multiplier, just_began, just_ended, enabled)
-    // entity name → (state, delay, delay_timer, respawn_count, enabled)
-    // entity name → (multiplier, max_charges, charges, just_charged, just_consumed, enabled)
-    // entity name → (duration, timer, revenge_multiplier, trigger_fraction, triggered, just_triggered, just_ended, enabled)
-    // entity name → (duration, timer, radius, just_activated, just_expired, enabled)
-    // entity name → (state, down_duration, down_timer, revive_duration, revive_progress, revives_remaining, just_downed, just_revived, just_died, enabled)
-    // entity name → (max_bounces, bounces_remaining, energy_retention, min_dot, just_bounced, enabled)
-    // entity name → (min_range, peak_range, damage_bonus, point_blank_penalty, enabled)
-    // entity name → (active, decay_rate, total_decayed, decay_cap, just_began, just_capped, enabled)
-    // entity name → (duration, timer, flee_speed_multiplier, just_routed, just_recovered, enabled)
-    // entity name → (stacks, max_stacks, damage_per_stack, just_maxed, enabled)
 }
 
 /// Full transform returned to scripts: position + rotation quaternion + scale.
@@ -3368,377 +3124,6 @@ pub fn bsengine_set_save_field(
     });
 }
 
-// ── Scald ────────────────────────────────────────────────────────────────────
-// ── Scan ─────────────────────────────────────────────────────────────────────
-// ── Scar ─────────────────────────────────────────────────────────────────────
-// ── Scatter ──────────────────────────────────────────────────────────────────
-// ── Scope ────────────────────────────────────────────────────────────────────
-// ── Scorch ───────────────────────────────────────────────────────────────────
-// ── Shear ────────────────────────────────────────────────────────────────────
-// ── Shock ────────────────────────────────────────────────────────────────────
-// ── Shrivel ──────────────────────────────────────────────────────────────────
-// ── Shroud ───────────────────────────────────────────────────────────────────
-// ── Shunt ────────────────────────────────────────────────────────────────────
-// ── Spike ────────────────────────────────────────────────────────────────────
-// ── Splinter ─────────────────────────────────────────────────────────────────
-// ── Stagger ───────────────────────────────────────────────────────────────────
-// ── Stake ─────────────────────────────────────────────────────────────────────
-// ── Stalk ─────────────────────────────────────────────────────────────────────
-// ── Stance ────────────────────────────────────────────────────────────────────
-// ── Stat ──────────────────────────────────────────────────────────────────────
-// ── Stealth ───────────────────────────────────────────────────────────────────
-// ── Stomp ─────────────────────────────────────────────────────────────────────
-// ── Stride ────────────────────────────────────────────────────────────────────
-// ── Strife ────────────────────────────────────────────────────────────────────
-// ── Stumble ───────────────────────────────────────────────────────────────────
-// ── Sulk ─────────────────────────────────────────────────────────────────────
-// ── Sunder ───────────────────────────────────────────────────────────────────
-// ── Suppress ─────────────────────────────────────────────────────────────────
-// ── Surge ────────────────────────────────────────────────────────────────────
-// ── Surround ─────────────────────────────────────────────────────────────────
-// ── Survive ──────────────────────────────────────────────────────────────────
-// ── Swim ─────────────────────────────────────────────────────────────────────
-// ── Taint ─────────────────────────────────────────────────────────────────────
-// ── Tally ─────────────────────────────────────────────────────────────────────
-// ── Talon ─────────────────────────────────────────────────────────────────────
-// ── Taper ─────────────────────────────────────────────────────────────────────
-// ── Taunt ─────────────────────────────────────────────────────────────────────
-// ── Thaw ──────────────────────────────────────────────────────────────────────
-// ── Trample ──────────────────────────────────────────────────────────────────
-// ── Trance ───────────────────────────────────────────────────────────────────
-// ── Tranquil ─────────────────────────────────────────────────────────────────
-// ── Transfix ─────────────────────────────────────────────────────────────────
-// ── Tremble ──────────────────────────────────────────────────────────────────
-// ── Tremor ───────────────────────────────────────────────────────────────────
-// ── Trove ────────────────────────────────────────────────────────────────────
-// ── Tusk ─────────────────────────────────────────────────────────────────────
-// ── Unrest ───────────────────────────────────────────────────────────────────
-// ── Upkeep ───────────────────────────────────────────────────────────────────
-// ── Urge ─────────────────────────────────────────────────────────────────────
-// ── Venom ────────────────────────────────────────────────────────────────────
-// ── Vex ──────────────────────────────────────────────────────────────────────
-// ── Vigor ────────────────────────────────────────────────────────────────────
-// ── Vile ─────────────────────────────────────────────────────────────────────
-// ── Void ─────────────────────────────────────────────────────────────────────
-// ── Venture ───────────────────────────────────────────────────────────────────
-// ── Verge ─────────────────────────────────────────────────────────────────────
-// ── Verify ────────────────────────────────────────────────────────────────────
-// ── Verily ────────────────────────────────────────────────────────────────────
-// ── Vermin ────────────────────────────────────────────────────────────────────
-// ── Vernal ────────────────────────────────────────────────────────────────────
-// ── Verse ─────────────────────────────────────────────────────────────────────
-// ── Vertex ────────────────────────────────────────────────────────────────────
-// ── Verve ─────────────────────────────────────────────────────────────────────
-// ── Vest ──────────────────────────────────────────────────────────────────────
-// ── Vice ──────────────────────────────────────────────────────────────────────
-// ── Vim ───────────────────────────────────────────────────────────────────────
-// ── Viper ─────────────────────────────────────────────────────────────────────
-// ── Viral ─────────────────────────────────────────────────────────────────────
-// ── Visit ─────────────────────────────────────────────────────────────────────
-// ── Vista ─────────────────────────────────────────────────────────────────────
-// ── Vibrate ──────────────────────────────────────────────────────────────────
-// ── Viewport ─────────────────────────────────────────────────────────────────
-// ── Vision ───────────────────────────────────────────────────────────────────
-// ── VolumetricLight ──────────────────────────────────────────────────────────
-// ── Volley ────────────────────────────────────────────────────────────────────
-// ── Vortex ───────────────────────────────────────────────────────────────────
-// ── Vow ──────────────────────────────────────────────────────────────────────
-// ── Vulnerable ───────────────────────────────────────────────────────────────
-// ── Vulture ───────────────────────────────────────────────────────────────────
-// ── Wage ──────────────────────────────────────────────────────────────────────
-// ── Wager ─────────────────────────────────────────────────────────────────────
-// ── Wail ──────────────────────────────────────────────────────────────────────
-// ── Wake ──────────────────────────────────────────────────────────────────────
-// ── Walk ──────────────────────────────────────────────────────────────────────
-// ── Wall ──────────────────────────────────────────────────────────────────────
-// ── Waltz ─────────────────────────────────────────────────────────────────────
-// ── Wand ──────────────────────────────────────────────────────────────────────
-// ── Wane ──────────────────────────────────────────────────────────────────────
-// ── Wangle ────────────────────────────────────────────────────────────────────
-// ── Want ──────────────────────────────────────────────────────────────────────
-// ── Wanton ────────────────────────────────────────────────────────────────────
-// ── Ward ──────────────────────────────────────────────────────────────────────
-// ── Warm ──────────────────────────────────────────────────────────────────────
-// ── Warp ──────────────────────────────────────────────────────────────────────
-// ── Warn ─────────────────────────────────────────────────────────────────────
-// ── Wary ─────────────────────────────────────────────────────────────────────
-// ── Wash ─────────────────────────────────────────────────────────────────────
-// ── Wasp ─────────────────────────────────────────────────────────────────────
-// ── Waste ────────────────────────────────────────────────────────────────────
-// ── WaterBody ────────────────────────────────────────────────────────────────
-// ── Wave ─────────────────────────────────────────────────────────────────────
-// ── Waver ────────────────────────────────────────────────────────────────────
-// ── Wax ──────────────────────────────────────────────────────────────────────
-// ── Way ──────────────────────────────────────────────────────────────────────
-// ── Weal ─────────────────────────────────────────────────────────────────────
-// ── Weary ────────────────────────────────────────────────────────────────────
-// ── Weather ──────────────────────────────────────────────────────────────────
-// ── Weave ────────────────────────────────────────────────────────────────────
-// ── Weasel ───────────────────────────────────────────────────────────────────
-// ── Web ──────────────────────────────────────────────────────────────────────
-// ── Wed ──────────────────────────────────────────────────────────────────────
-// ── Wedge ────────────────────────────────────────────────────────────────────
-// ── Wee ──────────────────────────────────────────────────────────────────────
-// ── Weed ─────────────────────────────────────────────────────────────────────
-// ── Weedy ────────────────────────────────────────────────────────────────────
-// ── Weep ─────────────────────────────────────────────────────────────────────
-// ── Weft ─────────────────────────────────────────────────────────────────────
-// ── Weigh ────────────────────────────────────────────────────────────────────
-// ── Weight ───────────────────────────────────────────────────────────────────
-// ── Weird ────────────────────────────────────────────────────────────────────
-// ── Weld ─────────────────────────────────────────────────────────────────────
-// ── Welder ───────────────────────────────────────────────────────────────────
-// ── Welkin ───────────────────────────────────────────────────────────────────
-// ── Well ─────────────────────────────────────────────────────────────────────
-// ── Welly ────────────────────────────────────────────────────────────────────
-// ── Welp ─────────────────────────────────────────────────────────────────────
-// ── Welt ─────────────────────────────────────────────────────────────────────
-// ── Wend ─────────────────────────────────────────────────────────────────────
-// ── Whiff ────────────────────────────────────────────────────────────────────
-// ── Whim ─────────────────────────────────────────────────────────────────────
-// ── Whip ─────────────────────────────────────────────────────────────────────
-// ── Whirl ────────────────────────────────────────────────────────────────────
-// ── Whisk ────────────────────────────────────────────────────────────────────
-// ── Wick ─────────────────────────────────────────────────────────────────────
-// ── Wicker ───────────────────────────────────────────────────────────────────
-// ── Wig ──────────────────────────────────────────────────────────────────────
-// ── Wild ─────────────────────────────────────────────────────────────────────
-// ── Wilder ───────────────────────────────────────────────────────────────────
-// ── Wile ─────────────────────────────────────────────────────────────────────
-// ── Wiles ────────────────────────────────────────────────────────────────────
-// ── Will ─────────────────────────────────────────────────────────────────────
-// ── Willow ───────────────────────────────────────────────────────────────────
-// ── Wilt ─────────────────────────────────────────────────────────────────────
-// ── Wily ─────────────────────────────────────────────────────────────────────
-// ── Wimp ─────────────────────────────────────────────────────────────────────
-// ── Wimple ───────────────────────────────────────────────────────────────────
-// ── Win ──────────────────────────────────────────────────────────────────────
-// ── Wince ────────────────────────────────────────────────────────────────────
-// ── Winch ────────────────────────────────────────────────────────────────────
-// ── Winder ───────────────────────────────────────────────────────────────────
-// ── Windfall ─────────────────────────────────────────────────────────────────
-// ── Windup ───────────────────────────────────────────────────────────────────
-// ── Wine ─────────────────────────────────────────────────────────────────────
-// ── Wing ─────────────────────────────────────────────────────────────────────
-// ── Wink ─────────────────────────────────────────────────────────────────────
-// ── Wino ─────────────────────────────────────────────────────────────────────
-// ── Winsome ──────────────────────────────────────────────────────────────────
-// ── Wintry ───────────────────────────────────────────────────────────────────
-// ── Wire ─────────────────────────────────────────────────────────────────────
-// ── Wise ─────────────────────────────────────────────────────────────────────
-// ── Wish ─────────────────────────────────────────────────────────────────────
-// ── Wisp ─────────────────────────────────────────────────────────────────────
-// ── Wispy ────────────────────────────────────────────────────────────────────
-// ── Wist ─────────────────────────────────────────────────────────────────────
-// ── Wistful ──────────────────────────────────────────────────────────────────
-// ── Wit ──────────────────────────────────────────────────────────────────────
-// ── Witch ─────────────────────────────────────────────────────────────────────
-// ── Witless ───────────────────────────────────────────────────────────────────
-// ── Witty ─────────────────────────────────────────────────────────────────────
-// ── Wiz ───────────────────────────────────────────────────────────────────────
-// ── Woe ───────────────────────────────────────────────────────────────────────
-// ── Woeful ────────────────────────────────────────────────────────────────────
-// ── Wok ───────────────────────────────────────────────────────────────────────
-// ── Woke ──────────────────────────────────────────────────────────────────────
-// ── Woken ─────────────────────────────────────────────────────────────────────
-// ── Wold ──────────────────────────────────────────────────────────────────────
-// ── Wolf ──────────────────────────────────────────────────────────────────────
-// ── Womb ──────────────────────────────────────────────────────────────────────
-// ── Wombat ────────────────────────────────────────────────────────────────────
-// ── Women ─────────────────────────────────────────────────────────────────────
-// ── Won ───────────────────────────────────────────────────────────────────────
-// ── Wonder ────────────────────────────────────────────────────────────────────
-// ── Wondrous ──────────────────────────────────────────────────────────────────
-// ── Wonk ──────────────────────────────────────────────────────────────────────
-// ── Wonky ──────────────────────────────────────────────────────────────────────
-// ── Wont ──────────────────────────────────────────────────────────────────────
-// ── Woo ──────────────────────────────────────────────────────────────────────
-// ── Wood ──────────────────────────────────────────────────────────────────────
-// ── Woodsy ──────────────────────────────────────────────────────────────────────
-// ── Wooer ──────────────────────────────────────────────────────────────────────
-// ── Woof ──────────────────────────────────────────────────────────────────────
-// ── Wool ──────────────────────────────────────────────────────────────────────
-// ── Woolly ──────────────────────────────────────────────────────────────────────
-// ── Woozy ──────────────────────────────────────────────────────────────────────
-// ── Wordy ──────────────────────────────────────────────────────────────────────
-// ── Wore ──────────────────────────────────────────────────────────────────────
-// ── Worm ──────────────────────────────────────────────────────────────────────
-// ── Worn ──────────────────────────────────────────────────────────────────────
-// ── Worry ──────────────────────────────────────────────────────────────────────
-// ── Worse ──────────────────────────────────────────────────────────────────────
-// ── Worst ──────────────────────────────────────────────────────────────────────
-// ── Wort ──────────────────────────────────────────────────────────────────────
-// ── Worthy ──────────────────────────────────────────────────────────────────────
-// ── Wound ──────────────────────────────────────────────────────────────────────
-// ── Wraith ──────────────────────────────────────────────────────────────────────
-// ── Wrangle ──────────────────────────────────────────────────────────────────────
-// ── Wrap ─────────────────────────────────────────────────────────────────────
-// ── Wrath ────────────────────────────────────────────────────────────────────
-// ── Wrathful ─────────────────────────────────────────────────────────────────
-// ── Wreck ────────────────────────────────────────────────────────────────────
-// ── Wrecker ──────────────────────────────────────────────────────────────────
-// ── Wren ─────────────────────────────────────────────────────────────────────
-// ── Wrench ───────────────────────────────────────────────────────────────────
-// ── Wrest ────────────────────────────────────────────────────────────────────
-// ── Wrestle ──────────────────────────────────────────────────────────────────
-// ── Wretch ───────────────────────────────────────────────────────────────────
-// ── Wretched ─────────────────────────────────────────────────────────────────
-// ── Wriggle ───────────────────────────────────────────────────────────────────
-// ── Wring ─────────────────────────────────────────────────────────────────────
-// ── Wrinkle ───────────────────────────────────────────────────────────────────
-// ── Wrist ─────────────────────────────────────────────────────────────────────
-// ── Write ─────────────────────────────────────────────────────────────────────
-// ── Writhe ───────────────────────────────────────────────────────────────────
-// ── Wrong ────────────────────────────────────────────────────────────────────
-// ── Wrongly ──────────────────────────────────────────────────────────────────
-// ── Wrote ────────────────────────────────────────────────────────────────────
-// ── Wroth ────────────────────────────────────────────────────────────────────
-// ── Wrung ────────────────────────────────────────────────────────────────────
-// ── Wry ──────────────────────────────────────────────────────────────────────
-// ── Xray ─────────────────────────────────────────────────────────────────────
-// ── Yak ──────────────────────────────────────────────────────────────────────
-// ── Yam ──────────────────────────────────────────────────────────────────────
-// ── Yang ─────────────────────────────────────────────────────────────────────
-// ── Yank ─────────────────────────────────────────────────────────────────────
-// ── Yap ──────────────────────────────────────────────────────────────────────
-// ── Yard ─────────────────────────────────────────────────────────────────────
-// ── Yare ─────────────────────────────────────────────────────────────────────
-// ── Yule ─────────────────────────────────────────────────────────────────────
-// ── Yum ──────────────────────────────────────────────────────────────────────
-// ── Yummy ────────────────────────────────────────────────────────────────────
-// ── Yup ──────────────────────────────────────────────────────────────────────
-// ── Yurt ─────────────────────────────────────────────────────────────────────
-// ── Zafu ─────────────────────────────────────────────────────────────────────
-// ── Zag ──────────────────────────────────────────────────────────────────────
-// ── Zaibatsu ─────────────────────────────────────────────────────────────────
-// ── Zakat ────────────────────────────────────────────────────────────────────
-// ── Zamia ────────────────────────────────────────────────────────────────────
-// ── Zanily ───────────────────────────────────────────────────────────────────
-// ── Zaniness ─────────────────────────────────────────────────────────────────
-// ── Zany ─────────────────────────────────────────────────────────────────────
-// ── Zap ──────────────────────────────────────────────────────────────────────
-// ── Zapper ───────────────────────────────────────────────────────────────────
-// ── Zappy ────────────────────────────────────────────────────────────────────
-// ── Zeal ─────────────────────────────────────────────────────────────────────
-// ── Zealot ───────────────────────────────────────────────────────────────────
-// ── Zealotry ─────────────────────────────────────────────────────────────────
-// ── Zealous ──────────────────────────────────────────────────────────────────
-// ── Zeatin ───────────────────────────────────────────────────────────────────
-// ── Zeaxanthin ───────────────────────────────────────────────────────────────
-// ── Zebec ─────────────────────────────────────────────────────────────────────
-// ── Zebra ─────────────────────────────────────────────────────────────────────
-// ── Zebrafish ─────────────────────────────────────────────────────────────────
-// ── Zebrine ───────────────────────────────────────────────────────────────────
-// ── Zebroid ───────────────────────────────────────────────────────────────────
-// ── Zebu ──────────────────────────────────────────────────────────────────────
-// ── Zechin ────────────────────────────────────────────────────────────────────
-// ── Zed ───────────────────────────────────────────────────────────────────────
-// ── Zeekoe ────────────────────────────────────────────────────────────────────
-// ── Zein ──────────────────────────────────────────────────────────────────────
-// ── Zeitgeber ─────────────────────────────────────────────────────────────────
-// ── Zeitgeist ─────────────────────────────────────────────────────────────────
-// ── Zek ───────────────────────────────────────────────────────────────────────
-// ── Zelkova ───────────────────────────────────────────────────────────────────
-// ── Zemstvo ───────────────────────────────────────────────────────────────────
-// ── Zen ───────────────────────────────────────────────────────────────────────
-// ── Zenana ────────────────────────────────────────────────────────────────────
-// ── Zendo ─────────────────────────────────────────────────────────────────────
-// ── Zener ─────────────────────────────────────────────────────────────────────
-// ── Zenith ────────────────────────────────────────────────────────────────────
-// ── Zenithal ──────────────────────────────────────────────────────────────────
-// ── Zeolite ───────────────────────────────────────────────────────────────────
-// ── Zeolitic ──────────────────────────────────────────────────────────────────
-// ── Zephyr ────────────────────────────────────────────────────────────────────
-// ── Zeppelin ──────────────────────────────────────────────────────────────────
-// ── Zerk ──────────────────────────────────────────────────────────────────────
-// ── Zeroth ───────────────────────────────────────────────────────────────────
-// ── Zester ───────────────────────────────────────────────────────────────────
-// ── Zestful ──────────────────────────────────────────────────────────────────
-// ── Zeta ─────────────────────────────────────────────────────────────────────
-// ── Zetetic ──────────────────────────────────────────────────────────────────
-// ── Zeugen ───────────────────────────────────────────────────────────────────
-// ── Zeugma ───────────────────────────────────────────────────────────────────
-// ── Zho ──────────────────────────────────────────────────────────────────────
-// ── Zillion ───────────────────────────────────────────────────────────────────
-// ── Zimb ──────────────────────────────────────────────────────────────────────
-// ── Zinc ──────────────────────────────────────────────────────────────────────
-// ── Zincate ───────────────────────────────────────────────────────────────────
-// ── Zincite ───────────────────────────────────────────────────────────────────
-// ── Zine ──────────────────────────────────────────────────────────────────────
-// ── Zineb ─────────────────────────────────────────────────────────────────────
-// ── Zinfandel ─────────────────────────────────────────────────────────────────
-// ── Zing ─────────────────────────────────────────────────────────────────────
-// ── Zinger ────────────────────────────────────────────────────────────────────
-// ── Zink ──────────────────────────────────────────────────────────────────────
-// ── Zinnia ────────────────────────────────────────────────────────────────────
-// ── Zip ───────────────────────────────────────────────────────────────────────
-// ── Zipper ────────────────────────────────────────────────────────────────────
-// ── Zippier ───────────────────────────────────────────────────────────────────
-// ── Zippy ─────────────────────────────────────────────────────────────────────
-// ── Zircon ───────────────────────────────────────────────────────────────────
-// ── Zirconia ─────────────────────────────────────────────────────────────────
-// ── Zirconium ────────────────────────────────────────────────────────────────
-// ── Zit ──────────────────────────────────────────────────────────────────────
-// ── Zither ───────────────────────────────────────────────────────────────────
-// ── Ziti ─────────────────────────────────────────────────────────────────────
-// ── Zoanthropy ───────────────────────────────────────────────────────────────
-// ── Zodiac ───────────────────────────────────────────────────────────────────
-// ── Zombify ───────────────────────────────────────────────────────────────────
-// ── Zonal ─────────────────────────────────────────────────────────────────────
-// ── Zonate ────────────────────────────────────────────────────────────────────
-// ── Zonation ──────────────────────────────────────────────────────────────────
-// ── Zone ──────────────────────────────────────────────────────────────────────
-// ── Zoner ─────────────────────────────────────────────────────────────────────
-// ── Zoning ────────────────────────────────────────────────────────────────────
-// ── Zonk ──────────────────────────────────────────────────────────────────────
-// ── Zoo ───────────────────────────────────────────────────────────────────────
-// ── Zoogenous ────────────────────────────────────────────────────────────────
-// ── Zoogeography ─────────────────────────────────────────────────────────────
-// ── Zooglea ───────────────────────────────────────────────────────────────────
-// ── Zoography ─────────────────────────────────────────────────────────────────
-// ── Zooid ─────────────────────────────────────────────────────────────────────
-// ── Zookeeper ─────────────────────────────────────────────────────────────────
-// ── Zoolatry ──────────────────────────────────────────────────────────────────
-// ── Zoological ────────────────────────────────────────────────────────────────
-// ── Zoologist ─────────────────────────────────────────────────────────────────
-// ── Zoology ───────────────────────────────────────────────────────────────────
-// ── Zoom ──────────────────────────────────────────────────────────────────────
-// ── Zoometry ──────────────────────────────────────────────────────────────────
-// ── Zoomorph ──────────────────────────────────────────────────────────────────
-// ── Zoomorphic ────────────────────────────────────────────────────────────────
-// ── Zoomorphism ───────────────────────────────────────────────────────────────
-// ── Zoonosis ──────────────────────────────────────────────────────────────────
-// ── Zoonotic ──────────────────────────────────────────────────────────────────
-// ── Zoophagous ──────────────────────────────────────────────────────────────────
-// ── Zoophile ──────────────────────────────────────────────────────────────────
-// ── Zoophilia ──────────────────────────────────────────────────────────────────
-// ── Zoophilous ──────────────────────────────────────────────────────────────────
-// ── Zoophily ──────────────────────────────────────────────────────────────────
-// ── Zoophyte ──────────────────────────────────────────────────────────────────
-// ── Zooplankton ───────────────────────────────────────────────────────────────
-// ── Zoosphere ─────────────────────────────────────────────────────────────────
-// ── Zoosperm ──────────────────────────────────────────────────────────────────
-// ── Zoospore ──────────────────────────────────────────────────────────────────
-// ── Zootechnics ───────────────────────────────────────────────────────────────
-// ── Zootomy ───────────────────────────────────────────────────────────────────
-// ── Zooxanthella ──────────────────────────────────────────────────────────────
-// ── Zoogamy ───────────────────────────────────────────────────────────────────
-// ── Zoogenesis ────────────────────────────────────────────────────────────────
-// ── Zoognomy ──────────────────────────────────────────────────────────────────
-// ── Zoopathology ──────────────────────────────────────────────────────────────
-// ── Zoophobia ─────────────────────────────────────────────────────────────────
-// ── Zooscopy ──────────────────────────────────────────────────────────────────
-// ── Zootherapy ────────────────────────────────────────────────────────────────
-// ── Silence ──────────────────────────────────────────────────────────────────
-// ── Siphon ───────────────────────────────────────────────────────────────────
-// ── Slam ─────────────────────────────────────────────────────────────────────
-// ── Slay ─────────────────────────────────────────────────────────────────────
-// ── Slide ────────────────────────────────────────────────────────────────────
-// ── Slime ────────────────────────────────────────────────────────────────────
-// ── Slink ────────────────────────────────────────────────────────────────────
-// ── SlowMo ───────────────────────────────────────────────────────────────────
-// ── Smoke ────────────────────────────────────────────────────────────────────
-// ── Snare ────────────────────────────────────────────────────────────────────
 // ── Soak ─────────────────────────────────────────────────────────────────────
 /// Get an entity's current shield value.
 #[op2(fast)]
@@ -4629,158 +4014,6 @@ pub fn bsengine_get_look_at_target(#[string] name: String) -> String {
     })
 }
 
-// --- Burn ---
-
-// --- Bleed ---
-
-// --- Poison ---
-
-// --- Freeze ---
-
-// --- Blind ---
-
-// --- Charm ---
-
-// --- Confuse ---
-
-// --- Cripple ---
-
-// --- Daze ---
-
-// --- Disarm ---
-
-// --- Concuss ---
-
-// --- Corrosion ---
-
-// --- Curse ---
-
-// --- Dread ---
-
-// --- Doom ---
-
-// --- Demoralize ---
-
-// --- Dodge ---
-
-// --- Drain ---
-
-// --- Empower ---
-
-// --- Enervate ---
-
-// --- Entangle ---
-
-// --- Expose ---
-
-// ── Exhaustion ──────────────────────────────────────────────────────────────
-
-// ── Fear ────────────────────────────────────────────────────────────────────
-
-// ── Fracture ─────────────────────────────────────────────────────────────────
-
-// ── Frostbite ────────────────────────────────────────────────────────────────
-
-// ── Fury ─────────────────────────────────────────────────────────────────────
-
-// ── Galvanize ────────────────────────────────────────────────────────────────
-
-// ── Haste ────────────────────────────────────────────────────────────────────
-
-// ── Havoc ────────────────────────────────────────────────────────────────────
-
-// ── Haze ─────────────────────────────────────────────────────────────────────
-
-// ── Heat ─────────────────────────────────────────────────────────────────────
-
-// ── Hex ──────────────────────────────────────────────────────────────────────
-
-// ── Hobble ───────────────────────────────────────────────────────────────────
-
-// ── Ignite ────────────────────────────────────────────────────────────────────
-
-// ── Imbue ─────────────────────────────────────────────────────────────────────
-
-// ── Immune ────────────────────────────────────────────────────────────────────
-
-// ── Impact ────────────────────────────────────────────────────────────────────
-
-// ── Intercept ─────────────────────────────────────────────────────────────────
-
-// ── Interrupt ─────────────────────────────────────────────────────────────────
-
-// ── Invincible ───────────────────────────────────────────────────────────────
-
-// ── Isolate ───────────────────────────────────────────────────────────────────
-
-// ── Jeer ─────────────────────────────────────────────────────────────────────
-
-// ── Jetpack ───────────────────────────────────────────────────────────────────
-
-// ── Jolt ─────────────────────────────────────────────────────────────────────
-
-// ── Jostle ────────────────────────────────────────────────────────────────────
-
-// ── Juke ─────────────────────────────────────────────────────────────────────
-
-// ── Kneel ────────────────────────────────────────────────────────────────────
-
-// ── Knit ─────────────────────────────────────────────────────────────────────
-
-// ── Lacerate ─────────────────────────────────────────────────────────────────
-
-// ── Laden ─────────────────────────────────────────────────────────────────────
-
-// ── Lament ───────────────────────────────────────────────────────────────────
-
-// ── Lance ─────────────────────────────────────────────────────────────────────
-
-// ── Lapse ─────────────────────────────────────────────────────────────────────
-
-// ── Lash ─────────────────────────────────────────────────────────────────────
-
-// ── Latch ────────────────────────────────────────────────────────────────────
-
-// ── Ledge ────────────────────────────────────────────────────────────────────
-
-// ── Leech ────────────────────────────────────────────────────────────────────
-
-// ── Lunge ────────────────────────────────────────────────────────────────────
-
-// ── Lure ─────────────────────────────────────────────────────────────────────
-
-// ── Lurk ─────────────────────────────────────────────────────────────────────
-
-// ── Magnet ────────────────────────────────────────────────────────────────────
-
-// ── Maim ──────────────────────────────────────────────────────────────────────
-
-// ── Malice ────────────────────────────────────────────────────────────────────
-
-// ── Mark ──────────────────────────────────────────────────────────────────────
-
-// ── Melee ─────────────────────────────────────────────────────────────────────
-
-// ── Mend ──────────────────────────────────────────────────────────────────────
-
-// ── Merge ─────────────────────────────────────────────────────────────────────
-
-// ── Mesh ──────────────────────────────────────────────────────────────────────
-
-// ── Minimap ───────────────────────────────────────────────────────────────────
-
-// ── Mirage ────────────────────────────────────────────────────────────────────
-
-// ── Momentum ──────────────────────────────────────────────────────────────────
-
-// ── Morale ────────────────────────────────────────────────────────────────────
-
-// ── Morph ─────────────────────────────────────────────────────────────────────
-
-// ── Mount ─────────────────────────────────────────────────────────────────────
-
-// ── Muffle ────────────────────────────────────────────────────────────────────
-
 // ── NetworkId ─────────────────────────────────────────────────────────────────
 
 /// Get an entity's replicated network id string.
@@ -4916,92 +4149,6 @@ pub fn bsengine_network_take_rpcs() -> String {
 pub fn bsengine_network_get_peer_count() -> u32 {
     NETWORK_STATE_SNAPSHOT.with(|s| s.borrow().3)
 }
-
-// ── Nimble ────────────────────────────────────────────────────────────────────
-
-// ── Notice ────────────────────────────────────────────────────────────────────
-
-// ── Nourish ───────────────────────────────────────────────────────────────────
-
-// ── Nova ──────────────────────────────────────────────────────────────────────
-
-// ── Npc ───────────────────────────────────────────────────────────────────────
-
-// ── Nullify ───────────────────────────────────────────────────────────────────
-
-// ── Numb ──────────────────────────────────────────────────────────────────────
-
-// ── Obstacle ──────────────────────────────────────────────────────────────────
-
-// ── Omen ──────────────────────────────────────────────────────────────────────
-
-// ── Orbit ─────────────────────────────────────────────────────────────────────
-
-// ── Ordeal ────────────────────────────────────────────────────────────────────
-
-// ── Oscillate ─────────────────────────────────────────────────────────────────
-
-// ── Outlast ───────────────────────────────────────────────────────────────────
-
-// ── Overflow ──────────────────────────────────────────────────────────────────
-
-// ── Overheat ──────────────────────────────────────────────────────────────────
-
-// ── Overload ──────────────────────────────────────────────────────────────────
-
-// ── Overpower ─────────────────────────────────────────────────────────────────
-
-// ── Overshield ────────────────────────────────────────────────────────────────
-
-// ── Quest ─────────────────────────────────────────────────────────────────────
-
-// ── Radar ─────────────────────────────────────────────────────────────────────
-
-// ── Rage ──────────────────────────────────────────────────────────────────────
-
-// ── Rally ─────────────────────────────────────────────────────────────────────
-
-// ── Rampage ───────────────────────────────────────────────────────────────────
-
-// ── Ravage ────────────────────────────────────────────────────────────────────
-
-// ── Reave ─────────────────────────────────────────────────────────────────────
-
-// ── Rebound ───────────────────────────────────────────────────────────────────
-
-// ── Recharge ──────────────────────────────────────────────────────────────────
-
-// ── Reckless ──────────────────────────────────────────────────────────────────
-
-// ── Recluse ───────────────────────────────────────────────────────────────────
-
-// ── Recoil ────────────────────────────────────────────────────────────────────
-
-// ── Reflect ───────────────────────────────────────────────────────────────────
-
-// ── Reflex ────────────────────────────────────────────────────────────────────
-
-// ── Repel ─────────────────────────────────────────────────────────────────────
-
-// ── Repose ────────────────────────────────────────────────────────────────────
-
-// ── Respawn ───────────────────────────────────────────────────────────────────
-
-// ── Retaliate ─────────────────────────────────────────────────────────────────
-
-// ── Revenge ───────────────────────────────────────────────────────────────────
-
-// ── Reveal ────────────────────────────────────────────────────────────────────
-
-// ── Revive ────────────────────────────────────────────────────────────────────
-
-// ── Ricochet ──────────────────────────────────────────────────────────────────
-
-// ── Rifle ─────────────────────────────────────────────────────────────────────
-
-// ── Rot ───────────────────────────────────────────────────────────────────────
-
-// ── Rout ──────────────────────────────────────────────────────────────────────
 
 // ── Rupture ───────────────────────────────────────────────────────────────────
 
@@ -8739,7 +7886,7 @@ JSON.stringify(received)
             .eval(r#"Bsengine.ui.setLabel("l", "x", 0, 0, 20, { anchor: "bottom-rihgt" });"#)
             .expect_err("a typo'd preset must throw");
         assert!(
-            format!("{err}").contains("bottom-rihgt"),
+            err.to_string().contains("bottom-rihgt"),
             "the error must quote the bad name; got {err}"
         );
         super::COMMAND_BUFFER.with(|c| c.borrow_mut().clear());

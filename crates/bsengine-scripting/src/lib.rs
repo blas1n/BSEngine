@@ -110,6 +110,8 @@ mod dts_tests {
             params: vec!["id".into(), "x".into(), "on".into()],
             ops: vec!["bsengine_ui_set_label".into()],
             op_args: vec!["id".into(), "x".into(), "on".into()],
+            returns_op_result: true,
+            returns_value: true,
         }];
         let ops = BTreeMap::from([(
             "bsengine_ui_set_label".to_string(),
@@ -146,6 +148,8 @@ mod dts_tests {
             // The wrapper passes `dir`, not `direction`, and never passes
             // `opts` at all.
             op_args: vec!["id".into(), "dir".into(), "o.columns ?? 1".into()],
+            returns_op_result: false,
+            returns_value: false,
         }];
         let ops = BTreeMap::from([(
             "bsengine_ui_set_container".to_string(),
@@ -166,6 +170,93 @@ mod dts_tests {
         );
     }
 
+    /// A wrapper's return type is its op's only when it returns the op call
+    /// unchanged. Built from the live prelude, not from hand-made `Exported`
+    /// records, so the reflection that decides "unchanged" is exercised too:
+    /// `getEntityNames` returns `JSON.parse(op())` over a `String` op and
+    /// `getLeftStick` builds `{ x, y }` over a `Vec<f32>` op, and both used
+    /// to be typed from the op -- `string`, `number[]`. `getEntityCount`
+    /// returns its op's number unchanged and must keep that type; without it
+    /// the check would pass by making everything `unknown`.
+    #[test]
+    fn a_return_type_comes_from_the_op_only_when_passed_through() {
+        let mut rt = crate::runtime::ScriptRuntime::new_with_ops();
+        rt.exec_source(crate::ops::BOOTSTRAP_JS, "<bootstrap>")
+            .expect("the prelude must evaluate");
+        let json = rt.eval(crate::dts::REFLECT_JS).expect("reflect");
+        let exports: Vec<crate::dts::Exported> = serde_json::from_str(&json).unwrap();
+        let find = |path: &str| {
+            exports
+                .iter()
+                .find(|e| e.path == path)
+                .unwrap_or_else(|| panic!("{path} is not exported"))
+                .clone()
+        };
+        let sig = |ret: &str| crate::dts::OpSig {
+            params: vec![],
+            returns: Some(ret.to_string()),
+        };
+        let ops = BTreeMap::from([
+            ("bsengine_get_entity_names".to_string(), sig("String")),
+            ("bsengine_get_left_stick".to_string(), sig("Vec<f32>")),
+            ("bsengine_get_entity_count".to_string(), sig("u32")),
+        ]);
+        let out = crate::dts::render(
+            &[
+                find("getEntityNames"),
+                find("getLeftStick"),
+                find("getEntityCount"),
+            ],
+            &ops,
+        );
+        assert!(out.contains("function getEntityNames(): unknown;"), "{out}");
+        assert!(out.contains("function getLeftStick(): unknown;"), "{out}");
+        assert!(out.contains("function getEntityCount(): number;"), "{out}");
+    }
+
+    /// A parameter is typed from its op slot only when it arrives there
+    /// unchanged: bare, with a `??` default, or through a `_name(x)`
+    /// validator. `JSON.stringify(bindings)` reaching a `String` slot says
+    /// nothing about `bindings`, which is an array. And a wrapper that
+    /// returns nothing is `void` though its op returns an error string.
+    #[test]
+    fn a_parameter_is_typed_only_when_it_reaches_the_op_unchanged() {
+        let exports = vec![crate::dts::Exported {
+            path: "rebind".into(),
+            params: vec![
+                "action".into(),
+                "bindings".into(),
+                "key".into(),
+                "path".into(),
+            ],
+            ops: vec!["bsengine_rebind".into()],
+            op_args: vec![
+                "_action(action)".into(),
+                "JSON.stringify(bindings)".into(),
+                "key".into(),
+                "path ?? 'save.json'".into(),
+            ],
+            returns_op_result: false,
+            returns_value: false,
+        }];
+        let s = |t: &str| (String::new(), t.to_string());
+        let ops = BTreeMap::from([(
+            "bsengine_rebind".to_string(),
+            crate::dts::OpSig {
+                params: vec![s("String"), s("String"), s("String"), s("String")],
+                returns: Some("String".to_string()),
+            },
+        )]);
+        let out = crate::dts::render(&exports, &ops);
+        assert!(
+            out.contains(
+                "function rebind(action: string, bindings: unknown, key: string, path: string): void;"
+            ),
+            "got:
+{out}"
+        );
+    }
+
     /// A wrapper the engine cannot type must say so rather than claim `any`.
     #[test]
     fn an_untypeable_parameter_is_unknown_not_any() {
@@ -174,6 +265,8 @@ mod dts_tests {
             params: vec!["a".into(), "b".into()],
             ops: Vec::new(),
             op_args: Vec::new(),
+            returns_op_result: false,
+            returns_value: true,
         }];
         let out = crate::dts::render(&exports, &BTreeMap::new());
         assert!(

@@ -545,6 +545,7 @@ fn render_frame(
             Option<&bsengine_core::VolumetricFog>,
             Option<&bsengine_core::ScreenSpaceReflections>,
             Option<&bsengine_core::ColorGrading>,
+            Option<&bsengine_core::DepthOfField>,
         )>,
         Query<(
             &MeshRenderer,
@@ -701,11 +702,12 @@ fn render_frame(
         fog,
         ssr,
         color_grading,
+        depth_of_field,
     ) = render_queries
         .p0()
         .iter()
         .next()
-        .map(|(cam, t, b, tm, ao, taa, fog, ssr, grade)| {
+        .map(|(cam, t, b, tm, ao, taa, fog, ssr, grade, dof)| {
             let proj = cam.projection_matrix();
             (
                 proj * t.view_matrix(),
@@ -718,12 +720,14 @@ fn render_frame(
                 fog.copied(),
                 ssr.copied(),
                 grade.cloned(),
+                dof.copied(),
             )
         })
         .unwrap_or((
             Mat4::IDENTITY,
             Vec3::ZERO,
             Mat4::IDENTITY,
+            None,
             None,
             None,
             None,
@@ -1179,6 +1183,7 @@ fn render_frame(
         &reflection_probes,
         fog,
         color_grading,
+        depth_of_field,
     ) {
         Ok(clicked) => {
             if let Some(ref mut state) = ui_state {
@@ -1883,6 +1888,47 @@ mod tests {
             }
         }
         false
+    }
+
+    /// A camera's `DepthOfField` reaches the post pass; removing it switches
+    /// the pass off again.
+    #[test]
+    fn a_cameras_depth_of_field_reaches_the_post_pass() {
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::offscreen(64, 64, false));
+        app.add_plugins(RenderPlugin);
+        app.update();
+        let camera = app
+            .world_mut()
+            .spawn((
+                Camera::default(),
+                Transform::from_position(Vec3::new(0.0, 0.0, 10.0)),
+            ))
+            .id();
+        let active = |app: &bevy_app::App| {
+            app.world()
+                .resource::<bsengine_rhi_wgpu::WgpuSurfaceResource>()
+                .0
+                .depth_of_field_active()
+        };
+        app.update();
+        assert!(!active(&app), "premise: no component, no pass");
+
+        app.world_mut()
+            .entity_mut(camera)
+            .insert(bsengine_core::DepthOfField::default());
+        app.update();
+        assert!(
+            active(&app),
+            "the camera's depth of field reaches the post pass"
+        );
+
+        app.world_mut()
+            .entity_mut(camera)
+            .remove::<bsengine_core::DepthOfField>();
+        app.update();
+        assert!(!active(&app), "and removing it switches the pass off");
     }
 
     /// A camera's `ColorGrading::lut` reaches the post pass through the

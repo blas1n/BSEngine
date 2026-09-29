@@ -1228,6 +1228,115 @@ fn fs_composite(in: FullscreenOut) -> @location(0) vec4<f32> {
 }
 "#;
 
+/// Depth of field: a disk gather over the fogged HDR image, radius from each
+/// pixel's distance to the camera (see `DepthOfField`).
+///
+/// The golden-angle disk spreads `DOF_TAPS` samples evenly over the circle at
+/// any radius, so a small blur and a large one use the same count. Every
+/// sample is weighted by whether its *own* blur circle reaches this pixel --
+/// scatter-as-gather: a pixel receives what the pixels around it would have
+/// spread onto it. That is what keeps a sharp subject in front of a blurred
+/// background from leaving a halo of its colour on that background (a sharp
+/// pixel spreads nowhere), while a blurred foreground still spreads over what
+/// is behind it -- in focus or not. A neighbour *behind* a pixel reaches it
+/// only as far as that pixel's own blur, so a blurred background cannot
+/// spill over a sharp subject in front of it.
+const DOF_WGSL: &str = r#"
+struct FullscreenOut {
+    @builtin(position) pos: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+struct SsaoCamera {
+    proj: mat4x4<f32>,
+    inv_proj: mat4x4<f32>,
+}
+struct Dof {
+    near_distance: f32, near_transition: f32, far_distance: f32, far_transition: f32,
+    max_radius: f32, near_enabled: u32, far_enabled: u32, _pad: u32,
+}
+@group(0) @binding(0) var hdr_tex: texture_2d<f32>;
+@group(0) @binding(1) var hdr_sampler: sampler;
+@group(1) @binding(0) var depth_tex: texture_depth_2d;
+@group(2) @binding(0) var<uniform> cam: SsaoCamera;
+@group(3) @binding(0) var<uniform> dof: Dof;
+
+@vertex
+fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> FullscreenOut {
+    var positions = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -3.0), vec2<f32>(-1.0, 1.0), vec2<f32>(3.0, 1.0),
+    );
+    let p = positions[vi];
+    var out: FullscreenOut;
+    out.pos = vec4<f32>(p.x, p.y, 0.0, 1.0);
+    out.uv = vec2<f32>(p.x * 0.5 + 0.5, -p.y * 0.5 + 0.5);
+    return out;
+}
+
+// Distance from the camera plane (linear view depth) at `uv`, through the
+// inverse projection -- the value `DepthOfField`'s distances are measured in.
+fn view_depth(uv: vec2<f32>) -> f32 {
+    let dims = vec2<i32>(textureDimensions(depth_tex, 0));
+    let coord = clamp(vec2<i32>(uv * vec2<f32>(dims)), vec2<i32>(0), dims - vec2<i32>(1));
+    let d = textureLoad(depth_tex, coord, 0);
+    let ndc = vec4<f32>(uv.x * 2.0 - 1.0, (1.0 - uv.y) * 2.0 - 1.0, d, 1.0);
+    let v = cam.inv_proj * ndc;
+    return -v.z / v.w;
+}
+
+// Blur radius, in pixels, for a surface `z` from the camera.
+fn blur_radius(z: f32) -> f32 {
+    var amount = 0.0;
+    if dof.far_enabled != 0u {
+        amount = max(amount, smoothstep(
+            dof.far_distance, dof.far_distance + max(dof.far_transition, 1e-4), z));
+    }
+    if dof.near_enabled != 0u {
+        amount = max(amount, 1.0 - smoothstep(
+            dof.near_distance - max(dof.near_transition, 1e-4), dof.near_distance, z));
+    }
+    return amount * dof.max_radius;
+}
+
+const DOF_TAPS: u32 = 32u;
+const GOLDEN_ANGLE: f32 = 2.39996323;
+
+@fragment
+fn fs_dof(in: FullscreenOut) -> @location(0) vec4<f32> {
+    let centre = textureSampleLevel(hdr_tex, hdr_sampler, in.uv, 0.0);
+    let z = view_depth(in.uv);
+    let radius = blur_radius(z);
+    // How far to look. A pixel's own blur, normally -- but with the near band
+    // on, an in-focus pixel may still sit under a blurred foreground spreading
+    // over it, so every pixel searches the whole disk. (The far band needs no
+    // such search: what is blurred there is behind, and hidden behind a sharp
+    // pixel, not spread over it.)
+    var search = radius;
+    if dof.near_enabled != 0u {
+        search = dof.max_radius;
+    }
+    if search < 0.5 {
+        return centre;
+    }
+    let texel = 1.0 / vec2<f32>(textureDimensions(hdr_tex, 0));
+    var sum = centre.rgb;
+    var weight = 1.0;
+    for (var i = 0u; i < DOF_TAPS; i = i + 1u) {
+        let r = sqrt((f32(i) + 0.5) / f32(DOF_TAPS)) * search;
+        let theta = f32(i) * GOLDEN_ANGLE;
+        let uv = in.uv + vec2<f32>(cos(theta), sin(theta)) * r * texel;
+        // A neighbour spreads as far as its own blur. One *behind* this pixel
+        // spreads no farther than this pixel's blur: whatever is behind a
+        // sharp surface is hidden by it, not smeared over it.
+        let zs = view_depth(uv);
+        let reach = select(blur_radius(zs), min(blur_radius(zs), radius), zs > z);
+        let w = clamp(reach - r + 1.0, 0.0, 1.0);
+        sum = sum + textureSampleLevel(hdr_tex, hdr_sampler, uv, 0.0).rgb * w;
+        weight = weight + w;
+    }
+    return vec4<f32>(sum / weight, centre.a);
+}
+"#;
+
 /// The temporal-antialiasing resolve pass.
 ///
 /// It reads the composite pass's LDR result, reprojects the previous frame's
@@ -1434,6 +1543,22 @@ pub struct PostProcessConfigGpu {
     /// load cannot be sampled as if it had.
     pub grade_lut_size: u32,
 }
+
+/// Mirrors the WGSL `Dof` uniform.
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct DofGpu {
+    near_distance: f32,
+    near_transition: f32,
+    far_distance: f32,
+    far_transition: f32,
+    max_radius: f32,
+    near_enabled: u32,
+    far_enabled: u32,
+    _pad: u32,
+}
+
+const DOF_SIZE: u64 = std::mem::size_of::<DofGpu>() as u64;
 
 /// Format of the post pass's own LUT copy: the linear (non-sRGB) twin of
 /// the `Rgba8UnormSrgb` images are stored as. See `PostProcessState::set_lut`.
@@ -1703,6 +1828,12 @@ pub struct PostProcessState {
     sampler: wgpu::Sampler,
     config_buffer: wgpu::Buffer,
     config_bg: wgpu::BindGroup,
+    /// The depth-of-field pass, its settings uniform and that uniform's
+    /// group; `dof_on` is whether this frame runs it (see `update_dof`).
+    dof_pipeline: wgpu::RenderPipeline,
+    dof_buffer: wgpu::Buffer,
+    dof_bg: wgpu::BindGroup,
+    dof_on: bool,
     /// The composite pass's group 3 (see where it is built) and its layout,
     /// kept to rebuild the group when the LUT changes.
     composite_config_bgl: wgpu::BindGroupLayout,
@@ -2013,6 +2144,34 @@ impl PostProcessState {
             &neutral_lut_view,
             &sampler,
         );
+
+        let dof_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("pp dof bgl"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: wgpu::BufferSize::new(DOF_SIZE),
+                },
+                count: None,
+            }],
+        });
+        let dof_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("pp dof buffer"),
+            size: DOF_SIZE,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let dof_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("pp dof bg"),
+            layout: &dof_bgl,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: dof_buffer.as_entire_binding(),
+            }],
+        });
 
         let ssao_cam_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("pp ssao cam buffer"),
@@ -2413,6 +2572,8 @@ impl PostProcessState {
         });
         let ssr_pipeline = Self::make_ssr_pipeline(device, &tex2d_bgl, &depth_bgl, &ssr_cam_bgl);
         let ssr_composite_pipeline = Self::make_ssr_composite_pipeline(device, &tex2d_bgl);
+        let dof_pipeline =
+            Self::make_dof_pipeline(device, &tex2d_bgl, &depth_bgl, &ssao_cam_bgl, &dof_bgl);
         let composite_pipeline = Self::make_composite_pipeline(
             device,
             &tex2d_bgl,
@@ -2471,6 +2632,10 @@ impl PostProcessState {
             config_bg,
             composite_config_bgl,
             composite_config_bg,
+            dof_pipeline,
+            dof_buffer,
+            dof_bg,
+            dof_on: false,
             _neutral_lut: neutral_lut,
             neutral_lut_view,
             lut: None,
@@ -2933,6 +3098,49 @@ impl PostProcessState {
         })
     }
 
+    fn make_dof_pipeline(
+        device: &wgpu::Device,
+        tex2d_bgl: &wgpu::BindGroupLayout,
+        depth_bgl: &wgpu::BindGroupLayout,
+        ssao_cam_bgl: &wgpu::BindGroupLayout,
+        dof_bgl: &wgpu::BindGroupLayout,
+    ) -> wgpu::RenderPipeline {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("dof shader"),
+            source: wgpu::ShaderSource::Wgsl(DOF_WGSL.into()),
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("dof pll"),
+            bind_group_layouts: &[tex2d_bgl, depth_bgl, ssao_cam_bgl, dof_bgl],
+            push_constant_ranges: &[],
+        });
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("dof pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_fullscreen",
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_dof",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: HDR_FORMAT,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        })
+    }
+
     fn make_composite_pipeline(
         device: &wgpu::Device,
         tex2d_bgl: &wgpu::BindGroupLayout,
@@ -3091,6 +3299,34 @@ impl PostProcessState {
     /// Uploads new bloom/tonemap/SSAO settings to the config uniform buffer.
     pub fn update_config(&self, queue: &wgpu::Queue, config: PostProcessConfigGpu) {
         queue.write_buffer(&self.config_buffer, 0, bytemuck::cast_slice(&[config]));
+    }
+
+    /// Sets this frame's depth of field; `None`, or one that is disabled or
+    /// blurs neither band, skips the pass entirely -- the frame is then the
+    /// fogged image exactly as before depth of field existed.
+    pub fn update_dof(&mut self, queue: &wgpu::Queue, dof: Option<bsengine_core::DepthOfField>) {
+        let active =
+            dof.filter(|d| d.enabled && (d.far_enabled || d.near_enabled) && d.max_radius >= 0.5);
+        self.dof_on = active.is_some();
+        if let Some(d) = active {
+            let data = DofGpu {
+                near_distance: d.near_distance,
+                near_transition: d.near_transition,
+                far_distance: d.far_distance,
+                far_transition: d.far_transition,
+                max_radius: d.max_radius,
+                near_enabled: d.near_enabled as u32,
+                far_enabled: d.far_enabled as u32,
+                _pad: 0,
+            };
+            queue.write_buffer(&self.dof_buffer, 0, bytemuck::bytes_of(&data));
+        }
+    }
+
+    /// Whether this frame's depth-of-field pass will run (before
+    /// `fast_render`, which skips it regardless).
+    pub fn dof_active(&self) -> bool {
+        self.dof_on
     }
 
     /// Slices in the bound colour LUT, or 0 for none.
@@ -3420,6 +3656,42 @@ impl PostProcessState {
             triangles += 1;
         }
 
+        // Depth of field, between fog and everything that reads the scene:
+        // bloom has to spread the *blurred* highlights, and the composite has
+        // to tonemap the blurred image. It writes into the raw scene target,
+        // which nothing reads again after the fog pass consumed it, so no
+        // extra full-screen texture is needed; the passes below then read
+        // that target instead of the fogged one.
+        let dof_ran = self.dof_on && !fast_render;
+        if dof_ran {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("dof pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.hdr_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                ..Default::default()
+            });
+            pass.set_pipeline(&self.dof_pipeline);
+            pass.set_bind_group(0, &self.fog_hdr_bg, &[]);
+            pass.set_bind_group(1, &self.depth_bg, &[]);
+            pass.set_bind_group(2, &self.ssao_cam_bg, &[]);
+            pass.set_bind_group(3, &self.dof_bg, &[]);
+            pass.draw(0..3, 0..1);
+            draw_calls += 1;
+            triangles += 1;
+        }
+        let scene_bg = if dof_ran {
+            &self.hdr_bg
+        } else {
+            &self.fog_hdr_bg
+        };
+
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("bloom pass"),
@@ -3436,7 +3708,7 @@ impl PostProcessState {
             });
             if !fast_render {
                 pass.set_pipeline(&self.bloom_pipeline);
-                pass.set_bind_group(0, &self.fog_hdr_bg, &[]);
+                pass.set_bind_group(0, scene_bg, &[]);
                 pass.set_bind_group(1, &self.config_bg, &[]);
                 pass.draw(0..3, 0..1);
                 draw_calls += 1;
@@ -3484,7 +3756,7 @@ impl PostProcessState {
                 ..Default::default()
             });
             pass.set_pipeline(&self.composite_pipeline);
-            pass.set_bind_group(0, &self.fog_hdr_bg, &[]);
+            pass.set_bind_group(0, scene_bg, &[]);
             pass.set_bind_group(1, &self.bloom_bg, &[]);
             pass.set_bind_group(2, &self.ao_bg, &[]);
             pass.set_bind_group(3, &self.composite_config_bg, &[]);

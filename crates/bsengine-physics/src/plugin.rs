@@ -888,19 +888,19 @@ fn sync_physics_input_from_transform_for_kinematic(
 /// Runs even when nothing was asked for, since standing still is a move of
 /// zero and is what keeps `grounded` current (and what lets a character on
 /// too steep a slope slide off it).
+/// What [`move_character_controllers`] reads and writes per character.
+type ControlledCharacter = (
+    Entity,
+    &'static RigidBody,
+    &'static Collider,
+    &'static mut CharacterController,
+    &'static mut PhysicsInput,
+    &'static mut bsengine_core::Transform,
+);
+
 fn move_character_controllers(
     world: Res<PhysicsWorld>,
-    mut query: Query<
-        (
-            Entity,
-            &RigidBody,
-            &Collider,
-            &mut CharacterController,
-            &mut PhysicsInput,
-            &mut bsengine_core::Transform,
-        ),
-        With<PhysicsHandles>,
-    >,
+    mut query: Query<ControlledCharacter, With<PhysicsHandles>>,
 ) {
     use rapier3d::control::{CharacterAutostep, CharacterLength, KinematicCharacterController};
     for (entity, body, collider, mut controller, mut input, mut transform) in query.iter_mut() {

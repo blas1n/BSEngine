@@ -288,6 +288,26 @@ mod tests {
         );
     }
 
+    /// Landing exactly on the end of a loop is the start of the next lap, in
+    /// both directions: forward onto `duration` reads 0, backward onto 0
+    /// reads `duration`. (The two name the same moment of a loop, but only
+    /// one of them lets the next frame's span start at a clip end and fire
+    /// the event there once, not twice.)
+    #[test]
+    fn a_loop_landing_exactly_on_its_end_starts_the_next_lap() {
+        let mut p = AnimationPlayer::new("walk").with_duration(1.0);
+        p.time = 0.5;
+        p.tick(0.5);
+        assert_eq!(p.time, 0.0, "forward onto the end");
+
+        let mut p = AnimationPlayer::new("walk")
+            .with_duration(1.0)
+            .with_speed(-1.0);
+        p.time = 0.5;
+        p.tick(0.5);
+        assert_eq!(p.time, 1.0, "backward onto the start");
+    }
+
     /// Non-looping in reverse stops at the start, as forward stops at the end.
     #[test]
     fn a_reversed_one_shot_stops_at_zero() {

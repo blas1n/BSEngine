@@ -63,10 +63,12 @@ pub use mesh::{
     capsule_vertices, cube_vertices, cylinder_vertices, plane_vertices, sphere_vertices,
     triangle_vertices, GpuMeshRegistry, Vertex,
 };
-pub use plugin::{GpuQueueResource, WgpuRHIPlugin};
+pub use plugin::{GpuQueueResource, ShippedMipCacheResource, WgpuRHIPlugin};
 pub use skinning::GpuVertexSkin;
 pub use surface::{
     LightData, MaterialParams, PointLightEntry, ProbeVolumeParams, SpotLightEntry,
     WgpuSurfaceResource,
 };
-pub use texture::{GpuTextureRegistry, StreamingStep};
+pub use texture::{
+    precook_mip_cache, GpuTextureRegistry, ShippedMipCache, StreamingStep, SHIPPED_MIP_DIR,
+};

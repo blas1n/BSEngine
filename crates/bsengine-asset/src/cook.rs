@@ -87,6 +87,50 @@ pub struct CookedProject {
     pub problems: Vec<String>,
     /// Script-spelled paths that resolve to nothing. Never fails the build.
     pub script_mentions: Vec<ScriptMention>,
+    /// Package paths of the mip cache files [`package_with_precook`] made
+    /// ahead of time for block-compressed textures, sorted. Empty for a cook
+    /// that packages nothing, and for a project with no compressed texture.
+    pub precooked_mips: Vec<String>,
+}
+
+/// Makes one compressed texture's mip cache file ahead of time: from the
+/// texture file's bytes and its import settings, the cache file's name and
+/// bytes, or `None` for a texture that needs none. In the runtime this is
+/// `bsengine_rhi_wgpu::precook_mip_cache`; it arrives as a function because
+/// this crate must not depend on the GPU crate.
+pub type PrecookTexture<'a> =
+    &'a dyn Fn(&[u8], bsengine_core::TextureImportSettings) -> Option<(String, Vec<u8>)>;
+
+/// Where precooked mip cache files go in a package: a directory of a loose
+/// one, an entry prefix in an archive. The runtime looks there
+/// (`bsengine_rhi_wgpu::SHIPPED_MIP_DIR`; a test pins the two together) --
+/// not in its writable cache, which is swept of files unused for two weeks.
+pub const PRECOOKED_MIP_DIR: &str = ".bsengine_shipped/mips";
+
+/// Every compressed texture's cache file, as `(package path, bytes)`.
+fn precook_textures(
+    project_dir: &Path,
+    cooked: &CookedProject,
+    precook: PrecookTexture<'_>,
+) -> io::Result<Vec<(String, Vec<u8>)>> {
+    let mut out = Vec::new();
+    for asset in &cooked.assets {
+        let Ok(report) = super::identity::read_import_settings(&project_dir.join(asset)) else {
+            continue;
+        };
+        let bsengine_core::ImportSettings::Texture(settings) = report.settings else {
+            continue;
+        };
+        let bytes = std::fs::read(project_dir.join(asset))?;
+        if let Some((name, file)) = precook(&bytes, settings) {
+            out.push((format!("{PRECOOKED_MIP_DIR}/{name}"), file));
+        }
+    }
+    // Two textures with identical pixels and settings share one file, as
+    // they do in a developer's cache.
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    out.dedup_by(|a, b| a.0 == b.0);
+    Ok(out)
 }
 
 impl CookedProject {
@@ -405,6 +449,35 @@ pub fn package(
     runtime_exe: &Path,
     out_dir: &Path,
 ) -> io::Result<CookedProject> {
+    package_with_precook(
+        project_dir,
+        entry_scene,
+        extra_assets,
+        mode,
+        runtime_exe,
+        out_dir,
+        None,
+    )
+}
+
+/// [`package`], also shipping each block-compressed texture's mip cache file
+/// made by `precook` -- in [`PRECOOKED_MIP_DIR`] of a loose package, under
+/// the same prefix inside an archive -- so no player's machine encodes a
+/// texture. What the reference engines all do: Unity builds compressed data
+/// into its bundles, Unreal cooks it into the pak, Godot imports to `.ctex`.
+///
+/// # Errors
+///
+/// As [`package`], and when a texture the cook reached cannot be read.
+pub fn package_with_precook(
+    project_dir: impl AsRef<Path>,
+    entry_scene: &str,
+    extra_assets: &[String],
+    mode: PackageMode,
+    runtime_exe: &Path,
+    out_dir: &Path,
+    precook: Option<PrecookTexture<'_>>,
+) -> io::Result<CookedProject> {
     let project_dir = project_dir.as_ref();
 
     // Refused rather than cleared: a leftover asset from a previous build is
@@ -425,10 +498,15 @@ pub fn package(
         ));
     }
 
-    let cooked = cook(project_dir, entry_scene, extra_assets)?;
+    let mut cooked = cook(project_dir, entry_scene, extra_assets)?;
     if !cooked.is_ok() {
         return Ok(cooked);
     }
+    let precooked = match precook {
+        Some(precook) => precook_textures(project_dir, &cooked, precook)?,
+        None => Vec::new(),
+    };
+    cooked.precooked_mips = precooked.iter().map(|(path, _)| path.clone()).collect();
 
     std::fs::create_dir_all(out_dir)?;
     let exe_name = runtime_exe.file_name().ok_or_else(|| {
@@ -453,14 +531,23 @@ pub fn package(
                     copy(&project_dir.join(&sidecar), &out_dir.join(&sidecar))?;
                 }
             }
+            for (path, bytes) in &precooked {
+                let target = out_dir.join(path);
+                if let Some(parent) = target.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(target, bytes)?;
+            }
         }
         PackageMode::Pak => {
             copy(runtime_exe, &out_dir.join(exe_name))?;
-            let entries = archive_entries(project_dir, &cooked)?;
+            let mut entries = archive_entries(project_dir, &cooked)?;
+            entries.extend(precooked);
             crate::pak::write_pak(out_dir.join(PAK_FILE_NAME), &entries)?;
         }
         PackageMode::Single => {
             let mut entries = archive_entries(project_dir, &cooked)?;
+            entries.extend(precooked);
             entries.push((
                 MANIFEST_ENTRY.to_string(),
                 std::fs::read(project_dir.join(MANIFEST))?,
@@ -1282,6 +1369,86 @@ mod tests {
             !out.join("assets").exists(),
             "pak mode must not also write loose assets"
         );
+    }
+
+    /// A texture whose sidecar asks for block compression ships its
+    /// precooked mip cache file in every mode -- beside the assets of a loose
+    /// package, inside the archive of a pak or single-file one -- and a
+    /// texture that does not ask ships none. The settings come from the
+    /// sidecar, not from a default: the uncompressed texture is offered to
+    /// the precook hook too (a premise asserted below) and declined by it.
+    #[test]
+    fn a_compressed_texture_ships_its_precooked_mip_cache_in_every_mode() {
+        use bsengine_core::{ImportSettings, TextureCompression, TextureImportSettings};
+        for mode in [PackageMode::Loose, PackageMode::Pak, PackageMode::Single] {
+            let probe = Probe::create();
+            probe.write(
+                "project.toml",
+                "[project]\nname = \"P\"\nentry_scene = \"assets/scenes/main.ron\"\n",
+            );
+            probe.write("assets/scenes/main.ron", "(entities: [])");
+            probe.write("assets/textures/a.png", "A");
+            probe.write("assets/textures/b.png", "B");
+            crate::identity::write_import_settings(
+                &probe.0.join("assets/textures/a.png"),
+                ImportSettings::Texture(TextureImportSettings {
+                    compression: TextureCompression::Bc1,
+                    ..Default::default()
+                }),
+            )
+            .expect("record a's settings");
+            let offered = std::cell::RefCell::new(Vec::new());
+            let precook = |bytes: &[u8], settings: TextureImportSettings| {
+                offered.borrow_mut().push(bytes.to_vec());
+                (settings.compression != TextureCompression::None).then(|| {
+                    (
+                        format!("{}.mips", String::from_utf8_lossy(bytes)),
+                        b"blocks".to_vec(),
+                    )
+                })
+            };
+            let exe = probe.fake_runtime();
+            let out = probe.0.join("dist");
+            let extras = [
+                "assets/textures/a.png".to_string(),
+                "assets/textures/b.png".to_string(),
+            ];
+
+            let cooked = package_with_precook(
+                &probe.0,
+                "assets/scenes/main.ron",
+                &extras,
+                mode,
+                &exe,
+                &out,
+                Some(&precook),
+            )
+            .expect("package");
+
+            assert!(cooked.is_ok(), "{mode:?}: {:?}", cooked.missing);
+            assert_eq!(
+                offered.borrow().len(),
+                2,
+                "{mode:?}: premise: both textures reached the hook"
+            );
+            let shipped = format!("{PRECOOKED_MIP_DIR}/A.mips");
+            assert_eq!(cooked.precooked_mips, vec![shipped.clone()], "{mode:?}");
+            let bytes = match mode {
+                PackageMode::Loose => std::fs::read(out.join(&shipped)).ok(),
+                PackageMode::Pak => crate::pak::Pak::open(out.join(PAK_FILE_NAME))
+                    .expect("open the archive")
+                    .get(&shipped)
+                    .map(<[u8]>::to_vec),
+                PackageMode::Single => single_build_archive(&out, "fake-runtime.exe")
+                    .get(&shipped)
+                    .map(<[u8]>::to_vec),
+            };
+            assert_eq!(bytes.as_deref(), Some(&b"blocks"[..]), "{mode:?}: shipped");
+            assert!(
+                !out.join(format!("{PRECOOKED_MIP_DIR}/B.mips")).exists(),
+                "{mode:?}: the uncompressed texture ships no cache file"
+            );
+        }
     }
 
     /// The archive holds exactly the collected set — the same set loose mode

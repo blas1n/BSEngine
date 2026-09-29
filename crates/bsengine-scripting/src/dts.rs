@@ -52,6 +52,21 @@ pub struct Exported {
     /// what each argument slot actually contains lets a parameter be typed from
     /// the slot it reaches, and left `unknown` when it reaches none.
     pub op_args: Vec<String>,
+    /// Whether the wrapper *is* its first op call: an arrow whose body is
+    /// that call and nothing else, so it returns exactly what the op returns.
+    ///
+    /// Only then is the op's return type the wrapper's. `getEntityNames`
+    /// returns `JSON.parse(op())` -- an array -- and `getLeftStick` builds
+    /// `{ x, y }` from the op's `[x, y]`; taking the op's type said `string`
+    /// and `number[]`, confidently wrong.
+    #[serde(default)]
+    pub returns_op_result: bool,
+    /// Whether the wrapper returns anything at all: an arrow with an
+    /// expression body, or any `return` in its source. A wrapper that
+    /// returns nothing is `void` whatever its op returns -- a setter that
+    /// checks the op's error string and throws is still a setter.
+    #[serde(default)]
+    pub returns_value: bool,
 }
 
 /// The JavaScript expression that walks `Bsengine` and reports what it finds.
@@ -125,6 +140,52 @@ pub const REFLECT_JS: &str = r#"
     parts.push(inner.slice(start));
     return parts.map((p) => p.trim()).filter((p) => p.length > 0);
   };
+  // The shape of the body: see `Exported::returns_op_result` and
+  // `returns_value`. Found from the source text the same way the parameters
+  // are, after the parameter list's closing parenthesis.
+  const shapeOf = (fn) => {
+    const src = Function.prototype.toString.call(fn);
+    const open = src.indexOf('(');
+    let depth = 0, close = -1;
+    for (let i = open; open >= 0 && i < src.length; i++) {
+      if (src[i] === '(') depth++;
+      else if (src[i] === ')') { depth--; if (depth === 0) { close = i; break; } }
+    }
+    // A `return` with a value; a bare `return;` (an early exit) is not one.
+    const valueReturn = /\breturn\b(?!\s*[;}])/g;
+    const returns = (src.match(valueReturn) || []).length;
+    // Whether `text` is one op call and nothing after it but `;`, spaces and
+    // (for a block) its closing braces.
+    const isWholeOpCall = (text) => {
+      const m = /^Deno\.core\.ops\.bsengine_[A-Za-z0-9_]+\s*\(/.exec(text);
+      if (!m) return false;
+      let d = 0, end = -1;
+      for (let i = m[0].length - 1; i < text.length; i++) {
+        if (text[i] === '(') d++;
+        else if (text[i] === ')') { d--; if (d === 0) { end = i; break; } }
+      }
+      return end >= 0 && text.slice(end + 1).replace(/[\s;}]/g, '') === '';
+    };
+    if (close < 0) return { returns_op_result: false, returns_value: returns > 0 };
+    let rest = src.slice(close + 1).trim();
+    const arrow = rest.startsWith('=>');
+    if (arrow) rest = rest.slice(2).trim();
+    if (arrow && !rest.startsWith('{')) {
+      // An expression body returns a value; the op's, unchanged, only if
+      // the whole expression is one op call.
+      return { returns_op_result: isWholeOpCall(rest), returns_value: true };
+    }
+    // A block (arrow or method shorthand): it returns the op's value
+    // unchanged only if its one `return` is the last statement and returns
+    // one op call -- `playSound` computes its arguments first, then
+    // `return Deno.core.ops.bsengine_play_sound(...)`.
+    let whole = false;
+    if (returns === 1) {
+      const after = rest.slice(rest.search(/\breturn\b(?!\s*[;}])/) + 'return'.length).trim();
+      whole = isWholeOpCall(after);
+    }
+    return { returns_op_result: whole, returns_value: returns > 0 };
+  };
   const walk = (obj, prefix, depth) => {
     if (depth > 3) return;
     for (const key of Object.keys(obj)) {
@@ -137,6 +198,7 @@ pub const REFLECT_JS: &str = r#"
           params: paramsOf(value),
           ops: opsOf(value),
           op_args: opArgsOf(value),
+          ...shapeOf(value),
         });
       } else if (value && typeof value === 'object' && !Array.isArray(value)) {
         walk(value, path, depth + 1);
@@ -205,13 +267,44 @@ fn param_type(e: &Exported, param: &str, ops: &BTreeMap<String, OpSig>) -> &'sta
         .map(|(i, _)| i)
         .collect();
     match slots.as_slice() {
-        [only] => sig
+        [only] if forwards_unchanged(&e.op_args[*only], param) => sig
             .params
             .get(*only)
             .map(|(_, rust)| ts_type(rust))
             .unwrap_or("unknown"),
         _ => "unknown",
     }
+}
+
+/// Whether the op argument `arg` passes `param` through as the same value:
+/// the bare name, the name with a `??` default, or the name through one of
+/// the prelude's `_name(x)` validators, which return their argument or
+/// throw (`_key(key)`).
+///
+/// Anything else changes the value on the way, so the op's parameter type
+/// describes what the op receives and not what the wrapper accepts:
+/// `setActionBindings(action, bindings)` forwards `JSON.stringify(bindings)`
+/// to a `String` slot, and was typed `bindings: string` for an argument that
+/// must be an array.
+fn forwards_unchanged(arg: &str, param: &str) -> bool {
+    let arg = arg.trim();
+    if arg == param {
+        return true;
+    }
+    if let Some(rest) = arg.strip_prefix(param) {
+        if rest.trim_start().starts_with("??") {
+            return true;
+        }
+    }
+    if let Some(call) = arg.strip_prefix('_') {
+        if let Some(open) = call.find('(') {
+            let name = &call[..open];
+            let inner = &call[open + 1..];
+            return name.bytes().all(is_ident_byte)
+                && inner.strip_suffix(')').map(str::trim) == Some(param);
+        }
+    }
+    false
 }
 
 /// Whether `expr` uses `name` as a standalone identifier.
@@ -300,9 +393,17 @@ pub fn render(exports: &[Exported], ops: &BTreeMap<String, OpSig>) -> String {
             // getter `void` is worse than `unknown`: TypeScript rejects
             // assigning from it, so the typings would actively reject code the
             // engine supports. 123 of 282 ops return a value.
+            //
+            // With an op, its return type is the wrapper's only when the
+            // wrapper returns the op call unchanged; a wrapper that returns
+            // nothing is `void`; one that returns something else -- parsed,
+            // reshaped, compared -- is `unknown`.
             let ret = match e.ops.first().and_then(|op| ops.get(op)) {
-                Some(sig) => sig.returns.as_deref().map(ts_type).unwrap_or("void"),
-                None => "unknown",
+                Some(sig) if e.returns_op_result => {
+                    sig.returns.as_deref().map(ts_type).unwrap_or("void")
+                }
+                Some(_) if !e.returns_value => "void",
+                _ => "unknown",
             };
             out.push_str(&format!("{indent}function {name}({sig}): {ret};\n"));
         }

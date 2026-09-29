@@ -6659,7 +6659,10 @@ mod tests {
                 let r = rt
                     .eval(&format!(r#"String(Bsengine.{reader}("{good}"))"#))
                     .unwrap();
-                assert!(r.contains("false"), "{reader}({good:?}) should answer, got: {r}");
+                assert!(
+                    r.contains("false"),
+                    "{reader}({good:?}) should answer, got: {r}"
+                );
             }
         }
     }

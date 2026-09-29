@@ -7027,10 +7027,64 @@ mod tests {
     fn every_key_code_has_a_script_name() {
         use bsengine_input::KeyCode;
         let all = every_key_code![
-            A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
-            Space, Enter, Escape, Backspace, Tab, Left, Right, Up, Down, Key0, Key1, Key2,
-            Key3, Key4, Key5, Key6, Key7, Key8, Key9, Delete, Minus, Equals, Period, Comma,
-            Home, End, ControlLeft, ControlRight, ShiftLeft, ShiftRight, AltLeft, AltRight,
+            A,
+            B,
+            C,
+            D,
+            E,
+            F,
+            G,
+            H,
+            I,
+            J,
+            K,
+            L,
+            M,
+            N,
+            O,
+            P,
+            Q,
+            R,
+            S,
+            T,
+            U,
+            V,
+            W,
+            X,
+            Y,
+            Z,
+            Space,
+            Enter,
+            Escape,
+            Backspace,
+            Tab,
+            Left,
+            Right,
+            Up,
+            Down,
+            Key0,
+            Key1,
+            Key2,
+            Key3,
+            Key4,
+            Key5,
+            Key6,
+            Key7,
+            Key8,
+            Key9,
+            Delete,
+            Minus,
+            Equals,
+            Period,
+            Comma,
+            Home,
+            End,
+            ControlLeft,
+            ControlRight,
+            ShiftLeft,
+            ShiftRight,
+            AltLeft,
+            AltRight,
             Unknown,
         ];
         let missing: Vec<KeyCode> = all
@@ -7057,7 +7111,11 @@ mod tests {
             .collect();
         codes.sort_unstable();
         codes.dedup();
-        assert_eq!(codes.len(), super::KEY_MAPPINGS.len(), "a key is named twice");
+        assert_eq!(
+            codes.len(),
+            super::KEY_MAPPINGS.len(),
+            "a key is named twice"
+        );
     }
 
     /// The keys the first table left out, read by a real script through the
@@ -7089,10 +7147,8 @@ mod tests {
             (KeyCode::Comma, "Comma"),
         ];
         let names: Vec<String> = keys.iter().map(|(_, n)| format!("{n:?}")).collect();
-        let script_path = std::env::temp_dir().join(format!(
-            "bsengine_test_every_key_{}.js",
-            std::process::id()
-        ));
+        let script_path =
+            std::env::temp_dir().join(format!("bsengine_test_every_key_{}.js", std::process::id()));
         std::fs::write(
             &script_path,
             format!(

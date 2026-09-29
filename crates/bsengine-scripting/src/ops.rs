@@ -1389,6 +1389,18 @@ pub enum ScriptCommand {
         /// New mass, in kilograms.
         mass: f32,
     },
+    /// Ask a `CharacterController` to move by `(x, y, z)` world units this
+    /// frame; several calls in one frame add up.
+    MoveCharacter {
+        /// Name of the character.
+        name: String,
+        /// Movement along X.
+        x: f32,
+        /// Movement along Y.
+        y: f32,
+        /// Movement along Z.
+        z: f32,
+    },
     /// Set whether a rigid body is kinematic.
     SetKinematic {
         /// Name of the entity to modify.
@@ -1728,6 +1740,11 @@ thread_local! {
 
     // name → gravity scale (only for entities with a physics body)
     pub(crate) static GRAVITY_SCALE_SNAPSHOT: RefCell<HashMap<String, f32>> =
+        RefCell::new(HashMap::new());
+
+    // character name → whether it is standing on something: a
+    // `CharacterController`'s or a `CharacterBody`'s `grounded`.
+    pub(crate) static CHARACTER_GROUNDED_SNAPSHOT: RefCell<HashMap<String, bool>> =
         RefCell::new(HashMap::new());
 
     // name → is_kinematic (only for entities with a physics body)
@@ -4274,6 +4291,25 @@ pub fn bsengine_get_gravity_scale(#[string] name: String) -> f32 {
     GRAVITY_SCALE_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(1.0))
 }
 
+/// Queue moving a `CharacterController` by `(x, y, z)` world units this
+/// frame -- gravity included, as with Unity's `CharacterController.Move`.
+/// The physics step resolves it against walls, slopes and steps.
+#[op2(fast)]
+pub fn bsengine_move_character(#[string] name: String, x: f32, y: f32, z: f32) {
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut()
+            .push(ScriptCommand::MoveCharacter { name, x, y, z });
+    });
+}
+
+/// Whether a character -- a `CharacterController` or a `CharacterBody` --
+/// ended its last physics step standing on something. `false` for a name
+/// that is neither.
+#[op2(fast)]
+pub fn bsengine_is_character_grounded(#[string] name: String) -> bool {
+    CHARACTER_GROUNDED_SNAPSHOT.with(|s| s.borrow().get(&name).copied().unwrap_or(false))
+}
+
 /// Check whether a rigid body is kinematic.
 #[op2(fast)]
 pub fn bsengine_is_kinematic(#[string] name: String) -> bool {
@@ -5228,6 +5264,7 @@ deno_core::extension!(
         bsengine_get_entities_in_radius,
         bsengine_get_closest_entity,
         bsengine_set_kinematic,
+        bsengine_move_character,
         bsengine_set_gravity_scale,
         bsengine_set_collider_sensor,
         bsengine_set_emissive,
@@ -5371,6 +5408,7 @@ deno_core::extension!(
         bsengine_set_mass,
         bsengine_get_gravity_scale,
         bsengine_is_kinematic,
+        bsengine_is_character_grounded,
         bsengine_is_sleeping,
         bsengine_wake_up,
         bsengine_sleep,

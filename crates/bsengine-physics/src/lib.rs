@@ -17,9 +17,9 @@ pub mod ragdoll;
 pub mod world;
 
 pub use components::{
-    CharacterBody, Collider, ColliderShape, CollisionEvent, FootIkGround, Joint, JointKind,
-    PhysicsInput, PhysicsTransform, PointProjection, Ragdoll, RaycastHit, RigidBody, RigidBodyType,
-    Vehicle, WheelConfig, WheelIndex, WheelState,
+    CharacterBody, CharacterController, Collider, ColliderShape, CollisionEvent, FootIkGround,
+    Joint, JointKind, PhysicsInput, PhysicsTransform, PointProjection, Ragdoll, RaycastHit,
+    RigidBody, RigidBodyType, Vehicle, WheelConfig, WheelIndex, WheelState,
 };
 pub use plugin::PhysicsPlugin;
 pub use ragdoll::{plan_bones, pose_from_bones, BonePlan};

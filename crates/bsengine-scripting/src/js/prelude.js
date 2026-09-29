@@ -196,6 +196,9 @@ var Bsengine = {
     getEntitiesInRadius:     (x, y, z, radius) => JSON.parse(Deno.core.ops.bsengine_get_entities_in_radius(x, y, z, radius)),
     getClosestEntity:        (x, y, z)       => Deno.core.ops.bsengine_get_closest_entity(x, y, z),
     setKinematic:        (name, kinematic) => Deno.core.ops.bsengine_set_kinematic(name, kinematic),
+    // A CharacterController moves by what it is asked each frame (gravity
+    // included) and the physics step resolves walls, slopes and steps.
+    moveCharacter: (name, a, b, c) => { const [x, y, z] = _xyz(a, b, c); Deno.core.ops.bsengine_move_character(name, x, y, z); },
     setGravityScale:     (name, scale)     => Deno.core.ops.bsengine_set_gravity_scale(name, scale),
     setColliderSensor:   (name, sensor)    => Deno.core.ops.bsengine_set_collider_sensor(name, sensor),
     setEmissive:    (name, r, g, b)        => Deno.core.ops.bsengine_set_emissive(name, r, g, b),
@@ -444,6 +447,7 @@ var Bsengine = {
     setMass:              (name, mass)             => Deno.core.ops.bsengine_set_mass(name, mass),
     getGravityScale:      (name)                   => Deno.core.ops.bsengine_get_gravity_scale(name),
     isKinematic:          (name)                   => Deno.core.ops.bsengine_is_kinematic(name),
+    isCharacterGrounded:  (name)                   => Deno.core.ops.bsengine_is_character_grounded(name),
     isSleeping:           (name)                   => Deno.core.ops.bsengine_is_sleeping(name),
     wakeUp:               (name)                   => Deno.core.ops.bsengine_wake_up(name),
     sleep:                (name)                   => Deno.core.ops.bsengine_sleep(name),

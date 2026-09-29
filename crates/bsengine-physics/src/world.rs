@@ -520,6 +520,43 @@ impl PhysicsWorld {
         self.cast_ray_filtered(origin, dir, max_dist, filter)
     }
 
+    /// Moves a kinematic character's shape by `desired` against everything
+    /// else in the world, the way Rapier's character controller resolves it
+    /// -- sliding along walls, climbing slopes up to the controller's limit,
+    /// stepping up small ledges, snapping down to the ground -- and returns
+    /// what it actually managed. The character's own body is excluded, for
+    /// the reason [`Self::cast_ray_excluding`] gives.
+    ///
+    /// Nothing is moved here: the caller writes the result to the body's
+    /// kinematic target, which the next [`Self::step`] applies.
+    pub(crate) fn move_character(
+        &self,
+        character: Entity,
+        controller: &rapier3d::control::KinematicCharacterController,
+        shape: &dyn rapier3d::parry::shape::Shape,
+        pose: &Pose,
+        desired: Vector,
+    ) -> rapier3d::control::EffectiveCharacterMovement {
+        let filter = match self.entity_body_map.get(&character) {
+            Some(&handle) => QueryFilter::default().exclude_rigid_body(handle),
+            None => QueryFilter::default(),
+        };
+        let qp = self.broad_phase.as_query_pipeline(
+            self.narrow_phase.query_dispatcher(),
+            &self.rigid_body_set,
+            &self.collider_set,
+            filter,
+        );
+        controller.move_shape(
+            self.integration_parameters.dt,
+            &qp,
+            shape,
+            pose,
+            desired,
+            |_| {},
+        )
+    }
+
     /// Cast a ray ignoring **two** entities' own bodies.
     ///
     /// Audio occlusion needs this: the ray runs from an emitter to the

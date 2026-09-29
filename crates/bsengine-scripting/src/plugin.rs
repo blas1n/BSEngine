@@ -19,8 +19,8 @@ use crate::ops::{
     render_asset_status, ScriptCommand, AMBIENT_OCCLUSION_SNAPSHOT, ANGULAR_DAMPING_SNAPSHOT,
     ANGULAR_VELOCITY_SNAPSHOT, ANIMATION_SNAPSHOT, ASM_STATE_SNAPSHOT, ASSET_STATUS_SNAPSHOT,
     AUDIO_PARAM_SNAPSHOT, BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, BUS_VOLUME_SNAPSHOT,
-    CHILDREN_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COMMAND_BUFFER,
-    ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, FOLLOW_SNAPSHOT, FRICTION_SNAPSHOT,
+    CHARACTER_GROUNDED_SNAPSHOT, CHILDREN_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT,
+    COMMAND_BUFFER, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, FOLLOW_SNAPSHOT, FRICTION_SNAPSHOT,
     GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT, GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT,
     GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT,
     INCOMING_RPCS, KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT,
@@ -3085,6 +3085,17 @@ fn run_scripts(world: &mut World) {
                     }
                 }
             }
+            ScriptCommand::MoveCharacter { name, x, y, z } => {
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                    q.iter(world).find(|(_, n)| n.0 == name).map(|(e, _)| e)
+                };
+                if let Some(mut controller) =
+                    entity.and_then(|e| world.get_mut::<bsengine_physics::CharacterController>(e))
+                {
+                    controller.desired_translation.0 += glam::Vec3::new(x, y, z);
+                }
+            }
             ScriptCommand::SetKinematic { name, kinematic } => {
                 let entity = {
                     let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
@@ -3677,6 +3688,21 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
                 .collect()
         })
         .unwrap_or_default();
+    let character_grounded_snapshot: HashMap<String, bool> = {
+        let mut q = world.query::<(
+            &Name,
+            Option<&bsengine_physics::CharacterController>,
+            Option<&bsengine_physics::CharacterBody>,
+        )>();
+        q.iter(world)
+            .filter_map(|(n, controller, body)| {
+                controller
+                    .map(|c| c.grounded)
+                    .or(body.map(|b| b.grounded))
+                    .map(|g| (n.0.clone(), g))
+            })
+            .collect()
+    };
     let collider_sensor_snapshot: HashMap<String, bool> = world
         .get_resource::<PhysicsWorld>()
         .map(|pw| {
@@ -3757,6 +3783,7 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
     MASS_SNAPSHOT.with(|s| *s.borrow_mut() = mass_snapshot);
     GRAVITY_SCALE_SNAPSHOT.with(|s| *s.borrow_mut() = gravity_scale_snapshot);
     BODY_TYPE_SNAPSHOT.with(|s| *s.borrow_mut() = body_type_snapshot);
+    CHARACTER_GROUNDED_SNAPSHOT.with(|s| *s.borrow_mut() = character_grounded_snapshot);
     COLLIDER_SENSOR_SNAPSHOT.with(|s| *s.borrow_mut() = collider_sensor_snapshot);
     LINEAR_DAMPING_SNAPSHOT.with(|s| *s.borrow_mut() = linear_damping_snapshot);
     ANGULAR_DAMPING_SNAPSHOT.with(|s| *s.borrow_mut() = angular_damping_snapshot);
@@ -6106,6 +6133,82 @@ mod tests {
                 },
             ))
             .id()
+    }
+
+    /// A script walks a `CharacterController` into a wall through the real
+    /// ops: `Bsengine.moveCharacter` every frame, `Bsengine.isCharacterGrounded`
+    /// read back into a HUD text. The character must move (the premise: the
+    /// command reached the controller), stop at the wall (the physics step
+    /// resolved it, not a teleport), and report grounded through the op.
+    #[test]
+    fn a_script_moves_a_character_controller_and_reads_its_grounded_state() {
+        let script_path =
+            std::env::temp_dir().join(format!("bsengine_test_kcc_{}.js", std::process::id()));
+        std::fs::write(
+            &script_path,
+            "function onUpdate(name) {\n\
+                 Bsengine.moveCharacter(\"Hero\", new Bsengine.Vec3(0.1, -0.01, 0));\n\
+                 Bsengine.setHudText(\"grounded\", Bsengine.isCharacterGrounded(\"Hero\"));\n\
+             }",
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(bsengine_physics::PhysicsPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: String::new(),
+        });
+        let mut static_box = |at: Vec3, half: Vec3| {
+            app.world_mut().spawn((
+                Transform::from_position(at),
+                bsengine_physics::RigidBody::fixed(),
+                bsengine_physics::Collider::cuboid(half.x, half.y, half.z),
+                bsengine_physics::PhysicsInput {
+                    position: at.into(),
+                    rotation: Default::default(),
+                },
+            ));
+        };
+        static_box(Vec3::new(0.0, -0.5, 0.0), Vec3::new(10.0, 0.5, 10.0)); // floor
+        static_box(Vec3::new(3.5, 1.0, 0.0), Vec3::new(0.5, 1.0, 5.0)); // wall, face at x = 3
+        let start = Vec3::new(0.0, 0.85, 0.0);
+        let hero = app
+            .world_mut()
+            .spawn((
+                Name("Hero".to_string()),
+                Transform::from_position(start),
+                bsengine_physics::RigidBody::kinematic(),
+                bsengine_physics::Collider::capsule(0.5, 0.3),
+                bsengine_physics::CharacterController::default(),
+                bsengine_physics::PhysicsInput {
+                    position: start.into(),
+                    rotation: Default::default(),
+                },
+            ))
+            .id();
+        app.world_mut().spawn((
+            Name("Driver".to_string()),
+            ScriptPath(script_path.to_string_lossy().to_string()),
+        ));
+
+        for _ in 0..60 {
+            app.update();
+        }
+
+        let x = app.world().get::<Transform>(hero).unwrap().position.0.x;
+        assert!(
+            x > 2.0,
+            "premise: the script's moves reached the controller: x = {x}"
+        );
+        assert!(x <= 3.0 - 0.3 + 0.02, "and the wall stopped it: x = {x}");
+        let hud = app.world().resource::<bsengine_core::HudTexts>();
+        assert_eq!(
+            hud.0.get("grounded").map(String::as_str),
+            Some("true"),
+            "isCharacterGrounded reports the controller's state"
+        );
+        let _ = std::fs::remove_file(&script_path);
     }
 
     /// `Bsengine.navmesh.bake` must read the physics world's real static

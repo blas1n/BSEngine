@@ -11,8 +11,8 @@ use rapier3d::prelude::*;
 
 use crate::{
     components::{
-        CharacterBody, Collider, ColliderShape, CollisionEvent, FootIkGround, Joint,
-        PhysicsHandles, PhysicsInput, PhysicsTransform, Ragdoll, RagdollBone, RigidBody,
+        CharacterBody, CharacterController, Collider, ColliderShape, CollisionEvent, FootIkGround,
+        Joint, PhysicsHandles, PhysicsInput, PhysicsTransform, Ragdoll, RagdollBone, RigidBody,
         RigidBodyType, Vehicle, WheelIndex, WheelState,
     },
     ragdoll::{plan_bones, pose_from_bones},
@@ -42,6 +42,7 @@ impl Plugin for PhysicsPlugin {
         app.register_type::<PhysicsTransform>();
         app.register_type::<PhysicsInput>();
         app.register_type::<CharacterBody>();
+        app.register_type::<CharacterController>();
         app.add_systems(
             Update,
             (
@@ -71,6 +72,10 @@ impl Plugin for PhysicsPlugin {
                 // this reads. Before `step_world` only incidentally -- it
                 // touches no physics, just the visuals the last step produced.
                 sync_wheel_transforms,
+                // After the kinematic Transform->PhysicsInput copy (first in this
+                // chain), whose target it replaces with the resolved one; before
+                // `step_world`, which moves the body to that target.
+                move_character_controllers,
                 step_world,
                 sync_from_rapier,
                 // After `sync_from_rapier`, so the ray is cast against where
@@ -871,6 +876,68 @@ fn sync_physics_input_from_transform_for_kinematic(
     }
 }
 
+/// Moves every [`CharacterController`] by what it asked for this frame,
+/// resolved against the world: Rapier's character controller slides it
+/// along what it hits, climbs slopes up to its limit, steps up ledges up to
+/// `step_height` and snaps it down to ground within `snap_to_ground`. The
+/// result becomes the body's kinematic target (the `PhysicsInput` the step
+/// applies) and its `Transform` -- the kinematic body's source of truth,
+/// which the next frame copies back into `PhysicsInput` -- so a script sees
+/// the new position the same frame.
+///
+/// Runs even when nothing was asked for, since standing still is a move of
+/// zero and is what keeps `grounded` current (and what lets a character on
+/// too steep a slope slide off it).
+fn move_character_controllers(
+    world: Res<PhysicsWorld>,
+    mut query: Query<
+        (
+            Entity,
+            &RigidBody,
+            &Collider,
+            &mut CharacterController,
+            &mut PhysicsInput,
+            &mut bsengine_core::Transform,
+        ),
+        With<PhysicsHandles>,
+    >,
+) {
+    use rapier3d::control::{CharacterAutostep, CharacterLength, KinematicCharacterController};
+    for (entity, body, collider, mut controller, mut input, mut transform) in query.iter_mut() {
+        if body.body_type != RigidBodyType::KinematicPosition {
+            // A dynamic body is moved by the solver, not by a target; a
+            // controller on one would fight it every step. `CharacterBody`
+            // is the component for that.
+            continue;
+        }
+        let desired = std::mem::replace(&mut controller.desired_translation.0, Vec3::ZERO);
+        let kcc = KinematicCharacterController {
+            offset: CharacterLength::Absolute(controller.offset),
+            slide: true,
+            autostep: (controller.step_height > 0.0).then(|| CharacterAutostep {
+                max_height: CharacterLength::Absolute(controller.step_height),
+                ..CharacterAutostep::default()
+            }),
+            max_slope_climb_angle: controller.max_slope_climb_deg.to_radians(),
+            min_slope_slide_angle: controller.min_slope_slide_deg.to_radians(),
+            snap_to_ground: (controller.snap_to_ground > 0.0)
+                .then_some(CharacterLength::Absolute(controller.snap_to_ground)),
+            ..KinematicCharacterController::default()
+        };
+        let shape = make_shape(&collider.shape);
+        let pose = Pose::from_parts(
+            to_rapier_vec(input.position.0),
+            to_rapier_rot(input.rotation.0),
+        );
+        let moved = world.move_character(entity, &kcc, &*shape, &pose, to_rapier_vec(desired));
+        let position = input.position.0 + from_rapier_vec(moved.translation);
+        input.position = position.into();
+        transform.position = position.into();
+        controller.grounded = moved.grounded;
+        controller.sliding_down_slope = moved.is_sliding_down_slope;
+    }
+}
+
 pub(crate) fn make_shape(shape: &ColliderShape) -> SharedShape {
     match shape {
         ColliderShape::Box { half_extents } => {
@@ -1076,6 +1143,225 @@ mod tests {
             .id()
     }
 
+    /// A fixed box: `center`, `half` extents.
+    fn spawn_block(app: &mut bevy_app::App, center: Vec3, half: Vec3) {
+        app.world_mut().spawn((
+            Transform::from_position(center),
+            RigidBody::fixed(),
+            Collider::cuboid(half.x, half.y, half.z),
+            PhysicsInput {
+                position: center.into(),
+                rotation: Quat::IDENTITY.into(),
+            },
+            PhysicsTransform::default(),
+        ));
+    }
+
+    /// A kinematic capsule (half-height 0.5, radius 0.3: its base 0.8 below
+    /// its origin) with a [`CharacterController`].
+    fn spawn_controlled(
+        app: &mut bevy_app::App,
+        at: Vec3,
+        controller: CharacterController,
+    ) -> bevy_ecs::entity::Entity {
+        app.world_mut()
+            .spawn((
+                Transform::from_position(at),
+                RigidBody::kinematic(),
+                Collider::capsule(0.5, 0.3),
+                controller,
+                PhysicsInput {
+                    position: at.into(),
+                    rotation: Quat::IDENTITY.into(),
+                },
+                PhysicsTransform::default(),
+            ))
+            .id()
+    }
+
+    /// Asks for `step` of movement on each of `frames` frames, the way a
+    /// script moving a character every frame would.
+    fn walk(app: &mut bevy_app::App, who: bevy_ecs::entity::Entity, step: Vec3, frames: u32) {
+        for _ in 0..frames {
+            app.world_mut()
+                .get_mut::<CharacterController>(who)
+                .unwrap()
+                .desired_translation = step.into();
+            app.update();
+        }
+    }
+
+    fn position(app: &bevy_app::App, who: bevy_ecs::entity::Entity) -> Vec3 {
+        app.world().get::<Transform>(who).unwrap().position.0
+    }
+
+    fn controller(app: &bevy_app::App, who: bevy_ecs::entity::Entity) -> CharacterController {
+        *app.world().get::<CharacterController>(who).unwrap()
+    }
+
+    /// Moving across the floor goes where it was asked, keeps the capsule on
+    /// the floor rather than in it, and reports grounded; the request is
+    /// used up by the step.
+    #[test]
+    fn a_controlled_character_walks_across_the_floor() {
+        let mut app = new_app();
+        app.add_plugins(PhysicsPlugin);
+        spawn_floor(&mut app);
+        let who = spawn_controlled(&mut app, Vec3::new(0.0, 0.85, 0.0), Default::default());
+        app.update(); // registers the bodies
+
+        // Forward, with the small downward push a game applies while
+        // grounded, so the character stays pressed to the floor.
+        walk(&mut app, who, Vec3::new(0.05, -0.01, 0.0), 40);
+        let p = position(&app, who);
+        assert!((p.x - 2.0).abs() < 0.1, "walked ~2 units: {p}");
+        assert!(
+            (p.y - 0.81).abs() < 0.05,
+            "stands on the floor (origin 0.8 up plus the 0.01 skin): {p}"
+        );
+        assert!(controller(&app, who).grounded, "grounded on the floor");
+        assert_eq!(
+            controller(&app, who).desired_translation.0,
+            Vec3::ZERO,
+            "the request is consumed each step"
+        );
+    }
+
+    #[test]
+    fn a_controlled_character_in_the_air_is_not_grounded() {
+        let mut app = new_app();
+        app.add_plugins(PhysicsPlugin);
+        spawn_floor(&mut app);
+        let who = spawn_controlled(&mut app, Vec3::new(0.0, 5.0, 0.0), Default::default());
+        app.update();
+        walk(&mut app, who, Vec3::ZERO, 2);
+        assert!(!controller(&app, who).grounded);
+        assert!(
+            (position(&app, who).y - 5.0).abs() < 1e-3,
+            "and no gravity of its own: it stays where it is"
+        );
+    }
+
+    /// A wall stops the character at its surface: it walks until the
+    /// capsule's edge meets the wall and no further. The premise is that it
+    /// did walk -- a character that never moved would also "not pass" the
+    /// wall.
+    #[test]
+    fn a_wall_stops_a_controlled_character() {
+        let mut app = new_app();
+        app.add_plugins(PhysicsPlugin);
+        spawn_floor(&mut app);
+        // Its near face at x = 2.
+        spawn_block(&mut app, Vec3::new(2.5, 1.0, 0.0), Vec3::new(0.5, 1.0, 5.0));
+        let who = spawn_controlled(&mut app, Vec3::new(0.0, 0.85, 0.0), Default::default());
+        app.update();
+
+        walk(&mut app, who, Vec3::new(0.1, -0.05, 0.0), 60);
+        let x = position(&app, who).x;
+        assert!(x > 1.5, "premise: it walked up to the wall: x = {x}");
+        assert!(
+            x <= 2.0 - 0.3 + 0.02,
+            "the capsule (radius 0.3) stops at the wall's face at x = 2: x = {x}"
+        );
+    }
+
+    /// Stepping is what `step_height` says: a 0.2-high ledge is walked onto
+    /// with the default 0.3, blocks with stepping off -- so it is the step,
+    /// not the capsule's rounded base riding over the edge, that climbs it --
+    /// and a 0.4 ledge blocks at 0.3 but is climbed at 0.5.
+    #[test]
+    fn a_controlled_character_steps_up_ledges_up_to_its_step_height() {
+        for (ledge, step, climbs) in [
+            (0.2_f32, 0.3_f32, true),
+            (0.2, 0.0, false),
+            (0.4, 0.3, false),
+            (0.4, 0.5, true),
+        ] {
+            let mut app = new_app();
+            app.add_plugins(PhysicsPlugin);
+            spawn_floor(&mut app);
+            // A ledge starting at x = 1, `ledge` tall.
+            spawn_block(
+                &mut app,
+                Vec3::new(3.0, ledge / 2.0, 0.0),
+                Vec3::new(2.0, ledge / 2.0, 5.0),
+            );
+            let who = spawn_controlled(
+                &mut app,
+                Vec3::new(0.0, 0.85, 0.0),
+                CharacterController {
+                    step_height: step,
+                    ..Default::default()
+                },
+            );
+            app.update();
+
+            walk(&mut app, who, Vec3::new(0.05, -0.01, 0.0), 40);
+            let p = position(&app, who);
+            let case = format!("ledge {ledge}, step {step}");
+            if climbs {
+                assert!(p.x > 1.0, "{case}: past the ledge's face at x = 1: {p}");
+                assert!(
+                    (p.y - (0.81 + ledge)).abs() < 0.05,
+                    "{case}: and stands on top of it: {p}"
+                );
+            } else {
+                assert!(
+                    p.x < 1.0 - 0.3 + 0.03,
+                    "{case}: stopped at the ledge's face: {p}"
+                );
+                assert!(p.y < 0.85, "{case}: without climbing it: {p}");
+            }
+        }
+    }
+
+    /// Snapping: walking off a 0.15 drop with only a tiny downward push,
+    /// the default controller sticks to the lower floor at once; with
+    /// snapping off, the same push lowers it just 0.04 over the walk and it
+    /// is left in the air. (Rapier snaps only while the character is moving
+    /// down at all, which is why both push down a little.)
+    #[test]
+    fn a_controlled_character_snaps_down_a_small_drop() {
+        for (snap, sticks) in [(0.2_f32, true), (0.0, false)] {
+            let mut app = new_app();
+            app.add_plugins(PhysicsPlugin);
+            spawn_floor(&mut app);
+            // A 0.15-high platform under x < 1; the floor beyond it.
+            spawn_block(
+                &mut app,
+                Vec3::new(-4.0, 0.075, 0.0),
+                Vec3::new(5.0, 0.075, 5.0),
+            );
+            let who = spawn_controlled(
+                &mut app,
+                Vec3::new(0.0, 0.81 + 0.15, 0.0),
+                CharacterController {
+                    snap_to_ground: snap,
+                    ..Default::default()
+                },
+            );
+            app.update();
+            walk(&mut app, who, Vec3::new(0.0, -0.001, 0.0), 2);
+            assert!(
+                controller(&app, who).grounded,
+                "{snap}: premise: it starts standing on the platform"
+            );
+
+            walk(&mut app, who, Vec3::new(0.05, -0.001, 0.0), 40);
+            let p = position(&app, who);
+            assert!(p.x > 1.5, "{snap}: premise: it walked off the edge: {p}");
+            if sticks {
+                assert!(
+                    (p.y - 0.81).abs() < 0.05,
+                    "{snap}: stuck to the lower floor: {p}"
+                );
+                assert!(controller(&app, who).grounded, "{snap}: and grounded");
+            } else {
+                assert!(p.y > 0.9, "{snap}: no snap leaves it high: {p}");
+                assert!(!controller(&app, who).grounded, "{snap}: and in the air");
+            }
+        }
+    }
     #[test]
     fn a_character_standing_on_the_floor_is_grounded() {
         let mut app = new_app();

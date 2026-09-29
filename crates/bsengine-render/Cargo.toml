@@ -25,3 +25,5 @@ bsengine-rhi-wgpu.workspace = true
 # The texture-cache tests need a real headless device, which means blocking on
 # an async constructor the same way every other GPU-touching test here does.
 pollster.workspace = true
+# To write real LUT strip PNGs for the colour-grading loader test.
+image.workspace = true

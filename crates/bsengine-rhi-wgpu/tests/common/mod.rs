@@ -574,6 +574,13 @@ struct VertOut {{
     }
 
     /// Puts a single flat colour in the skybox.
+    /// Binds a colour-grading LUT strip given as sRGB RGBA8 pixels, as an
+    /// image file would hold them. The post pass's refusal, if any, is
+    /// returned rather than panicked on, so a test can assert it.
+    pub fn set_color_lut(&mut self, width: u32, height: u32, rgba: &[u8]) -> Result<(), String> {
+        self.surface.set_color_lut_from_rgba(width, height, rgba)
+    }
+
     pub fn set_test_skybox(&mut self, rgba: [u8; 4]) {
         self.surface.set_skybox_from_rgba(1, 1, &rgba);
     }
@@ -806,7 +813,7 @@ struct VertOut {{
                 scene.fog,
                 // `None` leaves `grade_enabled` at 0: the tonemapped colour
                 // passes through, as in every scene before grading existed.
-                scene.color_grading,
+                scene.color_grading.clone(),
             )
             .expect("render_frame failed");
 

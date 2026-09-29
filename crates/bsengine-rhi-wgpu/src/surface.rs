@@ -2782,7 +2782,62 @@ impl WgpuSurface {
     /// the pixel tests' business; this is how a caller checks that the
     /// camera's component reached the renderer at all.
     pub fn last_color_grading(&self) -> Option<bsengine_core::ColorGrading> {
-        self.last_color_grading
+        self.last_color_grading.clone()
+    }
+
+    /// Binds `source` as the colour-grading LUT, or unbinds it with `None`.
+    /// See `PostProcessState::set_lut` for what is refused and why; on a
+    /// refusal the previous LUT stays bound.
+    pub fn set_color_lut_from_texture(
+        &mut self,
+        source: Option<&wgpu::Texture>,
+    ) -> Result<(), String> {
+        self.post_process.set_lut(&self.device, &self.queue, source)
+    }
+
+    /// Binds a LUT strip given as RGBA8 pixels, sRGB-encoded as an image file
+    /// stores them -- the path tests and tools take, which skips the texture
+    /// registry but lands in the same `set_lut`.
+    pub fn set_color_lut_from_rgba(
+        &mut self,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+    ) -> Result<(), String> {
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("colour lut upload"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        self.queue.write_texture(
+            texture.as_image_copy(),
+            rgba,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * width),
+                rows_per_image: Some(height),
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        self.set_color_lut_from_texture(Some(&texture))
+    }
+
+    /// Slices in the bound colour LUT, or 0 for none.
+    pub fn color_lut_size(&self) -> u32 {
+        self.post_process.lut_size()
     }
 
     /// Whether the shadow passes batch objects sharing a mesh into one
@@ -5876,8 +5931,7 @@ impl WgpuSurface {
             let b = bloom.unwrap_or_default();
             let tm = tone_map.unwrap_or_default();
             let ao = ambient_occlusion.unwrap_or_default();
-            let grade = color_grading;
-            self.last_color_grading = color_grading;
+            let grade = color_grading.as_ref();
             let grade_filter = grade.map(|g| *g.color_filter).unwrap_or(Vec3::ONE);
             let tonemap_mode = match tm.mode {
                 bsengine_core::ToneMappingMode::None => 0u32,
@@ -5912,12 +5966,15 @@ impl WgpuSurface {
                 grade_enabled: grade.map(|g| g.enabled).unwrap_or(false) as u32,
                 grade_contrast: grade.map(|g| g.contrast).unwrap_or(1.0),
                 grade_saturation: grade.map(|g| g.saturation).unwrap_or(1.0),
-                grade_pad0: 0.0,
+                grade_lut_contribution: grade.map(|g| g.lut_contribution).unwrap_or(0.0),
                 grade_filter_r: grade_filter.x,
                 grade_filter_g: grade_filter.y,
                 grade_filter_b: grade_filter.z,
-                grade_pad1: 0.0,
+                // What the post pass holds, not what the component names:
+                // a LUT still loading, or refused, has size 0 and is skipped.
+                grade_lut_size: self.post_process.lut_size(),
             };
+            self.last_color_grading = color_grading;
             self.post_process.update_config(&self.queue, pp_config);
             let inv_proj = cam_proj.inverse();
             self.post_process.update_ssao_camera(

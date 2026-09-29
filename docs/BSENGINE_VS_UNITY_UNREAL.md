@@ -29,7 +29,7 @@ master `e3b5c728` 기준. 아래 "현재 남은 작업" 표는 2026-09-28에 비
 
 | 영역 | 항목 | 패턴 → 결과 | 세 엔진 |
 |---|---|---|---|
-| 게임플레이 | **캐릭터 컨트롤러** | `character_?controller\|move_and_slide` → 0 | Unity `CharacterController`, Unreal `CharacterMovementComponent`, Godot `CharacterBody3D.move_and_slide` |
+| 게임플레이 | ~~**캐릭터 컨트롤러**~~ → **키네마틱** 캐릭터 컨트롤러, 닫힘 | ⚠️ 이 행의 원래 판정(`character_?controller\|move_and_slide` → 0)은 틀렸다: 동적 강체용 `CharacterBody`(item 27, 회전 잠금 + 착지 레이)가 이미 있었고 이름이 달라 grep이 놓쳤다. 없던 것은 세 엔진의 주력인 키네마틱 스윕·슬라이드 방식 → 2026-09-29 `CharacterController`(Rapier KCC: 벽 슬라이드·경사 한계·계단 오르기·바닥 붙기, `Bsengine.moveCharacter`·`isCharacterGrounded`)로 닫힘. 확인: `grep -n "pub struct CharacterController" crates/bsengine-physics/src/components.rs` | Unity `CharacterController`, Unreal `CharacterMovementComponent`, Godot `CharacterBody3D.move_and_slide` |
 | 게임플레이 | **입력 액션 맵·리바인딩** | `InputAction\|action_?map\|rebind` → 0 | Unity Input System, Unreal Enhanced Input, Godot `InputMap` |
 | 애니메이션 | 루트 모션 | `root_?motion` → 0 | 셋 다 |
 | 애니메이션 | 애니메이션 이벤트 | `AnimationEvent\|anim_?event` → 0 | Unity Animation Event, Unreal Anim Notify, Godot 메서드 트랙 |

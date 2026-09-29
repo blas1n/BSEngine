@@ -130,6 +130,7 @@ declare namespace Bsengine {
     function isAnimationPlaying(name: string): boolean;
     function isAoEnabled(name: string): boolean;
     function isBloomEnabled(name: string): boolean;
+    function isCharacterGrounded(name: string): boolean;
     function isColliderSensor(name: string): boolean;
     function isGamepadButton(btn: number): boolean;
     function isGamepadButtonDown(btn: number): boolean;
@@ -161,6 +162,7 @@ declare namespace Bsengine {
     function log(msg: string): void;
     function lookAt(name: string, a: unknown, b: unknown, c: unknown): void;
     function lookAtEntity(name: unknown, targetName: unknown): unknown;
+    function moveCharacter(name: string, a: unknown, b: unknown, c: unknown): void;
     function moveEntity(name: string, dx: number, dy: number, dz: number): void;
     function moveToward(name: unknown, tx: unknown, ty: unknown, tz: unknown, speed: unknown): unknown;
     function multiplyScale(name: string, a: unknown, b: unknown, c: unknown): void;

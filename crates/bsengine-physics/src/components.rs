@@ -619,6 +619,76 @@ impl Default for CharacterBody {
     }
 }
 
+/// A kinematic character: moved by exactly what gameplay asks, with the
+/// engine resolving walls, slopes, steps and the ground.
+///
+/// The counterpart of [`CharacterBody`], which walks a *dynamic* body and so
+/// moves by forces. This is the controller all three reference engines make
+/// their primary character tool -- Unity's `CharacterController.Move`,
+/// Godot's `CharacterBody3D.move_and_slide`, Unreal's
+/// `CharacterMovementComponent` -- because a player expects a character to
+/// stop dead at a wall, walk up a stair without a jump, and stay on a
+/// downhill slope instead of launching off it, none of which a pushed rigid
+/// body does by itself. Built on Rapier's `KinematicCharacterController`.
+///
+/// Needs a `RigidBody` of type `KinematicPosition` and a `Collider` (a
+/// capsule, normally). Each frame, add the movement you want to
+/// [`desired_translation`] -- in world units, gravity included: like Unity
+/// and Godot, and unlike Unreal, the controller applies no gravity of its
+/// own -- and the physics step moves the body by what the world allows,
+/// clears the request, and reports [`grounded`].
+///
+/// [`desired_translation`]: CharacterController::desired_translation
+/// [`grounded`]: CharacterController::grounded
+#[derive(Component, Debug, Clone, Copy, PartialEq, Reflect)]
+#[reflect(Component, Default)]
+pub struct CharacterController {
+    /// The steepest slope, in degrees from horizontal, the character can
+    /// walk up. Steeper ones stop it like a wall.
+    pub max_slope_climb_deg: f32,
+    /// Slopes at least this steep, in degrees, slide the character down
+    /// them when it stands still on one.
+    pub min_slope_slide_deg: f32,
+    /// The tallest ledge the character steps up without jumping, in world
+    /// units; `0` disables stepping.
+    pub step_height: f32,
+    /// How far below the character a surface is still close enough to stick
+    /// to when walking down a slope or off a small drop, in world units; `0`
+    /// disables snapping, and the character leaves the ground at every bump.
+    pub snap_to_ground: f32,
+    /// The gap kept between the character's shape and what it touches, in
+    /// world units -- small, so the character never starts a move already
+    /// inside a surface.
+    pub offset: f32,
+    /// The movement asked for this frame, in world units. Scripts add to it
+    /// (`Bsengine.moveCharacter`); the physics step consumes it and resets
+    /// it to zero.
+    pub desired_translation: ReflectVec3,
+    /// Whether the character ended its last move standing on something.
+    /// Written by the physics step.
+    pub grounded: bool,
+    /// Whether its last move slid it down a slope too steep to stand on.
+    /// Written by the physics step.
+    pub sliding_down_slope: bool,
+}
+
+impl Default for CharacterController {
+    /// Rapier's and Unity's defaults: 45° climb, 30° slide, 0.3 step, 0.2
+    /// snap, and a 1 cm skin.
+    fn default() -> Self {
+        Self {
+            max_slope_climb_deg: 45.0,
+            min_slope_slide_deg: 30.0,
+            step_height: 0.3,
+            snap_to_ground: 0.2,
+            offset: 0.01,
+            desired_translation: Vec3::ZERO.into(),
+            grounded: false,
+            sliding_down_slope: false,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

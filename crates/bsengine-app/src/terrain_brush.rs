@@ -165,6 +165,7 @@ const HEIGHT_BRUSH_RATE: f32 = 3000.0;
 /// (the world-space brush position minus the `Terrain`'s own `Transform`).
 /// Falloff is smoothstep, from full effect at the center to zero at
 /// `radius`, so a brush edge blends rather than hard-stepping.
+#[allow(clippy::too_many_arguments)] // one call site; a struct would only rename the nine values
 fn apply_height_brush(
     heights: &mut [u16],
     width: u32,
@@ -217,6 +218,7 @@ fn apply_height_brush(
 /// lerp factor towards the target -- the same smoothstep shape
 /// `apply_height_brush` uses, but blended rather than additive: a paint
 /// brush converges on a target color, it doesn't accumulate without bound.
+#[allow(clippy::too_many_arguments)] // the height brush's shape plus a layer; see there
 fn apply_paint_brush(
     weights: &mut [u8],
     width: u32,
@@ -1063,6 +1065,7 @@ mod tests {
         app
     }
 
+    #[allow(clippy::too_many_arguments)] // a test fixture spelling out every terrain field
     fn spawn_flat_terrain(
         app: &mut bevy_app::App,
         name: &str,

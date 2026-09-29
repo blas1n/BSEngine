@@ -329,56 +329,8 @@ var Bsengine = {
     setLookAtUp: (name, a, b, c) => { const [x, y, z] = _xyz(a, b, c); Deno.core.ops.bsengine_set_look_at_up(name, x, y, z); },
     getLookAtTarget:(name)                 => JSON.parse(Deno.core.ops.bsengine_get_look_at_target(name)),
     getLookAtUp:    (name)                 => _v3OrNull(Deno.core.ops.bsengine_get_look_at_up(name)),
-    // Amplify
-    // Barrier
-    // Beacon
-    // ShieldBreak
-    // Root
     // Slow
     // Stun (severity: 0=Light, 1=Heavy, 2=Knockdown)
-
-    // Invincible
-
-    // Isolate
-
-    // Jeer
-
-    // Jetpack
-
-    // Jolt
-
-    // Jostle
-
-    // Juke
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     // NetworkId
     getNetworkId:                  (name)           => Deno.core.ops.bsengine_get_network_id(name),
@@ -447,56 +399,7 @@ var Bsengine = {
       },
     },
 
-    // Nimble
-
-    // Notice
-
-    // Nourish
-
-    // Nova
-
-    // Npc
-
-    // Nullify
-
     // Numb
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     lookAt: (name, a, b, c) => { const [x, y, z] = _xyz(a, b, c); Deno.core.ops.bsengine_look_at(name, x, y, z); },
 

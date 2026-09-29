@@ -5467,7 +5467,7 @@ impl WgpuSurface {
         let point_castable: Vec<Vec<usize>> = active_lights
             .iter()
             .map(|pl| {
-                let light_pos = glam::Vec3::from(pl.position);
+                let light_pos = pl.position;
                 draw_calls
                     .iter()
                     .enumerate()

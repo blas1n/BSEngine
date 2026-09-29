@@ -381,7 +381,7 @@ impl EditorPanel for ViewportPanel {
                         crate::gizmo::AXIS_Y,
                         radius,
                     );
-                    let stroke = egui::Stroke::new(2.0, crate::theme::ACCENT);
+                    let stroke = egui::Stroke::new(2.0_f32, crate::theme::ACCENT);
                     for i in 0..ring.len() {
                         let j = (i + 1) % ring.len();
                         if let (Some(a), Some(b)) = (

@@ -520,8 +520,7 @@ mod tests {
         // A splatmap that's 100% layer1 (rock) everywhere -- the opposite of
         // what the flat, low, un-sloped test_heightmap() would generate
         // procedurally (which would be grass-dominant).
-        let splatmap_rgba: Vec<u8> = std::iter::repeat([0u8, 255, 0, 0])
-            .take(5 * 5)
+        let splatmap_rgba: Vec<u8> = std::iter::repeat_n([0u8, 255, 0, 0], 5 * 5)
             .flatten()
             .collect();
         let splatmap = SplatmapOverride {

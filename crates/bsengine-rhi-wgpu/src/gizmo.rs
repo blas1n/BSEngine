@@ -169,7 +169,7 @@ pub fn draw(
         } else {
             axis_color(axis)
         };
-        let width = if active { 4.0 } else { 2.5 };
+        let width = if active { 4.0_f32 } else { 2.5_f32 };
         painter.line_segment([origin, tip], Stroke::new(width, color));
         painter.circle_filled(tip, 4.0, color);
     }
@@ -210,7 +210,7 @@ pub fn draw_scale_gizmo(
         } else {
             axis_color(axis)
         };
-        let width = if active { 4.0 } else { 2.5 };
+        let width = if active { 4.0_f32 } else { 2.5_f32 };
         painter.line_segment([origin, tip], Stroke::new(width, color));
         draw_scale_handle(painter, tip, color);
     }
@@ -269,7 +269,7 @@ pub fn draw_camera_frustum(
     } else {
         Color32::from_rgb(230, 200, 90)
     };
-    let stroke = Stroke::new(1.5, color);
+    let stroke = Stroke::new(1.5_f32, color);
 
     for sc in screen.iter().flatten() {
         painter.line_segment([apex, *sc], stroke);
@@ -352,7 +352,7 @@ pub fn draw_rotate_gizmo(
         } else {
             axis_color(axis)
         };
-        let stroke = Stroke::new(if active { 3.0 } else { 2.0 }, color);
+        let stroke = Stroke::new(if active { 3.0_f32 } else { 2.0_f32 }, color);
         for i in 0..ROTATE_RING_SEGMENTS {
             let j = (i + 1) % ROTATE_RING_SEGMENTS;
             if let (Some(a), Some(b)) = (
@@ -404,7 +404,7 @@ pub fn ground_grid_lines(
 /// r=g=b=a=30, not left at full 255 with alpha tacked on — the latter is
 /// what caused the `theme.rs` `ACCENT_WASH` bug earlier in this plan.
 pub fn draw_ground_grid(painter: &Painter, lines: &[[Pos2; 2]]) {
-    let stroke = Stroke::new(1.0, Color32::from_rgba_premultiplied(30, 30, 30, 30));
+    let stroke = Stroke::new(1.0_f32, Color32::from_rgba_premultiplied(30, 30, 30, 30));
     for [a, b] in lines {
         painter.line_segment([*a, *b], stroke);
     }

@@ -418,8 +418,10 @@ mod tests {
         );
         asm.set_trigger("revive");
         let player = AnimationPlayer::new("death_clip").with_duration(1.0);
-        let mut ragdoll = bsengine_physics::Ragdoll::default();
-        ragdoll.active = true;
+        let ragdoll = bsengine_physics::Ragdoll {
+            active: true,
+            ..Default::default()
+        };
         app.world_mut().spawn((asm, player, ragdoll));
         app.update();
 
@@ -459,8 +461,10 @@ mod tests {
         );
         asm.set_trigger("revive");
         let player = AnimationPlayer::new("death_clip").with_duration(2.0);
-        let mut ragdoll = bsengine_physics::Ragdoll::default();
-        ragdoll.active = true;
+        let ragdoll = bsengine_physics::Ragdoll {
+            active: true,
+            ..Default::default()
+        };
         app.world_mut().spawn((asm, player, ragdoll));
         app.update();
 

@@ -41,6 +41,7 @@ fn grade(contrast: f32, saturation: f32, filter: Vec3) -> ColorGrading {
         contrast,
         saturation,
         color_filter: filter.into(),
+        ..ColorGrading::default()
     }
 }
 
@@ -150,5 +151,143 @@ fn the_colour_filter_multiplies_after_contrast() {
         close(p[0], 64, 3),
         "contrast, then the filter: red 0.504 halved is 64 (filter first would \
          give 0): {p:?}"
+    );
+}
+
+// --- The colour LUT ---------------------------------------------------------
+
+/// Displays as `[128, 64, 100]`: blue between slices, so a lookup that took
+/// only the nearer slice, or read blue off the wrong axis, lands elsewhere.
+const EMISSIVE_WITH_BLUE: Vec3 = Vec3::new(0.215_861, 0.051_269, 0.127_438);
+
+/// A LUT strip of `n` slices, each texel the display colour `f` returns for
+/// the display colour it stands for, in the layout the component documents:
+/// red across a slice, green down it, blue from slice to slice.
+fn lut_strip(n: u32, f: impl Fn(Vec3) -> Vec3) -> Vec<u8> {
+    let mut rgba = Vec::with_capacity((n * n * n * 4) as usize);
+    let step = |i: u32| i as f32 / (n - 1) as f32;
+    for g in 0..n {
+        for b in 0..n {
+            for r in 0..n {
+                let out = f(Vec3::new(step(r), step(g), step(b)));
+                for c in [out.x, out.y, out.z] {
+                    rgba.push((c.clamp(0.0, 1.0) * 255.0).round() as u8);
+                }
+                rgba.push(255);
+            }
+        }
+    }
+    rgba
+}
+
+fn with_blue(cube: u64, grade: Option<ColorGrading>) -> Scene {
+    let mut s = scene(cube, grade);
+    s.draws[0].emissive = EMISSIVE_WITH_BLUE;
+    s
+}
+
+/// A rotating LUT -- each colour's red, green and blue become its green,
+/// blue and red -- turns `[128, 64, 100]` into `[64, 100, 128]`. Every axis
+/// has to be read the documented way round for that: a green axis running
+/// up instead of down, or blue taken from the nearer slice only, lands on
+/// another colour. The identity LUT, alongside, must change nothing: the
+/// hard side of "a LUT did something" is that the right LUT did nothing.
+#[test]
+fn a_lut_maps_each_colour_to_the_colour_its_texel_holds() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let ungraded = h.render(&with_blue(cube, None));
+    let u = ungraded.centre();
+    assert!(
+        close(u[0], 128, 1) && close(u[1], 64, 1) && close(u[2], 100, 1),
+        "premise: the fixture displays [128, 64, 100]: {u:?}"
+    );
+
+    let n = 16;
+    h.set_color_lut(n * n, n, &lut_strip(n, |c| c)).unwrap();
+    let identity = h.render(&with_blue(cube, Some(ColorGrading::default())));
+    assert!(
+        identity.max_channel_diff(&ungraded) <= 1,
+        "the identity LUT changes nothing: max diff {}",
+        identity.max_channel_diff(&ungraded)
+    );
+
+    h.set_color_lut(n * n, n, &lut_strip(n, |c| Vec3::new(c.y, c.z, c.x)))
+        .unwrap();
+    let p = h
+        .render(&with_blue(cube, Some(ColorGrading::default())))
+        .centre();
+    assert!(
+        close(p[0], 64, 2) && close(p[1], 100, 2) && close(p[2], 128, 2),
+        "the rotating LUT sends [128, 64, 100] to [64, 100, 128]: {p:?}"
+    );
+}
+
+/// Contribution blends the LUT's colour with the input: at 0.5 the rotated
+/// colour and the original meet halfway, `[96, 82, 114]`.
+#[test]
+fn lut_contribution_blends_toward_the_luts_colour() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let n = 16;
+    h.set_color_lut(n * n, n, &lut_strip(n, |c| Vec3::new(c.y, c.z, c.x)))
+        .unwrap();
+    let p = h
+        .render(&with_blue(
+            cube,
+            Some(ColorGrading {
+                lut_contribution: 0.5,
+                ..ColorGrading::default()
+            }),
+        ))
+        .centre();
+    assert!(
+        close(p[0], 96, 2) && close(p[1], 82, 2) && close(p[2], 114, 2),
+        "halfway between [128, 64, 100] and [64, 100, 128]: {p:?}"
+    );
+}
+
+/// An image that is not a strip is refused, and nothing is applied: the
+/// frame is the one with no LUT at all.
+#[test]
+fn an_image_that_is_not_a_strip_is_refused() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let without = h.render(&with_blue(cube, Some(ColorGrading::default())));
+    let err = h
+        .set_color_lut(16, 16, &vec![0u8; 16 * 16 * 4])
+        .expect_err("16 x 16 is not a strip");
+    assert!(err.contains("strip"), "{err}");
+    let after = h.render(&with_blue(cube, Some(ColorGrading::default())));
+    assert!(
+        !after.differs_from(&without),
+        "a refused LUT is not applied"
+    );
+}
+
+/// The LUT comes after the adjustments, as Unity's Color Lookup does. With
+/// saturation 0 and the rotating LUT: grey first, then rotated, is still the
+/// same grey -- the fixture's luma, 73 on every channel. The other order
+/// would rotate first and then take the luma of `[64, 100, 128]`, which is
+/// 94.
+#[test]
+fn the_lut_applies_after_the_adjustments() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let n = 16;
+    h.set_color_lut(n * n, n, &lut_strip(n, |c| Vec3::new(c.y, c.z, c.x)))
+        .unwrap();
+    let p = h
+        .render(&scene(
+            cube,
+            Some(ColorGrading {
+                saturation: 0.0,
+                ..ColorGrading::default()
+            }),
+        ))
+        .centre();
+    assert!(
+        close(p[0], 73, 2) && close(p[1], 73, 2) && close(p[2], 73, 2),
+        "saturation first makes it grey at 73, which the LUT leaves grey: {p:?}"
     );
 }

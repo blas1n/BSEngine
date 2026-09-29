@@ -420,6 +420,85 @@ fn sync_skybox(
     shown.shown = Some((wanted, generation));
 }
 
+/// The colour LUT the surface is showing: the path and the registry
+/// generation it was copied from, as [`ShownSkybox`] tracks the sky's.
+#[derive(bevy_ecs::prelude::Resource, Default, Debug)]
+struct ShownColorLut {
+    shown: Option<(String, u64)>,
+    /// The path a failure was already reported for, so it is said once.
+    warned: Option<String>,
+}
+
+/// Keeps the post pass's colour LUT in sync with the camera's
+/// `ColorGrading::lut`, through the texture cache -- [`sync_skybox`]'s
+/// arrangement, for the same reasons: one owner of the GPU copy, asked by
+/// path, and re-copied when the registry rebuilds the object (a hot reload).
+///
+/// A LUT the post pass refuses -- not a strip, or block-compressed -- is
+/// reported once and *unbound*, rather than leaving the previous LUT on
+/// screen under the new one's name. The first camera with a `ColorGrading`
+/// is the one read; `render_frame` takes the grade's other settings from
+/// the first camera too.
+#[allow(clippy::too_many_arguments)]
+fn sync_color_lut(
+    mut surface: Option<ResMut<WgpuSurfaceResource>>,
+    cameras: Query<&bsengine_core::ColorGrading, bevy_ecs::prelude::With<Camera>>,
+    mut cache: ResMut<crate::texture_cache::TextureCache>,
+    asset_server: bevy_ecs::prelude::Res<bevy_asset::AssetServer>,
+    mut textures: ResMut<bevy_asset::Assets<bsengine_asset::TextureAsset>>,
+    registry: Option<ResMut<bsengine_rhi_wgpu::GpuTextureRegistry>>,
+    mut shown: ResMut<ShownColorLut>,
+) {
+    let Some(surface) = surface.as_mut() else {
+        return;
+    };
+    let wanted = cameras
+        .iter()
+        .next()
+        .map(|g| g.lut.clone())
+        .filter(|path| !path.is_empty());
+    let Some(wanted) = wanted else {
+        if shown.shown.is_some() || surface.0.color_lut_size() > 0 {
+            let _ = surface.0.set_color_lut_from_texture(None);
+        }
+        shown.shown = None;
+        return;
+    };
+    let Some(mut registry) = registry else {
+        return;
+    };
+    let Some(id) = cache.upload(&wanted, &asset_server, &mut textures, &mut registry) else {
+        if cache.gave_up(&wanted) && shown.warned.as_deref() != Some(wanted.as_str()) {
+            tracing::warn!("colour grading LUT: cannot read '{wanted}'");
+            shown.warned = Some(wanted);
+        }
+        return;
+    };
+    let generation = registry
+        .generation(id)
+        .expect("an id the cache returned is loaded");
+    if shown
+        .shown
+        .as_ref()
+        .is_some_and(|(path, from)| *path == wanted && *from == generation)
+    {
+        return;
+    }
+    let texture = registry
+        .get_texture(id)
+        .expect("an id the cache returned is loaded");
+    if let Err(e) = surface.0.set_color_lut_from_texture(Some(texture)) {
+        if shown.warned.as_deref() != Some(wanted.as_str()) {
+            tracing::warn!("colour grading LUT '{wanted}' not applied: {e}");
+            shown.warned = Some(wanted.clone());
+        }
+        let _ = surface.0.set_color_lut_from_texture(None);
+    }
+    // Recorded on a refusal too, so a bad LUT is tried once per change
+    // rather than copied and refused every frame.
+    shown.shown = Some((wanted, generation));
+}
+
 /// Pixels scrolled per unit of wheel delta.
 ///
 /// A wheel notch reports 1.0, and 40 pixels is roughly a line and a half --
@@ -638,7 +717,7 @@ fn render_frame(
                 taa.copied(),
                 fog.copied(),
                 ssr.copied(),
-                grade.copied(),
+                grade.cloned(),
             )
         })
         .unwrap_or((
@@ -1143,6 +1222,7 @@ impl Plugin for RenderPlugin {
             .init_resource::<UiState>()
             .init_resource::<PendingShaders>()
             .init_resource::<ShownSkybox>()
+            .init_resource::<ShownColorLut>()
             .init_resource::<crate::texture_cache::TextureCache>()
             .add_event::<WindowResized>()
             .add_event::<KeyInput>()
@@ -1163,6 +1243,7 @@ impl Plugin for RenderPlugin {
                     compile_pending_shaders,
                     rebuild_modified_shaders,
                     sync_skybox,
+                    sync_color_lut,
                     render_frame,
                 )
                     .chain(),
@@ -1172,7 +1253,9 @@ impl Plugin for RenderPlugin {
 
 #[cfg(test)]
 mod tests {
-    use super::{CompileStatus, PendingShader, PendingShaders, RenderPlugin, ShownSkybox};
+    use super::{
+        CompileStatus, PendingShader, PendingShaders, RenderPlugin, ShownColorLut, ShownSkybox,
+    };
     use crate::components::{LodLevels, MeshRenderer, Occluder};
     use bsengine_app::new_app;
     use bsengine_core::{Camera, GlobalTransform, Material, Parent, PointLight, Transform};
@@ -1800,6 +1883,77 @@ mod tests {
             }
         }
         false
+    }
+
+    /// A camera's `ColorGrading::lut` reaches the post pass through the
+    /// texture cache, as a skybox does: a strip is bound (its slice count
+    /// read back from the post pass itself), an image that is not a strip is
+    /// refused and *unbinds* -- the old LUT must not stay on screen under the
+    /// new one's name -- and clearing the path unbinds too.
+    #[test]
+    fn a_cameras_lut_is_loaded_through_the_texture_cache() {
+        let dir =
+            std::env::temp_dir().join(format!("bsengine_test_colour_lut_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        // A 2-slice strip (4 x 2) and an image that is not one (3 x 2).
+        let strip = dir.join("strip.png");
+        let not_a_strip = dir.join("not_a_strip.png");
+        image::RgbaImage::from_pixel(4, 2, image::Rgba([10, 20, 30, 255]))
+            .save(&strip)
+            .unwrap();
+        image::RgbaImage::from_pixel(3, 2, image::Rgba([10, 20, 30, 255]))
+            .save(&not_a_strip)
+            .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::windowed());
+        app.add_plugins(RenderPlugin);
+        with_surface(&mut app);
+        let grading = |path: &std::path::Path| bsengine_core::ColorGrading {
+            lut: path.to_string_lossy().to_string(),
+            ..Default::default()
+        };
+        let camera = app
+            .world_mut()
+            .spawn((
+                Camera::default(),
+                Transform::from_position(Vec3::new(0.0, 0.0, 10.0)),
+                grading(&strip),
+            ))
+            .id();
+        let lut_size = |a: &bevy_app::App| surface_of(a).color_lut_size();
+
+        assert!(
+            run_until(&mut app, |a| lut_size(a) == 2),
+            "the 2-slice strip must be bound"
+        );
+
+        *app.world_mut()
+            .get_mut::<bsengine_core::ColorGrading>(camera)
+            .unwrap() = grading(&not_a_strip);
+        assert!(
+            run_until(&mut app, |a| lut_size(a) == 0),
+            "an image that is not a strip is refused and the old LUT unbound"
+        );
+        assert_eq!(
+            app.world().resource::<ShownColorLut>().warned.as_deref(),
+            Some(not_a_strip.to_string_lossy().as_ref()),
+            "and the refusal is reported"
+        );
+
+        *app.world_mut()
+            .get_mut::<bsengine_core::ColorGrading>(camera)
+            .unwrap() = grading(&strip);
+        assert!(run_until(&mut app, |a| lut_size(a) == 2), "bound again");
+        app.world_mut()
+            .get_mut::<bsengine_core::ColorGrading>(camera)
+            .unwrap()
+            .lut
+            .clear();
+        app.update();
+        assert_eq!(lut_size(&app), 0, "an empty path unbinds the LUT");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The whole path, on a real surface: the image goes through the texture
@@ -2506,13 +2660,14 @@ mod tests {
             contrast: 1.5,
             saturation: 0.25,
             color_filter: Vec3::new(1.0, 0.5, 0.25).into(),
+            ..Default::default()
         };
         let camera = app
             .world_mut()
             .spawn((
                 Camera::default(),
                 Transform::from_position(Vec3::new(0.0, 0.0, 10.0)),
-                grade,
+                grade.clone(),
             ))
             .id();
         app.update();

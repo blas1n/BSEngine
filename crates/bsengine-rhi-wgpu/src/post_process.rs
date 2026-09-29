@@ -741,8 +741,8 @@ struct PostProcessConfig {
     bloom_enabled: u32, tonemap_mode: u32, tonemap_exposure: f32, tonemap_enabled: u32,
     ssao_radius: f32, ssao_bias: f32, ssao_intensity: f32, ssao_sample_count: u32,
     ssao_enabled: u32, taa_enabled: u32, taa_history_blend: f32, taa_clamp_strength: f32,
-    grade_enabled: u32, grade_contrast: f32, grade_saturation: f32, grade_pad0: f32,
-    grade_filter_r: f32, grade_filter_g: f32, grade_filter_b: f32, grade_pad1: f32,
+    grade_enabled: u32, grade_contrast: f32, grade_saturation: f32, grade_lut_contribution: f32,
+    grade_filter_r: f32, grade_filter_g: f32, grade_filter_b: f32, grade_lut_size: u32,
 }
 @group(0) @binding(0) var hdr_tex: texture_2d<f32>;
 @group(0) @binding(1) var tex_sampler: sampler;
@@ -1002,8 +1002,8 @@ struct PostProcessConfig {
     bloom_enabled: u32, tonemap_mode: u32, tonemap_exposure: f32, tonemap_enabled: u32,
     ssao_radius: f32, ssao_bias: f32, ssao_intensity: f32, ssao_sample_count: u32,
     ssao_enabled: u32, taa_enabled: u32, taa_history_blend: f32, taa_clamp_strength: f32,
-    grade_enabled: u32, grade_contrast: f32, grade_saturation: f32, grade_pad0: f32,
-    grade_filter_r: f32, grade_filter_g: f32, grade_filter_b: f32, grade_pad1: f32,
+    grade_enabled: u32, grade_contrast: f32, grade_saturation: f32, grade_lut_contribution: f32,
+    grade_filter_r: f32, grade_filter_g: f32, grade_filter_b: f32, grade_lut_size: u32,
 }
 struct SsaoCamera {
     proj: mat4x4<f32>,
@@ -1095,8 +1095,8 @@ struct PostProcessConfig {
     bloom_enabled: u32, tonemap_mode: u32, tonemap_exposure: f32, tonemap_enabled: u32,
     ssao_radius: f32, ssao_bias: f32, ssao_intensity: f32, ssao_sample_count: u32,
     ssao_enabled: u32, taa_enabled: u32, taa_history_blend: f32, taa_clamp_strength: f32,
-    grade_enabled: u32, grade_contrast: f32, grade_saturation: f32, grade_pad0: f32,
-    grade_filter_r: f32, grade_filter_g: f32, grade_filter_b: f32, grade_pad1: f32,
+    grade_enabled: u32, grade_contrast: f32, grade_saturation: f32, grade_lut_contribution: f32,
+    grade_filter_r: f32, grade_filter_g: f32, grade_filter_b: f32, grade_lut_size: u32,
 }
 @group(0) @binding(0) var hdr_tex: texture_2d<f32>;
 @group(0) @binding(1) var hdr_sampler: sampler;
@@ -1105,6 +1105,11 @@ struct PostProcessConfig {
 @group(2) @binding(0) var ao_tex: texture_2d<f32>;
 @group(2) @binding(1) var ao_sampler: sampler;
 @group(3) @binding(0) var<uniform> config: PostProcessConfig;
+// The colour LUT strip, and the sampler it is read through (linear, clamped).
+// Only this pass declares them: its group 3 has its own layout, the config
+// buffer plus these two, so no other pass's bindings move.
+@group(3) @binding(1) var lut_tex: texture_2d<f32>;
+@group(3) @binding(2) var lut_sampler: sampler;
 
 @vertex
 fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> FullscreenOut {
@@ -1116,6 +1121,27 @@ fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> FullscreenOut {
     out.pos = vec4<f32>(p.x, p.y, 0.0, 1.0);
     out.uv = vec2<f32>(p.x * 0.5 + 0.5, -p.y * 0.5 + 0.5);
     return out;
+}
+
+// The LUT's output for display-space colour `c`: the strip's `n` slices are
+// `n` x `n` each, laid side by side -- red across a slice, green down it,
+// blue from slice to slice (Unreal's layout). Texel centres are at
+// `(i + 0.5) / n`, so each coordinate is scaled by `n - 1` and offset by half
+// a texel; bilinear filtering then interpolates red and green within a
+// slice, and the two nearest slices are blended on blue by hand, since
+// hardware filtering must not bleed across a slice boundary.
+fn sample_lut(c0: vec3<f32>) -> vec3<f32> {
+    let c = clamp(c0, vec3<f32>(0.0), vec3<f32>(1.0));
+    let n = f32(config.grade_lut_size);
+    let b = c.b * (n - 1.0);
+    let s0 = floor(b);
+    let s1 = min(s0 + 1.0, n - 1.0);
+    let x = c.r * (n - 1.0) + 0.5;
+    let y = (c.g * (n - 1.0) + 0.5) / n;
+    let w = n * n;
+    let lo = textureSampleLevel(lut_tex, lut_sampler, vec2<f32>((s0 * n + x) / w, y), 0.0).rgb;
+    let hi = textureSampleLevel(lut_tex, lut_sampler, vec2<f32>((s1 * n + x) / w, y), 0.0).rgb;
+    return mix(lo, hi, b - s0);
 }
 
 fn aces(x: vec3<f32>) -> vec3<f32> {
@@ -1167,6 +1193,11 @@ fn apply_grading(linear: vec3<f32>) -> vec3<f32> {
     c = c * vec3<f32>(config.grade_filter_r, config.grade_filter_g, config.grade_filter_b);
     let luma = dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
     c = mix(vec3<f32>(luma), c, config.grade_saturation);
+    // The LUT last, as Unity's Color Lookup comes after its adjustments, and
+    // in the same display space: its texels are display colours.
+    if config.grade_lut_size > 1u {
+        c = mix(c, sample_lut(c), config.grade_lut_contribution);
+    }
     return srgb_to_linear(clamp(c, vec3<f32>(0.0), vec3<f32>(1.0)));
 }
 
@@ -1223,8 +1254,8 @@ struct PostProcessConfig {
     bloom_enabled: u32, tonemap_mode: u32, tonemap_exposure: f32, tonemap_enabled: u32,
     ssao_radius: f32, ssao_bias: f32, ssao_intensity: f32, ssao_sample_count: u32,
     ssao_enabled: u32, taa_enabled: u32, taa_history_blend: f32, taa_clamp_strength: f32,
-    grade_enabled: u32, grade_contrast: f32, grade_saturation: f32, grade_pad0: f32,
-    grade_filter_r: f32, grade_filter_g: f32, grade_filter_b: f32, grade_pad1: f32,
+    grade_enabled: u32, grade_contrast: f32, grade_saturation: f32, grade_lut_contribution: f32,
+    grade_filter_r: f32, grade_filter_g: f32, grade_filter_b: f32, grade_lut_size: u32,
 }
 struct TaaCamera {
     inv_view_proj: mat4x4<f32>,
@@ -1389,16 +1420,51 @@ pub struct PostProcessConfigGpu {
     pub grade_contrast: f32,
     /// See `ColorGrading::saturation`.
     pub grade_saturation: f32,
-    /// Keeps the filter on a 16-byte row, as the WGSL struct lays it out.
-    pub grade_pad0: f32,
+    /// See `ColorGrading::lut_contribution`.
+    pub grade_lut_contribution: f32,
     /// `ColorGrading::color_filter`, red.
     pub grade_filter_r: f32,
     /// Green.
     pub grade_filter_g: f32,
     /// Blue.
     pub grade_filter_b: f32,
-    /// Pads the struct to a whole 16-byte row.
-    pub grade_pad1: f32,
+    /// Slices in the bound LUT strip (its height), or 0 when none is bound
+    /// -- which is what skips the lookup. Set from what the post pass
+    /// actually holds, never from the component, so a LUT that failed to
+    /// load cannot be sampled as if it had.
+    pub grade_lut_size: u32,
+}
+
+/// Format of the post pass's own LUT copy: the linear (non-sRGB) twin of
+/// the `Rgba8UnormSrgb` images are stored as. See `PostProcessState::set_lut`.
+const LUT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+
+/// The composite pass's group 3: config buffer, LUT, LUT sampler.
+fn make_composite_config_bg(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    config_buffer: &wgpu::Buffer,
+    lut_view: &wgpu::TextureView,
+    sampler: &wgpu::Sampler,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("pp composite config bg"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: config_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(lut_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+        ],
+    })
 }
 
 /// GPU-uniform-buffer layout for the camera matrices the SSAO pass needs to
@@ -1637,6 +1703,14 @@ pub struct PostProcessState {
     sampler: wgpu::Sampler,
     config_buffer: wgpu::Buffer,
     config_bg: wgpu::BindGroup,
+    /// The composite pass's group 3 (see where it is built) and its layout,
+    /// kept to rebuild the group when the LUT changes.
+    composite_config_bgl: wgpu::BindGroupLayout,
+    composite_config_bg: wgpu::BindGroup,
+    _neutral_lut: crate::profiler::TrackedTexture,
+    neutral_lut_view: wgpu::TextureView,
+    /// The bound LUT strip and its slice count, or `None`.
+    lut: Option<(crate::profiler::TrackedTexture, u32)>,
     ssao_cam_buffer: wgpu::Buffer,
     ssao_cam_bg: wgpu::BindGroup,
     taa_cam_buffer: wgpu::Buffer,
@@ -1875,6 +1949,70 @@ impl PostProcessState {
                 resource: config_buffer.as_entire_binding(),
             }],
         });
+
+        // The composite pass's group 3: the shared config buffer, plus the
+        // colour LUT and its sampler, which only that pass reads. Its own
+        // layout so that the LUT can be swapped without touching the bloom,
+        // SSAO and TAA passes that bind the plain config group.
+        let composite_config_bgl =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("pp composite config bgl"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: wgpu::BufferSize::new(CONFIG_SIZE),
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
+        // Bound whenever no LUT is: a bind group cannot leave a slot empty.
+        // `grade_lut_size` is 0 then, so the shader never reads it.
+        let neutral_lut = crate::profiler::create_tracked_texture(
+            device,
+            &wgpu::TextureDescriptor {
+                label: Some("pp neutral lut"),
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: LUT_FORMAT,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+        );
+        let neutral_lut_view = neutral_lut.create_view(&wgpu::TextureViewDescriptor::default());
+        let composite_config_bg = make_composite_config_bg(
+            device,
+            &composite_config_bgl,
+            &config_buffer,
+            &neutral_lut_view,
+            &sampler,
+        );
 
         let ssao_cam_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("pp ssao cam buffer"),
@@ -2275,8 +2413,12 @@ impl PostProcessState {
         });
         let ssr_pipeline = Self::make_ssr_pipeline(device, &tex2d_bgl, &depth_bgl, &ssr_cam_bgl);
         let ssr_composite_pipeline = Self::make_ssr_composite_pipeline(device, &tex2d_bgl);
-        let composite_pipeline =
-            Self::make_composite_pipeline(device, &tex2d_bgl, &config_bgl, surface_format);
+        let composite_pipeline = Self::make_composite_pipeline(
+            device,
+            &tex2d_bgl,
+            &composite_config_bgl,
+            surface_format,
+        );
         let taa_pipeline = Self::make_taa_pipeline(
             device,
             &tex2d_bgl,
@@ -2327,6 +2469,11 @@ impl PostProcessState {
             sampler,
             config_buffer,
             config_bg,
+            composite_config_bgl,
+            composite_config_bg,
+            _neutral_lut: neutral_lut,
+            neutral_lut_view,
+            lut: None,
             ssao_cam_buffer,
             ssao_cam_bg,
             taa_cam_buffer,
@@ -2946,6 +3093,109 @@ impl PostProcessState {
         queue.write_buffer(&self.config_buffer, 0, bytemuck::cast_slice(&[config]));
     }
 
+    /// Slices in the bound colour LUT, or 0 for none.
+    pub fn lut_size(&self) -> u32 {
+        self.lut.as_ref().map(|(_, n)| *n).unwrap_or(0)
+    }
+
+    /// Binds `source` as the colour LUT, copying its first mip into a texture
+    /// of the post pass's own; `None` unbinds it.
+    ///
+    /// The copy keeps the source's format and is *read* through a
+    /// [`LUT_FORMAT`] view, the linear reading of the same bytes: a strip is
+    /// stored as an sRGB image, and sampling it through an sRGB view would
+    /// decode its texels to linear, while the grade reads them as the
+    /// display values they are. Not a copy *into* the linear format: wgpu
+    /// allows copies that differ only in sRGB-ness, but Metal's left the
+    /// destination empty.
+    ///
+    /// Refused, leaving the previous LUT bound, for a source that is not a
+    /// strip (width = height squared, at least 2 slices) or not 8-bit RGBA --
+    /// a block-compressed texture cannot be copied into an uncompressed one,
+    /// and would have lost the precision a LUT exists to hold anyway.
+    pub fn set_lut(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        source: Option<&wgpu::Texture>,
+    ) -> Result<(), String> {
+        let Some(source) = source else {
+            self.lut = None;
+            self.composite_config_bg = make_composite_config_bg(
+                device,
+                &self.composite_config_bgl,
+                &self.config_buffer,
+                &self.neutral_lut_view,
+                &self.sampler,
+            );
+            return Ok(());
+        };
+        let (w, h) = (source.width(), source.height());
+        if h < 2 || w != h * h {
+            return Err(format!(
+                "a LUT must be a strip of N slices of N x N (width = height squared), got {w} x {h}"
+            ));
+        }
+        if !matches!(
+            source.format(),
+            wgpu::TextureFormat::Rgba8UnormSrgb | wgpu::TextureFormat::Rgba8Unorm
+        ) {
+            return Err(format!(
+                "a LUT must be uncompressed 8-bit RGBA, got {:?}",
+                source.format()
+            ));
+        }
+        let texture = crate::profiler::create_tracked_texture(
+            device,
+            &wgpu::TextureDescriptor {
+                label: Some("pp colour lut"),
+                size: wgpu::Extent3d {
+                    width: w,
+                    height: h,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                // The source's own format, so the copy is between identical
+                // formats: Metal's blit copy between an sRGB and a linear
+                // format left the destination empty (the LUT read black on
+                // macOS CI while Vulkan and D3D12 copied the bytes).
+                format: source.format(),
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                // ... and the linear reading comes from a *view* instead:
+                // WebGPU's sanctioned way to reinterpret sRGB-ness.
+                view_formats: &[LUT_FORMAT],
+            },
+        );
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("pp lut copy"),
+        });
+        encoder.copy_texture_to_texture(
+            source.as_image_copy(),
+            texture.as_image_copy(),
+            wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+        );
+        queue.submit(std::iter::once(encoder.finish()));
+        let view = texture.create_view(&wgpu::TextureViewDescriptor {
+            format: Some(LUT_FORMAT),
+            ..Default::default()
+        });
+        self.composite_config_bg = make_composite_config_bg(
+            device,
+            &self.composite_config_bgl,
+            &self.config_buffer,
+            &view,
+            &self.sampler,
+        );
+        self.lut = Some((texture, h));
+        Ok(())
+    }
+
     /// Uploads what the reflection pass needs. Intensity zero switches it off.
     pub fn update_ssr_camera(&mut self, queue: &wgpu::Queue, cam: SsrCameraGpu) {
         queue.write_buffer(&self.ssr_cam_buffer, 0, bytemuck::bytes_of(&cam));
@@ -3237,7 +3487,7 @@ impl PostProcessState {
             pass.set_bind_group(0, &self.fog_hdr_bg, &[]);
             pass.set_bind_group(1, &self.bloom_bg, &[]);
             pass.set_bind_group(2, &self.ao_bg, &[]);
-            pass.set_bind_group(3, &self.config_bg, &[]);
+            pass.set_bind_group(3, &self.composite_config_bg, &[]);
             pass.draw(0..3, 0..1);
             draw_calls += 1;
             triangles += 1;

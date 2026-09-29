@@ -18,6 +18,8 @@ pub mod animation_state_machine;
 pub mod bloom;
 /// Perspective camera component and projection math.
 pub mod camera;
+/// Colour grading (contrast, saturation, colour filter) after tonemapping.
+pub mod color_grading;
 /// Cursor visibility/lock configuration resource.
 pub mod cursor_config;
 /// Current cursor position resource, in window space.
@@ -141,6 +143,7 @@ pub use animation_state_machine::{
 };
 pub use bloom::Bloom;
 pub use camera::Camera;
+pub use color_grading::ColorGrading;
 pub use cursor_config::CursorConfig;
 pub use cursor_pos::CursorPos;
 pub use custom_shader::CustomShader;

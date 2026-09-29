@@ -244,6 +244,9 @@ pub struct Scene {
     /// exactly what an absent component means on a real camera, and what every
     /// other test file in this directory leaves it as.
     pub fog: Option<bsengine_core::VolumetricFog>,
+    /// Colour grading for this camera, or `None` for none -- what an
+    /// absent component means on a real camera.
+    pub color_grading: Option<bsengine_core::ColorGrading>,
     pub hud: HashMap<String, String>,
     pub with_skybox: bool,
     /// Particle batches for the pass that runs after transparency.
@@ -270,6 +273,7 @@ impl Default for Scene {
             light_probes: None,
             reflection_probes: Vec::new(),
             fog: None,
+            color_grading: None,
             hud: HashMap::new(),
             with_skybox: false,
             particles: Vec::new(),
@@ -800,6 +804,9 @@ struct VertOut {{
                 // exact passthrough and every scene that does not ask for fog
                 // renders as it did before the froxel volumes existed.
                 scene.fog,
+                // `None` leaves `grade_enabled` at 0: the tonemapped colour
+                // passes through, as in every scene before grading existed.
+                scene.color_grading,
             )
             .expect("render_frame failed");
 

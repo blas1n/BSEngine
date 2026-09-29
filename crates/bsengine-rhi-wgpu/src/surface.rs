@@ -2521,6 +2521,8 @@ pub struct WgpuSurface {
     /// The probes [`Self::reflection_cubes`] currently holds, in slot order.
     /// Compared against each frame's list exactly as `baked_probe_volume` is.
     captured_reflection_probes: Vec<ReflectionProbeParams>,
+    /// See [`Self::last_color_grading`].
+    last_color_grading: Option<bsengine_core::ColorGrading>,
     /// Layout of the skybox's texture+sampler group. Held here rather than
     /// built inside `set_skybox_from_rgba` because `probe_capture_sky_pipeline`
     /// is built once at construction and has to bind `SkyboxState::texture_bg`
@@ -2773,6 +2775,14 @@ impl WgpuSurface {
     /// has run, and always empty under `fast_render`, which never captures.
     pub fn reflection_probes_captured(&self) -> &[ReflectionProbeParams] {
         &self.captured_reflection_probes
+    }
+
+    /// The `ColorGrading` the last frame was rendered with, as
+    /// [`Self::render_frame`] received it. What the post pass did with it is
+    /// the pixel tests' business; this is how a caller checks that the
+    /// camera's component reached the renderer at all.
+    pub fn last_color_grading(&self) -> Option<bsengine_core::ColorGrading> {
+        self.last_color_grading
     }
 
     /// Whether the shadow passes batch objects sharing a mesh into one
@@ -4442,6 +4452,7 @@ impl WgpuSurface {
             reflection_capture_depth_view,
             reflection_capture_pipeline,
             captured_reflection_probes: Vec::new(),
+            last_color_grading: None,
             sky_tex_bgl,
             egui_ctx,
             egui_renderer,
@@ -5615,6 +5626,7 @@ impl WgpuSurface {
         light_probes: Option<ProbeVolumeParams>,
         reflection_probes: &[ReflectionProbeParams],
         fog: Option<bsengine_core::VolumetricFog>,
+        color_grading: Option<bsengine_core::ColorGrading>,
     ) -> Result<std::collections::HashSet<String>, String> {
         // Wall-clock CPU time for this call, for `FrameStats::cpu_frame_time_ms`.
         let frame_start = std::time::Instant::now();
@@ -5864,6 +5876,9 @@ impl WgpuSurface {
             let b = bloom.unwrap_or_default();
             let tm = tone_map.unwrap_or_default();
             let ao = ambient_occlusion.unwrap_or_default();
+            let grade = color_grading;
+            self.last_color_grading = color_grading;
+            let grade_filter = grade.map(|g| *g.color_filter).unwrap_or(Vec3::ONE);
             let tonemap_mode = match tm.mode {
                 bsengine_core::ToneMappingMode::None => 0u32,
                 bsengine_core::ToneMappingMode::Reinhard => 1,
@@ -5892,6 +5907,16 @@ impl WgpuSurface {
                 taa_enabled: taa.map(|t| t.enabled).unwrap_or(false) as u32,
                 taa_history_blend: taa.map(|t| t.history_blend).unwrap_or(0.0),
                 taa_clamp_strength: taa.map(|t| t.clamp_strength).unwrap_or(0.0),
+                // Absent means off, like TAA and unlike bloom: a camera with
+                // no `ColorGrading` must keep its tonemapped colour exactly.
+                grade_enabled: grade.map(|g| g.enabled).unwrap_or(false) as u32,
+                grade_contrast: grade.map(|g| g.contrast).unwrap_or(1.0),
+                grade_saturation: grade.map(|g| g.saturation).unwrap_or(1.0),
+                grade_pad0: 0.0,
+                grade_filter_r: grade_filter.x,
+                grade_filter_g: grade_filter.y,
+                grade_filter_b: grade_filter.z,
+                grade_pad1: 0.0,
             };
             self.post_process.update_config(&self.queue, pp_config);
             let inv_proj = cam_proj.inverse();
@@ -8918,6 +8943,7 @@ mod tests {
                 Mat4::IDENTITY,
                 volume,
                 &[],
+                None,
                 None,
             )
         }

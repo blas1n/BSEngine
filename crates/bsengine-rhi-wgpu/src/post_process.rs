@@ -10,7 +10,7 @@ const BLOOM_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 /// channel, which is why this is four components and not two.
 pub const NORMAL_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 const AO_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
-const CONFIG_SIZE: u64 = 64;
+const CONFIG_SIZE: u64 = 96;
 const SSAO_CAM_SIZE: u64 = 128;
 const TAA_CAM_SIZE: u64 = 128;
 
@@ -741,6 +741,8 @@ struct PostProcessConfig {
     bloom_enabled: u32, tonemap_mode: u32, tonemap_exposure: f32, tonemap_enabled: u32,
     ssao_radius: f32, ssao_bias: f32, ssao_intensity: f32, ssao_sample_count: u32,
     ssao_enabled: u32, taa_enabled: u32, taa_history_blend: f32, taa_clamp_strength: f32,
+    grade_enabled: u32, grade_contrast: f32, grade_saturation: f32, grade_pad0: f32,
+    grade_filter_r: f32, grade_filter_g: f32, grade_filter_b: f32, grade_pad1: f32,
 }
 @group(0) @binding(0) var hdr_tex: texture_2d<f32>;
 @group(0) @binding(1) var tex_sampler: sampler;
@@ -1000,6 +1002,8 @@ struct PostProcessConfig {
     bloom_enabled: u32, tonemap_mode: u32, tonemap_exposure: f32, tonemap_enabled: u32,
     ssao_radius: f32, ssao_bias: f32, ssao_intensity: f32, ssao_sample_count: u32,
     ssao_enabled: u32, taa_enabled: u32, taa_history_blend: f32, taa_clamp_strength: f32,
+    grade_enabled: u32, grade_contrast: f32, grade_saturation: f32, grade_pad0: f32,
+    grade_filter_r: f32, grade_filter_g: f32, grade_filter_b: f32, grade_pad1: f32,
 }
 struct SsaoCamera {
     proj: mat4x4<f32>,
@@ -1091,6 +1095,8 @@ struct PostProcessConfig {
     bloom_enabled: u32, tonemap_mode: u32, tonemap_exposure: f32, tonemap_enabled: u32,
     ssao_radius: f32, ssao_bias: f32, ssao_intensity: f32, ssao_sample_count: u32,
     ssao_enabled: u32, taa_enabled: u32, taa_history_blend: f32, taa_clamp_strength: f32,
+    grade_enabled: u32, grade_contrast: f32, grade_saturation: f32, grade_pad0: f32,
+    grade_filter_r: f32, grade_filter_g: f32, grade_filter_b: f32, grade_pad1: f32,
 }
 @group(0) @binding(0) var hdr_tex: texture_2d<f32>;
 @group(0) @binding(1) var hdr_sampler: sampler;
@@ -1129,6 +1135,41 @@ fn filmic(x: vec3<f32>) -> vec3<f32> {
     return (tmp * (6.2 * tmp + vec3<f32>(0.5))) / (tmp * (6.2 * tmp + vec3<f32>(1.7)) + vec3<f32>(0.06));
 }
 
+// The exact sRGB transfer functions (IEC 61966-2-1), not a 2.2 power: the
+// grade's pivot (display 0.5) and luma are defined on the values the screen
+// shows, and a 2.2 curve puts those values somewhere else -- visibly so in
+// the darks, where the two curves differ most.
+fn linear_to_srgb(c: vec3<f32>) -> vec3<f32> {
+    let lo = c * 12.92;
+    let hi = 1.055 * pow(max(c, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.4)) - 0.055;
+    return select(hi, lo, c <= vec3<f32>(0.0031308));
+}
+fn srgb_to_linear(c: vec3<f32>) -> vec3<f32> {
+    let lo = c / 12.92;
+    let hi = pow((max(c, vec3<f32>(0.0)) + 0.055) / 1.055, vec3<f32>(2.4));
+    return select(hi, lo, c <= vec3<f32>(0.04045));
+}
+
+// `ColorGrading`, in display space after the tonemap: contrast about
+// mid-grey, then the colour filter, then saturation about Rec. 709 luma --
+// Unity's order, Godot's formulas.
+//
+// "Display space" is sRGB-encoded, the space Godot grades in (after its
+// `linear_to_srgb`) and the one a LUT is authored in. This pass's output is
+// still *linear* -- the sRGB render target encodes it on write -- so the
+// colour is encoded, graded and decoded again here. Grading the linear value
+// directly would pivot contrast on linear 0.5, which displays as 188/255:
+// "mid-grey" would be nowhere near the middle of the screen's range.
+// Clamped, because contrast above 1 pushes past both ends.
+fn apply_grading(linear: vec3<f32>) -> vec3<f32> {
+    var c = linear_to_srgb(clamp(linear, vec3<f32>(0.0), vec3<f32>(1.0)));
+    c = mix(vec3<f32>(0.5), c, config.grade_contrast);
+    c = c * vec3<f32>(config.grade_filter_r, config.grade_filter_g, config.grade_filter_b);
+    let luma = dot(c, vec3<f32>(0.2126, 0.7152, 0.0722));
+    c = mix(vec3<f32>(luma), c, config.grade_saturation);
+    return srgb_to_linear(clamp(c, vec3<f32>(0.0), vec3<f32>(1.0)));
+}
+
 fn apply_tonemap(color: vec3<f32>) -> vec3<f32> {
     let scaled = color * pow(2.0, config.tonemap_exposure);
     if config.tonemap_enabled == 0u { return clamp(scaled, vec3<f32>(0.0), vec3<f32>(1.0)); }
@@ -1145,7 +1186,14 @@ fn fs_composite(in: FullscreenOut) -> @location(0) vec4<f32> {
     let bloom = textureSample(bloom_tex, bloom_sampler, in.uv).rgb;
     let ao    = textureSample(ao_tex,    ao_sampler,    in.uv).r;
     let combined = hdr * ao + bloom;
-    return vec4<f32>(apply_tonemap(combined), 1.0);
+    // Graded only when a camera asked for it: with no `ColorGrading` the
+    // branch is skipped on a uniform, and the frame is the tonemapped colour
+    // exactly as before grading existed.
+    var ldr = apply_tonemap(combined);
+    if config.grade_enabled != 0u {
+        ldr = apply_grading(ldr);
+    }
+    return vec4<f32>(ldr, 1.0);
 }
 "#;
 
@@ -1175,6 +1223,8 @@ struct PostProcessConfig {
     bloom_enabled: u32, tonemap_mode: u32, tonemap_exposure: f32, tonemap_enabled: u32,
     ssao_radius: f32, ssao_bias: f32, ssao_intensity: f32, ssao_sample_count: u32,
     ssao_enabled: u32, taa_enabled: u32, taa_history_blend: f32, taa_clamp_strength: f32,
+    grade_enabled: u32, grade_contrast: f32, grade_saturation: f32, grade_pad0: f32,
+    grade_filter_r: f32, grade_filter_g: f32, grade_filter_b: f32, grade_pad1: f32,
 }
 struct TaaCamera {
     inv_view_proj: mat4x4<f32>,
@@ -1332,6 +1382,23 @@ pub struct PostProcessConfigGpu {
     pub taa_history_blend: f32,
     /// See `Taa::clamp_strength`.
     pub taa_clamp_strength: f32,
+    /// Nonzero to apply `ColorGrading` after the tonemap; zero leaves the
+    /// tonemapped colour exactly as it was.
+    pub grade_enabled: u32,
+    /// See `ColorGrading::contrast`.
+    pub grade_contrast: f32,
+    /// See `ColorGrading::saturation`.
+    pub grade_saturation: f32,
+    /// Keeps the filter on a 16-byte row, as the WGSL struct lays it out.
+    pub grade_pad0: f32,
+    /// `ColorGrading::color_filter`, red.
+    pub grade_filter_r: f32,
+    /// Green.
+    pub grade_filter_g: f32,
+    /// Blue.
+    pub grade_filter_b: f32,
+    /// Pads the struct to a whole 16-byte row.
+    pub grade_pad1: f32,
 }
 
 /// GPU-uniform-buffer layout for the camera matrices the SSAO pass needs to
@@ -3234,9 +3301,41 @@ mod tests {
     use super::*;
     use crate::surface::WgpuSurface;
 
+    /// Four shaders declare `PostProcessConfig` by hand and all four read the
+    /// one buffer, so they must declare it identically. A field added to
+    /// some of them -- as the grade fields were, to all four at once -- would
+    /// shift every later field in the others and misread them silently.
+    #[test]
+    fn every_shader_declares_the_same_post_process_config() {
+        let decl = |src: &str| -> String {
+            let start = src
+                .find("struct PostProcessConfig {")
+                .expect("declares PostProcessConfig");
+            let end = start + src[start..].find('}').unwrap();
+            src[start..=end].to_string()
+        };
+        let reference = decl(COMPOSITE_WGSL);
+        assert!(
+            reference.contains("grade_filter_b: f32"),
+            "premise: the reference declaration carries the grade fields"
+        );
+        for (name, src) in [
+            ("BLOOM_WGSL", BLOOM_WGSL),
+            ("SSAO_WGSL", SSAO_WGSL),
+            ("TAA_WGSL", TAA_WGSL),
+        ] {
+            assert_eq!(
+                decl(src),
+                reference,
+                "{name} declares a different PostProcessConfig"
+            );
+        }
+    }
+
     #[test]
     fn config_gpu_size() {
-        assert_eq!(std::mem::size_of::<PostProcessConfigGpu>(), 64);
+        assert_eq!(std::mem::size_of::<PostProcessConfigGpu>(), 96);
+        assert_eq!(CONFIG_SIZE, 96);
     }
 
     #[test]

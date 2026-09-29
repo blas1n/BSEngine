@@ -52,6 +52,8 @@ core ← ecs ← app ← window / input
 - Reflection probes (`ReflectionProbe`): a cubemap captured once where the probe
   stands, prefiltered like the sky, optionally box-projected; where boxes nest,
   the smallest wins (no blending)
+- Colour grading (`ColorGrading` on the camera): contrast, saturation and a
+  colour filter, applied after tonemapping in display (sRGB) space
 
 ### Scene (bsengine-scene)
 - Entity spawn/despawn with named entities

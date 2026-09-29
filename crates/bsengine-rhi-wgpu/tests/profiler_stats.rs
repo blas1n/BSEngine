@@ -53,16 +53,34 @@ fn rendering_populates_cpu_timing_and_nonzero_texture_stats() {
     assert!(stats.texture_memory_bytes > 0);
 }
 
+/// GPU pass timings are read a few frames late -- the readback no longer
+/// stalls the CPU on the frame it was written -- so a frame's stats carry
+/// the newest timings the GPU has finished, from up to the ring's length of
+/// frames ago. Within a handful of frames they must be there.
 #[test]
 fn gpu_pass_times_are_consistent_with_gpu_timestamps_supported() {
     let mut h = Harness::new();
-    h.render(&Scene::default());
-    let stats = h.frame_stats();
+    let mut stats = None;
+    for _ in 0..8 {
+        h.render(&Scene::default());
+        let s = h.frame_stats();
+        let done = !s.gpu_pass_times_ms.is_empty();
+        stats = Some(s);
+        if done {
+            break;
+        }
+    }
+    let stats = stats.unwrap();
 
     if stats.gpu_timestamps_supported {
         assert!(
             !stats.gpu_pass_times_ms.is_empty(),
-            "adapter reports timestamp support but no pass times were recorded"
+            "adapter reports timestamp support but no pass times arrived within 8 frames"
+        );
+        assert!(
+            stats.gpu_pass_times_ms.iter().any(|p| p.name == "main"),
+            "the timings name the frame's passes, the main pass among them: {:?}",
+            stats.gpu_pass_times_ms.iter().map(|p| &p.name).collect::<Vec<_>>()
         );
     } else {
         assert!(

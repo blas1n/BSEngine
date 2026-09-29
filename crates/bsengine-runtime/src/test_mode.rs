@@ -63,6 +63,7 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>, fast_rend
             project_dir: project_dir.to_string(),
         });
     }
+    crate::insert_input_actions(&mut app, &manifest);
     // From `project.toml`'s `[network]` table. Inserted before the plugins so
     // `NetworkPlugin`'s `init_resource` finds it already present and leaves it
     // alone -- registering it afterwards would overwrite the project's settings
@@ -1872,6 +1873,133 @@ mod tests {
             input.just_released(&KeyCode::W),
             "W should be just_released on the exact frame after ReleaseKey"
         );
+    }
+
+    /// A project that declares `[input.actions]` and one scripted entity
+    /// whose script writes what it reads into a HUD text, `x,y,z`: x counts
+    /// `isActionDown("jump")` edges, y is `getAxis("left", "right")`, z is
+    /// `isActionPressed("jump")` as 1, or -1 when not held. (A HUD text, not
+    /// the entity's position: a scene entity with no `transform` has no
+    /// `Transform` for `setPosition` to write.)
+    fn write_action_project(actions: &str) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join("assets/scenes")).unwrap();
+        std::fs::create_dir_all(root.join("assets/scripts")).unwrap();
+        std::fs::write(
+            root.join("project.toml"),
+            format!(
+                "[project]\nname = \"Actions\"\nentry_scene = \"assets/scenes/main.ron\"\n\n\
+                 [input.actions]\n{actions}\n"
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("assets/scenes/main.ron"),
+            r#"SceneDescriptor(entities: [EntityDescriptor(name: "Reader", script: Some("assets/scripts/reader.js"))])"#,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("assets/scripts/reader.js"),
+            "let jumps = 0;\n\
+             function onUpdate(name) {\n\
+                 if (Bsengine.isActionDown(\"jump\")) jumps++;\n\
+                 Bsengine.setHudText(\"actions\", [jumps, Bsengine.getAxis(\"left\", \"right\"),\n\
+                     Bsengine.isActionPressed(\"jump\") ? 1 : -1].join(\",\"));\n\
+             }\n",
+        )
+        .unwrap();
+        dir
+    }
+
+    /// Input actions end to end through the app a replay runs: the bindings
+    /// come from `project.toml`, the keys from the protocol's `press_key`,
+    /// and the answers from a real script. Each step is checked against
+    /// what the *previous* step left, so a jump edge that repeats while the
+    /// key is held (x would climb) or an axis that ignores one side (y would
+    /// not change sign) fails on the step it happens.
+    #[test]
+    fn project_input_actions_reach_a_script_through_press_key() {
+        let dir = write_action_project(
+            "jump = [\"Space\", \"Gamepad:South\"]\nleft = [\"A\"]\nright = [\"D\", \"E\"]",
+        );
+        let mut app = build_test_app(dir.path().to_str().unwrap(), None, false);
+        let mut frame: u64 = 0;
+        let mut send = |app: &mut App, command: Command| {
+            let (resp, _) = execute_command(app, &mut frame, command);
+            assert!(resp.ok, "{:?}", resp.error);
+        };
+        let position = |app: &mut App| -> (f64, f64, f64) {
+            let text = app
+                .world()
+                .resource::<bsengine_core::HudTexts>()
+                .0
+                .get("actions")
+                .cloned()
+                .unwrap_or_default();
+            let v: Vec<f64> = text
+                .split(',')
+                .map(|n| n.parse().unwrap_or(f64::NAN))
+                .collect();
+            let at = |i: usize| v.get(i).copied().unwrap_or(f64::NAN);
+            (at(0), at(1), at(2))
+        };
+        let press = |key: &str| Command::PressKey {
+            key: key.to_string(),
+        };
+        let release = |key: &str| Command::ReleaseKey {
+            key: key.to_string(),
+        };
+
+        // Premise: the script is running -- the text exists only once it has.
+        for _ in 0..60 {
+            send(&mut app, Command::Step { frames: 1 });
+            if position(&mut app) == (0.0, 0.0, -1.0) {
+                break;
+            }
+        }
+        assert_eq!(
+            position(&mut app),
+            (0.0, 0.0, -1.0),
+            "the reader script never ran"
+        );
+
+        send(&mut app, press("Space"));
+        send(&mut app, Command::Step { frames: 1 });
+        assert_eq!(
+            position(&mut app),
+            (1.0, 0.0, 1.0),
+            "Space is jump: one edge, held"
+        );
+
+        send(&mut app, Command::Step { frames: 2 });
+        assert_eq!(
+            position(&mut app),
+            (1.0, 0.0, 1.0),
+            "held is not a new edge"
+        );
+
+        send(&mut app, release("Space"));
+        send(&mut app, Command::Step { frames: 1 });
+        assert_eq!(position(&mut app), (1.0, 0.0, -1.0), "released");
+
+        send(&mut app, press("E"));
+        send(&mut app, Command::Step { frames: 1 });
+        assert_eq!(position(&mut app).1, 1.0, "E is right's second binding");
+
+        send(&mut app, release("E"));
+        send(&mut app, press("A"));
+        send(&mut app, Command::Step { frames: 1 });
+        assert_eq!(position(&mut app).1, -1.0, "A is left");
+    }
+
+    /// A typo in a binding stops the game at start, naming the action and
+    /// the binding, rather than shipping a button bound to nothing.
+    #[test]
+    #[should_panic(expected = "action \"jump\": unknown key in binding \"space\"")]
+    fn a_bad_binding_in_project_toml_stops_the_app() {
+        let dir = write_action_project("jump = [\"space\"]\nleft = []\nright = []");
+        build_test_app(dir.path().to_str().unwrap(), None, false);
     }
 
     /// End-to-end walkability proof for roadmap item 44's terrain core

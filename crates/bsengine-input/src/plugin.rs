@@ -1,8 +1,9 @@
 use bevy_app::{App, Plugin, PreUpdate};
-use bevy_ecs::prelude::{EventReader, NonSendMut, ResMut, Resource};
+use bevy_ecs::prelude::{EventReader, NonSendMut, ResMut, Resource, SystemSet};
 use bsengine_ecs::IntoSystemConfigs;
 
 use crate::{
+    actions::{update_action_state, ActionState, InputActions},
     state::Input,
     types::{
         CursorMoved, ElementState, GamepadButton, GamepadSticks, KeyCode, KeyInput, MouseButton,
@@ -30,6 +31,15 @@ pub struct MouseState {
 /// Bevy plugin that wires up keyboard, mouse, and gamepad polling as `PreUpdate` systems.
 pub struct InputPlugin;
 
+/// The `PreUpdate` systems that read the devices into `Input<T>`,
+/// `MouseState` and `GamepadSticks`. Input actions are computed after this
+/// set, so an action never reads a device half-updated for the frame --
+/// the gamepad poll is not part of the chain below, and ordering against it
+/// by name would silently order against nothing on a machine with no
+/// gamepad backend, where it is never added.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct InputSystems;
+
 impl Plugin for InputPlugin {
     fn build(&self, app: &mut App) {
         app.add_event::<KeyInput>()
@@ -42,6 +52,12 @@ impl Plugin for InputPlugin {
             .insert_resource(Input::<GamepadButton>::default())
             .insert_resource(MouseState::default())
             .insert_resource(GamepadSticks::default())
+            // `init_resource`, not `insert_resource`: the runtime inserts the
+            // project's actions before adding this plugin, and an insert here
+            // would replace them with an empty set -- silently, since a game
+            // with no actions still runs.
+            .init_resource::<InputActions>()
+            .init_resource::<ActionState>()
             .add_systems(
                 PreUpdate,
                 (
@@ -51,13 +67,20 @@ impl Plugin for InputPlugin {
                     update_mouse_position_state,
                     update_scroll_state,
                 )
-                    .chain(),
-            );
+                    .chain()
+                    .in_set(InputSystems),
+            )
+            .add_systems(PreUpdate, update_action_state.after(InputSystems));
 
         match gilrs::Gilrs::new() {
             Ok(g) => {
                 app.insert_non_send_resource(GilrsResource(g));
-                app.add_systems(PreUpdate, poll_gamepad_events.after(clear_input_state));
+                app.add_systems(
+                    PreUpdate,
+                    poll_gamepad_events
+                        .after(clear_input_state)
+                        .in_set(InputSystems),
+                );
             }
             Err(e) => eprintln!("[input] gamepad not available: {e}"),
         }

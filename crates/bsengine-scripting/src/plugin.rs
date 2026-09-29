@@ -16,9 +16,10 @@ use bsengine_scene::{Name, PendingSceneLoad, ScriptPath};
 use glam::{EulerRot, Quat, Vec3};
 
 use crate::ops::{
-    render_asset_status, ScriptCommand, AMBIENT_OCCLUSION_SNAPSHOT, ANGULAR_DAMPING_SNAPSHOT,
-    ANGULAR_VELOCITY_SNAPSHOT, ANIMATION_SNAPSHOT, ASM_STATE_SNAPSHOT, ASSET_STATUS_SNAPSHOT,
-    AUDIO_PARAM_SNAPSHOT, BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, BUS_VOLUME_SNAPSHOT,
+    render_asset_status, ScriptCommand, ACTION_BINDINGS_SNAPSHOT, ACTION_SNAPSHOT,
+    AMBIENT_OCCLUSION_SNAPSHOT, ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT,
+    ANIMATION_SNAPSHOT, ASM_STATE_SNAPSHOT, ASSET_STATUS_SNAPSHOT, AUDIO_PARAM_SNAPSHOT,
+    BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, BUS_VOLUME_SNAPSHOT,
     CHARACTER_GROUNDED_SNAPSHOT, CHILDREN_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT,
     COMMAND_BUFFER, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, FOLLOW_SNAPSHOT, FRICTION_SNAPSHOT,
     GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT, GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT,
@@ -803,78 +804,10 @@ fn reexecute_modified_scripts(
     }
 }
 
-/// Canonical key-name table shared by the scripting snapshot (`Bsengine.isKeyPressed`)
-/// and the headless test runtime's `press_key`/`release_key` commands.
-///
-/// Every `KeyCode` but `Unknown` is here. It used to hold the eleven keys the
-/// first games happened to need, while the input layer produced forty more:
-/// a script asking for `"E"`, `"1"` or `"ShiftLeft"` read "not held" forever
-/// and nothing said why, and a recording could not press them either. The
-/// `every_key_code_has_a_script_name` test matches on `KeyCode` exhaustively,
-/// so a key added to the enum without a row here does not compile.
-///
-/// Digits are `"0"`–`"9"` (Unity's and Godot's spelling), modifiers keep their
-/// side (`"ShiftLeft"`) because the input layer reports them that way.
-pub const KEY_MAPPINGS: &[(KeyCode, &str)] = &[
-    (KeyCode::A, "A"),
-    (KeyCode::B, "B"),
-    (KeyCode::C, "C"),
-    (KeyCode::D, "D"),
-    (KeyCode::E, "E"),
-    (KeyCode::F, "F"),
-    (KeyCode::G, "G"),
-    (KeyCode::H, "H"),
-    (KeyCode::I, "I"),
-    (KeyCode::J, "J"),
-    (KeyCode::K, "K"),
-    (KeyCode::L, "L"),
-    (KeyCode::M, "M"),
-    (KeyCode::N, "N"),
-    (KeyCode::O, "O"),
-    (KeyCode::P, "P"),
-    (KeyCode::Q, "Q"),
-    (KeyCode::R, "R"),
-    (KeyCode::S, "S"),
-    (KeyCode::T, "T"),
-    (KeyCode::U, "U"),
-    (KeyCode::V, "V"),
-    (KeyCode::W, "W"),
-    (KeyCode::X, "X"),
-    (KeyCode::Y, "Y"),
-    (KeyCode::Z, "Z"),
-    (KeyCode::Key0, "0"),
-    (KeyCode::Key1, "1"),
-    (KeyCode::Key2, "2"),
-    (KeyCode::Key3, "3"),
-    (KeyCode::Key4, "4"),
-    (KeyCode::Key5, "5"),
-    (KeyCode::Key6, "6"),
-    (KeyCode::Key7, "7"),
-    (KeyCode::Key8, "8"),
-    (KeyCode::Key9, "9"),
-    (KeyCode::Space, "Space"),
-    (KeyCode::Enter, "Enter"),
-    (KeyCode::Escape, "Escape"),
-    (KeyCode::Backspace, "Backspace"),
-    (KeyCode::Tab, "Tab"),
-    (KeyCode::Delete, "Delete"),
-    (KeyCode::Home, "Home"),
-    (KeyCode::End, "End"),
-    (KeyCode::Up, "Up"),
-    (KeyCode::Down, "Down"),
-    (KeyCode::Left, "Left"),
-    (KeyCode::Right, "Right"),
-    (KeyCode::Minus, "Minus"),
-    (KeyCode::Equals, "Equals"),
-    (KeyCode::Period, "Period"),
-    (KeyCode::Comma, "Comma"),
-    (KeyCode::ShiftLeft, "ShiftLeft"),
-    (KeyCode::ShiftRight, "ShiftRight"),
-    (KeyCode::ControlLeft, "ControlLeft"),
-    (KeyCode::ControlRight, "ControlRight"),
-    (KeyCode::AltLeft, "AltLeft"),
-    (KeyCode::AltRight, "AltRight"),
-];
+/// Re-exported under the name this crate and the headless runtime have always
+/// used; the table itself lives with `KeyCode` so input bindings can parse the
+/// same names.
+pub use bsengine_input::KEY_NAMES as KEY_MAPPINGS;
 
 /// The entities behind two names, found in one pass.
 ///
@@ -2727,6 +2660,18 @@ fn run_scripts(world: &mut World) {
                     }
                 }
             }
+            ScriptCommand::SetActionBindings { action, bindings } => {
+                let parsed: Vec<bsengine_input::Binding> = bindings
+                    .iter()
+                    .filter_map(|text| bsengine_input::Binding::parse(text).ok())
+                    .collect();
+                if let Some(mut actions) = world.get_resource_mut::<bsengine_input::InputActions>()
+                {
+                    if let Err(e) = actions.set_bindings(&action, parsed) {
+                        tracing::error!("[scripting] setActionBindings: {e}");
+                    }
+                }
+            }
             ScriptCommand::SetSkybox { path } => {
                 let full_path = resolve_project_path(world.get_resource::<ProjectDir>(), &path);
                 world.insert_resource(SkyboxPath(Some(full_path)));
@@ -3857,6 +3802,32 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
     GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT.with(|s| *s.borrow_mut() = gpad_just_pressed);
     GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT.with(|s| *s.borrow_mut() = gpad_just_released);
     GAMEPAD_STICKS_SNAPSHOT.with(|s| *s.borrow_mut() = gamepad_sticks);
+    // Input actions: this frame's reading of each, and each one's bindings as
+    // strings. The bindings answer `getActionBindings` and let an entity a
+    // remote peer drives be read from that peer's keys.
+    let action_values: HashMap<String, bsengine_input::ActionValue> = world
+        .get_resource::<bsengine_input::ActionState>()
+        .map(|state| state.iter().map(|(n, v)| (n.to_string(), *v)).collect())
+        .unwrap_or_default();
+    let action_bindings: std::collections::BTreeMap<String, Vec<String>> = world
+        .get_resource::<bsengine_input::InputActions>()
+        .map(|actions| {
+            actions
+                .names()
+                .map(|name| {
+                    let texts = actions
+                        .bindings(name)
+                        .unwrap_or_default()
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect();
+                    (name.to_string(), texts)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    ACTION_SNAPSHOT.with(|s| *s.borrow_mut() = action_values);
+    ACTION_BINDINGS_SNAPSHOT.with(|s| *s.borrow_mut() = action_bindings);
     {
         use kira::sound::PlaybackState;
         let mut states = std::collections::HashMap::new();
@@ -7310,5 +7281,84 @@ mod tests {
              bits are the keys in this order: {names:?}",
             position.x as u32, expected
         );
+    }
+
+    /// A rebinding made from a script reaches the engine's `InputActions`
+    /// and changes what the action reads from then on: after
+    /// `setActionBindings("jump", ["J"])` Space no longer jumps and J does.
+    /// Read back through the script (x = `isActionPressed("jump")`), with the
+    /// resource itself checked too -- a rebinding that only updated the
+    /// script-side snapshot would pass the read-back and fail here.
+    #[test]
+    fn a_script_rebinding_changes_what_the_action_reads() {
+        use bsengine_input::{ElementState, InputActions, InputPlugin, KeyCode, KeyInput};
+        let script_path =
+            std::env::temp_dir().join(format!("bsengine_test_rebind_{}.js", std::process::id()));
+        std::fs::write(
+            &script_path,
+            "let rebound = false;\n\
+             function onUpdate(name) {\n\
+                 if (!rebound) { Bsengine.setActionBindings(\"jump\", [\"J\"]); rebound = true; }\n\
+                 Bsengine.setPosition(name, Bsengine.isActionPressed(\"jump\") ? 1 : 0, 1, 0);\n\
+             }",
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        let actions = [("jump".to_string(), vec!["Space".to_string()])]
+            .into_iter()
+            .collect();
+        app.insert_resource(InputActions::from_config(&actions, 0.2).unwrap());
+        app.add_plugins(InputPlugin);
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: String::new(),
+        });
+        let entity = app
+            .world_mut()
+            .spawn((
+                Name("Jumper".to_string()),
+                ScriptPath(script_path.to_string_lossy().to_string()),
+                Transform::default(),
+            ))
+            .id();
+        let x = |app: &bevy_app::App| app.world().get::<Transform>(entity).unwrap().position.x;
+        let key = |app: &mut bevy_app::App, code, state| {
+            app.world_mut()
+                .resource_mut::<bevy_ecs::event::Events<KeyInput>>()
+                .send(KeyInput {
+                    key_code: code,
+                    state,
+                    text: None,
+                });
+        };
+
+        let mut frames = 0;
+        while app.world().get::<Transform>(entity).unwrap().position.y != 1.0 {
+            app.update();
+            frames += 1;
+            assert!(frames < 300, "the script never ran");
+        }
+        app.update();
+        let jump: Vec<String> = app
+            .world()
+            .resource::<InputActions>()
+            .bindings("jump")
+            .unwrap()
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(jump, ["J"], "the rebinding reached InputActions");
+
+        key(&mut app, KeyCode::Space, ElementState::Pressed);
+        app.update();
+        app.update();
+        assert_eq!(x(&app), 0.0, "Space is no longer jump");
+
+        key(&mut app, KeyCode::J, ElementState::Pressed);
+        app.update();
+        app.update();
+        let _ = std::fs::remove_file(&script_path);
+        assert_eq!(x(&app), 1.0, "J is");
     }
 }

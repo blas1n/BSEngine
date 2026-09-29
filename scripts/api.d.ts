@@ -38,6 +38,9 @@ declare namespace Bsengine {
     function distanceTo(nameA: string, nameB: string): number;
     function distanceToPoint(name: string, x: number, y: number, z: number): number;
     function entityExists(name: string): boolean;
+    function getActionBindings(action: string): string;
+    function getActionNames(): unknown;
+    function getActionStrength(action: unknown): unknown;
     function getAngularDamping(name: string): number;
     function getAngularSpeed(name: unknown): unknown;
     function getAngularVelocity(name: string): number[] | null;
@@ -50,6 +53,7 @@ declare namespace Bsengine {
     function getAoSampleCount(name: string): number;
     function getAssetStatus(path: string): string;
     function getAudioParam(name: string): number;
+    function getAxis(negative: unknown, positive: unknown): unknown;
     function getBloomIntensity(name: string): number;
     function getBloomRadius(name: string): number;
     function getBloomSoftness(name: string): number;
@@ -118,6 +122,7 @@ declare namespace Bsengine {
     function getTweenRepeat(name: string): number;
     function getTweenTargetType(name: string): number;
     function getUpVector(name: string): number[] | null;
+    function getVector(negX: unknown, posX: unknown, negY: unknown, posY: unknown): unknown;
     function getVelocity(name: string): number[] | null;
     function getVisible(name: string): boolean;
     function getWorldPosition(name: string): object | null;
@@ -126,6 +131,9 @@ declare namespace Bsengine {
     function getWorldTransform(name: string): object | null;
     function hasNavArrived(name: string): boolean;
     function instantiatePrefab(params: unknown): string;
+    function isActionDown(action: unknown): unknown;
+    function isActionPressed(action: unknown): unknown;
+    function isActionUp(action: unknown): unknown;
     function isAnimationLooping(name: string): boolean;
     function isAnimationPlaying(name: string): boolean;
     function isAoEnabled(name: string): boolean;
@@ -196,6 +204,7 @@ declare namespace Bsengine {
     function save(path: string): void;
     function seekSound(id: number, pos: number): void;
     function sendMessage(target: unknown, key: unknown, data: unknown): unknown;
+    function setActionBindings(action: string, bindings: string): string;
     function setAngularDamping(name: string, damping: number): void;
     function setAngularVelocity(name: string, a: unknown, b: unknown, c: unknown): void;
     function setAnimationLooping(name: string, looping: boolean): void;

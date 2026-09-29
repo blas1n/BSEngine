@@ -1509,7 +1509,7 @@ thread_local! {
     pub(crate) static ACTION_SNAPSHOT: RefCell<HashMap<String, bsengine_input::ActionValue>> =
         RefCell::new(HashMap::new());
     pub(crate) static ACTION_BINDINGS_SNAPSHOT: RefCell<std::collections::BTreeMap<String, Vec<String>>> =
-        RefCell::new(std::collections::BTreeMap::new());
+        const { RefCell::new(std::collections::BTreeMap::new()) };
 
     // Gamepad button state (bit 0=South..15=DPadRight)
     pub(crate) static GAMEPAD_BUTTON_SNAPSHOT: RefCell<u16> = const { RefCell::new(0) };

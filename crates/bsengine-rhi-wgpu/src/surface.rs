@@ -2434,9 +2434,21 @@ pub struct WgpuSurface {
     /// `MAPPABLE_PRIMARY_BUFFERS`), so resolving and CPU-reading are two
     /// buffers, not one.
     timestamp_resolve_buffer: Option<wgpu::Buffer>,
-    /// `MAP_READ`-capable copy of `timestamp_resolve_buffer`, read back on
-    /// the CPU each frame to build `FrameStats::gpu_pass_times_ms`.
-    timestamp_readback_buffer: Option<wgpu::Buffer>,
+    /// `MAP_READ`-capable copies of `timestamp_resolve_buffer`, a ring of
+    /// [`TIMESTAMP_READBACK_RING`], read back on the CPU a few frames after
+    /// they were written; see [`TimestampReadback`]. Empty without
+    /// timestamp support.
+    timestamp_readbacks: Vec<TimestampReadback>,
+    /// The ring slot the next frame's timestamps are copied into.
+    timestamp_next_slot: usize,
+    /// The newest pass timings read back so far -- what each frame's
+    /// `FrameStats::gpu_pass_times_ms` reports, from a frame
+    /// `TIMESTAMP_READBACK_RING - 1` or so frames ago.
+    latest_gpu_pass_times: Vec<crate::profiler::PassTiming>,
+    /// The frame number [`Self::latest_gpu_pass_times`] came from.
+    latest_gpu_pass_frame: Option<u64>,
+    /// Frames rendered, to tell which ready readback is the newest.
+    timestamp_frame: u64,
     /// Rolling history of completed frames' stats, shared with
     /// `ProfilerPanel` and headless/MCP queries via
     /// [`Self::frame_stats_history`].
@@ -2781,12 +2793,12 @@ impl WgpuSurface {
 
         // GPU timestamp queries: only allocated when the adapter actually
         // supports them. `timestamp_resolve_buffer` is the resolve target
-        // (`QUERY_RESOLVE | COPY_SRC`); `timestamp_readback_buffer` is a
-        // second, `MAP_READ`-capable buffer the resolve result is copied
+        // (`QUERY_RESOLVE | COPY_SRC`); `timestamp_readbacks` is a ring of
+        // `MAP_READ`-capable buffers the resolve result is copied
         // into for CPU reads -- the two usages cannot live on one buffer
         // without `Features::MAPPABLE_PRIMARY_BUFFERS`, which is not
         // requested here.
-        let (timestamp_query_set, timestamp_resolve_buffer, timestamp_readback_buffer) =
+        let (timestamp_query_set, timestamp_resolve_buffer, timestamp_readbacks) =
             if timestamp_supported {
                 let query_set = device.create_query_set(&wgpu::QuerySetDescriptor {
                     label: Some("frame profiler timestamps"),
@@ -2800,15 +2812,22 @@ impl WgpuSurface {
                     usage: wgpu::BufferUsages::QUERY_RESOLVE | wgpu::BufferUsages::COPY_SRC,
                     mapped_at_creation: false,
                 });
-                let readback_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("frame profiler timestamp readback"),
-                    size: buffer_size,
-                    usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                });
-                (Some(query_set), Some(resolve_buffer), Some(readback_buffer))
+                let readbacks = (0..TIMESTAMP_READBACK_RING)
+                    .map(|_| TimestampReadback {
+                        buffer: device.create_buffer(&wgpu::BufferDescriptor {
+                            label: Some("frame profiler timestamp readback"),
+                            size: buffer_size,
+                            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                            mapped_at_creation: false,
+                        }),
+                        state: std::sync::Arc::new(std::sync::Mutex::new(ReadbackState::Free)),
+                        pass_names: Vec::new(),
+                        frame: 0,
+                    })
+                    .collect();
+                (Some(query_set), Some(resolve_buffer), readbacks)
             } else {
-                (None, None, None)
+                (None, None, Vec::new())
             };
 
         let (depth_texture, depth_view) = Self::create_depth_texture(&device, width, height);
@@ -4116,7 +4135,11 @@ impl WgpuSurface {
             instancing_supported,
             timestamp_query_set,
             timestamp_resolve_buffer,
-            timestamp_readback_buffer,
+            timestamp_readbacks,
+            timestamp_next_slot: 0,
+            latest_gpu_pass_times: Vec::new(),
+            latest_gpu_pass_frame: None,
+            timestamp_frame: 0,
             frame_stats_history: std::sync::Arc::new(std::sync::Mutex::new(
                 std::collections::VecDeque::with_capacity(
                     crate::profiler::FRAME_STATS_HISTORY_CAPACITY,
@@ -4573,7 +4596,7 @@ impl WgpuSurface {
 
     /// Builds the `timestamp_writes` for a single self-contained named pass
     /// (one `begin_render_pass` call whose full duration is what's being
-    /// measured), and records its index/name for [`Self::read_gpu_pass_times`]
+    /// measured), and records its index/name for [`Self::start_timestamp_readback`]
     /// to consume after the frame is submitted. Returns `None` -- meaning
     /// "don't time this pass" -- whenever GPU timestamps aren't supported, or
     /// whenever a frame has already used every slot in the query set (an
@@ -4622,58 +4645,88 @@ impl WgpuSurface {
         })
     }
 
-    /// Resolves and reads back this frame's GPU timestamps, converting raw
-    /// tick pairs into `PassTiming`s. Must be called after the frame's
-    /// `resolve_query_set` + `copy_buffer_to_buffer` have been submitted to
-    /// the queue -- this blocks (via `map_async` + `device.poll(Wait)`,
-    /// the same pattern `output::read_pixels` uses) until that GPU work
-    /// completes, so it is only ever called when `pass_count > 0`.
+    /// Starts reading ring slot `slot` back -- the frame just submitted
+    /// copied its timestamps there -- without waiting for it. The mapping
+    /// completes whenever the GPU reaches that copy; [`Self::collect_gpu_pass_times`]
+    /// picks it up on a later frame.
     ///
-    /// Degrades to an empty `Vec` rather than panicking if the mapping ever
-    /// fails -- this is a profiling-only path and must never be the reason a
-    /// frame errors out.
-    fn read_gpu_pass_times(
-        &self,
-        pass_count: u32,
-        pass_names: &[&'static str],
-    ) -> Vec<crate::profiler::PassTiming> {
-        let Some(readback_buffer) = &self.timestamp_readback_buffer else {
-            return Vec::new();
-        };
-        let ticks_len = pass_count as usize * 2;
-        let bytes_len = (ticks_len * wgpu::QUERY_SIZE as usize) as u64;
+    /// This used to be a blocking read: `map_async` then `poll(Wait)` right
+    /// after every submit, so on any adapter with timestamp queries the CPU
+    /// sat idle until the GPU had finished the whole frame, and the next
+    /// frame's simulation could never overlap this frame's rendering. The
+    /// reference engines' GPU profilers read their queries a few frames late
+    /// for the same reason (Unreal's `FRHIGPUProfiler`, Unity's
+    /// `FrameTimingManager` both report frame N-2 or so).
+    fn start_timestamp_readback(&mut self, slot: usize, pass_names: &[&'static str]) {
+        let frame = self.timestamp_frame;
+        let readback = &mut self.timestamp_readbacks[slot];
+        readback.pass_names = pass_names.to_vec();
+        readback.frame = frame;
+        *readback.state.lock().unwrap() = ReadbackState::Pending;
+        let state = std::sync::Arc::clone(&readback.state);
+        let bytes_len = (pass_names.len() * 2 * wgpu::QUERY_SIZE as usize) as u64;
+        readback
+            .buffer
+            .slice(0..bytes_len)
+            .map_async(wgpu::MapMode::Read, move |r| {
+                *state.lock().unwrap() = if r.is_ok() {
+                    ReadbackState::Ready
+                } else {
+                    ReadbackState::Failed
+                };
+            });
+    }
 
-        let slice = readback_buffer.slice(0..bytes_len);
-        let (tx, rx) = std::sync::mpsc::channel();
-        slice.map_async(wgpu::MapMode::Read, move |r| {
-            let _ = tx.send(r);
-        });
-        self.device.poll(wgpu::Maintain::Wait);
-        match rx.recv() {
-            Ok(Ok(())) => {}
-            _ => return Vec::new(),
+    /// Takes every readback the GPU has finished, without waiting for any:
+    /// the newest becomes [`Self::latest_gpu_pass_times`], and each slot is
+    /// unmapped and freed for reuse. A failed mapping frees its slot and
+    /// reports nothing -- a profiling path must never be why a frame errors.
+    fn collect_gpu_pass_times(&mut self) {
+        if self.timestamp_readbacks.is_empty() {
+            return;
         }
-
-        let timings = {
-            let mapped = slice.get_mapped_range();
-            let ticks: &[u64] = bytemuck::cast_slice(&mapped);
-            let period = self.queue.get_timestamp_period();
-            pass_names
-                .iter()
-                .enumerate()
-                .map(|(i, name)| {
-                    let begin = ticks[i * 2];
-                    let end = ticks[i * 2 + 1];
-                    let duration_ms = end.saturating_sub(begin) as f32 * period / 1_000_000.0;
-                    crate::profiler::PassTiming {
-                        name: (*name).to_string(),
-                        duration_ms,
+        // Runs completed `map_async` callbacks; never blocks.
+        self.device.poll(wgpu::Maintain::Poll);
+        let period = self.queue.get_timestamp_period();
+        let mut newest: Option<(u64, Vec<crate::profiler::PassTiming>)> = None;
+        for readback in &mut self.timestamp_readbacks {
+            let state = *readback.state.lock().unwrap();
+            match state {
+                ReadbackState::Ready => {
+                    let bytes_len =
+                        (readback.pass_names.len() * 2 * wgpu::QUERY_SIZE as usize) as u64;
+                    let timings: Vec<crate::profiler::PassTiming> = {
+                        let mapped = readback.buffer.slice(0..bytes_len).get_mapped_range();
+                        let ticks: &[u64] = bytemuck::cast_slice(&mapped);
+                        readback
+                            .pass_names
+                            .iter()
+                            .enumerate()
+                            .map(|(i, name)| crate::profiler::PassTiming {
+                                name: (*name).to_string(),
+                                duration_ms: ticks[i * 2 + 1].saturating_sub(ticks[i * 2]) as f32
+                                    * period
+                                    / 1_000_000.0,
+                            })
+                            .collect()
+                    };
+                    readback.buffer.unmap();
+                    *readback.state.lock().unwrap() = ReadbackState::Free;
+                    if newest.as_ref().is_none_or(|(f, _)| readback.frame > *f) {
+                        newest = Some((readback.frame, timings));
                     }
-                })
-                .collect()
-        };
-        readback_buffer.unmap();
-        timings
+                }
+                ReadbackState::Failed => {
+                    readback.buffer.unmap();
+                    *readback.state.lock().unwrap() = ReadbackState::Free;
+                }
+                ReadbackState::Free | ReadbackState::Pending => {}
+            }
+        }
+        if let Some((frame, timings)) = newest {
+            self.latest_gpu_pass_times = timings;
+            self.latest_gpu_pass_frame = Some(frame);
+        }
     }
 
     /// Renders the scene once per probe per cube face into
@@ -6916,31 +6969,41 @@ impl WgpuSurface {
         // `gpu_pass_index` is the number of timed passes issued above (0
         // when `!self.timestamp_supported`, since `next_timed_pass` and
         // `point_shadow_timestamp_writes` never advance it in that case).
+        // Into the next ring slot, if the CPU has finished reading what that
+        // slot held; when it has not (the GPU is more than the ring's length
+        // behind), this frame's timings are skipped rather than waited for.
+        let mut timestamp_slot = None;
         if gpu_pass_index > 0 {
-            if let (Some(query_set), Some(resolve_buffer), Some(readback_buffer)) = (
+            let slot = self.timestamp_next_slot;
+            if let (Some(query_set), Some(resolve_buffer), Some(readback)) = (
                 &self.timestamp_query_set,
                 &self.timestamp_resolve_buffer,
-                &self.timestamp_readback_buffer,
+                self.timestamp_readbacks.get(slot),
             ) {
-                let ticks = gpu_pass_index * 2;
-                encoder.resolve_query_set(query_set, 0..ticks, resolve_buffer, 0);
-                encoder.copy_buffer_to_buffer(
-                    resolve_buffer,
-                    0,
-                    readback_buffer,
-                    0,
-                    ticks as u64 * wgpu::QUERY_SIZE as u64,
-                );
+                if *readback.state.lock().unwrap() == ReadbackState::Free {
+                    let ticks = gpu_pass_index * 2;
+                    encoder.resolve_query_set(query_set, 0..ticks, resolve_buffer, 0);
+                    encoder.copy_buffer_to_buffer(
+                        resolve_buffer,
+                        0,
+                        &readback.buffer,
+                        0,
+                        ticks as u64 * wgpu::QUERY_SIZE as u64,
+                    );
+                    timestamp_slot = Some(slot);
+                }
             }
         }
 
         self.queue.submit(std::iter::once(encoder.finish()));
 
-        let gpu_pass_times_ms = if gpu_pass_index > 0 {
-            self.read_gpu_pass_times(gpu_pass_index, &gpu_pass_names)
-        } else {
-            Vec::new()
-        };
+        self.timestamp_frame += 1;
+        if let Some(slot) = timestamp_slot {
+            self.start_timestamp_readback(slot, &gpu_pass_names);
+            self.timestamp_next_slot = (slot + 1) % self.timestamp_readbacks.len();
+        }
+        self.collect_gpu_pass_times();
+        let gpu_pass_times_ms = self.latest_gpu_pass_times.clone();
 
         if let Some(frame) = presentable {
             frame.present();
@@ -6972,6 +7035,9 @@ impl WgpuSurface {
         let frame_stats = crate::profiler::FrameStats {
             cpu_frame_time_ms: frame_start.elapsed().as_secs_f32() * 1000.0,
             gpu_pass_times_ms,
+            gpu_pass_times_frames_ago: self
+                .latest_gpu_pass_frame
+                .map(|f| (self.timestamp_frame - f) as u32),
             gpu_timestamps_supported: self.timestamp_supported,
             draw_calls: frame_draw_calls,
             objects_drawn: frame_objects_drawn,
@@ -8487,4 +8553,34 @@ mod tests {
              than enabled over zeroed coefficients"
         );
     }
+}
+
+/// Length of the GPU timestamp readback ring: how many frames' timings can
+/// be in flight between the GPU writing them and the CPU reading them. Three
+/// covers the swapchain's own frames in flight, so in steady state no frame
+/// skips its timings.
+const TIMESTAMP_READBACK_RING: usize = 3;
+
+/// Where one ring slot's readback is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReadbackState {
+    /// Unmapped; a frame may copy its timestamps in.
+    Free,
+    /// Copied into and `map_async` requested; the GPU has not got there.
+    Pending,
+    /// Mapped; the CPU can read it.
+    Ready,
+    /// The mapping failed; the slot is freed without reporting anything.
+    Failed,
+}
+
+/// One slot of the timestamp readback ring: a `MAP_READ` buffer, what the
+/// frame that filled it named its passes, and that frame's number. `state`
+/// is shared with the `map_async` callback, which may run on whichever
+/// thread polls the device.
+struct TimestampReadback {
+    buffer: wgpu::Buffer,
+    state: std::sync::Arc<std::sync::Mutex<ReadbackState>>,
+    pass_names: Vec<&'static str>,
+    frame: u64,
 }

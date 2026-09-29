@@ -588,6 +588,135 @@ pub fn run_replay_mode(project_dir: &str, log_path: &str) -> bool {
 mod tests {
     use super::*;
     use bevy_ecs::prelude::Entity;
+
+    /// Not a check but a measurement, so `#[ignore]`d: where a frame of the
+    /// scale-level game goes, system by system, in the real app (offscreen
+    /// render at full quality). What decides which subsystem is worth
+    /// parallelising -- the first question before any threading work, since
+    /// flipping Bevy's whole executor to multi-threaded was measured not to
+    /// pay: 277 of the 400 unordered system pairs in `Update` are exclusive
+    /// `&mut World` systems that run alone anyway.
+    ///
+    /// Only meaningful in release and with Bevy's per-system spans on:
+    /// `cargo test --release -p bsengine-runtime --features bevy_ecs/trace --bin bsengine-runtime -- --ignored measure_frame_time_by_system --nocapture`.
+    /// Without `bevy_ecs/trace` there are no spans and the table is empty.
+    #[test]
+    #[ignore]
+    fn measure_frame_time_by_system() {
+        use std::collections::HashMap;
+        use std::sync::{Arc, Mutex};
+        use std::time::{Duration, Instant};
+        use tracing_subscriber::layer::{Context, SubscriberExt};
+        use tracing_subscriber::registry::LookupSpan;
+
+        type Totals = Arc<Mutex<HashMap<String, (Duration, u64)>>>;
+        struct Name(String);
+        struct Entered(Instant);
+        struct SystemTimes(Totals);
+
+        struct NameVisitor(Option<String>);
+        impl tracing::field::Visit for NameVisitor {
+            fn record_str(&mut self, f: &tracing::field::Field, v: &str) {
+                if f.name() == "name" {
+                    self.0 = Some(v.to_string());
+                }
+            }
+            fn record_debug(&mut self, f: &tracing::field::Field, v: &dyn std::fmt::Debug) {
+                if f.name() == "name" {
+                    self.0 = Some(format!("{v:?}").trim_matches('"').to_string());
+                }
+            }
+        }
+
+        impl<S> tracing_subscriber::Layer<S> for SystemTimes
+        where
+            S: tracing::Subscriber + for<'a> LookupSpan<'a>,
+        {
+            fn on_new_span(
+                &self,
+                attrs: &tracing::span::Attributes<'_>,
+                id: &tracing::span::Id,
+                ctx: Context<'_, S>,
+            ) {
+                // "system" is the span around a system's run; its commands
+                // are applied under "system_commands", counted separately.
+                let kind = attrs.metadata().name();
+                if kind != "system" && kind != "system_commands" {
+                    return;
+                }
+                let mut v = NameVisitor(None);
+                attrs.record(&mut v);
+                let short = v.0.unwrap_or_default();
+                let short = short.rsplit("::").next().unwrap_or(&short).to_string();
+                let label = if kind == "system" {
+                    short
+                } else {
+                    format!("{short} (commands)")
+                };
+                if let Some(span) = ctx.span(id) {
+                    span.extensions_mut().replace(Name(label));
+                }
+            }
+            fn on_enter(&self, id: &tracing::span::Id, ctx: Context<'_, S>) {
+                if let Some(span) = ctx.span(id) {
+                    if span.extensions().get::<Name>().is_some() {
+                        span.extensions_mut().replace(Entered(Instant::now()));
+                    }
+                }
+            }
+            fn on_exit(&self, id: &tracing::span::Id, ctx: Context<'_, S>) {
+                if let Some(span) = ctx.span(id) {
+                    let ext = span.extensions();
+                    if let (Some(Name(n)), Some(Entered(t))) =
+                        (ext.get::<Name>(), ext.get::<Entered>())
+                    {
+                        let mut totals = self.0.lock().unwrap();
+                        let e = totals.entry(n.clone()).or_default();
+                        e.0 += t.elapsed();
+                        e.1 += 1;
+                    }
+                }
+            }
+        }
+
+        let totals: Totals = Arc::default();
+        let subscriber = tracing_subscriber::registry().with(SystemTimes(totals.clone()));
+        let _guard = tracing::subscriber::set_default(subscriber);
+
+        let game = concat!(env!("CARGO_MANIFEST_DIR"), "/../../games/scale-level");
+        let mut app = build_test_app(game, None, false);
+        // Load, first uploads, pipeline compiles: not the steady state.
+        for _ in 0..60 {
+            app.update();
+        }
+        totals.lock().unwrap().clear();
+        const FRAMES: u32 = 300;
+        let start = Instant::now();
+        for _ in 0..FRAMES {
+            app.update();
+        }
+        let frame = start.elapsed() / FRAMES;
+
+        let totals = totals.lock().unwrap();
+        let mut rows: Vec<(&String, Duration)> =
+            totals.iter().map(|(n, (d, _))| (n, *d / FRAMES)).collect();
+        rows.sort_by_key(|r| std::cmp::Reverse(r.1));
+        let in_systems: Duration = rows.iter().map(|r| r.1).sum();
+        println!(
+            "frame {:.3} ms, of which systems {:.3} ms ({} systems); release: {}",
+            frame.as_secs_f64() * 1e3,
+            in_systems.as_secs_f64() * 1e3,
+            rows.len(),
+            !cfg!(debug_assertions)
+        );
+        for (n, d) in rows.iter().take(25) {
+            println!(
+                "{:>8.3} ms {:>5.1}%  {n}",
+                d.as_secs_f64() * 1e3,
+                100.0 * d.as_secs_f64() / frame.as_secs_f64()
+            );
+        }
+    }
     use bsengine_input::Input;
 
     fn write_two_scene_project() -> tempfile::TempDir {

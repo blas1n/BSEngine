@@ -213,6 +213,7 @@ pub fn get_frame_stats(world: &mut World) -> Result<Value, String> {
             "name": p.name,
             "duration_ms": p.duration_ms,
         })).collect::<Vec<_>>(),
+        "gpu_pass_times_frames_ago": stats.gpu_pass_times_frames_ago,
         "draw_calls": stats.draw_calls,
         "objects_drawn": stats.objects_drawn,
         "triangles": stats.triangles,

@@ -195,6 +195,11 @@ pub struct FrameStats {
     pub cpu_frame_time_ms: f32,
     /// Per-pass GPU timings, empty when [`Self::gpu_timestamps_supported`] is false.
     pub gpu_pass_times_ms: Vec<PassTiming>,
+    /// How many frames before this one the GPU produced [`Self::gpu_pass_times_ms`]:
+    /// the timings are read back a few frames late so reading them never
+    /// stalls the CPU (see `WgpuSurface::start_timestamp_readback`). `None`
+    /// until the first readback lands, and always without timestamp support.
+    pub gpu_pass_times_frames_ago: Option<u32>,
     /// Whether the adapter supports `wgpu::Features::TIMESTAMP_QUERY`, i.e.
     /// whether [`Self::gpu_pass_times_ms`] carries real data.
     pub gpu_timestamps_supported: bool,

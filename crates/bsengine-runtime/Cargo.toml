@@ -37,6 +37,9 @@ toml            = { workspace = true }
 tracing         = { workspace = true }
 
 [dev-dependencies]
+# Only for `measure_frame_time_by_system` (ignored): a tracing layer that sums
+# Bevy's per-system spans. Run with `--features bevy_ecs/trace`.
+tracing-subscriber = { workspace = true }
 glam            = { workspace = true }
 tempfile        = "3"
 # The item-30 end-to-end test renames an asset while a real engine with the real

@@ -918,6 +918,22 @@ var Bsengine = {
         }
     },
 
+    // Animation event callbacks -- keyed by entity name, like collisions.
+    // `callback(eventName, clip)` runs once per crossing, before this
+    // frame's `onUpdate`s, in the order playback crossed the events.
+    _animationEventHandlers: {},
+    onAnimationEvent(entityName, callback) {
+        if (!this._animationEventHandlers[entityName]) this._animationEventHandlers[entityName] = [];
+        this._animationEventHandlers[entityName].push(callback);
+    },
+    _runAnimationEvents(events) {
+        for (const { entity, clip, name } of events) {
+            for (const cb of (this._animationEventHandlers[entity] || [])) {
+                try { cb(name, clip); } catch (e) { this.log('[animationEvent] ' + e); }
+            }
+        }
+    },
+
     // Per-entity script registry. Keys are entity bit-IDs (strings).
     _scripts: {},
 

@@ -1480,6 +1480,9 @@ thread_local! {
         const { RefCell::new(Vec::new()) };
     pub(crate) static COLLISION_SNAPSHOT: RefCell<Vec<(String, String, bool)>> =
         const { RefCell::new(Vec::new()) };
+    // This frame's fired animation events: (entity name, clip, event name).
+    pub(crate) static ANIMATION_EVENT_SNAPSHOT: RefCell<Vec<(String, String, String)>> =
+        const { RefCell::new(Vec::new()) };
     pub(crate) static COMMAND_BUFFER: RefCell<Vec<ScriptCommand>> =
         const { RefCell::new(Vec::new()) };
     pub(crate) static SOUND_ID_COUNTER: RefCell<u32> =

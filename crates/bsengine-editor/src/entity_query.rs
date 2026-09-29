@@ -911,6 +911,9 @@ mod tests {
         // 5 has no position: `ne` is false for an absent field.
         assert_eq!(q("ne", json!(5.0)), vec![2, 3, 4, 6]);
         assert_eq!(q("between", json!([1.0, 10.0])), vec![1, 6]);
+        // Inclusive at both ends: y = 2 (Cam) and y = 5 (LampA) sit exactly on
+        // the bounds. [1, 10] alone would pass an exclusive `between`.
+        assert_eq!(q("between", json!([2.0, 5.0])), vec![1, 6]);
         assert_eq!(q("in", json!([0.0, 50.0])), vec![2, 3, 4]);
     }
 

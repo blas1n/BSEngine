@@ -1,5 +1,6 @@
-use bevy_app::{App, Plugin, PostUpdate};
+use bevy_app::{App, Plugin, PostUpdate, Update};
 use bevy_ecs::prelude::{Component, Query, ReflectComponent, Res, ResMut};
+use bevy_ecs::schedule::IntoSystemConfigs;
 use bevy_reflect::prelude::ReflectDefault;
 
 use crate::animation::{AnimationChannel, AnimationClip, Interpolation, KeyframeValues};
@@ -678,7 +679,7 @@ fn compute_joint_matrices_with_ik(
     chains: &[&IkChain],
     goals: &[&IkGoal],
 ) -> Vec<Mat4> {
-    compute_pose_with_ik(nodes, skin, clips, chains, goals, None).0
+    compute_pose_with_ik(nodes, skin, clips, chains, goals, None, None).0
 }
 
 /// Solves every full-body goal together and writes the result into `locals`.
@@ -784,8 +785,15 @@ fn compute_pose_with_ik(
     chains: &[&IkChain],
     goals: &[&IkGoal],
     retarget: Option<(&RetargetSource, &[NodeTransform], &[Mat4])>,
+    root_motion_bone: Option<usize>,
 ) -> (Vec<Mat4>, Vec<Vec3>, Vec<Mat4>) {
     let mut locals = compute_local_transforms_blended(nodes, clips);
+    // Root motion first, before retargeting and IK: they must correct the
+    // pose the character will actually show, which is the one whose travel
+    // has been handed to the entity.
+    if let Some(bone) = root_motion_bone {
+        strip_root_travel(nodes, &mut locals, bone);
+    }
 
     // BEFORE the globals are accumulated, and therefore before IK.
     //
@@ -970,7 +978,118 @@ pub struct SkinnedMeshPlugin;
 
 impl Plugin for SkinnedMeshPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(PostUpdate, update_skinned_meshes);
+        app.add_systems(PostUpdate, update_skinned_meshes)
+            // In `Update`, after the players have advanced and before
+            // `PostUpdate` propagates transforms, so the entity is moved in the
+            // same frame its pose stops moving -- the two halves of one motion
+            // must never be a frame apart, or the character stutters.
+            .add_systems(
+                Update,
+                apply_root_motion.after(bsengine_core::AnimationSystems),
+            );
+    }
+}
+
+/// The root-motion bone of `skinned`: the named node, or the skin's first
+/// joint when the name is empty. `None` for a name the skeleton lacks.
+fn root_motion_bone(skinned: &SkinnedMesh, name: &str) -> Option<usize> {
+    if name.is_empty() {
+        skinned.skin_data.joint_node_indices.first().copied()
+    } else {
+        node_index_by_name(&skinned.nodes, name)
+    }
+}
+
+/// Where `bone` sits in MODEL space when the clips in `samples` are posed --
+/// through every parent, so an armature node's rotation and scale are in it.
+fn bone_model_position(nodes: &[NodeTransform], samples: &[ClipSample<'_>], bone: usize) -> Vec3 {
+    let locals = compute_local_transforms_blended(nodes, samples);
+    accumulate_globals(nodes, &locals)[bone].w_axis.truncate()
+}
+
+/// Moves `bone` back to its rest position horizontally, in model space,
+/// leaving its height: the half of root motion that happens in the pose.
+/// The offset is found in model space and pushed back through the parent's
+/// inverse, which is what makes it right under a rotated or scaled armature.
+fn strip_root_travel(nodes: &[NodeTransform], locals: &mut [Mat4], bone: usize) {
+    let rest_locals = compute_local_transforms_blended(nodes, &[]);
+    let rest = accumulate_globals(nodes, &rest_locals)[bone]
+        .w_axis
+        .truncate();
+    let globals = accumulate_globals(nodes, locals);
+    let now = globals[bone].w_axis.truncate();
+    let model_offset = Vec3::new(rest.x - now.x, 0.0, rest.z - now.z);
+    let parent = nodes[bone]
+        .parent
+        .map(|p| globals[p])
+        .unwrap_or(Mat4::IDENTITY);
+    let local_offset = parent.inverse().transform_vector3(model_offset);
+    locals[bone].w_axis += local_offset.extend(0.0);
+}
+
+/// The other half: how far the root bone travelled horizontally since the
+/// last frame, in world space, applied to the entity (or only reported).
+///
+/// Measured between the pose at the previous time and the pose now, both
+/// through the same blend, so a crossfade moves at the blend of the two
+/// clips' paces. A loop that wrapped is measured to the clip's end and then
+/// from its start -- otherwise the snap back to frame 0 would drag the
+/// character back a whole cycle -- and the same the other way in reverse.
+#[allow(clippy::type_complexity)]
+fn apply_root_motion(
+    mut query: Query<(
+        &SkinnedMesh,
+        &AnimationClipLibrary,
+        &bsengine_core::AnimationPlayer,
+        Option<&bsengine_core::AnimationStateMachine>,
+        &mut bsengine_core::RootMotion,
+        &mut bsengine_core::Transform,
+    )>,
+    time: Option<Res<bsengine_core::Time>>,
+) {
+    let dt = time.map(|t| t.delta_seconds).unwrap_or(0.0);
+    for (skinned, library, player, asm, mut motion, mut transform) in query.iter_mut() {
+        let Some(clip) = library.clips.get(&player.clip) else {
+            continue;
+        };
+        let Some(bone) = root_motion_bone(skinned, &motion.bone) else {
+            continue;
+        };
+        let now = player.time;
+        let at = |t: f32| {
+            bone_model_position(&skinned.nodes, &blend_samples(clip, library, t, asm), bone)
+        };
+        let model_delta = match &motion.last_sample {
+            Some((last_clip, last)) if *last_clip == player.clip => {
+                let last = *last;
+                let forward = player.speed >= 0.0;
+                if forward && now < last {
+                    (at(player.duration) - at(last)) + (at(now) - at(0.0))
+                } else if !forward && now > last {
+                    (at(0.0) - at(last)) + (at(now) - at(player.duration))
+                } else {
+                    at(now) - at(last)
+                }
+            }
+            // First frame, or a new clip: the player has already advanced
+            // this frame, so measure from where it was one frame ago -- as
+            // Unity measures its first root-motion step from deltaTime. A
+            // paused player gets nothing.
+            _ if player.playing => {
+                let from = (now - dt * player.speed).clamp(0.0, player.duration.max(0.0));
+                at(now) - at(from)
+            }
+            _ => Vec3::ZERO,
+        };
+        let horizontal = Vec3::new(model_delta.x, 0.0, model_delta.z);
+        // Model space to world: the entity's own rotation and scale. Its
+        // position is not part of a *direction*.
+        let world = transform.rotation.0 * (transform.scale.0 * horizontal);
+        motion.last_delta = world.into();
+        if motion.apply_to_transform {
+            transform.position.0 += world;
+        }
+        motion.last_sample = Some((player.clip.clone(), now));
     }
 }
 
@@ -986,6 +1105,7 @@ fn update_skinned_meshes(
         Option<&RetargetSource>,
         Option<&bsengine_core::GlobalTransform>,
         Option<&bsengine_core::Transform>,
+        Option<&bsengine_core::RootMotion>,
     )>,
     mesh_registry: Option<ResMut<bsengine_rhi_wgpu::GpuMeshRegistry>>,
     queue: Option<Res<bsengine_rhi_wgpu::GpuQueueResource>>,
@@ -1017,8 +1137,19 @@ fn update_skinned_meshes(
 
     let mut gpu = mesh_registry.zip(queue);
 
-    for (_entity, mut skinned, library, player, asm, ik, ik_goals, retarget, global, local) in
-        query.iter_mut()
+    for (
+        _entity,
+        mut skinned,
+        library,
+        player,
+        asm,
+        ik,
+        ik_goals,
+        retarget,
+        global,
+        local,
+        root_motion,
+    ) in query.iter_mut()
     {
         // Set by the clip branch below; the ragdoll-override branches leave it
         // None, and an override means physics is driving the whole skeleton
@@ -1111,6 +1242,7 @@ fn update_skinned_meshes(
                 &chains,
                 &goals,
                 retarget_input,
+                root_motion.and_then(|m| root_motion_bone(&skinned, &m.bone)),
             );
             published_locals = Some(locals);
             // Published in WORLD space, which is what the ground probe needs.
@@ -3172,6 +3304,192 @@ mod tests {
             (blended_pt.x - 10.0).abs() > 1.0,
             "half blend must differ measurably from the full override; \
              blended={blended_pt:?}"
+        );
+    }
+
+    /// A rig built the way exporters build them: an armature node turned
+    /// -90° about X and scaled 0.5 (Blender's axes), and hips under it that
+    /// a one-second "walk" carries 2 units along their local +Y -- which that
+    /// armature turns into model -Z at half size, so one lap travels 1 model
+    /// unit toward -Z. Halfway, the hips also rise 0.4 local +Z = 0.2 model
+    /// +Y: the bob root motion must leave in the pose.
+    fn root_motion_rig() -> (SkinnedMesh, AnimationClipLibrary) {
+        let armature = NodeTransform {
+            name: "Armature".to_string(),
+            rotation: Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2).to_array(),
+            scale: [0.5; 3],
+            ..Default::default()
+        };
+        let hips = NodeTransform {
+            name: "Hips".to_string(),
+            parent: Some(0),
+            ..Default::default()
+        };
+        let mut clips = std::collections::HashMap::new();
+        clips.insert(
+            "walk".to_string(),
+            AnimationClip {
+                name: "walk".to_string(),
+                duration: 1.0,
+                channels: vec![AnimationChannel {
+                    node_index: 1,
+                    times: vec![0.0, 0.5, 1.0],
+                    values: KeyframeValues::Translations(vec![
+                        [0.0, 0.0, 0.0],
+                        [0.0, 1.0, 0.4],
+                        [0.0, 2.0, 0.0],
+                    ]),
+                    interpolation: Interpolation::Linear,
+                }],
+            },
+        );
+        (
+            SkinnedMesh {
+                mesh_id: 1,
+                rest_vertices: Vec::new(),
+                skin: Vec::new(),
+                skin_data: SkinData {
+                    joint_node_indices: vec![1],
+                    inverse_bind_matrices: vec![Mat4::IDENTITY.to_cols_array_2d()],
+                },
+                nodes: vec![armature, hips],
+                pose_override: Vec::new(),
+                pose_override_weight: 1.0,
+                ik_tip_positions: Vec::new(),
+                animated_locals: Vec::new(),
+                joint_matrices: Vec::new(),
+            },
+            AnimationClipLibrary { clips },
+        )
+    }
+
+    /// The entity is turned 90° about Y and scaled 2, so model -Z becomes
+    /// world -X at twice the length: one lap moves it 2 units toward -X.
+    fn root_motion_app(
+        motion: bsengine_core::RootMotion,
+        speed: f32,
+    ) -> (bevy_app::App, bevy_ecs::entity::Entity) {
+        let mut app = bsengine_app::new_app();
+        let mut time = bsengine_core::Time::default();
+        time.set_delta_for_test(0.1);
+        app.insert_resource(time);
+        app.add_plugins(bsengine_app::AnimationPlugin);
+        app.add_plugins(SkinnedMeshPlugin);
+        let (mesh, library) = root_motion_rig();
+        let mut transform = bsengine_core::Transform::default();
+        transform.rotation = Quat::from_rotation_y(std::f32::consts::FRAC_PI_2).into();
+        transform.scale = Vec3::splat(2.0).into();
+        let entity = app
+            .world_mut()
+            .spawn((
+                mesh,
+                library,
+                bsengine_core::AnimationPlayer::new("walk")
+                    .with_duration(1.0)
+                    .with_speed(speed),
+                motion,
+                transform,
+            ))
+            .id();
+        (app, entity)
+    }
+
+    fn position(app: &bevy_app::App, entity: bevy_ecs::entity::Entity) -> Vec3 {
+        app.world()
+            .get::<bsengine_core::Transform>(entity)
+            .unwrap()
+            .position
+            .0
+    }
+
+    fn near(a: Vec3, b: Vec3) -> bool {
+        (a - b).length() < 1e-3
+    }
+
+    /// Half a lap in five frames: the entity has walked 1 world unit toward
+    /// -X -- every frame counted, the first included -- and the hips in the
+    /// pose have stayed over the rest spot horizontally while keeping the
+    /// 0.2 bob. Both halves are needed: an entity that moved while the pose
+    /// also moved would walk at double speed, and one that moved while the
+    /// pose kept the bob out would stop bobbing.
+    #[test]
+    fn root_motion_moves_the_entity_and_takes_the_travel_out_of_the_pose() {
+        let (mut app, entity) = root_motion_app(bsengine_core::RootMotion::default(), 1.0);
+        for _ in 0..5 {
+            app.update();
+        }
+        let p = position(&app, entity);
+        assert!(
+            near(p, Vec3::new(-1.0, 0.0, 0.0)),
+            "half a lap is 1 unit toward -X: {p}"
+        );
+
+        let skinned = app.world().get::<SkinnedMesh>(entity).unwrap();
+        let hips = accumulate_globals(&skinned.nodes, &skinned.animated_locals)[1]
+            .w_axis
+            .truncate();
+        assert!(
+            hips.x.abs() < 1e-4 && hips.z.abs() < 1e-4,
+            "the hips stay over the rest spot horizontally: {hips}"
+        );
+        assert!((hips.y - 0.2).abs() < 1e-4, "and keep the bob: {hips}");
+    }
+
+    /// A lap and a half: 3 units, continuously. Measuring straight from the
+    /// last time to the new one across the wrap would drag the entity back a
+    /// whole lap at the loop point.
+    #[test]
+    fn root_motion_carries_on_across_a_loop() {
+        let (mut app, entity) = root_motion_app(bsengine_core::RootMotion::default(), 1.0);
+        for _ in 0..15 {
+            app.update();
+        }
+        let p = position(&app, entity);
+        assert!(
+            near(p, Vec3::new(-3.0, 0.0, 0.0)),
+            "a lap and a half is 3 units: {p}"
+        );
+    }
+
+    /// Played backwards the clip walks the other way, wrap included.
+    #[test]
+    fn reversed_root_motion_walks_backwards() {
+        let (mut app, entity) = root_motion_app(bsengine_core::RootMotion::default(), -1.0);
+        for _ in 0..15 {
+            app.update();
+        }
+        let p = position(&app, entity);
+        assert!(
+            near(p, Vec3::new(3.0, 0.0, 0.0)),
+            "backwards, toward +X: {p}"
+        );
+    }
+
+    /// Reporting only: the entity stays put, the pose is still stripped, and
+    /// the frame's travel is in `last_delta` for a script to route through a
+    /// character controller.
+    #[test]
+    fn root_motion_can_be_reported_without_being_applied() {
+        let (mut app, entity) = root_motion_app(
+            bsengine_core::RootMotion {
+                apply_to_transform: false,
+                ..Default::default()
+            },
+            1.0,
+        );
+        for _ in 0..3 {
+            app.update();
+        }
+        assert!(near(position(&app, entity), Vec3::ZERO));
+        let delta = app
+            .world()
+            .get::<bsengine_core::RootMotion>(entity)
+            .unwrap()
+            .last_delta
+            .0;
+        assert!(
+            near(delta, Vec3::new(-0.2, 0.0, 0.0)),
+            "one frame's travel, world space: {delta}"
         );
     }
 }

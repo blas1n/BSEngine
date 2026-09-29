@@ -2080,6 +2080,21 @@ pub fn bsengine_is_key_up(#[string] entity: String, #[string] key: String) -> bo
     key_up_for(&entity, &key)
 }
 
+/// Every key name `isKeyPressed`/`isKeyDown`/`isKeyUp` accept, as a JSON array.
+///
+/// The prelude checks each name against this list and throws on a miss,
+/// rather than keeping its own copy of `KEY_MAPPINGS` that the next added key
+/// would leave behind.
+#[op2]
+#[string]
+pub fn bsengine_key_names() -> String {
+    let names: Vec<&str> = crate::plugin::KEY_MAPPINGS
+        .iter()
+        .map(|(_, name)| *name)
+        .collect();
+    serde_json::to_string(&names).unwrap_or_else(|_| "[]".to_string())
+}
+
 /// Get the names of all named entities, as a JSON array string.
 #[op2]
 #[string]
@@ -5061,6 +5076,7 @@ deno_core::extension!(
         bsengine_is_key_pressed,
         bsengine_is_key_down,
         bsengine_is_key_up,
+        bsengine_key_names,
         bsengine_get_entity_names,
         bsengine_entity_exists,
         bsengine_get_entity_count,
@@ -5359,6 +5375,52 @@ mod tests {
             KEY_SNAPSHOT.with(|k| k.borrow_mut().clear());
             KEY_JUST_PRESSED_SNAPSHOT.with(|k| k.borrow_mut().clear());
             KEY_JUST_RELEASED_SNAPSHOT.with(|k| k.borrow_mut().clear());
+        }
+
+        /// `onKeyDown`/`onKeyUp` handlers fire for the key that went down or
+        /// up -- including one outside the first eleven -- and only for it.
+        /// The old tests pinned only "not called with no input", which a
+        /// dispatcher that never fires passes: this one did, from #1829 to
+        /// the fix, because it passed the key in the entity slot.
+        #[test]
+        fn key_handlers_fire_for_the_key_that_changed_and_no_other() {
+            use crate::runtime::ScriptRuntime;
+            clear();
+            KEY_JUST_PRESSED_SNAPSHOT.with(|k| *k.borrow_mut() = set(&["E"]));
+            KEY_JUST_RELEASED_SNAPSHOT.with(|k| *k.borrow_mut() = set(&["Space"]));
+
+            let mut rt = ScriptRuntime::new_with_ops();
+            rt.exec_source(super::super::BOOTSTRAP_JS, "<bootstrap>")
+                .unwrap();
+            let r = rt
+                .eval(
+                    r#"
+                const fired = [];
+                Bsengine.onKeyDown('E',     () => fired.push('down E'));
+                Bsengine.onKeyDown('Q',     () => fired.push('down Q'));
+                Bsengine.onKeyUp('Space',   () => fired.push('up Space'));
+                Bsengine.onKeyUp('E',       () => fired.push('up E'));
+                Bsengine._dispatchKeyEvents();
+                fired.join(',')
+            "#,
+                )
+                .unwrap();
+            clear();
+            assert!(
+                r.contains("down E,up Space") && !r.contains('Q') && !r.contains("up E"),
+                "expected exactly [down E, up Space] to fire, got: {r}"
+            );
+
+            let r = rt
+                .eval(
+                    r#"(() => { try { Bsengine.onKeyDown('space', () => {}); return "no throw"; }
+                           catch (e) { return e.message; } })()"#,
+                )
+                .unwrap();
+            assert!(
+                r.contains("unknown key name"),
+                "registering a handler for a key with no such name should throw, got: {r}"
+            );
         }
 
         /// The fallback, which is what keeps every existing single-player script
@@ -6404,6 +6466,46 @@ mod tests {
             .eval(r#"Bsengine.isKeyUp("Space") ? "up" : "not""#)
             .unwrap();
         assert!(r.contains("not"), "expected not up: {r}");
+    }
+
+    /// A key name outside `KEY_MAPPINGS` is a mistake in the script, not a
+    /// key that happens to be up: all three readers throw, naming the bad key
+    /// and listing the good ones. A near miss in case (`"space"`) and a
+    /// side-less modifier (`"Shift"`) are the two typos worth pinning; the
+    /// valid spelling of each must still answer without throwing, or the
+    /// check would pass by rejecting everything.
+    #[test]
+    fn an_unknown_key_name_throws_instead_of_reading_as_up() {
+        let mut rt = ScriptRuntime::new_with_ops();
+        rt.exec_source(super::BOOTSTRAP_JS, "<bootstrap>").unwrap();
+        for reader in ["isKeyPressed", "isKeyDown", "isKeyUp"] {
+            for bad in ["space", "Shift"] {
+                let r = rt
+                    .eval(&format!(
+                        r#"(() => {{ try {{ Bsengine.{reader}("{bad}"); return "no throw"; }}
+                               catch (e) {{ return e.message; }} }})()"#
+                    ))
+                    .unwrap();
+                assert!(
+                    r.contains(&format!("unknown key name \\\"{bad}\\\""))
+                        || r.contains(&format!("unknown key name \"{bad}\"")),
+                    "{reader}({bad:?}) should throw naming the key, got: {r}"
+                );
+                assert!(
+                    r.contains("ShiftLeft") && r.contains("Space"),
+                    "the error should list the valid names, got: {r}"
+                );
+            }
+            for good in ["Space", "ShiftLeft"] {
+                let r = rt
+                    .eval(&format!(r#"String(Bsengine.{reader}("{good}"))"#))
+                    .unwrap();
+                assert!(
+                    r.contains("false"),
+                    "{reader}({good:?}) should answer, got: {r}"
+                );
+            }
+        }
     }
 
     #[test]

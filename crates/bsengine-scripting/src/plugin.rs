@@ -805,18 +805,75 @@ fn reexecute_modified_scripts(
 
 /// Canonical key-name table shared by the scripting snapshot (`Bsengine.isKeyPressed`)
 /// and the headless test runtime's `press_key`/`release_key` commands.
+///
+/// Every `KeyCode` but `Unknown` is here. It used to hold the eleven keys the
+/// first games happened to need, while the input layer produced forty more:
+/// a script asking for `"E"`, `"1"` or `"ShiftLeft"` read "not held" forever
+/// and nothing said why, and a recording could not press them either. The
+/// `every_key_code_has_a_script_name` test matches on `KeyCode` exhaustively,
+/// so a key added to the enum without a row here does not compile.
+///
+/// Digits are `"0"`–`"9"` (Unity's and Godot's spelling), modifiers keep their
+/// side (`"ShiftLeft"`) because the input layer reports them that way.
 pub const KEY_MAPPINGS: &[(KeyCode, &str)] = &[
-    (KeyCode::W, "W"),
     (KeyCode::A, "A"),
-    (KeyCode::S, "S"),
+    (KeyCode::B, "B"),
+    (KeyCode::C, "C"),
     (KeyCode::D, "D"),
+    (KeyCode::E, "E"),
+    (KeyCode::F, "F"),
+    (KeyCode::G, "G"),
+    (KeyCode::H, "H"),
+    (KeyCode::I, "I"),
+    (KeyCode::J, "J"),
+    (KeyCode::K, "K"),
+    (KeyCode::L, "L"),
+    (KeyCode::M, "M"),
+    (KeyCode::N, "N"),
+    (KeyCode::O, "O"),
+    (KeyCode::P, "P"),
+    (KeyCode::Q, "Q"),
+    (KeyCode::R, "R"),
+    (KeyCode::S, "S"),
+    (KeyCode::T, "T"),
+    (KeyCode::U, "U"),
+    (KeyCode::V, "V"),
+    (KeyCode::W, "W"),
+    (KeyCode::X, "X"),
+    (KeyCode::Y, "Y"),
+    (KeyCode::Z, "Z"),
+    (KeyCode::Key0, "0"),
+    (KeyCode::Key1, "1"),
+    (KeyCode::Key2, "2"),
+    (KeyCode::Key3, "3"),
+    (KeyCode::Key4, "4"),
+    (KeyCode::Key5, "5"),
+    (KeyCode::Key6, "6"),
+    (KeyCode::Key7, "7"),
+    (KeyCode::Key8, "8"),
+    (KeyCode::Key9, "9"),
     (KeyCode::Space, "Space"),
     (KeyCode::Enter, "Enter"),
     (KeyCode::Escape, "Escape"),
+    (KeyCode::Backspace, "Backspace"),
+    (KeyCode::Tab, "Tab"),
+    (KeyCode::Delete, "Delete"),
+    (KeyCode::Home, "Home"),
+    (KeyCode::End, "End"),
     (KeyCode::Up, "Up"),
     (KeyCode::Down, "Down"),
     (KeyCode::Left, "Left"),
     (KeyCode::Right, "Right"),
+    (KeyCode::Minus, "Minus"),
+    (KeyCode::Equals, "Equals"),
+    (KeyCode::Period, "Period"),
+    (KeyCode::Comma, "Comma"),
+    (KeyCode::ShiftLeft, "ShiftLeft"),
+    (KeyCode::ShiftRight, "ShiftRight"),
+    (KeyCode::ControlLeft, "ControlLeft"),
+    (KeyCode::ControlRight, "ControlRight"),
+    (KeyCode::AltLeft, "AltLeft"),
+    (KeyCode::AltRight, "AltRight"),
 ];
 
 /// The entities behind two names, found in one pass.
@@ -7050,6 +7107,208 @@ mod tests {
             fog.anisotropy < 1.0,
             "anisotropy must stay strictly inside (-1, 1), got {}",
             fog.anisotropy
+        );
+    }
+
+    /// Every `KeyCode` the input layer can produce, spelled once and checked
+    /// by an exhaustive `match`: a variant added to the enum without being
+    /// listed here stops this module compiling, so the coverage test below
+    /// cannot quietly skip a new key the way `KEY_MAPPINGS` once skipped
+    /// forty old ones.
+    macro_rules! every_key_code {
+        ($($key:ident),* $(,)?) => {{
+            fn _exhaustive(code: bsengine_input::KeyCode) {
+                match code {
+                    $(bsengine_input::KeyCode::$key)|* => {}
+                }
+            }
+            [$(bsengine_input::KeyCode::$key),*]
+        }};
+    }
+
+    #[test]
+    fn every_key_code_has_a_script_name() {
+        use bsengine_input::KeyCode;
+        let all = every_key_code![
+            A,
+            B,
+            C,
+            D,
+            E,
+            F,
+            G,
+            H,
+            I,
+            J,
+            K,
+            L,
+            M,
+            N,
+            O,
+            P,
+            Q,
+            R,
+            S,
+            T,
+            U,
+            V,
+            W,
+            X,
+            Y,
+            Z,
+            Space,
+            Enter,
+            Escape,
+            Backspace,
+            Tab,
+            Left,
+            Right,
+            Up,
+            Down,
+            Key0,
+            Key1,
+            Key2,
+            Key3,
+            Key4,
+            Key5,
+            Key6,
+            Key7,
+            Key8,
+            Key9,
+            Delete,
+            Minus,
+            Equals,
+            Period,
+            Comma,
+            Home,
+            End,
+            ControlLeft,
+            ControlRight,
+            ShiftLeft,
+            ShiftRight,
+            AltLeft,
+            AltRight,
+            Unknown,
+        ];
+        let missing: Vec<KeyCode> = all
+            .iter()
+            .copied()
+            .filter(|code| *code != KeyCode::Unknown)
+            .filter(|code| !super::KEY_MAPPINGS.iter().any(|(c, _)| c == code))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "a script cannot ask for {missing:?}: the input layer reports these \
+             keys but KEY_MAPPINGS gives them no name"
+        );
+
+        // One name per key and one key per name: a duplicated name would make
+        // `press_key` in a recording press whichever row came first.
+        let mut names: Vec<&str> = super::KEY_MAPPINGS.iter().map(|(_, n)| *n).collect();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), super::KEY_MAPPINGS.len(), "a key name repeats");
+        let mut codes: Vec<String> = super::KEY_MAPPINGS
+            .iter()
+            .map(|(c, _)| format!("{c:?}"))
+            .collect();
+        codes.sort_unstable();
+        codes.dedup();
+        assert_eq!(
+            codes.len(),
+            super::KEY_MAPPINGS.len(),
+            "a key is named twice"
+        );
+    }
+
+    /// The keys the first table left out, read by a real script through the
+    /// real plugin: the script packs "which of these is held" into a bitmask
+    /// and writes it to its own position. Only every other key is held, so a
+    /// row that named the wrong key -- or two names answering to one key --
+    /// shows up as a wrong bit, not only a missing one. `y = 1` is the
+    /// script's own "I ran" mark; without it a mask of 0 would be
+    /// indistinguishable from a script that never loaded.
+    #[test]
+    fn a_script_reads_keys_beyond_the_first_eleven() {
+        use bsengine_input::{Input, KeyCode};
+        let keys: [(KeyCode, &str); 16] = [
+            (KeyCode::E, "E"),
+            (KeyCode::Q, "Q"),
+            (KeyCode::Key1, "1"),
+            (KeyCode::Key0, "0"),
+            (KeyCode::ShiftLeft, "ShiftLeft"),
+            (KeyCode::ShiftRight, "ShiftRight"),
+            (KeyCode::ControlLeft, "ControlLeft"),
+            (KeyCode::AltRight, "AltRight"),
+            (KeyCode::Tab, "Tab"),
+            (KeyCode::Backspace, "Backspace"),
+            (KeyCode::Delete, "Delete"),
+            (KeyCode::Home, "Home"),
+            (KeyCode::Minus, "Minus"),
+            (KeyCode::Equals, "Equals"),
+            (KeyCode::Period, "Period"),
+            (KeyCode::Comma, "Comma"),
+        ];
+        let names: Vec<String> = keys.iter().map(|(_, n)| format!("{n:?}")).collect();
+        let script_path =
+            std::env::temp_dir().join(format!("bsengine_test_every_key_{}.js", std::process::id()));
+        std::fs::write(
+            &script_path,
+            format!(
+                "const KEYS = [{}];\n\
+                 function onUpdate(name) {{\n\
+                     let mask = 0;\n\
+                     for (let i = 0; i < KEYS.length; i++) {{\n\
+                         if (Bsengine.isKeyPressed(KEYS[i])) mask |= (1 << i);\n\
+                     }}\n\
+                     Bsengine.setPosition(name, mask, 1, 0);\n\
+                 }}",
+                names.join(", ")
+            ),
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: String::new(),
+        });
+        app.init_resource::<Input<KeyCode>>();
+        let entity = app
+            .world_mut()
+            .spawn((
+                Name("Reader".to_string()),
+                ScriptPath(script_path.to_string_lossy().to_string()),
+                Transform::default(),
+            ))
+            .id();
+        let mut expected = 0u32;
+        {
+            let mut input = app.world_mut().resource_mut::<Input<KeyCode>>();
+            for (i, (code, _)) in keys.iter().enumerate() {
+                if i % 2 == 0 {
+                    input.press(*code);
+                    expected |= 1 << i;
+                }
+            }
+        }
+
+        let mut frames = 0;
+        let position = loop {
+            app.update();
+            frames += 1;
+            let p = app.world().get::<Transform>(entity).unwrap().position;
+            if p.y == 1.0 {
+                break p;
+            }
+            assert!(frames < 300, "the key-reading script never ran");
+        };
+        let _ = std::fs::remove_file(&script_path);
+        assert_eq!(
+            position.x as u32, expected,
+            "the script saw held-key mask {:#018b}, but {:#018b} was held -- \
+             bits are the keys in this order: {names:?}",
+            position.x as u32, expected
         );
     }
 }

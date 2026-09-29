@@ -138,6 +138,26 @@ function _xyzw(a, b, c, d) {
     return (a !== null && typeof a === "object") ? [a.x, a.y, a.z, a.w] : [a, b, c, d];
 }
 
+// A key name the engine does not know used to read as "not held", forever:
+// `isKeyDown("Shift")` or `isKeyDown("space")` ran without complaint and the
+// branch behind it simply never fired. Unity's `Input.GetKey("typo")` throws
+// for the same reason. The names are the engine's own table (`KEY_MAPPINGS`),
+// fetched on first use rather than copied here, so the two cannot drift.
+// `var`, not `let`: a scene reload re-runs this file in the same realm, and a
+// second `let` of the same name is a SyntaxError.
+var _keyNames = null;
+function _key(key) {
+    if (_keyNames === null) {
+        _keyNames = new Set(JSON.parse(Deno.core.ops.bsengine_key_names()));
+    }
+    if (!_keyNames.has(key)) {
+        throw new Error(
+            "unknown key name " + JSON.stringify(key) + "; key names are "
+            + Array.from(_keyNames).join(", "));
+    }
+    return key;
+}
+
 var Bsengine = {
     Vec3: _V3,
     Quat: _Q,
@@ -184,9 +204,9 @@ var Bsengine = {
     // keyboard of the machine it happens to be running on. `_currentEntity` is
     // set by `_runAll` around every dispatch; see there for why this cannot be
     // done from Rust.
-    isKeyPressed:   (key)                  => Deno.core.ops.bsengine_is_key_pressed(Bsengine._currentEntity, key),
-    isKeyDown:      (key)                  => Deno.core.ops.bsengine_is_key_down(Bsengine._currentEntity, key),
-    isKeyUp:        (key)                  => Deno.core.ops.bsengine_is_key_up(Bsengine._currentEntity, key),
+    isKeyPressed:   (key)                  => Deno.core.ops.bsengine_is_key_pressed(Bsengine._currentEntity, _key(key)),
+    isKeyDown:      (key)                  => Deno.core.ops.bsengine_is_key_down(Bsengine._currentEntity, _key(key)),
+    isKeyUp:        (key)                  => Deno.core.ops.bsengine_is_key_up(Bsengine._currentEntity, _key(key)),
     pause:          ()                     => Deno.core.ops.bsengine_pause(),
     resume:         ()                     => Deno.core.ops.bsengine_resume(),
     isPaused:       ()                     => Deno.core.ops.bsengine_is_paused(),
@@ -741,18 +761,27 @@ var Bsengine = {
     // Key event callbacks (event-based alternative to polling)
     _keyDownHandlers: {},
     _keyUpHandlers: {},
-    onKeyDown(key, fn) { (this._keyDownHandlers[key] ??= []).push(fn); },
-    onKeyUp(key, fn)   { (this._keyUpHandlers[key]   ??= []).push(fn); },
+    // The name is checked when the handler is registered, not when it would
+    // fire: a typo'd `onKeyDown("space", ...)` otherwise registers fine and
+    // waits forever for a key that has no such name.
+    onKeyDown(key, fn) { (this._keyDownHandlers[_key(key)] ??= []).push(fn); },
+    onKeyUp(key, fn)   { (this._keyUpHandlers[_key(key)]   ??= []).push(fn); },
+    // Handlers belong to no entity, so they read this machine's keyboard: the
+    // entity argument is "" (never a scripted entity's name, so never one with
+    // remote input). #1829 added that argument to the key ops and this call
+    // kept passing the key alone -- the key landed in the entity slot, the
+    // key slot read `undefined`, and no key handler fired from then on.
     _dispatchKeyEvents() {
-        const keys = ['W','A','S','D','Space','Enter','Escape','Up','Down','Left','Right'];
-        for (const key of keys) {
-            if (Deno.core.ops.bsengine_is_key_down(key)) {
-                for (const fn of (this._keyDownHandlers[key] || [])) {
+        for (const key of Object.keys(this._keyDownHandlers)) {
+            if (Deno.core.ops.bsengine_is_key_down("", key)) {
+                for (const fn of this._keyDownHandlers[key]) {
                     try { fn(); } catch(e) { this.log('[keyDown:' + key + '] ' + e); }
                 }
             }
-            if (Deno.core.ops.bsengine_is_key_up(key)) {
-                for (const fn of (this._keyUpHandlers[key] || [])) {
+        }
+        for (const key of Object.keys(this._keyUpHandlers)) {
+            if (Deno.core.ops.bsengine_is_key_up("", key)) {
+                for (const fn of this._keyUpHandlers[key]) {
                     try { fn(); } catch(e) { this.log('[keyUp:' + key + '] ' + e); }
                 }
             }

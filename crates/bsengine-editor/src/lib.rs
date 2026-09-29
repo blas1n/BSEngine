@@ -12,6 +12,9 @@
 #![allow(clippy::type_complexity)]
 #![warn(missing_docs)]
 
+/// `query_entities`: conditions, sort, limit and a verb over the editor
+/// snapshot, in place of a tool per filter.
+pub(crate) mod entity_query;
 /// Registers the editor's ECS systems, resources, and the `EditorCommand`/
 /// `ReflectCommand` processing loop into a Bevy `App`.
 pub mod plugin;

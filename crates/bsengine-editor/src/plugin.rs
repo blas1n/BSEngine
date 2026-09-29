@@ -3310,49 +3310,31 @@ impl Plugin for EditorPlugin {
                 }),
             });
 
-            // query_entities
+            // query_entities -- see `entity_query` for why this is one tool.
             let snap_query = snapshot.clone();
+            let sel_query = selection.clone();
             mcp.0.lock().unwrap().register(McpTool {
                 name: "query_entities".to_string(),
-                description: "Filter entities by component presence or light type (all filters optional, AND-combined)".to_string(),
-                input_schema: Some(json!({
-                    "type": "object",
-                    "properties": {
-                        "has_mesh":     { "type": "boolean" },
-                        "has_light":    { "type": "boolean" },
-                        "has_position": { "type": "boolean" },
-                        "light_type":   { "type": "string", "enum": ["point", "directional", "spot"] }
-                    }
-                })),
+                description: "Find, count, select or summarise entities by any combination of \
+                    conditions: `where` (all must hold) and `any` (one must hold) take \
+                    {field, op, value}; `sort` {by, desc}, `limit`, and `from`/`from_entity` \
+                    for the `distance` field. `action`: get (default), count, select, \
+                    deselect, select_only, tags (histogram), bounds (min/max/center). \
+                    Example: lights above y=3 named *Lamp*: {\"where\": [{\"field\": \
+                    \"light.type\", \"op\": \"exists\"}, {\"field\": \"position.y\", \"op\": \
+                    \"gt\", \"value\": 3}, {\"field\": \"name\", \"op\": \"contains\", \
+                    \"value\": \"Lamp\"}]}. An unknown field, op or key is an error."
+                    .to_string(),
+                input_schema: Some(crate::entity_query::input_schema()),
                 handler: Box::new(move |input| {
+                    // Snapshot first, selection second -- the order every
+                    // other handler that holds both takes them in.
                     let s = snap_query.lock().unwrap();
-                    let results: Vec<_> = s
-                        .entities
-                        .iter()
-                        .filter(|e| {
-                            if let Some(v) = input["has_mesh"].as_bool() {
-                                if e.mesh_id.is_some() != v { return false; }
-                            }
-                            if let Some(v) = input["has_light"].as_bool() {
-                                if e.light_type.is_some() != v { return false; }
-                            }
-                            if let Some(v) = input["has_position"].as_bool() {
-                                if e.position.is_some() != v { return false; }
-                            }
-                            if let Some(lt) = input["light_type"].as_str() {
-                                if e.light_type.as_deref() != Some(lt) { return false; }
-                            }
-                            true
-                        })
-                        .map(|e| json!({
-                            "id": e.id,
-                            "name": e.name,
-                            "position": e.position,
-                            "mesh_id": e.mesh_id,
-                            "light_type": e.light_type,
-                        }))
-                        .collect();
-                    McpToolOutput::success(json!({ "entities": results }))
+                    let mut sel = sel_query.lock().unwrap();
+                    match crate::entity_query::execute(&input, &s.entities, &mut sel) {
+                        Ok(v) => McpToolOutput::success(v),
+                        Err(e) => McpToolOutput::error(&format!("query_entities: {e}")),
+                    }
                 }),
             });
 
@@ -91885,6 +91867,80 @@ mod tests {
         let entities = result.content["entities"].as_array().unwrap();
         assert_eq!(entities.len(), 1, "only 1 entity has mesh");
         assert_eq!(entities[0]["mesh_id"], 10);
+    }
+
+    /// The MCP path end to end: a condition query through the registry
+    /// selects in the editor's real selection, which the next snapshot
+    /// reports; and a malformed query comes back as a tool error rather than
+    /// as "no matches". The filter logic itself is covered in
+    /// `entity_query`'s own tests -- this is the wiring.
+    #[test]
+    fn mcp_query_entities_selects_through_the_registry_and_reports_errors() {
+        let mut app = new_app();
+        app.add_plugins(McpPlugin);
+        app.add_plugins(EditorPlugin);
+        let prop = app
+            .world_mut()
+            .spawn((
+                bsengine_scene::Name("Crate".to_string()),
+                crate::snapshot::Tags(vec!["prop".to_string()]),
+            ))
+            .id()
+            .index() as u64;
+        let other = app
+            .world_mut()
+            .spawn((
+                bsengine_scene::Name("Wall".to_string()),
+                crate::snapshot::Tags(vec!["static".to_string()]),
+            ))
+            .id()
+            .index() as u64;
+        app.update();
+
+        {
+            let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+            let m = mcp.0.lock().unwrap();
+            let out = m
+                .execute(
+                    "query_entities",
+                    json!({"where": [{"field": "tags", "op": "contains", "value": "prop"}],
+                           "action": "select"}),
+                )
+                .expect("query_entities not found");
+            assert!(out.is_ok(), "{:?}", out.error);
+            assert_eq!(out.content["added_count"], 1);
+
+            let bad = m
+                .execute(
+                    "query_entities",
+                    json!({"where": [{"field": "tagz", "op": "contains", "value": "prop"}]}),
+                )
+                .expect("query_entities not found");
+            assert!(!bad.is_ok(), "a typo'd field must fail, not match nothing");
+            assert!(
+                bad.error.as_deref().unwrap_or("").contains("unknown field `tagz`"),
+                "{:?}",
+                bad.error
+            );
+        }
+        app.update();
+        app.update();
+
+        let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+        let sel = mcp
+            .0
+            .lock()
+            .unwrap()
+            .execute("get_selected_entities", json!({}))
+            .unwrap();
+        let ids: Vec<u64> = sel.content["entities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["id"].as_u64().unwrap())
+            .collect();
+        assert!(ids.contains(&prop), "the tagged entity is selected: {ids:?}");
+        assert!(!ids.contains(&other), "premise: the other one is not: {ids:?}");
     }
 
     #[test]

@@ -45,7 +45,7 @@ master `e3b5c728` 기준. 아래 "현재 남은 작업" 표는 2026-09-28에 비
 | 렌더링 | HDR 디스플레이 출력 | `hdr_output\|bt2020\|hdr10` → 0 | Unity·Unreal; Godot 4.x 진행 중 |
 | 콘텐츠 | 로컬라이제이션 | `locali[sz]ation\|string_?table` → 0 | 셋 다 |
 | AI | 비헤이비어 트리 | `behaviou?r_?tree\|blackboard` → 2(둘 다 "블랙보드"라는 비유 주석) | Unreal 기본, Unity·Godot은 에셋/플러그인 |
-| 운영 | 크래시 핸들러·리포트 | `panic::set_hook\|minidump\|crash_?report` → 0 | 셋 다 |
+| 운영 | ~~크래시 핸들러·리포트~~ 닫힘(패닉) | `panic::set_hook\|minidump\|crash_?report` → 0 → 2026-09-30 `bsengine_core::crash`: 사용자별 디렉터리(Windows `%LOCALAPPDATA%\<프로젝트>`, macOS `~/Library/Application Support`, Linux XDG; `BSENGINE_USER_DIR`로 덮어씀)에 `logs/game.log`(+`game-prev.log`, Unity Player-prev식) 파일 로그, 패닉 훅이 `crashes/crash-<UTC>-<pid>.txt`(메시지·위치·스레드·강제 백트레이스·로그 끝 200줄, 최신 20개 유지). 러너 `build_windowed_app`이 매니페스트 직후·`new_app()` 전에 설치. 그 전엔 **로그 파일 자체가 없었음**(stderr만). **네이티브 크래시(시그널/SEH·미니덤프)는 남음** -- Unity·Unreal은 잡음. 세이브 파일은 여전히 cwd(별도 과제). 확인: `grep -n "pub fn init_for_project" crates/bsengine-core/src/crash.rs` | 셋 다 |
 | 플랫폼 | 웹·모바일 | `wasm32\|target_os = "android"\|target_os = "ios"` → 0 | 셋 다(콘솔은 셋 다 별도 SDK) |
 
 **있는 것으로 확인된 것**(존재만, 품질 비교는 아님): 메시 LOD(`LodLevels`), 오클루전·프러스텀 컬링, SSAO, 블룸, 톤맵·노출,

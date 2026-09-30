@@ -444,6 +444,12 @@ fn build_windowed_app(project_dir: &str) -> bevy_app::App {
     // inside the archive, so there is nothing to read until that is open.
     let pak = open_pak(project_dir);
     let manifest = read_manifest(project_dir, pak.as_deref());
+    // The log file and the crash handler, before `new_app()` below sets up
+    // stderr-only logging (the first set-up wins) and before anything else
+    // can panic -- a bad `[input]` binding, a scene that will not load --
+    // so those land in a report too. Named for the project, which is why it
+    // cannot come any earlier than the manifest.
+    bsengine_core::crash::init_for_project(&manifest.project.name);
 
     let scene_path = format!("{}/{}", project_dir, manifest.project.entry_scene);
     let title = manifest

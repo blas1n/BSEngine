@@ -184,6 +184,29 @@ image files resolves them through the filesystem, which an archive has none of.
 shipping a game that loses its meshes at run time. A `.glb` is self-contained
 and packs fine.
 
+### Logs and crash reports
+
+A game run (and the editor) writes its log to a per-user directory named after
+`project.toml`'s `[project] name`, as Unity, Unreal and Godot do -- never
+beside the executable, which may be read-only:
+
+| platform | directory |
+|---|---|
+| Windows | `%LOCALAPPDATA%\<name>` |
+| macOS | `~/Library/Application Support/<name>` |
+| Linux | `$XDG_DATA_HOME/<name>` (or `~/.local/share/<name>`) |
+
+`BSENGINE_USER_DIR` replaces that directory outright. Inside it:
+
+- `logs/game.log` is this run's log, and `logs/game-prev.log` the run before
+  (the one a player usually means when reporting a crash after restarting).
+- `crashes/crash-<UTC time>-<pid>.txt` is written on any panic: the message,
+  where it happened, the thread, a backtrace, and the last 200 log lines. The
+  newest 20 are kept.
+
+Panics only: a native crash (a segfault in a GPU driver) does not reach the
+panic hook.
+
 ---
 
 ## Input actions

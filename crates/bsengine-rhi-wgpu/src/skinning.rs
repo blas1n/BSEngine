@@ -52,6 +52,25 @@ pub struct GpuVertexSkin {
     pub weights: [f32; 4],
 }
 
+/// A mesh's morph targets as the compute pass reads them: per target, per
+/// vertex, the position delta and the normal delta -- target-major, so
+/// target `t`'s vertex `i` is `deltas[t * vertex_count + i]`.
+#[derive(Clone, Copy, Debug)]
+pub struct MorphDeltas<'a> {
+    /// `[dx, dy, dz, dnx, dny, dnz]`, `target_count * vertex_count` of them.
+    pub deltas: &'a [[f32; 6]],
+    /// How many targets.
+    pub target_count: u32,
+}
+
+impl MorphDeltas<'_> {
+    /// No targets.
+    pub const NONE: MorphDeltas<'static> = MorphDeltas {
+        deltas: &[],
+        target_count: 0,
+    };
+}
+
 /// Floats per [`Vertex`], which the shader hardcodes as `11u`: this is the
 /// check that keeps the two in step, since a `Vertex` that grew a field
 /// would otherwise skin every vertex out of the wrong floats with no error.
@@ -62,8 +81,15 @@ const _: () = assert!(
 );
 /// Threads per workgroup, matching `@workgroup_size` in the shader.
 const WORKGROUP: u32 = 64;
-/// Bytes of the per-dispatch parameter block (`joint_count`, padded).
-const PARAMS_SIZE: u64 = 16;
+/// Most morph targets one mesh can carry. The weights ride in the uniform
+/// block rather than a storage buffer of their own, because the skinning pass
+/// already uses the four storage buffers per stage the WebGPU baseline
+/// guarantees; a uniform array has to have a fixed length. 64 holds ARKit's
+/// 52 face shapes, the largest standard set.
+pub const MAX_MORPH_TARGETS: usize = 64;
+/// Bytes of the per-dispatch parameter block: `joint_count`, `target_count`
+/// and padding, then the morph weights as 16 `vec4`s.
+const PARAMS_SIZE: u64 = 16 + (MAX_MORPH_TARGETS as u64) * 4;
 
 /// The shader. Mirrors `bsengine-gltf`'s `blend_vertex_position` and
 /// `blend_vertex_normal` exactly -- a zero weight is skipped, a joint index
@@ -80,9 +106,13 @@ struct SkinIn {
 
 struct Params {
     joint_count: u32,
-    _pad0: u32,
+    // Morph targets (blend shapes) this mesh carries; 0 for none.
+    target_count: u32,
     _pad1: u32,
     _pad2: u32,
+    // One weight per target, four to a vec4 (a uniform array's elements are
+    // 16-byte aligned): target t is morph_weights[t / 4][t % 4].
+    morph_weights: array<vec4<f32>, 16>,
 };
 
 @group(0) @binding(0) var<storage, read> rest: array<f32>;
@@ -90,6 +120,11 @@ struct Params {
 @group(0) @binding(2) var<storage, read> palette: array<mat4x4<f32>>;
 @group(0) @binding(3) var<storage, read_write> out: array<f32>;
 @group(0) @binding(4) var<uniform> params: Params;
+// Morph target deltas live at the end of `rest`, after the V rest vertices:
+// six floats per vertex per target -- position xyz then normal xyz --
+// target-major, so target t's vertex i starts at V * 11 + (t * V + i) * 6.
+// In `rest` rather than a buffer of their own because this pass already uses
+// the four storage buffers per stage the WebGPU baseline guarantees.
 
 const FLOATS_PER_VERTEX: u32 = 11u;
 
@@ -100,8 +135,22 @@ fn cs_skin(@builtin(global_invocation_id) gid: vec3<u32>) {
         return;
     }
     let base = i * FLOATS_PER_VERTEX;
-    let p = vec3<f32>(rest[base], rest[base + 1u], rest[base + 2u]);
-    let n = vec3<f32>(rest[base + 6u], rest[base + 7u], rest[base + 8u]);
+    var p = vec3<f32>(rest[base], rest[base + 1u], rest[base + 2u]);
+    var n = vec3<f32>(rest[base + 6u], rest[base + 7u], rest[base + 8u]);
+    // Morph targets first, in the mesh's own space, then the skin: the
+    // order glTF defines ("morphed, then skinned") and every engine uses --
+    // a smile has to move with the jaw bone, not be bent by it.
+    let vertex_count = arrayLength(&skins);
+    let morph_base = vertex_count * FLOATS_PER_VERTEX;
+    for (var t = 0u; t < params.target_count; t = t + 1u) {
+        let w = params.morph_weights[t / 4u][t % 4u];
+        if (w == 0.0) {
+            continue;
+        }
+        let m = morph_base + (t * vertex_count + i) * 6u;
+        p = p + w * vec3<f32>(rest[m], rest[m + 1u], rest[m + 2u]);
+        n = n + w * vec3<f32>(rest[m + 3u], rest[m + 4u], rest[m + 5u]);
+    }
     let s = skins[i];
 
     var pos = vec3<f32>(0.0);
@@ -208,6 +257,10 @@ pub struct SkinnedBuffers {
     skin: wgpu::Buffer,
     palette: wgpu::Buffer,
     params: wgpu::Buffer,
+    /// Targets the mesh carries -- their deltas follow the rest vertices in
+    /// `rest`, their weights sit in `params`; `set_morph_weights` refuses
+    /// more.
+    target_count: u32,
     bind_group: wgpu::BindGroup,
     vertex_count: u32,
     /// Joints the palette has room for; a palette longer than this is
@@ -225,10 +278,14 @@ impl SkinnedBuffers {
         vertices: &[Vertex],
         skin: &[GpuVertexSkin],
         joint_capacity: u32,
+        morph: MorphDeltas<'_>,
     ) -> Self {
+        // The rest vertices, then the morph deltas (see the shader).
+        let mut rest_contents: Vec<f32> = bytemuck::cast_slice(vertices).to_vec();
+        rest_contents.extend(morph.deltas.iter().flatten());
         let rest = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("skinning rest vertices"),
-            contents: bytemuck::cast_slice(vertices),
+            label: Some("skinning rest vertices and morph deltas"),
+            contents: bytemuck::cast_slice(&rest_contents),
             usage: wgpu::BufferUsages::STORAGE,
         });
         let skin_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -283,6 +340,7 @@ impl SkinnedBuffers {
             skin: skin_buffer,
             palette,
             params,
+            target_count: morph.target_count,
             bind_group,
             vertex_count: vertices.len() as u32,
             joint_capacity,
@@ -307,11 +365,51 @@ impl GpuMeshRegistry {
         indices: &[u32],
         joint_count: u32,
     ) -> u64 {
+        self.register_skinned_morphed(vertices, skin, indices, joint_count, MorphDeltas::NONE)
+    }
+
+    /// [`GpuMeshRegistry::register_skinned`] for a mesh that also carries
+    /// morph targets (blend shapes): their deltas are applied, weighted by
+    /// [`GpuMeshRegistry::set_morph_weights`], before the skin -- in the same
+    /// compute pass, into the same vertex buffer. A mesh with targets but no
+    /// skin is registered with one identity joint and posed with it.
+    pub fn register_skinned_morphed(
+        &mut self,
+        vertices: &[Vertex],
+        skin: &[GpuVertexSkin],
+        indices: &[u32],
+        joint_count: u32,
+        morph: MorphDeltas<'_>,
+    ) -> u64 {
         let id = self.next_id;
         self.next_id += 1;
-        let mesh = self.build_skinned(vertices, skin, indices, joint_count);
+        let mesh = self.build_skinned(vertices, skin, indices, joint_count, morph);
         self.meshes.insert(id, mesh);
         id
+    }
+
+    /// Sets mesh `id`'s morph target weights, one per target in target
+    /// order; fewer leaves the rest where they were. Takes effect at the next
+    /// skinning dispatch. `false` for an unknown or unskinned id, or more
+    /// weights than the mesh has targets -- refused rather than written past
+    /// the buffer.
+    pub fn set_morph_weights(&mut self, queue: &wgpu::Queue, id: u64, weights: &[f32]) -> bool {
+        let Some(skinned) = self.meshes.get(&id).and_then(|m| m.skinned.as_ref()) else {
+            return false;
+        };
+        if weights.len() as u32 > skinned.target_count {
+            warn!(
+                "refusing {} morph weights for mesh {id}, which has {} targets",
+                weights.len(),
+                skinned.target_count
+            );
+            return false;
+        }
+        if !weights.is_empty() {
+            // After the four u32s the dispatch writes; the rest of the block.
+            queue.write_buffer(&skinned.params, 16, bytemuck::cast_slice(weights));
+        }
+        true
     }
 
     /// [`GpuMeshRegistry::replace`] for a skinned mesh: rebuilds every
@@ -326,10 +424,27 @@ impl GpuMeshRegistry {
         indices: &[u32],
         joint_count: u32,
     ) -> bool {
+        self.replace_skinned_morphed(id, vertices, skin, indices, joint_count, MorphDeltas::NONE)
+    }
+
+    /// [`GpuMeshRegistry::replace_skinned`] with morph targets, for a hot
+    /// reload of a mesh registered through
+    /// [`GpuMeshRegistry::register_skinned_morphed`]. The weights start at
+    /// zero again; the caller re-applies them.
+    #[must_use]
+    pub fn replace_skinned_morphed(
+        &mut self,
+        id: u64,
+        vertices: &[Vertex],
+        skin: &[GpuVertexSkin],
+        indices: &[u32],
+        joint_count: u32,
+        morph: MorphDeltas<'_>,
+    ) -> bool {
         if !self.meshes.contains_key(&id) {
             return false;
         }
-        let mesh = self.build_skinned(vertices, skin, indices, joint_count);
+        let mesh = self.build_skinned(vertices, skin, indices, joint_count, morph);
         self.meshes.insert(id, mesh);
         true
     }
@@ -378,7 +493,7 @@ impl GpuMeshRegistry {
             let cols: Vec<[[f32; 4]; 4]> = joints.iter().map(|m| m.to_cols_array_2d()).collect();
             queue.write_buffer(&skinned.palette, 0, bytemuck::cast_slice(&cols));
         }
-        let params = [joints.len() as u32, 0, 0, 0];
+        let params = [joints.len() as u32, skinned.target_count, 0, 0];
         queue.write_buffer(&skinned.params, 0, bytemuck::cast_slice(&params));
         if !self.pending_skins.contains(&id) {
             self.pending_skins.push(id);
@@ -486,12 +601,33 @@ impl GpuMeshRegistry {
         skin: &[GpuVertexSkin],
         indices: &[u32],
         joint_count: u32,
+        morph: MorphDeltas<'_>,
     ) -> crate::mesh::GpuMesh {
         assert_eq!(
             vertices.len(),
             skin.len(),
             "a skinned mesh needs exactly one skin entry per vertex"
         );
+        assert_eq!(
+            morph.deltas.len(),
+            vertices.len() * morph.target_count as usize,
+            "morph deltas are one entry per vertex per target"
+        );
+        // Past the uniform's room, the extra targets are dropped -- loudly --
+        // rather than the mesh refused: a face that loses its 65th shape
+        // still draws.
+        let morph = if morph.target_count as usize > MAX_MORPH_TARGETS {
+            warn!(
+                "a mesh with {} morph targets keeps the first {MAX_MORPH_TARGETS}",
+                morph.target_count
+            );
+            MorphDeltas {
+                deltas: &morph.deltas[..vertices.len() * MAX_MORPH_TARGETS],
+                target_count: MAX_MORPH_TARGETS as u32,
+            }
+        } else {
+            morph
+        };
         let device: Arc<wgpu::Device> = self.device.clone();
         if self.skinning.is_none() {
             self.skinning = Some(SkinningPipeline::new(&device));
@@ -517,6 +653,7 @@ impl GpuMeshRegistry {
             vertices,
             skin,
             joint_count,
+            morph,
         ));
         mesh
     }
@@ -764,6 +901,95 @@ mod tests {
         assert!(
             !registry.replace_skinned(4242, &[], &[], &[], 1),
             "an unregistered id is refused"
+        );
+    }
+
+    /// Morph targets through the compute pass, and before the skin. Two
+    /// targets on a three-vertex mesh bound to one joint that moves +10 on X:
+    /// target 0 lifts vertex 0 by +1 Y and bends its normal, target 1 pushes
+    /// vertex 2 by +1 Z. At weights [0.5, 0] vertex 0 is lifted half way and
+    /// *then* moved by the joint -- so +10 X on top -- vertex 2 is untouched
+    /// by the zero-weight target, and vertex 1, in no target, is just
+    /// skinned. Weights past the target count are refused.
+    #[test]
+    fn morph_targets_are_weighted_and_applied_before_the_skin() {
+        let (device, queue) = device_and_queue();
+        let mut registry = GpuMeshRegistry::new(device);
+        let vertices = vec![
+            vertex([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
+            vertex([1.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
+            vertex([2.0, 0.0, 0.0], [0.0, 0.0, 1.0]),
+        ];
+        let bound = GpuVertexSkin {
+            joints: [0, 0, 0, 0],
+            weights: [1.0, 0.0, 0.0, 0.0],
+        };
+        let zero = [0.0; 6];
+        // Target-major: target 0's three vertices, then target 1's.
+        let deltas = vec![
+            [0.0, 1.0, 0.0, 0.0, 1.0, -1.0],
+            zero,
+            zero,
+            zero,
+            zero,
+            [0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+        ];
+        let id = registry.register_skinned_morphed(
+            &vertices,
+            &[bound; 3],
+            &[0, 1, 2],
+            1,
+            MorphDeltas {
+                deltas: &deltas,
+                target_count: 2,
+            },
+        );
+        let joint = Mat4::from_translation(Vec3::new(10.0, 0.0, 0.0));
+
+        assert!(registry.set_morph_weights(&queue, id, &[0.5, 0.0]));
+        assert!(registry.skin(&queue, id, &[joint]));
+        let out = registry.read_back_vertices(&queue, id).expect("registered");
+        assert!(
+            close(out[0].position, [10.0, 0.5, 0.0]),
+            "{:?}",
+            out[0].position
+        );
+        let n = Vec3::from(out[0].normal);
+        assert!(
+            close(
+                out[0].normal,
+                Vec3::new(0.0, 0.5, 0.5).normalize().to_array()
+            ),
+            "the normal bends by half the target's delta, renormalised: {n}"
+        );
+        assert!(
+            close(out[1].position, [11.0, 0.0, 0.0]),
+            "{:?}",
+            out[1].position
+        );
+        assert!(
+            close(out[2].position, [12.0, 0.0, 0.0]),
+            "a zero-weight target moves nothing: {:?}",
+            out[2].position
+        );
+
+        assert!(registry.set_morph_weights(&queue, id, &[0.0, 1.0]));
+        assert!(registry.skin(&queue, id, &[joint]));
+        let out = registry.read_back_vertices(&queue, id).expect("registered");
+        assert!(
+            close(out[0].position, [10.0, 0.0, 0.0]),
+            "{:?}",
+            out[0].position
+        );
+        assert!(
+            close(out[2].position, [12.0, 0.0, 1.0]),
+            "{:?}",
+            out[2].position
+        );
+
+        assert!(
+            !registry.set_morph_weights(&queue, id, &[0.0, 0.0, 1.0]),
+            "three weights for two targets is refused"
         );
     }
 }

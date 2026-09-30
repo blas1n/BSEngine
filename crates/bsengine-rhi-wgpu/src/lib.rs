@@ -64,7 +64,7 @@ pub use mesh::{
     triangle_vertices, GpuMeshRegistry, Vertex,
 };
 pub use plugin::{GpuQueueResource, ShippedMipCacheResource, WgpuRHIPlugin};
-pub use skinning::GpuVertexSkin;
+pub use skinning::{GpuVertexSkin, MorphDeltas};
 pub use surface::{
     LightData, MaterialParams, PointLightEntry, ProbeVolumeParams, ReflectionProbeParams,
     SpotLightEntry, WgpuSurfaceResource,

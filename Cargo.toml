@@ -68,7 +68,7 @@ glam              = "0.29"
 # a specific `glam`, which is what lets this workspace stay on glam 0.29 while
 # kira is on 0.33.
 mint              = "0.5"
-gltf              = "1"
+gltf              = { version = "1", features = ["extras"] }
 image             = { version = "0.25", default-features = false, features = ["png", "jpeg", "hdr"] }
 # Block compression (BC1/BC3) for texture import, in pure Rust: no ISPC
 # toolchain (intel_tex_2) and no C++ (basis-universal) in the build.

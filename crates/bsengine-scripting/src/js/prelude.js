@@ -918,6 +918,29 @@ var Bsengine = {
         }
     },
 
+    // Morph targets (blend shapes): by name or by index, as Unity's
+    // SetBlendShapeWeight, Unreal's SetMorphTarget and Godot's
+    // set_blend_shape_value address them. A target or entity that has none
+    // throws.
+    setMorphWeight(name, target, weight) {
+        const err = Deno.core.ops.bsengine_set_morph_weight(name, String(target), weight);
+        if (err) throw new Error(err);
+    },
+    getMorphWeight(name, target) {
+        const m = JSON.parse(Deno.core.ops.bsengine_get_morph_weights(name));
+        if (!m) throw new Error("entity " + JSON.stringify(name) + " has no morph targets");
+        const i = typeof target === "number" ? target : m.names.indexOf(target);
+        if (i < 0 || i >= m.weights.length) {
+            throw new Error("entity " + JSON.stringify(name) + " has no morph target "
+                + JSON.stringify(target) + "; its targets are [" + m.names.join(", ") + "]");
+        }
+        return m.weights[i];
+    },
+    getMorphTargetNames(name) {
+        const m = JSON.parse(Deno.core.ops.bsengine_get_morph_weights(name));
+        return m ? m.names : [];
+    },
+
     // Animation event callbacks -- keyed by entity name, like collisions.
     // `callback(eventName, clip)` runs once per crossing, before this
     // frame's `onUpdate`s, in the order playback crossed the events.

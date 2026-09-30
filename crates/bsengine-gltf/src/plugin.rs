@@ -68,8 +68,72 @@ impl Plugin for GltfPlugin {
             .add_systems(
                 Update,
                 (load_gltf_assets, load_lod_assets, rebuild_modified_gltf).chain(),
+            )
+            // Before the skinning pass, whose flush dispatches what this
+            // queues: weights written after it would reach the screen a frame
+            // late.
+            .add_systems(
+                bevy_app::PostUpdate,
+                sync_morph_weights.before(crate::skinned_mesh::update_skinned_meshes),
             );
     }
+}
+
+/// Uploads a changed `MorphWeights` to its mesh's GPU buffers. A skinned
+/// mesh is dispatched every frame by the skinning pass anyway; one with
+/// targets but no skin is dispatched here, with its single identity joint,
+/// only when its weights change -- a static face that is not changing
+/// expression costs nothing.
+fn sync_morph_weights(
+    query: Query<(
+        Ref<bsengine_core::MorphWeights>,
+        &MeshRenderer,
+        Option<&SkinnedMesh>,
+    )>,
+    mut mesh_registry: Option<ResMut<GpuMeshRegistry>>,
+    queue: Option<Res<bsengine_rhi_wgpu::GpuQueueResource>>,
+) {
+    let (Some(registry), Some(queue)) = (mesh_registry.as_mut(), queue) else {
+        return;
+    };
+    for (weights, renderer, skinned) in &query {
+        if !weights.is_changed() {
+            continue;
+        }
+        if !registry.set_morph_weights(&queue.0, renderer.mesh_id, &weights.weights) {
+            continue;
+        }
+        if skinned.is_none() {
+            registry.skin(&queue.0, renderer.mesh_id, &[glam::Mat4::IDENTITY]);
+        }
+    }
+}
+
+/// A mesh's morph targets flattened the way the compute pass reads them:
+/// target-major, each vertex's position delta then normal delta.
+fn morph_deltas(mesh: &crate::loader::MeshData) -> Vec<[f32; 6]> {
+    mesh.morph_targets
+        .iter()
+        .flat_map(|t| {
+            t.positions
+                .iter()
+                .zip(&t.normals)
+                .map(|(p, n)| [p[0], p[1], p[2], n[0], n[1], n[2]])
+        })
+        .collect()
+}
+
+/// The skin of a mesh that has morph targets but no skeleton: every vertex
+/// fully bound to joint 0, which is posed with the identity. It lets such a
+/// mesh use the one compute path that applies targets, instead of a second.
+fn identity_skin(vertex_count: usize) -> Vec<bsengine_rhi_wgpu::GpuVertexSkin> {
+    vec![
+        bsengine_rhi_wgpu::GpuVertexSkin {
+            joints: [0; 4],
+            weights: [1.0, 0.0, 0.0, 0.0],
+        };
+        vertex_count
+    ]
 }
 
 /// The in-flight load for a [`GltfAsset`], held so the request is made once
@@ -211,13 +275,34 @@ fn load_gltf_assets(
             // so the GPU blends its vertices each frame. The same gate as
             // that insert -- per-vertex bindings *and* a skin to bind to.
             let skinned = first && !loaded.skins.is_empty() && mesh_data.skin.is_some();
-            let mesh_id = if skinned {
-                mesh_reg.register_skinned(
-                    &mesh_data.vertices,
-                    &gpu_skin(mesh_data.skin.as_deref().unwrap_or_default()),
-                    &mesh_data.indices,
-                    loaded.skins[0].joint_node_indices.len() as u32,
-                )
+            // Morph targets ride the skinning compute pass, so a mesh with
+            // them is registered as skinned even without a skeleton. Like
+            // skinning, only the first mesh gets them: the entity that
+            // carries `MorphWeights` is the one that draws that mesh.
+            let morphed = first && !mesh_data.morph_targets.is_empty();
+            let mesh_id = if skinned || morphed {
+                let deltas = morph_deltas(mesh_data);
+                let morph = bsengine_rhi_wgpu::MorphDeltas {
+                    deltas: &deltas,
+                    target_count: mesh_data.morph_targets.len() as u32,
+                };
+                if skinned {
+                    mesh_reg.register_skinned_morphed(
+                        &mesh_data.vertices,
+                        &gpu_skin(mesh_data.skin.as_deref().unwrap_or_default()),
+                        &mesh_data.indices,
+                        loaded.skins[0].joint_node_indices.len() as u32,
+                        morph,
+                    )
+                } else {
+                    mesh_reg.register_skinned_morphed(
+                        &mesh_data.vertices,
+                        &identity_skin(mesh_data.vertices.len()),
+                        &mesh_data.indices,
+                        1,
+                        morph,
+                    )
+                }
             } else {
                 mesh_reg.register(&mesh_data.vertices, &mesh_data.indices)
             };
@@ -231,6 +316,15 @@ fn load_gltf_assets(
             if first {
                 let mut e = commands.entity(entity);
                 e.insert((MeshRenderer { mesh_id }, mat));
+                if morphed {
+                    // Inserted -- so changed -- which is what makes
+                    // `sync_morph_weights` upload the default weights on the
+                    // first frame.
+                    e.insert(bsengine_core::MorphWeights {
+                        names: mesh_data.morph_target_names.clone(),
+                        weights: mesh_data.morph_default_weights.clone(),
+                    });
+                }
                 if let Some(skin_verts) =
                     mesh_data.skin.clone().filter(|_| !loaded.skins.is_empty())
                 {
@@ -467,6 +561,7 @@ fn rebuild_modified_gltf(
         Option<&mut SkinnedMesh>,
         Option<&mut AnimationClipLibrary>,
         Option<&mut AnimationPlayer>,
+        Option<&mut bsengine_core::MorphWeights>,
     )>,
     gltf_assets: Res<bevy_asset::Assets<LoadedGltf>>,
     mut mesh_registry: Option<ResMut<GpuMeshRegistry>>,
@@ -476,7 +571,7 @@ fn rebuild_modified_gltf(
         let bevy_asset::AssetEvent::Modified { id } = event else {
             continue;
         };
-        for (loaded, skinned, library, player) in
+        for (loaded, skinned, library, player, morph_weights) in
             query.iter_mut().filter(|(l, ..)| l.handle.id() == *id)
         {
             let Some(data) = gltf_assets.get(&loaded.handle) else {
@@ -497,14 +592,30 @@ fn rebuild_modified_gltf(
                     // rest pose and palette size. A mesh that lost its skin on
                     // reload is the structural change `refresh_skinning` warns
                     // about; it keeps its skinning buffers and its old skin.
+                    let deltas = morph_deltas(mesh_data);
+                    let morph = bsengine_rhi_wgpu::MorphDeltas {
+                        deltas: &deltas,
+                        target_count: mesh_data.morph_targets.len() as u32,
+                    };
                     let replaced = match (reg.is_skinned(*mesh_id), &mesh_data.skin) {
-                        (true, Some(skin)) if !data.skins.is_empty() => reg.replace_skinned(
-                            *mesh_id,
-                            &mesh_data.vertices,
-                            &gpu_skin(skin),
-                            &mesh_data.indices,
-                            data.skins[0].joint_node_indices.len() as u32,
-                        ),
+                        (true, Some(skin)) if !data.skins.is_empty() => reg
+                            .replace_skinned_morphed(
+                                *mesh_id,
+                                &mesh_data.vertices,
+                                &gpu_skin(skin),
+                                &mesh_data.indices,
+                                data.skins[0].joint_node_indices.len() as u32,
+                                morph,
+                            ),
+                        (true, None) if !mesh_data.morph_targets.is_empty() => reg
+                            .replace_skinned_morphed(
+                                *mesh_id,
+                                &mesh_data.vertices,
+                                &identity_skin(mesh_data.vertices.len()),
+                                &mesh_data.indices,
+                                1,
+                                morph,
+                            ),
                         _ => reg.replace(*mesh_id, &mesh_data.vertices, &mesh_data.indices),
                     };
                     if !replaced {
@@ -532,6 +643,11 @@ fn rebuild_modified_gltf(
                         );
                     }
                 }
+            }
+            // A rebuilt morphed mesh starts with its weights at zero; marking
+            // the component changed makes `sync_morph_weights` put them back.
+            if let Some(mut weights) = morph_weights {
+                weights.set_changed();
             }
             refresh_skinning(data, skinned, library, player);
         }
@@ -1997,5 +2113,74 @@ mod tests {
             app.world().get::<PendingLod>(e).is_none(),
             "PendingLod must be removed alongside LodRequest"
         );
+    }
+
+    /// A glTF with morph targets, through the real import: the entity gets
+    /// `MorphWeights` with the file's target name and default weight, the
+    /// mesh -- which has no skin -- is registered on the skinning path anyway,
+    /// the default weight is on the GPU after the first frames, and changing
+    /// the weight moves the vertex. The GPU buffer is what is read, since it
+    /// is what every render pass binds.
+    #[test]
+    fn a_morphed_gltf_gets_weights_that_move_its_vertices_on_the_gpu() {
+        let dir = std::env::temp_dir().join(format!("bsengine_morph_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("face.gltf");
+        std::fs::write(&path, crate::loader::morph_triangle_gltf()).unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::windowed());
+        app.add_plugins(GltfPlugin);
+        app.add_plugins(crate::skinned_mesh::SkinnedMeshPlugin);
+        insert_headless_gpu_registries(&mut app);
+        let e = app
+            .world_mut()
+            .spawn(GltfAsset::new(path.to_string_lossy().to_string()))
+            .id();
+        for _ in 0..200 {
+            app.update();
+            if app.world().get::<bsengine_core::MorphWeights>(e).is_some() {
+                break;
+            }
+        }
+        let weights = app
+            .world()
+            .get::<bsengine_core::MorphWeights>(e)
+            .expect("a model with morph targets gets MorphWeights")
+            .clone();
+        assert_eq!(weights.names, vec!["smile".to_string()]);
+        assert_eq!(weights.weights, vec![0.25]);
+        app.update();
+
+        let mesh_id = app.world().get::<MeshRenderer>(e).unwrap().mesh_id;
+        let queue = app
+            .world()
+            .resource::<bsengine_rhi_wgpu::GpuQueueResource>()
+            .0
+            .clone();
+        let z_of_vertex_0 = |app: &mut bevy_app::App| {
+            let mut registry = app.world_mut().resource_mut::<GpuMeshRegistry>();
+            assert!(
+                registry.is_skinned(mesh_id),
+                "premise: a morphed mesh rides the skinning compute path"
+            );
+            registry.read_back_vertices(&queue, mesh_id).unwrap()[0].position[2]
+        };
+        assert!(
+            (z_of_vertex_0(&mut app) - 0.25).abs() < 1e-5,
+            "the file's default weight is applied"
+        );
+
+        app.world_mut()
+            .get_mut::<bsengine_core::MorphWeights>(e)
+            .unwrap()
+            .weights[0] = 1.0;
+        app.update();
+        assert!(
+            (z_of_vertex_0(&mut app) - 1.0).abs() < 1e-5,
+            "a changed weight reaches the vertex buffer"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

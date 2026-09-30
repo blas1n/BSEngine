@@ -86,6 +86,8 @@ declare namespace Bsengine {
     function getMaterialEmissive(name: string): unknown;
     function getMaxShield(name: string): number;
     function getMetallic(name: string): number;
+    function getMorphTargetNames(name: string): unknown;
+    function getMorphWeight(name: string, target: unknown): unknown;
     function getMouseDelta(): unknown;
     function getMousePos(): unknown;
     function getNavAngularSpeed(name: string): number;
@@ -253,6 +255,7 @@ declare namespace Bsengine {
     function setMass(name: string, mass: number): void;
     function setMaxShield(name: string, value: number): void;
     function setMetallic(name: string, value: number): void;
+    function setMorphWeight(name: string, target: unknown, weight: number): void;
     function setNavAngularSpeed(name: string, speed: number): void;
     function setNavDestination(name: string, a: unknown, b: unknown, c: unknown): void;
     function setNavEnabled(name: string, enabled: boolean): void;

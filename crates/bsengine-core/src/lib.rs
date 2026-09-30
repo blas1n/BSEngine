@@ -60,6 +60,8 @@ pub mod mixer_state;
 /// Per-model import settings (uniform scale, whether to import animations),
 /// stored in an asset's sidecar and baked into the loaded data.
 pub mod model_import;
+/// Morph target (blend shape) weights for a mesh.
+pub mod morph_weights;
 /// Baked navigation mesh resource used for pathfinding.
 pub mod nav_mesh;
 /// Nav-mesh-driven pathing agent component and its runtime state.
@@ -176,6 +178,7 @@ pub use logging::init_logging;
 pub use material::{Material, TexturePath};
 pub use mixer_state::{MixerBus, MixerShared, MixerState};
 pub use model_import::ModelImportSettings;
+pub use morph_weights::MorphWeights;
 pub use nav_mesh::{NavBakeParams, NavMesh};
 pub use nav_mesh_agent::{NavAgentState, NavMeshAgent};
 pub use nav_mesh_surface::NavMeshSurface;

@@ -603,6 +603,7 @@ fn build_windowed_app(project_dir: &str) -> bevy_app::App {
         .add_plugins(bsengine_app::TimelinePlugin)
         .add_plugins(AnimationStateMachinePlugin)
         .add_plugins(NavMeshPlugin)
+        .add_plugins(bsengine_app::BehaviorTreePlugin)
         // Both of these count something down each frame, and neither was
         // installed anywhere until now. `Bsengine.setLifetime()` has existed as
         // a scripting API the whole time with nothing to tick it, so it has

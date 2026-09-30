@@ -26,6 +26,12 @@ struct NavBakeState {
     last: Option<(NavBakeParams, usize)>,
 }
 
+/// The system that steers `NavMeshAgent`s, for ordering against: whatever
+/// sets an agent's destination (a behaviour tree's `MoveTo`) runs before it,
+/// so the new destination is steered toward the same frame.
+#[derive(bevy_ecs::schedule::SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct NavAgentSystems;
+
 impl Plugin for NavMeshPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<NavMesh>()
@@ -35,11 +41,13 @@ impl Plugin for NavMeshPlugin {
                 Update,
                 (
                     bake_nav_surfaces,
-                    navigate_agents.run_if(
-                        |paused: Option<bevy_ecs::prelude::Res<bsengine_core::PauseState>>| {
-                            !paused.map(|p| p.paused).unwrap_or(false)
-                        },
-                    ),
+                    navigate_agents
+                        .run_if(
+                            |paused: Option<bevy_ecs::prelude::Res<bsengine_core::PauseState>>| {
+                                !paused.map(|p| p.paused).unwrap_or(false)
+                            },
+                        )
+                        .in_set(NavAgentSystems),
                 )
                     .chain(),
             );

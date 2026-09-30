@@ -974,6 +974,9 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     app.register_type::<bsengine_core::ReflectionProbe>();
     app.register_type::<bsengine_core::NetworkId>();
     app.register_type::<bsengine_core::TimelinePlayer>();
+    app.register_type::<bsengine_core::BehaviorTree>();
+    app.register_type::<bsengine_core::Blackboard>();
+    app.register_type::<bsengine_core::BbValue>();
     app.register_type::<bsengine_core::PrefabInstance>();
     app.register_type::<bsengine_core::PrefabInstanceBaseline>();
     app.register_type::<bsengine_core::SaveData>();
@@ -2117,6 +2120,52 @@ mod tests {
         assert_eq!(results[0].0 .0, "Enemy");
         assert!((results[0].1.speed - 3.5).abs() < 1e-5);
         assert!(results[0].1.enabled);
+    }
+
+    /// A behaviour tree and its blackboard authored in a scene, as the README
+    /// shows them: the map of typed values (a `Vec3` among them) and the
+    /// tree path come through, and the tree's runtime state -- not
+    /// serialized -- starts empty.
+    #[test]
+    fn a_behaviour_tree_and_its_blackboard_are_authored_in_a_scene() {
+        let ron = r#"SceneDescriptor(entities: [
+            EntityDescriptor(
+                name: "Guard",
+                components: [
+                    ("bsengine_core::behavior_tree::BehaviorTree", "(tree: \"assets/ai/guard.bt.ron\", enabled: true, last_status: Running)"),
+                    ("bsengine_core::behavior_tree::Blackboard", "(values: {\"post\": Vec3((0.0, 0.0, 5.0)), \"alert\": Bool(true), \"target\": Entity(\"Player\")})"),
+                ],
+            )
+        ])"#;
+        let path = write_temp_scene("test_behavior_tree_components.ron", ron);
+
+        let mut app = new_app();
+        super::register_gameplay_reflect_types(&mut app);
+        app.add_plugins(ScenePlugin::from_file(&path));
+        app.update();
+
+        let mut q = app.world_mut().query::<(
+            &Name,
+            &bsengine_core::BehaviorTree,
+            &bsengine_core::Blackboard,
+        )>();
+        let results: Vec<_> = q.iter(app.world()).collect();
+        assert_eq!(results.len(), 1, "both components applied to the Guard");
+        let (name, tree, bb) = results[0];
+        assert_eq!(name.0, "Guard");
+        assert_eq!(tree.tree, "assets/ai/guard.bt.ron");
+        assert!(tree.runtime.is_none());
+        assert_eq!(
+            bb.get("post"),
+            Some(&bsengine_core::BbValue::Vec3(
+                Vec3::new(0.0, 0.0, 5.0).into()
+            ))
+        );
+        assert_eq!(bb.get("alert"), Some(&bsengine_core::BbValue::Bool(true)));
+        assert_eq!(
+            bb.get("target"),
+            Some(&bsengine_core::BbValue::Entity("Player".to_string()))
+        );
     }
 
     #[test]

@@ -13,6 +13,8 @@ pub mod animation_player;
 pub mod animation_state_machine;
 /// `new_app()`/`BsPlugin` entry points and re-exported `bevy_app` schedule labels.
 pub mod app;
+/// Loads behaviour tree assets and ticks each entity's tree.
+pub mod behavior_tree;
 /// `ClothPlugin`: generates each `Cloth`'s sheet mesh and steps it every frame.
 pub mod cloth;
 /// Pure position-based cloth solver (no ECS types); `cloth`'s ECS layer calls
@@ -50,6 +52,7 @@ pub mod tween;
 pub use animation_player::AnimationPlugin;
 pub use animation_state_machine::AnimationStateMachinePlugin;
 pub use app::{new_app, App, BsPlugin, Last, PostUpdate, PreUpdate, Startup, Update};
+pub use behavior_tree::BehaviorTreePlugin;
 pub use cloth::ClothPlugin;
 pub use follow::FollowPlugin;
 pub use lifetime::LifetimePlugin;

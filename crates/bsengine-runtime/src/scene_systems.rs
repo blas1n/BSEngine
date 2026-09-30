@@ -32,6 +32,61 @@ pub struct ProjectManifest {
     pub network: NetworkSection,
     #[serde(default)]
     pub input: InputSection,
+    #[serde(default)]
+    pub localization: LocalizationSection,
+}
+
+/// `project.toml`'s `[localization]` table.
+///
+/// ```toml
+/// [localization]
+/// tables = ["assets/i18n/strings.csv"]
+/// default_locale = "en"   # what a missing translation falls back to
+/// locale = "auto"         # the system's, matched to the tables; or e.g. "ko"
+/// ```
+#[derive(Deserialize)]
+pub struct LocalizationSection {
+    /// CSV string tables, project-relative; later ones override earlier ones
+    /// key by key. Packaged like `extra_assets`.
+    #[serde(default)]
+    pub tables: Vec<String>,
+    /// The locale lookups fall back to.
+    #[serde(default = "default_default_locale")]
+    pub default_locale: String,
+    /// The starting locale, or `"auto"` for the operating system's.
+    #[serde(default = "default_start_locale")]
+    pub locale: String,
+}
+
+fn default_default_locale() -> String {
+    "en".to_string()
+}
+
+fn default_start_locale() -> String {
+    "auto".to_string()
+}
+
+// An absent `[localization]` table and an empty one must agree, as with
+// `[input]` below.
+impl Default for LocalizationSection {
+    fn default() -> Self {
+        Self {
+            tables: Vec::new(),
+            default_locale: default_default_locale(),
+            locale: default_start_locale(),
+        }
+    }
+}
+
+impl ProjectManifest {
+    /// What `--package` must include beyond what the entry scene reaches:
+    /// `[package] extra_assets` and the localization tables, which no scene
+    /// references and a build without would show every string as its key.
+    pub fn packaged_extras(&self) -> Vec<String> {
+        let mut extras = self.package.extra_assets.clone();
+        extras.extend(self.localization.tables.iter().cloned());
+        extras
+    }
 }
 
 /// `project.toml`'s `[input]` table: the project's named actions.

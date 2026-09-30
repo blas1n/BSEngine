@@ -15,6 +15,8 @@ glam.workspace = true
 # ReflectDeserialize for the type and the whole component comes back absent.
 serde.workspace = true
 egui.workspace = true
+# The operating system's locale, for a game's starting language.
+sys-locale.workspace = true
 
 [dev-dependencies]
 ron.workspace = true

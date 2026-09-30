@@ -50,6 +50,7 @@ bsengine-mcp      = { path = "crates/bsengine-mcp" }
 toml              = "0.8"
 deno_core         = "0.404.0"
 serde_json        = "1.0"
+sys-locale        = "0.3"
 ron               = "0.8"
 serde             = { version = "1.0", features = ["derive"] }
 bevy_app          = { version = "0.14", default-features = false, features = ["bevy_reflect"] }

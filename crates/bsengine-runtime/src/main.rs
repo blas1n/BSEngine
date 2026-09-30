@@ -237,7 +237,7 @@ fn run_package(
     let cooked = match bsengine_asset::cook::package_with_precook(
         project_dir,
         &manifest.project.entry_scene,
-        &manifest.package.extra_assets,
+        &manifest.packaged_extras(),
         mode,
         &exe,
         std::path::Path::new(out_dir),
@@ -363,6 +363,53 @@ pub(crate) fn insert_input_actions(app: &mut bevy_app::App, manifest: &ProjectMa
     }
 }
 
+/// `project.toml`'s `[localization]` tables, read (out of the archive in a
+/// packaged build) and inserted before the plugins, so `ScriptingPlugin`'s
+/// `init_resource` leaves them alone. The starting locale is the one the
+/// manifest names, or -- for `"auto"` -- the operating system's, matched to
+/// the closest locale the tables have, and the default locale when none is
+/// close. A table that cannot be read or parsed stops the game at start, as
+/// a bad `[input]` binding does: shipping it would show every string as its
+/// key. `package` includes the tables, so a packaged build has them.
+pub(crate) fn insert_localization(
+    app: &mut bevy_app::App,
+    project_dir: &str,
+    pak: Option<&bsengine_asset::pak::Pak>,
+    manifest: &ProjectManifest,
+) {
+    let section = &manifest.localization;
+    let texts: Vec<(String, String)> = section
+        .tables
+        .iter()
+        .map(|table| {
+            let path = format!("{project_dir}/{table}");
+            let text = bsengine_asset::pak_source::read_from(pak, project_dir, &path)
+                .unwrap_or_else(|e| panic!("Cannot read the localization table {table}: {e}"));
+            (table.clone(), text)
+        })
+        .collect();
+    let mut localization = bsengine_core::Localization::from_csv_tables(
+        texts.iter().map(|(s, t)| (s.as_str(), t.as_str())),
+        &section.default_locale,
+    )
+    .unwrap_or_else(|e| panic!("Cannot use project.toml's [localization] tables: {e}"));
+    let start = if section.locale.eq_ignore_ascii_case("auto") {
+        bsengine_core::localization::system_locale().and_then(|l| localization.best_match(&l))
+    } else {
+        Some(section.locale.clone())
+    };
+    if let Some(locale) = start {
+        localization.set_locale(&locale);
+    }
+    tracing::info!(
+        "localization: locale {} (default {}), locales {:?}",
+        localization.locale(),
+        localization.default_locale(),
+        localization.locales()
+    );
+    app.insert_resource(localization);
+}
+
 fn read_manifest(project_dir: &str, pak: Option<&bsengine_asset::pak::Pak>) -> ProjectManifest {
     let manifest_path = format!("{project_dir}/project.toml");
     let (text, source) = match pak.and_then(|pak| pak.get(bsengine_asset::cook::MANIFEST_ENTRY)) {
@@ -471,6 +518,9 @@ fn build_windowed_app(project_dir: &str) -> bevy_app::App {
         manifest.render.texture_streaming_budget_mb,
         manifest.render.texture_mip_bias,
     ));
+    // Before the archive moves into `PakAssetPlugin` below: the tables are
+    // read out of it.
+    insert_localization(&mut app, project_dir, pak.as_deref(), &manifest);
     // Before `AssetPlugin`, and that ordering is the whole reason this is a
     // separate plugin: `bevy_asset` builds its sources during that plugin's
     // `build`, so a source registered afterwards is silently ignored -- and a

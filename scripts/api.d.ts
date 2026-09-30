@@ -79,6 +79,8 @@ declare namespace Bsengine {
     function getLifetime(name: string): number;
     function getLinearDamping(name: string): number;
     function getLinearSpeed(name: string): unknown;
+    function getLocale(): string;
+    function getLocales(): unknown;
     function getLookAtTarget(name: string): unknown;
     function getLookAtUp(name: string): unknown;
     function getMass(name: string): number;
@@ -250,6 +252,7 @@ declare namespace Bsengine {
     function setKinematic(name: string, kinematic: boolean): void;
     function setLifetime(name: string, seconds: number): void;
     function setLinearDamping(name: string, damping: number): void;
+    function setLocale(locale: unknown): void;
     function setLookAtTarget(name: string, target: string): void;
     function setLookAtUp(name: string, a: unknown, b: unknown, c: unknown): void;
     function setMass(name: string, mass: number): void;
@@ -296,6 +299,7 @@ declare namespace Bsengine {
     function sleep(name: string): void;
     function spawn(params: unknown): void;
     function stopSound(id: number): void;
+    function tr(key: unknown, opts?: Record<string, unknown>): string;
     function unloadScene(path: string): void;
     function vec3(x: unknown, y: unknown, z: unknown): unknown;
     function version(): string;

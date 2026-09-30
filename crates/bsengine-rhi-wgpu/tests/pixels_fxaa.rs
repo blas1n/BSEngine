@@ -217,38 +217,95 @@ fn fxaa_blends_along_the_length_of_a_shallow_steps() {
     );
 }
 
-/// The thresholds: a faint edge -- the square barely brighter than the
-/// backdrop -- is below FXAA's default contrast thresholds and left alone,
-/// the "don't smooth noise" half of the contract; with both thresholds at
-/// zero the same edge is smoothed, so the edge was there to find.
-#[test]
-fn a_faint_edge_is_left_alone_until_the_thresholds_allow_it() {
+/// Renders a two-tone edge with no FXAA, default FXAA, and FXAA with one
+/// threshold relaxed to zero; returns the three frames.
+fn threshold_frames(
+    backdrop: f32,
+    square: f32,
+    relaxed: impl Fn(Fxaa) -> Fxaa,
+) -> (Pixels, Pixels, Pixels) {
     let mut h = Harness::new();
     let cube = h.cube();
-    let faint = |fxaa| square_scene(cube, 30.0, 0.058, fxaa);
-    let off = h.render(&faint(None));
-    let default = h.render(&faint(Some(Fxaa::default())));
-    let permissive = h.render(&faint(Some(Fxaa {
-        edge_threshold: 0.0,
-        edge_threshold_min: 0.0,
-        ..Fxaa::default()
-    })));
-    eprintln!(
-        "faint: backdrop {} square {}",
-        off.luma(0, 0),
-        off.centre_luma()
-    );
+    let scene = |fxaa| two_tone_scene(cube, 30.0, backdrop, square, fxaa);
+    let off = h.render(&scene(None));
+    let default = h.render(&scene(Some(Fxaa::default())));
+    let relaxed = h.render(&scene(Some(relaxed(Fxaa::default()))));
     assert!(
-        off.centre_luma() > off.luma(0, 0),
-        "premise: the square is brighter than the backdrop"
+        off.centre_luma() > off.luma(0, 0) + 5.0,
+        "premise: the square visibly differs from the backdrop: {} vs {}",
+        off.centre_luma(),
+        off.luma(0, 0)
     );
+    (off, default, relaxed)
+}
+
+/// The absolute minimum: a faint edge in the dark -- black against 0.002
+/// linear, about 0.045 of perceptual luma -- is plenty of *relative* contrast
+/// (the brightest luma there is tiny) but under the 0.0833 floor, which is
+/// what keeps FXAA off the noise of dark areas. With the floor at zero the
+/// same edge is smoothed, so the edge was there to find and the floor alone
+/// held it back.
+#[test]
+fn the_absolute_threshold_leaves_faint_dark_edges_alone() {
+    let (off, default, relaxed) = threshold_frames(0.0, 0.002, |f| Fxaa {
+        edge_threshold_min: 0.0,
+        ..f
+    });
+    assert!(!default.differs_from(&off), "below the floor: untouched");
+    assert!(relaxed.differs_from(&off), "with no floor, smoothed");
+}
+
+/// The relative threshold: a faint edge in the light -- 0.8 against 1.0
+/// linear, about 0.106 of perceptual luma -- clears the 0.0833 floor but not
+/// 0.166 of the brightest luma, so it is left alone; with the relative
+/// threshold at zero the same edge is smoothed.
+#[test]
+fn the_relative_threshold_leaves_faint_bright_edges_alone() {
+    let (off, default, relaxed) = threshold_frames(0.8, 1.0, |f| Fxaa {
+        edge_threshold: 0.0,
+        ..f
+    });
     assert!(
         !default.differs_from(&off),
-        "a faint edge is below the default thresholds"
+        "below the relative threshold: untouched"
     );
     assert!(
-        permissive.differs_from(&off),
-        "with no thresholds the faint edge is smoothed"
+        relaxed.differs_from(&off),
+        "with no relative threshold, smoothed"
+    );
+}
+
+/// Softened *correctly*, not merely softened: the edge moves toward how much
+/// of each pixel the square really covers. The reference for that is TAA
+/// converged over 16 jittered frames, which averages the rasteriser's own
+/// coverage at 16 sub-pixel positions. FXAA must bring the silhouette closer
+/// to it than the aliased frame is -- blending a stair-step's pixels toward
+/// the wrong side makes as many in-between tones, but in the wrong places,
+/// and moves the edge further away.
+#[test]
+fn fxaa_moves_the_edge_toward_its_true_coverage() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let off = h.render(&shallow(cube, None));
+    let on = h.render(&shallow(cube, Some(Fxaa::default())));
+    let reference = {
+        let mut s = shallow(cube, None);
+        s.taa = Some(bsengine_core::Taa::default());
+        h.render_converged(&s, 16)
+    };
+    let mask = silhouette_mask(&off, 2);
+    let error = |p: &Pixels| -> f32 {
+        (0..off.height)
+            .flat_map(|y| (0..off.width).map(move |x| (x, y)))
+            .filter(|&(x, y)| mask[(y * off.width + x) as usize])
+            .map(|(x, y)| (p.luma(x, y) - reference.luma(x, y)).abs())
+            .sum()
+    };
+    let (e_off, e_on) = (error(&off), error(&on));
+    eprintln!("coverage error: aliased {e_off}, fxaa {e_on}");
+    assert!(
+        e_on < e_off * 0.8,
+        "FXAA brings the edge closer to its true coverage: error {e_on}, aliased {e_off}"
     );
 }
 

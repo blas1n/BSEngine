@@ -60,6 +60,8 @@ core ← ecs ← app ← window / input
 - Camera motion blur (`MotionBlur` on the camera): each pixel streaked along
   its reprojected screen motion since the last frame (intensity, a clamp on
   the streak's length, tap count); sharp on the first frame after a cut
+- FXAA (`Fxaa` on the camera): FXAA 3.11's edge search and sub-pixel term on
+  the tonemapped image, before the TAA resolve; its three thresholds exposed
 
 ### Scene (bsengine-scene)
 - Entity spawn/despawn with named entities

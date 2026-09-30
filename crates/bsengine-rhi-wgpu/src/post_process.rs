@@ -1424,6 +1424,176 @@ fn fs_motion_blur(in: FullscreenOut) -> @location(0) vec4<f32> {
 }
 "#;
 
+/// Fast approximate antialiasing (see `Fxaa`), after the composite and before
+/// the TAA resolve, on the tonemapped LDR image.
+///
+/// FXAA 3.11's quality algorithm in outline: a pixel whose four neighbours
+/// span enough luma contrast is on an edge; the 3x3 neighbourhood says whether
+/// that edge runs horizontally or vertically and which side of it the pixel
+/// is on; a walk along the edge in both directions finds where it ends, and
+/// the nearer end sets how far across the edge to sample -- half a pixel at a
+/// stair-step's corner, nothing in the middle of a long straight run. A
+/// separate low-pass term softens features narrower than a pixel. The final
+/// colour is one bilinear sample offset across the edge by the larger of the
+/// two.
+///
+/// Luma is taken in perceptual (gamma) space as FXAA expects: when the target
+/// is sRGB the sampler hands back linear light, and `srgb_input` says to take
+/// its square root first.
+const FXAA_WGSL: &str = r#"
+struct FullscreenOut {
+    @builtin(position) pos: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+struct Fxaa {
+    edge_threshold: f32, edge_threshold_min: f32, subpixel: f32, srgb_input: u32,
+}
+@group(0) @binding(0) var ldr_tex: texture_2d<f32>;
+@group(0) @binding(1) var ldr_sampler: sampler;
+@group(1) @binding(0) var<uniform> fxaa: Fxaa;
+
+@vertex
+fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> FullscreenOut {
+    var positions = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -3.0), vec2<f32>(-1.0, 1.0), vec2<f32>(3.0, 1.0),
+    );
+    let p = positions[vi];
+    var out: FullscreenOut;
+    out.pos = vec4<f32>(p.x, p.y, 0.0, 1.0);
+    out.uv = vec2<f32>(p.x * 0.5 + 0.5, -p.y * 0.5 + 0.5);
+    return out;
+}
+
+fn luma_of(c: vec3<f32>) -> f32 {
+    let l = dot(c, vec3<f32>(0.299, 0.587, 0.114));
+    if fxaa.srgb_input != 0u {
+        return sqrt(l);
+    }
+    return l;
+}
+
+fn luma_at(uv: vec2<f32>) -> f32 {
+    return luma_of(textureSampleLevel(ldr_tex, ldr_sampler, uv, 0.0).rgb);
+}
+
+// How far each successive step of the edge walk moves, in pixels -- FXAA
+// 3.11's quality-12 preset: fine near the pixel, coarser farther out.
+const EDGE_STEPS: u32 = 10u;
+fn edge_step(i: u32) -> f32 {
+    switch i {
+        case 0u, 1u, 2u, 3u, 4u: { return 1.0; }
+        case 5u: { return 1.5; }
+        case 6u, 7u, 8u: { return 2.0; }
+        default: { return 4.0; }
+    }
+}
+
+@fragment
+fn fs_fxaa(in: FullscreenOut) -> @location(0) vec4<f32> {
+    let texel = 1.0 / vec2<f32>(textureDimensions(ldr_tex, 0));
+    let centre = textureSampleLevel(ldr_tex, ldr_sampler, in.uv, 0.0);
+    let m = luma_of(centre.rgb);
+    let n = luma_at(in.uv + vec2<f32>(0.0, -texel.y));
+    let s = luma_at(in.uv + vec2<f32>(0.0, texel.y));
+    let e = luma_at(in.uv + vec2<f32>(texel.x, 0.0));
+    let w = luma_at(in.uv + vec2<f32>(-texel.x, 0.0));
+    let hi = max(max(max(n, s), max(e, w)), m);
+    let lo = min(min(min(n, s), min(e, w)), m);
+    let range = hi - lo;
+    if range < max(fxaa.edge_threshold_min, hi * fxaa.edge_threshold) {
+        return centre;
+    }
+
+    let nw = luma_at(in.uv + vec2<f32>(-texel.x, -texel.y));
+    let ne = luma_at(in.uv + vec2<f32>(texel.x, -texel.y));
+    let sw = luma_at(in.uv + vec2<f32>(-texel.x, texel.y));
+    let se = luma_at(in.uv + vec2<f32>(texel.x, texel.y));
+
+    // Sub-pixel term: how far the pixel stands out from its neighbourhood's
+    // average, relative to the neighbourhood's contrast.
+    let average = (2.0 * (n + s + e + w) + (nw + ne + sw + se)) / 12.0;
+    let sub = smoothstep(0.0, 1.0, clamp(abs(average - m) / range, 0.0, 1.0));
+    let sub_blend = sub * sub * fxaa.subpixel;
+
+    // Which way the edge runs: a horizontal edge changes down the columns.
+    let horizontal_change = abs(n + s - 2.0 * m) * 2.0 + abs(ne + se - 2.0 * e)
+        + abs(nw + sw - 2.0 * w);
+    let vertical_change = abs(e + w - 2.0 * m) * 2.0 + abs(ne + nw - 2.0 * n)
+        + abs(se + sw - 2.0 * s);
+    let horizontal = horizontal_change >= vertical_change;
+
+    // Which side of the pixel the edge is on: the neighbour across it that
+    // differs the most.
+    var across = select(texel.x, texel.y, horizontal);
+    let positive = select(e, s, horizontal);
+    let negative = select(w, n, horizontal);
+    let g_pos = abs(positive - m);
+    let g_neg = abs(negative - m);
+    var opposite = positive;
+    var gradient = g_pos;
+    if g_neg > g_pos {
+        across = -across;
+        opposite = negative;
+        gradient = g_neg;
+    }
+
+    // Walk along the edge, on the line half-way between the pixel and its
+    // opposite neighbour, until the luma there leaves the edge's.
+    var edge_uv = in.uv;
+    var along = vec2<f32>(texel.x, 0.0);
+    if horizontal {
+        edge_uv.y = edge_uv.y + across * 0.5;
+    } else {
+        edge_uv.x = edge_uv.x + across * 0.5;
+        along = vec2<f32>(0.0, texel.y);
+    }
+    let edge_luma = (m + opposite) * 0.5;
+    let threshold = gradient * 0.25;
+    var dist_pos = 0.0;
+    var dist_neg = 0.0;
+    var end_pos = edge_luma;
+    var end_neg = edge_luma;
+    var done_pos = false;
+    var done_neg = false;
+    for (var i = 0u; i < EDGE_STEPS; i = i + 1u) {
+        let step = edge_step(i);
+        if !done_pos {
+            dist_pos = dist_pos + step;
+            end_pos = luma_at(edge_uv + along * dist_pos);
+            done_pos = abs(end_pos - edge_luma) >= threshold;
+        }
+        if !done_neg {
+            dist_neg = dist_neg + step;
+            end_neg = luma_at(edge_uv - along * dist_neg);
+            done_neg = abs(end_neg - edge_luma) >= threshold;
+        }
+        if done_pos && done_neg {
+            break;
+        }
+    }
+
+    // The nearer end decides. If the edge there turns the same way the pixel
+    // differs from the edge, the pixel is on the far side of the step and
+    // gets nothing; otherwise the closer to that end, the more it blends.
+    let nearer_pos = dist_pos < dist_neg;
+    let end_delta = select(end_neg, end_pos, nearer_pos) - edge_luma;
+    let shortest = min(dist_pos, dist_neg);
+    var edge_blend = 0.0;
+    if (end_delta < 0.0) != (m - edge_luma < 0.0) {
+        edge_blend = 0.5 - shortest / (dist_pos + dist_neg);
+    }
+
+    let offset = max(edge_blend, sub_blend) * across;
+    var uv = in.uv;
+    if horizontal {
+        uv.y = uv.y + offset;
+    } else {
+        uv.x = uv.x + offset;
+    }
+    return vec4<f32>(textureSampleLevel(ldr_tex, ldr_sampler, uv, 0.0).rgb, centre.a);
+}
+"#;
+
 /// The temporal-antialiasing resolve pass.
 ///
 /// It reads the composite pass's LDR result, reprojects the previous frame's
@@ -1659,6 +1829,18 @@ struct MotionBlurGpu {
 
 const MOTION_BLUR_SIZE: u64 = std::mem::size_of::<MotionBlurGpu>() as u64;
 
+/// Mirrors the WGSL `Fxaa` uniform.
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct FxaaGpu {
+    edge_threshold: f32,
+    edge_threshold_min: f32,
+    subpixel: f32,
+    srgb_input: u32,
+}
+
+const FXAA_SIZE: u64 = std::mem::size_of::<FxaaGpu>() as u64;
+
 /// Format of the post pass's own LUT copy: the linear (non-sRGB) twin of
 /// the `Rgba8UnormSrgb` images are stored as. See `PostProcessState::set_lut`.
 const LUT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
@@ -1863,6 +2045,9 @@ struct PostProcessTargets {
     ldr_texture: crate::profiler::TrackedTexture,
     ldr_view: wgpu::TextureView,
     ldr_bg: wgpu::BindGroup,
+    fxaa_texture: crate::profiler::TrackedTexture,
+    fxaa_view: wgpu::TextureView,
+    fxaa_bg: wgpu::BindGroup,
     history_textures: [crate::profiler::TrackedTexture; 2],
     history_views: [wgpu::TextureView; 2],
     history_bgs: [wgpu::BindGroup; 2],
@@ -1892,6 +2077,18 @@ pub struct PostProcessState {
     /// texture it is rendering into.
     ldr_view: wgpu::TextureView,
     _ldr_texture: crate::profiler::TrackedTexture,
+    /// FXAA's output: the LDR image antialiased, which the TAA resolve then
+    /// reads in place of `ldr_view`. A target of its own for the same reason
+    /// `ldr_view` exists -- a pass cannot sample what it renders into.
+    fxaa_view: wgpu::TextureView,
+    _fxaa_texture: crate::profiler::TrackedTexture,
+    fxaa_bg: wgpu::BindGroup,
+    /// The FXAA pass, its uniform and that uniform's group; `fxaa_on` is
+    /// whether this frame runs it (see `update_fxaa`).
+    fxaa_pipeline: wgpu::RenderPipeline,
+    fxaa_buffer: wgpu::Buffer,
+    fxaa_bg_uniform: wgpu::BindGroup,
+    fxaa_on: bool,
     /// Two history targets, swapped each frame: one holds the previous
     /// frame's TAA output while the other receives this frame's. A single
     /// texture cannot be sampled and rendered to in the same pass.
@@ -2311,6 +2508,34 @@ impl PostProcessState {
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: motion_blur_buffer.as_entire_binding(),
+            }],
+        });
+
+        let fxaa_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("pp fxaa bgl"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: wgpu::BufferSize::new(FXAA_SIZE),
+                },
+                count: None,
+            }],
+        });
+        let fxaa_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("pp fxaa buffer"),
+            size: FXAA_SIZE,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let fxaa_bg_uniform = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("pp fxaa uniform bg"),
+            layout: &fxaa_bgl,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: fxaa_buffer.as_entire_binding(),
             }],
         });
 
@@ -2738,6 +2963,7 @@ impl PostProcessState {
             &taa_uniform_bgl,
             surface_format,
         );
+        let fxaa_pipeline = Self::make_fxaa_pipeline(device, &tex2d_bgl, &fxaa_bgl, surface_format);
 
         let targets = Self::create_targets(
             device,
@@ -2760,6 +2986,13 @@ impl PostProcessState {
             ao_view: targets.ao_view,
             _ao_texture: targets.ao_texture,
             ldr_view: targets.ldr_view,
+            fxaa_view: targets.fxaa_view,
+            _fxaa_texture: targets.fxaa_texture,
+            fxaa_bg: targets.fxaa_bg,
+            fxaa_pipeline,
+            fxaa_buffer,
+            fxaa_bg_uniform,
+            fxaa_on: false,
             _ldr_texture: targets.ldr_texture,
             history_views: targets.history_views,
             _history_textures: targets.history_textures,
@@ -2881,6 +3114,9 @@ impl PostProcessState {
         // format keeps the round trip through it exact.
         let ldr_texture = make_tex("pp ldr", surface_format);
         let ldr_view = ldr_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        // FXAA's output, in the same format for the same reason.
+        let fxaa_texture = make_tex("pp fxaa", surface_format);
+        let fxaa_view = fxaa_texture.create_view(&wgpu::TextureViewDescriptor::default());
         // The TAA history ping-pong pair. Both hold a finished LDR frame, so
         // like the LDR target they use `surface_format` at the full surface
         // size; a pair rather than one texture because the resolve pass has
@@ -2918,6 +3154,7 @@ impl PostProcessState {
         let normal_bg = make_tex2d_bg("pp normal bg", &normal_view);
         let ssr_bg = make_tex2d_bg("pp ssr bg", &ssr_view);
         let ldr_bg = make_tex2d_bg("pp ldr bg", &ldr_view);
+        let fxaa_bg = make_tex2d_bg("pp fxaa bg", &fxaa_view);
         let history_bgs = [
             make_tex2d_bg("pp history bg 0", &history_views[0]),
             make_tex2d_bg("pp history bg 1", &history_views[1]),
@@ -2954,6 +3191,9 @@ impl PostProcessState {
             ldr_texture,
             ldr_view,
             ldr_bg,
+            fxaa_texture,
+            fxaa_view,
+            fxaa_bg,
             history_textures,
             history_views,
             history_bgs,
@@ -3297,6 +3537,48 @@ impl PostProcessState {
         })
     }
 
+    fn make_fxaa_pipeline(
+        device: &wgpu::Device,
+        tex2d_bgl: &wgpu::BindGroupLayout,
+        fxaa_bgl: &wgpu::BindGroupLayout,
+        surface_format: wgpu::TextureFormat,
+    ) -> wgpu::RenderPipeline {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("fxaa shader"),
+            source: wgpu::ShaderSource::Wgsl(FXAA_WGSL.into()),
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("fxaa pll"),
+            bind_group_layouts: &[tex2d_bgl, fxaa_bgl],
+            push_constant_ranges: &[],
+        });
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("fxaa pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_fullscreen",
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_fxaa",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: surface_format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        })
+    }
+
     fn make_motion_blur_pipeline(
         device: &wgpu::Device,
         tex2d_bgl: &wgpu::BindGroupLayout,
@@ -3466,6 +3748,9 @@ impl PostProcessState {
         self.ssr_bg = t.ssr_bg;
         self.ldr_view = t.ldr_view;
         self._ldr_texture = t.ldr_texture;
+        self.fxaa_view = t.fxaa_view;
+        self._fxaa_texture = t.fxaa_texture;
+        self.fxaa_bg = t.fxaa_bg;
         self.history_views = t.history_views;
         self._history_textures = t.history_textures;
         self.history_bgs = t.history_bgs;
@@ -3563,6 +3848,32 @@ impl PostProcessState {
     /// which skips it regardless).
     pub fn motion_blur_active(&self) -> bool {
         self.motion_blur_on
+    }
+
+    /// Sets this frame's FXAA; `None`, or a disabled one, skips the pass --
+    /// the TAA resolve then reads the composite's output exactly as before
+    /// FXAA existed.
+    pub fn update_fxaa(&mut self, queue: &wgpu::Queue, fxaa: Option<bsengine_core::Fxaa>) {
+        let active = fxaa.filter(|f| f.enabled);
+        self.fxaa_on = active.is_some();
+        if let Some(f) = active {
+            let data = FxaaGpu {
+                edge_threshold: f.edge_threshold,
+                edge_threshold_min: f.edge_threshold_min,
+                subpixel: f.subpixel.clamp(0.0, 1.0),
+                // Sampling an sRGB target decodes to linear light; FXAA's
+                // thresholds are for perceptual luma, so the shader encodes
+                // it back (approximately, by a square root) first.
+                srgb_input: self.surface_format.is_srgb() as u32,
+            };
+            queue.write_buffer(&self.fxaa_buffer, 0, bytemuck::bytes_of(&data));
+        }
+    }
+
+    /// Whether this frame's FXAA pass will run (before `fast_render`, which
+    /// skips it regardless).
+    pub fn fxaa_active(&self) -> bool {
+        self.fxaa_on
     }
 
     /// Slices in the bound colour LUT, or 0 for none.
@@ -4040,6 +4351,39 @@ impl PostProcessState {
             triangles += 1;
         }
 
+        // FXAA, on the finished LDR image: after the composite, since edges
+        // are to be found by the contrast the player sees, and before the
+        // TAA resolve, which then accumulates the smoothed frames (and, with
+        // TAA off, is the plain copy to the swapchain).
+        let fxaa_ran = self.fxaa_on && !fast_render;
+        if fxaa_ran {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("fxaa pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.fxaa_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                ..Default::default()
+            });
+            pass.set_pipeline(&self.fxaa_pipeline);
+            pass.set_bind_group(0, &self.ldr_bg, &[]);
+            pass.set_bind_group(1, &self.fxaa_bg_uniform, &[]);
+            pass.draw(0..3, 0..1);
+            draw_calls += 1;
+            triangles += 1;
+        }
+        // This frame's finished colour, as the resolve reads it.
+        let current_bg = if fxaa_ran {
+            &self.fxaa_bg
+        } else {
+            &self.ldr_bg
+        };
+
         {
             // Without a valid history the source is this frame's own LDR, so
             // the blend degenerates to `mix(current, current, blend)` -- a
@@ -4047,7 +4391,7 @@ impl PostProcessState {
             let history_src = if self.history_valid {
                 &self.history_bgs[self.history_read]
             } else {
-                &self.ldr_bg
+                current_bg
             };
             // Write into the half NOT being sampled; the flip below makes it
             // next frame's read source.
@@ -4076,7 +4420,7 @@ impl PostProcessState {
                 ..Default::default()
             });
             pass.set_pipeline(&self.taa_pipeline);
-            pass.set_bind_group(0, &self.ldr_bg, &[]);
+            pass.set_bind_group(0, current_bg, &[]);
             pass.set_bind_group(1, history_src, &[]);
             pass.set_bind_group(2, &self.depth_bg, &[]);
             pass.set_bind_group(3, &self.taa_uniform_bg, &[]);

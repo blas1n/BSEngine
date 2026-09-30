@@ -251,6 +251,8 @@ pub struct Scene {
     pub depth_of_field: Option<bsengine_core::DepthOfField>,
     /// Motion blur for this camera, or `None` for none.
     pub motion_blur: Option<bsengine_core::MotionBlur>,
+    /// FXAA for this camera, or `None` for none.
+    pub fxaa: Option<bsengine_core::Fxaa>,
     pub hud: HashMap<String, String>,
     pub with_skybox: bool,
     /// Particle batches for the pass that runs after transparency.
@@ -280,6 +282,7 @@ impl Default for Scene {
             color_grading: None,
             depth_of_field: None,
             motion_blur: None,
+            fxaa: None,
             hud: HashMap::new(),
             with_skybox: false,
             particles: Vec::new(),
@@ -837,6 +840,8 @@ struct VertOut {{
                 scene.depth_of_field,
                 // `None` skips the pass too.
                 scene.motion_blur,
+                // `None` skips FXAA: the resolve reads the composite as before.
+                scene.fxaa,
             )
             .expect("render_frame failed");
 

@@ -7606,11 +7606,28 @@ mod tests {
     /// after its Animator. The clip is a stand-in system in that set --
     /// the ordering is what is under test, not glTF sampling -- which writes
     /// 0.2 every frame, so the weight is 0.9 only if the script went last.
+    ///
+    /// Run twice, the stand-in registered before and after the scripting
+    /// plugin. Two unordered systems still run in *some* fixed order, picked
+    /// from the order they were added; with one registration order only,
+    /// deleting the `.after(AnimationPoseSystems)` left this test green
+    /// because that order happened to favour the script.
     #[test]
     fn a_script_set_morph_weight_overrides_the_animation_pose() {
+        for stand_in_first in [true, false] {
+            assert_eq!(
+                morph_weight_after_script_and_pose(stand_in_first),
+                vec![0.9],
+                "the script's weight is the frame's last word, not the \
+                 animation's (stand-in registered first: {stand_in_first})"
+            );
+        }
+    }
+
+    fn morph_weight_after_script_and_pose(stand_in_first: bool) -> Vec<f32> {
         use bevy_ecs::schedule::IntoSystemConfigs;
         let script_path = std::env::temp_dir().join(format!(
-            "bsengine_test_morph_order_{}.js",
+            "bsengine_test_morph_order_{}_{stand_in_first}.js",
             std::process::id()
         ));
         std::fs::write(
@@ -7623,23 +7640,31 @@ mod tests {
         .unwrap();
         #[derive(bevy_ecs::prelude::Resource, Default)]
         struct PoseRuns(u32);
+        let add_stand_in = |app: &mut bevy_app::App| {
+            app.init_resource::<PoseRuns>();
+            app.add_systems(
+                bevy_app::Update,
+                (|mut q: bevy_ecs::prelude::Query<&mut bsengine_core::MorphWeights>,
+                  mut runs: bevy_ecs::prelude::ResMut<PoseRuns>| {
+                    runs.0 += 1;
+                    for mut w in q.iter_mut() {
+                        w.weights[0] = 0.2;
+                    }
+                })
+                .in_set(bsengine_core::AnimationPoseSystems),
+            );
+        };
         let mut app = new_app();
         app.add_plugins(bsengine_asset::AssetPlugin);
+        if stand_in_first {
+            add_stand_in(&mut app);
+        }
         app.add_plugins(ScriptingPlugin {
             project_dir: String::new(),
         });
-        app.init_resource::<PoseRuns>();
-        app.add_systems(
-            bevy_app::Update,
-            (|mut q: bevy_ecs::prelude::Query<&mut bsengine_core::MorphWeights>,
-              mut runs: bevy_ecs::prelude::ResMut<PoseRuns>| {
-                runs.0 += 1;
-                for mut w in q.iter_mut() {
-                    w.weights[0] = 0.2;
-                }
-            })
-            .in_set(bsengine_core::AnimationPoseSystems),
-        );
+        if !stand_in_first {
+            add_stand_in(&mut app);
+        }
         let face = app
             .world_mut()
             .spawn((
@@ -7666,13 +7691,10 @@ mod tests {
             app.world().resource::<PoseRuns>().0 > 3,
             "premise: the stand-in pose system ran in the frames measured"
         );
-        assert_eq!(
-            app.world()
-                .get::<bsengine_core::MorphWeights>(face)
-                .unwrap()
-                .weights,
-            vec![0.9],
-            "the script's weight is the frame's last word, not the animation's"
-        );
+        app.world()
+            .get::<bsengine_core::MorphWeights>(face)
+            .unwrap()
+            .weights
+            .clone()
     }
 }

@@ -44,6 +44,12 @@ fn project(name: &str) -> PathBuf {
 /// gets the same three diagnostics without repeating them.
 fn run_frames(project: &Path, frames: u32) -> (u32, u32) {
     let mut child = Command::new(env!("CARGO_BIN_EXE_bsengine-runtime"))
+        // The windowed path writes a log (and on a panic, a crash report)
+        // under the per-user directory; a test must not fill a real profile.
+        .env(
+            bsengine_core::crash::USER_DIR_ENV,
+            std::env::temp_dir().join(format!("bsengine_smoke_user_{}", std::process::id())),
+        )
         .arg(project)
         .arg("--frames")
         .arg(frames.to_string())

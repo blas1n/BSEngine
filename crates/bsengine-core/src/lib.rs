@@ -22,6 +22,8 @@ pub mod bloom;
 pub mod camera;
 /// Colour grading (contrast, saturation, colour filter) after tonemapping.
 pub mod color_grading;
+/// The per-user log file and crash reports, and the panic hook that writes them.
+pub mod crash;
 /// Cursor visibility/lock configuration resource.
 pub mod cursor_config;
 /// Current cursor position resource, in window space.

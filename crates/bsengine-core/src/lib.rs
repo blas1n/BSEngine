@@ -55,6 +55,8 @@ pub mod lifetime;
 pub mod light;
 /// Baked light-probe volume providing position-varying indirect lighting.
 pub mod light_probe;
+/// Translated strings by key from CSV string tables, a current locale and a fallback.
+pub mod localization;
 /// Engine-wide logging initialization.
 pub mod logging;
 /// PBR material properties component.
@@ -181,6 +183,7 @@ pub use inspector::{
 pub use lifetime::Lifetime;
 pub use light::{DirectionalLight, PointLight, SpotLight};
 pub use light_probe::{LightProbeVolume, MAX_PROBES};
+pub use localization::Localization;
 pub use logging::init_logging;
 pub use material::{Material, TexturePath};
 pub use mixer_state::{MixerBus, MixerShared, MixerState};

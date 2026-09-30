@@ -25,8 +25,8 @@ use crate::ops::{
     GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT, GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT,
     GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT,
     INCOMING_RPCS, KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT,
-    LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, LOOK_AT_SNAPSHOT, MASS_SNAPSHOT,
-    MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
+    LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, LOCALIZATION_SNAPSHOT, LOOK_AT_SNAPSHOT,
+    MASS_SNAPSHOT, MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
     MATERIAL_ROUGHNESS_SNAPSHOT, MORPH_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
     MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, NAV_SNAPSHOT,
     NETWORK_ID_SNAPSHOT, NETWORK_STATE_SNAPSHOT, PARENT_SNAPSHOT, PAUSED_SNAPSHOT,
@@ -314,6 +314,10 @@ impl Plugin for ScriptingPlugin {
         app.insert_resource(HudTexts::default());
         app.insert_resource(SoundHandles::default());
         app.init_resource::<PendingSounds>();
+        // Empty unless the runtime inserted the project's tables first --
+        // then this leaves them alone. Present either way, so `setLocale`
+        // always has somewhere to land and `tr` returns the key.
+        app.init_resource::<bsengine_core::Localization>();
         app.init_resource::<SoundLoads>();
         app.insert_non_send_resource(ScriptRuntimeResource(ScriptRuntime::new_with_ops()));
         // Wall clock by default. `bsengine-runtime --test` overwrites this
@@ -2724,6 +2728,11 @@ fn run_scripts(world: &mut World) {
                     }
                 }
             }
+            ScriptCommand::SetLocale { locale } => {
+                if let Some(mut l) = world.get_resource_mut::<bsengine_core::Localization>() {
+                    l.set_locale(&locale);
+                }
+            }
             ScriptCommand::SetActionBindings { action, bindings } => {
                 let parsed: Vec<bsengine_input::Binding> = bindings
                     .iter()
@@ -3899,6 +3908,11 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
             .collect()
     };
     MORPH_SNAPSHOT.with(|s| *s.borrow_mut() = morphs);
+    let localization = world
+        .get_resource::<bsengine_core::Localization>()
+        .cloned()
+        .unwrap_or_default();
+    LOCALIZATION_SNAPSHOT.with(|s| *s.borrow_mut() = localization);
     {
         use kira::sound::PlaybackState;
         let mut states = std::collections::HashMap::new();
@@ -7696,5 +7710,77 @@ mod tests {
             .unwrap()
             .weights
             .clone()
+    }
+
+    /// `Bsengine.tr` / `setLocale` / `getLocale` / `getLocales` through the
+    /// real plugin, against tables the runtime would have inserted: a
+    /// translation, a placeholder filled by name, a key with no translation
+    /// coming back as itself, and a locale switch that `tr` sees in the same
+    /// frame and the resource keeps for the next.
+    #[test]
+    fn scripts_translate_by_key_and_switch_locale() {
+        let script_path =
+            std::env::temp_dir().join(format!("bsengine_test_tr_{}.js", std::process::id()));
+        std::fs::write(
+            &script_path,
+            "let done = false;\n\
+             function onUpdate(name) {\n\
+                 if (done) return;\n\
+                 done = true;\n\
+                 const before = Bsengine.tr(\"GREETING\");\n\
+                 const score = Bsengine.tr(\"SCORE\", {points: 42, who: \"Ann\"});\n\
+                 const missing = Bsengine.tr(\"NO_SUCH_KEY\");\n\
+                 Bsengine.setLocale(\"ko_KR\");\n\
+                 Bsengine.setHudText(\"tr\", [\n\
+                     before, score, missing,\n\
+                     Bsengine.getLocale(), Bsengine.tr(\"GREETING\"),\n\
+                     Bsengine.tr(\"SCORE\", {points: 7, who: \"Bo\"}),\n\
+                     Bsengine.getLocales().join(\"+\"),\n\
+                 ].join(\"|\"));\n\
+             }",
+        )
+        .unwrap();
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.insert_resource(
+            bsengine_core::Localization::from_csv_tables(
+                [(
+                    "strings.csv",
+                    "keys,en,ko\n\
+                     GREETING,Hello,안녕하세요\n\
+                     SCORE,\"{who}: {points} points\",\"{who}: {points}점\"\n",
+                )],
+                "en",
+            )
+            .unwrap(),
+        );
+        app.add_plugins(ScriptingPlugin {
+            project_dir: String::new(),
+        });
+        app.world_mut().spawn((
+            Name("Menu".to_string()),
+            ScriptPath(script_path.to_string_lossy().to_string()),
+            Transform::default(),
+        ));
+        let mut frames = 0;
+        while !app.world().resource::<HudTexts>().0.contains_key("tr") {
+            app.update();
+            frames += 1;
+            assert!(frames < 300, "the script never ran");
+        }
+        app.update();
+        let _ = std::fs::remove_file(&script_path);
+        assert_eq!(
+            app.world().resource::<HudTexts>().0["tr"],
+            "Hello|Ann: 42 points|NO_SUCH_KEY|ko-KR|안녕하세요|Bo: 7점|en+ko",
+            "translated, filled, missing key as itself; then ko-KR at once, falling back to ko"
+        );
+        assert_eq!(
+            app.world()
+                .resource::<bsengine_core::Localization>()
+                .locale(),
+            "ko-KR",
+            "and the resource keeps the switch for every script from the next frame"
+        );
     }
 }

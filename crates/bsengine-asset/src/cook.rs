@@ -206,18 +206,25 @@ pub fn cook_project(project_dir: impl AsRef<Path>) -> io::Result<CookedProject> 
                 ),
             )
         })?;
-    let extra_assets: Vec<String> = manifest
-        .get("package")
-        .and_then(|p| p.get("extra_assets"))
-        .and_then(toml::Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(toml::Value::as_str)
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
+    // `[package] extra_assets`, and the `[localization] tables` -- which no
+    // scene references, and without which a build shows every string as its
+    // key. The runtime's `ProjectManifest::packaged_extras` is the same list.
+    let strings_at = |table: &str, key: &str| -> Vec<String> {
+        manifest
+            .get(table)
+            .and_then(|p| p.get(key))
+            .and_then(toml::Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(toml::Value::as_str)
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let mut extra_assets = strings_at("package", "extra_assets");
+    extra_assets.extend(strings_at("localization", "tables"));
     cook(project_dir, entry_scene, &extra_assets)
 }
 
@@ -1263,6 +1270,24 @@ mod tests {
         assert!(
             cooked.unreferenced.contains("assets/scenes/main.ron"),
             "the conventionally named scene is unreached when the manifest names another"
+        );
+
+        // `[localization] tables` are roots too -- the runtime's `--package`
+        // adds them (`ProjectManifest::packaged_extras`), and the editor's and
+        // MCP's cook must agree, or a build made from there drops them.
+        probe.write(
+            "project.toml",
+            "[project]\nname = \"P\"\nentry_scene = \"assets/scenes/start.ron\"\n\n\
+             [localization]\ntables = [\"assets/i18n/strings.csv\"]\n",
+        );
+        probe.write("assets/i18n/strings.csv", "keys,en\nA,a\n");
+        let cooked = cook_project(&probe.0).expect("cook with tables");
+        assert!(
+            cooked
+                .edges
+                .contains(&(MANIFEST.to_string(), "assets/i18n/strings.csv".to_string())),
+            "the string tables are walked from the manifest; got {:?}",
+            cooked.edges
         );
 
         probe.write("project.toml", "[project]\nname = \"P\"\n");

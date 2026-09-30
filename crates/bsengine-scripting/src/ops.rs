@@ -979,6 +979,11 @@ pub enum ScriptCommand {
         /// The weight.
         weight: f32,
     },
+    /// Switch the locale the project's string tables are read in.
+    SetLocale {
+        /// The locale, as the script gave it (normalized when applied).
+        locale: String,
+    },
     /// Rebind an input action. The bindings were parsed when the command was
     /// queued, so applying it cannot fail on a bad string.
     SetActionBindings {
@@ -1496,6 +1501,10 @@ thread_local! {
     // Each entity's morph targets: name -> (target names, weights).
     pub(crate) static MORPH_SNAPSHOT: RefCell<HashMap<String, (Vec<String>, Vec<f32>)>> =
         RefCell::new(HashMap::new());
+    // The project's string tables and current locale. A clone of the
+    // resource, which is cheap: the tables are behind an `Arc`.
+    pub(crate) static LOCALIZATION_SNAPSHOT: RefCell<bsengine_core::Localization> =
+        RefCell::new(bsengine_core::Localization::default());
     pub(crate) static COMMAND_BUFFER: RefCell<Vec<ScriptCommand>> =
         const { RefCell::new(Vec::new()) };
     pub(crate) static SOUND_ID_COUNTER: RefCell<u32> =
@@ -2288,6 +2297,60 @@ pub fn bsengine_set_morph_weight(
         })
     });
     String::new()
+}
+
+/// `key`'s text in the current locale, down the fallback chain to the key
+/// itself (see `bsengine_core::Localization`). `args` is "" or a JSON object
+/// whose values fill `{name}` placeholders -- strings as they are, numbers and
+/// booleans by their JSON text.
+#[op2]
+#[string]
+pub fn bsengine_tr(#[string] key: String, #[string] args: String) -> String {
+    LOCALIZATION_SNAPSHOT.with(|l| {
+        let text = l.borrow().tr(&key);
+        if args.is_empty() {
+            return text;
+        }
+        let values: HashMap<String, String> =
+            serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&args)
+                .map(|map| {
+                    map.into_iter()
+                        .map(|(k, v)| {
+                            let v = match v {
+                                serde_json::Value::String(s) => s,
+                                other => other.to_string(),
+                            };
+                            (k, v)
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+        bsengine_core::Localization::format(&text, &values)
+    })
+}
+
+/// Switches the locale. The snapshot changes at once, so `tr` right after
+/// reads the new language; the resource follows when the command is applied
+/// this frame, and every script sees it from the next.
+#[op2(fast)]
+pub fn bsengine_set_locale(#[string] locale: String) {
+    LOCALIZATION_SNAPSHOT.with(|l| l.borrow_mut().set_locale(&locale));
+    COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SetLocale { locale }));
+}
+
+/// The current locale, normalized (`ko`, `pt-BR`).
+#[op2]
+#[string]
+pub fn bsengine_get_locale() -> String {
+    LOCALIZATION_SNAPSHOT.with(|l| l.borrow().locale().to_string())
+}
+
+/// Every locale the string tables have, as a JSON array.
+#[op2]
+#[string]
+pub fn bsengine_get_locales() -> String {
+    LOCALIZATION_SNAPSHOT
+        .with(|l| serde_json::to_string(&l.borrow().locales()).unwrap_or_else(|_| "[]".to_string()))
 }
 
 /// Entity `name`'s morph targets as JSON `{"names": [...], "weights": [...]}`,
@@ -5291,6 +5354,10 @@ deno_core::extension!(
         bsengine_set_action_bindings,
         bsengine_set_morph_weight,
         bsengine_get_morph_weights,
+        bsengine_tr,
+        bsengine_set_locale,
+        bsengine_get_locale,
+        bsengine_get_locales,
         bsengine_get_entity_names,
         bsengine_entity_exists,
         bsengine_get_entity_count,

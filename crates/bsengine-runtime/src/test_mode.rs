@@ -51,6 +51,9 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>, fast_rend
         cascades: manifest.render.shadow_cascades,
         blend: manifest.render.shadow_cascade_blend,
     });
+    // Before the archive moves into `PakAssetPlugin` below: the tables are
+    // read out of it.
+    crate::insert_localization(&mut app, project_dir, pak.as_deref(), &manifest);
     // Before `AssetPlugin`, and that ordering is the whole reason this is a
     // separate plugin: `bevy_asset` builds its sources during that plugin's
     // `build`, so a source registered afterwards is silently ignored -- and a

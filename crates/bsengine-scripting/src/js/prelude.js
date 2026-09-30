@@ -941,6 +941,25 @@ var Bsengine = {
         return m ? m.names : [];
     },
 
+    // Localization: text by key from the project's string tables
+    // (`[localization] tables` in project.toml), in the current locale, down
+    // the fallback chain to the key itself -- Unity's GetLocalizedString,
+    // Unreal's FText from a string table, Godot's tr(). `opts` holds the
+    // named placeholders' values: tr("SCORE", {points: 42}) for
+    // "Score: {points}". (Named `opts` so the typings mark it optional.)
+    tr(key, opts) {
+        return Deno.core.ops.bsengine_tr(String(key), opts === undefined ? "" : JSON.stringify(opts));
+    },
+    setLocale(locale) {
+        Deno.core.ops.bsengine_set_locale(String(locale));
+    },
+    getLocale() {
+        return Deno.core.ops.bsengine_get_locale();
+    },
+    getLocales() {
+        return JSON.parse(Deno.core.ops.bsengine_get_locales());
+    },
+
     // Animation event callbacks -- keyed by entity name, like collisions.
     // `callback(eventName, clip)` runs once per crossing, before this
     // frame's `onUpdate`s, in the order playback crossed the events.

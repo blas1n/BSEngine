@@ -306,3 +306,85 @@ fn packaging_refuses_a_bad_input_binding_and_names_it() {
         "the failure names the action and the binding: {stderr}"
     );
 }
+
+/// A project's `[localization] tables` ship in a pak build and are read out
+/// of the archive: no scene references a CSV, so without the manifest adding
+/// them to the cook the build would carry none, and with no loose `assets/`
+/// on disk a runtime reading the file system instead of the archive would
+/// fail to start. A script puts `tr("GREETING")` on the HUD, the manifest
+/// asks for Korean, and the packaged build is asked what the HUD says.
+#[test]
+fn a_pak_build_carries_its_string_tables_and_translates_from_them() {
+    let project = Output::new();
+    std::fs::create_dir_all(project.0.join("assets/scenes")).unwrap();
+    std::fs::create_dir_all(project.0.join("assets/scripts")).unwrap();
+    std::fs::create_dir_all(project.0.join("assets/i18n")).unwrap();
+    std::fs::write(
+        project.0.join("project.toml"),
+        "[project]\nname = \"Strings\"\nentry_scene = \"assets/scenes/main.ron\"\n\n\
+         [localization]\ntables = [\"assets/i18n/strings.csv\"]\ndefault_locale = \"en\"\nlocale = \"ko\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        project.0.join("assets/scenes/main.ron"),
+        r#"SceneDescriptor(entities: [EntityDescriptor(name: "Menu", script: Some("assets/scripts/menu.js"))])"#,
+    )
+    .unwrap();
+    std::fs::write(
+        project.0.join("assets/scripts/menu.js"),
+        "function onUpdate(name) { Bsengine.setHudText(\"greeting\", Bsengine.tr(\"GREETING\")); }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        project.0.join("assets/i18n/strings.csv"),
+        "keys,en,ko\nGREETING,Hello,안녕하세요\n",
+    )
+    .unwrap();
+
+    let out = Output::new();
+    let status = Command::new(env!("CARGO_BIN_EXE_bsengine-runtime"))
+        .arg("--package")
+        .arg(&project.0)
+        .arg("--out")
+        .arg(&out.0)
+        .arg("--mode")
+        .arg("pak")
+        .status()
+        .expect("run --package");
+    assert!(status.success(), "packaging failed: {status}");
+    assert!(
+        !out.0.join("assets").exists(),
+        "premise: no loose assets, so the table can only come out of the archive"
+    );
+
+    let mut child = Command::new(out.0.join(runtime_file_name()))
+        .current_dir(&out.0)
+        .arg("--test")
+        .arg(&out.0)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("run the packaged build");
+    {
+        use std::io::Write;
+        let stdin = child.stdin.as_mut().expect("stdin");
+        writeln!(stdin, r#"{{"cmd":"step","frames":10}}"#).unwrap();
+        writeln!(
+            stdin,
+            r#"{{"cmd":"query","tool":"get_hud_text","args":{{"id":"greeting"}}}}"#
+        )
+        .unwrap();
+        writeln!(stdin, r#"{{"cmd":"shutdown"}}"#).unwrap();
+    }
+    let run = child
+        .wait_with_output()
+        .expect("wait for the packaged build");
+    let stdout = String::from_utf8_lossy(&run.stdout);
+    assert!(
+        stdout.contains("안녕하세요"),
+        "the packaged build translated GREETING into Korean from its archive:\n\
+         stdout: {stdout}\nstderr: {}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+}

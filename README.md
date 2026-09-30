@@ -262,6 +262,44 @@ sticks or buttons.
 
 ---
 
+## Localization
+
+Strings are looked up by key in CSV string tables, one column per locale --
+the layout Godot imports, and a format Unity and Unreal string tables both
+read:
+
+```text
+keys,en,ko,_notes
+GREETING,Hello,안녕하세요,shown on the title screen
+SCORE,"Score: {points}","점수: {points}",
+```
+
+```toml
+[localization]
+tables = ["assets/i18n/strings.csv"]   # later tables override earlier ones
+default_locale = "en"                  # what a missing translation falls back to
+locale = "auto"                        # the system's locale, or e.g. "ko"
+```
+
+```js
+Bsengine.tr("GREETING");                 // "안녕하세요"
+Bsengine.tr("SCORE", { points: 42 });    // "점수: 42"
+Bsengine.setLocale("pt-BR");             // takes effect for tr() at once
+Bsengine.getLocales();                   // ["en", "ko"]
+```
+
+- Lookup falls back from the locale (`pt-BR`) to its language (`pt`) to
+  `default_locale`, and finally to the key itself, so a missing translation
+  shows on screen instead of a blank.
+- An empty cell means "not translated". A column whose header starts with `_`
+  is a comment.
+- `"auto"` picks the table locale closest to the operating system's (exact,
+  then same language), else `default_locale`.
+- Tables are packaged with the build like `extra_assets`. A table that does not
+  parse stops the game at start, naming the file and the row.
+
+---
+
 ## Networking
 
 ```toml

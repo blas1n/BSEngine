@@ -378,7 +378,10 @@ impl Plugin for ScriptingPlugin {
                 // N+1 depending on how the two unrelated systems were sorted.
                 // A no-op without `AnimationPlugin`, as the line above is
                 // without its plugin.
-                .after(bsengine_core::AnimationSystems),
+                .after(bsengine_core::AnimationSystems)
+                // And after the pose-side animation systems, so a script's
+                // morph weight or position is the frame's last word.
+                .after(bsengine_core::AnimationPoseSystems),
         );
     }
 }
@@ -7594,6 +7597,82 @@ mod tests {
                 .weights,
             vec![0.75, 0.5],
             "and the component the GPU upload reads has the new weights"
+        );
+    }
+
+    /// A script that sets a morph weight every frame wins over the clip that
+    /// also sets it every frame: scripts run after
+    /// `bsengine_core::AnimationPoseSystems`, as Unity's `LateUpdate` runs
+    /// after its Animator. The clip is a stand-in system in that set --
+    /// the ordering is what is under test, not glTF sampling -- which writes
+    /// 0.2 every frame, so the weight is 0.9 only if the script went last.
+    #[test]
+    fn a_script_set_morph_weight_overrides_the_animation_pose() {
+        use bevy_ecs::schedule::IntoSystemConfigs;
+        let script_path = std::env::temp_dir().join(format!(
+            "bsengine_test_morph_order_{}.js",
+            std::process::id()
+        ));
+        std::fs::write(
+            &script_path,
+            "function onUpdate(name) {\n\
+                 Bsengine.setMorphWeight(\"Face\", \"smile\", 0.9);\n\
+                 Bsengine.setHudText(\"ran\", \"yes\");\n\
+             }",
+        )
+        .unwrap();
+        #[derive(bevy_ecs::prelude::Resource, Default)]
+        struct PoseRuns(u32);
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: String::new(),
+        });
+        app.init_resource::<PoseRuns>();
+        app.add_systems(
+            bevy_app::Update,
+            (|mut q: bevy_ecs::prelude::Query<&mut bsengine_core::MorphWeights>,
+              mut runs: bevy_ecs::prelude::ResMut<PoseRuns>| {
+                runs.0 += 1;
+                for mut w in q.iter_mut() {
+                    w.weights[0] = 0.2;
+                }
+            })
+            .in_set(bsengine_core::AnimationPoseSystems),
+        );
+        let face = app
+            .world_mut()
+            .spawn((
+                Name("Face".to_string()),
+                ScriptPath(script_path.to_string_lossy().to_string()),
+                Transform::default(),
+                bsengine_core::MorphWeights {
+                    names: vec!["smile".to_string()],
+                    weights: vec![0.0],
+                },
+            ))
+            .id();
+        let mut frames = 0;
+        while !app.world().resource::<HudTexts>().0.contains_key("ran") {
+            app.update();
+            frames += 1;
+            assert!(frames < 300, "the script never ran");
+        }
+        for _ in 0..3 {
+            app.update();
+        }
+        let _ = std::fs::remove_file(&script_path);
+        assert!(
+            app.world().resource::<PoseRuns>().0 > 3,
+            "premise: the stand-in pose system ran in the frames measured"
+        );
+        assert_eq!(
+            app.world()
+                .get::<bsengine_core::MorphWeights>(face)
+                .unwrap()
+                .weights,
+            vec![0.9],
+            "the script's weight is the frame's last word, not the animation's"
         );
     }
 }

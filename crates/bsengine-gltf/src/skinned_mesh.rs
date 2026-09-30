@@ -1,6 +1,6 @@
 use bevy_app::{App, Plugin, PostUpdate, Update};
 use bevy_ecs::prelude::{Component, Query, ReflectComponent, Res, ResMut};
-use bevy_ecs::schedule::IntoSystemConfigs;
+use bevy_ecs::schedule::{IntoSystemConfigs, IntoSystemSetConfigs};
 use bevy_reflect::prelude::ReflectDefault;
 
 use crate::animation::{AnimationChannel, AnimationClip, Interpolation, KeyframeValues};
@@ -983,10 +983,89 @@ impl Plugin for SkinnedMeshPlugin {
             // `PostUpdate` propagates transforms, so the entity is moved in the
             // same frame its pose stops moving -- the two halves of one motion
             // must never be a frame apart, or the character stutters.
+            .configure_sets(
+                Update,
+                bsengine_core::AnimationPoseSystems.after(bsengine_core::AnimationSystems),
+            )
             .add_systems(
                 Update,
-                apply_root_motion.after(bsengine_core::AnimationSystems),
+                (apply_root_motion, animate_morph_weights)
+                    .in_set(bsengine_core::AnimationPoseSystems),
             );
+    }
+}
+
+/// Which node of the source glTF a model's `MorphWeights` belong to -- the
+/// node a clip's `weights` channel names when it animates them. Inserted by
+/// the glTF loader beside `MorphWeights`.
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct MorphSource {
+    /// The node that draws the morphed mesh.
+    pub node: usize,
+}
+
+/// Samples a `weights` channel at `time`: one weight per target, linearly
+/// interpolated (Step and CubicSpline hold the earlier key's values, the
+/// simplification the translation sampler documents). `None` for a channel
+/// that is not weights, or whose values do not divide into its keys.
+fn sample_weights(channel: &AnimationChannel, time: f32) -> Option<Vec<f32>> {
+    let KeyframeValues::Weights(values) = &channel.values else {
+        return None;
+    };
+    let keys = channel.times.len();
+    let per_key = match channel.interpolation {
+        Interpolation::CubicSpline => 3,
+        _ => 1,
+    };
+    if keys == 0 || values.len() % (keys * per_key) != 0 {
+        return None;
+    }
+    let n = values.len() / (keys * per_key);
+    // Under CubicSpline the value block is the middle one of each key's three.
+    let value_at = |k: usize, t: usize| values[k * per_key * n + (per_key / 2) * n + t];
+    let (i0, i1, f) = bracket(&channel.times, time)?;
+    Some(
+        (0..n)
+            .map(|t| match channel.interpolation {
+                Interpolation::Linear => value_at(i0, t) + (value_at(i1, t) - value_at(i0, t)) * f,
+                Interpolation::Step | Interpolation::CubicSpline => value_at(i0, t),
+            })
+            .collect(),
+    )
+}
+
+/// Drives `MorphWeights` from the playing clip's `weights` channel for the
+/// model's morph node, when the clip has one -- glTF's animated blend shapes.
+/// A clip without one leaves the weights to whoever else sets them (a
+/// script, the scene). Runs in [`bsengine_core::AnimationPoseSystems`]: after
+/// the players advance, before scripts, so a script that sets a weight this
+/// frame overrides the clip, as `LateUpdate` does over Unity's Animator.
+fn animate_morph_weights(
+    mut query: Query<(
+        &AnimationClipLibrary,
+        &bsengine_core::AnimationPlayer,
+        &MorphSource,
+        &mut bsengine_core::MorphWeights,
+    )>,
+) {
+    for (library, player, source, mut weights) in query.iter_mut() {
+        let Some(clip) = library.clips.get(&player.clip) else {
+            continue;
+        };
+        let Some(sampled) = clip
+            .channels
+            .iter()
+            .filter(|c| c.node_index == source.node)
+            .find_map(|c| sample_weights(c, player.time))
+        else {
+            continue;
+        };
+        // Only as many as the mesh has: a channel for more targets than the
+        // mesh carries sets the ones that exist.
+        let n = sampled.len().min(weights.weights.len());
+        if weights.weights[..n] != sampled[..n] {
+            weights.weights[..n].copy_from_slice(&sampled[..n]);
+        }
     }
 }
 

@@ -145,7 +145,7 @@ pub mod volumetric_fog;
 
 pub use ambient_occlusion::AmbientOcclusion;
 pub use animation_events::{
-    AnimationEvent, AnimationEventFired, AnimationEvents, AnimationSystems,
+    AnimationEvent, AnimationEventFired, AnimationEvents, AnimationPoseSystems, AnimationSystems,
 };
 pub use animation_player::AnimationPlayer;
 pub use animation_state_machine::{

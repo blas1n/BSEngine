@@ -109,6 +109,66 @@ fn sync_morph_weights(
     }
 }
 
+/// The player a freshly imported, animated model starts with: the scene's
+/// own if it authored one (its clip checked against the file, its duration
+/// refreshed from it), otherwise one on the file's first clip. Shared by
+/// skinned models and by morph-only ones, which play their weight tracks.
+fn initial_player(
+    clip_library: &AnimationClipLibrary,
+    existing_player: Option<&AnimationPlayer>,
+    path: &str,
+) -> AnimationPlayer {
+    let first_clip_name = clip_library
+        .clips
+        .keys()
+        .next()
+        .cloned()
+        .unwrap_or_default();
+    // AnimationPlayer::new defaults duration to 0.0, and
+    // AnimationPlayer::tick is a no-op whenever duration <= 0.0
+    // -- without this, the player's `time` would never
+    // advance and the clip would appear frozen forever.
+    let duration_of = |name: &str| {
+        clip_library
+            .clips
+            .get(name)
+            .map(|c| c.duration)
+            .unwrap_or(0.0)
+    };
+
+    // A scene that authored its own `AnimationPlayer` keeps it.
+    //
+    // This used to insert a fresh player unconditionally, which
+    // meant a skinned character's starting clip could not be
+    // chosen in a scene at all: whatever was authored survived
+    // or was clobbered depending on when the glTF finished
+    // loading. The model's `Transform` has always had this guard
+    // where it is inserted; `AnimationPlayer` simply never got one.
+    //
+    // The duration is refreshed from the clip library either
+    // way. It is the one field an author cannot know -- it
+    // comes out of the file -- and a wrong one silently either
+    // freezes the animation (0.0) or loops it early.
+    match existing_player {
+        Some(authored) => {
+            let mut p = authored.clone();
+            if !clip_library.clips.contains_key(&p.clip) {
+                tracing::warn!(
+                    "[gltf] scene asked for clip {:?}, which {} does not                                      contain; falling back to {:?}",
+                    p.clip,
+                    path,
+                    first_clip_name
+                );
+                p.clip = first_clip_name.clone();
+            }
+            p.duration = duration_of(&p.clip);
+            p
+        }
+        None => AnimationPlayer::new(first_clip_name.clone())
+            .with_duration(duration_of(&first_clip_name)),
+    }
+}
+
 /// A mesh's morph targets flattened the way the compute pass reads them:
 /// target-major, each vertex's position delta then normal delta.
 fn morph_deltas(mesh: &crate::loader::MeshData) -> Vec<[f32; 6]> {
@@ -330,55 +390,7 @@ fn load_gltf_assets(
                 {
                     let skin_data = loaded.skins[0].clone();
                     let clip_library = AnimationClipLibrary::from_clips(loaded.animations.clone());
-                    let first_clip_name = clip_library
-                        .clips
-                        .keys()
-                        .next()
-                        .cloned()
-                        .unwrap_or_default();
-                    // AnimationPlayer::new defaults duration to 0.0, and
-                    // AnimationPlayer::tick is a no-op whenever duration <= 0.0
-                    // -- without this, the player's `time` would never
-                    // advance and the clip would appear frozen forever.
-                    let duration_of = |name: &str| {
-                        clip_library
-                            .clips
-                            .get(name)
-                            .map(|c| c.duration)
-                            .unwrap_or(0.0)
-                    };
-
-                    // A scene that authored its own `AnimationPlayer` keeps it.
-                    //
-                    // This used to insert a fresh player unconditionally, which
-                    // meant a skinned character's starting clip could not be
-                    // chosen in a scene at all: whatever was authored survived
-                    // or was clobbered depending on when the glTF finished
-                    // loading. `Transform` two lines below has always had this
-                    // guard; `AnimationPlayer` simply never got one.
-                    //
-                    // The duration is refreshed from the clip library either
-                    // way. It is the one field an author cannot know -- it
-                    // comes out of the file -- and a wrong one silently either
-                    // freezes the animation (0.0) or loops it early.
-                    let player = match existing_player {
-                        Some(authored) => {
-                            let mut p = authored.clone();
-                            if !clip_library.clips.contains_key(&p.clip) {
-                                tracing::warn!(
-                                    "[gltf] scene asked for clip {:?}, which {} does not                                      contain; falling back to {:?}",
-                                    p.clip,
-                                    asset.path,
-                                    first_clip_name
-                                );
-                                p.clip = first_clip_name.clone();
-                            }
-                            p.duration = duration_of(&p.clip);
-                            p
-                        }
-                        None => AnimationPlayer::new(first_clip_name.clone())
-                            .with_duration(duration_of(&first_clip_name)),
-                    };
+                    let player = initial_player(&clip_library, existing_player, &asset.path);
                     e.insert((
                         SkinnedMesh {
                             mesh_id,
@@ -395,6 +407,18 @@ fn load_gltf_assets(
                         clip_library,
                         player,
                     ));
+                } else if morphed && !loaded.animations.is_empty() {
+                    // A morphed mesh with no skeleton still plays its clips'
+                    // weight tracks -- a face, a flag -- so it gets the clip
+                    // library and a player as a skinned one does.
+                    let clip_library = AnimationClipLibrary::from_clips(loaded.animations.clone());
+                    let player = initial_player(&clip_library, existing_player, &asset.path);
+                    e.insert((clip_library, player));
+                }
+                if morphed {
+                    if let Some(node) = mesh_data.node {
+                        e.insert(crate::skinned_mesh::MorphSource { node });
+                    }
                 }
                 e.remove::<(GltfAsset, PendingGltf)>();
                 if existing_transform.is_none() {
@@ -2181,6 +2205,80 @@ mod tests {
             (z_of_vertex_0(&mut app) - 1.0).abs() < 1e-5,
             "a changed weight reaches the vertex buffer"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A morphed glTF with no skeleton but a clip animating its weights: the
+    /// import gives it the clip library, a player and the node the channel
+    /// names, and the clip drives the weight -- halfway through the 0 -> 1
+    /// ramp it is 0.5, on the component and on the GPU. 0.5 is neither the
+    /// file's default weight (0.25) nor either key, so only sampling at the
+    /// player's time produces it.
+    #[test]
+    fn a_morph_only_gltf_plays_its_weight_track() {
+        let dir = std::env::temp_dir().join(format!("bsengine_morph_anim_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("face.gltf");
+        std::fs::write(&path, crate::loader::morph_triangle_gltf_with(true)).unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::windowed());
+        app.add_plugins(GltfPlugin);
+        app.add_plugins(crate::skinned_mesh::SkinnedMeshPlugin);
+        insert_headless_gpu_registries(&mut app);
+        let e = app
+            .world_mut()
+            .spawn(GltfAsset::new(path.to_string_lossy().to_string()))
+            .id();
+        for _ in 0..200 {
+            app.update();
+            if app.world().get::<bsengine_core::MorphWeights>(e).is_some() {
+                break;
+            }
+        }
+        assert!(
+            app.world().get::<AnimationClipLibrary>(e).is_some(),
+            "a morph-only model with clips gets the clip library"
+        );
+        assert_eq!(
+            app.world().get::<crate::skinned_mesh::MorphSource>(e),
+            Some(&crate::skinned_mesh::MorphSource { node: 0 })
+        );
+        {
+            let mut player = app
+                .world_mut()
+                .get_mut::<bsengine_core::AnimationPlayer>(e)
+                .expect("and a player");
+            assert_eq!(player.clip, "smile_anim");
+            player.playing = false;
+            player.time = 0.5;
+        }
+        app.update();
+        app.update();
+        let weight = app
+            .world()
+            .get::<bsengine_core::MorphWeights>(e)
+            .unwrap()
+            .weights[0];
+        assert!(
+            (weight - 0.5).abs() < 1e-5,
+            "the clip sets the weight: {weight}"
+        );
+
+        let mesh_id = app.world().get::<MeshRenderer>(e).unwrap().mesh_id;
+        let queue = app
+            .world()
+            .resource::<bsengine_rhi_wgpu::GpuQueueResource>()
+            .0
+            .clone();
+        let z = app
+            .world_mut()
+            .resource_mut::<GpuMeshRegistry>()
+            .read_back_vertices(&queue, mesh_id)
+            .unwrap()[0]
+            .position[2];
+        assert!((z - 0.5).abs() < 1e-5, "and it reaches the vertex: {z}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

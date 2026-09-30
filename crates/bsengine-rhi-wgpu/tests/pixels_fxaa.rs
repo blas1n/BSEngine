@@ -17,12 +17,22 @@ const BACKDROP_EMISSIVE: f32 = 0.05;
 const SQUARE_EMISSIVE: f32 = 1.0;
 
 fn square_scene(cube: u64, degrees: f32, square: f32, fxaa: Option<Fxaa>) -> Scene {
+    two_tone_scene(cube, degrees, BACKDROP_EMISSIVE, square, fxaa)
+}
+
+fn two_tone_scene(
+    cube: u64,
+    degrees: f32,
+    backdrop: f32,
+    square: f32,
+    fxaa: Option<Fxaa>,
+) -> Scene {
     Scene {
         draws: vec![
             Draw::new(cube, Vec3::ZERO)
                 .scaled(Vec3::new(40.0, 40.0, 0.2), Vec3::new(0.0, 0.0, -5.0))
                 .colour(Vec3::ZERO)
-                .emissive(Vec3::splat(BACKDROP_EMISSIVE)),
+                .emissive(Vec3::splat(backdrop)),
             Draw::new(cube, Vec3::ZERO)
                 .scaled(Vec3::splat(1.5), Vec3::ZERO)
                 .rotated_z(degrees.to_radians())
@@ -262,4 +272,25 @@ fn taa_accumulates_the_fxaa_output() {
         both.differs_from(&taa_only),
         "FXAA reaches the frame TAA resolves"
     );
+}
+
+/// Contrast is judged perceptually, as FXAA's thresholds are written for: a
+/// dark edge -- black against 0.02 linear -- spans 0.02 of linear luma, under
+/// the 0.0833 minimum, but about 0.14 of perceptual (gamma) luma, well over
+/// it, and the eye sees it as an edge. The post targets are sRGB and sample
+/// as linear light, so this is smoothed only if the shader converts first.
+#[test]
+fn a_dark_edge_is_found_by_its_perceptual_contrast() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let dark = |fxaa| two_tone_scene(cube, 30.0, 0.0, 0.02, fxaa);
+    let off = h.render(&dark(None));
+    let on = h.render(&dark(Some(Fxaa::default())));
+    assert!(
+        off.centre_luma() > off.luma(0, 0) + 20.0,
+        "premise: in the 8-bit sRGB frame the dark square stands out: {} vs {}",
+        off.centre_luma(),
+        off.luma(0, 0)
+    );
+    assert!(on.differs_from(&off), "the dark edge is smoothed");
 }

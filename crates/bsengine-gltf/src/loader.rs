@@ -17,6 +17,25 @@ pub struct MeshData {
     pub indices: Vec<u32>,
     /// Per-vertex joint/weight skinning data, one entry per `vertices` entry, if this mesh's primitive had a skin.
     pub skin: Option<Vec<VertexSkin>>,
+    /// The primitive's morph targets (blend shapes), in target order; empty
+    /// for none. Each holds one delta per vertex.
+    pub morph_targets: Vec<MorphTarget>,
+    /// One name per target, from the glTF mesh's `extras.targetNames` --
+    /// not part of the core spec, but what every exporter writes -- or empty
+    /// strings where the file names none.
+    pub morph_target_names: Vec<String>,
+    /// The mesh's default weights (`mesh.weights`), one per target; zeros
+    /// where the file gives none.
+    pub morph_default_weights: Vec<f32>,
+}
+
+/// One morph target of a primitive: per-vertex offsets from the base shape.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct MorphTarget {
+    /// Position offsets, one per vertex.
+    pub positions: Vec<[f32; 3]>,
+    /// Normal offsets, one per vertex; zeros when the target has none.
+    pub normals: Vec<[f32; 3]>,
 }
 
 /// A decoded texture image, converted to raw RGBA8 pixel data.
@@ -145,6 +164,16 @@ impl LoadedGltf {
             for v in &mut mesh.vertices {
                 for c in &mut v.position {
                     *c *= scale;
+                }
+            }
+            // A target's offsets are positions too: unscaled, a smile on a
+            // model imported at 0.01 would stretch its mouth a hundred times
+            // too far.
+            for target in &mut mesh.morph_targets {
+                for d in &mut target.positions {
+                    for c in d {
+                        *c *= scale;
+                    }
                 }
             }
         }
@@ -321,6 +350,20 @@ impl GltfLoader {
 
         for mesh in doc.meshes() {
             let name = mesh.name().unwrap_or("mesh").to_string();
+            let target_names: Vec<String> = mesh
+                .extras()
+                .as_ref()
+                .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw.get()).ok())
+                .and_then(|v| {
+                    v.get("targetNames")?.as_array().map(|names| {
+                        names
+                            .iter()
+                            .map(|n| n.as_str().unwrap_or_default().to_string())
+                            .collect()
+                    })
+                })
+                .unwrap_or_default();
+            let default_weights: Vec<f32> = mesh.weights().map(<[f32]>::to_vec).unwrap_or_default();
             for primitive in mesh.primitives() {
                 let reader = primitive.reader(|b| Some(&buffers[b.index()]));
 
@@ -333,6 +376,31 @@ impl GltfLoader {
                 let positions: Vec<[f32; 3]> = reader
                     .read_positions()
                     .ok_or("primitive has no positions")?
+                    .collect();
+                let vertex_count = positions.len();
+                // A target that leaves out positions or normals offsets
+                // nothing there; one whose length disagrees with the base is
+                // malformed and would read past it, so it is dropped whole.
+                let morph_targets: Vec<MorphTarget> = reader
+                    .read_morph_targets()
+                    .map(|(p, n, _tangents)| MorphTarget {
+                        positions: p
+                            .map(|i| i.collect())
+                            .unwrap_or_else(|| vec![[0.0; 3]; vertex_count]),
+                        normals: n
+                            .map(|i| i.collect())
+                            .unwrap_or_else(|| vec![[0.0; 3]; vertex_count]),
+                    })
+                    .filter(|t| {
+                        t.positions.len() == vertex_count && t.normals.len() == vertex_count
+                    })
+                    .collect();
+                let target_count = morph_targets.len();
+                let names_for_targets: Vec<String> = (0..target_count)
+                    .map(|i| target_names.get(i).cloned().unwrap_or_default())
+                    .collect();
+                let weights_for_targets: Vec<f32> = (0..target_count)
+                    .map(|i| default_weights.get(i).copied().unwrap_or(0.0))
                     .collect();
 
                 // Some valid glTF primitives omit the indices accessor entirely
@@ -394,6 +462,9 @@ impl GltfLoader {
                     vertices,
                     indices,
                     skin,
+                    morph_targets,
+                    morph_target_names: names_for_targets,
+                    morph_default_weights: weights_for_targets,
                 });
                 mesh_tex_indices.push(tex_idx);
             }
@@ -502,9 +573,109 @@ fn gltf_pixels_to_rgba(pixels: &[u8], format: GltfFormat, width: u32, height: u3
     }
 }
 
+/// A self-contained glTF for morph-target tests: one triangle
+/// (0,0,0) (1,0,0) (0,1,0) with a single target named "smile" that moves
+/// vertex 0 by +1 Z and bends its normal by +1 Y, and a default weight of
+/// 0.25. The buffer is a base64 data URI, so it loads from bytes or from a
+/// file alike. Written out by hand, as an exporter would, rather than built
+/// through the code under test.
+#[cfg(test)]
+pub(crate) fn morph_triangle_gltf() -> String {
+    fn f32s(values: &[f32]) -> Vec<u8> {
+        values.iter().flat_map(|v| v.to_le_bytes()).collect()
+    }
+    fn base64(bytes: &[u8]) -> String {
+        const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut out = String::new();
+        for chunk in bytes.chunks(3) {
+            let b = [
+                chunk[0],
+                *chunk.get(1).unwrap_or(&0),
+                *chunk.get(2).unwrap_or(&0),
+            ];
+            let n = (u32::from(b[0]) << 16) | (u32::from(b[1]) << 8) | u32::from(b[2]);
+            for i in 0..4 {
+                if i <= chunk.len() {
+                    out.push(T[((n >> (18 - 6 * i)) & 63) as usize] as char);
+                } else {
+                    out.push('=');
+                }
+            }
+        }
+        out
+    }
+    let mut buffer = f32s(&[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
+    buffer.extend(f32s(&[0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]));
+    buffer.extend(f32s(&[0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]));
+    format!(
+        r#"{{
+  "asset": {{"version": "2.0"}},
+  "scene": 0,
+  "scenes": [{{"nodes": [0]}}],
+  "nodes": [{{"mesh": 0}}],
+  "meshes": [{{
+    "name": "face",
+    "primitives": [{{"attributes": {{"POSITION": 0}}, "targets": [{{"POSITION": 1, "NORMAL": 2}}]}}],
+    "weights": [0.25],
+    "extras": {{"targetNames": ["smile"]}}
+  }}],
+  "buffers": [{{"byteLength": 108, "uri": "data:application/octet-stream;base64,{}"}}],
+  "bufferViews": [
+    {{"buffer": 0, "byteOffset": 0, "byteLength": 36}},
+    {{"buffer": 0, "byteOffset": 36, "byteLength": 36}},
+    {{"buffer": 0, "byteOffset": 72, "byteLength": 36}}
+  ],
+  "accessors": [
+    {{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3", "min": [0, 0, 0], "max": [1, 1, 0]}},
+    {{"bufferView": 1, "componentType": 5126, "count": 3, "type": "VEC3", "min": [0, 0, 0], "max": [0, 0, 1]}},
+    {{"bufferView": 2, "componentType": 5126, "count": 3, "type": "VEC3"}}
+  ]
+}}"#,
+        base64(&buffer)
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A glTF's morph targets come through the loader whole: per-vertex
+    /// position and normal offsets, the name from `extras.targetNames`, the
+    /// mesh's default weight -- and the position offsets scaled with the
+    /// model, the normals not (a normal offset is a direction). A target
+    /// the scale missed would stretch a smile on a centimetre model a
+    /// hundredfold.
+    #[test]
+    fn morph_targets_load_with_their_names_weights_and_the_import_scale() {
+        let json = morph_triangle_gltf();
+        let loaded =
+            GltfLoader::load_full_from_slice(json.as_bytes(), &ModelImportSettings::default())
+                .expect("the fixture loads");
+        let mesh = &loaded.meshes[0];
+        assert_eq!(mesh.morph_targets.len(), 1);
+        assert_eq!(
+            mesh.morph_targets[0].positions,
+            vec![[0.0, 0.0, 1.0], [0.0; 3], [0.0; 3]]
+        );
+        assert_eq!(
+            mesh.morph_targets[0].normals,
+            vec![[0.0, 1.0, 0.0], [0.0; 3], [0.0; 3]]
+        );
+        assert_eq!(mesh.morph_target_names, vec!["smile".to_string()]);
+        assert_eq!(mesh.morph_default_weights, vec![0.25]);
+
+        let scaled = GltfLoader::load_full_from_slice(
+            json.as_bytes(),
+            &ModelImportSettings {
+                scale: 2.0,
+                ..Default::default()
+            },
+        )
+        .expect("the fixture loads");
+        let target = &scaled.meshes[0].morph_targets[0];
+        assert_eq!(target.positions[0], [0.0, 0.0, 2.0], "positions scale");
+        assert_eq!(target.normals[0], [0.0, 1.0, 0.0], "normals do not");
+    }
 
     #[test]
     fn load_nonexistent_file_returns_error() {

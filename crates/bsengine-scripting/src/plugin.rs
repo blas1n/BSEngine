@@ -27,7 +27,7 @@ use crate::ops::{
     INCOMING_RPCS, KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT,
     LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, LOOK_AT_SNAPSHOT, MASS_SNAPSHOT,
     MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
-    MATERIAL_ROUGHNESS_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
+    MATERIAL_ROUGHNESS_SNAPSHOT, MORPH_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
     MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, NAV_SNAPSHOT,
     NETWORK_ID_SNAPSHOT, NETWORK_STATE_SNAPSHOT, PARENT_SNAPSHOT, PAUSED_SNAPSHOT,
     PHYSICS_WORLD_PTR, PROJECT_DIR, REMOTE_INPUT, REMOTE_INPUT_PREVIOUS, RESTITUTION_SNAPSHOT,
@@ -2706,6 +2706,21 @@ fn run_scripts(world: &mut World) {
                     }
                 }
             }
+            ScriptCommand::SetMorphWeight {
+                name,
+                index,
+                weight,
+            } => {
+                let mut q = world.query::<(&Name, &mut bsengine_core::MorphWeights)>();
+                for (n, mut morph) in q.iter_mut(world) {
+                    if n.0 == name {
+                        if let Some(w) = morph.weights.get_mut(index) {
+                            *w = weight;
+                        }
+                        break;
+                    }
+                }
+            }
             ScriptCommand::SetActionBindings { action, bindings } => {
                 let parsed: Vec<bsengine_input::Binding> = bindings
                     .iter()
@@ -3874,6 +3889,13 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
         .unwrap_or_default();
     ACTION_SNAPSHOT.with(|s| *s.borrow_mut() = action_values);
     ACTION_BINDINGS_SNAPSHOT.with(|s| *s.borrow_mut() = action_bindings);
+    let morphs: HashMap<String, (Vec<String>, Vec<f32>)> = {
+        let mut q = world.query::<(&Name, &bsengine_core::MorphWeights)>();
+        q.iter(world)
+            .map(|(n, m)| (n.0.clone(), (m.names.clone(), m.weights.clone())))
+            .collect()
+    };
+    MORPH_SNAPSHOT.with(|s| *s.borrow_mut() = morphs);
     {
         use kira::sound::PlaybackState;
         let mut states = std::collections::HashMap::new();
@@ -7505,6 +7527,73 @@ mod tests {
             hud(&app, "events"),
             "walk:step,walk:step2",
             "each event once, in playback order, to this entity's handler only"
+        );
+    }
+
+    /// `Bsengine.setMorphWeight` / `getMorphWeight` through the real plugin:
+    /// by name, by index, read back in the same frame, an unknown target
+    /// thrown -- and the component itself changed, since it is what the GPU
+    /// upload reads.
+    #[test]
+    fn scripts_set_and_read_morph_weights_by_name_and_index() {
+        let script_path =
+            std::env::temp_dir().join(format!("bsengine_test_morph_{}.js", std::process::id()));
+        std::fs::write(
+            &script_path,
+            "let done = false;\n\
+             function onUpdate(name) {\n\
+                 if (done) return;\n\
+                 done = true;\n\
+                 Bsengine.setMorphWeight(\"Face\", \"smile\", 0.75);\n\
+                 Bsengine.setMorphWeight(\"Face\", 1, 0.5);\n\
+                 let err = \"\";\n\
+                 try { Bsengine.setMorphWeight(\"Face\", \"frown\", 1); } catch (e) { err = e.message; }\n\
+                 Bsengine.setHudText(\"morph\", [\n\
+                     Bsengine.getMorphWeight(\"Face\", \"smile\"),\n\
+                     Bsengine.getMorphWeight(\"Face\", 1),\n\
+                     Bsengine.getMorphTargetNames(\"Face\").join(\"|\"),\n\
+                     err.includes(\"frown\") && err.includes(\"smile\"),\n\
+                 ].join(\",\"));\n\
+             }",
+        )
+        .unwrap();
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: String::new(),
+        });
+        let face = app
+            .world_mut()
+            .spawn((
+                Name("Face".to_string()),
+                ScriptPath(script_path.to_string_lossy().to_string()),
+                Transform::default(),
+                bsengine_core::MorphWeights {
+                    names: vec!["smile".to_string(), "blink".to_string()],
+                    weights: vec![0.0, 0.0],
+                },
+            ))
+            .id();
+        let mut frames = 0;
+        while !app.world().resource::<HudTexts>().0.contains_key("morph") {
+            app.update();
+            frames += 1;
+            assert!(frames < 300, "the script never ran");
+        }
+        app.update();
+        let _ = std::fs::remove_file(&script_path);
+        assert_eq!(
+            app.world().resource::<HudTexts>().0["morph"],
+            "0.75,0.5,smile|blink,true",
+            "set by name and by index, read back at once; an unknown target throws naming the real ones"
+        );
+        assert_eq!(
+            app.world()
+                .get::<bsengine_core::MorphWeights>(face)
+                .unwrap()
+                .weights,
+            vec![0.75, 0.5],
+            "and the component the GPU upload reads has the new weights"
         );
     }
 }

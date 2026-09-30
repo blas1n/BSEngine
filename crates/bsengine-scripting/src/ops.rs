@@ -969,6 +969,16 @@ pub enum ScriptCommand {
         /// Filesystem path the scene was loaded from.
         path: String,
     },
+    /// Set one morph target's weight. The target was resolved to an index
+    /// when the command was queued.
+    SetMorphWeight {
+        /// Name of the entity.
+        name: String,
+        /// Which target, by index.
+        index: usize,
+        /// The weight.
+        weight: f32,
+    },
     /// Rebind an input action. The bindings were parsed when the command was
     /// queued, so applying it cannot fail on a bad string.
     SetActionBindings {
@@ -1483,6 +1493,9 @@ thread_local! {
     // This frame's fired animation events: (entity name, clip, event name).
     pub(crate) static ANIMATION_EVENT_SNAPSHOT: RefCell<Vec<(String, String, String)>> =
         const { RefCell::new(Vec::new()) };
+    // Each entity's morph targets: name -> (target names, weights).
+    pub(crate) static MORPH_SNAPSHOT: RefCell<HashMap<String, (Vec<String>, Vec<f32>)>> =
+        RefCell::new(HashMap::new());
     pub(crate) static COMMAND_BUFFER: RefCell<Vec<ScriptCommand>> =
         const { RefCell::new(Vec::new()) };
     pub(crate) static SOUND_ID_COUNTER: RefCell<u32> =
@@ -2223,6 +2236,71 @@ pub fn bsengine_set_action_bindings(
         })
     });
     String::new()
+}
+
+/// Sets entity `name`'s morph target `target` -- its name, or its index in
+/// decimal -- to `weight`. Returns "" on success, otherwise what was wrong,
+/// which the prelude throws: an entity with no morph targets, or a target it
+/// does not have, is a mistake to report, not a no-op to swallow.
+///
+/// The snapshot is updated at once, so `getMorphWeight` right after reads
+/// the new value; the component, and the GPU, follow when the command is
+/// applied this frame.
+#[op2]
+#[string]
+pub fn bsengine_set_morph_weight(
+    #[string] name: String,
+    #[string] target: String,
+    weight: f32,
+) -> String {
+    let resolved = MORPH_SNAPSHOT.with(|m| {
+        let map = m.borrow();
+        let Some((names, weights)) = map.get(&name) else {
+            return Err(format!("entity {name:?} has no morph targets"));
+        };
+        names
+            .iter()
+            .position(|n| *n == target)
+            .or_else(|| target.parse::<usize>().ok().filter(|i| *i < weights.len()))
+            .ok_or_else(|| {
+                format!(
+                    "entity {name:?} has no morph target {target:?}; its targets are [{}] \
+                     (or an index below {})",
+                    names.join(", "),
+                    weights.len()
+                )
+            })
+    });
+    let index = match resolved {
+        Ok(index) => index,
+        Err(e) => return e,
+    };
+    MORPH_SNAPSHOT.with(|m| {
+        if let Some((_, weights)) = m.borrow_mut().get_mut(&name) {
+            weights[index] = weight;
+        }
+    });
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetMorphWeight {
+            name,
+            index,
+            weight,
+        })
+    });
+    String::new()
+}
+
+/// Entity `name`'s morph targets as JSON `{"names": [...], "weights": [...]}`,
+/// or `null` for an entity without any.
+#[op2]
+#[string]
+pub fn bsengine_get_morph_weights(#[string] name: String) -> String {
+    MORPH_SNAPSHOT.with(|m| match m.borrow().get(&name) {
+        Some((names, weights)) => {
+            serde_json::json!({"names": names, "weights": weights}).to_string()
+        }
+        None => "null".to_string(),
+    })
 }
 
 /// Get the names of all named entities, as a JSON array string.
@@ -5211,6 +5289,8 @@ deno_core::extension!(
         bsengine_action_value,
         bsengine_get_action_bindings,
         bsengine_set_action_bindings,
+        bsengine_set_morph_weight,
+        bsengine_get_morph_weights,
         bsengine_get_entity_names,
         bsengine_entity_exists,
         bsengine_get_entity_count,

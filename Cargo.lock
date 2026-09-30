@@ -991,6 +991,7 @@ dependencies = [
  "glam 0.29.3",
  "gltf",
  "pollster",
+ "serde_json",
  "tracing",
  "wgpu",
 ]

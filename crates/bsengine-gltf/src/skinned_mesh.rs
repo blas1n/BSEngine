@@ -1093,7 +1093,7 @@ fn apply_root_motion(
     }
 }
 
-fn update_skinned_meshes(
+pub(crate) fn update_skinned_meshes(
     mut query: Query<(
         bevy_ecs::entity::Entity,
         &mut SkinnedMesh,

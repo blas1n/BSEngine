@@ -547,6 +547,7 @@ fn render_frame(
             Option<&bsengine_core::ColorGrading>,
             Option<&bsengine_core::DepthOfField>,
             Option<&bsengine_core::MotionBlur>,
+            Option<&bsengine_core::Fxaa>,
         )>,
         Query<(
             &MeshRenderer,
@@ -705,31 +706,36 @@ fn render_frame(
         color_grading,
         depth_of_field,
         mut motion_blur,
+        fxaa,
     ) = render_queries
         .p0()
         .iter()
         .next()
-        .map(|(cam, t, b, tm, ao, taa, fog, ssr, grade, dof, blur)| {
-            let proj = cam.projection_matrix();
-            (
-                proj * t.view_matrix(),
-                t.position.0,
-                proj,
-                b.copied(),
-                tm.copied(),
-                ao.copied(),
-                taa.copied(),
-                fog.copied(),
-                ssr.copied(),
-                grade.cloned(),
-                dof.copied(),
-                blur.copied(),
-            )
-        })
+        .map(
+            |(cam, t, b, tm, ao, taa, fog, ssr, grade, dof, blur, fxaa)| {
+                let proj = cam.projection_matrix();
+                (
+                    proj * t.view_matrix(),
+                    t.position.0,
+                    proj,
+                    b.copied(),
+                    tm.copied(),
+                    ao.copied(),
+                    taa.copied(),
+                    fog.copied(),
+                    ssr.copied(),
+                    grade.cloned(),
+                    dof.copied(),
+                    blur.copied(),
+                    fxaa.copied(),
+                )
+            },
+        )
         .unwrap_or((
             Mat4::IDENTITY,
             Vec3::ZERO,
             Mat4::IDENTITY,
+            None,
             None,
             None,
             None,
@@ -1194,6 +1200,7 @@ fn render_frame(
         color_grading,
         depth_of_field,
         motion_blur,
+        fxaa,
     ) {
         Ok(clicked) => {
             if let Some(ref mut state) = ui_state {
@@ -2006,6 +2013,53 @@ mod tests {
         app.world_mut().resource_mut::<InspectorState>().play_state = EditorPlayState::Playing;
         app.update();
         assert!(active(&app), "and Play gives it back");
+    }
+
+    /// A camera's `Fxaa` reaches the post pass -- in the editing view too,
+    /// unlike motion blur: antialiasing is as welcome in the editor as in the
+    /// game -- and removing it switches the pass off.
+    #[test]
+    fn a_cameras_fxaa_reaches_the_post_pass() {
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::offscreen(64, 64, false));
+        app.add_plugins(RenderPlugin);
+        app.update();
+        let camera = app
+            .world_mut()
+            .spawn((
+                Camera::default(),
+                Transform::from_position(Vec3::new(0.0, 0.0, 10.0)),
+            ))
+            .id();
+        let active = |app: &bevy_app::App| {
+            app.world()
+                .resource::<bsengine_rhi_wgpu::WgpuSurfaceResource>()
+                .0
+                .fxaa_active()
+        };
+        app.update();
+        assert!(!active(&app), "premise: no component, no pass");
+
+        app.world_mut()
+            .entity_mut(camera)
+            .insert(bsengine_core::Fxaa::default());
+        app.update();
+        assert!(active(&app), "the camera's FXAA reaches the post pass");
+
+        use bsengine_core::{EditorPlayState, InspectorState};
+        let mut editing = InspectorState::default();
+        editing.editor_mode = true;
+        editing.play_state = EditorPlayState::Stopped;
+        app.world_mut().insert_resource(editing);
+        app.update();
+        assert!(active(&app), "the editing view keeps it");
+
+        app.world_mut()
+            .entity_mut(camera)
+            .remove::<bsengine_core::Fxaa>();
+        app.update();
+        assert!(!active(&app), "and removing it switches the pass off");
     }
 
     /// A camera's `ColorGrading::lut` reaches the post pass through the

@@ -36,6 +36,8 @@ pub mod depth_of_field;
 pub mod editor_panel;
 /// Components that make an entity's transform track another entity.
 pub mod follow;
+/// Fast approximate antialiasing (FXAA) settings for a camera.
+pub mod fxaa;
 /// World-space transform resulting from local transform + parent hierarchy.
 pub mod global_transform;
 /// Named on-screen HUD text overlay resource.
@@ -164,6 +166,7 @@ pub use decal::{Decal, MAX_DECALS};
 pub use depth_of_field::DepthOfField;
 pub use editor_panel::{EditorPanel, EditorPanelContext, EditorPanelRegistry};
 pub use follow::{Follow, LookAt};
+pub use fxaa::Fxaa;
 pub use global_transform::GlobalTransform;
 pub use hud_texts::HudTexts;
 pub use import_settings::ImportSettings;

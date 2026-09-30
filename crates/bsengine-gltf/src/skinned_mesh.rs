@@ -3376,9 +3376,11 @@ mod tests {
         app.add_plugins(bsengine_app::AnimationPlugin);
         app.add_plugins(SkinnedMeshPlugin);
         let (mesh, library) = root_motion_rig();
-        let mut transform = bsengine_core::Transform::default();
-        transform.rotation = Quat::from_rotation_y(std::f32::consts::FRAC_PI_2).into();
-        transform.scale = Vec3::splat(2.0).into();
+        let transform = bsengine_core::Transform {
+            rotation: Quat::from_rotation_y(std::f32::consts::FRAC_PI_2).into(),
+            scale: Vec3::splat(2.0).into(),
+            ..Default::default()
+        };
         let entity = app
             .world_mut()
             .spawn((

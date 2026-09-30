@@ -964,6 +964,7 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     app.register_type::<bsengine_core::AmbientOcclusion>();
     app.register_type::<bsengine_core::AnimationPlayer>();
     app.register_type::<bsengine_core::AnimationEvents>();
+    app.register_type::<bsengine_core::RootMotion>();
     app.register_type::<bsengine_core::AnimationEvent>();
     app.register_type::<bsengine_core::Bloom>();
     app.register_type::<bsengine_core::CustomShader>();

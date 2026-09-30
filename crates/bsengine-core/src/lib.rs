@@ -99,6 +99,8 @@ pub mod reflect_mat4;
 pub mod reflect_validate;
 /// Reflection probes: captured cubemaps reflected by surfaces inside a box.
 pub mod reflection_probe;
+/// Root motion: an animation's root-bone travel moving the entity.
+pub mod root_motion;
 /// Remote procedure calls in flight, between the network and scripting layers.
 pub mod rpc_state;
 /// Serializable save-game data resource.
@@ -191,6 +193,7 @@ pub use reflect_glam::{ReflectQuat, ReflectVec2, ReflectVec3, ReflectVec4};
 pub use reflect_mat4::ReflectMat4;
 pub use reflect_validate::{ReflectValidate, Validate};
 pub use reflection_probe::{ReflectionProbe, MAX_REFLECTION_PROBES};
+pub use root_motion::RootMotion;
 pub use rpc_state::{OutgoingRpc, RpcCall, RpcQueues, RpcTarget};
 pub use save_data::SaveData;
 pub use screen_size::ScreenSize;

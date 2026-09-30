@@ -998,10 +998,16 @@ impl Plugin for SkinnedMeshPlugin {
 /// Which node of the source glTF a model's `MorphWeights` belong to -- the
 /// node a clip's `weights` channel names when it animates them. Inserted by
 /// the glTF loader beside `MorphWeights`.
+///
+/// Crate-private on purpose: it is derived from the file on every import,
+/// never authored, so it has no business in the Inspector or in a saved
+/// scene -- where a stale copy would outlive a re-export that renumbered the
+/// nodes. (Public, it would also fall under the catalogue's R1 rule and have
+/// to be registered for reflection.)
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
-pub struct MorphSource {
+pub(crate) struct MorphSource {
     /// The node that draws the morphed mesh.
-    pub node: usize,
+    pub(crate) node: usize,
 }
 
 /// Samples a `weights` channel at `time`: one weight per target, linearly

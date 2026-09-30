@@ -785,14 +785,15 @@ fn compute_pose_with_ik(
     chains: &[&IkChain],
     goals: &[&IkGoal],
     retarget: Option<(&RetargetSource, &[NodeTransform], &[Mat4])>,
-    root_motion_bone: Option<usize>,
+    // The root-motion bone, and whether its yaw is extracted too.
+    root_motion_bone: Option<(usize, bool)>,
 ) -> (Vec<Mat4>, Vec<Vec3>, Vec<Mat4>) {
     let mut locals = compute_local_transforms_blended(nodes, clips);
     // Root motion first, before retargeting and IK: they must correct the
     // pose the character will actually show, which is the one whose travel
     // has been handed to the entity.
-    if let Some(bone) = root_motion_bone {
-        strip_root_travel(nodes, &mut locals, bone);
+    if let Some((bone, yaw)) = root_motion_bone {
+        strip_root_travel(nodes, &mut locals, bone, yaw);
     }
 
     // BEFORE the globals are accumulated, and therefore before IK.
@@ -1086,30 +1087,93 @@ fn root_motion_bone(skinned: &SkinnedMesh, name: &str) -> Option<usize> {
 }
 
 /// Where `bone` sits in MODEL space when the clips in `samples` are posed --
-/// through every parent, so an armature node's rotation and scale are in it.
-fn bone_model_position(nodes: &[NodeTransform], samples: &[ClipSample<'_>], bone: usize) -> Vec3 {
+/// through every parent, so an armature node's rotation and scale are in it
+/// -- and its yaw there: the turn about model +Y, the twist half of a
+/// swing-twist split (`2 atan2(y, w)`), which ignores lean and roll.
+fn bone_model_pose(
+    nodes: &[NodeTransform],
+    samples: &[ClipSample<'_>],
+    bone: usize,
+) -> (Vec3, f32) {
     let locals = compute_local_transforms_blended(nodes, samples);
-    accumulate_globals(nodes, &locals)[bone].w_axis.truncate()
+    let global = accumulate_globals(nodes, &locals)[bone];
+    let (_, rotation, position) = global.to_scale_rotation_translation();
+    (position, yaw_of(rotation))
+}
+
+/// The twist of `q` about +Y, in radians, in (-pi, pi] -- wrapped, since
+/// `q` and `-q` are the same rotation and the raw formula reads them a full
+/// turn apart.
+fn yaw_of(q: Quat) -> f32 {
+    wrap_angle(2.0 * q.y.atan2(q.w))
+}
+
+/// `a` wrapped into (-pi, pi]: a turn across the +-180° seam is the short
+/// way round, not almost a full circle back.
+fn wrap_angle(a: f32) -> f32 {
+    use std::f32::consts::{PI, TAU};
+    let w = (a + PI).rem_euclid(TAU) - PI;
+    if w <= -PI {
+        w + TAU
+    } else {
+        w
+    }
 }
 
 /// Moves `bone` back to its rest position horizontally, in model space,
-/// leaving its height: the half of root motion that happens in the pose.
-/// The offset is found in model space and pushed back through the parent's
-/// inverse, which is what makes it right under a rotated or scaled armature.
-fn strip_root_travel(nodes: &[NodeTransform], locals: &mut [Mat4], bone: usize) {
+/// leaving its height -- and with `strip_yaw`, turns it back to its rest yaw,
+/// leaving its lean and roll: the half of root motion that happens in the
+/// pose. Found in model space and pushed back through the parent's inverse,
+/// which is what makes it right under a rotated or scaled armature.
+fn strip_root_travel(nodes: &[NodeTransform], locals: &mut [Mat4], bone: usize, strip_yaw: bool) {
     let rest_locals = compute_local_transforms_blended(nodes, &[]);
-    let rest = accumulate_globals(nodes, &rest_locals)[bone]
-        .w_axis
-        .truncate();
+    let rest_global = accumulate_globals(nodes, &rest_locals)[bone];
+    let rest = rest_global.w_axis.truncate();
     let globals = accumulate_globals(nodes, locals);
-    let now = globals[bone].w_axis.truncate();
-    let model_offset = Vec3::new(rest.x - now.x, 0.0, rest.z - now.z);
+    let (scale, rotation, now) = globals[bone].to_scale_rotation_translation();
+    let position = Vec3::new(rest.x, now.y, rest.z);
+    let rotation = if strip_yaw {
+        let (_, rest_rotation, _) = rest_global.to_scale_rotation_translation();
+        Quat::from_rotation_y(yaw_of(rest_rotation) - yaw_of(rotation)) * rotation
+    } else {
+        rotation
+    };
+    let target = Mat4::from_scale_rotation_translation(scale, rotation, position);
     let parent = nodes[bone]
         .parent
         .map(|p| globals[p])
         .unwrap_or(Mat4::IDENTITY);
-    let local_offset = parent.inverse().transform_vector3(model_offset);
-    locals[bone].w_axis += local_offset.extend(0.0);
+    locals[bone] = parent.inverse() * target;
+}
+
+/// One stretch of root motion, from the pose at one time to the pose at a
+/// later one: the horizontal travel and the turn. With `rotation`, the
+/// travel is in the root's facing at the start of the stretch (relative to
+/// its rest yaw) -- the frame the entity, already turned by everything
+/// extracted so far, walks in. Without, it is plain model space and there is
+/// no turn, which is translation-only root motion exactly as before.
+fn root_motion_segment(
+    from: (Vec3, f32),
+    to: (Vec3, f32),
+    rest_yaw: f32,
+    rotation: bool,
+) -> (Vec3, f32) {
+    let d = to.0 - from.0;
+    let horizontal = Vec3::new(d.x, 0.0, d.z);
+    if rotation {
+        (
+            Quat::from_rotation_y(rest_yaw - from.1) * horizontal,
+            wrap_angle(to.1 - from.1),
+        )
+    } else {
+        (horizontal, 0.0)
+    }
+}
+
+/// Two stretches one after the other (a loop's wrap): the second walks in
+/// the facing the first turned to.
+fn chain_segments(a: (Vec3, f32), b: (Vec3, f32)) -> (Vec3, f32) {
+    (a.0 + Quat::from_rotation_y(a.1) * b.0, a.1 + b.1)
 }
 
 /// The other half: how far the root bone travelled horizontally since the
@@ -1141,19 +1205,25 @@ fn apply_root_motion(
             continue;
         };
         let now = player.time;
-        let at = |t: f32| {
-            bone_model_position(&skinned.nodes, &blend_samples(clip, library, t, asm), bone)
+        let rotation = motion.apply_rotation;
+        let at =
+            |t: f32| bone_model_pose(&skinned.nodes, &blend_samples(clip, library, t, asm), bone);
+        let rest_yaw = if rotation {
+            bone_model_pose(&skinned.nodes, &[], bone).1
+        } else {
+            0.0
         };
-        let model_delta = match &motion.last_sample {
+        let seg = |a: f32, b: f32| root_motion_segment(at(a), at(b), rest_yaw, rotation);
+        let (local, turn) = match &motion.last_sample {
             Some((last_clip, last)) if *last_clip == player.clip => {
                 let last = *last;
                 let forward = player.speed >= 0.0;
                 if forward && now < last {
-                    (at(player.duration) - at(last)) + (at(now) - at(0.0))
+                    chain_segments(seg(last, player.duration), seg(0.0, now))
                 } else if !forward && now > last {
-                    (at(0.0) - at(last)) + (at(now) - at(player.duration))
+                    chain_segments(seg(last, 0.0), seg(player.duration, now))
                 } else {
-                    at(now) - at(last)
+                    seg(last, now)
                 }
             }
             // First frame, or a new clip: the player has already advanced
@@ -1162,17 +1232,21 @@ fn apply_root_motion(
             // paused player gets nothing.
             _ if player.playing => {
                 let from = (now - dt * player.speed).clamp(0.0, player.duration.max(0.0));
-                at(now) - at(from)
+                seg(from, now)
             }
-            _ => Vec3::ZERO,
+            _ => (Vec3::ZERO, 0.0),
         };
-        let horizontal = Vec3::new(model_delta.x, 0.0, model_delta.z);
-        // Model space to world: the entity's own rotation and scale. Its
-        // position is not part of a *direction*.
-        let world = transform.rotation.0 * (transform.scale.0 * horizontal);
+        // Model space to world: the entity's own rotation and scale, as they
+        // stood before this frame's turn -- the facing the stretch was
+        // walked in. Its position is not part of a *direction*.
+        let world = transform.rotation.0 * (transform.scale.0 * local);
         motion.last_delta = world.into();
+        motion.last_rotation_delta = turn;
         if motion.apply_to_transform {
             transform.position.0 += world;
+            // About the entity's own up axis, as Unity applies
+            // `deltaRotation`: `rotation * delta`.
+            transform.rotation.0 = (transform.rotation.0 * Quat::from_rotation_y(turn)).normalize();
         }
         motion.last_sample = Some((player.clip.clone(), now));
     }
@@ -1327,7 +1401,9 @@ pub(crate) fn update_skinned_meshes(
                 &chains,
                 &goals,
                 retarget_input,
-                root_motion.and_then(|m| root_motion_bone(&skinned, &m.bone)),
+                root_motion.and_then(|m| {
+                    root_motion_bone(&skinned, &m.bone).map(|b| (b, m.apply_rotation))
+                }),
             );
             published_locals = Some(locals);
             // Published in WORLD space, which is what the ground probe needs.
@@ -3457,6 +3533,7 @@ mod tests {
                 }],
             },
         );
+        clips.insert("arc".to_string(), arc_clip());
         (
             SkinnedMesh {
                 mesh_id: 1,
@@ -3477,11 +3554,57 @@ mod tests {
         )
     }
 
+    /// A one-second "arc": the hips walk a quarter circle of radius 1 in
+    /// model space, starting toward -Z and turning 90° left (+yaw) as they go
+    /// -- a character walking a curve, facing along it. Keyed every 0.1 s,
+    /// which is the test frame step, so every frame samples a key exactly:
+    /// model position `(cos t - 1, 0, -sin t)` at turn `t`, written in the
+    /// hips' local frame under the Blender armature (model `(x, y, z)` is
+    /// local `(2x, -2z, 2y)`, and a model yaw is a local turn about +Z).
+    fn arc_clip() -> AnimationClip {
+        let keys = 10;
+        let (mut times, mut positions, mut rotations) = (vec![], vec![], vec![]);
+        for k in 0..=keys {
+            let t = k as f32 / keys as f32;
+            let turn = t * std::f32::consts::FRAC_PI_2;
+            let model = Vec3::new(turn.cos() - 1.0, 0.0, -turn.sin());
+            times.push(t);
+            positions.push([2.0 * model.x, -2.0 * model.z, 2.0 * model.y]);
+            rotations.push(Quat::from_rotation_z(turn).to_array());
+        }
+        AnimationClip {
+            name: "arc".to_string(),
+            duration: 1.0,
+            channels: vec![
+                AnimationChannel {
+                    node_index: 1,
+                    times: times.clone(),
+                    values: KeyframeValues::Translations(positions),
+                    interpolation: Interpolation::Linear,
+                },
+                AnimationChannel {
+                    node_index: 1,
+                    times,
+                    values: KeyframeValues::Rotations(rotations),
+                    interpolation: Interpolation::Linear,
+                },
+            ],
+        }
+    }
+
     /// The entity is turned 90° about Y and scaled 2, so model -Z becomes
     /// world -X at twice the length: one lap moves it 2 units toward -X.
     fn root_motion_app(
         motion: bsengine_core::RootMotion,
         speed: f32,
+    ) -> (bevy_app::App, bevy_ecs::entity::Entity) {
+        root_motion_app_playing(motion, speed, "walk")
+    }
+
+    fn root_motion_app_playing(
+        motion: bsengine_core::RootMotion,
+        speed: f32,
+        clip: &str,
     ) -> (bevy_app::App, bevy_ecs::entity::Entity) {
         let mut app = bsengine_app::new_app();
         let mut time = bsengine_core::Time::default();
@@ -3500,7 +3623,7 @@ mod tests {
             .spawn((
                 mesh,
                 library,
-                bsengine_core::AnimationPlayer::new("walk")
+                bsengine_core::AnimationPlayer::new(clip)
                     .with_duration(1.0)
                     .with_speed(speed),
                 motion,
@@ -3607,5 +3730,143 @@ mod tests {
             near(delta, Vec3::new(-0.2, 0.0, 0.0)),
             "one frame's travel, world space: {delta}"
         );
+    }
+
+    fn yaw(app: &bevy_app::App, entity: bevy_ecs::entity::Entity) -> f32 {
+        let q = app
+            .world()
+            .get::<bsengine_core::Transform>(entity)
+            .unwrap()
+            .rotation
+            .0;
+        yaw_of(q)
+    }
+
+    fn same_angle(a: f32, b: f32) -> bool {
+        wrap_angle(a - b).abs() < 1e-3
+    }
+
+    /// The hips' yaw in the pose the character shows.
+    fn shown_hips_yaw(app: &bevy_app::App, entity: bevy_ecs::entity::Entity) -> f32 {
+        let skinned = app.world().get::<SkinnedMesh>(entity).unwrap();
+        let (_, r, _) = accumulate_globals(&skinned.nodes, &skinned.animated_locals)[1]
+            .to_scale_rotation_translation();
+        yaw_of(r)
+    }
+
+    /// Walking the arc with rotation extracted: halfway, the entity has
+    /// turned 45° and the pose shows the hips at their rest yaw (the turn
+    /// went to the entity, not the mesh); after the lap it has turned 90° --
+    /// and stands exactly where translation-only root motion puts it, since
+    /// the path is the same path. A root motion that turned the entity AND
+    /// kept measuring travel in model space would walk the arc turned a
+    /// second time, and end somewhere else.
+    #[test]
+    fn root_motion_turns_the_entity_along_the_arc_it_walks() {
+        use std::f32::consts::{FRAC_PI_2, FRAC_PI_4, PI};
+        let (mut app, entity) =
+            root_motion_app_playing(bsengine_core::RootMotion::default(), 1.0, "arc");
+        let (mut baked, baked_entity) = root_motion_app_playing(
+            bsengine_core::RootMotion {
+                apply_rotation: false,
+                ..Default::default()
+            },
+            1.0,
+            "arc",
+        );
+        for _ in 0..5 {
+            app.update();
+            baked.update();
+        }
+        assert!(
+            same_angle(yaw(&app, entity), FRAC_PI_2 + FRAC_PI_4),
+            "halfway the entity has turned 45° on top of its own 90°: {}",
+            yaw(&app, entity).to_degrees()
+        );
+        assert!(
+            same_angle(shown_hips_yaw(&app, entity), 0.0),
+            "and the pose shows the hips unturned: {}",
+            shown_hips_yaw(&app, entity).to_degrees()
+        );
+        assert!(
+            same_angle(shown_hips_yaw(&baked, baked_entity), FRAC_PI_4),
+            "premise: without extraction the pose itself turns 45°: {}",
+            shown_hips_yaw(&baked, baked_entity).to_degrees()
+        );
+        assert!(
+            same_angle(yaw(&baked, baked_entity), FRAC_PI_2),
+            "and the entity keeps its own 90°"
+        );
+        for _ in 0..5 {
+            app.update();
+            baked.update();
+        }
+        assert!(
+            same_angle(yaw(&app, entity), PI),
+            "a lap turns it 90°: {}",
+            yaw(&app, entity).to_degrees()
+        );
+        let (p, q) = (position(&app, entity), position(&baked, baked_entity));
+        assert!(
+            near(p, Vec3::new(-2.0, 0.0, 2.0)) && near(p, q),
+            "the same place translation-only root motion reaches: {p} vs {q}"
+        );
+    }
+
+    /// Two laps of the arc make a half circle: the second quarter is walked
+    /// in the facing the first turned to, across the loop's wrap. Without
+    /// the turn carried over, the second lap would repeat the first's
+    /// direction and end at (-4, 0, 4) instead.
+    #[test]
+    fn a_turning_loop_keeps_turning_across_the_wrap() {
+        let (mut app, entity) =
+            root_motion_app_playing(bsengine_core::RootMotion::default(), 1.0, "arc");
+        for _ in 0..20 {
+            app.update();
+        }
+        let p = position(&app, entity);
+        assert!(near(p, Vec3::new(0.0, 0.0, 4.0)), "a half circle: {p}");
+        assert!(
+            same_angle(yaw(&app, entity), -std::f32::consts::FRAC_PI_2),
+            "turned 180° on top of 90°: {}",
+            yaw(&app, entity).to_degrees()
+        );
+    }
+
+    /// Reporting only: the turn is in `last_rotation_delta` -- 9° a frame --
+    /// and the entity has not turned.
+    #[test]
+    fn a_reported_turn_leaves_the_entity_facing_where_it_was() {
+        let (mut app, entity) = root_motion_app_playing(
+            bsengine_core::RootMotion {
+                apply_to_transform: false,
+                ..Default::default()
+            },
+            1.0,
+            "arc",
+        );
+        for _ in 0..3 {
+            app.update();
+        }
+        let turn = app
+            .world()
+            .get::<bsengine_core::RootMotion>(entity)
+            .unwrap()
+            .last_rotation_delta;
+        assert!(
+            (turn - 9f32.to_radians()).abs() < 1e-4,
+            "one frame's turn: {}",
+            turn.to_degrees()
+        );
+        assert!(same_angle(yaw(&app, entity), std::f32::consts::FRAC_PI_2));
+    }
+
+    #[test]
+    fn angles_wrap_the_short_way_round() {
+        use std::f32::consts::PI;
+        assert!((wrap_angle(1.5 * PI) + 0.5 * PI).abs() < 1e-5);
+        assert!((wrap_angle(-1.5 * PI) - 0.5 * PI).abs() < 1e-5);
+        assert!((wrap_angle(PI) - PI).abs() < 1e-5);
+        assert!((wrap_angle(0.25) - 0.25).abs() < 1e-6);
     }
 }

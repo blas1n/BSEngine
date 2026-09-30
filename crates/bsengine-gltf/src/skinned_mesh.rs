@@ -3503,7 +3503,12 @@ mod tests {
     /// armature turns into model -Z at half size, so one lap travels 1 model
     /// unit toward -Z. Halfway, the hips also rise 0.4 local +Z = 0.2 model
     /// +Y: the bob root motion must leave in the pose.
-    fn root_motion_rig() -> (SkinnedMesh, AnimationClipLibrary) {
+    ///
+    /// `rest_turn` rests the hips turned about model +Y (a local turn about
+    /// +Z under the armature), with the arc keyed on top of that rest -- the
+    /// mesh faces `rest_turn` off the entity's forward, as a rig whose root
+    /// rests turned does. Zero for every test but the one about it.
+    fn root_motion_rig_with(rest_turn: f32) -> (SkinnedMesh, AnimationClipLibrary) {
         let armature = NodeTransform {
             name: "Armature".to_string(),
             rotation: Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2).to_array(),
@@ -3513,6 +3518,7 @@ mod tests {
         let hips = NodeTransform {
             name: "Hips".to_string(),
             parent: Some(0),
+            rotation: Quat::from_rotation_z(rest_turn).to_array(),
             ..Default::default()
         };
         let mut clips = std::collections::HashMap::new();
@@ -3533,7 +3539,7 @@ mod tests {
                 }],
             },
         );
-        clips.insert("arc".to_string(), arc_clip());
+        clips.insert("arc".to_string(), arc_clip(rest_turn));
         (
             SkinnedMesh {
                 mesh_id: 1,
@@ -3561,16 +3567,20 @@ mod tests {
     /// model position `(cos t - 1, 0, -sin t)` at turn `t`, written in the
     /// hips' local frame under the Blender armature (model `(x, y, z)` is
     /// local `(2x, -2z, 2y)`, and a model yaw is a local turn about +Z).
-    fn arc_clip() -> AnimationClip {
+    ///
+    /// With a `rest_turn`, the whole arc is turned by it -- walked from the
+    /// rest facing, not from model -Z.
+    fn arc_clip(rest_turn: f32) -> AnimationClip {
         let keys = 10;
         let (mut times, mut positions, mut rotations) = (vec![], vec![], vec![]);
         for k in 0..=keys {
             let t = k as f32 / keys as f32;
             let turn = t * std::f32::consts::FRAC_PI_2;
-            let model = Vec3::new(turn.cos() - 1.0, 0.0, -turn.sin());
+            let model =
+                Quat::from_rotation_y(rest_turn) * Vec3::new(turn.cos() - 1.0, 0.0, -turn.sin());
             times.push(t);
             positions.push([2.0 * model.x, -2.0 * model.z, 2.0 * model.y]);
-            rotations.push(Quat::from_rotation_z(turn).to_array());
+            rotations.push(Quat::from_rotation_z(rest_turn + turn).to_array());
         }
         AnimationClip {
             name: "arc".to_string(),
@@ -3606,13 +3616,22 @@ mod tests {
         speed: f32,
         clip: &str,
     ) -> (bevy_app::App, bevy_ecs::entity::Entity) {
+        root_motion_app_resting(motion, speed, clip, 0.0)
+    }
+
+    fn root_motion_app_resting(
+        motion: bsengine_core::RootMotion,
+        speed: f32,
+        clip: &str,
+        rest_turn: f32,
+    ) -> (bevy_app::App, bevy_ecs::entity::Entity) {
         let mut app = bsengine_app::new_app();
         let mut time = bsengine_core::Time::default();
         time.set_delta_for_test(0.1);
         app.insert_resource(time);
         app.add_plugins(bsengine_app::AnimationPlugin);
         app.add_plugins(SkinnedMeshPlugin);
-        let (mesh, library) = root_motion_rig();
+        let (mesh, library) = root_motion_rig_with(rest_turn);
         let transform = bsengine_core::Transform {
             rotation: Quat::from_rotation_y(std::f32::consts::FRAC_PI_2).into(),
             scale: Vec3::splat(2.0).into(),
@@ -3859,6 +3878,52 @@ mod tests {
             turn.to_degrees()
         );
         assert!(same_angle(yaw(&app, entity), std::f32::consts::FRAC_PI_2));
+    }
+
+    /// A root that rests turned 30° (the mesh faces 30° off the entity's
+    /// forward) walking the same arc from that rest: the turn and the path
+    /// relative to the rest are what they were at 0°, so the entity turns
+    /// 90° and ends where translation-only root motion puts it -- the arc
+    /// turned by the rest, which is the way the mesh walked. Measuring the
+    /// travel against the root's yaw without its rest would turn the whole
+    /// path by -30°.
+    #[test]
+    fn a_root_resting_turned_walks_the_way_its_mesh_faces() {
+        use std::f32::consts::PI;
+        let rest = 30f32.to_radians();
+        let (mut app, entity) =
+            root_motion_app_resting(bsengine_core::RootMotion::default(), 1.0, "arc", rest);
+        let (mut baked, baked_entity) = root_motion_app_resting(
+            bsengine_core::RootMotion {
+                apply_rotation: false,
+                ..Default::default()
+            },
+            1.0,
+            "arc",
+            rest,
+        );
+        for _ in 0..10 {
+            app.update();
+            baked.update();
+        }
+        let expected = Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)
+            * (2.0 * (Quat::from_rotation_y(rest) * Vec3::new(-1.0, 0.0, -1.0)));
+        let (p, q) = (position(&app, entity), position(&baked, baked_entity));
+        assert!(
+            near(q, expected),
+            "premise: translation-only walks the turned arc: {q} vs {expected}"
+        );
+        assert!(near(p, q), "and so does extraction: {p} vs {q}");
+        assert!(
+            same_angle(yaw(&app, entity), PI),
+            "turning 90°: {}",
+            yaw(&app, entity).to_degrees()
+        );
+        assert!(
+            same_angle(shown_hips_yaw(&app, entity), rest),
+            "the pose keeps its rest turn: {}",
+            shown_hips_yaw(&app, entity).to_degrees()
+        );
     }
 
     #[test]

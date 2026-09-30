@@ -3941,9 +3941,24 @@ mod tests {
             "arc",
             rest,
         );
-        for _ in 0..10 {
+        for frame in 0..10 {
             app.update();
             baked.update();
+            // Every frame reports its 9°, the seam crossing included. The
+            // turn applied to the transform cannot show a raw difference of
+            // -351° -- a rotation by it *is* a rotation by 9° -- but a script
+            // reading the report would take it at its word.
+            let turn = app
+                .world()
+                .get::<bsengine_core::RootMotion>(entity)
+                .unwrap()
+                .last_rotation_delta;
+            assert!(
+                (turn - 9f32.to_radians()).abs() < 1e-3,
+                "rest {}°, frame {frame}: reported turn {}°",
+                rest.to_degrees(),
+                turn.to_degrees()
+            );
         }
         let expected = Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)
             * (2.0 * (Quat::from_rotation_y(rest) * Vec3::new(-1.0, 0.0, -1.0)));

@@ -170,6 +170,7 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>, fast_rend
         .add_plugins(bsengine_app::TimelinePlugin)
         .add_plugins(AnimationStateMachinePlugin)
         .add_plugins(NavMeshPlugin)
+        .add_plugins(bsengine_app::BehaviorTreePlugin)
         // Same two as the windowed runtime, and for the reason item 11/12
         // recorded: a plugin present in one host and absent in the other is a
         // feature that works when you look at it and not when you test it.

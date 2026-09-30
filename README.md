@@ -300,6 +300,48 @@ Bsengine.getLocales();                   // ["en", "ko"]
 
 ---
 
+## Behaviour trees
+
+An AI's decisions as a tree asset, ticked every frame against the entity's
+blackboard, following Unreal's model:
+
+```ron
+// assets/ai/guard.bt.ron
+(root: Selector([
+    Condition(key: "enemy", op: IsSet, abort: Both,
+        child: Sequence([MoveTo(key: "enemy", acceptance: Some(1.5)), Wait(seconds: 0.5)])),
+    Sequence([MoveTo(key: "post"), Wait(seconds: 2.0)]),
+]))
+```
+
+On the entity, a `BehaviorTree` (`tree: "assets/ai/guard.bt.ron"`) and a
+`Blackboard` (`values: {"post": Vec3((0.0, 0.0, 5.0))}`). `MoveTo` drives the
+entity's `NavMeshAgent`.
+
+| kind | nodes |
+|---|---|
+| composites | `Sequence` (until one fails), `Selector` (until one succeeds), `Parallel { policy: All \| Any }` |
+| decorators | `Condition { key, op, value, abort }`, `Inverter`, `ForceSuccess`, `ForceFailure`, `Repeat { count }`, `Cooldown { seconds }`, `TimeLimit { seconds }` |
+| tasks | `Wait`, `MoveTo { key, acceptance }` (a `Vec3`, or an `Entity` by name, followed as it moves), `SetValue`, `ClearValue`, `Succeed`, `Fail` |
+
+Blackboard value types: `Bool`, `Int`, `Float`, `Vec3`, `Str`, `Entity`.
+Conditions test `IsSet`, `IsNotSet`, `Equal`, `NotEqual`, `Less`,
+`LessOrEqual`, `Greater`, `GreaterOrEqual`, with numbers compared across
+`Int` and `Float`.
+
+`abort` is Unreal's observer aborts:
+
+- `Self_` cuts the condition's own running subtree when the test stops holding.
+- `LowerPriority` interrupts a running sibling to its right (under the same
+  `Selector`) when the test starts holding.
+- `Both` does both.
+
+A running child resumes on the next tick rather than restarting, and a root
+that finishes starts over. Aborting a `MoveTo` stops its agent. The tree ticks
+before navigation and not while paused.
+
+---
+
 ## Networking
 
 ```toml

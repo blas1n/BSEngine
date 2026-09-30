@@ -16,6 +16,9 @@ pub mod animation_events;
 pub mod animation_player;
 /// Graph-based animation state machine with parameterized transitions.
 pub mod animation_state_machine;
+/// Behaviour trees: tree assets of composites, decorators and tasks ticked
+/// against a blackboard.
+pub mod behavior_tree;
 /// HDR bloom post-process settings.
 pub mod bloom;
 /// Perspective camera component and projection math.
@@ -159,6 +162,9 @@ pub use animation_player::AnimationPlayer;
 pub use animation_state_machine::{
     AnimationStateMachine, AsmState, AsmTransition, BlendClip, BlendClip2D, BlendTree1D,
     BlendTree2D, TransitionCondition,
+};
+pub use behavior_tree::{
+    BbValue, BehaviorTree, BehaviorTreeAsset, BehaviorTreeSystems, Blackboard, BtNode, BtStatus,
 };
 pub use bloom::Bloom;
 pub use camera::Camera;

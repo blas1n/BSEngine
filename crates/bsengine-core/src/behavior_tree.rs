@@ -920,13 +920,18 @@ mod tests {
             arrive_after: 100,
             ..Default::default()
         };
+        // The condition watches "alert" and the move reads "target": the
+        // move itself is unaffected when "alert" goes, so only the abort can
+        // stop it. (Guarding "target" with a move to "target" would fail the
+        // move by itself -- no target -- and pass without any abort.)
+        w.bb.set("alert", BbValue::Bool(true));
         w.bb.set("target", BbValue::Vec3(glam::Vec3::X.into()));
         let mut t = rt(
-            r#"(root: Condition(key: "target", op: IsSet, abort: Self_, child: MoveTo(key: "target")))"#,
+            r#"(root: Condition(key: "alert", op: IsSet, abort: Self_, child: MoveTo(key: "target")))"#,
         );
         assert_eq!(run(&mut t, &mut w, 3), vec![R, R, R]);
         assert!(w.moving_to.is_some(), "premise: it is moving");
-        w.bb.clear("target");
+        w.bb.clear("alert");
         assert_eq!(
             run(&mut t, &mut w, 1),
             vec![F],
@@ -1007,6 +1012,12 @@ mod tests {
         let t = rt(r#"(root: Succeed)"#);
         let cmp = |op, v| t.check("hp", op, &Some(v), &w.bb);
         assert!(cmp(BbCompare::Less, BbValue::Float(30.5)));
+        assert!(!cmp(BbCompare::Less, BbValue::Int(30)), "30 < 30 is false");
+        assert!(
+            cmp(BbCompare::LessOrEqual, BbValue::Int(30)),
+            "30 <= 30 is true"
+        );
+        assert!(!cmp(BbCompare::Greater, BbValue::Float(30.0)));
         assert!(!cmp(BbCompare::Greater, BbValue::Int(30)));
         assert!(cmp(BbCompare::GreaterOrEqual, BbValue::Float(30.0)));
         assert!(cmp(BbCompare::Equal, BbValue::Float(30.0)), "30 == 30.0");

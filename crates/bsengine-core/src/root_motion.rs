@@ -5,9 +5,10 @@ use bevy_ecs::prelude::{Component, ReflectComponent};
 use bevy_reflect::prelude::ReflectDefault;
 use bevy_reflect::Reflect;
 
-/// Takes the horizontal travel of an animation's root bone out of the pose
-/// and gives it to the entity instead: a walk clip that moves its hips
-/// forward moves the character forward, at exactly the pace its feet plant.
+/// Takes the horizontal travel and the turning of an animation's root bone
+/// out of the pose and gives them to the entity instead: a walk clip that
+/// moves its hips forward moves the character forward, at exactly the pace
+/// its feet plant, and a clip that turns the hips turns the character.
 ///
 /// Unity's Apply Root Motion, Unreal's root motion and Godot's
 /// `root_motion_track` share this: pick the bone, read how far it moved this
@@ -15,11 +16,13 @@ use bevy_reflect::Reflect;
 /// default ("bake Y into pose"), vertical motion stays in the pose -- a jump
 /// or a bob still plays -- and only the horizontal travel moves the entity.
 ///
-/// **Translation only.** The bone's turning is not extracted; a turning clip
-/// turns the mesh in place. glTF skeletons put their root under armature
-/// nodes with their own axes (Blender exports a -90° X), and yaw has to be
-/// measured in the model's frame through all of them; translation is done
-/// that way here, rotation is left for later.
+/// Turning is yaw only -- rotation about the model's up axis, measured in
+/// the model's frame through every armature node above the bone (Blender
+/// exports a -90° X), as Unity and Unreal extract it; the bone's lean and
+/// roll stay in the pose, as the vertical bob does. With it on, each frame's
+/// travel is measured in the root's own facing, so a clip that walks an arc
+/// moves the character along the arc once, turning as it goes -- not turned
+/// by the extraction *and* again by the path.
 ///
 /// With `apply_to_transform` off, the travel is only reported, in
 /// [`Self::last_delta`] -- for a script that wants to route it through a
@@ -33,9 +36,16 @@ pub struct RootMotion {
     pub bone: String,
     /// Add the travel to the entity's `Transform`. Off: only report it.
     pub apply_to_transform: bool,
+    /// Extract the root's yaw too, turning the entity; off leaves the
+    /// turning in the pose (the mesh turns in place, the entity does not),
+    /// Unity's "Root Transform Rotation: Bake Into Pose".
+    pub apply_rotation: bool,
     /// The world-space travel of the last frame. Output; writing it does
     /// nothing.
     pub last_delta: ReflectVec3,
+    /// The last frame's turn about the entity's up axis, in radians
+    /// (positive turns left, counter-clockwise seen from above). Output.
+    pub last_rotation_delta: f32,
     /// The clip and time the last delta was measured up to -- the next
     /// frame's starting point. Internal; `None` until the first frame, and
     /// reset by a clip change, which starts the count again rather than
@@ -49,7 +59,9 @@ impl Default for RootMotion {
         Self {
             bone: String::new(),
             apply_to_transform: true,
+            apply_rotation: true,
             last_delta: glam::Vec3::ZERO.into(),
+            last_rotation_delta: 0.0,
             last_sample: None,
         }
     }

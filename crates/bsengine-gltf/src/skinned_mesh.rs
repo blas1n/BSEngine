@@ -3832,6 +3832,38 @@ mod tests {
         );
     }
 
+    /// A frame that wraps the loop mid-step -- at 0.3 s a frame, 0.9 -> 1.2
+    /// plays 0.9 -> 1.0 and then 0.0 -> 0.2 -- walks its second piece in the
+    /// facing the first piece turned to. Seven frames are 2.1 laps: two
+    /// quarter-arcs make a half circle ending at model (-2, 0, 0), and the
+    /// third lap's first 9° is walked turned 180° by them. (At 0.1 s a frame
+    /// the wrap lands exactly on the loop's end, the first piece is empty,
+    /// and carrying its turn over or not makes no difference -- which is why
+    /// this runs at 0.3.)
+    #[test]
+    fn a_frame_that_wraps_mid_step_turns_between_its_two_pieces() {
+        let (mut app, entity) =
+            root_motion_app_playing(bsengine_core::RootMotion::default(), 1.0, "arc");
+        app.world_mut()
+            .resource_mut::<bsengine_core::Time>()
+            .set_delta_for_test(0.3);
+        for _ in 0..7 {
+            app.update();
+        }
+        let a = 9f32.to_radians();
+        let expected = Vec3::new(2.0 * a.sin(), 0.0, 2.0 * (1.0 + a.cos()));
+        let p = position(&app, entity);
+        assert!(near(p, expected), "{p} vs {expected}");
+        assert!(
+            same_angle(
+                yaw(&app, entity),
+                std::f32::consts::FRAC_PI_2 + std::f32::consts::PI + a
+            ),
+            "turned 189° on top of 90°: {}",
+            yaw(&app, entity).to_degrees()
+        );
+    }
+
     /// Two laps of the arc make a half circle: the second quarter is walked
     /// in the facing the first turned to, across the loop's wrap. Without
     /// the turn carried over, the second lap would repeat the first's
@@ -3880,17 +3912,24 @@ mod tests {
         assert!(same_angle(yaw(&app, entity), std::f32::consts::FRAC_PI_2));
     }
 
-    /// A root that rests turned 30° (the mesh faces 30° off the entity's
-    /// forward) walking the same arc from that rest: the turn and the path
-    /// relative to the rest are what they were at 0°, so the entity turns
-    /// 90° and ends where translation-only root motion puts it -- the arc
-    /// turned by the rest, which is the way the mesh walked. Measuring the
-    /// travel against the root's yaw without its rest would turn the whole
-    /// path by -30°.
+    /// A root that rests turned (the mesh faces off the entity's forward)
+    /// walking the same arc from that rest: the turn and the path relative
+    /// to the rest are what they were at 0°, so the entity turns 90° and
+    /// ends where translation-only root motion puts it -- the arc turned by
+    /// the rest, which is the way the mesh walked. Measuring the travel
+    /// against the root's yaw without its rest would turn the whole path by
+    /// minus the rest. At 150° the arc runs 150° -> 240°, across the ±180°
+    /// seam where the yaw reads jump from +180 to -180: a turn taken as the
+    /// raw difference there would be nearly a full circle backwards.
     #[test]
     fn a_root_resting_turned_walks_the_way_its_mesh_faces() {
+        for rest_degrees in [30.0f32, 150.0] {
+            root_resting_turned_walks_the_way_its_mesh_faces(rest_degrees.to_radians());
+        }
+    }
+
+    fn root_resting_turned_walks_the_way_its_mesh_faces(rest: f32) {
         use std::f32::consts::PI;
-        let rest = 30f32.to_radians();
         let (mut app, entity) =
             root_motion_app_resting(bsengine_core::RootMotion::default(), 1.0, "arc", rest);
         let (mut baked, baked_entity) = root_motion_app_resting(

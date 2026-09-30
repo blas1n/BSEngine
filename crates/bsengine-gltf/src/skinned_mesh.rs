@@ -1589,6 +1589,35 @@ mod tests {
         assert_eq!(v, Vec3::ZERO);
     }
 
+    /// Two targets, two keys: the values are keyframe-major (key 0's two
+    /// weights, then key 1's), as glTF stores them. Read target-major, the
+    /// pair would come out as [5, 5.5] instead of [0.5, 15].
+    #[test]
+    fn weights_are_sampled_per_target_from_keyframe_major_values() {
+        let channel = AnimationChannel {
+            node_index: 0,
+            times: vec![0.0, 1.0],
+            values: KeyframeValues::Weights(vec![0.0, 10.0, 1.0, 20.0]),
+            interpolation: Interpolation::Linear,
+        };
+        assert_eq!(sample_weights(&channel, 0.5), Some(vec![0.5, 15.0]));
+    }
+
+    /// Under CubicSpline each key holds in-tangent, value, out-tangent; the
+    /// value is the middle block. The tangents here are 9 so reading the
+    /// wrong block is unmistakable.
+    #[test]
+    fn cubic_spline_weights_read_the_value_block_not_a_tangent() {
+        let channel = AnimationChannel {
+            node_index: 0,
+            times: vec![0.0, 1.0],
+            values: KeyframeValues::Weights(vec![9.0, 0.2, 9.0, 9.0, 0.8, 9.0]),
+            interpolation: Interpolation::CubicSpline,
+        };
+        assert_eq!(sample_weights(&channel, 0.0), Some(vec![0.2]));
+        assert_eq!(sample_weights(&channel, 1.0), Some(vec![0.8]));
+    }
+
     // ---- pose blending (roadmap item 29) ---------------------------------
 
     // ---- IK chains applied during skinning (roadmap item 54, sub-step 1/2) --

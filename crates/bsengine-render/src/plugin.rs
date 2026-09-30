@@ -1977,6 +1977,24 @@ mod tests {
             "the camera's motion blur reaches the post pass"
         );
 
+        // Zero intensity blurs nothing, so it costs nothing either: no pass.
+        // (The frame would look the same if the pass ran -- the shader leaves
+        // a sub-pixel streak alone -- which is why this is checked here and
+        // not at the pixel.)
+        app.world_mut()
+            .entity_mut(camera)
+            .insert(bsengine_core::MotionBlur {
+                intensity: 0.0,
+                ..Default::default()
+            });
+        app.update();
+        assert!(!active(&app), "a zero-intensity blur skips the pass");
+        app.world_mut()
+            .entity_mut(camera)
+            .insert(bsengine_core::MotionBlur::default());
+        app.update();
+        assert!(active(&app), "premise: on again for the editor check below");
+
         use bsengine_core::{EditorPlayState, InspectorState};
         let mut editing = InspectorState::default();
         editing.editor_mode = true;

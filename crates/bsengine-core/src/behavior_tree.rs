@@ -873,21 +873,36 @@ mod tests {
     }
 
     /// A running child is resumed, not restarted: the Sequence does not
-    /// re-run the SetValue before its Wait every tick.
+    /// re-run the SetValue before its Wait every tick. The key is cleared
+    /// from outside after the first tick; a Sequence that restarted from
+    /// its first child would set it again.
     #[test]
     fn a_running_child_is_resumed_on_the_next_tick() {
         let mut w = World::default();
         let mut t = rt(
-            r#"(root: Sequence([Repeat(count: Some(1), child: SetValue(key: "n", value: Int(1))), Wait(seconds: 0.3), Succeed]))"#,
+            r#"(root: Sequence([SetValue(key: "n", value: Int(1)), Wait(seconds: 0.3), Succeed]))"#,
         );
-        w.bb.set("n", BbValue::Int(0));
-        let statuses = run(&mut t, &mut w, 5);
+        assert_eq!(run(&mut t, &mut w, 1), vec![R]);
         assert_eq!(
-            statuses,
-            vec![R, R, R, S, R],
-            "the wait takes three ticks, then the root starts over"
+            w.bb.get("n"),
+            Some(&BbValue::Int(1)),
+            "premise: the first child ran"
+        );
+        w.bb.clear("n");
+        assert_eq!(
+            run(&mut t, &mut w, 4),
+            vec![R, R, S, R],
+            "the wait finishes on its fourth tick, then the root starts over"
         );
         assert_eq!(t.running_path(), vec!["Sequence", "Wait"]);
+        assert_eq!(
+            w.bb.get("n"),
+            Some(&BbValue::Int(1)),
+            "set again only by the restart after the root finished"
+        );
+        w.bb.clear("n");
+        run(&mut t, &mut w, 2);
+        assert_eq!(w.bb.get("n"), None, "and not while the Wait runs");
     }
 
     #[test]

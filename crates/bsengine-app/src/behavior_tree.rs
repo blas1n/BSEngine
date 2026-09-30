@@ -295,6 +295,15 @@ mod tests {
             position(&app, e).distance(goal) > 3.9,
             "premise: it starts away from the goal"
         );
+        // The tree runs before navigation: the MoveTo issued on the first
+        // frame is steered on that same frame. After it, navigation would
+        // only see the destination a frame later.
+        app.update();
+        assert!(
+            position(&app, e).x > 0.01,
+            "moved on the frame the move was issued: {}",
+            position(&app, e)
+        );
         let mut frames = 0;
         while app
             .world()

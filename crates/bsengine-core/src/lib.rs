@@ -62,6 +62,8 @@ pub mod mixer_state;
 pub mod model_import;
 /// Morph target (blend shape) weights for a mesh.
 pub mod morph_weights;
+/// Camera motion blur along how the camera moved since the last frame.
+pub mod motion_blur;
 /// Baked navigation mesh resource used for pathfinding.
 pub mod nav_mesh;
 /// Nav-mesh-driven pathing agent component and its runtime state.
@@ -179,6 +181,7 @@ pub use material::{Material, TexturePath};
 pub use mixer_state::{MixerBus, MixerShared, MixerState};
 pub use model_import::ModelImportSettings;
 pub use morph_weights::MorphWeights;
+pub use motion_blur::MotionBlur;
 pub use nav_mesh::{NavBakeParams, NavMesh};
 pub use nav_mesh_agent::{NavAgentState, NavMeshAgent};
 pub use nav_mesh_surface::NavMeshSurface;

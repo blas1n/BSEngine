@@ -1337,6 +1337,93 @@ fn fs_dof(in: FullscreenOut) -> @location(0) vec4<f32> {
 }
 "#;
 
+/// Camera motion blur: each pixel averaged along the screen path its surface
+/// took since the previous frame (see `MotionBlur`).
+///
+/// The path is found by reprojection, the way the TAA resolve finds its
+/// history: the pixel's depth, through this frame's inverse view-projection,
+/// gives a world position, and last frame's view-projection says where that
+/// position was on screen then. Both matrices are the unjittered pair TAA
+/// already uploads. What moved on its own is not in the depth-and-camera
+/// reprojection, so only the camera's motion blurs -- Unity URP's model.
+///
+/// The streak is centred on the pixel, scaled by `intensity`, clamped to
+/// `max_blur` of the screen's width, and averaged over `samples` equally
+/// weighted taps. `prev_valid == 0` -- the first frame, or the first after
+/// a camera cut -- returns the pixel untouched: last frame's matrix is then
+/// not the camera this frame moved from.
+const MOTION_BLUR_WGSL: &str = r#"
+struct FullscreenOut {
+    @builtin(position) pos: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+struct TaaCamera {
+    inv_view_proj: mat4x4<f32>,
+    prev_view_proj: mat4x4<f32>,
+}
+struct MotionBlur {
+    intensity: f32, max_blur: f32, samples: u32, prev_valid: u32,
+}
+@group(0) @binding(0) var hdr_tex: texture_2d<f32>;
+@group(0) @binding(1) var hdr_sampler: sampler;
+@group(1) @binding(0) var depth_tex: texture_depth_2d;
+// Binding 1 of the TAA resolve's uniform group; binding 0 (the shared config)
+// is in the layout but this shader has no use for it.
+@group(2) @binding(1) var<uniform> cam: TaaCamera;
+@group(3) @binding(0) var<uniform> mb: MotionBlur;
+
+@vertex
+fn vs_fullscreen(@builtin(vertex_index) vi: u32) -> FullscreenOut {
+    var positions = array<vec2<f32>, 3>(
+        vec2<f32>(-1.0, -3.0), vec2<f32>(-1.0, 1.0), vec2<f32>(3.0, 1.0),
+    );
+    let p = positions[vi];
+    var out: FullscreenOut;
+    out.pos = vec4<f32>(p.x, p.y, 0.0, 1.0);
+    out.uv = vec2<f32>(p.x * 0.5 + 0.5, -p.y * 0.5 + 0.5);
+    return out;
+}
+
+@fragment
+fn fs_motion_blur(in: FullscreenOut) -> @location(0) vec4<f32> {
+    let centre = textureSampleLevel(hdr_tex, hdr_sampler, in.uv, 0.0);
+    if mb.prev_valid == 0u {
+        return centre;
+    }
+    let dims = vec2<f32>(textureDimensions(hdr_tex, 0));
+    let ddims = vec2<i32>(textureDimensions(depth_tex, 0));
+    let coord = clamp(vec2<i32>(in.uv * vec2<f32>(ddims)), vec2<i32>(0), ddims - vec2<i32>(1));
+    let d = textureLoad(depth_tex, coord, 0);
+    let ndc = vec4<f32>(in.uv.x * 2.0 - 1.0, (1.0 - in.uv.y) * 2.0 - 1.0, d, 1.0);
+    let world_h = cam.inv_view_proj * ndc;
+    let world = world_h.xyz / world_h.w;
+    let prev = cam.prev_view_proj * vec4<f32>(world, 1.0);
+    // Behind last frame's camera: there is no screen position to streak from.
+    if prev.w <= 1e-5 {
+        return centre;
+    }
+    let prev_uv = vec2<f32>(prev.x / prev.w * 0.5 + 0.5, 0.5 - prev.y / prev.w * 0.5);
+    var blur = (in.uv - prev_uv) * mb.intensity;
+    // The clamp is in pixels, against the width, so a streak is limited to
+    // the same share of the screen whatever its direction.
+    let len_px = length(blur * dims);
+    let max_px = mb.max_blur * dims.x;
+    if len_px > max_px {
+        blur = blur * (max_px / len_px);
+    }
+    if min(len_px, max_px) < 0.5 {
+        return centre;
+    }
+    var sum = vec3<f32>(0.0);
+    let n = max(mb.samples, 1u);
+    for (var i = 0u; i < n; i = i + 1u) {
+        let t = (f32(i) + 0.5) / f32(n) - 0.5;
+        sum = sum + textureSampleLevel(hdr_tex, hdr_sampler, in.uv + blur * t, 0.0).rgb;
+    }
+    return vec4<f32>(sum / f32(n), centre.a);
+}
+"#;
+
 /// The temporal-antialiasing resolve pass.
 ///
 /// It reads the composite pass's LDR result, reprojects the previous frame's
@@ -1559,6 +1646,18 @@ struct DofGpu {
 }
 
 const DOF_SIZE: u64 = std::mem::size_of::<DofGpu>() as u64;
+
+/// Mirrors the WGSL `MotionBlur` uniform.
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct MotionBlurGpu {
+    intensity: f32,
+    max_blur: f32,
+    samples: u32,
+    prev_valid: u32,
+}
+
+const MOTION_BLUR_SIZE: u64 = std::mem::size_of::<MotionBlurGpu>() as u64;
 
 /// Format of the post pass's own LUT copy: the linear (non-sRGB) twin of
 /// the `Rgba8UnormSrgb` images are stored as. See `PostProcessState::set_lut`.
@@ -1834,6 +1933,20 @@ pub struct PostProcessState {
     dof_buffer: wgpu::Buffer,
     dof_bg: wgpu::BindGroup,
     dof_on: bool,
+    /// The motion blur pass, its uniform and that uniform's group;
+    /// `motion_blur_on` is whether this frame runs it (see
+    /// `update_motion_blur`).
+    motion_blur_pipeline: wgpu::RenderPipeline,
+    motion_blur_buffer: wgpu::Buffer,
+    motion_blur_bg: wgpu::BindGroup,
+    motion_blur_on: bool,
+    /// Whether the previous frame's camera -- the one `TaaCameraGpu`'s
+    /// `prev_view_proj` holds -- is a frame this one continues from. False
+    /// before the first frame (the matrix is then the identity it was
+    /// initialised to) and after `invalidate_history`, the camera cut; a
+    /// streak measured across either would be the distance to an unrelated
+    /// camera.
+    motion_blur_prev_valid: bool,
     /// The composite pass's group 3 (see where it is built) and its layout,
     /// kept to rebuild the group when the LUT changes.
     composite_config_bgl: wgpu::BindGroupLayout,
@@ -2170,6 +2283,34 @@ impl PostProcessState {
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: dof_buffer.as_entire_binding(),
+            }],
+        });
+
+        let motion_blur_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("pp motion blur bgl"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: wgpu::BufferSize::new(MOTION_BLUR_SIZE),
+                },
+                count: None,
+            }],
+        });
+        let motion_blur_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("pp motion blur buffer"),
+            size: MOTION_BLUR_SIZE,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let motion_blur_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("pp motion blur bg"),
+            layout: &motion_blur_bgl,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: motion_blur_buffer.as_entire_binding(),
             }],
         });
 
@@ -2574,6 +2715,16 @@ impl PostProcessState {
         let ssr_composite_pipeline = Self::make_ssr_composite_pipeline(device, &tex2d_bgl);
         let dof_pipeline =
             Self::make_dof_pipeline(device, &tex2d_bgl, &depth_bgl, &ssao_cam_bgl, &dof_bgl);
+        // The TAA resolve's uniform group for the camera pair: four groups is
+        // the WebGPU baseline's limit, so the matrices ride in the group that
+        // already carries them rather than a fifth.
+        let motion_blur_pipeline = Self::make_motion_blur_pipeline(
+            device,
+            &tex2d_bgl,
+            &depth_bgl,
+            &taa_uniform_bgl,
+            &motion_blur_bgl,
+        );
         let composite_pipeline = Self::make_composite_pipeline(
             device,
             &tex2d_bgl,
@@ -2636,6 +2787,11 @@ impl PostProcessState {
             dof_buffer,
             dof_bg,
             dof_on: false,
+            motion_blur_pipeline,
+            motion_blur_buffer,
+            motion_blur_bg,
+            motion_blur_on: false,
+            motion_blur_prev_valid: false,
             _neutral_lut: neutral_lut,
             neutral_lut_view,
             lut: None,
@@ -3141,6 +3297,49 @@ impl PostProcessState {
         })
     }
 
+    fn make_motion_blur_pipeline(
+        device: &wgpu::Device,
+        tex2d_bgl: &wgpu::BindGroupLayout,
+        depth_bgl: &wgpu::BindGroupLayout,
+        taa_uniform_bgl: &wgpu::BindGroupLayout,
+        motion_blur_bgl: &wgpu::BindGroupLayout,
+    ) -> wgpu::RenderPipeline {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("motion blur shader"),
+            source: wgpu::ShaderSource::Wgsl(MOTION_BLUR_WGSL.into()),
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("motion blur pll"),
+            bind_group_layouts: &[tex2d_bgl, depth_bgl, taa_uniform_bgl, motion_blur_bgl],
+            push_constant_ranges: &[],
+        });
+        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("motion blur pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_fullscreen",
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_motion_blur",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: HDR_FORMAT,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        })
+    }
+
     fn make_composite_pipeline(
         device: &wgpu::Device,
         tex2d_bgl: &wgpu::BindGroupLayout,
@@ -3294,6 +3493,9 @@ impl PostProcessState {
     pub fn invalidate_history(&mut self) {
         self.history_valid = false;
         self.fog_history_valid = false;
+        // A cut for motion blur too: the next frame's previous camera is not
+        // one it moved from.
+        self.motion_blur_prev_valid = false;
     }
 
     /// Uploads new bloom/tonemap/SSAO settings to the config uniform buffer.
@@ -3327,6 +3529,40 @@ impl PostProcessState {
     /// `fast_render`, which skips it regardless).
     pub fn dof_active(&self) -> bool {
         self.dof_on
+    }
+
+    /// Sets this frame's motion blur; `None`, or one that is disabled or has
+    /// no intensity, skips the pass -- the frame is then exactly what it was
+    /// before motion blur existed.
+    ///
+    /// Called once per frame, blur or not, because it is also what moves the
+    /// "is last frame's camera one we continued from" flag forward: the
+    /// camera pair is uploaded every frame whatever the settings, so turning
+    /// blur on mid-run measures against the frame that really preceded it.
+    pub fn update_motion_blur(
+        &mut self,
+        queue: &wgpu::Queue,
+        blur: Option<bsengine_core::MotionBlur>,
+    ) {
+        let active = blur.filter(|b| b.enabled && b.intensity > 0.0 && b.max_blur > 0.0);
+        self.motion_blur_on = active.is_some();
+        if let Some(b) = active {
+            let data = MotionBlurGpu {
+                intensity: b.intensity,
+                max_blur: b.max_blur,
+                samples: b.clamped_samples(),
+                prev_valid: self.motion_blur_prev_valid as u32,
+            };
+            queue.write_buffer(&self.motion_blur_buffer, 0, bytemuck::bytes_of(&data));
+        }
+        // This frame becomes the next one's previous camera.
+        self.motion_blur_prev_valid = true;
+    }
+
+    /// Whether this frame's motion blur pass will run (before `fast_render`,
+    /// which skips it regardless).
+    pub fn motion_blur_active(&self) -> bool {
+        self.motion_blur_on
     }
 
     /// Slices in the bound colour LUT, or 0 for none.
@@ -3686,7 +3922,46 @@ impl PostProcessState {
             draw_calls += 1;
             triangles += 1;
         }
-        let scene_bg = if dof_ran {
+
+        // Motion blur, after depth of field as in Unreal (a defocused
+        // highlight streaks as the disc it became) and before bloom and the
+        // composite, for the same reason depth of field is. It ping-pongs
+        // between the two full-screen HDR targets: it reads whichever one
+        // holds the scene so far and writes the other -- after the fog pass,
+        // and after depth of field if it ran, nothing reads the one it
+        // overwrites.
+        let motion_blur_ran = self.motion_blur_on && !fast_render;
+        if motion_blur_ran {
+            let (source, target) = if dof_ran {
+                (&self.hdr_bg, &self.fog_hdr_view)
+            } else {
+                (&self.fog_hdr_bg, &self.hdr_view)
+            };
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("motion blur pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: target,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                ..Default::default()
+            });
+            pass.set_pipeline(&self.motion_blur_pipeline);
+            pass.set_bind_group(0, source, &[]);
+            pass.set_bind_group(1, &self.depth_bg, &[]);
+            pass.set_bind_group(2, &self.taa_uniform_bg, &[]);
+            pass.set_bind_group(3, &self.motion_blur_bg, &[]);
+            pass.draw(0..3, 0..1);
+            draw_calls += 1;
+            triangles += 1;
+        }
+        // Where the scene now is: each of the two passes above that ran moved
+        // it to the other target.
+        let scene_bg = if dof_ran != motion_blur_ran {
             &self.hdr_bg
         } else {
             &self.fog_hdr_bg

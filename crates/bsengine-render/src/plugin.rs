@@ -546,6 +546,7 @@ fn render_frame(
             Option<&bsengine_core::ScreenSpaceReflections>,
             Option<&bsengine_core::ColorGrading>,
             Option<&bsengine_core::DepthOfField>,
+            Option<&bsengine_core::MotionBlur>,
         )>,
         Query<(
             &MeshRenderer,
@@ -703,11 +704,12 @@ fn render_frame(
         ssr,
         color_grading,
         depth_of_field,
+        mut motion_blur,
     ) = render_queries
         .p0()
         .iter()
         .next()
-        .map(|(cam, t, b, tm, ao, taa, fog, ssr, grade, dof)| {
+        .map(|(cam, t, b, tm, ao, taa, fog, ssr, grade, dof, blur)| {
             let proj = cam.projection_matrix();
             (
                 proj * t.view_matrix(),
@@ -721,12 +723,14 @@ fn render_frame(
                 ssr.copied(),
                 grade.cloned(),
                 dof.copied(),
+                blur.copied(),
             )
         })
         .unwrap_or((
             Mat4::IDENTITY,
             Vec3::ZERO,
             Mat4::IDENTITY,
+            None,
             None,
             None,
             None,
@@ -747,6 +751,11 @@ fn render_frame(
             }
             cam_pos = Vec3::from(insp.editor_cam_pos);
             cam_proj = Mat4::from_cols_array_2d(&insp.editor_proj);
+            // No motion blur on the editing camera: orbiting it would streak
+            // the whole viewport, and it is not the camera the game's blur
+            // was set up for. Unity's Scene view and Unreal's editor
+            // viewports leave it off the same way.
+            motion_blur = None;
         }
     }
 
@@ -1184,6 +1193,7 @@ fn render_frame(
         fog,
         color_grading,
         depth_of_field,
+        motion_blur,
     ) {
         Ok(clicked) => {
             if let Some(ref mut state) = ui_state {
@@ -1929,6 +1939,73 @@ mod tests {
             .remove::<bsengine_core::DepthOfField>();
         app.update();
         assert!(!active(&app), "and removing it switches the pass off");
+    }
+
+    /// A camera's `MotionBlur` reaches the post pass -- but not while the
+    /// editor is editing and drawing through its own orbit camera, which
+    /// would streak the whole viewport on every orbit. Playing hands the view
+    /// back to the game camera, and its blur with it.
+    #[test]
+    fn a_cameras_motion_blur_reaches_the_post_pass_except_in_the_editing_view() {
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::offscreen(64, 64, false));
+        app.add_plugins(RenderPlugin);
+        app.update();
+        let camera = app
+            .world_mut()
+            .spawn((
+                Camera::default(),
+                Transform::from_position(Vec3::new(0.0, 0.0, 10.0)),
+            ))
+            .id();
+        let active = |app: &bevy_app::App| {
+            app.world()
+                .resource::<bsengine_rhi_wgpu::WgpuSurfaceResource>()
+                .0
+                .motion_blur_active()
+        };
+        app.update();
+        assert!(!active(&app), "premise: no component, no pass");
+
+        app.world_mut()
+            .entity_mut(camera)
+            .insert(bsengine_core::MotionBlur::default());
+        app.update();
+        assert!(
+            active(&app),
+            "the camera's motion blur reaches the post pass"
+        );
+
+        // Zero intensity blurs nothing, so it costs nothing either: no pass.
+        // (The frame would look the same if the pass ran -- the shader leaves
+        // a sub-pixel streak alone -- which is why this is checked here and
+        // not at the pixel.)
+        app.world_mut()
+            .entity_mut(camera)
+            .insert(bsengine_core::MotionBlur {
+                intensity: 0.0,
+                ..Default::default()
+            });
+        app.update();
+        assert!(!active(&app), "a zero-intensity blur skips the pass");
+        app.world_mut()
+            .entity_mut(camera)
+            .insert(bsengine_core::MotionBlur::default());
+        app.update();
+        assert!(active(&app), "premise: on again for the editor check below");
+
+        use bsengine_core::{EditorPlayState, InspectorState};
+        let mut editing = InspectorState::default();
+        editing.editor_mode = true;
+        editing.play_state = EditorPlayState::Stopped;
+        app.world_mut().insert_resource(editing);
+        app.update();
+        assert!(!active(&app), "the editing view draws without it");
+
+        app.world_mut().resource_mut::<InspectorState>().play_state = EditorPlayState::Playing;
+        app.update();
+        assert!(active(&app), "and Play gives it back");
     }
 
     /// A camera's `ColorGrading::lut` reaches the post pass through the

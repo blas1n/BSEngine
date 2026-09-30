@@ -249,6 +249,8 @@ pub struct Scene {
     pub color_grading: Option<bsengine_core::ColorGrading>,
     /// Depth of field for this camera, or `None` for none.
     pub depth_of_field: Option<bsengine_core::DepthOfField>,
+    /// Motion blur for this camera, or `None` for none.
+    pub motion_blur: Option<bsengine_core::MotionBlur>,
     pub hud: HashMap<String, String>,
     pub with_skybox: bool,
     /// Particle batches for the pass that runs after transparency.
@@ -277,6 +279,7 @@ impl Default for Scene {
             fog: None,
             color_grading: None,
             depth_of_field: None,
+            motion_blur: None,
             hud: HashMap::new(),
             with_skybox: false,
             particles: Vec::new(),
@@ -648,6 +651,19 @@ struct VertOut {{
         self.render_frame_at(scene, 0, 0.0)
     }
 
+    /// Two consecutive frames -- `from`, then `to` -- returning the second.
+    ///
+    /// [`Self::render`] is always a fresh frame, a camera cut, so it can never
+    /// show anything measured *between* frames: motion blur being the case in
+    /// point. This cuts once, draws `from` to establish the previous camera,
+    /// then draws `to` continuing from it -- the frame a camera moving from
+    /// `from`'s pose to `to`'s would produce.
+    pub fn render_moving(&mut self, from: &Scene, to: &Scene) -> Pixels {
+        self.surface.invalidate_taa_history();
+        self.render_frame_at(from, 0, 0.0);
+        self.render_frame_at(to, 0, 0.0)
+    }
+
     /// One fresh frame with `camera.time` set to `seconds`.
     ///
     /// [`Self::render`] renders at time zero, which is what makes it
@@ -819,6 +835,8 @@ struct VertOut {{
                 scene.color_grading.clone(),
                 // `None` skips the pass: the fogged image goes on unchanged.
                 scene.depth_of_field,
+                // `None` skips the pass too.
+                scene.motion_blur,
             )
             .expect("render_frame failed");
 

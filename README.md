@@ -57,6 +57,9 @@ core ← ecs ← app ← window / input
   tonemapping in display (sRGB) space
 - Depth of field (`DepthOfField` on the camera): near and far blur bands
   (distance + transition), a disk gather on the HDR image before tonemapping
+- Camera motion blur (`MotionBlur` on the camera): each pixel streaked along
+  its reprojected screen motion since the last frame (intensity, a clamp on
+  the streak's length, tap count); sharp on the first frame after a cut
 
 ### Scene (bsengine-scene)
 - Entity spawn/despawn with named entities

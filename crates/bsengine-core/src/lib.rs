@@ -10,6 +10,8 @@
 
 /// Screen-space ambient occlusion post-process settings.
 pub mod ambient_occlusion;
+/// Named events fired when an animation crosses a time.
+pub mod animation_events;
 /// Simple single-clip skeletal/sprite animation playback component.
 pub mod animation_player;
 /// Graph-based animation state machine with parameterized transitions.
@@ -136,6 +138,9 @@ pub mod visible;
 pub mod volumetric_fog;
 
 pub use ambient_occlusion::AmbientOcclusion;
+pub use animation_events::{
+    AnimationEvent, AnimationEventFired, AnimationEvents, AnimationSystems,
+};
 pub use animation_player::AnimationPlayer;
 pub use animation_state_machine::{
     AnimationStateMachine, AsmState, AsmTransition, BlendClip, BlendClip2D, BlendTree1D,

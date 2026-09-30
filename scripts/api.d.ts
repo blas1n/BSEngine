@@ -175,6 +175,7 @@ declare namespace Bsengine {
     function moveToward(name: unknown, tx: unknown, ty: unknown, tz: unknown, speed: unknown): unknown;
     function multiplyScale(name: string, a: unknown, b: unknown, c: unknown): void;
     function navHasNoPath(name: string): boolean;
+    function onAnimationEvent(entityName: unknown, callback: unknown): unknown;
     function onCollision(entityName: unknown, callback: unknown): unknown;
     function onGamepadButtonDown(btn: unknown, fn: unknown): unknown;
     function onGamepadButtonUp(btn: unknown, fn: unknown): unknown;

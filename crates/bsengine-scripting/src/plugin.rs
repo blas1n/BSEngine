@@ -18,8 +18,8 @@ use glam::{EulerRot, Quat, Vec3};
 use crate::ops::{
     render_asset_status, ScriptCommand, ACTION_BINDINGS_SNAPSHOT, ACTION_SNAPSHOT,
     AMBIENT_OCCLUSION_SNAPSHOT, ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT,
-    ANIMATION_SNAPSHOT, ASM_STATE_SNAPSHOT, ASSET_STATUS_SNAPSHOT, AUDIO_PARAM_SNAPSHOT,
-    BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, BUS_VOLUME_SNAPSHOT,
+    ANIMATION_EVENT_SNAPSHOT, ANIMATION_SNAPSHOT, ASM_STATE_SNAPSHOT, ASSET_STATUS_SNAPSHOT,
+    AUDIO_PARAM_SNAPSHOT, BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, BUS_VOLUME_SNAPSHOT,
     CHARACTER_GROUNDED_SNAPSHOT, CHILDREN_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT,
     COMMAND_BUFFER, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, FOLLOW_SNAPSHOT, FRICTION_SNAPSHOT,
     GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT, GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT,
@@ -321,6 +321,10 @@ impl Plugin for ScriptingPlugin {
         app.insert_resource(ScriptTimingState::wall_clock());
         // Register CollisionEvent so EventReader works even without PhysicsPlugin
         app.add_event::<CollisionEvent>();
+        // Registered here as well as by `AnimationPlugin`: the capture system
+        // below reads it, and a reader of an event nobody registered panics in
+        // an app built without the animation plugin (this crate's own tests).
+        app.add_event::<bsengine_core::AnimationEventFired>();
         app.add_systems(PostStartup, load_scripts);
         app.add_systems(
             Update,
@@ -350,6 +354,7 @@ impl Plugin for ScriptingPlugin {
             // contains.
             (
                 capture_collision_events,
+                capture_animation_events,
                 execute_loaded_scripts,
                 reexecute_modified_scripts,
                 run_scripts,
@@ -367,9 +372,32 @@ impl Plugin for ScriptingPlugin {
                 // A no-op in an app that never adds `AssetStatusPlugin`: the
                 // constraint names a system type with no instance in the
                 // schedule, so there is nothing to order against.
-                .after(bsengine_asset::status::collect_asset_statuses),
+                .after(bsengine_asset::status::collect_asset_statuses)
+                // And after the animation tick, so an event crossed in frame
+                // N reaches frame N's `onAnimationEvent` -- not frame N or
+                // N+1 depending on how the two unrelated systems were sorted.
+                // A no-op without `AnimationPlugin`, as the line above is
+                // without its plugin.
+                .after(bsengine_core::AnimationSystems),
         );
     }
+}
+
+/// This frame's `AnimationEventFired`s, by entity name, for
+/// `Bsengine.onAnimationEvent`. Replaced every frame, like the collisions:
+/// an event is delivered in the frame it fired and not again.
+fn capture_animation_events(
+    mut events: EventReader<bsengine_core::AnimationEventFired>,
+    name_query: Query<&Name>,
+) {
+    let fired: Vec<(String, String, String)> = events
+        .read()
+        .filter_map(|ev| {
+            let name = name_query.get(ev.entity).ok()?;
+            Some((name.0.clone(), ev.clip.clone(), ev.name.clone()))
+        })
+        .collect();
+    ANIMATION_EVENT_SNAPSHOT.with(|s| *s.borrow_mut() = fired);
 }
 
 /// Capture collision events each frame into a thread_local snapshot for scripts.
@@ -984,6 +1012,24 @@ fn run_scripts(world: &mut World) {
             let call = format!("Bsengine._runCollisions({collision_json});");
             if let Err(e) = rt.0.exec_source(&call, "<run_collisions>") {
                 tracing::error!("[scripting] _runCollisions error: {e}");
+            }
+        }
+        // Animation events, likewise before this frame's `onUpdate`s.
+        let animation_json = ANIMATION_EVENT_SNAPSHOT.with(|s| {
+            serde_json::to_string(
+                &s.borrow()
+                    .iter()
+                    .map(|(entity, clip, name)| {
+                        serde_json::json!({"entity": entity, "clip": clip, "name": name})
+                    })
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap_or_else(|_| "[]".to_string())
+        });
+        if animation_json != "[]" {
+            let call = format!("Bsengine._runAnimationEvents({animation_json});");
+            if let Err(e) = rt.0.exec_source(&call, "<run_animation_events>") {
+                tracing::error!("[scripting] _runAnimationEvents error: {e}");
             }
         }
 
@@ -7360,5 +7406,105 @@ mod tests {
         app.update();
         let _ = std::fs::remove_file(&script_path);
         assert_eq!(x(&app), 1.0, "J is");
+    }
+
+    /// `Bsengine.onAnimationEvent` through the real plugins: the animation
+    /// plugin ticks the player and fires, the scripting plugin captures and
+    /// dispatches, and the handler -- registered for this entity by name --
+    /// sees each event once, with its clip, before that frame's `onUpdate`.
+    /// The handler appends to a HUD text; `onUpdate` copies the log so far
+    /// into a second one, which is what shows the events arrived first.
+    #[test]
+    fn on_animation_event_delivers_each_crossing_to_the_entitys_handler() {
+        use bsengine_core::{AnimationEvent, AnimationEvents, AnimationPlayer, Time};
+        let script_path = std::env::temp_dir().join(format!(
+            "bsengine_test_anim_events_{}.js",
+            std::process::id()
+        ));
+        std::fs::write(
+            &script_path,
+            "let log = [];\n\
+             Bsengine.onAnimationEvent(\"Hero\", (name, clip) => {\n\
+                 log.push(clip + \":\" + name);\n\
+                 Bsengine.setHudText(\"events\", log.join(\",\"));\n\
+             });\n\
+             Bsengine.onAnimationEvent(\"Someone\", () => log.push(\"wrong entity\"));\n\
+             function onUpdate(name) {\n\
+                 Bsengine.setHudText(\"seen_by_update\", log.join(\",\"));\n\
+             }",
+        )
+        .unwrap();
+
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(bsengine_app::AnimationPlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: String::new(),
+        });
+        let mut time = Time::default();
+        time.set_delta_for_test(0.1);
+        app.insert_resource(time);
+        app.world_mut().spawn((
+            Name("Hero".to_string()),
+            ScriptPath(script_path.to_string_lossy().to_string()),
+            Transform::default(),
+            AnimationPlayer::new("walk").with_duration(1.0).paused(),
+            AnimationEvents {
+                events: vec![
+                    AnimationEvent {
+                        clip: "walk".into(),
+                        time: 0.25,
+                        name: "step".into(),
+                    },
+                    AnimationEvent {
+                        clip: "walk".into(),
+                        time: 0.75,
+                        name: "step2".into(),
+                    },
+                ],
+            },
+        ));
+        let hud = |app: &bevy_app::App, key: &str| {
+            app.world()
+                .resource::<HudTexts>()
+                .0
+                .get(key)
+                .cloned()
+                .unwrap_or_default()
+        };
+        // Load the script with the player paused, so no event can fire
+        // before a handler exists.
+        let mut frames = 0;
+        while !app
+            .world()
+            .resource::<HudTexts>()
+            .0
+            .contains_key("seen_by_update")
+        {
+            app.update();
+            frames += 1;
+            assert!(frames < 300, "the script never ran");
+        }
+        let mut q = app.world_mut().query::<&mut AnimationPlayer>();
+        q.single_mut(app.world_mut()).play();
+
+        for _ in 0..3 {
+            app.update();
+        }
+        assert_eq!(hud(&app, "events"), "walk:step", "0.25 crossed by frame 3");
+        assert_eq!(
+            hud(&app, "seen_by_update"),
+            "walk:step",
+            "delivered before the same frame's onUpdate"
+        );
+        for _ in 0..5 {
+            app.update();
+        }
+        let _ = std::fs::remove_file(&script_path);
+        assert_eq!(
+            hud(&app, "events"),
+            "walk:step,walk:step2",
+            "each event once, in playback order, to this entity's handler only"
+        );
     }
 }

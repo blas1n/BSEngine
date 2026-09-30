@@ -247,6 +247,8 @@ pub struct Scene {
     /// Colour grading for this camera, or `None` for none -- what an
     /// absent component means on a real camera.
     pub color_grading: Option<bsengine_core::ColorGrading>,
+    /// Depth of field for this camera, or `None` for none.
+    pub depth_of_field: Option<bsengine_core::DepthOfField>,
     pub hud: HashMap<String, String>,
     pub with_skybox: bool,
     /// Particle batches for the pass that runs after transparency.
@@ -274,6 +276,7 @@ impl Default for Scene {
             reflection_probes: Vec::new(),
             fog: None,
             color_grading: None,
+            depth_of_field: None,
             hud: HashMap::new(),
             with_skybox: false,
             particles: Vec::new(),
@@ -814,6 +817,8 @@ struct VertOut {{
                 // `None` leaves `grade_enabled` at 0: the tonemapped colour
                 // passes through, as in every scene before grading existed.
                 scene.color_grading.clone(),
+                // `None` skips the pass: the fogged image goes on unchanged.
+                scene.depth_of_field,
             )
             .expect("render_frame failed");
 

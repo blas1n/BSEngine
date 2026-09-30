@@ -2835,6 +2835,12 @@ impl WgpuSurface {
         self.set_color_lut_from_texture(Some(&texture))
     }
 
+    /// Whether the last frame asked for depth of field (see
+    /// `PostProcessState::update_dof` for what counts as asking).
+    pub fn depth_of_field_active(&self) -> bool {
+        self.post_process.dof_active()
+    }
+
     /// Slices in the bound colour LUT, or 0 for none.
     pub fn color_lut_size(&self) -> u32 {
         self.post_process.lut_size()
@@ -5682,6 +5688,7 @@ impl WgpuSurface {
         reflection_probes: &[ReflectionProbeParams],
         fog: Option<bsengine_core::VolumetricFog>,
         color_grading: Option<bsengine_core::ColorGrading>,
+        depth_of_field: Option<bsengine_core::DepthOfField>,
     ) -> Result<std::collections::HashSet<String>, String> {
         // Wall-clock CPU time for this call, for `FrameStats::cpu_frame_time_ms`.
         let frame_start = std::time::Instant::now();
@@ -5976,6 +5983,7 @@ impl WgpuSurface {
             };
             self.last_color_grading = color_grading;
             self.post_process.update_config(&self.queue, pp_config);
+            self.post_process.update_dof(&self.queue, depth_of_field);
             let inv_proj = cam_proj.inverse();
             self.post_process.update_ssao_camera(
                 &self.queue,
@@ -9000,6 +9008,7 @@ mod tests {
                 Mat4::IDENTITY,
                 volume,
                 &[],
+                None,
                 None,
                 None,
             )

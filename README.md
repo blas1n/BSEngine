@@ -55,6 +55,8 @@ core ← ecs ← app ← window / input
 - Colour grading (`ColorGrading` on the camera): contrast, saturation, a
   colour filter and a LUT strip (Unreal's N^2 x N layout), applied after
   tonemapping in display (sRGB) space
+- Depth of field (`DepthOfField` on the camera): near and far blur bands
+  (distance + transition), a disk gather on the HDR image before tonemapping
 
 ### Scene (bsengine-scene)
 - Entity spawn/despawn with named entities

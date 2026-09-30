@@ -21,6 +21,12 @@ pub enum KeyframeValues {
     Rotations(Vec<[f32; 4]>),
     /// Per-keyframe scale vectors.
     Scales(Vec<[f32; 3]>),
+    /// Morph target weights, flattened keyframe-major: with `n` targets,
+    /// keyframe `k`'s weights are `[k * n .. k * n + n]` (so `n` is the
+    /// length divided by the keyframe count). Under CubicSpline each
+    /// keyframe holds three such blocks -- in-tangent, value, out-tangent --
+    /// as glTF stores them.
+    Weights(Vec<f32>),
 }
 
 /// One property animated over time, targeting a specific GLTF node by index.

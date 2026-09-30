@@ -58,3 +58,12 @@ pub struct AnimationEventFired {
 /// difference a replay would see.
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AnimationSystems;
+
+/// The systems that turn the advanced players into this frame's pose-side
+/// state -- clip-driven morph weights, root motion's move of the entity --
+/// ordered after [`AnimationSystems`] by whichever plugin adds them. Scripts
+/// run after this set: a script that sets a morph weight or moves a
+/// character has the last word in the frame, as Unity's `LateUpdate` has
+/// over its Animator, instead of racing the animation for it.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AnimationPoseSystems;

@@ -27,6 +27,10 @@ pub struct MeshData {
     /// The mesh's default weights (`mesh.weights`), one per target; zeros
     /// where the file gives none.
     pub morph_default_weights: Vec<f32>,
+    /// The first node that draws this mesh -- what a clip's `weights`
+    /// channel names when it animates this mesh's targets. `None` for a mesh
+    /// no node references.
+    pub node: Option<usize>,
 }
 
 /// One morph target of a primitive: per-vertex offsets from the base shape.
@@ -347,6 +351,15 @@ impl GltfLoader {
 
         let mut meshes = Vec::new();
         let mut mesh_tex_indices = Vec::new();
+        // The first node drawing each mesh: a `weights` animation channel
+        // targets a node, and the node is how it reaches the mesh's targets.
+        let mut node_of_mesh: std::collections::HashMap<usize, usize> =
+            std::collections::HashMap::new();
+        for node in doc.nodes() {
+            if let Some(mesh) = node.mesh() {
+                node_of_mesh.entry(mesh.index()).or_insert(node.index());
+            }
+        }
 
         for mesh in doc.meshes() {
             let name = mesh.name().unwrap_or("mesh").to_string();
@@ -465,6 +478,7 @@ impl GltfLoader {
                     morph_targets,
                     morph_target_names: names_for_targets,
                     morph_default_weights: weights_for_targets,
+                    node: node_of_mesh.get(&mesh.index()).copied(),
                 });
                 mesh_tex_indices.push(tex_idx);
             }
@@ -537,6 +551,9 @@ fn parse_animations(doc: &gltf::Document, buffers: &[gltf::buffer::Data]) -> Vec
                 Some(gltf::animation::util::ReadOutputs::Scales(s)) => {
                     KeyframeValues::Scales(s.collect())
                 }
+                Some(gltf::animation::util::ReadOutputs::MorphTargetWeights(w)) => {
+                    KeyframeValues::Weights(w.into_f32().collect())
+                }
                 _ => continue,
             };
 
@@ -581,6 +598,13 @@ fn gltf_pixels_to_rgba(pixels: &[u8], format: GltfFormat, width: u32, height: u3
 /// through the code under test.
 #[cfg(test)]
 pub(crate) fn morph_triangle_gltf() -> String {
+    morph_triangle_gltf_with(false)
+}
+
+/// [`morph_triangle_gltf`], optionally with a one-second clip "smile_anim"
+/// whose `weights` channel takes the smile from 0 to 1, linearly.
+#[cfg(test)]
+pub(crate) fn morph_triangle_gltf_with(animated: bool) -> String {
     fn f32s(values: &[f32]) -> Vec<u8> {
         values.iter().flat_map(|v| v.to_le_bytes()).collect()
     }
@@ -607,6 +631,17 @@ pub(crate) fn morph_triangle_gltf() -> String {
     let mut buffer = f32s(&[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0]);
     buffer.extend(f32s(&[0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]));
     buffer.extend(f32s(&[0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]));
+    // Keyframe times, then the weights at them.
+    buffer.extend(f32s(&[0.0, 1.0, 0.0, 1.0]));
+    let animations = if animated {
+        r#","animations": [{
+    "name": "smile_anim",
+    "channels": [{"sampler": 0, "target": {"node": 0, "path": "weights"}}],
+    "samplers": [{"input": 3, "output": 4, "interpolation": "LINEAR"}]
+  }]"#
+    } else {
+        ""
+    };
     format!(
         r#"{{
   "asset": {{"version": "2.0"}},
@@ -619,19 +654,24 @@ pub(crate) fn morph_triangle_gltf() -> String {
     "weights": [0.25],
     "extras": {{"targetNames": ["smile"]}}
   }}],
-  "buffers": [{{"byteLength": 108, "uri": "data:application/octet-stream;base64,{}"}}],
+  "buffers": [{{"byteLength": 124, "uri": "data:application/octet-stream;base64,{}"}}],
   "bufferViews": [
     {{"buffer": 0, "byteOffset": 0, "byteLength": 36}},
     {{"buffer": 0, "byteOffset": 36, "byteLength": 36}},
-    {{"buffer": 0, "byteOffset": 72, "byteLength": 36}}
+    {{"buffer": 0, "byteOffset": 72, "byteLength": 36}},
+    {{"buffer": 0, "byteOffset": 108, "byteLength": 8}},
+    {{"buffer": 0, "byteOffset": 116, "byteLength": 8}}
   ],
   "accessors": [
     {{"bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3", "min": [0, 0, 0], "max": [1, 1, 0]}},
     {{"bufferView": 1, "componentType": 5126, "count": 3, "type": "VEC3", "min": [0, 0, 0], "max": [0, 0, 1]}},
-    {{"bufferView": 2, "componentType": 5126, "count": 3, "type": "VEC3"}}
-  ]
+    {{"bufferView": 2, "componentType": 5126, "count": 3, "type": "VEC3"}},
+    {{"bufferView": 3, "componentType": 5126, "count": 2, "type": "SCALAR", "min": [0], "max": [1]}},
+    {{"bufferView": 4, "componentType": 5126, "count": 2, "type": "SCALAR"}}
+  ]{}
 }}"#,
-        base64(&buffer)
+        base64(&buffer),
+        animations
     )
 }
 
@@ -675,6 +715,28 @@ mod tests {
         let target = &scaled.meshes[0].morph_targets[0];
         assert_eq!(target.positions[0], [0.0, 0.0, 2.0], "positions scale");
         assert_eq!(target.normals[0], [0.0, 1.0, 0.0], "normals do not");
+    }
+
+    /// A clip's `weights` channel loads as `KeyframeValues::Weights`, aimed
+    /// at the node that draws the mesh -- which the mesh records, so the two
+    /// can be matched up at playback.
+    #[test]
+    fn a_weights_channel_loads_and_names_the_meshs_node() {
+        let json = morph_triangle_gltf_with(true);
+        let loaded =
+            GltfLoader::load_full_from_slice(json.as_bytes(), &ModelImportSettings::default())
+                .expect("the fixture loads");
+        assert_eq!(loaded.meshes[0].node, Some(0));
+        let clip = &loaded.animations[0];
+        assert_eq!(clip.name, "smile_anim");
+        assert_eq!(clip.duration, 1.0);
+        let channel = &clip.channels[0];
+        assert_eq!(channel.node_index, 0);
+        assert!(
+            matches!(&channel.values, KeyframeValues::Weights(w) if w == &vec![0.0, 1.0]),
+            "{:?}",
+            channel.values
+        );
     }
 
     #[test]
@@ -899,6 +961,9 @@ mod tests {
                     }
                     (KeyframeValues::Scales(x), KeyframeValues::Scales(y)) => {
                         assert_eq!(x, y, "scale keys stay")
+                    }
+                    (KeyframeValues::Weights(x), KeyframeValues::Weights(y)) => {
+                        assert_eq!(x, y, "morph weights are unitless and stay")
                     }
                     _ => panic!("channel kinds differ between the two loads"),
                 }

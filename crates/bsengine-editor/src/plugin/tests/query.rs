@@ -93,6 +93,58 @@ fn mcp_get_entity_returns_entity_info() {
     assert_eq!(out.content["entity"]["name"], "Queried", "name matches");
 }
 
+/// `get_entity` reads components that have no dedicated field: a behaviour
+/// tree's running branch and its blackboard come back by type path, as RON
+/// -- the MCP half of the tree debugger, and the reading counterpart of
+/// `set_reflected_component`.
+#[test]
+fn mcp_get_entity_reads_a_behaviour_trees_branch_and_blackboard() {
+    let mut app = new_app();
+    app.add_plugins(McpPlugin);
+    app.add_plugins(EditorPlugin);
+    let mut bb = bsengine_core::Blackboard::default();
+    bb.set(
+        "goal",
+        bsengine_core::BbValue::Vec3(glam::Vec3::new(4.0, 0.0, 0.0).into()),
+    );
+    let e = app
+        .world_mut()
+        .spawn((
+            bsengine_scene::Name("Guard".to_string()),
+            bsengine_core::BehaviorTree {
+                tree: "assets/ai/guard.bt.ron".to_string(),
+                active_path: vec!["Sequence".to_string(), "MoveTo(goal)".to_string()],
+                ..Default::default()
+            },
+            bb,
+        ))
+        .id();
+    app.update();
+    app.update();
+
+    let mcp = app.world().resource::<bsengine_mcp::McpRegistryResource>();
+    let out = mcp
+        .0
+        .lock()
+        .unwrap()
+        .execute("get_entity", json!({"entity_id": e.index() as u64}))
+        .unwrap();
+    assert!(out.is_ok());
+    let components = &out.content["entity"]["components"];
+    let tree = components["bsengine_core::behavior_tree::BehaviorTree"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the tree is listed: {components}"));
+    assert!(tree.contains("MoveTo(goal)"), "its running branch: {tree}");
+    assert!(tree.contains("assets/ai/guard.bt.ron"), "{tree}");
+    let blackboard = components["bsengine_core::behavior_tree::Blackboard"]
+        .as_str()
+        .unwrap_or_else(|| panic!("the blackboard is listed: {components}"));
+    assert!(
+        blackboard.contains("goal") && blackboard.contains("4"),
+        "{blackboard}"
+    );
+}
+
 #[test]
 fn mcp_get_entity_missing_returns_error() {
     let mut app = new_app();

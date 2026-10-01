@@ -14,10 +14,13 @@ use bevy_reflect::Reflect;
 /// it always has — which is what lets every existing pixel test keep
 /// passing unchanged.
 ///
-/// Reprojection is depth-based and camera-only in this version, so it is
-/// exact for static geometry under any camera motion. Moving objects
-/// reproject incorrectly and are held in check by `clamp_strength` rather
-/// than corrected; per-object motion vectors are a separate piece of work.
+/// Reprojection follows each mesh's velocity -- its own motion since last
+/// frame and the camera's -- so a moving object finds its own history, as
+/// in Unity, Unreal and Godot. Where no velocity was written (the sky,
+/// terrain, custom shaders) the depth and the camera reproject instead,
+/// which is exact for anything that did not move. What is still wrong -- a
+/// surface just uncovered, or a custom-shaded object that moved -- is held
+/// in check by `clamp_strength`.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Reflect)]
 #[reflect(Component, Default)]
 pub struct Taa {

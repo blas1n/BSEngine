@@ -1,18 +1,20 @@
-//! Camera motion blur: smearing the image along how the camera moved.
+//! Motion blur: smearing the image along how each surface moved on screen.
 
 use bevy_ecs::prelude::{Component, ReflectComponent};
 use bevy_reflect::prelude::ReflectDefault;
 use bevy_reflect::Reflect;
 
 /// Blurs each pixel along the path its surface took across the screen since
-/// the previous frame, as far as the *camera's* motion moved it.
+/// the previous frame.
 ///
-/// This is Unity URP's motion blur, which is camera-only: the velocity comes
-/// from reprojecting the pixel's depth through last frame's camera, so a
-/// turning or moving camera streaks the world, while an object moving on its
-/// own in front of a still camera is not blurred. Unreal and HDRP also blur
-/// moving objects, from a per-object velocity buffer the renderer does not
-/// have; Godot has no motion blur at all. The parameters are the ones Unity
+/// The path is the velocity the opaque pass writes for every mesh -- its
+/// own motion since last frame and the camera's together -- so a turning
+/// camera streaks the world and an object moving on its own streaks in front
+/// of a still camera, as in Unreal and HDRP (Unity URP blurs the camera's
+/// motion only; Godot has no motion blur). Surfaces that write no velocity
+/// -- the sky, terrain, custom shaders -- streak by the camera's motion
+/// alone, reprojected from depth. Skinned meshes streak by their entity's
+/// motion, not their bones'. The parameters are the ones Unity
 /// and Unreal share: an intensity (the fraction of the frame's motion blurred,
 /// Unity's Intensity and Unreal's Amount, both 0.5 by default) and a clamp on
 /// the length of the streak (both default to 5% of the screen).

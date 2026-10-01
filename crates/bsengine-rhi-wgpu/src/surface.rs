@@ -22,6 +22,10 @@ pub(crate) const MESH_WGSL: &str = r#"
 const MAX_POINT_LIGHTS: u32 = 8u;
 const MAX_SPOT_LIGHTS: u32 = 8u;
 const PI: f32 = 3.14159265358979323846;
+// `unjittered_view_proj` and `prev_view_proj` (last frame's, also
+// unjittered) and the model's `prev_model` exist for the velocity output:
+// motion is measured between the cameras the player saw, not between the
+// jittered ones TAA rasterises with, which would chase the jitter.
 struct CameraUniform {
     view_proj: mat4x4<f32>,
     cascade_view_proj: array<mat4x4<f32>, 4>,
@@ -31,6 +35,8 @@ struct CameraUniform {
     cascade_blend: f32,
     cascade_splits: vec4<f32>,
     cascade_count: u32,
+    unjittered_view_proj: mat4x4<f32>,
+    prev_view_proj: mat4x4<f32>,
 };
 struct ModelUniform {
     model: mat4x4<f32>,
@@ -42,6 +48,7 @@ struct ModelUniform {
     _pad2: f32,
     base_color: vec3<f32>,
     opacity: f32,
+    prev_model: mat4x4<f32>,
 };
 struct PointLightEntry {
     position: vec3<f32>,
@@ -165,12 +172,19 @@ struct VertOut {
     @location(1) world_normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
     @location(3) world_pos: vec3<f32>,
+    // Where this vertex is this frame and was last frame, both unjittered:
+    // interpolated as clip positions and divided per fragment, which is
+    // what keeps the velocity right across a triangle under perspective.
+    @location(4) curr_clip: vec4<f32>,
+    @location(5) prev_clip: vec4<f32>,
 }
 @vertex
 fn vs_main(in: VertIn) -> VertOut {
     var out: VertOut;
     let world_pos4 = model_data.model * vec4<f32>(in.pos, 1.0);
     out.clip_pos = camera.view_proj * world_pos4;
+    out.curr_clip = camera.unjittered_view_proj * world_pos4;
+    out.prev_clip = camera.prev_view_proj * (model_data.prev_model * vec4<f32>(in.pos, 1.0));
     out.world_pos = world_pos4.xyz;
     out.col = in.col;
     let normal_matrix = mat3x3<f32>(
@@ -445,6 +459,11 @@ struct SceneOut {
     // reconstructed from depth later, because this is where the normal the
     // surface was actually shaded with exists, decals included.
     @location(1) normal_roughness: vec4<f32>,
+    // How far this surface moved on screen since last frame, in uv units
+    // (y down): now minus then. Its own motion and the camera's together,
+    // so TAA and motion blur find a moving object where it was rather than
+    // where the camera alone would put it. See `VELOCITY_FORMAT`.
+    @location(2) velocity: vec2<f32>,
 };
 
 @fragment
@@ -599,6 +618,16 @@ fn fs_main(in: VertOut) -> SceneOut {
     var out: SceneOut;
     out.colour = vec4<f32>(color, model_data.opacity);
     out.normal_roughness = vec4<f32>(n, roughness);
+    // Behind last frame's camera there is no previous screen position: the
+    // "no velocity" value hands the pixel back to camera reprojection,
+    // which gives up on it the same way.
+    if in.prev_clip.w <= 1e-5 {
+        out.velocity = vec2<f32>(65504.0);
+    } else {
+        let curr_ndc = in.curr_clip.xy / in.curr_clip.w;
+        let prev_ndc = in.prev_clip.xy / in.prev_clip.w;
+        out.velocity = (curr_ndc - prev_ndc) * vec2<f32>(0.5, -0.5);
+    }
     return out;
 }
 "#;
@@ -950,8 +979,8 @@ fn fs_main(in: VertOut) -> SceneOut {
 ///
 /// `_tail` is load-bearing: a WGSL array's stride is its element size, and
 /// this array aliases the very buffer the main pass reads as a uniform at
-/// `MODEL_STRIDE` (256). `ModelUniformData` is 112 bytes, and
-/// 112 + 9 * 16 = 256, so the padding is what keeps the two views agreeing
+/// `MODEL_STRIDE` (256). `ModelUniformData` is 176 bytes, and
+/// 176 + 5 * 16 = 256, so the padding is what keeps the two views agreeing
 /// on where object N begins.
 const INSTANCED_MODEL_DECL: &str = r#"
 struct ModelEntry {
@@ -964,7 +993,8 @@ struct ModelEntry {
     _p2: f32,
     base_color: vec3<f32>,
     opacity: f32,
-    _tail: array<vec4<f32>, 9>,
+    prev_model: mat4x4<f32>,
+    _tail: array<vec4<f32>, 5>,
 };
 @group(1) @binding(0) var<storage, read> models: array<ModelEntry>;
 @group(1) @binding(1) var<storage, read> slots: array<u32>;
@@ -1552,7 +1582,7 @@ fn warn_if_slots_truncated(wanted: usize) {
 }
 // view_proj(64) + cascade_view_proj(4*64=256) + cam_pos(12)+time(4) +
 // cam_forward(12)+cascade_blend(4) + cascade_splits(16) + cascade_count(4)+pad(12) = 384
-const CAMERA_UNIFORM_SIZE: u64 = 384;
+const CAMERA_UNIFORM_SIZE: u64 = 512;
 
 /// Per-cascade dynamic-offset stride for `cascade_uniform_buffer`, following
 /// the same 256-byte convention as `POINT_SHADOW_STRIDE` (the payload is one
@@ -1806,6 +1836,19 @@ fn probe_positions(params: &ProbeVolumeParams) -> Vec<Vec3> {
     out
 }
 
+/// An IEEE half float's bits as an `f32`, for [`WgpuSurface::read_velocity`].
+fn f16_to_f32(bits: u16) -> f32 {
+    let sign = if bits & 0x8000 != 0 { -1.0 } else { 1.0 };
+    let exponent = ((bits >> 10) & 0x1f) as i32;
+    let mantissa = (bits & 0x3ff) as f32;
+    match exponent {
+        0 => sign * mantissa * 2f32.powi(-24),
+        31 if mantissa == 0.0 => sign * f32::INFINITY,
+        31 => f32::NAN,
+        e => sign * (1.0 + mantissa / 1024.0) * 2f32.powi(e - 15),
+    }
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct CameraUniformData {
@@ -1832,6 +1875,11 @@ struct CameraUniformData {
     cascade_splits: [f32; 4],
     cascade_count: u32,
     _pad: [u32; 3],
+    /// This frame's view-projection without the TAA jitter, and last
+    /// frame's (also unjittered): the velocity output measures motion
+    /// between the two. See `MESH_WGSL`'s `SceneOut::velocity`.
+    unjittered_view_proj: [[f32; 4]; 4],
+    prev_view_proj: [[f32; 4]; 4],
 }
 
 /// One cascade's light matrix, bound per shadow pass through a dynamic offset.
@@ -1886,6 +1934,10 @@ struct ModelUniformData {
     // Was `_pad3`. The slot the padding occupied is exactly where opacity
     // belongs, so carrying it costs nothing in size or alignment.
     opacity: f32,
+    /// Last frame's model matrix, for the velocity output: the same as
+    /// `model` for anything that did not move. Fits inside `MODEL_STRIDE`
+    /// (112 + 64 of its 256 bytes), so the buffer does not grow.
+    prev_model: [[f32; 4]; 4],
 }
 
 #[repr(C)]
@@ -2777,6 +2829,29 @@ impl WgpuSurface {
         }
     }
 
+    /// The last frame's velocity buffer: each pixel's screen motion since
+    /// the frame before, in uv units (x right, y down), row by row from the
+    /// top. 65504 -- the largest half float -- means nothing wrote one there
+    /// (see `post_process::VELOCITY_NONE`). For tests: the post passes are
+    /// its only readers, so there is no other way to see it.
+    pub fn read_velocity(&self) -> Vec<[f32; 2]> {
+        let texture = self.post_process.velocity_texture();
+        // Two half floats a texel is four bytes, as RGBA8 is, so the colour
+        // readback copies it as it stands.
+        let bytes = crate::output::read_pixels(
+            &self.device,
+            &self.queue,
+            texture,
+            texture.width(),
+            texture.height(),
+        );
+        let half = |lo: u8, hi: u8| f16_to_f32(u16::from_le_bytes([lo, hi]));
+        bytes
+            .chunks_exact(4)
+            .map(|t| [half(t[0], t[1]), half(t[2], t[3])])
+            .collect()
+    }
+
     /// The width of the render target, in pixels.
     pub fn width(&self) -> u32 {
         self.output.width()
@@ -2990,6 +3065,7 @@ impl WgpuSurface {
         let msaa_supported = [
             crate::post_process::HDR_FORMAT,
             crate::post_process::NORMAL_FORMAT,
+            crate::post_process::VELOCITY_FORMAT,
             DEPTH_FORMAT,
         ]
         .iter()
@@ -4315,6 +4391,13 @@ impl WgpuSurface {
                         blend: None,
                         write_mask: wgpu::ColorWrites::ALL,
                     }),
+                    // How far each surface moved on screen since last frame,
+                    // for TAA and motion blur.
+                    Some(wgpu::ColorTargetState {
+                        format: crate::post_process::VELOCITY_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
                 ],
                 compilation_options: Default::default(),
             }),
@@ -4372,6 +4455,14 @@ impl WgpuSurface {
                     // which is the one thing the surface is there to show.
                     Some(wgpu::ColorTargetState {
                         format: crate::post_process::NORMAL_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::empty(),
+                    }),
+                    // Masked off too, as Unity and Unreal leave translucency out of the
+                    // velocity buffer by default: the pixel keeps the motion of the
+                    // opaque surface behind the glass, which is what TAA sees there.
+                    Some(wgpu::ColorTargetState {
+                        format: crate::post_process::VELOCITY_FORMAT,
                         blend: None,
                         write_mask: wgpu::ColorWrites::empty(),
                     }),
@@ -4494,6 +4585,13 @@ impl WgpuSurface {
                         format: crate::post_process::NORMAL_FORMAT,
                         blend: None,
                         write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                    // Masked: terrain does not move, and a pixel with no velocity
+                    // written is reprojected by the camera, which is exact for it.
+                    Some(wgpu::ColorTargetState {
+                        format: crate::post_process::VELOCITY_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::empty(),
                     }),
                 ],
                 compilation_options: Default::default(),
@@ -5788,6 +5886,10 @@ impl WgpuSurface {
         motion_blur: Option<bsengine_core::MotionBlur>,
         fxaa: Option<bsengine_core::Fxaa>,
         smaa: Option<bsengine_core::Smaa>,
+        // Each draw's model matrix last frame, parallel to `draw_calls`, for
+        // the velocity output. Empty, or shorter than `draw_calls`, means
+        // the draws past its end did not move.
+        prev_models: &[Mat4],
     ) -> Result<std::collections::HashSet<String>, String> {
         // Wall-clock CPU time for this call, for `FrameStats::cpu_frame_time_ms`.
         let frame_start = std::time::Instant::now();
@@ -5834,6 +5936,8 @@ impl WgpuSurface {
             cascade_splits,
             cascade_count: cascade_count as u32,
             _pad: [0; 3],
+            unjittered_view_proj: unjittered_view_proj.to_cols_array_2d(),
+            prev_view_proj: self.prev_unjittered_view_proj.to_cols_array_2d(),
         };
         // Every cascade's matrix staged before a single pass is encoded.
         // `queue.write_buffer` is ordered against submits, not passes, so
@@ -5936,8 +6040,12 @@ impl WgpuSurface {
             if i >= MAX_OBJECTS {
                 break;
             }
+            // Absent (an empty slice, or a draw past its end) means it did
+            // not move: the velocity is then the camera's alone.
+            let prev_model = prev_models.get(i).unwrap_or(model);
             let data = ModelUniformData {
                 model: model.to_cols_array_2d(),
+                prev_model: prev_model.to_cols_array_2d(),
                 metallic: mat.metallic,
                 roughness: mat.roughness,
                 _pad0: 0.0,
@@ -6523,6 +6631,9 @@ impl WgpuSurface {
         // the distance to each model's origin is the usual approximation: it is
         // wrong for interpenetrating or very large transparent meshes, which is
         // a limitation to know rather than a bug to chase here.
+        // Custom-shaded draws ahead of the rest, keeping each group's order:
+        // see the velocity note at the opaque pass's draw loop.
+        opaque.sort_by_key(|&i| draw_calls[i].4.is_none());
         transparent.sort_by(|&a, &b| {
             let d = |i: usize| (draw_calls[i].1.w_axis.truncate() - cam_pos).length_squared();
             d(b).partial_cmp(&d(a)).unwrap_or(std::cmp::Ordering::Equal)
@@ -6567,6 +6678,9 @@ impl WgpuSurface {
         for &(i, slot) in &terrain_plan {
             let model_data = ModelUniformData {
                 model: terrain_draw_calls[i].1.to_cols_array_2d(),
+                // Terrain writes no velocity (its pipeline masks it off);
+                // the camera reprojection covers what does not move.
+                prev_model: terrain_draw_calls[i].1.to_cols_array_2d(),
                 metallic: 0.0,
                 roughness: 0.9,
                 _pad0: 0.0,
@@ -6760,6 +6874,10 @@ impl WgpuSurface {
             Some(t) => (&t.normal_view, Some(&self.post_process.normal_view)),
             None => (&self.post_process.normal_view, None),
         };
+        let (scene_velocity, velocity_resolve) = match msaa_targets {
+            Some(t) => (&t.velocity_view, Some(&self.post_process.velocity_view)),
+            None => (&self.post_process.velocity_view, None),
+        };
         let scene_depth = msaa_targets.map_or(&self.depth_view, |t| &t.depth_view);
         let mesh_pipeline = self
             .pipeline_msaa
@@ -6811,6 +6929,19 @@ impl WgpuSurface {
                             store: wgpu::StoreOp::Store,
                         },
                     }),
+                    // Cleared to "no velocity": what no opaque mesh covers -- the
+                    // sky, terrain, custom shaders -- is reprojected by the
+                    // camera, as every pixel was before velocities existed.
+                    // Under MSAA an edge pixel that mixes the two resolves to
+                    // somewhere in between, still far over the threshold.
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: scene_velocity,
+                        resolve_target: velocity_resolve,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(crate::post_process::VELOCITY_NONE),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
                 ],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: scene_depth,
@@ -6831,30 +6962,15 @@ impl WgpuSurface {
             pass.set_bind_group(0, &self.camera_bind_group, &[]);
             pass.set_bind_group(2, &self.light_bind_group, &[]);
 
-            for &i in &opaque {
-                let (mesh_id, _, tex_id, _, custom_path) = &draw_calls[i];
-                let Some(mesh) = registry.get(*mesh_id) else {
-                    continue;
-                };
-                let pipeline = custom_path
-                    .as_deref()
-                    .and_then(|p| custom_pipelines.get(p))
-                    .unwrap_or(mesh_pipeline);
-                pass.set_pipeline(pipeline);
-                let tex_bg = tex_id
-                    .and_then(|id| tex_registry.and_then(|r| r.get_bind_group(id)))
-                    .unwrap_or(&self.default_texture_bind_group);
-                let offset = (i as u64 * MODEL_STRIDE) as u32;
-                pass.set_bind_group(1, &self.model_bind_group, &[offset]);
-                pass.set_bind_group(3, tex_bg, &[]);
-                pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..mesh.index_count, 0, 0..1);
-                frame_draw_calls += 1;
-                frame_objects_drawn += 1;
-                frame_triangles += (mesh.index_count / 3) as u64;
-            }
-
+            // Terrain first, then custom-shaded draws, then the rest. Neither of
+            // the first two writes a velocity (their pipelines mask it off), so
+            // a pixel they cover has to keep the clear value -- "no velocity",
+            // camera reprojection. Drawn after a mesh behind them, they would
+            // leave that mesh's velocity on top instead, and a moving object
+            // hidden under the ground would drag the ground's TAA history and
+            // motion blur along with it. Drawn first, the mesh behind fails the
+            // depth test and writes nothing. Nothing else changes: the depth
+            // test, not the order, decides what is seen.
             // Terrain chunks get their own model-buffer slots, starting right
             // after the ones `draw_calls` used above (`opaque`/`transparent`
             // only ever index `0..draw_calls.len().min(MAX_OBJECTS)`), so a
@@ -6920,6 +7036,30 @@ impl WgpuSurface {
                     &[(terrain_slot as u64 * MODEL_STRIDE) as u32],
                 );
                 pass.set_bind_group(3, &terrain_bg, &[]);
+                pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                frame_draw_calls += 1;
+                frame_objects_drawn += 1;
+                frame_triangles += (mesh.index_count / 3) as u64;
+            }
+
+            for &i in &opaque {
+                let (mesh_id, _, tex_id, _, custom_path) = &draw_calls[i];
+                let Some(mesh) = registry.get(*mesh_id) else {
+                    continue;
+                };
+                let pipeline = custom_path
+                    .as_deref()
+                    .and_then(|p| custom_pipelines.get(p))
+                    .unwrap_or(mesh_pipeline);
+                pass.set_pipeline(pipeline);
+                let tex_bg = tex_id
+                    .and_then(|id| tex_registry.and_then(|r| r.get_bind_group(id)))
+                    .unwrap_or(&self.default_texture_bind_group);
+                let offset = (i as u64 * MODEL_STRIDE) as u32;
+                pass.set_bind_group(1, &self.model_bind_group, &[offset]);
+                pass.set_bind_group(3, tex_bg, &[]);
                 pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
@@ -7002,6 +7142,16 @@ impl WgpuSurface {
                     // one, to match the pipeline's sample count.)
                     Some(wgpu::RenderPassColorAttachment {
                         view: scene_normal,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    }),
+                    // The velocity likewise: masked off, attached because the
+                    // shared `fs_main` writes it.
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: scene_velocity,
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Load,
@@ -8057,6 +8207,14 @@ impl WgpuSurface {
                         blend: None,
                         write_mask: wgpu::ColorWrites::empty(),
                     }),
+                    // Masked for the same reason: a custom shader has no velocity to
+                    // write. Its pixels fall back to camera reprojection, so a
+                    // custom-shaded object that moves smears as it did before.
+                    Some(wgpu::ColorTargetState {
+                        format: crate::post_process::VELOCITY_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::empty(),
+                    }),
                 ],
                 compilation_options: Default::default(),
             }),
@@ -8422,6 +8580,25 @@ mod tests {
     }
 
     #[test]
+    fn half_floats_decode_to_their_values() {
+        for (bits, value) in [
+            (0x0000u16, 0.0f32),
+            (0x3c00, 1.0),
+            (0x3800, 0.5),
+            (0xc000, -2.0),
+            (0x7bff, 65504.0),
+            // The smallest subnormal: the branch a velocity of a few
+            // hundredths of a pixel lands in.
+            (0x0001, 2f32.powi(-24)),
+            (0x8400, -(2f32.powi(-14))),
+        ] {
+            assert_eq!(f16_to_f32(bits), value, "{bits:#06x}");
+        }
+        assert_eq!(f16_to_f32(0x7c00), f32::INFINITY);
+        assert!(f16_to_f32(0x7e00).is_nan());
+    }
+
+    #[test]
     fn mesh_shader_compiles() {
         let (device, _queue) = pollster::block_on(WgpuSurface::headless_device_for_testing());
         let _module = WgpuSurface::compile_shader(&device, MESH_WGSL);
@@ -8439,6 +8616,8 @@ mod tests {
             cascade_splits: [f32::MAX; 4],
             cascade_count: 1,
             _pad: [0; 3],
+            unjittered_view_proj: [[0.0; 4]; 4],
+            prev_view_proj: [[0.0; 4]; 4],
         };
         assert_eq!(
             std::mem::size_of::<CameraUniformData>(),
@@ -9131,6 +9310,7 @@ mod tests {
             for (i, (_, model, _, mat, _)) in self.draw_calls.iter().enumerate() {
                 let data = ModelUniformData {
                     model: model.to_cols_array_2d(),
+                    prev_model: model.to_cols_array_2d(),
                     metallic: mat.metallic,
                     roughness: mat.roughness,
                     _pad0: 0.0,
@@ -9247,6 +9427,7 @@ mod tests {
                 None,
                 None,
                 None,
+                &[],
             )
         }
 

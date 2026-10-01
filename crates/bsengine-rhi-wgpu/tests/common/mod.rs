@@ -255,6 +255,8 @@ pub struct Scene {
     pub motion_blur: Option<bsengine_core::MotionBlur>,
     /// FXAA for this camera, or `None` for none.
     pub fxaa: Option<bsengine_core::Fxaa>,
+    /// SMAA for this camera, or `None` for none.
+    pub smaa: Option<bsengine_core::Smaa>,
     pub hud: HashMap<String, String>,
     pub with_skybox: bool,
     /// Particle batches for the pass that runs after transparency.
@@ -286,6 +288,7 @@ impl Default for Scene {
             msaa: 1,
             motion_blur: None,
             fxaa: None,
+            smaa: None,
             hud: HashMap::new(),
             with_skybox: false,
             particles: Vec::new(),
@@ -399,6 +402,13 @@ impl Harness {
     /// `WgpuSurface::is_fast_render`.
     pub fn new_fast() -> Self {
         Self::build(true)
+    }
+
+    /// Resizes the renderer to the size it already has: every screen-sized
+    /// target is made anew, at a size a test can still read back. Anything
+    /// that kept a view into the old targets would go on reading them.
+    pub fn recreate_targets(&mut self) {
+        self.surface.resize(WIDTH, HEIGHT);
     }
 
     fn build(fast_render: bool) -> Self {
@@ -848,6 +858,8 @@ struct VertOut {{
                 scene.motion_blur,
                 // `None` skips FXAA: the resolve reads the composite as before.
                 scene.fxaa,
+                // `None` skips SMAA's passes.
+                scene.smaa,
             )
             .expect("render_frame failed");
 
@@ -858,10 +870,6 @@ struct VertOut {{
         }
     }
 
-    /// The most recently rendered frame's profiler stats. Panics if
-    /// `render()` hasn't been called yet -- every test using this calls
-    /// `render()` first, so a `None` here would be a real bug, not an
-    /// expected state to handle quietly.
     /// The sample count the last frame's geometry passes drew with -- 1
     /// where MSAA is off or this adapter cannot do it, which an MSAA test
     /// checks as its premise.
@@ -869,6 +877,10 @@ struct VertOut {{
         self.surface.msaa_samples()
     }
 
+    /// The most recently rendered frame's profiler stats. Panics if
+    /// `render()` hasn't been called yet -- every test using this calls
+    /// `render()` first, so a `None` here would be a real bug, not an
+    /// expected state to handle quietly.
     pub fn frame_stats(&self) -> bsengine_rhi_wgpu::profiler::FrameStats {
         self.surface
             .latest_frame_stats()

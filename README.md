@@ -62,6 +62,10 @@ core ← ecs ← app ← window / input
   the streak's length, tap count); sharp on the first frame after a cut
 - FXAA (`Fxaa` on the camera): FXAA 3.11's edge search and sub-pixel term on
   the tonemapped image, before the TAA resolve; its three thresholds exposed
+- SMAA (`Smaa` on the camera): the reference SMAA 1x -- luma edges, edge-end
+  and diagonal searches into the reference's area table, neighbourhood
+  blending -- with its Low/Medium/High/Ultra presets; in FXAA's place, and
+  instead of it when both are on
 - MSAA (`[render] msaa = 4` in `project.toml`): 4x multisampled opaque, sky,
   transparent and particle passes, resolved for the post passes; the depth is
   resolved by its own pass (sample 0), so SSAO, fog, depth of field, motion

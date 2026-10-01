@@ -55,6 +55,8 @@ pub mod shadow;
 /// Compute skinning: blending a skinned mesh's vertices on the GPU, into
 /// the vertex buffer every render pass already binds.
 pub mod skinning;
+/// SMAA 1x on the finished LDR frame.
+mod smaa;
 /// Swapchain/frame lifecycle and the main scene render pass.
 pub mod surface;
 pub mod taa_jitter;

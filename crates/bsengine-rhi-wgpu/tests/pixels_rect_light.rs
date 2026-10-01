@@ -299,3 +299,93 @@ fn the_part_of_a_panel_below_the_horizon_does_not_light() {
     );
     assert_eq!(behind, 0.0, "wholly behind the wall, nothing");
 }
+
+/// The form factor from the wall's centre to the part in front of the wall
+/// of a 1 x 1 panel lying flat 0.5 above it, facing down, centred
+/// `offset` in front of the wall's face and turned `turn` about the
+/// vertical -- by quadrature over the whole panel, counting only the
+/// points in front.
+fn clipped_form_factor(offset: f32, turn: f32) -> f32 {
+    let rot = Quat::from_rotation_y(turn);
+    let (u_axis, v_axis) = (rot * Vec3::X, rot * Vec3::NEG_Z);
+    let n = 400;
+    let step = 1.0 / n as f32;
+    let mut sum = 0.0;
+    for i in 0..n {
+        for k in 0..n {
+            let (u, v) = (
+                -0.5 + (i as f32 + 0.5) * step,
+                -0.5 + (k as f32 + 0.5) * step,
+            );
+            let r = Vec3::new(0.0, 0.5, offset) + u * u_axis + v * v_axis;
+            if r.z <= 0.0 {
+                continue;
+            }
+            let d2 = r.length_squared();
+            sum += (r.z / d2.sqrt()) * (r.y / d2.sqrt()) / (PI * d2) * step * step;
+        }
+    }
+    sum
+}
+
+/// Every way a rectangle can cross the horizon: the same flat panel sunk
+/// into the wall turned through eight directions -- along a side (two
+/// corners in front, four ways round) and corner first, pushed out (three
+/// corners in front) and pushed in (one). Each leaves a different clipped
+/// polygon, from three corners to five, and each must light the centre by
+/// the form factor of what is left in front.
+#[test]
+fn every_way_a_panel_crosses_the_horizon_is_clipped_right() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let mut cases = Vec::new();
+    for k in 0..4 {
+        cases.push((k as f32 * PI / 2.0, 0.0));
+        cases.push((PI / 4.0 + k as f32 * PI / 2.0, 0.25));
+        cases.push((PI / 4.0 + k as f32 * PI / 2.0, -0.25));
+    }
+    for (turn, offset) in cases {
+        let rot = Quat::from_rotation_y(turn);
+        let rect = RectLightEntry {
+            position: Vec3::new(0.0, 0.5, WALL_Z + offset),
+            half_width: rot * Vec3::X * 0.5,
+            half_height: rot * Vec3::NEG_Z * 0.5,
+            color: Vec3::ONE,
+            intensity: 1.0,
+            range: 100.0,
+        };
+        let p = h.render(&scene(vec![wall(cube, 1.0, 0.0)], vec![rect]));
+        let (x, y) = CENTRE;
+        let got = (linear(&p, x - 1, y - 1)
+            + linear(&p, x, y - 1)
+            + linear(&p, x - 1, y)
+            + linear(&p, x, y))
+            / 4.0;
+        let expected = clipped_form_factor(offset, turn);
+        assert!(
+            (got - expected).abs() < expected * 0.05 + 0.002,
+            "turned {:.0} deg, {offset} in front: {got} against {expected}",
+            turn.to_degrees()
+        );
+    }
+}
+
+/// A metal has no diffuse: a rough white metal wall shows only its specular
+/// lobe, a fraction of what the same white wall reflects diffusely.
+#[test]
+fn a_metal_has_no_diffuse_term() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let mut lit = |metallic: f32| {
+        let p = h.render(&scene(
+            vec![wall(cube, 1.0, metallic)],
+            vec![panel(1.0, 1.0, 1.0, 1.0, Quat::IDENTITY)],
+        ));
+        linear(&p, CENTRE.0, CENTRE.1)
+    };
+    let (dielectric, metal) = (lit(0.0), lit(1.0));
+    assert!(
+        metal > 0.0 && metal < dielectric * 0.5,
+        "metal {metal} against dielectric {dielectric}"
+    );
+}

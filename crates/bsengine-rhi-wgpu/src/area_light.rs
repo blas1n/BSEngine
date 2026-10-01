@@ -328,6 +328,9 @@ fn ltc_evaluate(
             sum += ltc_edge(l3, l4).z + ltc_edge(l4, l0).z;
         }
     }
+    // Seen from behind its plane the rectangle winds the other way and the
+    // sum comes out negative: clamping it is what makes the light
+    // one-sided, as Unreal's and HDRP's are.
     return max(sum, 0.0);
 }
 
@@ -365,11 +368,6 @@ fn rect_light_radiance(
         let c1 = rl.position - rl.half_width - rl.half_height;
         let c2 = rl.position - rl.half_width + rl.half_height;
         let c3 = rl.position + rl.half_width + rl.half_height;
-        // One-sided, as Unreal's and HDRP's are: behind its plane it lights
-        // nothing.
-        if dot(cross(c1 - c0, c3 - c0), p - c0) < 0.0 {
-            continue;
-        }
         // Faded to nothing at `range` from the centre, smoothly, by the
         // window Unreal and Frostbite put on their lights' attenuation radius.
         let d = length(rl.position - p) / max(rl.range, 1e-4);

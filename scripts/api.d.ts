@@ -304,6 +304,14 @@ declare namespace Bsengine {
     function vec3(x: unknown, y: unknown, z: unknown): unknown;
     function version(): string;
     function wakeUp(name: string): void;
+    namespace bt {
+        function blackboard(entity: unknown): unknown;
+        function clear(entity: unknown, key: unknown): void;
+        function entity(name: unknown): unknown;
+        function get(entity: unknown, key: unknown): unknown;
+        function set(entity: unknown, key: unknown, value: unknown): void;
+        function task(name: unknown, fn: unknown, onAbort?: unknown): unknown;
+    }
     namespace joint {
         function attachFixed(a: string, b: string): void;
         function attachRevolute(a: string, b: string, ax: number, ay: number, az: number): void;

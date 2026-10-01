@@ -338,7 +338,38 @@ Conditions test `IsSet`, `IsNotSet`, `Equal`, `NotEqual`, `Less`,
 
 A running child resumes on the next tick rather than restarting, and a root
 that finishes starts over. Aborting a `MoveTo` stops its agent. The tree ticks
-before navigation and not while paused.
+before navigation. It does not tick while paused, or while the editor is
+editing rather than playing.
+
+### Script tasks and the blackboard from scripts
+
+A `Script(task: "attack")` node runs a JS function the project registers, as an
+Unreal Blueprint task does:
+
+```js
+Bsengine.bt.task("attack", (self, bb, first) => {
+    if (first) bb.set("swings", 0);          // `first`: this call starts a run
+    bb.set("swings", bb.get("swings") + 1);
+    return bb.get("swings") >= 3 ? "success" : "running";
+}, (self, bb) => { /* onAbort: the tree cut the task short */ });
+
+Bsengine.bt.set("Guard", "enemy", Bsengine.bt.entity("Player")); // a MoveTo can chase it
+Bsengine.bt.set("Guard", "post", { x: 0, y: 0, z: 5 });          // read back as a Vec3
+Bsengine.bt.get("Guard", "post").x;
+```
+
+- **Return value:** `"success"`, `"failure"` or `"running"`. `true` and
+  `false` count as the first two; anything else is a failure, with a log line.
+- **Timing:** the function runs once a frame while the task runs, before the
+  frame's `onUpdate`s. The tree reads its answer on its next tick, so a script
+  task takes at least one frame, as Unreal's latent tasks do.
+- **Unregistered tasks:** a task name nobody registered fails, logged, rather
+  than hanging the tree.
+- **Value types:** blackboard values from scripts are numbers (whole numbers
+  become `Int`), booleans, strings, `{x, y, z}` vectors and
+  `Bsengine.bt.entity(name)`.
+- **Write timing:** a write is visible to `get` at once and reaches the
+  component, and the tree, on its next tick.
 
 ---
 

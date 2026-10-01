@@ -17,7 +17,7 @@
 
 use std::collections::HashMap;
 
-use bevy_ecs::prelude::{Component, ReflectComponent, SystemSet};
+use bevy_ecs::prelude::{Component, Entity, ReflectComponent, Resource, SystemSet};
 use bevy_reflect::prelude::ReflectDefault;
 use bevy_reflect::Reflect;
 use serde::{Deserialize, Serialize};
@@ -275,10 +275,58 @@ pub enum BtNode {
         #[serde(default)]
         acceptance: Option<f32>,
     },
+    /// Runs the script task registered under `task` with
+    /// `Bsengine.bt.task(name, fn, onAbort)` -- Unreal's Blueprint task. The
+    /// function is called once a frame while the task runs, with the
+    /// entity's name, a handle on its blackboard and whether this is the
+    /// first call, and returns `"success"`, `"failure"` or `"running"`.
+    /// Its answer is read on the tree's next tick: a script task takes at
+    /// least one frame, as Unreal's latent tasks do.
+    Script {
+        /// The registered task's name.
+        task: String,
+    },
     /// Succeeds at once.
     Succeed,
     /// Fails at once.
     Fail,
+}
+
+/// One call the tree asks scripting to make this frame.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BtScriptRequest {
+    /// The entity whose tree runs the task.
+    pub entity: Entity,
+    /// The task node, so the answer finds its way back.
+    pub node: usize,
+    /// The registered task's name.
+    pub task: String,
+    /// Tick it (and whether for the first time), or abort it.
+    pub call: BtScriptCall,
+}
+
+/// What a [`BtScriptRequest`] asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BtScriptCall {
+    /// Run the task function; `first` on the call that starts a run.
+    Tick {
+        /// Whether this starts a new run of the task.
+        first: bool,
+    },
+    /// The task was aborted: run its `onAbort`, if it registered one.
+    Abort,
+}
+
+/// Script-task traffic between the behaviour tree plugin, which posts
+/// requests as it ticks, and scripting, which runs them later the same frame
+/// and leaves the answers for the tree's next tick. A resource both sides
+/// see, because neither crate depends on the other.
+#[derive(Resource, Debug, Default)]
+pub struct BtScriptQueue {
+    /// Calls to make this frame. Drained by scripting.
+    pub requests: Vec<BtScriptRequest>,
+    /// Answers, by entity and task node. Taken by the tree.
+    pub results: HashMap<(Entity, usize), BtStatus>,
 }
 
 /// A behaviour tree asset: the `.bt.ron` file's contents.
@@ -323,6 +371,15 @@ pub trait BtContext {
     fn move_state(&mut self) -> MoveState;
     /// Stops the move (a `MoveTo` aborted).
     fn stop_move(&mut self);
+    /// Asks for script task `task` at `node` to be run this frame -- `first`
+    /// on the tick a run starts -- and returns the answer to the previous
+    /// frame's call, if there was one. A world without scripting leaves the
+    /// default, which answers nothing.
+    fn script_task(&mut self, _node: usize, _task: &str, _first: bool) -> Option<BtStatus> {
+        None
+    }
+    /// The script task at `node` was aborted.
+    fn abort_script_task(&mut self, _node: usize, _task: &str) {}
 }
 
 /// Slack on every timer comparison, in seconds. Durations are written as
@@ -358,6 +415,7 @@ enum Kind {
     SetValue(String, BbValue),
     ClearValue(String),
     MoveTo(String, Option<f32>),
+    Script(String),
     Succeed,
     Fail,
 }
@@ -450,6 +508,7 @@ impl BtRuntime {
             BtNode::MoveTo { key, acceptance } => {
                 (Kind::MoveTo(key.clone(), *acceptance), "MoveTo", vec![])
             }
+            BtNode::Script { task } => (Kind::Script(task.clone()), "Script", vec![]),
             BtNode::Succeed => (Kind::Succeed, "Succeed", vec![]),
             BtNode::Fail => (Kind::Fail, "Fail", vec![]),
         };
@@ -500,6 +559,11 @@ impl BtRuntime {
     fn reset(&mut self, node: usize, ctx: &mut dyn BtContext) {
         if matches!(self.kinds[node], Kind::MoveTo(..)) && self.state[node].issued {
             ctx.stop_move();
+        }
+        if let Kind::Script(task) = &self.kinds[node] {
+            if self.state[node].issued {
+                ctx.abort_script_task(node, task);
+            }
         }
         let keep_since = matches!(self.kinds[node], Kind::Cooldown(_));
         let since = self.state[node].since;
@@ -762,6 +826,27 @@ impl BtRuntime {
                         BtStatus::Success
                     }
                     MoveState::Failed => {
+                        self.state[node].issued = false;
+                        BtStatus::Failure
+                    }
+                }
+            }
+            Kind::Script(task) => {
+                let first = !self.state[node].issued;
+                self.state[node].issued = true;
+                match ctx.script_task(node, &task, first) {
+                    // The first call's answer comes next tick.
+                    _ if first => BtStatus::Running,
+                    Some(BtStatus::Running) => BtStatus::Running,
+                    Some(done) => {
+                        self.state[node].issued = false;
+                        done
+                    }
+                    // No answer to last frame's call: nothing ran it -- no
+                    // scripting, or no task by that name (scripting answers
+                    // those with a failure itself). Fail rather than wait
+                    // forever.
+                    None => {
                         self.state[node].issued = false;
                         BtStatus::Failure
                     }
@@ -1140,6 +1225,92 @@ mod tests {
         w.bb.set("goal", BbValue::Vec3(glam::Vec3::Y.into()));
         w.no_path = true;
         assert_eq!(run(&mut t, &mut w, 2), vec![R, F], "no path");
+    }
+
+    /// A script world: records the calls and answers from a script.
+    #[derive(Default)]
+    struct Scripted {
+        now: f64,
+        bb: Blackboard,
+        calls: Vec<(usize, String, bool)>,
+        aborts: Vec<String>,
+        answers: Vec<Option<BtStatus>>,
+    }
+
+    impl BtContext for Scripted {
+        fn now(&self) -> f64 {
+            self.now
+        }
+        fn blackboard(&mut self) -> &mut Blackboard {
+            &mut self.bb
+        }
+        fn move_to(&mut self, _: &MoveTarget, _: Option<f32>) -> bool {
+            false
+        }
+        fn move_state(&mut self) -> MoveState {
+            MoveState::Failed
+        }
+        fn stop_move(&mut self) {}
+        fn script_task(&mut self, node: usize, task: &str, first: bool) -> Option<BtStatus> {
+            self.calls.push((node, task.to_string(), first));
+            if first || self.answers.is_empty() {
+                None
+            } else {
+                self.answers.remove(0)
+            }
+        }
+        fn abort_script_task(&mut self, _node: usize, task: &str) {
+            self.aborts.push(task.to_string());
+        }
+    }
+
+    /// A script task runs until its function says it is done: the first
+    /// tick only asks (the answer is a frame away), then each answer is
+    /// taken -- running, running, success -- and only the first call is
+    /// marked first.
+    #[test]
+    fn a_script_task_runs_until_its_function_says_done() {
+        let mut t = rt(r#"(root: Script(task: "attack"))"#);
+        let mut w = Scripted {
+            answers: vec![Some(R), Some(R), Some(S)],
+            ..Default::default()
+        };
+        let statuses: Vec<BtStatus> = (0..4).map(|_| t.tick(&mut w)).collect();
+        assert_eq!(statuses, vec![R, R, R, S]);
+        let firsts: Vec<bool> = w.calls.iter().map(|c| c.2).collect();
+        assert_eq!(firsts, vec![true, false, false, false]);
+        assert!(w.calls.iter().all(|c| c.1 == "attack"));
+    }
+
+    /// No answer after the first call -- nothing ran the task -- fails
+    /// instead of waiting forever; and the next run starts first again.
+    #[test]
+    fn a_script_task_nobody_answers_fails() {
+        let mut t = rt(r#"(root: Script(task: "missing"))"#);
+        let mut w = Scripted::default();
+        let statuses: Vec<BtStatus> = (0..3).map(|_| t.tick(&mut w)).collect();
+        assert_eq!(statuses, vec![R, F, R]);
+        assert!(w.calls.last().unwrap().2, "the retry is a new run");
+    }
+
+    /// An aborted script task is told: the higher-priority branch takes
+    /// over, and the running task's `onAbort` is asked for.
+    #[test]
+    fn an_aborted_script_task_is_told() {
+        let mut t = rt(r#"(root: Selector([
+            Condition(key: "enemy", op: IsSet, abort: LowerPriority, child: Succeed),
+            Script(task: "patrol"),
+        ]))"#);
+        let mut w = Scripted {
+            answers: vec![Some(R), Some(R), Some(R)],
+            ..Default::default()
+        };
+        t.tick(&mut w);
+        t.tick(&mut w);
+        assert!(w.aborts.is_empty(), "premise: patrolling");
+        w.bb.set("enemy", BbValue::Bool(true));
+        t.tick(&mut w);
+        assert_eq!(w.aborts, vec!["patrol".to_string()]);
     }
 
     #[test]

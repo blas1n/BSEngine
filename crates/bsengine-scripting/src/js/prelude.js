@@ -122,6 +122,32 @@ function _tf(t) {
         scale:    new _V3(t.sx, t.sy, t.sz),
     };
 }
+// A blackboard value to and from the JSON the ops speak: a vector as
+// {x, y, z} (by shape, as the setters take it), an entity reference as
+// {entity: name}, the rest as themselves.
+function _bbToJson(v) {
+    if (v !== null && typeof v === "object") {
+        if (typeof v.entity === "string") return { entity: v.entity };
+        return { x: v.x, y: v.y, z: v.z };
+    }
+    return v;
+}
+function _bbFromJson(j) {
+    if (j !== null && typeof j === "object") {
+        if (typeof j.entity === "string") return { entity: j.entity };
+        return new _V3(j.x, j.y, j.z);
+    }
+    return j;
+}
+function _btStatus(s) {
+    if (s === true || s === "success") return "success";
+    if (s === "running") return "running";
+    if (s === false || s === "failure") return "failure";
+    Bsengine.log("[bt] a task returned " + JSON.stringify(s)
+        + "; expected \"success\", \"failure\" or \"running\" (counted as a failure)");
+    return "failure";
+}
+
 function _v3OrNull(a) {
     return a ? new _V3(a[0], a[1], a[2]) : null;
 }
@@ -958,6 +984,63 @@ var Bsengine = {
     },
     getLocales() {
         return JSON.parse(Deno.core.ops.bsengine_get_locales());
+    },
+
+    // Behaviour trees: script tasks a tree's `Script(task: "...")` runs --
+    // Unreal's Blueprint tasks -- and the entity's blackboard.
+    //   Bsengine.bt.task("attack", (self, bb, first) => "success", onAbort)
+    // `fn` is called once a frame while the task runs and returns "success",
+    // "failure" or "running" (true / false for the first two); `onAbort` is
+    // called with (self, bb) if the tree aborts the task.
+    bt: {
+        _tasks: {},
+        task(name, fn, onAbort = null) {
+            this._tasks[String(name)] = { fn, onAbort };
+        },
+        get(entity, key) {
+            return _bbFromJson(JSON.parse(Deno.core.ops.bsengine_bt_get(String(entity), String(key))));
+        },
+        set(entity, key, value) {
+            const err = Deno.core.ops.bsengine_bt_set(String(entity), String(key), JSON.stringify(_bbToJson(value)));
+            if (err) throw new Error(err);
+        },
+        clear(entity, key) {
+            Deno.core.ops.bsengine_bt_clear(String(entity), String(key));
+        },
+        // A value that makes a blackboard key name an entity -- what a
+        // MoveTo can chase.
+        entity(name) {
+            return { entity: String(name) };
+        },
+        blackboard(entity) {
+            const bt = this;
+            return {
+                get: (key) => bt.get(entity, key),
+                set: (key, value) => bt.set(entity, key, value),
+                clear: (key) => bt.clear(entity, key),
+            };
+        },
+        _run(requests) {
+            for (const r of requests) {
+                const t = this._tasks[r.task];
+                if (r.call === "abort") {
+                    if (t && t.onAbort) {
+                        try { t.onAbort(r.entity, this.blackboard(r.entity)); }
+                        catch (e) { Bsengine.log("[bt] " + r.task + " onAbort: " + e); }
+                    }
+                    continue;
+                }
+                if (!t) {
+                    Bsengine.log("[bt] no task registered as " + JSON.stringify(r.task));
+                    Deno.core.ops.bsengine_bt_result(r.i, "failure");
+                    continue;
+                }
+                let status;
+                try { status = _btStatus(t.fn(r.entity, this.blackboard(r.entity), r.first)); }
+                catch (e) { Bsengine.log("[bt] task " + r.task + ": " + e); status = "failure"; }
+                Deno.core.ops.bsengine_bt_result(r.i, status);
+            }
+        },
     },
 
     // Animation event callbacks -- keyed by entity name, like collisions.

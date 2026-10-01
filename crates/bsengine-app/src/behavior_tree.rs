@@ -9,8 +9,8 @@ use bsengine_core::behavior_tree::{
     BehaviorTreeAsset, BtContext, BtRuntime, MoveState, MoveTarget,
 };
 use bsengine_core::{
-    BehaviorTree, BehaviorTreeSystems, Blackboard, BtStatus, GlobalTransform, NavAgentState,
-    NavMeshAgent, Transform,
+    BehaviorTree, BehaviorTreeSystems, Blackboard, BtScriptCall, BtScriptQueue, BtScriptRequest,
+    BtStatus, GlobalTransform, NavAgentState, NavMeshAgent, Transform,
 };
 use bsengine_scene::Name;
 use glam::Vec3;
@@ -55,6 +55,7 @@ pub struct BehaviorTreePlugin;
 impl Plugin for BehaviorTreePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<LoadedBehaviorTrees>()
+            .init_resource::<BtScriptQueue>()
             .configure_sets(
                 Update,
                 BehaviorTreeSystems.before(crate::nav_mesh::NavAgentSystems),
@@ -161,12 +162,49 @@ impl BtContext for EntityContext<'_> {
             agent.clear_destination();
         }
     }
+
+    fn script_task(&mut self, node: usize, task: &str, first: bool) -> Option<BtStatus> {
+        let mut queue = self.world.get_resource_mut::<BtScriptQueue>()?;
+        // A first call discards any answer left from an earlier run of the
+        // same node -- an aborted run's last word is not this run's.
+        let answer = queue.results.remove(&(self.entity, node));
+        let answer = if first { None } else { answer };
+        if first || answer == Some(BtStatus::Running) {
+            queue.requests.push(BtScriptRequest {
+                entity: self.entity,
+                node,
+                task: task.to_string(),
+                call: BtScriptCall::Tick { first },
+            });
+        }
+        answer
+    }
+
+    fn abort_script_task(&mut self, node: usize, task: &str) {
+        if let Some(mut queue) = self.world.get_resource_mut::<BtScriptQueue>() {
+            queue.results.remove(&(self.entity, node));
+            queue.requests.push(BtScriptRequest {
+                entity: self.entity,
+                node,
+                task: task.to_string(),
+                call: BtScriptCall::Abort,
+            });
+        }
+    }
 }
 
 /// Ticks each entity's tree: compiles it on first use (and again when the
 /// component names a different asset), aborts it when it is disabled, and
 /// writes back the blackboard and the root's status.
 fn tick_behavior_trees(world: &mut World) {
+    // Not while the editor is editing: trees drive agents, and an agent that
+    // walks off while its scene is being laid out is gameplay running in the
+    // editor -- scripts and particles stop there the same way.
+    if let Some(insp) = world.get_resource::<bsengine_core::InspectorState>() {
+        if insp.editor_mode && insp.play_state == bsengine_core::EditorPlayState::Stopped {
+            return;
+        }
+    }
     let now = world
         .get_resource::<bsengine_core::Time>()
         .map(|t| f64::from(t.elapsed_seconds))
@@ -410,6 +448,46 @@ mod tests {
         assert!(
             position(&app, e).distance(stopped) < 1e-4,
             "and it stays put"
+        );
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// While the editor is editing (not playing) the tree does not tick: its
+    /// MoveTo would walk an agent off while the scene is being laid out.
+    /// Play starts it.
+    #[test]
+    fn trees_wait_for_play_in_the_editor() {
+        let path = tree_file("editor", r#"(root: MoveTo(key: "goal"))"#);
+        let mut app = app();
+        let mut editing = bsengine_core::InspectorState::default();
+        editing.editor_mode = true;
+        editing.play_state = bsengine_core::EditorPlayState::Stopped;
+        app.insert_resource(editing);
+        let mut bb = Blackboard::default();
+        bb.set("goal", BbValue::Vec3(Vec3::new(8.0, 0.0, 0.0).into()));
+        let e = guard(&mut app, path.clone(), bb);
+        for _ in 0..3 {
+            app.update();
+        }
+        assert!(
+            app.world()
+                .get::<NavMeshAgent>(e)
+                .unwrap()
+                .destination
+                .is_none(),
+            "no move issued while editing"
+        );
+        app.world_mut()
+            .resource_mut::<bsengine_core::InspectorState>()
+            .play_state = bsengine_core::EditorPlayState::Playing;
+        app.update();
+        assert!(
+            app.world()
+                .get::<NavMeshAgent>(e)
+                .unwrap()
+                .destination
+                .is_some(),
+            "and issued once playing"
         );
         let _ = std::fs::remove_file(path);
     }

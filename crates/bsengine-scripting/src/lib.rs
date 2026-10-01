@@ -226,6 +226,29 @@ mod dts_tests {
         assert!(call_rpc.ends_with("): void;"), "{call_rpc}");
     }
 
+    /// A parameter with a JS default is optional in the typings, from the
+    /// live prelude: `bt.task(name, fn, onAbort = null)` -- most callers
+    /// pass no `onAbort`, and a required one would reject them. The two
+    /// parameters before it, with no default, stay required.
+    #[test]
+    fn a_defaulted_parameter_is_optional_in_the_typings() {
+        let mut rt = crate::runtime::ScriptRuntime::new_with_ops();
+        rt.exec_source(crate::ops::BOOTSTRAP_JS, "<bootstrap>")
+            .expect("the prelude must evaluate");
+        let json = rt.eval(crate::dts::REFLECT_JS).expect("reflect");
+        let exports: Vec<crate::dts::Exported> = serde_json::from_str(&json).unwrap();
+        let task = exports
+            .iter()
+            .find(|e| e.path == "bt.task")
+            .expect("bt.task is exported")
+            .clone();
+        let out = crate::dts::render(&[task], &BTreeMap::new());
+        assert!(
+            out.contains("function task(name: unknown, fn: unknown, onAbort?: unknown)"),
+            "{out}"
+        );
+    }
+
     /// A parameter is typed from its op slot only when it arrives there
     /// unchanged: bare, with a `??` default, or through a `_name(x)`
     /// validator. `JSON.stringify(bindings)` reaching a `String` slot says

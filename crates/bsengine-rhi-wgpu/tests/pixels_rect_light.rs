@@ -230,3 +230,72 @@ fn terrain_is_lit_by_rect_lights() {
         lit.at(CENTRE.0, CENTRE.1)
     );
 }
+
+/// The form factor from the wall's centre (normal +z) to a panel lying flat
+/// 0.5 above it, facing down, spanning `z0..z1` in front of the wall's face
+/// and 1 wide -- by brute-force quadrature, since the closed forms for
+/// perpendicular rectangles are easy to get wrong.
+fn perpendicular_form_factor(z0: f32, z1: f32) -> f32 {
+    let (nx, nz) = (400, 200);
+    let (dx, dz) = (1.0 / nx as f32, (z1 - z0) / nz as f32);
+    let mut sum = 0.0;
+    for i in 0..nx {
+        for k in 0..nz {
+            let r = Vec3::new(
+                -0.5 + (i as f32 + 0.5) * dx,
+                0.5,
+                z0 + (k as f32 + 0.5) * dz,
+            );
+            let d2 = r.length_squared();
+            let cos_wall = r.z / d2.sqrt();
+            let cos_panel = r.y / d2.sqrt();
+            sum += cos_wall * cos_panel / (PI * d2) * dx * dz;
+        }
+    }
+    sum
+}
+
+/// Horizon clipping: a panel lying flat above the wall's centre, half of it
+/// sunk behind the wall, lights the centre exactly as its front half alone
+/// does -- the half behind is below the surface's horizon, and an
+/// unclipped integral would count it. Both match the front half's form
+/// factor, integrated numerically. A panel wholly behind the wall lights
+/// nothing.
+#[test]
+fn the_part_of_a_panel_below_the_horizon_does_not_light() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    // Local -z turned to face down, local y running into the wall.
+    let down = Quat::from_rotation_x(-PI / 2.0);
+    let flat = |z_centre: f32, depth: f32| RectLightEntry {
+        position: Vec3::new(0.0, 0.5, z_centre),
+        half_width: down * Vec3::X * 0.5,
+        half_height: down * Vec3::Y * (depth * 0.5),
+        color: Vec3::ONE,
+        intensity: 1.0,
+        range: 100.0,
+    };
+    // The frame's exact centre lies between four pixels (its size is even
+    // both ways), and the light here changes fast with height -- the centre
+    // row's pixel is half a pixel, 0.025 units, below it, which is 10% of
+    // this panel's light. Their average is the centre's to second order.
+    let mut centre = |rect: RectLightEntry| {
+        let p = h.render(&scene(vec![wall(cube, 1.0, 0.0)], vec![rect]));
+        let (x, y) = CENTRE;
+        (linear(&p, x - 1, y - 1) + linear(&p, x, y - 1) + linear(&p, x - 1, y) + linear(&p, x, y))
+            / 4.0
+    };
+    let straddling = centre(flat(WALL_Z, 1.0));
+    let front_half = centre(flat(WALL_Z + 0.25, 0.5));
+    let behind = centre(flat(WALL_Z - 0.3, 0.5));
+    let expected = perpendicular_form_factor(0.0, 0.5);
+    assert!(
+        (front_half - expected).abs() < expected * 0.05,
+        "the front half lights the centre by its form factor: {front_half} against {expected}"
+    );
+    assert!(
+        (straddling - front_half).abs() < front_half * 0.02,
+        "half sunk behind the wall, as much as its front half: {straddling} against {front_half}"
+    );
+    assert_eq!(behind, 0.0, "wholly behind the wall, nothing");
+}

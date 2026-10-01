@@ -1,13 +1,14 @@
 //! Rectangular area lights, shaded with linearly transformed cosines (LTC).
 //!
 //! Heitz, Dupuy, Hill and Neubelt, "Real-Time Polygonal-Light Shading with
-//! Linearly Transformed Cosines" (2016), in the form three.js ships it (MIT,
-//! `RectAreaLight`): the rectangle is carried into the space where the GGX
-//! lobe at this pixel is a clamped cosine, its form factor is summed from its
-//! four edges, and the part below the horizon is approximated as a sphere
-//! (Hill, "Real-Time Area Lighting: a Journey from Research to Production",
-//! 2016) instead of clipping the polygon. Unreal's rect lights and HDRP's
-//! area lights are LTC too.
+//! Linearly Transformed Cosines" (2016): the rectangle is carried into the
+//! space where the GGX lobe at this pixel is a clamped cosine, clipped to the
+//! horizon exactly (the paper's `ClipQuadToHorizon`), and its form factor
+//! summed from the clipped polygon's edges. The edge integral, the Fresnel
+//! split and the table layout follow three.js's `RectAreaLight` (MIT); its
+//! horizon *approximation* (Hill 2016) is not used, being exact only for a
+//! panel squarely facing the surface. Unreal's rect lights and HDRP's area
+//! lights are LTC too.
 //!
 //! The two 64x64 tables are the authors' (BSD, `ltc/LICENSE-LTC.txt`), as
 //! three.js embeds them (`ltc/LICENSE-three.js.txt`), stored as half floats:
@@ -194,8 +195,21 @@ fn ltc_edge(v1: vec3<f32>, v2: vec3<f32>) -> vec3<f32> {
     return cross(v1, v2) * theta_sintheta;
 }
 
+// A point where the edge `a -> b` crosses the horizon (z = 0): only called
+// with `a` and `b` on opposite sides of it.
+fn horizon_cut(a: vec3<f32>, b: vec3<f32>) -> vec3<f32> {
+    return -a.z * b + b.z * a;
+}
+
 // The form factor of the rectangle `c0..c3` (counter-clockwise seen from
 // the side it lights) through the lobe `m_inv`, seen from `p`.
+//
+// The rectangle is clipped to the horizon exactly -- Heitz et al.'s
+// `ClipQuadToHorizon`, which leaves 0, 3, 4 or 5 corners -- and the clipped
+// polygon's edges integrated. Not the sphere approximation three.js uses
+// (Hill 2016): that one is exact only for a panel squarely facing the
+// surface, and it put a third too much light on a wall from a panel
+// half behind it.
 fn ltc_evaluate(
     n: vec3<f32>, v: vec3<f32>, p: vec3<f32>, m_inv: mat3x3<f32>,
     c0: vec3<f32>, c1: vec3<f32>, c2: vec3<f32>, c3: vec3<f32>,
@@ -210,15 +224,111 @@ fn ltc_evaluate(
     t1 = normalize(t1);
     let t2 = -cross(n, t1);
     let m = m_inv * transpose(mat3x3<f32>(t1, t2, n));
-    let p0 = normalize(m * (c0 - p));
-    let p1 = normalize(m * (c1 - p));
-    let p2 = normalize(m * (c2 - p));
-    let p3 = normalize(m * (c3 - p));
-    let f = ltc_edge(p0, p1) + ltc_edge(p1, p2) + ltc_edge(p2, p3) + ltc_edge(p3, p0);
-    // Horizon clipping, approximated by the sphere with the same vector
-    // form factor (Hill 2016).
-    let l = length(f);
-    return max((l * l + f.z) / (l + 1.0), 0.0);
+    var l0 = m * (c0 - p);
+    var l1 = m * (c1 - p);
+    var l2 = m * (c2 - p);
+    var l3 = m * (c3 - p);
+    var l4 = vec3<f32>(0.0);
+
+    // Which corners are above the horizon, as four bits.
+    var config = 0u;
+    if l0.z > 0.0 { config += 1u; }
+    if l1.z > 0.0 { config += 2u; }
+    if l2.z > 0.0 { config += 4u; }
+    if l3.z > 0.0 { config += 8u; }
+    var count = 0u;
+    switch config {
+        case 1u: {
+            count = 3u;
+            l1 = horizon_cut(l1, l0);
+            l2 = horizon_cut(l3, l0);
+        }
+        case 2u: {
+            count = 3u;
+            l0 = horizon_cut(l0, l1);
+            l2 = horizon_cut(l2, l1);
+        }
+        case 3u: {
+            count = 4u;
+            l2 = horizon_cut(l2, l1);
+            l3 = horizon_cut(l3, l0);
+        }
+        case 4u: {
+            count = 3u;
+            l0 = horizon_cut(l3, l2);
+            l1 = horizon_cut(l1, l2);
+        }
+        case 6u: {
+            count = 4u;
+            l0 = horizon_cut(l0, l1);
+            l3 = horizon_cut(l3, l2);
+        }
+        case 7u: {
+            count = 5u;
+            l4 = horizon_cut(l3, l0);
+            l3 = horizon_cut(l3, l2);
+        }
+        case 8u: {
+            count = 3u;
+            l0 = horizon_cut(l0, l3);
+            l1 = horizon_cut(l2, l3);
+            l2 = l3;
+        }
+        case 9u: {
+            count = 4u;
+            l1 = horizon_cut(l1, l0);
+            l2 = horizon_cut(l2, l3);
+        }
+        case 11u: {
+            count = 5u;
+            l4 = l3;
+            l3 = horizon_cut(l2, l3);
+            l2 = horizon_cut(l2, l1);
+        }
+        case 12u: {
+            count = 4u;
+            l1 = horizon_cut(l1, l2);
+            l0 = horizon_cut(l0, l3);
+        }
+        case 13u: {
+            count = 5u;
+            l4 = l3;
+            l3 = l2;
+            l2 = horizon_cut(l1, l2);
+            l1 = horizon_cut(l1, l0);
+        }
+        case 14u: {
+            count = 5u;
+            l4 = horizon_cut(l0, l3);
+            l0 = horizon_cut(l0, l1);
+        }
+        case 15u: {
+            count = 4u;
+        }
+        // 0 is wholly below the horizon; 5 and 10 cannot happen to a
+        // rectangle (opposite corners up, the others down).
+        default: {}
+    }
+    if count == 0u {
+        return 0.0;
+    }
+    l0 = normalize(l0);
+    l1 = normalize(l1);
+    l2 = normalize(l2);
+    var sum = ltc_edge(l0, l1).z + ltc_edge(l1, l2).z;
+    if count == 3u {
+        sum += ltc_edge(l2, l0).z;
+    } else {
+        l3 = normalize(l3);
+        sum += ltc_edge(l2, l3).z;
+        if count == 4u {
+            sum += ltc_edge(l3, l0).z;
+        } else {
+            l4 = normalize(l4);
+            sum += ltc_edge(l3, l4).z + ltc_edge(l4, l0).z;
+        }
+    }
+    return max(sum, 0.0);
 }
 
 fn rect_light_radiance(
@@ -226,7 +336,9 @@ fn rect_light_radiance(
     albedo: vec3<f32>, f0: vec3<f32>, metallic: f32, roughness: f32,
 ) -> vec3<f32> {
     var sum = vec3<f32>(0.0);
-    let count = min(rect_lights.count, 4u);
+    // Capped on the Rust side (`RectLightUniform::new`), the one place that
+    // knows `MAX_RECT_LIGHTS`.
+    let count = rect_lights.count;
     if count == 0u {
         return sum;
     }

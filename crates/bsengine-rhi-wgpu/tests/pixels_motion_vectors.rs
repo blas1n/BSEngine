@@ -125,6 +125,102 @@ fn a_moving_object_writes_its_own_motion() {
     );
 }
 
+/// Upward motion is upward velocity: uv's y runs down the screen, so a
+/// square rising by some rows has a velocity of minus that many rows.
+#[test]
+fn a_rising_object_writes_upward_motion() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let rise = |from: f32, y: f32| {
+        let previous = Mat4::from_scale_rotation_translation(
+            Vec3::new(6.0, 6.0, 0.2),
+            glam::Quat::IDENTITY,
+            Vec3::new(0.0, from, -14.7),
+        );
+        Draw::new(cube, Vec3::ZERO)
+            .scaled(Vec3::new(6.0, 6.0, 0.2), Vec3::new(0.0, y, -14.7))
+            .colour(Vec3::ZERO)
+            .emissive(GREEN)
+            .moved_from(previous)
+    };
+    let top = |p: &Pixels| {
+        (0..HEIGHT)
+            .find(|&yy| p.at(WIDTH / 2, yy)[1] > 100)
+            .expect("premise: the square is in view") as f32
+    };
+    let before = h.render(&scene(vec![backdrop(cube), square_at(cube, 0.0)]));
+    let after = h.render_moving(
+        &scene(vec![backdrop(cube), square_at(cube, 0.0)]),
+        &scene(vec![backdrop(cube), rise(0.0, 0.6)]),
+    );
+    let v = h.velocity();
+    let shift = top(&after) - top(&before);
+    assert!(shift <= -3.0, "premise: the square rose: {shift} rows");
+    let [vx, vy] = at(&v, WIDTH / 2, HEIGHT / 2);
+    assert!(
+        (vy * HEIGHT as f32 - shift).abs() < 1.0 && (vx * WIDTH as f32).abs() < 0.5,
+        "the square's velocity is its rise: {} rows against {shift} measured",
+        vy * HEIGHT as f32
+    );
+}
+
+/// An object that was behind the camera last frame had no screen position
+/// then, so it has no velocity now -- not a huge one from dividing by a
+/// negative depth -- and TAA and motion blur treat it as camera reprojection
+/// does, which gives up on it too.
+#[test]
+fn an_object_from_behind_the_camera_has_no_velocity() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    // The camera stands at z = 5 looking down -z; z = 10 is behind it.
+    let behind = Mat4::from_scale_rotation_translation(
+        Vec3::new(6.0, 6.0, 0.2),
+        glam::Quat::IDENTITY,
+        Vec3::new(0.0, 0.0, 10.0),
+    );
+    let p = h.render_moving(
+        &scene(vec![backdrop(cube)]),
+        &scene(vec![
+            backdrop(cube),
+            square_at(cube, 0.0).moved_from(behind),
+        ]),
+    );
+    let (left, right) = square_span(&p);
+    assert_eq!(
+        at(&h.velocity(), (left + right) / 2, HEIGHT / 2),
+        [NONE, NONE]
+    );
+}
+
+/// A translucent pane writes no velocity, as in Unity and Unreal: through a
+/// still pane, the pixel keeps the motion of the opaque square moving behind
+/// it, which is what TAA sees there.
+#[test]
+fn a_translucent_pane_keeps_the_motion_behind_it() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let pane = || {
+        Draw::new(cube, Vec3::ZERO)
+            .scaled(Vec3::new(30.0, 30.0, 0.2), Vec3::new(0.0, 0.0, -10.0))
+            .colour(Vec3::ZERO)
+            .emissive(Vec3::splat(0.8))
+            .opacity(0.5)
+    };
+    let p = h.render_moving(
+        &scene(vec![backdrop(cube), square_at(cube, 0.0), pane()]),
+        &scene(vec![backdrop(cube), moved(cube, 0.0, 0.6), pane()]),
+    );
+    let [vx, _] = at(&h.velocity(), WIDTH / 2, HEIGHT / 2);
+    assert!(
+        p.at(WIDTH / 2, HEIGHT / 2)[0] > 40,
+        "premise: the pane is in front of the square"
+    );
+    assert!(
+        vx > 1e-3 && vx < 1000.0,
+        "the square's motion shows through the pane: {vx}"
+    );
+}
+
 /// The camera turns and nothing moves: still surfaces now move on screen,
 /// and their velocity says by how much -- the camera's motion is in it too,
 /// as it has to be for TAA to use it in place of camera reprojection.

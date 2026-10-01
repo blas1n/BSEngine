@@ -613,7 +613,7 @@ fn render_frame(
         mut occlusion_buf,
         mut taa_frame_index,
         probe_volumes,
-        shadow_settings,
+        (shadow_settings, msaa_settings),
         decal_query,
         reflection_probe_query,
     ): (
@@ -625,7 +625,10 @@ fn render_frame(
             &Transform,
             Option<&GlobalTransform>,
         )>,
-        Option<Res<bsengine_core::ShadowSettings>>,
+        (
+            Option<Res<bsengine_core::ShadowSettings>>,
+            Option<Res<bsengine_core::MsaaSettings>>,
+        ),
         // In this tuple rather than the `ParamSet` above for the reason that
         // tuple's own comment gives: the ParamSet is at its hard maximum of 8
         // sub-params and this function is at Bevy's 16 top-level ones, while a
@@ -1157,6 +1160,14 @@ fn render_frame(
         })
         .collect();
 
+    // An absent `MsaaSettings` is off, as for every test app.
+    surface.0.set_msaa(
+        msaa_settings
+            .as_deref()
+            .copied()
+            .unwrap_or_default()
+            .samples,
+    );
     match surface.0.render_frame(
         view_proj,
         cam_pos,
@@ -2013,6 +2024,36 @@ mod tests {
         app.world_mut().resource_mut::<InspectorState>().play_state = EditorPlayState::Playing;
         app.update();
         assert!(active(&app), "and Play gives it back");
+    }
+
+    /// The project's `MsaaSettings` reaches the renderer: 4 samples asked
+    /// for, 4 drawn with (on an adapter that can); none asked for, none.
+    #[test]
+    fn msaa_settings_reach_the_renderer() {
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::offscreen(64, 64, false));
+        app.add_plugins(RenderPlugin);
+        app.update();
+        app.world_mut().spawn((
+            Camera::default(),
+            Transform::from_position(Vec3::new(0.0, 0.0, 10.0)),
+        ));
+        let samples = |app: &bevy_app::App| {
+            app.world()
+                .resource::<bsengine_rhi_wgpu::WgpuSurfaceResource>()
+                .0
+                .msaa_samples()
+        };
+        app.update();
+        assert_eq!(samples(&app), 1, "premise: no setting, no MSAA");
+        app.insert_resource(bsengine_core::MsaaSettings { samples: 4 });
+        app.update();
+        assert_eq!(samples(&app), 4);
+        app.world_mut()
+            .remove_resource::<bsengine_core::MsaaSettings>();
+        app.update();
+        assert_eq!(samples(&app), 1, "and removing it turns MSAA off again");
     }
 
     /// A camera's `Fxaa` reaches the post pass -- in the editing view too,

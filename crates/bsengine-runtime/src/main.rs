@@ -509,6 +509,9 @@ fn build_windowed_app(project_dir: &str) -> bevy_app::App {
     app.insert_resource(bsengine_core::OcclusionCullingEnabled(
         manifest.render.occlusion_culling,
     ));
+    app.insert_resource(bsengine_core::MsaaSettings {
+        samples: manifest.render.msaa,
+    });
     app.insert_resource(bsengine_core::ShadowSettings {
         distance: manifest.render.shadow_distance,
         cascades: manifest.render.shadow_cascades,

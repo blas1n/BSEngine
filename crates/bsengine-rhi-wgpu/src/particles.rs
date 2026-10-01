@@ -41,6 +41,9 @@ const MAX_INSTANCES: usize = 16384;
 /// Pipeline and instance buffer for the particle pass.
 pub struct ParticleRenderer {
     pipeline: wgpu::RenderPipeline,
+    /// The pipeline for a multisampled pass (`None` where the adapter
+    /// cannot).
+    pipeline_msaa: Option<wgpu::RenderPipeline>,
     instances: wgpu::Buffer,
     /// Structurally identical to the one `GpuTextureRegistry` builds its bind
     /// groups with, which is what lets those bind groups be used here.
@@ -50,7 +53,11 @@ pub struct ParticleRenderer {
 impl ParticleRenderer {
     /// Builds the pipeline against an existing camera bind group layout, so the
     /// pass can reuse the camera uniform the rest of the frame already wrote.
-    pub fn new(device: &wgpu::Device, camera_bgl: &wgpu::BindGroupLayout) -> Self {
+    pub fn new(
+        device: &wgpu::Device,
+        camera_bgl: &wgpu::BindGroupLayout,
+        msaa_supported: bool,
+    ) -> Self {
         let texture_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("particle texture bgl"),
             entries: &[
@@ -107,7 +114,7 @@ impl ParticleRenderer {
             ],
         };
 
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let pipeline_desc = wgpu::RenderPipelineDescriptor {
             label: Some("particle pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
@@ -147,7 +154,9 @@ impl ParticleRenderer {
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
             cache: None,
-        });
+        };
+        let pipeline = device.create_render_pipeline(&pipeline_desc);
+        let pipeline_msaa = crate::msaa::variant(device, &pipeline_desc, msaa_supported);
 
         let instances = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("particle instances"),
@@ -158,6 +167,7 @@ impl ParticleRenderer {
 
         Self {
             pipeline,
+            pipeline_msaa,
             instances,
             _texture_bgl: texture_bgl,
         }
@@ -173,7 +183,9 @@ impl ParticleRenderer {
         encoder: &mut wgpu::CommandEncoder,
         queue: &wgpu::Queue,
         target: &wgpu::TextureView,
+        resolve_target: Option<&wgpu::TextureView>,
         depth: &wgpu::TextureView,
+        msaa: bool,
         camera_bind_group: &wgpu::BindGroup,
         batches: &[ParticleBatch],
         tex_registry: Option<&GpuTextureRegistry>,
@@ -207,7 +219,7 @@ impl ParticleRenderer {
             label: Some("particle pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: target,
-                resolve_target: None,
+                resolve_target,
                 ops: wgpu::Operations {
                     // Load, not Clear: this pass blends over the scene that the
                     // opaque, skybox and transparent passes already drew.
@@ -226,7 +238,12 @@ impl ParticleRenderer {
             timestamp_writes: None,
             occlusion_query_set: None,
         });
-        pass.set_pipeline(&self.pipeline);
+        pass.set_pipeline(
+            self.pipeline_msaa
+                .as_ref()
+                .filter(|_| msaa)
+                .unwrap_or(&self.pipeline),
+        );
         pass.set_bind_group(0, camera_bind_group, &[]);
         pass.set_vertex_buffer(0, self.instances.slice(..));
         let mut draw_calls = 0u32;

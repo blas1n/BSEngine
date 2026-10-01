@@ -249,6 +249,8 @@ pub struct Scene {
     pub color_grading: Option<bsengine_core::ColorGrading>,
     /// Depth of field for this camera, or `None` for none.
     pub depth_of_field: Option<bsengine_core::DepthOfField>,
+    /// MSAA sample count for the geometry passes: 1 (the default) is off.
+    pub msaa: u32,
     /// Motion blur for this camera, or `None` for none.
     pub motion_blur: Option<bsengine_core::MotionBlur>,
     /// FXAA for this camera, or `None` for none.
@@ -281,6 +283,7 @@ impl Default for Scene {
             fog: None,
             color_grading: None,
             depth_of_field: None,
+            msaa: 1,
             motion_blur: None,
             fxaa: None,
             hud: HashMap::new(),
@@ -779,6 +782,9 @@ struct VertOut {{
             (0.0, 0.0)
         };
 
+        // Every frame: a surface is shared across a harness's renders, and a
+        // scene that does not ask for MSAA must not inherit the last one's.
+        self.surface.set_msaa(scene.msaa);
         self.surface
             .render_frame(
                 view_proj,
@@ -856,6 +862,13 @@ struct VertOut {{
     /// `render()` hasn't been called yet -- every test using this calls
     /// `render()` first, so a `None` here would be a real bug, not an
     /// expected state to handle quietly.
+    /// The sample count the last frame's geometry passes drew with -- 1
+    /// where MSAA is off or this adapter cannot do it, which an MSAA test
+    /// checks as its premise.
+    pub fn msaa_samples(&self) -> u32 {
+        self.surface.msaa_samples()
+    }
+
     pub fn frame_stats(&self) -> bsengine_rhi_wgpu::profiler::FrameStats {
         self.surface
             .latest_frame_stats()

@@ -62,6 +62,11 @@ core ← ecs ← app ← window / input
   the streak's length, tap count); sharp on the first frame after a cut
 - FXAA (`Fxaa` on the camera): FXAA 3.11's edge search and sub-pixel term on
   the tonemapped image, before the TAA resolve; its three thresholds exposed
+- MSAA (`[render] msaa = 4` in `project.toml`): 4x multisampled opaque, sky,
+  transparent and particle passes, resolved for the post passes; the depth is
+  resolved by its own pass (sample 0), so SSAO, fog, depth of field, motion
+  blur, TAA and SSR read it as before. Off on an adapter that cannot
+  multisample the scene's targets
 
 ### Scene (bsengine-scene)
 - Entity spawn/despawn with named entities

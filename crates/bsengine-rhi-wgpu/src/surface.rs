@@ -2037,6 +2037,9 @@ struct SkyUniformData {
 
 struct SkyboxState {
     pipeline: wgpu::RenderPipeline,
+    /// The pipeline for a multisampled pass (`None` where the adapter
+    /// cannot).
+    pipeline_msaa: Option<wgpu::RenderPipeline>,
     uniform_buffer: wgpu::Buffer,
     uniform_bg: wgpu::BindGroup,
     texture_bg: wgpu::BindGroup,
@@ -2418,6 +2421,10 @@ pub struct WgpuSurface {
     pub(crate) queue: Arc<wgpu::Queue>,
     pipeline: wgpu::RenderPipeline,
     transparent_pipeline: wgpu::RenderPipeline,
+    /// [`Self::pipeline`] and [`Self::transparent_pipeline`] for a
+    /// multisampled pass (`None` where the adapter cannot).
+    pipeline_msaa: Option<wgpu::RenderPipeline>,
+    transparent_pipeline_msaa: Option<wgpu::RenderPipeline>,
     particles: crate::particles::ParticleRenderer,
     depth_texture: crate::profiler::TrackedTexture,
     depth_view: wgpu::TextureView,
@@ -2573,8 +2580,11 @@ pub struct WgpuSurface {
     _dummy_ibl_cube_texture: crate::profiler::TrackedTexture,
     pipeline_layout: wgpu::PipelineLayout,
     terrain_pipeline: wgpu::RenderPipeline,
+    terrain_pipeline_msaa: Option<wgpu::RenderPipeline>,
     terrain_bgl: wgpu::BindGroupLayout,
     custom_pipelines: std::collections::HashMap<String, wgpu::RenderPipeline>,
+    /// Each custom shader's multisampled pipeline, alongside.
+    custom_pipelines_msaa: std::collections::HashMap<String, wgpu::RenderPipeline>,
     post_process: crate::post_process::PostProcessState,
     start_time: std::time::Instant,
     dock_state: Option<egui_dock::DockState<String>>,
@@ -2644,6 +2654,18 @@ pub struct WgpuSurface {
     /// a ray from where the camera *was*, and a matrix alone does not hand that
     /// back without an extra inverse-transform.
     prev_camera_pos: Vec3,
+    /// Whether this adapter can multisample every geometry-pass target 4x
+    /// (see `request_device`). Without it MSAA stays off, whatever is asked.
+    msaa_supported: bool,
+    /// The sample count the geometry passes draw with: 1 (off) or
+    /// [`crate::msaa::MSAA_SAMPLES`]. Set by [`Self::set_msaa`].
+    msaa_samples: u32,
+    /// The multisampled targets, made on first use at the current size and
+    /// dropped on resize.
+    msaa_targets: Option<crate::msaa::MsaaTargets>,
+    /// The depth resolve: the multisampled depth to `depth_view`, which every
+    /// post pass reads.
+    depth_resolve: crate::msaa::DepthResolve,
 }
 
 impl WgpuSurface {
@@ -2659,7 +2681,7 @@ impl WgpuSurface {
             .create_surface(window.clone())
             .map_err(|e| e.to_string())?;
 
-        let (adapter, device, queue, timestamp_supported, instancing_supported) =
+        let (adapter, device, queue, timestamp_supported, instancing_supported, msaa_supported) =
             Self::request_device(&instance, Some(&surface)).await?;
 
         let size = window.inner_size();
@@ -2694,6 +2716,7 @@ impl WgpuSurface {
             false,
             timestamp_supported,
             instancing_supported,
+            msaa_supported,
         )
     }
 
@@ -2708,7 +2731,7 @@ impl WgpuSurface {
             backends: wgpu::Backends::all(),
             ..Default::default()
         });
-        let (_adapter, device, queue, timestamp_supported, instancing_supported) =
+        let (_adapter, device, queue, timestamp_supported, instancing_supported, msaa_supported) =
             Self::request_device(&instance, None).await?;
         let texture = crate::output::create_offscreen_texture(&device, width, height);
         Self::build(
@@ -2722,6 +2745,7 @@ impl WgpuSurface {
             fast_render,
             timestamp_supported,
             instancing_supported,
+            msaa_supported,
         )
     }
 
@@ -2896,6 +2920,7 @@ impl WgpuSurface {
             Arc<wgpu::Queue>,
             bool,
             bool,
+            bool,
         ),
         String,
     > {
@@ -2953,12 +2978,29 @@ impl WgpuSurface {
             .await
             .map_err(|e| format!("Device request failed: {e}"))?;
 
+        // 4x MSAA is a per-format capability: every target the geometry
+        // passes draw into -- the HDR colour, the normal, the depth -- has to
+        // support it, or one of their multisampled textures fails to create.
+        let msaa_supported = [
+            crate::post_process::HDR_FORMAT,
+            crate::post_process::NORMAL_FORMAT,
+            DEPTH_FORMAT,
+        ]
+        .iter()
+        .all(|f| {
+            adapter
+                .get_texture_format_features(*f)
+                .flags
+                .sample_count_supported(crate::msaa::MSAA_SAMPLES)
+        });
+
         Ok((
             adapter,
             Arc::new(device),
             Arc::new(queue),
             timestamp_supported,
             instancing_supported,
+            msaa_supported,
         ))
     }
 
@@ -2985,18 +3027,35 @@ impl WgpuSurface {
 
     /// The one device tests share, with what `request_device` found out about
     /// it: `(device, queue, timestamp_supported, instancing_supported)`.
-    fn shared_test_device() -> &'static (Arc<wgpu::Device>, Arc<wgpu::Queue>, bool, bool) {
-        static SHARED: std::sync::OnceLock<(Arc<wgpu::Device>, Arc<wgpu::Queue>, bool, bool)> =
-            std::sync::OnceLock::new();
+    fn shared_test_device() -> &'static (Arc<wgpu::Device>, Arc<wgpu::Queue>, bool, bool, bool) {
+        static SHARED: std::sync::OnceLock<(
+            Arc<wgpu::Device>,
+            Arc<wgpu::Queue>,
+            bool,
+            bool,
+            bool,
+        )> = std::sync::OnceLock::new();
         SHARED.get_or_init(|| {
             let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
                 backends: wgpu::Backends::all(),
                 ..Default::default()
             });
-            let (_adapter, device, queue, timestamp_supported, instancing_supported) =
-                pollster::block_on(Self::request_device(&instance, None))
-                    .expect("headless device for test");
-            (device, queue, timestamp_supported, instancing_supported)
+            let (
+                _adapter,
+                device,
+                queue,
+                timestamp_supported,
+                instancing_supported,
+                msaa_supported,
+            ) = pollster::block_on(Self::request_device(&instance, None))
+                .expect("headless device for test");
+            (
+                device,
+                queue,
+                timestamp_supported,
+                instancing_supported,
+                msaa_supported,
+            )
         })
     }
 
@@ -3012,7 +3071,7 @@ impl WgpuSurface {
     /// `cfg(test)` item is compiled only for this crate's own test binary.
     #[doc(hidden)]
     pub fn offscreen_for_testing(width: u32, height: u32) -> Result<Self, String> {
-        let (device, queue, timestamp_supported, instancing_supported) =
+        let (device, queue, timestamp_supported, instancing_supported, msaa_supported) =
             Self::shared_test_device().clone();
         let texture = crate::output::create_offscreen_texture(&device, width, height);
         Self::build(
@@ -3026,6 +3085,7 @@ impl WgpuSurface {
             false,
             timestamp_supported,
             instancing_supported,
+            msaa_supported,
         )
     }
 
@@ -3042,6 +3102,7 @@ impl WgpuSurface {
         fast_render: bool,
         timestamp_supported: bool,
         instancing_supported: bool,
+        msaa_supported: bool,
     ) -> Result<Self, String> {
         let format = output.format();
         let width = output.width();
@@ -4224,7 +4285,7 @@ impl WgpuSurface {
                 cache: None,
             });
 
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let pipeline_desc = wgpu::RenderPipelineDescriptor {
             label: Some("mesh pipeline"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
@@ -4267,7 +4328,9 @@ impl WgpuSurface {
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
             cache: None,
-        });
+        };
+        let pipeline = device.create_render_pipeline(&pipeline_desc);
+        let pipeline_msaa = crate::msaa::variant(&device, &pipeline_desc, msaa_supported);
 
         // Same shader, same layout, same vertex format as the opaque pipeline.
         // Exactly two things differ, and both are what drawing transparent
@@ -4279,7 +4342,7 @@ impl WgpuSurface {
         //
         // The depth *test* stays on: transparent geometry behind an opaque
         // wall is still hidden by it.
-        let transparent_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let transparent_desc = wgpu::RenderPipelineDescriptor {
             label: Some("transparent mesh pipeline"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
@@ -4325,7 +4388,10 @@ impl WgpuSurface {
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
             cache: None,
-        });
+        };
+        let transparent_pipeline = device.create_render_pipeline(&transparent_desc);
+        let transparent_pipeline_msaa =
+            crate::msaa::variant(&device, &transparent_desc, msaa_supported);
 
         let terrain_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("terrain texture bgl"),
@@ -4399,7 +4465,7 @@ impl WgpuSurface {
                 bind_group_layouts: &[&camera_bgl, &model_bgl, &light_bgl, &terrain_bgl],
                 push_constant_ranges: &[],
             });
-        let terrain_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let terrain_desc = wgpu::RenderPipelineDescriptor {
             label: Some("terrain pipeline"),
             layout: Some(&terrain_pipeline_layout),
             vertex: wgpu::VertexState {
@@ -4442,9 +4508,13 @@ impl WgpuSurface {
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
             cache: None,
-        });
+        };
+        let terrain_pipeline = device.create_render_pipeline(&terrain_desc);
+        let terrain_pipeline_msaa = crate::msaa::variant(&device, &terrain_desc, msaa_supported);
 
-        let particles = crate::particles::ParticleRenderer::new(&device, &camera_bgl);
+        let particles =
+            crate::particles::ParticleRenderer::new(&device, &camera_bgl, msaa_supported);
+        let depth_resolve = crate::msaa::DepthResolve::new(&device);
 
         let egui_ctx = egui::Context::default();
         crate::theme::apply(&egui_ctx);
@@ -4474,6 +4544,8 @@ impl WgpuSurface {
             queue,
             pipeline,
             transparent_pipeline,
+            pipeline_msaa,
+            transparent_pipeline_msaa,
             particles,
             depth_texture,
             depth_view,
@@ -4540,8 +4612,10 @@ impl WgpuSurface {
             _dummy_ibl_cube_texture: dummy_ibl_cube_texture,
             pipeline_layout,
             terrain_pipeline,
+            terrain_pipeline_msaa,
             terrain_bgl,
             custom_pipelines: std::collections::HashMap::new(),
+            custom_pipelines_msaa: std::collections::HashMap::new(),
             post_process,
             // No frame has been rendered yet, so there is no previous
             // view-projection. It is never read before the first frame
@@ -4549,6 +4623,10 @@ impl WgpuSurface {
             // false, and the resolve does not reproject without history.
             prev_unjittered_view_proj: Mat4::IDENTITY,
             prev_camera_pos: Vec3::ZERO,
+            msaa_supported,
+            msaa_samples: 1,
+            msaa_targets: None,
+            depth_resolve,
             start_time: std::time::Instant::now(),
             dock_state: None,
             last_saved_layout_json: None,
@@ -4855,47 +4933,47 @@ impl WgpuSurface {
                 bind_group_layouts: &[&sky_uniform_bgl, sky_tex_bgl],
                 push_constant_ranges: &[],
             });
-        let pipeline = self
-            .device
-            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("skybox pipeline"),
-                layout: Some(&pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: "vs_sky",
-                    buffers: &[],
-                    compilation_options: Default::default(),
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: "fs_sky",
-                    targets: &[Some(wgpu::ColorTargetState {
-                        // The skybox pass draws into the HDR buffer, not the
-                        // final output. Building this pipeline for the output
-                        // format made set_pipeline fail validation the moment
-                        // any project actually set a skybox.
-                        format: crate::post_process::HDR_FORMAT,
-                        blend: Some(wgpu::BlendState::REPLACE),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                    compilation_options: Default::default(),
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    cull_mode: None,
-                    ..Default::default()
-                },
-                depth_stencil: Some(wgpu::DepthStencilState {
-                    format: DEPTH_FORMAT,
-                    depth_write_enabled: false,
-                    depth_compare: wgpu::CompareFunction::LessEqual,
-                    stencil: wgpu::StencilState::default(),
-                    bias: wgpu::DepthBiasState::default(),
-                }),
-                multisample: wgpu::MultisampleState::default(),
-                multiview: None,
-                cache: None,
-            });
+        let pipeline_desc = wgpu::RenderPipelineDescriptor {
+            label: Some("skybox pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_sky",
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_sky",
+                targets: &[Some(wgpu::ColorTargetState {
+                    // The skybox pass draws into the HDR buffer, not the
+                    // final output. Building this pipeline for the output
+                    // format made set_pipeline fail validation the moment
+                    // any project actually set a skybox.
+                    format: crate::post_process::HDR_FORMAT,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: false,
+                depth_compare: wgpu::CompareFunction::LessEqual,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        };
+        let pipeline = self.device.create_render_pipeline(&pipeline_desc);
+        let pipeline_msaa = crate::msaa::variant(&self.device, &pipeline_desc, self.msaa_supported);
 
         // The environment changed, so everything convolved from the old one is
         // stale: rebuild the irradiance and prefiltered maps from the texture
@@ -4916,6 +4994,7 @@ impl WgpuSurface {
 
         self.skybox = Some(SkyboxState {
             pipeline,
+            pipeline_msaa,
             uniform_buffer,
             uniform_bg,
             texture_bg,
@@ -6638,14 +6717,70 @@ impl WgpuSurface {
             }
         }
 
+        // --- MSAA: the targets and pipelines the geometry passes use ---
+        //
+        // With MSAA on, the four geometry passes below -- opaque, sky,
+        // transparent, particles -- draw into multisampled targets, and each
+        // one both keeps its samples (for the next pass to load) and
+        // resolves them into the single-sample targets the post passes read.
+        // Resolving in every pass rather than only the last is what lets any
+        // of them be skipped this frame without the resolve going missing.
+        // The depth has no resolve in WebGPU; its own pass follows them.
+        let msaa_on = self.msaa_samples > 1;
+        if msaa_on {
+            let size = (self.output.width(), self.output.height());
+            if self.msaa_targets.as_ref().map(|t| t.size) != Some(size) {
+                self.msaa_targets = Some(crate::msaa::MsaaTargets::new(
+                    &self.device,
+                    &self.depth_resolve,
+                    size.0,
+                    size.1,
+                ));
+            }
+        }
+        let msaa_targets = if msaa_on {
+            self.msaa_targets.as_ref()
+        } else {
+            None
+        };
+        let (scene_color, scene_resolve) = match msaa_targets {
+            Some(t) => (&t.hdr_view, Some(&self.post_process.hdr_view)),
+            None => (&self.post_process.hdr_view, None),
+        };
+        let (scene_normal, normal_resolve) = match msaa_targets {
+            Some(t) => (&t.normal_view, Some(&self.post_process.normal_view)),
+            None => (&self.post_process.normal_view, None),
+        };
+        let scene_depth = msaa_targets.map_or(&self.depth_view, |t| &t.depth_view);
+        let mesh_pipeline = self
+            .pipeline_msaa
+            .as_ref()
+            .filter(|_| msaa_on)
+            .unwrap_or(&self.pipeline);
+        let transparent_pipeline = self
+            .transparent_pipeline_msaa
+            .as_ref()
+            .filter(|_| msaa_on)
+            .unwrap_or(&self.transparent_pipeline);
+        let terrain_pipeline = self
+            .terrain_pipeline_msaa
+            .as_ref()
+            .filter(|_| msaa_on)
+            .unwrap_or(&self.terrain_pipeline);
+        let custom_pipelines = if msaa_on {
+            &self.custom_pipelines_msaa
+        } else {
+            &self.custom_pipelines
+        };
+
         // --- main pass (into HDR buffer) ---
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("render pass"),
                 color_attachments: &[
                     Some(wgpu::RenderPassColorAttachment {
-                        view: &self.post_process.hdr_view,
-                        resolve_target: None,
+                        view: scene_color,
+                        resolve_target: scene_resolve,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color {
                                 r: 0.08,
@@ -6660,8 +6795,8 @@ impl WgpuSurface {
                     // no opaque surface covered has no normal, and the
                     // reflection pass can tell that apart from one that does.
                     Some(wgpu::RenderPassColorAttachment {
-                        view: &self.post_process.normal_view,
-                        resolve_target: None,
+                        view: scene_normal,
+                        resolve_target: normal_resolve,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                             store: wgpu::StoreOp::Store,
@@ -6669,7 +6804,7 @@ impl WgpuSurface {
                     }),
                 ],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.depth_view,
+                    view: scene_depth,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,
@@ -6694,8 +6829,8 @@ impl WgpuSurface {
                 };
                 let pipeline = custom_path
                     .as_deref()
-                    .and_then(|p| self.custom_pipelines.get(p))
-                    .unwrap_or(&self.pipeline);
+                    .and_then(|p| custom_pipelines.get(p))
+                    .unwrap_or(mesh_pipeline);
                 pass.set_pipeline(pipeline);
                 let tex_bg = tex_id
                     .and_then(|id| tex_registry.and_then(|r| r.get_bind_group(id)))
@@ -6769,7 +6904,7 @@ impl WgpuSurface {
                         },
                     ],
                 });
-                pass.set_pipeline(&self.terrain_pipeline);
+                pass.set_pipeline(terrain_pipeline);
                 pass.set_bind_group(
                     1,
                     &self.model_bind_group,
@@ -6795,15 +6930,15 @@ impl WgpuSurface {
             let mut sky_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("skybox pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.post_process.hdr_view,
-                    resolve_target: None,
+                    view: scene_color,
+                    resolve_target: scene_resolve,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.depth_view,
+                    view: scene_depth,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
@@ -6817,7 +6952,12 @@ impl WgpuSurface {
                 ),
                 occlusion_query_set: None,
             });
-            sky_pass.set_pipeline(&sky.pipeline);
+            sky_pass.set_pipeline(
+                sky.pipeline_msaa
+                    .as_ref()
+                    .filter(|_| msaa_on)
+                    .unwrap_or(&sky.pipeline),
+            );
             sky_pass.set_bind_group(0, &sky.uniform_bg, &[]);
             sky_pass.set_bind_group(1, &sky.texture_bg, &[]);
             sky_pass.draw(0..3, 0..1);
@@ -6832,8 +6972,8 @@ impl WgpuSurface {
                 label: Some("transparent pass"),
                 color_attachments: &[
                     Some(wgpu::RenderPassColorAttachment {
-                        view: &self.post_process.hdr_view,
-                        resolve_target: None,
+                        view: scene_color,
+                        resolve_target: scene_resolve,
                         ops: wgpu::Operations {
                             // Load, not Clear, on every attachment. Clearing
                             // colour would wipe the scene this pass is meant to
@@ -6846,9 +6986,13 @@ impl WgpuSurface {
                     // Attached only because this pass shares the opaque pass's
                     // `fs_main`, which writes two locations. The pipeline masks
                     // the write off, so what the opaque pass left here survives
-                    // the pass untouched.
+                    // the pass untouched. For the same reason it has no MSAA
+                    // resolve: the opaque pass's resolve already holds these
+                    // normals, and resolving them again would only cost
+                    // bandwidth. (The view still has to be the multisampled
+                    // one, to match the pipeline's sample count.)
                     Some(wgpu::RenderPassColorAttachment {
-                        view: &self.post_process.normal_view,
+                        view: scene_normal,
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Load,
@@ -6857,7 +7001,7 @@ impl WgpuSurface {
                     }),
                 ],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.depth_view,
+                    view: scene_depth,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
@@ -6883,8 +7027,8 @@ impl WgpuSurface {
                 // shader decides its own output, alpha included.
                 let pipeline = custom_path
                     .as_deref()
-                    .and_then(|p| self.custom_pipelines.get(p))
-                    .unwrap_or(&self.transparent_pipeline);
+                    .and_then(|p| custom_pipelines.get(p))
+                    .unwrap_or(transparent_pipeline);
                 pass.set_pipeline(pipeline);
                 let tex_bg = tex_id
                     .and_then(|id| tex_registry.and_then(|r| r.get_bind_group(id)))
@@ -6906,8 +7050,10 @@ impl WgpuSurface {
             let (particle_draw_calls, particle_triangles) = self.particles.draw(
                 &mut encoder,
                 &self.queue,
-                &self.post_process.hdr_view,
-                &self.depth_view,
+                scene_color,
+                scene_resolve,
+                scene_depth,
+                msaa_on,
                 &self.camera_bind_group,
                 particles,
                 tex_registry,
@@ -6916,6 +7062,29 @@ impl WgpuSurface {
             frame_draw_calls += particle_draw_calls;
             frame_objects_drawn += particle_draw_calls;
             frame_triangles += particle_triangles;
+        }
+
+        // --- MSAA depth resolve: each pixel's sample 0 into `depth_view`,
+        // which every post pass reads (see `crate::msaa::DepthResolve`) ---
+        if let Some(t) = msaa_targets {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("msaa depth resolve pass"),
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            pass.set_pipeline(&self.depth_resolve.pipeline);
+            pass.set_bind_group(0, &t.depth_resolve_bg, &[]);
+            pass.draw(0..3, 0..1);
+            frame_draw_calls += 1;
         }
 
         // --- post-process passes: bloom → SSAO → composite → swapchain ---
@@ -7712,6 +7881,34 @@ impl WgpuSurface {
         self.decals
             .resize(&self.device, width, height, &self.depth_view);
         self.rebuild_light_bind_group();
+        // `msaa_targets` is not touched: the next multisampled frame sees
+        // its size no longer matches and remakes it.
+    }
+
+    /// Sets the geometry passes' sample count: anything above 1 asks for
+    /// MSAA at [`crate::msaa::MSAA_SAMPLES`] samples, 1 turns it off. On an
+    /// adapter that cannot multisample every target, MSAA stays off (logged
+    /// once). Cheap to call every frame with the same value.
+    pub fn set_msaa(&mut self, samples: u32) {
+        let wanted = samples > 1;
+        if wanted && !self.msaa_supported {
+            if self.msaa_samples != 0 {
+                tracing::warn!(
+                    "[render] MSAA asked for, but this adapter cannot multisample \
+                     the scene's targets {}x; rendering without it",
+                    crate::msaa::MSAA_SAMPLES
+                );
+            }
+            // 0: asked for and refused, so the warning is not repeated.
+            self.msaa_samples = 0;
+            return;
+        }
+        self.msaa_samples = if wanted { crate::msaa::MSAA_SAMPLES } else { 1 };
+    }
+
+    /// The sample count the geometry passes draw with (1 when MSAA is off).
+    pub fn msaa_samples(&self) -> u32 {
+        self.msaa_samples.max(1)
     }
 
     /// Throws away the accumulated TAA history, so the next
@@ -7818,61 +8015,61 @@ impl WgpuSurface {
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &vertex_attrs,
         };
-        let pipeline = self
-            .device
-            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("custom pipeline"),
-                layout: Some(&self.pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: "vs_main",
-                    buffers: &[vbl],
-                    compilation_options: Default::default(),
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: "fs_main",
-                    targets: &[
-                        Some(wgpu::ColorTargetState {
-                            format: crate::post_process::HDR_FORMAT,
-                            blend: Some(wgpu::BlendState::REPLACE),
-                            write_mask: wgpu::ColorWrites::ALL,
-                        }),
-                        // Declared with the pass's format and its write masked
-                        // off. `None` is not an option: wgpu compares the
-                        // pipeline's target *formats* against the pass's
-                        // attachments, and a `None` against a real attachment is
-                        // "incompatible", not "writes nothing".
-                        //
-                        // A custom shader is the author's own WGSL with a single
-                        // output, so it has nothing to put here -- and a surface
-                        // drawn with one therefore reflects into nothing, which
-                        // is a limitation to know rather than a bug to chase.
-                        Some(wgpu::ColorTargetState {
-                            format: crate::post_process::NORMAL_FORMAT,
-                            blend: None,
-                            write_mask: wgpu::ColorWrites::empty(),
-                        }),
-                    ],
-                    compilation_options: Default::default(),
-                }),
-                primitive: wgpu::PrimitiveState {
-                    topology: wgpu::PrimitiveTopology::TriangleList,
-                    cull_mode: Some(wgpu::Face::Back),
-                    front_face: wgpu::FrontFace::Ccw,
-                    ..Default::default()
-                },
-                depth_stencil: Some(wgpu::DepthStencilState {
-                    format: DEPTH_FORMAT,
-                    depth_write_enabled: true,
-                    depth_compare: wgpu::CompareFunction::Less,
-                    stencil: wgpu::StencilState::default(),
-                    bias: wgpu::DepthBiasState::default(),
-                }),
-                multisample: wgpu::MultisampleState::default(),
-                multiview: None,
-                cache: None,
-            });
+        let pipeline_desc = wgpu::RenderPipelineDescriptor {
+            label: Some("custom pipeline"),
+            layout: Some(&self.pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_main",
+                buffers: &[vbl],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_main",
+                targets: &[
+                    Some(wgpu::ColorTargetState {
+                        format: crate::post_process::HDR_FORMAT,
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                    // Declared with the pass's format and its write masked
+                    // off. `None` is not an option: wgpu compares the
+                    // pipeline's target *formats* against the pass's
+                    // attachments, and a `None` against a real attachment is
+                    // "incompatible", not "writes nothing".
+                    //
+                    // A custom shader is the author's own WGSL with a single
+                    // output, so it has nothing to put here -- and a surface
+                    // drawn with one therefore reflects into nothing, which
+                    // is a limitation to know rather than a bug to chase.
+                    Some(wgpu::ColorTargetState {
+                        format: crate::post_process::NORMAL_FORMAT,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::empty(),
+                    }),
+                ],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: Some(wgpu::Face::Back),
+                front_face: wgpu::FrontFace::Ccw,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        };
+        let pipeline = self.device.create_render_pipeline(&pipeline_desc);
+        let pipeline_msaa = crate::msaa::variant(&self.device, &pipeline_desc, self.msaa_supported);
         // `pop_error_scope`'s future is already resolved on every native
         // backend (wgpu-core reports validation errors synchronously into the
         // error sink and hands back a ready future), so this neither blocks nor
@@ -7885,6 +8082,14 @@ impl WgpuSurface {
             return Err(msg);
         }
         self.custom_pipelines.insert(path.to_string(), pipeline);
+        match pipeline_msaa {
+            Some(p) => {
+                self.custom_pipelines_msaa.insert(path.to_string(), p);
+            }
+            None => {
+                self.custom_pipelines_msaa.remove(path);
+            }
+        }
         Ok(())
     }
 

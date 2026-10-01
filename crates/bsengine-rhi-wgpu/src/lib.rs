@@ -31,6 +31,8 @@ pub mod mesh;
 /// Minimal glTF parsing + a small dedicated render pipeline for the Asset
 /// Browser's mesh thumbnails.
 pub mod mesh_thumbnail;
+/// Multisample antialiasing: the multisampled geometry targets and the depth resolve.
+pub mod msaa;
 /// Where a rendered frame goes (window swapchain or offscreen texture) and how
 /// to read it back.
 mod output;

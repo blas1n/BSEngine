@@ -979,6 +979,15 @@ pub enum ScriptCommand {
         /// The weight.
         weight: f32,
     },
+    /// Set (`Some`) or clear (`None`) a behaviour tree blackboard key.
+    SetBlackboard {
+        /// The entity's name.
+        name: String,
+        /// The key.
+        key: String,
+        /// The value, parsed when the command was queued.
+        value: Option<bsengine_core::BbValue>,
+    },
     /// Switch the locale the project's string tables are read in.
     SetLocale {
         /// The locale, as the script gave it (normalized when applied).
@@ -1505,6 +1514,13 @@ thread_local! {
     // resource, which is cheap: the tables are behind an `Arc`.
     pub(crate) static LOCALIZATION_SNAPSHOT: RefCell<bsengine_core::Localization> =
         RefCell::new(bsengine_core::Localization::default());
+    // Each named entity's behaviour tree blackboard.
+    pub(crate) static BLACKBOARD_SNAPSHOT: RefCell<HashMap<String, bsengine_core::Blackboard>> =
+        RefCell::new(HashMap::new());
+    // Answers to this frame's behaviour tree script tasks: (request index,
+    // status).
+    pub(crate) static BT_RESULTS: RefCell<Vec<(u32, bsengine_core::BtStatus)>> =
+        const { RefCell::new(Vec::new()) };
     pub(crate) static COMMAND_BUFFER: RefCell<Vec<ScriptCommand>> =
         const { RefCell::new(Vec::new()) };
     pub(crate) static SOUND_ID_COUNTER: RefCell<u32> =
@@ -2336,6 +2352,131 @@ pub fn bsengine_tr(#[string] key: String, #[string] args: String) -> String {
 pub fn bsengine_set_locale(#[string] locale: String) {
     LOCALIZATION_SNAPSHOT.with(|l| l.borrow_mut().set_locale(&locale));
     COMMAND_BUFFER.with(|c| c.borrow_mut().push(ScriptCommand::SetLocale { locale }));
+}
+
+/// A blackboard value as JSON for scripts: numbers, booleans and strings as
+/// themselves, a `Vec3` as `{x, y, z}`, an entity as `{entity: name}`.
+pub(crate) fn bb_to_json(value: &bsengine_core::BbValue) -> serde_json::Value {
+    use bsengine_core::BbValue;
+    match value {
+        BbValue::Bool(b) => serde_json::json!(b),
+        BbValue::Int(i) => serde_json::json!(i),
+        BbValue::Float(f) => serde_json::json!(f),
+        BbValue::Str(s) => serde_json::json!(s),
+        BbValue::Vec3(v) => serde_json::json!({"x": v.0.x, "y": v.0.y, "z": v.0.z}),
+        BbValue::Entity(name) => serde_json::json!({"entity": name}),
+    }
+}
+
+/// The reverse of [`bb_to_json`]: a whole number becomes `Int`, any other
+/// number `Float` (conditions compare the two as numbers, so the choice
+/// only shows to a script reading it back).
+pub(crate) fn bb_from_json(value: &serde_json::Value) -> Result<bsengine_core::BbValue, String> {
+    use bsengine_core::BbValue;
+    match value {
+        serde_json::Value::Bool(b) => Ok(BbValue::Bool(*b)),
+        serde_json::Value::Number(n) => Ok(match n.as_i64() {
+            Some(i) => BbValue::Int(i),
+            None => BbValue::Float(n.as_f64().unwrap_or(0.0) as f32),
+        }),
+        serde_json::Value::String(s) => Ok(BbValue::Str(s.clone())),
+        serde_json::Value::Object(map) => {
+            if let Some(serde_json::Value::String(name)) = map.get("entity") {
+                return Ok(BbValue::Entity(name.clone()));
+            }
+            let axis = |k: &str| map.get(k).and_then(serde_json::Value::as_f64);
+            match (axis("x"), axis("y"), axis("z")) {
+                (Some(x), Some(y), Some(z)) => Ok(BbValue::Vec3(
+                    glam::Vec3::new(x as f32, y as f32, z as f32).into(),
+                )),
+                _ => Err(format!(
+                    "a blackboard value is a number, boolean, string, vector {{x, y, z}} \
+                     or Bsengine.bt.entity(name); got {value}"
+                )),
+            }
+        }
+        _ => Err(format!("a blackboard value cannot be {value}")),
+    }
+}
+
+/// Entity `name`'s blackboard `key`, as JSON (`null` when unset or when it
+/// has no blackboard).
+#[op2]
+#[string]
+pub fn bsengine_bt_get(#[string] name: String, #[string] key: String) -> String {
+    BLACKBOARD_SNAPSHOT.with(|s| {
+        s.borrow()
+            .get(&name)
+            .and_then(|bb| bb.get(&key))
+            .map(bb_to_json)
+            .unwrap_or(serde_json::Value::Null)
+            .to_string()
+    })
+}
+
+/// Sets entity `name`'s blackboard `key` to the JSON `value`. Returns "" or
+/// what was wrong with the value, which the prelude throws. The snapshot
+/// changes at once, so `get` right after reads it; the component (added if
+/// the entity has none) follows when the command is applied.
+#[op2]
+#[string]
+pub fn bsengine_bt_set(
+    #[string] name: String,
+    #[string] key: String,
+    #[string] value: String,
+) -> String {
+    let parsed = serde_json::from_str::<serde_json::Value>(&value)
+        .map_err(|e| e.to_string())
+        .and_then(|v| bb_from_json(&v));
+    let value = match parsed {
+        Ok(v) => v,
+        Err(e) => return e,
+    };
+    BLACKBOARD_SNAPSHOT.with(|s| {
+        s.borrow_mut()
+            .entry(name.clone())
+            .or_default()
+            .set(key.clone(), value.clone())
+    });
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetBlackboard {
+            name,
+            key,
+            value: Some(value),
+        })
+    });
+    String::new()
+}
+
+/// Unsets entity `name`'s blackboard `key`.
+#[op2(fast)]
+pub fn bsengine_bt_clear(#[string] name: String, #[string] key: String) {
+    BLACKBOARD_SNAPSHOT.with(|s| {
+        if let Some(bb) = s.borrow_mut().get_mut(&name) {
+            bb.clear(&key);
+        }
+    });
+    COMMAND_BUFFER.with(|c| {
+        c.borrow_mut().push(ScriptCommand::SetBlackboard {
+            name,
+            key,
+            value: None,
+        })
+    });
+}
+
+/// A behaviour tree script task's answer: request `index`, and `status` --
+/// (a task no script registered gets no answer, which fails it) --
+/// "success", "failure" or "running" (anything else is a failure).
+#[op2(fast)]
+pub fn bsengine_bt_result(index: u32, #[string] status: String) {
+    use bsengine_core::BtStatus;
+    let status = match status.as_str() {
+        "success" => BtStatus::Success,
+        "running" => BtStatus::Running,
+        _ => BtStatus::Failure,
+    };
+    BT_RESULTS.with(|r| r.borrow_mut().push((index, status)));
 }
 
 /// The current locale, normalized (`ko`, `pt-BR`).
@@ -5355,6 +5496,10 @@ deno_core::extension!(
         bsengine_set_morph_weight,
         bsengine_get_morph_weights,
         bsengine_tr,
+        bsengine_bt_get,
+        bsengine_bt_set,
+        bsengine_bt_clear,
+        bsengine_bt_result,
         bsengine_set_locale,
         bsengine_get_locale,
         bsengine_get_locales,

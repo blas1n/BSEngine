@@ -19,15 +19,16 @@ use crate::ops::{
     render_asset_status, ScriptCommand, ACTION_BINDINGS_SNAPSHOT, ACTION_SNAPSHOT,
     AMBIENT_OCCLUSION_SNAPSHOT, ANGULAR_DAMPING_SNAPSHOT, ANGULAR_VELOCITY_SNAPSHOT,
     ANIMATION_EVENT_SNAPSHOT, ANIMATION_SNAPSHOT, ASM_STATE_SNAPSHOT, ASSET_STATUS_SNAPSHOT,
-    AUDIO_PARAM_SNAPSHOT, BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS, BUS_VOLUME_SNAPSHOT,
-    CHARACTER_GROUNDED_SNAPSHOT, CHILDREN_SNAPSHOT, COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT,
-    COMMAND_BUFFER, ENTITY_NAMES_SNAPSHOT, ENTITY_NAME_MAP, FOLLOW_SNAPSHOT, FRICTION_SNAPSHOT,
-    GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT, GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT,
-    GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT, GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT,
-    INCOMING_RPCS, KEY_JUST_PRESSED_SNAPSHOT, KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT,
-    LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT, LOCALIZATION_SNAPSHOT, LOOK_AT_SNAPSHOT,
-    MASS_SNAPSHOT, MATERIAL_COLOR_SNAPSHOT, MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT,
-    MATERIAL_ROUGHNESS_SNAPSHOT, MORPH_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
+    AUDIO_PARAM_SNAPSHOT, BLACKBOARD_SNAPSHOT, BLOOM_SNAPSHOT, BODY_TYPE_SNAPSHOT, BOOTSTRAP_JS,
+    BT_RESULTS, BUS_VOLUME_SNAPSHOT, CHARACTER_GROUNDED_SNAPSHOT, CHILDREN_SNAPSHOT,
+    COLLIDER_SENSOR_SNAPSHOT, COLLISION_SNAPSHOT, COMMAND_BUFFER, ENTITY_NAMES_SNAPSHOT,
+    ENTITY_NAME_MAP, FOLLOW_SNAPSHOT, FRICTION_SNAPSHOT, GAMEPAD_BUTTON_JUST_PRESSED_SNAPSHOT,
+    GAMEPAD_BUTTON_JUST_RELEASED_SNAPSHOT, GAMEPAD_BUTTON_SNAPSHOT, GAMEPAD_STICKS_SNAPSHOT,
+    GRAVITY_SCALE_SNAPSHOT, GRAVITY_SNAPSHOT, INCOMING_RPCS, KEY_JUST_PRESSED_SNAPSHOT,
+    KEY_JUST_RELEASED_SNAPSHOT, KEY_SNAPSHOT, LIFETIME_SNAPSHOT, LINEAR_DAMPING_SNAPSHOT,
+    LOCALIZATION_SNAPSHOT, LOOK_AT_SNAPSHOT, MASS_SNAPSHOT, MATERIAL_COLOR_SNAPSHOT,
+    MATERIAL_EMISSIVE_SNAPSHOT, MATERIAL_METALLIC_SNAPSHOT, MATERIAL_ROUGHNESS_SNAPSHOT,
+    MORPH_SNAPSHOT, MOUSE_DELTA_SNAPSHOT, MOUSE_JUST_PRESSED_SNAPSHOT,
     MOUSE_JUST_RELEASED_SNAPSHOT, MOUSE_POS_SNAPSHOT, MOUSE_PRESSED_SNAPSHOT, NAV_SNAPSHOT,
     NETWORK_ID_SNAPSHOT, NETWORK_STATE_SNAPSHOT, PARENT_SNAPSHOT, PAUSED_SNAPSHOT,
     PHYSICS_WORLD_PTR, PROJECT_DIR, REMOTE_INPUT, REMOTE_INPUT_PREVIOUS, RESTITUTION_SNAPSHOT,
@@ -385,7 +386,11 @@ impl Plugin for ScriptingPlugin {
                 .after(bsengine_core::AnimationSystems)
                 // And after the pose-side animation systems, so a script's
                 // morph weight or position is the frame's last word.
-                .after(bsengine_core::AnimationPoseSystems),
+                .after(bsengine_core::AnimationPoseSystems)
+                // And after the behaviour trees: the script tasks a tree asks
+                // for this frame are run this frame, and answered for its
+                // next tick.
+                .after(bsengine_core::BehaviorTreeSystems),
         );
     }
 }
@@ -936,6 +941,33 @@ fn run_scripts(world: &mut World) {
 
     let (scripted, collision_json) = collect_world_snapshots(world);
 
+    // The behaviour tree script tasks asked for this frame, drained while
+    // `&mut World` is at hand. Each is sent with its index; the answers come
+    // back by index and are filed under the request's entity and node.
+    let bt_requests: Vec<bsengine_core::BtScriptRequest> = world
+        .get_resource_mut::<bsengine_core::BtScriptQueue>()
+        .map(|mut q| std::mem::take(&mut q.requests))
+        .unwrap_or_default();
+    let bt_json = serde_json::to_string(
+        &bt_requests
+            .iter()
+            .enumerate()
+            .map(|(i, r)| {
+                let name = world
+                    .get::<Name>(r.entity)
+                    .map(|n| n.0.clone())
+                    .unwrap_or_default();
+                let (call, first) = match r.call {
+                    bsengine_core::BtScriptCall::Tick { first } => ("tick", first),
+                    bsengine_core::BtScriptCall::Abort => ("abort", false),
+                };
+                serde_json::json!({"i": i, "entity": name, "task": r.task, "call": call, "first": first})
+            })
+            .collect::<Vec<_>>(),
+    )
+    .unwrap_or_else(|_| "[]".to_string());
+    BT_RESULTS.with(|r| r.borrow_mut().clear());
+
     // Server corrections for predicted entities, taken before the V8 borrow
     // below because applying the authoritative transform needs `&mut World`.
     //
@@ -1040,6 +1072,16 @@ fn run_scripts(world: &mut World) {
             }
         }
 
+        // Behaviour tree script tasks, like the events before this frame's
+        // `onUpdate`s: a task and an `onUpdate` that share state see the
+        // task's writes.
+        if bt_json != "[]" {
+            let call = format!("Bsengine.bt._run({bt_json});");
+            if let Err(e) = rt.0.exec_source(&call, "<run_bt_tasks>") {
+                tracing::error!("[scripting] bt._run error: {e}");
+            }
+        }
+
         let entities_json = serde_json::to_string(&scripted).unwrap_or_else(|_| "[]".to_string());
         let call = format!("Bsengine._runAll({entities_json});");
         if let Err(e) = rt.0.exec_source(&call, "<run_scripts>") {
@@ -1049,6 +1091,16 @@ fn run_scripts(world: &mut World) {
 
     // Clear physics pointer — must happen after all V8 execution is complete.
     PHYSICS_WORLD_PTR.with(|p| *p.borrow_mut() = std::ptr::null());
+
+    // The script tasks' answers, filed for each tree's next tick.
+    let answers = BT_RESULTS.with(|r| std::mem::take(&mut *r.borrow_mut()));
+    if let Some(mut queue) = world.get_resource_mut::<bsengine_core::BtScriptQueue>() {
+        for (index, status) in answers {
+            if let Some(request) = bt_requests.get(index as usize) {
+                queue.results.insert((request.entity, request.node), status);
+            }
+        }
+    }
 
     let commands: Vec<ScriptCommand> = COMMAND_BUFFER.with(|c| c.borrow().clone());
     for cmd in commands {
@@ -2728,6 +2780,27 @@ fn run_scripts(world: &mut World) {
                     }
                 }
             }
+            ScriptCommand::SetBlackboard { name, key, value } => {
+                let entity = {
+                    let mut q = world.query::<(bevy_ecs::prelude::Entity, &Name)>();
+                    q.iter(world).find_map(|(e, n)| (n.0 == name).then_some(e))
+                };
+                if let Some(entity) = entity {
+                    match world.get_mut::<bsengine_core::Blackboard>(entity) {
+                        Some(mut bb) => match value {
+                            Some(v) => bb.set(key, v),
+                            None => bb.clear(&key),
+                        },
+                        None => {
+                            if let Some(v) = value {
+                                let mut bb = bsengine_core::Blackboard::default();
+                                bb.set(key, v);
+                                world.entity_mut(entity).insert(bb);
+                            }
+                        }
+                    }
+                }
+            }
             ScriptCommand::SetLocale { locale } => {
                 if let Some(mut l) = world.get_resource_mut::<bsengine_core::Localization>() {
                     l.set_locale(&locale);
@@ -3913,6 +3986,13 @@ fn collect_world_snapshots(world: &mut World) -> (Vec<(String, String)>, String)
         .cloned()
         .unwrap_or_default();
     LOCALIZATION_SNAPSHOT.with(|s| *s.borrow_mut() = localization);
+    let blackboards: HashMap<String, bsengine_core::Blackboard> = {
+        let mut q = world.query::<(&Name, &bsengine_core::Blackboard)>();
+        q.iter(world)
+            .map(|(n, bb)| (n.0.clone(), bb.clone()))
+            .collect()
+    };
+    BLACKBOARD_SNAPSHOT.with(|s| *s.borrow_mut() = blackboards);
     {
         use kira::sound::PlaybackState;
         let mut states = std::collections::HashMap::new();
@@ -7781,6 +7861,219 @@ mod tests {
                 .locale(),
             "ko-KR",
             "and the resource keeps the switch for every script from the next frame"
+        );
+    }
+
+    /// An app with the real behaviour tree plugin and scripting, a "Guard"
+    /// running the tree in `tree_ron` with the script in `script_js`.
+    fn bt_app(
+        tag: &str,
+        tree_ron: &str,
+        script_js: &str,
+    ) -> (
+        bevy_app::App,
+        bevy_ecs::entity::Entity,
+        Vec<std::path::PathBuf>,
+    ) {
+        let dir = std::env::temp_dir();
+        let tree_path = dir.join(format!(
+            "bsengine_bt_script_{tag}_{}.bt.ron",
+            std::process::id()
+        ));
+        let script_path = dir.join(format!(
+            "bsengine_bt_script_{tag}_{}.js",
+            std::process::id()
+        ));
+        std::fs::write(&tree_path, tree_ron).unwrap();
+        std::fs::write(&script_path, script_js).unwrap();
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(bsengine_app::BehaviorTreePlugin);
+        app.add_plugins(ScriptingPlugin {
+            project_dir: String::new(),
+        });
+        let guard = app
+            .world_mut()
+            .spawn((
+                Name("Guard".to_string()),
+                ScriptPath(script_path.to_string_lossy().to_string()),
+                Transform::default(),
+                bsengine_core::Blackboard::default(),
+                bsengine_core::BehaviorTree {
+                    tree: tree_path.to_string_lossy().to_string(),
+                    ..Default::default()
+                },
+            ))
+            .id();
+        (app, guard, vec![tree_path, script_path])
+    }
+
+    fn bb_value(
+        app: &bevy_app::App,
+        e: bevy_ecs::entity::Entity,
+        key: &str,
+    ) -> Option<bsengine_core::BbValue> {
+        app.world()
+            .get::<bsengine_core::Blackboard>(e)
+            .and_then(|bb| bb.get(key).cloned())
+    }
+
+    /// A script task through the real tree and scripting: the tree's
+    /// `Script(task: "count")` calls the registered function once a frame --
+    /// `first` only on the first call -- which counts in the blackboard
+    /// through its `bb` handle and says "running" until the third call, then
+    /// "success", and only then does the tree move on to the SetValue after
+    /// it.
+    #[test]
+    fn a_tree_runs_a_script_task_until_it_says_done() {
+        use bsengine_core::BbValue;
+        let (mut app, guard, files) = bt_app(
+            "count",
+            r#"(root: Sequence([Script(task: "count"), SetValue(key: "done", value: Bool(true)), Wait(seconds: 100.0)]))"#,
+            "Bsengine.bt.task(\"count\", (self, bb, first) => {\n\
+                 const n = (bb.get(\"n\") || 0) + 1;\n\
+                 bb.set(\"n\", n);\n\
+                 if (first) bb.set(\"firsts\", (bb.get(\"firsts\") || 0) + 1);\n\
+                 bb.set(\"who\", self);\n\
+                 return n >= 3 ? \"success\" : \"running\";\n\
+             });\n\
+             function onUpdate(name) {}",
+        );
+        let mut frames = 0;
+        while bb_value(&app, guard, "done").is_none() {
+            app.update();
+            frames += 1;
+            assert!(frames < 300, "the tree never finished the task");
+        }
+        for _ in 0..3 {
+            app.update();
+        }
+        for f in files {
+            let _ = std::fs::remove_file(f);
+        }
+        assert_eq!(
+            bb_value(&app, guard, "n"),
+            Some(BbValue::Int(3)),
+            "called three times, then done"
+        );
+        assert_eq!(
+            bb_value(&app, guard, "firsts"),
+            Some(BbValue::Int(1)),
+            "first on the first call only"
+        );
+        assert_eq!(
+            bb_value(&app, guard, "who"),
+            Some(BbValue::Str("Guard".into()))
+        );
+    }
+
+    /// The blackboard from a plain `onUpdate`: a vector, an entity reference
+    /// and a number set by name, read back at once (the vector as a Vec3
+    /// with its methods), and in the component for the tree -- here a
+    /// Condition that the script's write opens. And the other way: a value
+    /// the entity's blackboard started with, which no script wrote, is
+    /// readable from the script.
+    #[test]
+    fn scripts_read_and_write_a_blackboard_the_tree_reads() {
+        use bsengine_core::BbValue;
+        let (mut app, guard, files) = bt_app(
+            "blackboard",
+            r#"(root: Condition(key: "go", op: GreaterOrEqual, value: Some(Float(2.0)), child: SetValue(key: "opened", value: Bool(true))))"#,
+            "let done = false;\n\
+             function onUpdate(name) {\n\
+                 if (done) return;\n\
+                 done = true;\n\
+                 Bsengine.bt.set(\"Guard\", \"post\", {x: 1, y: 2, z: 3});\n\
+                 Bsengine.bt.set(\"Guard\", \"enemy\", Bsengine.bt.entity(\"Player\"));\n\
+                 Bsengine.bt.set(\"Guard\", \"go\", 2.5);\n\
+                 const p = Bsengine.bt.get(\"Guard\", \"post\");\n\
+                 let err = \"\";\n\
+                 try { Bsengine.bt.set(\"Guard\", \"bad\", [1, 2]); } catch (e) { err = e.message; }\n\
+                 Bsengine.setHudText(\"bb\", [p.add(p).x, Bsengine.bt.get(\"Guard\", \"enemy\").entity,\n\
+                     Bsengine.bt.get(\"Guard\", \"go\"), Bsengine.bt.get(\"Guard\", \"nothing\"), err.length > 0,\n\
+                     Bsengine.bt.get(\"Guard\", \"start\")].join(\"|\"));\n\
+             }",
+        );
+        app.world_mut()
+            .get_mut::<bsengine_core::Blackboard>(guard)
+            .unwrap()
+            .set("start", BbValue::Int(7));
+        let mut frames = 0;
+        while bb_value(&app, guard, "opened").is_none() {
+            app.update();
+            frames += 1;
+            assert!(frames < 300, "the tree never saw the script's write");
+        }
+        for f in files {
+            let _ = std::fs::remove_file(f);
+        }
+        assert_eq!(
+            app.world().resource::<HudTexts>().0["bb"],
+            "2|Player|2.5||true|7",
+            "read back at once, as a Vec3; an unset key is null; a bad value throws"
+        );
+        assert_eq!(
+            bb_value(&app, guard, "post"),
+            Some(BbValue::Vec3(Vec3::new(1.0, 2.0, 3.0).into()))
+        );
+        assert_eq!(
+            bb_value(&app, guard, "enemy"),
+            Some(BbValue::Entity("Player".into()))
+        );
+        assert_eq!(bb_value(&app, guard, "go"), Some(BbValue::Float(2.5)));
+    }
+
+    /// A running script task the tree aborts has its `onAbort` called: the
+    /// script opens a higher-priority branch after a few frames of patrol.
+    /// And a task no script registered fails the tree rather than hanging.
+    #[test]
+    fn an_aborted_script_task_hears_about_it_and_an_unknown_one_fails() {
+        use bsengine_core::BbValue;
+        let (mut app, guard, files) = bt_app(
+            "abort",
+            r#"(root: Selector([
+                Condition(key: "alarm", op: IsSet, abort: LowerPriority, child: Sequence([Script(task: "nobody"), Wait(seconds: 100.0)])),
+                Script(task: "patrol"),
+            ]))"#,
+            "let frames = 0;\n\
+             Bsengine.bt.task(\"patrol\", () => \"running\", (self, bb) => bb.set(\"aborted\", true));\n\
+             function onUpdate(name) {\n\
+                 frames += 1;\n\
+                 if (frames === 5) Bsengine.bt.set(\"Guard\", \"alarm\", true);\n\
+             }",
+        );
+        for _ in 0..4 {
+            app.update();
+        }
+        assert_eq!(
+            bb_value(&app, guard, "aborted"),
+            None,
+            "premise: patrolling, not aborted"
+        );
+        let mut frames = 0;
+        while bb_value(&app, guard, "aborted").is_none() {
+            app.update();
+            frames += 1;
+            assert!(frames < 100, "the patrol was never told it was aborted");
+        }
+        for _ in 0..5 {
+            app.update();
+        }
+        for f in files {
+            let _ = std::fs::remove_file(f);
+        }
+        assert_eq!(bb_value(&app, guard, "aborted"), Some(BbValue::Bool(true)));
+        // The alarm branch's first task is registered by nobody: it fails,
+        // the Selector falls through to the patrol again.
+        let tree = app
+            .world()
+            .get::<bsengine_core::BehaviorTree>(guard)
+            .unwrap();
+        let path = tree.runtime.as_ref().unwrap().1.running_path();
+        assert_eq!(
+            path,
+            vec!["Selector", "Script"],
+            "back on patrol after the unknown task failed"
         );
     }
 }

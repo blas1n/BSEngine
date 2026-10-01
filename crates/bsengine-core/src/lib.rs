@@ -164,7 +164,8 @@ pub use animation_state_machine::{
     BlendTree2D, TransitionCondition,
 };
 pub use behavior_tree::{
-    BbValue, BehaviorTree, BehaviorTreeAsset, BehaviorTreeSystems, Blackboard, BtNode, BtStatus,
+    BbValue, BehaviorTree, BehaviorTreeAsset, BehaviorTreeSystems, Blackboard, BtNode,
+    BtScriptCall, BtScriptQueue, BtScriptRequest, BtStatus,
 };
 pub use bloom::Bloom;
 pub use camera::Camera;

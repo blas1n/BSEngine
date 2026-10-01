@@ -101,9 +101,15 @@ pub const REFLECT_JS: &str = r#"
       else if (c === ',' && d === 0) { parts.push(inner.slice(start, i)); start = i + 1; }
     }
     parts.push(inner.slice(start));
+    // A parameter with a default keeps a trailing `?`: the caller may leave
+    // it out, which is what the typings must say -- `onAbort = null` typed
+    // as required would reject the common call that omits it.
     return parts
-      .map((p) => p.split('=')[0].trim())
-      .filter((p) => p.length > 0);
+      .map((p) => {
+        const eq = p.indexOf('=');
+        return eq < 0 ? p.trim() : p.slice(0, eq).trim() + '?';
+      })
+      .filter((p) => p.length > 0 && p !== '?');
   };
   const opsOf = (fn) => {
     const src = Function.prototype.toString.call(fn);
@@ -379,9 +385,16 @@ pub fn render(exports: &[Exported], ops: &BTreeMap<String, OpSig>) -> String {
                     // confidently wrong type, which is worse than `unknown`
                     // because an author would believe it.
                     let _ = i;
+                    // A default marks the parameter optional (see `paramsOf`).
+                    let (p, optional) = match p.strip_suffix('?') {
+                        Some(name) => (name, true),
+                        None => (p.as_str(), false),
+                    };
                     let ty = param_type(e, p, ops);
                     if ty.is_empty() {
                         format!("{p}{OPTIONS_TYPE}")
+                    } else if optional {
+                        format!("{p}?: {ty}")
                     } else {
                         format!("{p}: {ty}")
                     }

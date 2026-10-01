@@ -460,3 +460,85 @@ fn taa_follows_a_moving_object_to_its_own_history() {
          does: error {e_moving}, camera-only {e_camera}"
     );
 }
+
+/// The fixture with the square drawn either by the mesh pipeline or by a
+/// custom shader of the same colour, the camera looking at `look_x`.
+fn regular_or_custom(h: &mut Harness, cube: u64, custom: bool, look_x: f32) -> Scene {
+    let shader = h.constant_colour_shader([0.0, 0.8, 0.0], "mv_fallback");
+    let square = if custom {
+        square_at(cube, 0.0).shader(&shader)
+    } else {
+        square_at(cube, 0.0)
+    };
+    Scene {
+        look_at: Vec3::new(look_x, 0.0, 0.0),
+        ..scene(vec![backdrop(cube), square])
+    }
+}
+
+/// The square drawn by a custom shader writes no velocity, and the regular
+/// one, identical on screen, writes zero. Both are still, so the camera
+/// reprojection TAA falls back to for the first is exactly the history the
+/// velocity finds for the second: converged, the two frames are the same.
+/// Without the fallback the custom square would get no history at all.
+#[test]
+fn taa_reprojects_by_the_camera_where_no_velocity_was_written() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let regular = regular_or_custom(&mut h, cube, false, 0.0);
+    let custom = regular_or_custom(&mut h, cube, true, 0.0);
+    let single = h.render(&regular);
+    assert!(
+        !h.render(&custom).differs_from(&single),
+        "premise: the two squares look the same"
+    );
+    let taa = |s: Scene| Scene {
+        taa: Some(bsengine_core::Taa::default()),
+        ..s
+    };
+    let converged_regular = h.render_converged(&taa(regular), 16);
+    let converged_custom = h.render_converged(&taa(custom), 16);
+    assert!(
+        converged_regular.max_channel_diff(&single) > 20,
+        "premise: TAA visibly smooths the edges"
+    );
+    assert!(
+        converged_custom.max_channel_diff(&converged_regular) <= 2,
+        "the custom-shaded square converges as the regular one does: {}",
+        converged_custom.describe()
+    );
+}
+
+/// Motion blur likewise: under a turning camera the custom-shaded square,
+/// with no velocity, streaks by the camera reprojection exactly as far as
+/// the regular one does by its velocity.
+#[test]
+fn motion_blur_reprojects_by_the_camera_where_no_velocity_was_written() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let blur = |s: Scene| Scene {
+        motion_blur: Some(MotionBlur {
+            intensity: 1.0,
+            max_blur: 1.0,
+            ..MotionBlur::default()
+        }),
+        ..s
+    };
+    let mut streak = |custom: bool| {
+        let from = blur(regular_or_custom(&mut h, cube, custom, 0.0));
+        let to = blur(regular_or_custom(&mut h, cube, custom, 0.5));
+        h.render_moving(&from, &to)
+    };
+    let regular = streak(false);
+    let custom = streak(true);
+    let y = HEIGHT / 2;
+    assert!(
+        longest_mixed_run((0..WIDTH).map(|x| regular.at(x, y))) >= 3,
+        "premise: the turn streaks the regular square"
+    );
+    assert!(
+        custom.max_channel_diff(&regular) <= 2,
+        "the custom-shaded square streaks as the regular one does: {}",
+        custom.describe()
+    );
+}

@@ -262,9 +262,10 @@ fn tick_behavior_trees(world: &mut World) {
         } else if !blackboard.values.is_empty() {
             world.entity_mut(entity).insert(blackboard);
         }
+        // Empty once disabled without asking: the abort above reset every
+        // node, so nothing is running.
         let active_path = runtime
             .as_ref()
-            .filter(|_| tree.enabled)
             .map(|(_, rt)| rt.running_path())
             .unwrap_or_default();
         if let Some(mut component) = world.get_mut::<BehaviorTree>(entity) {

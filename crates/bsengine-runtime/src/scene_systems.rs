@@ -197,6 +197,14 @@ pub struct RenderSection {
     /// textures smaller than the screen asks for, to save memory.
     #[serde(default = "default_texture_mip_bias")]
     pub texture_mip_bias: i32,
+    /// MSAA samples for the scene's geometry: 1 is off, anything above asks
+    /// for the renderer's 4x.
+    #[serde(default = "default_msaa")]
+    pub msaa: u32,
+}
+
+fn default_msaa() -> u32 {
+    1
 }
 
 fn default_shadow_distance() -> f32 {
@@ -232,6 +240,7 @@ impl Default for RenderSection {
             shadow_cascade_blend: default_cascade_blend(),
             texture_streaming_budget_mb: default_texture_streaming_budget_mb(),
             texture_mip_bias: default_texture_mip_bias(),
+            msaa: default_msaa(),
         }
     }
 }

@@ -48,63 +48,68 @@ fn a_terrain_draw_call_does_not_panic_alongside_regular_draw_calls() {
         bsengine_core::shadow_config::DEFAULT_CASCADES,
         bsengine_core::shadow_config::DEFAULT_CASCADE_BLEND,
     );
-    let result = surface.render_frame(
-        Mat4::IDENTITY,
-        Vec3::new(0.0, 0.0, 5.0),
-        &cascades,
-        None,
-        &[],
-        &terrain_draw_calls,
-        &[],
-        0,
-        &registry,
-        LightData::default(),
-        Some(&textures),
-        &std::collections::HashMap::new(),
-        &ui_state,
-        &ui_textures,
-        0.0,
-        0.0,
-        false,
-        false,
-        Mat4::IDENTITY,
-        None,
-        None,
-        None,
-        None,
-        None,
-        &[],
-        false,
-        false,
-        false,
-        None,
-        None,
-        0.0,
-        &[],
-        // No `Taa`, no jitter: this test only checks that a terrain draw call
-        // records without a validation error.
-        None,
-        (0.0, 0.0),
-        0,
-        Mat4::IDENTITY,
-        // No probe volume either; terrain chunks are not captured into probes.
-        None,
-        // Nor any reflection probe.
-        &[],
-        // No fog, so the apply pass stays a passthrough.
-        None,
-        // No colour grade either.
-        None,
-        // Nor depth of field.
-        None,
-        // Nor motion blur.
-        None,
-        // Nor FXAA.
-        None,
-    );
+    // Twice: without MSAA and with it -- the terrain pipeline has a
+    // multisampled variant, and this is the one test that draws terrain.
+    for samples in [1, 4] {
+        surface.set_msaa(samples);
+        let result = surface.render_frame(
+            Mat4::IDENTITY,
+            Vec3::new(0.0, 0.0, 5.0),
+            &cascades,
+            None,
+            &[],
+            &terrain_draw_calls,
+            &[],
+            0,
+            &registry,
+            LightData::default(),
+            Some(&textures),
+            &std::collections::HashMap::new(),
+            &ui_state,
+            &ui_textures,
+            0.0,
+            0.0,
+            false,
+            false,
+            Mat4::IDENTITY,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &[],
+            false,
+            false,
+            false,
+            None,
+            None,
+            0.0,
+            &[],
+            // No `Taa`, no jitter: this test only checks that a terrain draw call
+            // records without a validation error.
+            None,
+            (0.0, 0.0),
+            0,
+            Mat4::IDENTITY,
+            // No probe volume either; terrain chunks are not captured into probes.
+            None,
+            // Nor any reflection probe.
+            &[],
+            // No fog, so the apply pass stays a passthrough.
+            None,
+            // No colour grade either.
+            None,
+            // Nor depth of field.
+            None,
+            // Nor motion blur.
+            None,
+            // Nor FXAA.
+            None,
+        );
 
-    assert!(
-        result.is_ok(),
-        "render_frame with a terrain draw call should succeed, got {result:?}"
-    );
+        assert!(
+            result.is_ok(),
+            "render_frame with a terrain draw call should succeed at {samples}x, got {result:?}"
+        );
+    }
 }

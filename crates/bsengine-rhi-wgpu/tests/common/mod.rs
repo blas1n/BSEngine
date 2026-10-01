@@ -39,6 +39,9 @@ pub struct Draw {
     pub roughness: f32,
     pub opacity: f32,
     pub custom_shader: Option<String>,
+    /// Where the object was last frame, for the velocity output; `None`
+    /// means it did not move.
+    pub previous: Option<Mat4>,
 }
 
 impl Draw {
@@ -53,6 +56,7 @@ impl Draw {
             roughness: 0.5,
             opacity: 1.0,
             custom_shader: None,
+            previous: None,
         }
     }
 
@@ -78,6 +82,13 @@ impl Draw {
     /// it useless as a fixture for anything about edge quality. Turning it a
     /// few degrees puts the silhouette across the pixel grid at an angle,
     /// which is where aliasing actually lives.
+    /// Says the object stood at `previous` last frame: its velocity this
+    /// frame is the move from there to where it is now.
+    pub fn moved_from(mut self, previous: Mat4) -> Self {
+        self.previous = Some(previous);
+        self
+    }
+
     pub fn rotated_z(mut self, radians: f32) -> Self {
         let (scale, _, translation) = self.transform.to_scale_rotation_translation();
         self.transform = Mat4::from_scale_rotation_translation(
@@ -680,6 +691,32 @@ struct VertOut {{
         self.render_frame_at(to, 0, 0.0)
     }
 
+    /// Consecutive frames, one per scene, returning the last: a cut, then
+    /// each frame continuing from the one before -- TAA accumulating and the
+    /// frame counter advancing as in a running game. What
+    /// [`Self::render_converged`] is for a still scene, this is for one in
+    /// which something moves.
+    pub fn render_sequence(&mut self, scenes: &[Scene]) -> Pixels {
+        assert!(
+            !scenes.is_empty(),
+            "render_sequence needs at least one frame"
+        );
+        self.surface.invalidate_taa_history();
+        let mut last = None;
+        for (i, scene) in scenes.iter().enumerate() {
+            last = Some(self.render_frame_at(scene, i as u32, 0.0));
+        }
+        last.expect("at least one frame")
+    }
+
+    /// The last frame's velocity buffer, row by row from the top: each
+    /// pixel's screen motion since the frame before, in uv units (x right,
+    /// y down), or 65504 where nothing wrote one. See
+    /// `WgpuSurface::read_velocity`.
+    pub fn velocity(&self) -> Vec<[f32; 2]> {
+        self.surface.read_velocity()
+    }
+
     /// One fresh frame with `camera.time` set to `seconds`.
     ///
     /// [`Self::render`] renders at time zero, which is what makes it
@@ -764,6 +801,13 @@ struct VertOut {{
                     d.custom_shader.clone(),
                 )
             })
+            .collect();
+
+        // Where each draw was last frame; one that says nothing did not move.
+        let prev_models: Vec<Mat4> = scene
+            .draws
+            .iter()
+            .map(|d| d.previous.unwrap_or(d.transform))
             .collect();
 
         let sky_vp_inv = if scene.with_skybox {
@@ -860,6 +904,7 @@ struct VertOut {{
                 scene.fxaa,
                 // `None` skips SMAA's passes.
                 scene.smaa,
+                &prev_models,
             )
             .expect("render_frame failed");
 

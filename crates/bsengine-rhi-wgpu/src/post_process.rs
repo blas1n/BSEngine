@@ -9,6 +9,28 @@ const BLOOM_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 /// over the dozens of steps a march takes. Roughness rides in the alpha
 /// channel, which is why this is four components and not two.
 pub const NORMAL_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+
+/// Format of the velocity buffer: how far each pixel's surface moved on
+/// screen since last frame, in uv units, written by the opaque pass.
+///
+/// Half floats, as Unity's and Unreal's velocity buffers are: a velocity is
+/// a small signed fraction of the screen, which 8-bit unorm would round to
+/// whole pixels at best. Two channels, because a screen motion is two
+/// numbers.
+pub const VELOCITY_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rg16Float;
+
+/// The velocity buffer's clear value: "nothing here wrote a velocity" --
+/// the sky, terrain, custom shaders, the far side of a translucent pane.
+/// The post passes reproject such a pixel by depth and the camera, as they
+/// did every pixel before velocities existed. The largest half float, so no
+/// real screen motion (a fraction of a screen) can be mistaken for it; the
+/// shaders test against 1000.
+pub const VELOCITY_NONE: wgpu::Color = wgpu::Color {
+    r: 65504.0,
+    g: 65504.0,
+    b: 0.0,
+    a: 0.0,
+};
 const AO_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 const CONFIG_SIZE: u64 = 96;
 const SSAO_CAM_SIZE: u64 = 128;
@@ -1337,15 +1359,17 @@ fn fs_dof(in: FullscreenOut) -> @location(0) vec4<f32> {
 }
 "#;
 
-/// Camera motion blur: each pixel averaged along the screen path its surface
-/// took since the previous frame (see `MotionBlur`).
+/// Motion blur: each pixel averaged along the screen path its surface took
+/// since the previous frame (see `MotionBlur`).
 ///
-/// The path is found by reprojection, the way the TAA resolve finds its
+/// The path is the velocity the opaque pass wrote -- the surface's own
+/// motion and the camera's together, so a moving object streaks while the
+/// camera holds still. Where nothing wrote one (the sky, terrain, custom
+/// shaders) it is found by reprojection, the way the TAA resolve finds its
 /// history: the pixel's depth, through this frame's inverse view-projection,
 /// gives a world position, and last frame's view-projection says where that
 /// position was on screen then. Both matrices are the unjittered pair TAA
-/// already uploads. What moved on its own is not in the depth-and-camera
-/// reprojection, so only the camera's motion blurs -- Unity URP's model.
+/// already uploads.
 ///
 /// The streak is centred on the pixel, scaled by `intensity`, clamped to
 /// `max_blur` of the screen's width, and averaged over `samples` equally
@@ -1367,6 +1391,7 @@ struct MotionBlur {
 @group(0) @binding(0) var hdr_tex: texture_2d<f32>;
 @group(0) @binding(1) var hdr_sampler: sampler;
 @group(1) @binding(0) var depth_tex: texture_depth_2d;
+@group(1) @binding(1) var velocity_tex: texture_2d<f32>;
 // Binding 1 of the TAA resolve's uniform group; binding 0 (the shared config)
 // is in the layout but this shader has no use for it.
 @group(2) @binding(1) var<uniform> cam: TaaCamera;
@@ -1393,17 +1418,23 @@ fn fs_motion_blur(in: FullscreenOut) -> @location(0) vec4<f32> {
     let dims = vec2<f32>(textureDimensions(hdr_tex, 0));
     let ddims = vec2<i32>(textureDimensions(depth_tex, 0));
     let coord = clamp(vec2<i32>(in.uv * vec2<f32>(ddims)), vec2<i32>(0), ddims - vec2<i32>(1));
-    let d = textureLoad(depth_tex, coord, 0);
-    let ndc = vec4<f32>(in.uv.x * 2.0 - 1.0, (1.0 - in.uv.y) * 2.0 - 1.0, d, 1.0);
-    let world_h = cam.inv_view_proj * ndc;
-    let world = world_h.xyz / world_h.w;
-    let prev = cam.prev_view_proj * vec4<f32>(world, 1.0);
-    // Behind last frame's camera: there is no screen position to streak from.
-    if prev.w <= 1e-5 {
-        return centre;
+    // The surface's own screen motion where the opaque pass wrote one;
+    // elsewhere the camera's, from the depth.
+    var motion = textureLoad(velocity_tex, coord, 0).xy;
+    if motion.x > 1000.0 {
+        let d = textureLoad(depth_tex, coord, 0);
+        let ndc = vec4<f32>(in.uv.x * 2.0 - 1.0, (1.0 - in.uv.y) * 2.0 - 1.0, d, 1.0);
+        let world_h = cam.inv_view_proj * ndc;
+        let world = world_h.xyz / world_h.w;
+        let prev = cam.prev_view_proj * vec4<f32>(world, 1.0);
+        // Behind last frame's camera: there is no screen position to streak from.
+        if prev.w <= 1e-5 {
+            return centre;
+        }
+        let prev_uv = vec2<f32>(prev.x / prev.w * 0.5 + 0.5, 0.5 - prev.y / prev.w * 0.5);
+        motion = in.uv - prev_uv;
     }
-    let prev_uv = vec2<f32>(prev.x / prev.w * 0.5 + 0.5, 0.5 - prev.y / prev.w * 0.5);
-    var blur = (in.uv - prev_uv) * mb.intensity;
+    var blur = motion * mb.intensity;
     // The clamp is in pixels, against the width, so a streak is limited to
     // the same share of the screen whatever its direction.
     let len_px = length(blur * dims);
@@ -1632,6 +1663,7 @@ struct TaaCamera {
 @group(1) @binding(0) var history_tex: texture_2d<f32>;
 @group(1) @binding(1) var history_sampler: sampler;
 @group(2) @binding(0) var depth_tex: texture_depth_2d;
+@group(2) @binding(1) var velocity_tex: texture_2d<f32>;
 // Both uniforms share group 3: four groups is the WebGPU baseline
 // `max_bind_groups`, and LDR/history/depth already take three.
 @group(3) @binding(0) var<uniform> config: PostProcessConfig;
@@ -1704,17 +1736,26 @@ fn fs_taa(in: FullscreenOut) -> TaaOut {
         return taa_out(current);
     }
 
-    // Pixel + depth -> world position -> where it was last frame.
-    let ndc = vec4<f32>(in.uv.x * 2.0 - 1.0, 1.0 - in.uv.y * 2.0, depth, 1.0);
-    let world_h = cam.inv_view_proj * ndc;
-    let world = world_h.xyz / world_h.w;
-    let prev_clip = cam.prev_view_proj * vec4<f32>(world, 1.0);
-    // Behind the eye last frame: there is no previous-frame pixel to find.
-    if prev_clip.w <= 0.0 {
-        return taa_out(current);
+    // Where this surface was last frame. Wherever an opaque mesh covers the
+    // pixel, it wrote its velocity -- its own motion and the camera's --
+    // and a moving object finds its own history. Elsewhere (no velocity:
+    // see `VELOCITY_NONE`) the depth and the two cameras say, which is exact
+    // for anything that did not move.
+    let velocity = textureLoad(velocity_tex, coord, 0).xy;
+    var prev_uv = in.uv - velocity;
+    if velocity.x > 1000.0 {
+        // Pixel + depth -> world position -> where it was last frame.
+        let ndc = vec4<f32>(in.uv.x * 2.0 - 1.0, 1.0 - in.uv.y * 2.0, depth, 1.0);
+        let world_h = cam.inv_view_proj * ndc;
+        let world = world_h.xyz / world_h.w;
+        let prev_clip = cam.prev_view_proj * vec4<f32>(world, 1.0);
+        // Behind the eye last frame: there is no previous-frame pixel to find.
+        if prev_clip.w <= 0.0 {
+            return taa_out(current);
+        }
+        let prev_ndc = prev_clip.xyz / prev_clip.w;
+        prev_uv = vec2<f32>(prev_ndc.x * 0.5 + 0.5, 0.5 - prev_ndc.y * 0.5);
     }
-    let prev_ndc = prev_clip.xyz / prev_clip.w;
-    let prev_uv = vec2<f32>(prev_ndc.x * 0.5 + 0.5, 0.5 - prev_ndc.y * 0.5);
 
     // History from outside the previous frame simply does not exist.
     if prev_uv.x < 0.0 || prev_uv.x > 1.0 || prev_uv.y < 0.0 || prev_uv.y > 1.0 {
@@ -1727,9 +1768,10 @@ fn fs_taa(in: FullscreenOut) -> TaaOut {
     // level 0 is the only level either call could have read.
     let history = textureSampleLevel(history_tex, history_sampler, prev_uv, 0.0).rgb;
 
-    // Clamp history into the local range. This is what stops a moving
-    // object -- which this version reprojects incorrectly, by design --
-    // from smearing across the frame.
+    // Clamp history into the local range. This is what stops whatever the
+    // reprojection still gets wrong -- a surface just uncovered, which has
+    // no history of its own, or an object with no velocity (a custom
+    // shader) that moved -- from smearing across the frame.
     let centre = (lo + hi) * 0.5;
     let extent = (hi - lo) * 0.5 * config.taa_clamp_strength;
     let clamped = clamp(history, centre - extent, centre + extent);
@@ -2036,6 +2078,10 @@ struct PostProcessTargets {
     normal_texture: crate::profiler::TrackedTexture,
     normal_view: wgpu::TextureView,
     normal_bg: wgpu::BindGroup,
+    /// Each pixel's screen motion since last frame (see [`VELOCITY_FORMAT`]),
+    /// written by the opaque pass, read through `depth_bg`.
+    velocity_texture: crate::profiler::TrackedTexture,
+    velocity_view: wgpu::TextureView,
     /// Where the reflection pass writes, before it is composited into the
     /// scene. A pass may not sample the texture it renders to, which is the
     /// same reason the fog pass has a target of its own.
@@ -2117,6 +2163,10 @@ pub struct PostProcessState {
     pub normal_view: wgpu::TextureView,
     _normal_texture: crate::profiler::TrackedTexture,
     normal_bg: wgpu::BindGroup,
+    /// Each pixel's screen motion since last frame (see [`VELOCITY_FORMAT`]).
+    /// Public for the same reason as `normal_view`: the main pass fills it.
+    pub velocity_view: wgpu::TextureView,
+    _velocity_texture: crate::profiler::TrackedTexture,
     /// Where the reflection pass writes before it is composited in. A pass may
     /// not sample the texture it renders to, which is the same reason the fog
     /// pass has a target of its own.
@@ -2311,16 +2361,33 @@ impl PostProcessState {
 
         let depth_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("pp depth bgl"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Depth,
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: false,
+            // The velocity rides with the depth: the two passes that read it
+            // (TAA and motion blur) already use all four bind groups WebGPU
+            // guarantees, and they read the depth anyway, as the fallback
+            // for pixels with no velocity. Shaders that only want the depth
+            // simply do not declare binding 1.
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+            ],
         });
 
         let config_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -3011,6 +3078,8 @@ impl PostProcessState {
             normal_view: targets.normal_view,
             _normal_texture: targets.normal_texture,
             normal_bg: targets.normal_bg,
+            velocity_view: targets.velocity_view,
+            _velocity_texture: targets.velocity_texture,
             ssr_view: targets.ssr_view,
             _ssr_texture: targets.ssr_texture,
             ssr_bg: targets.ssr_bg,
@@ -3112,6 +3181,28 @@ impl PostProcessState {
         let ao_view = ao_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let normal_texture = make_tex("pp normal", NORMAL_FORMAT);
         let normal_view = normal_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        // Copyable as well, for `WgpuSurface::read_velocity`: the post passes
+        // are its only readers, so a test has no other way to see it.
+        let velocity_texture = crate::profiler::create_tracked_texture(
+            device,
+            &wgpu::TextureDescriptor {
+                label: Some("pp velocity"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: VELOCITY_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[],
+            },
+        );
+        let velocity_view = velocity_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let ssr_texture = make_tex("pp ssr", HDR_FORMAT);
         let ssr_view = ssr_texture.create_view(&wgpu::TextureViewDescriptor::default());
         // `surface_format`, not HDR_FORMAT: this holds the already-tonemapped
@@ -3168,10 +3259,16 @@ impl PostProcessState {
         let depth_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("pp depth bg"),
             layout: depth_bgl,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(depth_view),
-            }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(depth_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&velocity_view),
+                },
+            ],
         });
 
         PostProcessTargets {
@@ -3190,6 +3287,8 @@ impl PostProcessState {
             normal_texture,
             normal_view,
             normal_bg,
+            velocity_texture,
+            velocity_view,
             ssr_texture,
             ssr_view,
             ssr_bg,
@@ -3748,6 +3847,8 @@ impl PostProcessState {
         self.normal_view = t.normal_view;
         self._normal_texture = t.normal_texture;
         self.normal_bg = t.normal_bg;
+        self.velocity_view = t.velocity_view;
+        self._velocity_texture = t.velocity_texture;
         self.ssr_view = t.ssr_view;
         self._ssr_texture = t.ssr_texture;
         self.ssr_bg = t.ssr_bg;
@@ -3902,6 +4003,11 @@ impl PostProcessState {
             &self.tex2d_bgl,
             &self.sampler,
         );
+    }
+
+    /// The velocity buffer's texture, for `WgpuSurface::read_velocity`.
+    pub(crate) fn velocity_texture(&self) -> &wgpu::Texture {
+        &self._velocity_texture
     }
 
     /// Whether this frame's SMAA passes will run (before `fast_render`, which

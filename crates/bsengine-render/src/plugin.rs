@@ -551,6 +551,7 @@ fn render_frame(
             Option<&bsengine_core::Smaa>,
         )>,
         Query<(
+            Entity,
             &MeshRenderer,
             &Transform,
             Option<&GlobalTransform>,
@@ -614,7 +615,7 @@ fn render_frame(
         mut occlusion_buf,
         mut taa_frame_index,
         probe_volumes,
-        (shadow_settings, msaa_settings),
+        (shadow_settings, msaa_settings, mut prev_models_by_entity),
         decal_query,
         reflection_probe_query,
     ): (
@@ -629,6 +630,13 @@ fn render_frame(
         (
             Option<Res<bsengine_core::ShadowSettings>>,
             Option<Res<bsengine_core::MsaaSettings>>,
+            // Each mesh entity's model matrix last frame, for the velocity
+            // output: what moved since then streaks under motion blur and
+            // keeps its own TAA history. A `Local` -- nothing outside this
+            // system reads it -- in this tuple for the parameter-count
+            // reason above. Rebuilt every frame from the entities seen, so
+            // a despawned one does not linger.
+            Local<std::collections::HashMap<Entity, Mat4>>,
         ),
         // In this tuple rather than the `ParamSet` above for the reason that
         // tuple's own comment gives: the ParamSet is at its hard maximum of 8
@@ -913,16 +921,23 @@ fn render_frame(
         Hidden,
         Occluded,
     }
+    let prev_by_entity = &*prev_models_by_entity;
     type DrawCall = (u64, Mat4, Option<u64>, MaterialParams, Option<String>);
     let mut mesh_query = render_queries.p1();
     let candidates: Vec<_> = mesh_query.iter_mut().collect();
-    let culled: Vec<Culled> = candidates
+    // Each entity's model matrix comes back with its verdict, culled or not,
+    // so next frame knows where it was even if it was off screen this one;
+    // a drawn one also brings its matrix last frame (the third element,
+    // unused for the rest). Beside the enum rather than in `Drawn`, which
+    // would make every variant as large as the largest.
+    let culled: Vec<(Option<(Entity, Mat4)>, Culled, Mat4)> = candidates
         .into_par_iter()
-        .map(|(mr, t, gt, mat, vis, cs, mut lod)| {
+        .map(|(entity, mr, t, gt, mat, vis, cs, mut lod)| {
             if !vis.map(|v| v.is_visible).unwrap_or(true) {
-                return Culled::Hidden;
+                return (None, Culled::Hidden, Mat4::IDENTITY);
             }
             let model = gt.map(|g| g.to_matrix()).unwrap_or_else(|| t.to_matrix());
+            let seen = Some((entity, model));
             let mut world_center: Option<Vec3> = None;
             if let Some((local_center, local_radius)) = registry.get_bounds(mr.mesh_id) {
                 let center = (model * local_center.extend(1.0)).truncate();
@@ -935,7 +950,7 @@ fn render_frame(
                     .max(model.z_axis.truncate().length());
                 let world_radius = local_radius * max_scale.max(1.0);
                 if !sphere_visible_in_frustum(view_proj, center, world_radius) {
-                    return Culled::Hidden;
+                    return (seen, Culled::Hidden, Mat4::IDENTITY);
                 }
                 // Only entities that survived the frustum test get here, so
                 // the two culling stages compose instead of duplicating
@@ -954,7 +969,7 @@ fn render_frame(
                         Vec3::splat(world_radius),
                     )
                 {
-                    return Culled::Occluded;
+                    return (seen, Culled::Occluded, Mat4::IDENTITY);
                 }
             }
             let effective_mesh_id = if let Some(lod) = lod.as_deref_mut() {
@@ -983,26 +998,33 @@ fn render_frame(
                     opacity: m.opacity,
                 })
                 .unwrap_or_default();
-            Culled::Drawn((
-                effective_mesh_id,
-                model,
-                tex_id,
-                mat_params,
-                cs.map(|c| c.path.clone()),
-            ))
+            // First seen this frame: it has not moved yet.
+            let prev_model = prev_by_entity.get(&entity).copied().unwrap_or(model);
+            (
+                seen,
+                Culled::Drawn((
+                    effective_mesh_id,
+                    model,
+                    tex_id,
+                    mat_params,
+                    cs.map(|c| c.path.clone()),
+                )),
+                prev_model,
+            )
         })
         .collect();
+    *prev_models_by_entity = culled.iter().filter_map(|(seen, _, _)| *seen).collect();
     let occluded_count = culled
         .iter()
-        .filter(|c| matches!(c, Culled::Occluded))
+        .filter(|(_, c, _)| matches!(c, Culled::Occluded))
         .count() as u32;
-    let draw_calls: Vec<DrawCall> = culled
+    let (draw_calls, prev_models): (Vec<DrawCall>, Vec<Mat4>) = culled
         .into_iter()
-        .filter_map(|c| match c {
-            Culled::Drawn(d) => Some(d),
+        .filter_map(|(_, c, prev)| match c {
+            Culled::Drawn(d) => Some((d, prev)),
             Culled::Hidden | Culled::Occluded => None,
         })
-        .collect();
+        .unzip();
 
     // The count is the only externally visible evidence that occlusion
     // culling did anything; it is handed to `render_frame` below, which
@@ -1217,6 +1239,7 @@ fn render_frame(
         motion_blur,
         fxaa,
         smaa,
+        &prev_models,
     ) {
         Ok(clicked) => {
             if let Some(ref mut state) = ui_state {
@@ -2765,6 +2788,83 @@ mod tests {
     // -- and therefore `GpuMeshRegistry` -- never comes into existence, and
     // `render_frame` takes its early return before ever reaching the LOD
     // selection this test needs to exercise.
+    /// An entity's model matrix last frame reaches the renderer: moved
+    /// between two frames, its pixels' velocity is its move (rightward,
+    /// here); left alone for one more frame, the velocity is zero again,
+    /// because last frame's matrix is now where it stands. Read back from
+    /// the velocity buffer itself, not from a copy of the bookkeeping.
+    #[test]
+    fn an_entitys_previous_transform_reaches_the_velocity_buffer() {
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::offscreen(64, 64, false));
+        app.add_plugins(RenderPlugin);
+        app.update();
+
+        let vertex = |x: f32, y: f32| Vertex {
+            position: [x, y, 0.0],
+            color: [1.0, 1.0, 1.0],
+            normal: [0.0, 0.0, 1.0],
+            uv: [0.0, 0.0],
+        };
+        let mesh_id = app.world_mut().resource_mut::<GpuMeshRegistry>().register(
+            &[
+                vertex(-2.0, -2.0),
+                vertex(2.0, -2.0),
+                vertex(2.0, 2.0),
+                vertex(-2.0, 2.0),
+            ],
+            &[0, 1, 2, 0, 2, 3],
+        );
+        app.world_mut().spawn((
+            Camera::default(),
+            Transform::from_position(Vec3::new(0.0, 0.0, 10.0)),
+        ));
+        let quad = app
+            .world_mut()
+            .spawn((
+                MeshRenderer { mesh_id },
+                Transform::from_position(Vec3::ZERO),
+            ))
+            .id();
+        let centre_velocity = |app: &bevy_app::App| {
+            let v = app
+                .world()
+                .resource::<bsengine_rhi_wgpu::WgpuSurfaceResource>()
+                .0
+                .read_velocity();
+            v[32 * 64 + 32]
+        };
+
+        app.update();
+        app.update();
+        let [still_x, _] = centre_velocity(&app);
+        assert!(
+            still_x.abs() < 1e-4,
+            "premise: the quad covers the centre and stands still: {still_x}"
+        );
+
+        app.world_mut()
+            .get_mut::<Transform>(quad)
+            .expect("the quad has a transform")
+            .position
+            .0
+            .x = 0.5;
+        app.update();
+        let [moved_x, moved_y] = centre_velocity(&app);
+        assert!(
+            moved_x > 1e-3 && moved_x < 1000.0 && moved_y.abs() < 1e-3,
+            "moved right, the quad's velocity points right: {moved_x}, {moved_y}"
+        );
+
+        app.update();
+        let [settled_x, _] = centre_velocity(&app);
+        assert!(
+            settled_x.abs() < 1e-4,
+            "a frame later, standing still again: {settled_x}"
+        );
+    }
+
     #[test]
     fn lod_current_index_updates_based_on_camera_distance() {
         let mut app = new_app();

@@ -43,6 +43,10 @@ pub struct MsaaTargets {
     _normal: crate::profiler::TrackedTexture,
     /// The screen-space normal; resolves into the post pass's normal target.
     pub normal_view: wgpu::TextureView,
+    /// The velocity, resolved like the normal (see `MESH_WGSL`'s
+    /// `SceneOut::velocity`).
+    pub velocity_view: wgpu::TextureView,
+    _velocity: crate::profiler::TrackedTexture,
     _depth: crate::profiler::TrackedTexture,
     /// The depth; resolved by [`DepthResolve`].
     pub depth_view: wgpu::TextureView,
@@ -84,6 +88,11 @@ impl MsaaTargets {
             crate::post_process::NORMAL_FORMAT,
             wgpu::TextureUsages::empty(),
         );
+        let (velocity, velocity_view) = make(
+            "msaa velocity",
+            crate::post_process::VELOCITY_FORMAT,
+            wgpu::TextureUsages::empty(),
+        );
         // Sampled as well as drawn into: the depth resolve reads it.
         let (depth, depth_view) = make(
             "msaa depth",
@@ -104,6 +113,8 @@ impl MsaaTargets {
             hdr_view,
             _normal: normal,
             normal_view,
+            _velocity: velocity,
+            velocity_view,
             _depth: depth,
             depth_view,
             depth_resolve_bg,

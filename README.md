@@ -57,9 +57,14 @@ core ← ecs ← app ← window / input
   tonemapping in display (sRGB) space
 - Depth of field (`DepthOfField` on the camera): near and far blur bands
   (distance + transition), a disk gather on the HDR image before tonemapping
-- Camera motion blur (`MotionBlur` on the camera): each pixel streaked along
-  its reprojected screen motion since the last frame (intensity, a clamp on
-  the streak's length, tap count); sharp on the first frame after a cut
+- Motion blur (`MotionBlur` on the camera): each pixel streaked along its
+  screen motion since the last frame -- moving objects and the camera alike
+  (intensity, a clamp on the streak's length, tap count); sharp on the first
+  frame after a cut
+- Per-object motion vectors: the opaque pass writes each mesh's screen
+  motion (its own and the camera's) into a velocity buffer, which TAA
+  reprojects by and motion blur streaks along; surfaces with none (sky,
+  terrain, custom shaders) fall back to depth-and-camera reprojection
 - FXAA (`Fxaa` on the camera): FXAA 3.11's edge search and sub-pixel term on
   the tonemapped image, before the TAA resolve; its three thresholds exposed
 - SMAA (`Smaa` on the camera): the reference SMAA 1x -- luma edges, edge-end

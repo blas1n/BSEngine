@@ -333,7 +333,10 @@ fn clipped_form_factor(offset: f32, turn: f32) -> f32 {
 /// corners in front, four ways round) and corner first, pushed out (three
 /// corners in front) and pushed in (one). Each leaves a different clipped
 /// polygon, from three corners to five, and each must light the centre by
-/// the form factor of what is left in front.
+/// the form factor of what is left in front. The four turns at one depth
+/// are the same panel by symmetry, each clipped by a different case, so
+/// they must also agree with each other -- far more tightly than with the
+/// quadrature, from which they all sit about 2% high (the specular share).
 #[test]
 fn every_way_a_panel_crosses_the_horizon_is_clipped_right() {
     let mut h = Harness::new();
@@ -344,6 +347,7 @@ fn every_way_a_panel_crosses_the_horizon_is_clipped_right() {
         cases.push((PI / 4.0 + k as f32 * PI / 2.0, 0.25));
         cases.push((PI / 4.0 + k as f32 * PI / 2.0, -0.25));
     }
+    let mut by_offset: std::collections::BTreeMap<i32, Vec<f32>> = Default::default();
     for (turn, offset) in cases {
         let rot = Quat::from_rotation_y(turn);
         let rect = RectLightEntry {
@@ -363,9 +367,23 @@ fn every_way_a_panel_crosses_the_horizon_is_clipped_right() {
             / 4.0;
         let expected = clipped_form_factor(offset, turn);
         assert!(
-            (got - expected).abs() < expected * 0.05 + 0.002,
+            (got - expected).abs() < expected * 0.035,
             "turned {:.0} deg, {offset} in front: {got} against {expected}",
             turn.to_degrees()
+        );
+        by_offset
+            .entry((offset * 100.0) as i32)
+            .or_default()
+            .push(got);
+    }
+    for (offset, values) in by_offset {
+        let (lo, hi) = values
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(lo, hi), &v| (lo.min(v), hi.max(v)));
+        assert!(
+            hi - lo < lo * 0.005,
+            "the four turns {} in front agree: {values:?}",
+            offset as f32 / 100.0
         );
     }
 }

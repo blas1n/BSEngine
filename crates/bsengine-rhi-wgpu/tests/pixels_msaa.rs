@@ -174,7 +174,26 @@ fn post_passes_read_the_resolved_depth() {
         centre[2] > 150 && centre[0] < 5,
         "premise: the in-focus cube is sharp blue at the centre: {centre:?}"
     );
-    for (x, y) in [(cx, cy), (cx + 5, cy), (cx, cy - 5)] {
+    // Sampled just inside the cube's right and top edges, not at its centre:
+    // with the depth gone (the empty frame left it at the far plane) DOF
+    // blurs the whole frame alike, and the middle of a large blue cube is
+    // still blue when blurred. Next to an edge, blur pulls in the backdrop.
+    let right = (cx..reference.width)
+        .find(|&x| reference.at(x, cy)[2] < centre[2] / 2)
+        .expect("premise: the cube's right edge is on screen");
+    let top = (0..cy)
+        .rev()
+        .find(|&y| reference.at(cx, y)[2] < centre[2] / 2)
+        .expect("premise: the cube's top edge is on screen");
+    let inside = [(cx, cy), (right - 3, cy), (cx, top + 3)];
+    for &(x, y) in &inside[1..] {
+        let p = reference.at(x, y);
+        assert!(
+            p[2] > 150 && p[0] < 5 && p[1] < 5,
+            "premise: in focus, the cube stays sharp blue up to its edge: {p:?} at ({x}, {y})"
+        );
+    }
+    for (x, y) in inside {
         let (a, b) = (reference.at(x, y), msaa.at(x, y));
         assert!(
             (0..3).all(|c| a[c].abs_diff(b[c]) <= 2),

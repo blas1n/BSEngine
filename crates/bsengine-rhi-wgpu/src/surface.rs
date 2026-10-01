@@ -6986,10 +6986,14 @@ impl WgpuSurface {
                     // Attached only because this pass shares the opaque pass's
                     // `fs_main`, which writes two locations. The pipeline masks
                     // the write off, so what the opaque pass left here survives
-                    // the pass untouched.
+                    // the pass untouched. For the same reason it has no MSAA
+                    // resolve: the opaque pass's resolve already holds these
+                    // normals, and resolving them again would only cost
+                    // bandwidth. (The view still has to be the multisampled
+                    // one, to match the pipeline's sample count.)
                     Some(wgpu::RenderPassColorAttachment {
                         view: scene_normal,
-                        resolve_target: normal_resolve,
+                        resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Load,
                             store: wgpu::StoreOp::Store,

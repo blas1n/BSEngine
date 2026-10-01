@@ -407,10 +407,13 @@ fn mirror(p: &Pixels) -> Pixels {
 /// `SearchTex`, and the blend takes its right weight from a different pixel
 /// than its left -- get either side wrong and the two frames part.
 ///
-/// Diagonal detection (High) is left out at near-diagonal angles: the
-/// reference's two diagonal searches are not mirror images of each other
-/// (one reads two edges at once through a quarter-texel offset), and it
-/// measurably is not symmetric there.
+/// Medium, because it has no diagonal detection: the reference's two
+/// diagonal searches are not mirror images of each other (one reads two
+/// edges at once through a quarter-texel offset), and High measurably is
+/// not symmetric -- by dozens of pixels near 45 degrees here, and on
+/// lavapipe by one pixel even at 7 degrees, where the square's corners make
+/// short diagonal runs. The searches, the area lookup and the blend, which
+/// this test is for, are the same in both presets.
 #[test]
 fn an_edge_is_smoothed_the_same_whichever_way_it_faces() {
     let mut h = Harness::new();
@@ -419,8 +422,6 @@ fn an_edge_is_smoothed_the_same_whichever_way_it_faces() {
         (7.0, SmaaQuality::Medium),
         (30.0, SmaaQuality::Medium),
         (42.0, SmaaQuality::Medium),
-        (7.0, SmaaQuality::High),
-        (30.0, SmaaQuality::High),
     ];
     for (degrees, q) in cases {
         let off_a = h.render(&square(cube, degrees, None));

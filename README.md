@@ -371,6 +371,16 @@ Bsengine.bt.get("Guard", "post").x;
 - **Write timing:** a write is visible to `get` at once and reaches the
   component, and the tree, on its next tick.
 
+### Debugging a tree
+
+`BehaviorTree.active_path` holds the branch running after the last tick,
+root first, for example
+`["Selector", "Condition(enemy IsSet)", "MoveTo(enemy)"]`. Each node's label
+names its key, task or duration. The Inspector shows it with the blackboard
+next to it. Over MCP, `get_entity` returns both under `components`, keyed by
+type path, as RON. That same `components` object is how MCP reads any
+reflected component without a dedicated field.
+
 ---
 
 ## Networking

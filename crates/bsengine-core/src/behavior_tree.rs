@@ -102,6 +102,12 @@ pub struct BehaviorTree {
     pub enabled: bool,
     /// The root's status on the last tick. Output.
     pub last_status: BtStatus,
+    /// The branch running after the last tick, root first, one label per
+    /// node -- `["Selector", "Condition(enemy IsSet)", "MoveTo(enemy)"]` --
+    /// the active path Unreal's behaviour tree debugger highlights. Empty
+    /// when nothing is running. Output: shown by the Inspector and by MCP's
+    /// `get_entity`; writing it does nothing.
+    pub active_path: Vec<String>,
     /// The execution state, with the path it was compiled from. Internal;
     /// rebuilt when `tree` names another asset.
     #[reflect(ignore)]
@@ -114,6 +120,7 @@ impl Default for BehaviorTree {
             tree: String::new(),
             enabled: true,
             last_status: BtStatus::Running,
+            active_path: Vec::new(),
             runtime: None,
         }
     }
@@ -394,6 +401,30 @@ fn elapsed(now: f64, since: f64, seconds: f32) -> bool {
     now - since + TIME_EPSILON >= f64::from(seconds)
 }
 
+/// A node's label: its kind (`name`), and the detail that tells it apart
+/// from its siblings.
+fn label_of(node: &BtNode, name: &str) -> String {
+    match node {
+        BtNode::Parallel { policy, .. } => format!("{name}({policy:?})"),
+        BtNode::Condition { key, op, value, .. } => match value {
+            Some(v) => format!("{name}({key} {op:?} {v:?})"),
+            None => format!("{name}({key} {op:?})"),
+        },
+        BtNode::Repeat { count, .. } => match count {
+            Some(n) => format!("{name}({n})"),
+            None => format!("{name}(forever)"),
+        },
+        BtNode::Cooldown { seconds, .. }
+        | BtNode::TimeLimit { seconds, .. }
+        | BtNode::Wait { seconds } => format!("{name}({seconds}s)"),
+        BtNode::SetValue { key, .. } | BtNode::ClearValue { key } | BtNode::MoveTo { key, .. } => {
+            format!("{name}({key})")
+        }
+        BtNode::Script { task } => format!("{name}({task})"),
+        _ => name.to_string(),
+    }
+}
+
 #[derive(Debug, Clone)]
 enum Kind {
     Sequence,
@@ -441,7 +472,9 @@ struct NodeState {
 pub struct BtRuntime {
     kinds: Vec<Kind>,
     children: Vec<Vec<usize>>,
-    names: Vec<&'static str>,
+    /// Each node's label in a running path: its kind, and what tells it
+    /// apart from its siblings -- the key, the task, the duration.
+    labels: Vec<String>,
     state: Vec<NodeState>,
 }
 
@@ -451,7 +484,7 @@ impl BtRuntime {
         let mut rt = BtRuntime {
             kinds: Vec::new(),
             children: Vec::new(),
-            names: Vec::new(),
+            labels: Vec::new(),
             state: Vec::new(),
         };
         rt.compile(&asset.root);
@@ -462,7 +495,7 @@ impl BtRuntime {
         let index = self.kinds.len();
         self.kinds.push(Kind::Succeed);
         self.children.push(Vec::new());
-        self.names.push("");
+        self.labels.push(String::new());
         self.state.push(NodeState::default());
         let (kind, name, kids): (Kind, &'static str, Vec<&BtNode>) = match node {
             BtNode::Sequence(c) => (Kind::Sequence, "Sequence", c.iter().collect()),
@@ -513,8 +546,8 @@ impl BtRuntime {
             BtNode::Fail => (Kind::Fail, "Fail", vec![]),
         };
         let kid_indices: Vec<usize> = kids.into_iter().map(|k| self.compile(k)).collect();
+        self.labels[index] = label_of(node, name);
         self.kinds[index] = kind;
-        self.names[index] = name;
         self.children[index] = kid_indices;
         if let Kind::Parallel(_) = self.kinds[index] {
             self.state[index].finished = vec![None; self.children[index].len()];
@@ -537,13 +570,13 @@ impl BtRuntime {
         self.reset(0, ctx);
     }
 
-    /// The names of the nodes running now, root first -- the active branch,
-    /// as Unreal's debugger highlights it.
-    pub fn running_path(&self) -> Vec<&'static str> {
+    /// The labels of the nodes running now, root first -- the active
+    /// branch, as Unreal's debugger highlights it.
+    pub fn running_path(&self) -> Vec<String> {
         let mut path = Vec::new();
         let mut node = 0;
         while self.state[node].running {
-            path.push(self.names[node]);
+            path.push(self.labels[node].clone());
             let Some(next) = self.children[node]
                 .iter()
                 .copied()
@@ -979,7 +1012,7 @@ mod tests {
             vec![R, R, S, R],
             "the wait finishes on its fourth tick, then the root starts over"
         );
-        assert_eq!(t.running_path(), vec!["Sequence", "Wait"]);
+        assert_eq!(t.running_path(), vec!["Sequence", "Wait(0.3s)"]);
         assert_eq!(
             w.bb.get("n"),
             Some(&BbValue::Int(1)),
@@ -1311,6 +1344,36 @@ mod tests {
         w.bb.set("enemy", BbValue::Bool(true));
         t.tick(&mut w);
         assert_eq!(w.aborts, vec!["patrol".to_string()]);
+    }
+
+    /// Labels say which node, not just which kind: two MoveTos under one
+    /// Selector are told apart by their keys, a Condition by its test.
+    #[test]
+    fn running_path_labels_name_the_node_not_just_its_kind() {
+        let mut w = World {
+            arrive_after: 100,
+            ..Default::default()
+        };
+        w.bb.set("hp", BbValue::Int(10));
+        w.bb.set("goal", BbValue::Vec3(glam::Vec3::X.into()));
+        let mut t = rt(r#"(root: Selector([
+            Condition(key: "hp", op: Less, value: Some(Int(30)), child: Parallel(policy: Any, children: [
+                Repeat(child: MoveTo(key: "goal")),
+                Cooldown(seconds: 2.0, child: Script(task: "heal")),
+            ])),
+            MoveTo(key: "patrol"),
+        ]))"#);
+        run(&mut t, &mut w, 1);
+        assert_eq!(
+            t.running_path(),
+            vec![
+                "Selector",
+                "Condition(hp Less Int(30))",
+                "Parallel(Any)",
+                "Repeat(forever)",
+                "MoveTo(goal)",
+            ]
+        );
     }
 
     #[test]

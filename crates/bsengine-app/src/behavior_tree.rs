@@ -262,9 +262,17 @@ fn tick_behavior_trees(world: &mut World) {
         } else if !blackboard.values.is_empty() {
             world.entity_mut(entity).insert(blackboard);
         }
+        let active_path = runtime
+            .as_ref()
+            .filter(|_| tree.enabled)
+            .map(|(_, rt)| rt.running_path())
+            .unwrap_or_default();
         if let Some(mut component) = world.get_mut::<BehaviorTree>(entity) {
             component.runtime = runtime;
             component.last_status = status;
+            if component.active_path != active_path {
+                component.active_path = active_path;
+            }
         }
     }
 }
@@ -433,6 +441,11 @@ mod tests {
                 .is_some(),
             "premise: walking"
         );
+        assert_eq!(
+            app.world().get::<BehaviorTree>(e).unwrap().active_path,
+            vec!["MoveTo(goal)".to_string()],
+            "the component shows what is running"
+        );
         app.world_mut().get_mut::<BehaviorTree>(e).unwrap().enabled = false;
         app.update();
         assert!(app
@@ -441,6 +454,14 @@ mod tests {
             .unwrap()
             .destination
             .is_none());
+        assert!(
+            app.world()
+                .get::<BehaviorTree>(e)
+                .unwrap()
+                .active_path
+                .is_empty(),
+            "and nothing once disabled"
+        );
         let stopped = position(&app, e);
         for _ in 0..5 {
             app.update();

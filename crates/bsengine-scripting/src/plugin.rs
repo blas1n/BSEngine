@@ -8072,7 +8072,7 @@ mod tests {
         let path = tree.runtime.as_ref().unwrap().1.running_path();
         assert_eq!(
             path,
-            vec!["Selector", "Script"],
+            vec!["Selector", "Script(patrol)"],
             "back on patrol after the unknown task failed"
         );
     }

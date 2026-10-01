@@ -75,6 +75,18 @@ pub(super) fn register(mcp: &McpRegistryResource, cx: &ToolContext) {
                     "tags": e.tags,
                     "visible": e.visible,
                     "selected": e.selected,
+                    // Every other reflected component, by type path, as the
+                    // RON the scene file would hold -- what makes a
+                    // component with no dedicated field above readable at
+                    // all: a behaviour tree's running branch and its
+                    // blackboard, a NavMeshAgent's state, a Shield's charge.
+                    // The reading half `set_reflected_component` had no
+                    // counterpart for.
+                    "components": e
+                        .extra_components
+                        .iter()
+                        .map(|(path, ron)| (path.clone(), serde_json::Value::String(ron.clone())))
+                        .collect::<serde_json::Map<String, serde_json::Value>>(),
                 }})),
                 None => McpToolOutput::error("entity not found"),
             }

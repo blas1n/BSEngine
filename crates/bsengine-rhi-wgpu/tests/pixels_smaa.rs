@@ -313,6 +313,162 @@ fn the_threshold_decides_which_faint_edges_are_edges() {
     assert!(!medium.differs_from(&off), "Medium: below 0.1, untouched");
     assert!(!high.differs_from(&off), "High: below 0.1, untouched");
     assert!(ultra.differs_from(&off), "Ultra: above 0.05, smoothed");
+
+    // 0.74 against 1.0 linear is 0.876 against 1.0 perceptually -- a step of
+    // 0.124, between Low's threshold and everyone else's.
+    let (off, [low, medium, high, ultra]) = preset_frames(0.74, 1.0);
+    assert!(!low.differs_from(&off), "Low: below 0.15, untouched");
+    assert!(medium.differs_from(&off), "Medium: above 0.1, smoothed");
+    assert!(high.differs_from(&off), "High: above 0.1, smoothed");
+    assert!(ultra.differs_from(&off), "Ultra: above 0.05, smoothed");
+}
+
+/// Local contrast adaptation: an edge much weaker than one right next to it
+/// is the soft side of the strong edge, not an edge of its own, and is left
+/// alone. The fixture rings the bright square with a dim one a hair larger,
+/// so in places a one-pixel dim rim sits between the backdrop and the square:
+/// backdrop | rim is a step of about 0.13 of perceptual luma -- over the
+/// threshold -- and rim | square about 0.62, more than twice it. The
+/// backdrop pixels on the far side of such a rim keep their colour.
+#[test]
+fn a_weak_edge_beside_a_strong_one_is_left_alone() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let scene = |smaa| {
+        let mut s = square(cube, 30.0, smaa);
+        s.draws.push(
+            // Its front face just behind the square's, so perspective does
+            // not shrink it back inside the square.
+            Draw::new(cube, Vec3::ZERO)
+                .scaled(Vec3::new(1.53, 1.53, 1.48), Vec3::ZERO)
+                .rotated_z(30f32.to_radians())
+                .colour(Vec3::ZERO)
+                .emissive(Vec3::splat(0.12)),
+        );
+        s
+    };
+    let off = h.render(&scene(None));
+    let on = h.render(&scene(Some(Smaa::default())));
+
+    let (backdrop, rim, bright) = (off.luma(0, 0), 97.0, off.centre_luma());
+    let near = |a: f32, b: f32| (a - b).abs() < 3.0;
+    // Backdrop pixels with a one-pixel rim and then the square beyond it,
+    // in a straight line.
+    let (w, h_) = (off.width as i32, off.height as i32);
+    let beyond_thin_rim: Vec<(u32, u32)> = (2..h_ - 2)
+        .flat_map(|y| (2..w - 2).map(move |x| (x, y)))
+        .filter(|&(x, y)| {
+            near(off.luma(x as u32, y as u32), backdrop)
+                && [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|&(dx, dy)| {
+                    near(off.luma((x + dx) as u32, (y + dy) as u32), rim)
+                        && near(off.luma((x + 2 * dx) as u32, (y + 2 * dy) as u32), bright)
+                })
+        })
+        .map(|(x, y)| (x as u32, y as u32))
+        .collect();
+    assert!(
+        beyond_thin_rim.len() >= 20,
+        "premise: the rim is one pixel thin in places: {} such pixels",
+        beyond_thin_rim.len()
+    );
+    let changed: Vec<_> = beyond_thin_rim
+        .iter()
+        .filter(|&&(x, y)| (0..3).any(|c| off.at(x, y)[c].abs_diff(on.at(x, y)[c]) > 2))
+        .collect();
+    assert!(
+        changed.is_empty(),
+        "{} of {} backdrop pixels beyond a thin rim were blended, e.g. {:?}",
+        changed.len(),
+        beyond_thin_rim.len(),
+        &changed[..changed.len().min(5)]
+    );
+}
+
+/// `pixels`, mirrored left to right.
+fn mirror(p: &Pixels) -> Pixels {
+    let mut data = p.data.clone();
+    for y in 0..p.height {
+        for x in 0..p.width {
+            let src = ((y * p.width + (p.width - 1 - x)) * 4) as usize;
+            let dst = ((y * p.width + x) * 4) as usize;
+            data[dst..dst + 4].copy_from_slice(&p.data[src..src + 4]);
+        }
+    }
+    Pixels {
+        data,
+        width: p.width,
+        height: p.height,
+    }
+}
+
+/// SMAA treats an edge the same whichever way it faces: the square turned
+/// one way is the mirror image of the square turned the other, and so are
+/// the smoothed frames. The searches left and right read different halves of
+/// `SearchTex`, and the blend takes its right weight from a different pixel
+/// than its left -- get either side wrong and the two frames part.
+///
+/// Diagonal detection (High) is left out at near-diagonal angles: the
+/// reference's two diagonal searches are not mirror images of each other
+/// (one reads two edges at once through a quarter-texel offset), and it
+/// measurably is not symmetric there.
+#[test]
+fn an_edge_is_smoothed_the_same_whichever_way_it_faces() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let cases = [
+        (7.0, SmaaQuality::Medium),
+        (30.0, SmaaQuality::Medium),
+        (42.0, SmaaQuality::Medium),
+        (7.0, SmaaQuality::High),
+        (30.0, SmaaQuality::High),
+    ];
+    for (degrees, q) in cases {
+        let off_a = h.render(&square(cube, degrees, None));
+        let off_b = h.render(&square(cube, -degrees, None));
+        assert!(
+            !mirror(&off_a).differs_from(&off_b),
+            "premise: at {degrees} deg the aliased frames are mirror images"
+        );
+        let on_a = h.render(&square(cube, degrees, quality(q)));
+        let on_b = h.render(&square(cube, -degrees, quality(q)));
+        assert!(
+            on_a.differs_from(&off_a),
+            "premise: {degrees} deg {q:?} smooths"
+        );
+        let mirrored = mirror(&on_a);
+        let parted = (0..on_b.height)
+            .flat_map(|y| (0..on_b.width).map(move |x| (x, y)))
+            .filter(|&(x, y)| (0..3).any(|c| mirrored.at(x, y)[c].abs_diff(on_b.at(x, y)[c]) > 2))
+            .count();
+        assert_eq!(
+            parted, 0,
+            "{degrees} deg {q:?}: the smoothed frames are mirror images"
+        );
+    }
+}
+
+/// Nothing carries over from one frame to the next: a frame drawn after
+/// another is the frame drawn alone. The edge pass writes only where it
+/// finds an edge, so its target has to start every frame empty, or last
+/// frame's edges would still be blended into this one.
+#[test]
+fn each_frame_is_smoothed_on_its_own() {
+    let alone = {
+        let mut h = Harness::new();
+        let cube = h.cube();
+        h.render(&square(cube, 45.0, Some(Smaa::default())))
+    };
+    let after = {
+        let mut h = Harness::new();
+        let cube = h.cube();
+        h.render(&square(cube, 7.0, Some(Smaa::default())));
+        h.render(&square(cube, 45.0, Some(Smaa::default())))
+    };
+    assert!(
+        !after.differs_from(&alone),
+        "the frame does not depend on the one before it: {}",
+        after.describe()
+    );
 }
 
 /// Edges are found by perceptual contrast, as SMAA's thresholds assume: black
@@ -329,12 +485,14 @@ fn a_dark_edge_is_found_by_its_perceptual_contrast() {
 
 /// FXAA and SMAA are one choice in both reference engines that offer SMAA,
 /// so with both components SMAA runs and FXAA does not: the frame is SMAA's
-/// alone.
+/// alone, and so is the work -- FXAA's pass is not drawn only to be thrown
+/// away, which the frame alone could not show.
 #[test]
 fn smaa_replaces_fxaa_when_both_are_on() {
     let mut h = Harness::new();
     let cube = h.cube();
     let smaa_only = h.render(&square(cube, 30.0, Some(Smaa::default())));
+    let smaa_only_draws = h.frame_stats().draw_calls;
     let fxaa_only = h.render(&Scene {
         fxaa: Some(Fxaa::default()),
         ..square(cube, 30.0, None)
@@ -348,6 +506,17 @@ fn smaa_replaces_fxaa_when_both_are_on() {
         ..square(cube, 30.0, Some(Smaa::default()))
     });
     assert!(!both.differs_from(&smaa_only), "both on is SMAA alone");
+    assert_eq!(
+        h.frame_stats().draw_calls,
+        smaa_only_draws,
+        "and draws what SMAA alone draws"
+    );
+    h.render(&square(cube, 30.0, None));
+    assert_eq!(
+        smaa_only_draws,
+        h.frame_stats().draw_calls + 3,
+        "premise: draw calls count the post passes -- SMAA's three among them"
+    );
 }
 
 /// With TAA on as well, the resolve accumulates SMAA's output rather than

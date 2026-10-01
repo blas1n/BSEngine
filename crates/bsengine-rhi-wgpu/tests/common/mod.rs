@@ -870,10 +870,6 @@ struct VertOut {{
         }
     }
 
-    /// The most recently rendered frame's profiler stats. Panics if
-    /// `render()` hasn't been called yet -- every test using this calls
-    /// `render()` first, so a `None` here would be a real bug, not an
-    /// expected state to handle quietly.
     /// The sample count the last frame's geometry passes drew with -- 1
     /// where MSAA is off or this adapter cannot do it, which an MSAA test
     /// checks as its premise.
@@ -881,6 +877,10 @@ struct VertOut {{
         self.surface.msaa_samples()
     }
 
+    /// The most recently rendered frame's profiler stats. Panics if
+    /// `render()` hasn't been called yet -- every test using this calls
+    /// `render()` first, so a `None` here would be a real bug, not an
+    /// expected state to handle quietly.
     pub fn frame_stats(&self) -> bsengine_rhi_wgpu::profiler::FrameStats {
         self.surface
             .latest_frame_stats()

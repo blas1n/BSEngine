@@ -154,6 +154,8 @@ pub struct Light {
     pub color: Vec3,
     pub ambient: Vec3,
     pub points: Vec<PointLight>,
+    /// Rect lights, as the renderer takes them.
+    pub rects: Vec<bsengine_rhi_wgpu::area_light::RectLightEntry>,
 }
 
 impl Default for Light {
@@ -163,6 +165,7 @@ impl Default for Light {
             color: Vec3::ONE,
             ambient: Vec3::splat(0.15),
             points: Vec::new(),
+            rects: Vec::new(),
         }
     }
 }
@@ -184,6 +187,7 @@ impl Light {
                 })
                 .collect(),
             spot_lights: Vec::new(),
+            rect_lights: self.rects.clone(),
         }
     }
 }

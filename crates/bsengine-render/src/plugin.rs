@@ -43,6 +43,30 @@ fn sphere_visible_in_frustum(view_proj: Mat4, world_center: Vec3, world_radius: 
     true
 }
 
+/// A rect light at its world position and orientation. Rotation only: the
+/// panel's size is `width` and `height`, and a scaled parent would otherwise
+/// stretch it a second time.
+fn rect_light_entry(
+    rl: &bsengine_core::RectLight,
+    gt: Option<&GlobalTransform>,
+    t: &Transform,
+) -> bsengine_rhi_wgpu::area_light::RectLightEntry {
+    let (rotation, position) = gt
+        .map(|g| {
+            let (_, r, p) = g.to_matrix().to_scale_rotation_translation();
+            (r, p)
+        })
+        .unwrap_or((t.rotation.0, t.position.0));
+    bsengine_rhi_wgpu::area_light::RectLightEntry {
+        position,
+        half_width: rotation * Vec3::X * (rl.width * 0.5),
+        half_height: rotation * Vec3::Y * (rl.height * 0.5),
+        color: *rl.color,
+        intensity: rl.intensity,
+        range: rl.range,
+    }
+}
+
 fn spot_light_entry(sl: &SpotLight, gt: Option<&GlobalTransform>, t: &Transform) -> SpotLightEntry {
     let pos = gt
         .map(|g| g.to_matrix().w_axis.truncate())
@@ -615,7 +639,7 @@ fn render_frame(
         mut occlusion_buf,
         mut taa_frame_index,
         probe_volumes,
-        (shadow_settings, msaa_settings, mut prev_models_by_entity),
+        (shadow_settings, msaa_settings, mut prev_models_by_entity, rect_light_query),
         decal_query,
         reflection_probe_query,
     ): (
@@ -637,6 +661,13 @@ fn render_frame(
             // reason above. Rebuilt every frame from the entities seen, so
             // a despawned one does not linger.
             Local<std::collections::HashMap<Entity, Mat4>>,
+            // Rect lights: a query here rather than in the `ParamSet`, which
+            // is at its maximum, for the reason the tuple's comment gives.
+            Query<(
+                &bsengine_core::RectLight,
+                &Transform,
+                Option<&GlobalTransform>,
+            )>,
         ),
         // In this tuple rather than the `ParamSet` above for the reason that
         // tuple's own comment gives: the ParamSet is at its hard maximum of 8
@@ -1070,6 +1101,12 @@ fn render_frame(
         .map(|(sl, gt, t)| spot_light_entry(sl, gt, t))
         .collect();
 
+    let collected_rect_lights: Vec<bsengine_rhi_wgpu::area_light::RectLightEntry> =
+        rect_light_query
+            .iter()
+            .map(|(rl, t, gt)| rect_light_entry(rl, gt, t))
+            .collect();
+
     let light = if let Some((l, gt, t)) = render_queries.p2().iter().next() {
         let direction = gt
             .map(|g| -glam::Mat3::from_mat4(g.to_matrix()).z_axis)
@@ -1080,11 +1117,13 @@ fn render_frame(
             ambient: *l.ambient,
             point_lights: collected_point_lights,
             spot_lights: collected_spot_lights,
+            rect_lights: collected_rect_lights,
         }
     } else {
         LightData {
             point_lights: collected_point_lights,
             spot_lights: collected_spot_lights,
+            rect_lights: collected_rect_lights,
             ..Default::default()
         }
     };
@@ -2788,6 +2827,97 @@ mod tests {
     // -- and therefore `GpuMeshRegistry` -- never comes into existence, and
     // `render_frame` takes its early return before ever reaching the LOD
     // selection this test needs to exercise.
+    /// A rect light's panel comes from its entity's world position and
+    /// rotation, and from its own `width` and `height` -- not its scale,
+    /// which would size the panel twice.
+    #[test]
+    fn a_rect_lights_panel_follows_its_entity() {
+        let rl = bsengine_core::RectLight {
+            width: 2.0,
+            height: 0.5,
+            ..Default::default()
+        };
+        let quarter = glam::Quat::from_rotation_z(std::f32::consts::FRAC_PI_2);
+        let gt = GlobalTransform(
+            glam::Mat4::from_scale_rotation_translation(
+                Vec3::splat(3.0),
+                quarter,
+                Vec3::new(1.0, 2.0, 3.0),
+            )
+            .into(),
+        );
+        let e = super::rect_light_entry(&rl, Some(&gt), &Transform::default());
+        assert!(e.position.abs_diff_eq(Vec3::new(1.0, 2.0, 3.0), 1e-5));
+        // Local x turned a quarter about z is world y; local y is world -x.
+        assert!(
+            e.half_width.abs_diff_eq(Vec3::new(0.0, 1.0, 0.0), 1e-5),
+            "{:?}",
+            e.half_width
+        );
+        assert!(
+            e.half_height.abs_diff_eq(Vec3::new(-0.25, 0.0, 0.0), 1e-5),
+            "{:?}",
+            e.half_height
+        );
+    }
+
+    /// A `RectLight` entity reaches the frame: a white quad facing it is
+    /// brighter with the light than without.
+    #[test]
+    fn a_rect_light_entity_lights_the_frame() {
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::offscreen(64, 64, false));
+        app.add_plugins(RenderPlugin);
+        app.update();
+        let vertex = |x: f32, y: f32| Vertex {
+            position: [x, y, 0.0],
+            color: [1.0, 1.0, 1.0],
+            normal: [0.0, 0.0, 1.0],
+            uv: [0.0, 0.0],
+        };
+        let mesh_id = app.world_mut().resource_mut::<GpuMeshRegistry>().register(
+            &[
+                vertex(-4.0, -4.0),
+                vertex(4.0, -4.0),
+                vertex(4.0, 4.0),
+                vertex(-4.0, 4.0),
+            ],
+            &[0, 1, 2, 0, 2, 3],
+        );
+        app.world_mut().spawn((
+            Camera::default(),
+            Transform::from_position(Vec3::new(0.0, 0.0, 10.0)),
+        ));
+        app.world_mut().spawn((
+            MeshRenderer { mesh_id },
+            Transform::from_position(Vec3::ZERO),
+        ));
+        let centre_red = |app: &mut bevy_app::App| {
+            app.update();
+            let pixels = app
+                .world()
+                .resource::<bsengine_rhi_wgpu::WgpuSurfaceResource>()
+                .0
+                .read_pixels()
+                .expect("offscreen");
+            pixels[(32 * 64 + 32) * 4]
+        };
+        let without = centre_red(&mut app);
+        app.world_mut().spawn((
+            bsengine_core::RectLight {
+                intensity: 5.0,
+                ..Default::default()
+            },
+            Transform::from_position(Vec3::new(0.0, 0.0, 1.0)),
+        ));
+        let with = centre_red(&mut app);
+        assert!(
+            with > without.saturating_add(20),
+            "the panel lights the quad facing it: {without} -> {with}"
+        );
+    }
+
     /// An entity's model matrix last frame reaches the renderer: moved
     /// between two frames, its pixels' velocity is its move (rightward,
     /// here); left alone for one more frame, the velocity is zero again,

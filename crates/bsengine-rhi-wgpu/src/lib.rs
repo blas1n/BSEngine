@@ -15,6 +15,8 @@
 
 /// Sweeping files nobody has used for a while out of a cache directory,
 /// and touching the ones that are used.
+/// Rectangular area lights, shaded with linearly transformed cosines.
+pub mod area_light;
 pub mod cache_sweep;
 /// Decals, accumulated into a buffer the opaque pass folds into its albedo.
 pub mod decals;

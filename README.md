@@ -47,6 +47,9 @@ core ← ecs ← app ← window / input
 - UV coordinates and texture sampling
 - Directional lighting with PCF shadow mapping
 - Point lights and spot lights with attenuation
+- Rect lights (`RectLight`): a lit panel shaded with linearly transformed
+  cosines -- the rectangle's exact form factor for diffuse, its shape in a
+  glossy reflection -- one-sided, with a range; no shadows yet
 - Cook-Torrance PBR materials
 - Frustum culling via bounding sphere test
 - Reflection probes (`ReflectionProbe`): a cubemap captured once where the probe

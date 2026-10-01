@@ -7877,8 +7877,8 @@ impl WgpuSurface {
         self.decals
             .resize(&self.device, width, height, &self.depth_view);
         self.rebuild_light_bind_group();
-        // Remade at the new size on the next multisampled frame.
-        self.msaa_targets = None;
+        // `msaa_targets` is not touched: the next multisampled frame sees
+        // its size no longer matches and remakes it.
     }
 
     /// Sets the geometry passes' sample count: anything above 1 asks for

@@ -9,7 +9,7 @@
 mod common;
 
 use bsengine_rhi_wgpu::particles::{ParticleBatch, ParticleInstance};
-use common::{Draw, Harness, Light, Pixels, Scene};
+use common::{Draw, Harness, Light, Pixels, Scene, HEIGHT, WIDTH};
 use glam::Vec3;
 
 const BACKDROP: f32 = 0.05;
@@ -188,48 +188,124 @@ fn post_passes_read_the_resolved_depth() {
 /// a transparent pane, particles and a custom shader all draw under MSAA
 /// (a missing variant is a validation error, which fails the test), and
 /// away from edges each looks as it does without.
+///
+/// Every geometry pass resolves, so a pass that forgot to would be hidden
+/// by any later pass's resolve of the same samples. Each pass is therefore
+/// the *last* one drawn in one of the four scenes below: opaque only, then
+/// adding the sky, the transparent pane, and the particle. A pass whose
+/// resolve went missing leaves the previous pass's resolve -- or nothing --
+/// in the frame, and its own content shows up as an interior change.
 #[test]
 fn every_geometry_pass_draws_under_msaa() {
     let mut h = Harness::new();
     let cube = h.cube();
     h.set_test_skybox([40, 60, 90, 255]);
     let custom = h.constant_colour_shader([0.2, 0.9, 0.3], "msaa_custom");
-    let scene = |msaa| Scene {
+    let scene = |msaa, last: usize| {
+        let mut draws = vec![Draw::new(cube, Vec3::ZERO)
+            .scaled(Vec3::splat(0.8), Vec3::new(-1.2, 0.0, 0.0))
+            .shader(&custom)];
+        if last >= 2 {
+            draws.push(
+                Draw::new(cube, Vec3::ZERO)
+                    .scaled(Vec3::splat(0.8), Vec3::new(1.2, 0.0, 0.0))
+                    .colour(Vec3::ONE)
+                    .opacity(0.5),
+            );
+        }
+        let particles = if last >= 3 {
+            vec![ParticleBatch {
+                texture_id: None,
+                instances: vec![ParticleInstance {
+                    position: [0.0, 1.2, 0.0],
+                    size: 0.5,
+                    color: [1.0, 0.9, 0.2, 1.0],
+                }],
+            }]
+        } else {
+            Vec::new()
+        };
+        Scene {
+            draws,
+            particles,
+            with_skybox: last >= 1,
+            msaa,
+            ..flat_scene()
+        }
+    };
+    let names = ["opaque", "sky", "transparent", "particle"];
+    for (last, name) in names.iter().enumerate() {
+        let off = h.render(&scene(1, last));
+        let on = h.render(&scene(4, last));
+        assert_eq!(h.msaa_samples(), 4, "premise: drawn multisampled");
+        let mask = near_an_edge(&off, 1);
+        let interior_changes = (0..off.height)
+            .flat_map(|y| (0..off.width).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                let (a, b) = (off.at(x, y), on.at(x, y));
+                (0..3).any(|c| a[c].abs_diff(b[c]) > 2) && !mask[(y * off.width + x) as usize]
+            })
+            .count();
+        assert_eq!(
+            interior_changes, 0,
+            "with the {name} pass last, the frame looks the same away from edges"
+        );
+        assert!(
+            off.differs_from(&on),
+            "premise: with the {name} pass last, the edges did change"
+        );
+    }
+}
+
+/// The normals resolve too: SSR reads them, and under MSAA the geometry
+/// passes write them into a multisampled target first. The fixture is
+/// `pixels_ssr.rs`'s mirror floor in front of a red pillar.
+///
+/// An empty frame is drawn just before the multisampled one, so the
+/// single-sample normal target holds the clear value rather than the floor's
+/// normals from the reference frame: a resolve that went missing leaves SSR
+/// with no surface to reflect off, and the reflection disappears.
+#[test]
+fn ssr_reads_the_resolved_normals() {
+    let mut h = Harness::new();
+    let cube = h.cube();
+    let scene = |ssr, msaa| Scene {
         draws: vec![
             Draw::new(cube, Vec3::ZERO)
-                .scaled(Vec3::splat(0.8), Vec3::new(-1.2, 0.0, 0.0))
-                .shader(&custom),
-            Draw::new(cube, Vec3::ZERO)
-                .scaled(Vec3::splat(0.8), Vec3::new(1.2, 0.0, 0.0))
-                .colour(Vec3::ONE)
-                .opacity(0.5),
+                .scaled(Vec3::new(20.0, 1.0, 20.0), Vec3::ZERO)
+                .roughness(0.02)
+                .colour(Vec3::splat(0.02)),
+            Draw::new(cube, Vec3::new(0.0, 1.5, 0.0))
+                .scaled(Vec3::new(1.0, 2.0, 1.0), Vec3::new(0.0, 1.5, 0.0))
+                .emissive(Vec3::new(4.0, 0.4, 0.4)),
         ],
-        particles: vec![ParticleBatch {
-            texture_id: None,
-            instances: vec![ParticleInstance {
-                position: [0.0, 1.2, 0.0],
-                size: 0.5,
-                color: [1.0, 0.9, 0.2, 1.0],
-            }],
-        }],
-        with_skybox: true,
+        camera_pos: Vec3::new(0.0, 1.2, 6.0),
+        look_at: Vec3::new(0.0, 0.6, 0.0),
+        ssr,
         msaa,
-        ..flat_scene()
+        light: Light {
+            ambient: Vec3::splat(0.02),
+            ..Light::default()
+        },
+        ..Scene::default()
     };
-    let off = h.render(&scene(1));
-    let on = h.render(&scene(4));
+    let ssr = Some(bsengine_core::ScreenSpaceReflections::default());
+    let (x, y) = (WIDTH / 2, (HEIGHT as f32 * 0.72) as u32);
+
+    let plain = h.render(&scene(None, 4)).at(x, y);
+    let reference = h.render(&scene(ssr, 1)).at(x, y);
+    h.render(&Scene {
+        msaa: 1,
+        ..Scene::default()
+    });
+    let on = h.render(&scene(ssr, 4)).at(x, y);
     assert_eq!(h.msaa_samples(), 4, "premise: drawn multisampled");
-    let mask = near_an_edge(&off, 1);
-    let interior_changes = (0..off.height)
-        .flat_map(|y| (0..off.width).map(move |x| (x, y)))
-        .filter(|&(x, y)| {
-            let (a, b) = (off.at(x, y), on.at(x, y));
-            (0..3).any(|c| a[c].abs_diff(b[c]) > 2) && !mask[(y * off.width + x) as usize]
-        })
-        .count();
-    assert_eq!(
-        interior_changes, 0,
-        "sky, custom shader, transparent pane and particle look the same away from edges"
+    assert!(
+        reference[0] > plain[0] + 4,
+        "premise: without MSAA the floor reflects the pillar: {plain:?} -> {reference:?}"
     );
-    assert!(off.differs_from(&on), "premise: and the edges did change");
+    assert!(
+        (0..3).all(|c| on[c].abs_diff(reference[c]) <= 2),
+        "under MSAA the reflection is the same: {reference:?} vs {on:?}"
+    );
 }

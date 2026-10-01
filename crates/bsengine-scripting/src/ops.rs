@@ -2466,6 +2466,7 @@ pub fn bsengine_bt_clear(#[string] name: String, #[string] key: String) {
 }
 
 /// A behaviour tree script task's answer: request `index`, and `status` --
+/// (a task no script registered gets no answer, which fails it) --
 /// "success", "failure" or "running" (anything else is a failure).
 #[op2(fast)]
 pub fn bsengine_bt_result(index: u32, #[string] status: String) {

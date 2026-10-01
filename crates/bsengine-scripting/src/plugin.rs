@@ -7970,7 +7970,9 @@ mod tests {
     /// The blackboard from a plain `onUpdate`: a vector, an entity reference
     /// and a number set by name, read back at once (the vector as a Vec3
     /// with its methods), and in the component for the tree -- here a
-    /// Condition that the script's write opens.
+    /// Condition that the script's write opens. And the other way: a value
+    /// the entity's blackboard started with, which no script wrote, is
+    /// readable from the script.
     #[test]
     fn scripts_read_and_write_a_blackboard_the_tree_reads() {
         use bsengine_core::BbValue;
@@ -7988,9 +7990,14 @@ mod tests {
                  let err = \"\";\n\
                  try { Bsengine.bt.set(\"Guard\", \"bad\", [1, 2]); } catch (e) { err = e.message; }\n\
                  Bsengine.setHudText(\"bb\", [p.add(p).x, Bsengine.bt.get(\"Guard\", \"enemy\").entity,\n\
-                     Bsengine.bt.get(\"Guard\", \"go\"), Bsengine.bt.get(\"Guard\", \"nothing\"), err.length > 0].join(\"|\"));\n\
+                     Bsengine.bt.get(\"Guard\", \"go\"), Bsengine.bt.get(\"Guard\", \"nothing\"), err.length > 0,\n\
+                     Bsengine.bt.get(\"Guard\", \"start\")].join(\"|\"));\n\
              }",
         );
+        app.world_mut()
+            .get_mut::<bsengine_core::Blackboard>(guard)
+            .unwrap()
+            .set("start", BbValue::Int(7));
         let mut frames = 0;
         while bb_value(&app, guard, "opened").is_none() {
             app.update();
@@ -8002,7 +8009,7 @@ mod tests {
         }
         assert_eq!(
             app.world().resource::<HudTexts>().0["bb"],
-            "2|Player|2.5||true",
+            "2|Player|2.5||true|7",
             "read back at once, as a Vec3; an unset key is null; a bad value throws"
         );
         assert_eq!(

@@ -165,10 +165,10 @@ impl BtContext for EntityContext<'_> {
 
     fn script_task(&mut self, node: usize, task: &str, first: bool) -> Option<BtStatus> {
         let mut queue = self.world.get_resource_mut::<BtScriptQueue>()?;
-        // A first call discards any answer left from an earlier run of the
-        // same node -- an aborted run's last word is not this run's.
+        // Always taken, so an answer left over from an earlier run of the
+        // same node (an aborted run's last word) cannot outlive it; on a
+        // first call the executor does not read it.
         let answer = queue.results.remove(&(self.entity, node));
-        let answer = if first { None } else { answer };
         if first || answer == Some(BtStatus::Running) {
             queue.requests.push(BtScriptRequest {
                 entity: self.entity,

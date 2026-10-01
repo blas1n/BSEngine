@@ -1031,8 +1031,9 @@ var Bsengine = {
                     continue;
                 }
                 if (!t) {
+                    // Left unanswered: a task with no answer fails on the
+                    // tree's next tick.
                     Bsengine.log("[bt] no task registered as " + JSON.stringify(r.task));
-                    Deno.core.ops.bsengine_bt_result(r.i, "failure");
                     continue;
                 }
                 let status;

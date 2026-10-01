@@ -548,6 +548,7 @@ fn render_frame(
             Option<&bsengine_core::DepthOfField>,
             Option<&bsengine_core::MotionBlur>,
             Option<&bsengine_core::Fxaa>,
+            Option<&bsengine_core::Smaa>,
         )>,
         Query<(
             &MeshRenderer,
@@ -710,12 +711,13 @@ fn render_frame(
         depth_of_field,
         mut motion_blur,
         fxaa,
+        smaa,
     ) = render_queries
         .p0()
         .iter()
         .next()
         .map(
-            |(cam, t, b, tm, ao, taa, fog, ssr, grade, dof, blur, fxaa)| {
+            |(cam, t, b, tm, ao, taa, fog, ssr, grade, dof, blur, fxaa, smaa)| {
                 let proj = cam.projection_matrix();
                 (
                     proj * t.view_matrix(),
@@ -731,6 +733,7 @@ fn render_frame(
                     dof.copied(),
                     blur.copied(),
                     fxaa.copied(),
+                    smaa.copied(),
                 )
             },
         )
@@ -738,6 +741,7 @@ fn render_frame(
             Mat4::IDENTITY,
             Vec3::ZERO,
             Mat4::IDENTITY,
+            None,
             None,
             None,
             None,
@@ -1212,6 +1216,7 @@ fn render_frame(
         depth_of_field,
         motion_blur,
         fxaa,
+        smaa,
     ) {
         Ok(clicked) => {
             if let Some(ref mut state) = ui_state {
@@ -2054,6 +2059,63 @@ mod tests {
             .remove_resource::<bsengine_core::MsaaSettings>();
         app.update();
         assert_eq!(samples(&app), 1, "and removing it turns MSAA off again");
+    }
+
+    /// A camera's `Smaa` reaches the post pass -- in the editing view too, as
+    /// FXAA does -- takes FXAA's place when both are on, and removing it
+    /// switches its passes off and gives FXAA back.
+    #[test]
+    fn a_cameras_smaa_reaches_the_post_pass() {
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::offscreen(64, 64, false));
+        app.add_plugins(RenderPlugin);
+        app.update();
+        let camera = app
+            .world_mut()
+            .spawn((
+                Camera::default(),
+                Transform::from_position(Vec3::new(0.0, 0.0, 10.0)),
+                bsengine_core::Fxaa::default(),
+            ))
+            .id();
+        let active = |app: &bevy_app::App| {
+            let s = &app
+                .world()
+                .resource::<bsengine_rhi_wgpu::WgpuSurfaceResource>()
+                .0;
+            (s.smaa_active(), s.fxaa_active())
+        };
+        app.update();
+        assert_eq!(active(&app), (false, true), "premise: FXAA alone");
+
+        app.world_mut()
+            .entity_mut(camera)
+            .insert(bsengine_core::Smaa::default());
+        app.update();
+        assert_eq!(
+            active(&app),
+            (true, false),
+            "the camera's SMAA reaches the post pass, in FXAA's place"
+        );
+
+        use bsengine_core::{EditorPlayState, InspectorState};
+        let mut editing = InspectorState::default();
+        editing.editor_mode = true;
+        editing.play_state = EditorPlayState::Stopped;
+        app.world_mut().insert_resource(editing);
+        app.update();
+        assert_eq!(active(&app), (true, false), "the editing view keeps it");
+
+        app.world_mut()
+            .entity_mut(camera)
+            .remove::<bsengine_core::Smaa>();
+        app.update();
+        assert_eq!(
+            active(&app),
+            (false, true),
+            "and removing it switches it off and gives FXAA back"
+        );
     }
 
     /// A camera's `Fxaa` reaches the post pass -- in the editing view too,

@@ -255,6 +255,8 @@ pub struct Scene {
     pub motion_blur: Option<bsengine_core::MotionBlur>,
     /// FXAA for this camera, or `None` for none.
     pub fxaa: Option<bsengine_core::Fxaa>,
+    /// SMAA for this camera, or `None` for none.
+    pub smaa: Option<bsengine_core::Smaa>,
     pub hud: HashMap<String, String>,
     pub with_skybox: bool,
     /// Particle batches for the pass that runs after transparency.
@@ -286,6 +288,7 @@ impl Default for Scene {
             msaa: 1,
             motion_blur: None,
             fxaa: None,
+            smaa: None,
             hud: HashMap::new(),
             with_skybox: false,
             particles: Vec::new(),
@@ -399,6 +402,13 @@ impl Harness {
     /// `WgpuSurface::is_fast_render`.
     pub fn new_fast() -> Self {
         Self::build(true)
+    }
+
+    /// Resizes the renderer to the size it already has: every screen-sized
+    /// target is made anew, at a size a test can still read back. Anything
+    /// that kept a view into the old targets would go on reading them.
+    pub fn recreate_targets(&mut self) {
+        self.surface.resize(WIDTH, HEIGHT);
     }
 
     fn build(fast_render: bool) -> Self {
@@ -848,6 +858,8 @@ struct VertOut {{
                 scene.motion_blur,
                 // `None` skips FXAA: the resolve reads the composite as before.
                 scene.fxaa,
+                // `None` skips SMAA's passes.
+                scene.smaa,
             )
             .expect("render_frame failed");
 

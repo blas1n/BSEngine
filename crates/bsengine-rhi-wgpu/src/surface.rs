@@ -2871,9 +2871,15 @@ impl WgpuSurface {
         self.post_process.motion_blur_active()
     }
 
-    /// Whether the last frame asked for FXAA (a present, enabled `Fxaa`).
+    /// Whether the last frame ran FXAA: a present, enabled `Fxaa`, and no
+    /// SMAA replacing it.
     pub fn fxaa_active(&self) -> bool {
         self.post_process.fxaa_active()
+    }
+
+    /// Whether the last frame asked for SMAA (a present, enabled `Smaa`).
+    pub fn smaa_active(&self) -> bool {
+        self.post_process.smaa_active()
     }
 
     /// Slices in the bound colour LUT, or 0 for none.
@@ -5781,6 +5787,7 @@ impl WgpuSurface {
         depth_of_field: Option<bsengine_core::DepthOfField>,
         motion_blur: Option<bsengine_core::MotionBlur>,
         fxaa: Option<bsengine_core::Fxaa>,
+        smaa: Option<bsengine_core::Smaa>,
     ) -> Result<std::collections::HashSet<String>, String> {
         // Wall-clock CPU time for this call, for `FrameStats::cpu_frame_time_ms`.
         let frame_start = std::time::Instant::now();
@@ -6082,6 +6089,8 @@ impl WgpuSurface {
             self.post_process
                 .update_motion_blur(&self.queue, motion_blur);
             self.post_process.update_fxaa(&self.queue, fxaa);
+            self.post_process
+                .update_smaa(&self.device, &self.queue, smaa);
             let inv_proj = cam_proj.inverse();
             self.post_process.update_ssao_camera(
                 &self.queue,
@@ -9232,6 +9241,7 @@ mod tests {
                 Mat4::IDENTITY,
                 volume,
                 &[],
+                None,
                 None,
                 None,
                 None,

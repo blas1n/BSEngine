@@ -2089,6 +2089,10 @@ pub struct PostProcessState {
     fxaa_buffer: wgpu::Buffer,
     fxaa_bg_uniform: wgpu::BindGroup,
     fxaa_on: bool,
+    /// SMAA's three passes, tables and targets (see `crate::smaa`). When it
+    /// runs this frame, FXAA does not: both reference engines that offer
+    /// SMAA make the two one choice.
+    smaa: crate::smaa::SmaaPass,
     /// Two history targets, swapped each frame: one holds the previous
     /// frame's TAA output while the other receives this frame's. A single
     /// texture cannot be sampled and rendered to in the same pass.
@@ -2993,6 +2997,7 @@ impl PostProcessState {
             fxaa_buffer,
             fxaa_bg_uniform,
             fxaa_on: false,
+            smaa: crate::smaa::SmaaPass::new(device, surface_format),
             _ldr_texture: targets.ldr_texture,
             history_views: targets.history_views,
             _history_textures: targets.history_textures,
@@ -3871,9 +3876,38 @@ impl PostProcessState {
     }
 
     /// Whether this frame's FXAA pass will run (before `fast_render`, which
-    /// skips it regardless).
+    /// skips it regardless). False while SMAA runs, which replaces it.
     pub fn fxaa_active(&self) -> bool {
-        self.fxaa_on
+        self.fxaa_on && !self.smaa.active()
+    }
+
+    /// Sets this frame's SMAA; `None`, or a disabled one, skips its passes.
+    /// Takes the device because SMAA's tables and targets are made the first
+    /// frame they are needed, and its bind groups over the LDR target every
+    /// frame it runs (so a resize can never leave it reading the old one).
+    pub fn update_smaa(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        smaa: Option<bsengine_core::Smaa>,
+    ) {
+        let size = (self._ldr_texture.width(), self._ldr_texture.height());
+        self.smaa.prepare(
+            device,
+            queue,
+            smaa,
+            &self.ldr_view,
+            size,
+            self.surface_format,
+            &self.tex2d_bgl,
+            &self.sampler,
+        );
+    }
+
+    /// Whether this frame's SMAA passes will run (before `fast_render`, which
+    /// skips them regardless).
+    pub fn smaa_active(&self) -> bool {
+        self.smaa.active()
     }
 
     /// Slices in the bound colour LUT, or 0 for none.
@@ -4355,7 +4389,18 @@ impl PostProcessState {
         // are to be found by the contrast the player sees, and before the
         // TAA resolve, which then accumulates the smoothed frames (and, with
         // TAA off, is the plain copy to the swapchain).
-        let fxaa_ran = self.fxaa_on && !fast_render;
+        // SMAA in the same place, and instead of FXAA when both are asked
+        // for.
+        let smaa_bg = if fast_render {
+            None
+        } else {
+            self.smaa.encode(encoder)
+        };
+        if smaa_bg.is_some() {
+            draw_calls += 3;
+            triangles += 3;
+        }
+        let fxaa_ran = self.fxaa_on && !fast_render && smaa_bg.is_none();
         if fxaa_ran {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("fxaa pass"),
@@ -4378,7 +4423,9 @@ impl PostProcessState {
             triangles += 1;
         }
         // This frame's finished colour, as the resolve reads it.
-        let current_bg = if fxaa_ran {
+        let current_bg = if let Some(bg) = smaa_bg {
+            bg
+        } else if fxaa_ran {
             &self.fxaa_bg
         } else {
             &self.ldr_bg

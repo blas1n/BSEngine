@@ -989,6 +989,8 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     app.register_type::<bsengine_core::DepthOfField>();
     app.register_type::<bsengine_core::MotionBlur>();
     app.register_type::<bsengine_core::Fxaa>();
+    app.register_type::<bsengine_core::Smaa>();
+    app.register_type::<bsengine_core::SmaaQuality>();
     app.register_type::<bsengine_core::Visible>();
     app.register_type::<bsengine_core::VolumetricFog>();
     app.register_type::<bsengine_core::Follow>();

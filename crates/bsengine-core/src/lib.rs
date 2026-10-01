@@ -129,6 +129,8 @@ pub mod shadow_config;
 pub mod shield;
 /// Skybox background component and its projection mode.
 pub mod skybox;
+/// Subpixel morphological antialiasing (SMAA) settings for a camera.
+pub mod smaa;
 /// Temporal antialiasing post-process settings.
 pub mod taa;
 /// Per-texture import settings (sRGB, mipmaps, filter, wrap), stored in an
@@ -225,6 +227,7 @@ pub use screen_space_reflections::ScreenSpaceReflections;
 pub use shadow_config::ShadowSettings;
 pub use shield::Shield;
 pub use skybox::{Skybox, SkyboxPath, SkyboxProjection};
+pub use smaa::{Smaa, SmaaQuality};
 pub use taa::Taa;
 pub use texture_import::{TextureCompression, TextureFilter, TextureImportSettings, TextureWrap};
 pub use texture_streaming_config::TextureStreamingSettings;

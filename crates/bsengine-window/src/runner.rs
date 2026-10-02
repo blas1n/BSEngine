@@ -30,7 +30,7 @@ impl BsWinitApp {
             .ecs_app
             .world()
             .get_non_send_resource::<FirstFrameGate>()
-            .map_or(true, |gate| gate.ready.iter().all(|ready| ready()));
+            .is_none_or(|gate| gate.ready.iter().all(|ready| ready()));
         self.started = open;
         open
     }

@@ -35,3 +35,10 @@ tracing-wasm = "0.2"
 
 [dev-dependencies]
 ron.workspace = true
+
+# Native crash capture (see `crash::native`): a signal/SEH handler in the game
+# and a minidump written by a second process, as Unity's UnityCrashHandler,
+# Unreal's CrashReportClient and Crashpad all do.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+crash-handler = "0.8"
+minidumper = "0.11"

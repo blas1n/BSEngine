@@ -12,9 +12,10 @@
 //! `user://logs`. This is that: [`init_for_project`] opens the log file and
 //! installs a panic hook that writes a report beside it.
 //!
-//! Panics only. A native crash -- a segfault inside a GPU driver -- does not
-//! unwind and does not reach a panic hook; Unity and Unreal catch those too,
-//! with a signal/SEH handler and a minidump, which is a larger piece of work.
+//! This module catches panics. A native crash -- a segfault inside a GPU
+//! driver -- does not unwind and does not reach a panic hook; `native_crash`
+//! catches those, with a signal/SEH handler and a minidump written by a
+//! monitor process, and [`init_for_project`] installs both.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -135,11 +136,18 @@ pub fn init_for_project(project_name: &str) -> UserPaths {
         paths.log.display(),
         paths.crashes.display()
     );
-    install_crash_handler(
-        paths.crashes.clone(),
-        log,
-        format!("{project_name} (BSEngine {})", env!("CARGO_PKG_VERSION")),
-    );
+    let context = format!("{project_name} (BSEngine {})", env!("CARGO_PKG_VERSION"));
+    // Native crashes: a monitor process writes a minidump and a report into
+    // the same directory. Without it the game still runs, with panic reports
+    // only -- crash capture is never why a game does not start.
+    #[cfg(not(target_arch = "wasm32"))]
+    match crate::native_crash::attach(&paths.crashes, log.as_deref(), &context) {
+        Ok(monitor) => {
+            tracing::info!("native crash capture on (minidumps; monitor process {monitor})")
+        }
+        Err(e) => tracing::warn!("native crashes will leave no minidump: {e}"),
+    }
+    install_crash_handler(paths.crashes.clone(), log, context);
     paths
 }
 
@@ -218,14 +226,27 @@ pub fn write_crash_report(
     report: &CrashReport<'_>,
     now: SystemTime,
 ) -> std::io::Result<PathBuf> {
+    write_crash_report_for(std::process::id(), crash_dir, log_path, report, now)
+}
+
+/// [`write_crash_report`] for process `pid` rather than this one: the native
+/// crash monitor (`native_crash`) writes the report of the game it watched,
+/// named for the game, so the report and its minidump sort together.
+pub fn write_crash_report_for(
+    pid: u32,
+    crash_dir: &Path,
+    log_path: Option<&Path>,
+    report: &CrashReport<'_>,
+    now: SystemTime,
+) -> std::io::Result<PathBuf> {
     std::fs::create_dir_all(crash_dir)?;
     let stamp = utc_stamp(now);
-    let mut path = crash_dir.join(format!("crash-{stamp}-{}.txt", std::process::id()));
+    let mut path = crash_dir.join(format!("crash-{stamp}-{pid}.txt"));
     // A second panic in the same second, same process: number it.
     let mut n = 1;
     while path.exists() {
         n += 1;
-        path = crash_dir.join(format!("crash-{stamp}-{}-{n}.txt", std::process::id()));
+        path = crash_dir.join(format!("crash-{stamp}-{pid}-{n}.txt"));
     }
     let mut out = std::fs::File::create(&path)?;
     writeln!(out, "BSEngine crash report")?;
@@ -266,25 +287,29 @@ pub fn write_crash_report(
     Ok(path)
 }
 
-/// Removes all but the newest `keep` reports in `dir`. Newest by name, which
+/// Removes all but the newest `keep` reports in `dir`, and as many minidumps
+/// (a native crash's `.dmp`, see `native_crash`) -- the dumps are the large
+/// files, so they are the ones that must not pile up. Newest by name, which
 /// starts with the UTC time and so sorts in time order -- modification times
 /// can be touched by a copy or a backup tool, names cannot.
 pub fn prune_reports(dir: &Path, keep: usize) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return;
-    };
-    let mut reports: Vec<PathBuf> = entries
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| {
-            p.file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.starts_with("crash-") && n.ends_with(".txt"))
-        })
-        .collect();
-    reports.sort();
-    let excess = reports.len().saturating_sub(keep);
-    for old in &reports[..excess] {
-        let _ = std::fs::remove_file(old);
+    for extension in [".txt", ".dmp"] {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        let mut reports: Vec<PathBuf> = entries
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.starts_with("crash-") && n.ends_with(extension))
+            })
+            .collect();
+        reports.sort();
+        let excess = reports.len().saturating_sub(keep);
+        for old in &reports[..excess] {
+            let _ = std::fs::remove_file(old);
+        }
     }
 }
 
@@ -456,6 +481,30 @@ mod tests {
         assert!(
             left.contains(&"crash-20260005-000000-1.txt".to_string()),
             "newest kept"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Native crashes' minidumps are pruned as their reports are -- they are
+    /// the large files -- each kind to [`REPORTS_KEPT`] on its own.
+    #[test]
+    fn old_minidumps_are_pruned_too() {
+        let dir = temp_dir("prune_dmp");
+        for i in 0..REPORTS_KEPT + 3 {
+            std::fs::write(dir.join(format!("crash-2026{i:04}-000000-1.dmp")), "MDMP").unwrap();
+            std::fs::write(dir.join(format!("crash-2026{i:04}-000000-1.txt")), "x").unwrap();
+        }
+        prune_reports(&dir, REPORTS_KEPT);
+        let left: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        let count = |ext: &str| left.iter().filter(|n| n.ends_with(ext)).count();
+        assert_eq!(count(".dmp"), REPORTS_KEPT, "{left:?}");
+        assert_eq!(count(".txt"), REPORTS_KEPT, "{left:?}");
+        assert!(
+            !left.contains(&"crash-20260000-000000-1.dmp".to_string()),
+            "the oldest dump went"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }

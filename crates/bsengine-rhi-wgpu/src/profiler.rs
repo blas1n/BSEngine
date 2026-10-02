@@ -60,6 +60,18 @@ pub fn texture_count() -> u32 {
 /// logs a warning and falls back to 4 bytes/texel (correct for every RGBA8
 /// variant, an undercount only for wider formats) rather than panicking.
 pub(crate) fn bytes_per_texel(format: wgpu::TextureFormat) -> u64 {
+    known_bytes_per_texel(format).unwrap_or_else(|| {
+        tracing::warn!(
+            "profiler::bytes_per_texel: unhandled format {format:?}, assuming 4 bytes/texel"
+        );
+        4
+    })
+}
+
+/// [`bytes_per_texel`] for the formats it knows, `None` for the rest. Apart
+/// so a test can tell a known 4-byte format from the 4-byte fallback, which
+/// read the same through `bytes_per_texel` -- only the warning differs.
+fn known_bytes_per_texel(format: wgpu::TextureFormat) -> Option<u64> {
     match format {
         wgpu::TextureFormat::Rgba8Unorm
         | wgpu::TextureFormat::Rgba8UnormSrgb
@@ -69,14 +81,9 @@ pub(crate) fn bytes_per_texel(format: wgpu::TextureFormat) -> u64 {
         | wgpu::TextureFormat::Depth32Float
         | wgpu::TextureFormat::R32Float
         // The BRDF integration LUT: two 16-bit floats, so also 4 bytes.
-        | wgpu::TextureFormat::Rg16Float => 4,
-        wgpu::TextureFormat::Rgba16Float => 8,
-        other => {
-            tracing::warn!(
-                "profiler::bytes_per_texel: unhandled format {other:?}, assuming 4 bytes/texel"
-            );
-            4
-        }
+        | wgpu::TextureFormat::Rg16Float => Some(4),
+        wgpu::TextureFormat::Rgba16Float => Some(8),
+        _ => None,
     }
 }
 
@@ -294,10 +301,21 @@ mod tests {
     fn bytes_per_texel_matches_known_formats() {
         assert_eq!(bytes_per_texel(wgpu::TextureFormat::Rgba8Unorm), 4);
         assert_eq!(bytes_per_texel(wgpu::TextureFormat::Rgba8UnormSrgb), 4);
-        assert_eq!(bytes_per_texel(wgpu::TextureFormat::Bgra8UnormSrgb), 4);
         assert_eq!(bytes_per_texel(wgpu::TextureFormat::Rgba16Float), 8);
         assert_eq!(bytes_per_texel(wgpu::TextureFormat::Depth32Float), 4);
         assert_eq!(bytes_per_texel(wgpu::TextureFormat::R32Float), 4);
         assert_eq!(bytes_per_texel(wgpu::TextureFormat::Rg16Float), 4);
+    }
+
+    /// The browser's canvas formats (the swapchain and its sRGB view) are
+    /// known, not the fallback, which warned four times as every browser
+    /// build started.
+    #[test]
+    fn the_web_canvas_formats_are_known() {
+        use wgpu::TextureFormat as F;
+        assert_eq!(known_bytes_per_texel(F::Bgra8Unorm), Some(4));
+        assert_eq!(known_bytes_per_texel(F::Bgra8UnormSrgb), Some(4));
+        // ...and the split still reports an unknown one as unknown.
+        assert_eq!(known_bytes_per_texel(F::Rg8Unorm), None);
     }
 }

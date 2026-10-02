@@ -16,7 +16,7 @@ Ask what already owns a concept in this engine — call this BEFORE adding a new
 scripting op, to find out whether the concept exists already and who owns it.\n\n\
 Pass `concept` as the single word you were about to name the new thing after: \"velocity\", \
 \"health\", \"grounded\". You get back every component whose type name or field name uses that \
-word, and every #[op2] scripting op whose name uses it, each with its crate, source location and \
+word, and every scripting op whose name uses it, each with its crate, source location and \
 rustdoc.\n\n\
 Read BOTH lists, not just the first one that has hits. A concept can be owned by a component, by \
 a family of ops, or by both at once in different crates. `velocity` is the case that motivated \

@@ -32,7 +32,7 @@ pub struct ConceptHits {
 pub struct Catalog {
     /// Every `#[derive(Component)]` type found.
     pub components: Vec<Component>,
-    /// Every `#[op2]` scripting op found.
+    /// Every scripting op found (`#[script_op]` or `#[op2]`).
     pub ops: Vec<Op>,
 }
 

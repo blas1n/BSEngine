@@ -11,6 +11,7 @@ members = [
     "crates/bsengine-scene",
     "crates/bsengine-asset",
     "crates/bsengine-scripting",
+    "crates/bsengine-scripting-macros",
     "crates/bsengine-physics",
     "crates/bsengine-audio",
     "crates/bsengine-plugin",
@@ -45,10 +46,15 @@ bsengine-render   = { path = "crates/bsengine-render" }
 bsengine-scene    = { path = "crates/bsengine-scene" }
 bsengine-asset    = { path = "crates/bsengine-asset" }
 bsengine-scripting = { path = "crates/bsengine-scripting" }
+bsengine-scripting-macros = { path = "crates/bsengine-scripting-macros" }
 bsengine-plugin   = { path = "crates/bsengine-plugin" }
 bsengine-mcp      = { path = "crates/bsengine-mcp" }
 toml              = "0.8"
 deno_core         = "0.404.0"
+# The browser build's script engine bindings (see bsengine-scripting-macros).
+wasm-bindgen      = "0.2.100"
+js-sys            = "0.3.77"
+serde-wasm-bindgen = "0.6"
 serde_json        = "1.0"
 sys-locale        = "0.3"
 ron               = "0.8"

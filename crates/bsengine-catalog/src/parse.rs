@@ -133,7 +133,10 @@ fn collect_components(
     }
 }
 
-/// Finds every `#[op2]` scripting op declared in one source string.
+/// Finds every scripting op declared in one source string: a function marked
+/// `#[script_op]` (the engine's own attribute, which binds the op to V8 or to
+/// a browser's engine) or `#[op2]` (`deno_core`'s, for an op written against
+/// V8 alone).
 ///
 /// `krate` and `file` are recorded on the results; this function does no I/O so
 /// it can be unit-tested directly.
@@ -156,7 +159,11 @@ fn collect_ops(items: &[syn::Item], src: &str, krate: &str, file: &str, out: &mu
                     collect_ops(inner, src, krate, file, out);
                 }
             }
-            syn::Item::Fn(f) if f.attrs.iter().any(|a| a.path().is_ident("op2")) => {
+            syn::Item::Fn(f)
+                if f.attrs
+                    .iter()
+                    .any(|a| a.path().is_ident("script_op") || a.path().is_ident("op2")) =>
+            {
                 let name = f.sig.ident.to_string();
                 let line = src
                     .lines()
@@ -481,6 +488,25 @@ mod tests {
             "the `#[string]` attribute must not end up in the recorded type"
         );
         assert_eq!(op.returns.as_deref(), Some("Option<Vec<f32>>"));
+    }
+
+    /// `#[script_op]` -- what every engine op is written with -- is an op
+    /// as much as `#[op2]` is. Missing it would leave the catalogue with no
+    /// ops at all, and its every concept check passing on nothing.
+    #[test]
+    fn a_script_op_is_an_op() {
+        let src = r#"
+            /// Logs.
+            #[script_op(fast)]
+            pub fn bsengine_log(#[string] msg: String) {}
+
+            /// Not an op: no attribute.
+            pub fn helper() {}
+        "#;
+        let found = ops_in_source(src, "bsengine-scripting", "ops.rs");
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].name, "bsengine_log");
+        assert_eq!(found[0].params[0].ty, "String");
     }
 
     #[test]

@@ -17,6 +17,8 @@ serde.workspace = true
 egui.workspace = true
 # The operating system's locale, for a game's starting language.
 sys-locale.workspace = true
+# `clock`: `Instant`/`SystemTime` that work in a browser build.
+web-time = "1"
 
 # The browser build (wasm32-unknown-unknown) has no operating-system source
 # of randomness, and the crates that ask for one refuse to compile until told
@@ -28,6 +30,8 @@ sys-locale.workspace = true
 getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }
 getrandom_03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
 uuid = { workspace = true, features = ["js"] }
+# The browser build's log goes to the page's console (`logging::init_logging`).
+tracing-wasm = "0.2"
 
 [dev-dependencies]
 ron.workspace = true

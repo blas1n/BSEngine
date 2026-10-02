@@ -47,6 +47,27 @@ pub struct WindowCreated;
 #[derive(Event, Debug, Clone)]
 pub struct WindowClosed;
 
+/// What the first frame has to wait for, where it cannot be had at once.
+///
+/// On a desktop everything a frame needs is made synchronously before the
+/// first one runs -- the GPU device included -- and every system is written
+/// for that: one that resolves a mesh when its entity appears, say, finds the
+/// mesh registry already there. In a browser the device arrives as a future,
+/// a few frames after the window does, and such a system would have had its
+/// one chance and missed. So the browser's first frame waits: a plugin adds
+/// a hook that starts the work once the window exists, and a check that says
+/// when it is done, and the runner calls `App::update` only when every check
+/// passes. Native builds never wait; nothing is added there.
+///
+/// A non-send resource: the hooks hold the page's futures and closures.
+#[derive(Default)]
+pub struct FirstFrameGate {
+    /// Called once, with the window, as soon as it exists.
+    pub on_window: Vec<Box<dyn FnOnce(Arc<Window>)>>,
+    /// The first frame runs when all of these say true.
+    pub ready: Vec<Box<dyn Fn() -> bool>>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

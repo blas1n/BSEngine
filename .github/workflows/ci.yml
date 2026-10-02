@@ -194,7 +194,7 @@ jobs:
             -p bsengine-window -p bsengine-physics -p bsengine-asset -p bsengine-audio \
             -p bsengine-scene -p bsengine-gltf -p bsengine-rhi-wgpu -p bsengine-render \
             -p bsengine-shadergraph -p bsengine-visualscript -p bsengine-plugin \
-            -p bsengine-network -p bsengine-scripting
+            -p bsengine-network -p bsengine-scripting -p bsengine-runtime
 
       # ...and the browser's script runtime actually runs: compiled to wasm32
       # and executed in Node by wasm-bindgen-test, so a script cannot tell it
@@ -210,6 +210,25 @@ jobs:
 
       - name: Build
         run: cargo build --all
+
+      # A game actually runs in a browser: cube-evader built as a page
+      # (scripts/build_web.sh) and opened in headless Chrome, with WebGPU on
+      # SwiftShader since the runner has no GPU. Compiling for wasm32 says
+      # nothing about whether the browser accepts the shaders, whether the
+      # device request survives the browser's limits, or whether the first
+      # frame finds the renderer -- each of which failed, with a clean
+      # compile, while the browser build was being made. web_smoke.mjs fails
+      # on any console error or WebGPU validation error, and unless frames
+      # were drawn. Node 22 for its built-in WebSocket.
+      - uses: actions/setup-node@v4
+        if: matrix.os == 'ubuntu-latest'
+        with:
+          node-version: 22
+      - name: Browser smoke test (cube-evader, headless Chrome)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          bash scripts/build_web.sh games/cube-evader "$RUNNER_TEMP/web" --debug
+          WEBGPU_ADAPTER=swiftshader node scripts/web_smoke.mjs "$RUNNER_TEMP/web" --frames 10 --timeout 300
 
       - name: Test
         env:

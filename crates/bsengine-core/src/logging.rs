@@ -8,14 +8,20 @@ static LOGGING_INIT: OnceLock<()> = OnceLock::new();
 /// call takes effect.
 pub fn init_logging() {
     LOGGING_INIT.get_or_init(|| {
-        use tracing_subscriber::{fmt, EnvFilter};
-        fmt()
-            .with_env_filter(
-                EnvFilter::try_from_default_env()
-                    .unwrap_or_else(|_| EnvFilter::new("bsengine=debug,warn")),
-            )
-            .with_writer(std::io::stderr)
-            .init();
+        // A browser build has no stderr: its log is the page's console.
+        #[cfg(target_arch = "wasm32")]
+        tracing_wasm::set_as_global_default();
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            use tracing_subscriber::{fmt, EnvFilter};
+            fmt()
+                .with_env_filter(
+                    EnvFilter::try_from_default_env()
+                        .unwrap_or_else(|_| EnvFilter::new("bsengine=debug,warn")),
+                )
+                .with_writer(std::io::stderr)
+                .init();
+        }
     });
 }
 

@@ -916,7 +916,9 @@ dependencies = [
  "sys-locale",
  "tracing",
  "tracing-subscriber",
+ "tracing-wasm",
  "uuid",
+ "web-time",
 ]
 
 [[package]]
@@ -1139,6 +1141,7 @@ dependencies = [
  "serde_json",
  "texpresso",
  "tracing",
+ "wasm-bindgen-futures",
  "wgpu",
  "winit",
 ]
@@ -1165,8 +1168,10 @@ dependencies = [
  "bsengine-scene",
  "bsengine-scripting",
  "bsengine-window",
+ "console_error_panic_hook",
  "glam 0.29.3",
  "image",
+ "js-sys",
  "kira",
  "ron",
  "serde",
@@ -1175,6 +1180,9 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

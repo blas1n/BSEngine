@@ -8,11 +8,32 @@ use winit::window::{Window, WindowId};
 
 use bsengine_core::{CursorPos, ScreenSize};
 
-use crate::types::{WindowClosed, WindowCreated, WindowDescriptor, WindowHandle, WindowResized};
+use crate::types::{
+    FirstFrameGate, WindowClosed, WindowCreated, WindowDescriptor, WindowHandle, WindowResized,
+};
 
 struct BsWinitApp {
     ecs_app: App,
     window: Option<Arc<Window>>,
+    /// Whether the first frame's gate (see [`FirstFrameGate`]) has opened.
+    started: bool,
+}
+
+impl BsWinitApp {
+    /// Whether frames may run: always once started, and before that only
+    /// when every [`FirstFrameGate`] check passes.
+    fn may_update(&mut self) -> bool {
+        if self.started {
+            return true;
+        }
+        let open = self
+            .ecs_app
+            .world()
+            .get_non_send_resource::<FirstFrameGate>()
+            .map_or(true, |gate| gate.ready.iter().all(|ready| ready()));
+        self.started = open;
+        open
+    }
 }
 
 impl ApplicationHandler for BsWinitApp {
@@ -31,6 +52,12 @@ impl ApplicationHandler for BsWinitApp {
             .with_title(desc.title)
             .with_inner_size(winit::dpi::LogicalSize::new(desc.width, desc.height))
             .with_resizable(desc.resizable);
+        // In a browser the window is a canvas, appended to the page's body.
+        #[cfg(target_arch = "wasm32")]
+        let attrs = {
+            use winit::platform::web::WindowAttributesExtWebSys;
+            attrs.with_append(true)
+        };
 
         let window = Arc::new(
             event_loop
@@ -38,6 +65,15 @@ impl ApplicationHandler for BsWinitApp {
                 .expect("Failed to create window"),
         );
         self.window = Some(window.clone());
+        if let Some(mut gate) = self
+            .ecs_app
+            .world_mut()
+            .get_non_send_resource_mut::<FirstFrameGate>()
+        {
+            for hook in std::mem::take(&mut gate.on_window) {
+                hook(window.clone());
+            }
+        }
         self.ecs_app
             .world_mut()
             .insert_resource(WindowHandle(window.clone()));
@@ -158,6 +194,12 @@ impl ApplicationHandler for BsWinitApp {
                 }
             }
             WindowEvent::RedrawRequested => {
+                if !self.may_update() {
+                    if let Some(w) = &self.window {
+                        w.request_redraw();
+                    }
+                    return;
+                }
                 self.ecs_app.update();
 
                 let quit_requested = self
@@ -204,13 +246,26 @@ pub fn winit_runner(app: App) -> AppExit {
     let event_loop = EventLoop::new().expect("Failed to create event loop");
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    let mut winit_app = BsWinitApp {
+    let winit_app = BsWinitApp {
         ecs_app: app,
         window: None,
+        started: false,
     };
 
-    event_loop
-        .run_app(&mut winit_app)
-        .expect("Event loop error");
+    // A page's event loop is the browser's: `run_app` would escape it by
+    // throwing an exception, which also unwinds whatever future called it.
+    // `spawn_app` hands the app to the browser's loop and returns.
+    #[cfg(target_arch = "wasm32")]
+    {
+        use winit::platform::web::EventLoopExtWebSys;
+        event_loop.spawn_app(winit_app);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let mut winit_app = winit_app;
+        event_loop
+            .run_app(&mut winit_app)
+            .expect("Event loop error");
+    }
     AppExit::Success
 }

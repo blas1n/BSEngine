@@ -222,9 +222,9 @@ pub enum ScriptTimingState {
     /// Real elapsed time — what a player actually experiences.
     Wall {
         /// When the app started; `getTime()` counts from here.
-        startup: std::time::Instant,
+        startup: bsengine_core::clock::Instant,
         /// Previous frame's instant, subtracted to get `getDeltaTime()`.
-        last_frame: std::time::Instant,
+        last_frame: bsengine_core::clock::Instant,
     },
     /// A fixed step per frame, so N frames always means the same amount of
     /// game time regardless of how fast the machine ran them.
@@ -239,7 +239,7 @@ pub enum ScriptTimingState {
 impl ScriptTimingState {
     /// Wall-clock timing, for a real running game.
     pub fn wall_clock() -> Self {
-        let now = std::time::Instant::now();
+        let now = bsengine_core::clock::Instant::now();
         Self::Wall {
             startup: now,
             last_frame: now,
@@ -262,7 +262,7 @@ impl ScriptTimingState {
                 startup,
                 last_frame,
             } => {
-                let now = std::time::Instant::now();
+                let now = bsengine_core::clock::Instant::now();
                 let elapsed = now.duration_since(*startup).as_secs_f32();
                 let delta = now.duration_since(*last_frame).as_secs_f32();
                 *last_frame = now;

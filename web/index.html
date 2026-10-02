@@ -1,0 +1,32 @@
+<!doctype html>
+<!--
+  The browser build's page, which `--package <project> --mode web` writes
+  beside the game's archive. `scripts/build_web.sh` puts the runtime's
+  wasm-bindgen output in ./pkg beside it. The archive is `game.pak` beside it,
+  or the URL in `?pak=`. The engine draws into a canvas it appends to the body and
+  reports its progress in #bsengine-status.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BSEngine</title>
+  <!-- No icon to fetch: a browser asks for /favicon.ico otherwise, and the
+       404 lands in the console the smoke test treats as the game's own. -->
+  <link rel="icon" href="data:,">
+  <style>
+    html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+    canvas { width: 100%; height: 100%; display: block; }
+    #bsengine-status { position: fixed; left: 6px; top: 4px; color: #999; font: 12px monospace; }
+  </style>
+</head>
+<body>
+  <div id="bsengine-status">loading</div>
+  <script type="module">
+    import init from './pkg/bsengine-runtime.js';
+    init().catch((e) => {
+      document.getElementById('bsengine-status').textContent = 'error: ' + e;
+    });
+  </script>
+</body>
+</html>

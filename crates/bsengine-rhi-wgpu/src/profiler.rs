@@ -63,6 +63,9 @@ pub(crate) fn bytes_per_texel(format: wgpu::TextureFormat) -> u64 {
     match format {
         wgpu::TextureFormat::Rgba8Unorm
         | wgpu::TextureFormat::Rgba8UnormSrgb
+        // A WebGPU canvas's formats (see `WgpuSurface::new`).
+        | wgpu::TextureFormat::Bgra8Unorm
+        | wgpu::TextureFormat::Bgra8UnormSrgb
         | wgpu::TextureFormat::Depth32Float
         | wgpu::TextureFormat::R32Float
         // The BRDF integration LUT: two 16-bit floats, so also 4 bytes.
@@ -291,6 +294,7 @@ mod tests {
     fn bytes_per_texel_matches_known_formats() {
         assert_eq!(bytes_per_texel(wgpu::TextureFormat::Rgba8Unorm), 4);
         assert_eq!(bytes_per_texel(wgpu::TextureFormat::Rgba8UnormSrgb), 4);
+        assert_eq!(bytes_per_texel(wgpu::TextureFormat::Bgra8UnormSrgb), 4);
         assert_eq!(bytes_per_texel(wgpu::TextureFormat::Rgba16Float), 8);
         assert_eq!(bytes_per_texel(wgpu::TextureFormat::Depth32Float), 4);
         assert_eq!(bytes_per_texel(wgpu::TextureFormat::R32Float), 4);

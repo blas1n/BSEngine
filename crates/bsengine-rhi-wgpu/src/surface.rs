@@ -18,7 +18,8 @@ const TIMESTAMP_QUERY_COUNT: u32 = MAX_TIMED_PASSES * 2;
 /// `post_process::tests::the_injection_pass_ports_point_shadow_factor_verbatim`
 /// can compare this text against the froxel injection shader's copy of
 /// `point_shadow_factor`. Nothing outside a test reads it.
-pub(crate) const MESH_WGSL: &str = r#"
+pub(crate) const MESH_WGSL: &str = concat!(
+    r#"
 const MAX_POINT_LIGHTS: u32 = 8u;
 const MAX_SPOT_LIGHTS: u32 = 8u;
 const PI: f32 = 3.14159265358979323846;
@@ -546,6 +547,9 @@ fn fs_main(in: VertOut) -> SceneOut {
             }
         }
     }
+    // Rect lights (see `crate::area_light`): their whole contribution,
+    // diffuse and specular, already integrated over each rectangle.
+    lo += rect_light_radiance(n, v, in.world_pos, albedo, f0, metallic, roughness);
     // With no skybox this is exactly the old flat-ambient term, evaluated by
     // exactly the old expression -- the branch is on a uniform, so every
     // no-skybox frame stays bit-for-bit what it was before IBL existed.
@@ -630,9 +634,12 @@ fn fs_main(in: VertOut) -> SceneOut {
     }
     return out;
 }
-"#;
+"#,
+    crate::area_light::rect_light_wgsl!()
+);
 
-const TERRAIN_WGSL: &str = r#"
+const TERRAIN_WGSL: &str = concat!(
+    r#"
 const MAX_POINT_LIGHTS: u32 = 8u;
 const MAX_SPOT_LIGHTS: u32 = 8u;
 const PI: f32 = 3.14159265358979323846;
@@ -967,13 +974,18 @@ fn fs_main(in: VertOut) -> SceneOut {
             }
         }
     }
+    // Rect lights (see `crate::area_light`): their whole contribution,
+    // diffuse and specular, already integrated over each rectangle.
+    lo += rect_light_radiance(n, v, in.world_pos, albedo, f0, metallic, roughness);
     let color = light.ambient * albedo + lo + model_data.emissive;
     var out: SceneOut;
     out.colour = vec4<f32>(color, model_data.opacity);
     out.normal_roughness = vec4<f32>(n, roughness);
     return out;
 }
-"#;
+"#,
+    crate::area_light::rect_light_wgsl!()
+);
 
 /// The instanced shadow shaders' view of the model buffer.
 ///
@@ -2014,6 +2026,9 @@ pub struct LightData {
     pub point_lights: Vec<PointLightEntry>,
     /// Active spot lights this frame (uploaded up to a fixed GPU-side cap).
     pub spot_lights: Vec<SpotLightEntry>,
+    /// Active rect lights this frame (the first
+    /// [`crate::area_light::MAX_RECT_LIGHTS`] are shaded).
+    pub rect_lights: Vec<crate::area_light::RectLightEntry>,
 }
 
 impl Default for LightData {
@@ -2024,6 +2039,7 @@ impl Default for LightData {
             ambient: Vec3::splat(0.15),
             point_lights: Vec::new(),
             spot_lights: Vec::new(),
+            rect_lights: Vec::new(),
         }
     }
 }
@@ -2390,6 +2406,10 @@ struct LightBindings<'a> {
     reflection_probe_buffer: &'a wgpu::Buffer,
     /// Every reflection probe's prefiltered cube, as one cube array.
     reflection_cubes_view: &'a wgpu::TextureView,
+    /// The rect lights (see `crate::area_light`), and the LTC tables and
+    /// sampler their shading reads.
+    rect_light_buffer: &'a wgpu::Buffer,
+    ltc: &'a crate::area_light::LtcTables,
 }
 
 /// Builds the light bind group. The single place the group-2 binding numbers
@@ -2459,6 +2479,22 @@ fn create_light_bind_group(
             wgpu::BindGroupEntry {
                 binding: 13,
                 resource: wgpu::BindingResource::TextureView(bindings.reflection_cubes_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 14,
+                resource: bindings.rect_light_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 15,
+                resource: wgpu::BindingResource::TextureView(&bindings.ltc.ltc_1_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 16,
+                resource: wgpu::BindingResource::TextureView(&bindings.ltc.ltc_2_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 17,
+                resource: wgpu::BindingResource::Sampler(&bindings.ltc.sampler),
             },
         ],
     })
@@ -2566,6 +2602,10 @@ pub struct WgpuSurface {
     baked_probe_volume: Option<ProbeVolumeParams>,
     /// The reflection probes' boxes, bound at group 2 binding 12.
     reflection_probe_buffer: wgpu::Buffer,
+    /// The rect lights' uniform, written every frame from `LightData`.
+    rect_light_buffer: wgpu::Buffer,
+    /// The LTC tables the rect lights' shading reads.
+    ltc: crate::area_light::LtcTables,
     /// Every captured reflection probe's prefiltered cube, six layers per
     /// slot, bound as a cube array at binding 13.
     reflection_cubes: crate::profiler::TrackedTexture,
@@ -3528,6 +3568,46 @@ impl WgpuSurface {
                     },
                     count: None,
                 },
+                // 14 to 17 are the rect lights: their uniform, the two LTC
+                // tables and the bilinear sampler that reads them. Declared by
+                // the mesh and terrain shaders only; the probe capture shares
+                // this layout and does not light probes with them.
+                wgpu::BindGroupLayoutEntry {
+                    binding: 14,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 15,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 16,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 17,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
         });
 
@@ -3902,6 +3982,16 @@ impl WgpuSurface {
             bsengine_core::MAX_DECALS,
         );
 
+        // The rect lights' uniform (rewritten every frame) and the LTC tables
+        // their shading reads, made once.
+        let rect_light_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("rect light buffer"),
+            size: std::mem::size_of::<crate::area_light::RectLightUniform>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let ltc = crate::area_light::LtcTables::new(&device, &queue);
+
         // No skybox at construction, so the cube bindings get the dummy. Every
         // later rebuild goes through `rebuild_light_bind_group`, which binds
         // the same way from the same struct.
@@ -3923,6 +4013,8 @@ impl WgpuSurface {
                 decal_normal_view: &decals.normal_view,
                 reflection_probe_buffer: &reflection_probe_buffer,
                 reflection_cubes_view: &reflection_cubes_view,
+                rect_light_buffer: &rect_light_buffer,
+                ltc: &ltc,
             },
         );
 
@@ -4693,6 +4785,8 @@ impl WgpuSurface {
             // Nothing baked yet, and `probe_buffer` was just zeroed to match.
             baked_probe_volume: None,
             reflection_probe_buffer,
+            rect_light_buffer,
+            ltc,
             reflection_cubes,
             reflection_cubes_view,
             reflection_capture_texture,
@@ -5151,6 +5245,8 @@ impl WgpuSurface {
                 decal_normal_view: &self.decals.normal_view,
                 reflection_probe_buffer: &self.reflection_probe_buffer,
                 reflection_cubes_view: &self.reflection_cubes_view,
+                rect_light_buffer: &self.rect_light_buffer,
+                ltc: &self.ltc,
             },
         );
         self.light_bind_group = bind_group;
@@ -6024,6 +6120,13 @@ impl WgpuSurface {
         };
         self.queue
             .write_buffer(&self.light_buffer, 0, bytemuck::cast_slice(&[light_data]));
+        self.queue.write_buffer(
+            &self.rect_light_buffer,
+            0,
+            bytemuck::bytes_of(&crate::area_light::RectLightUniform::new(
+                &light.rect_lights,
+            )),
+        );
 
         // Staged into one buffer and written once, rather than a `write_buffer`
         // per object. PR #1833's sweep measured that call pattern at 6.2µs per

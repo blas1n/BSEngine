@@ -192,7 +192,7 @@ pub use inspector::{
     PRIMITIVE_KINDS,
 };
 pub use lifetime::Lifetime;
-pub use light::{DirectionalLight, PointLight, SpotLight};
+pub use light::{DirectionalLight, PointLight, RectLight, SpotLight};
 pub use light_probe::{LightProbeVolume, MAX_PROBES};
 pub use localization::Localization;
 pub use logging::init_logging;

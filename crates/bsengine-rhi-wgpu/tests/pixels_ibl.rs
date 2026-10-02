@@ -39,6 +39,7 @@ fn ibl_only_light() -> Light {
         color: Vec3::ZERO,
         ambient: Vec3::splat(0.2),
         points: Vec::new(),
+        rects: Vec::new(),
     }
 }
 

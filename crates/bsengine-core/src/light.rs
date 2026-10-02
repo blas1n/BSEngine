@@ -100,9 +100,86 @@ impl Validate for SpotLight {
     }
 }
 
+/// Rectangular area light: a lit panel -- a window, a softbox, a screen --
+/// centred on the entity, `width` along its local x and `height` along its
+/// local y, shining out of its local -z side (the way a spot light points)
+/// and dark behind.
+///
+/// Unreal's Rect Light and HDRP's rectangle Area Light; Godot has none. Its
+/// highlight on a glossy surface is the rectangle's shape rather than a
+/// point's, and its shadows-free light softens with the panel's size --
+/// shaded with linearly transformed cosines, as both engines do. No shadow
+/// map: an occluder between the panel and a surface does not stop its light.
+///
+/// `intensity` is the panel's own brightness, so a bigger panel at the same
+/// intensity lights more (Unreal's and HDRP's nits/luminance option); its
+/// rotation comes from the entity's `Transform` and its scale is ignored, as
+/// `width` and `height` say how big it is.
+#[derive(Component, Debug, Clone, Reflect)]
+#[reflect(Component, Default, Validate)]
+pub struct RectLight {
+    /// Light color.
+    pub color: ReflectColor,
+    /// Brightness of the emitting surface.
+    pub intensity: f32,
+    /// Size along the entity's local x axis.
+    pub width: f32,
+    /// Size along the entity's local y axis.
+    pub height: f32,
+    /// Distance from the centre at which the light has faded to nothing.
+    pub range: f32,
+}
+
+impl Default for RectLight {
+    fn default() -> Self {
+        Self {
+            color: Vec3::ONE.into(),
+            intensity: 1.0,
+            width: 1.0,
+            height: 1.0,
+            range: 10.0,
+        }
+    }
+}
+
+impl Validate for RectLight {
+    fn validate(&mut self) {
+        // A panel with no area emits nothing, and the shader's form factor
+        // of a degenerate rectangle is a division by zero away from NaN.
+        self.width = self.width.max(0.001);
+        self.height = self.height.max(0.001);
+        self.intensity = self.intensity.max(0.0);
+        self.range = self.range.max(0.0);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A panel shrunk to nothing keeps a sliver of area -- the shader's
+    /// form factor of a degenerate rectangle would be NaN -- and a negative
+    /// brightness or range is none.
+    #[test]
+    fn rect_light_validate_keeps_a_panel_with_area() {
+        let mut rl = RectLight {
+            width: 0.0,
+            height: -1.0,
+            intensity: -2.0,
+            range: -3.0,
+            ..Default::default()
+        };
+        rl.validate();
+        assert!(rl.width > 0.0 && rl.height > 0.0);
+        assert_eq!((rl.intensity, rl.range), (0.0, 0.0));
+        let mut fine = RectLight::default();
+        fine.validate();
+        assert_eq!(
+            (fine.width, fine.height),
+            (1.0, 1.0),
+            "a real panel is left alone"
+        );
+    }
 
     #[test]
     fn default_light_has_white_color_and_dim_ambient() {

@@ -958,6 +958,7 @@ pub fn register_gameplay_reflect_types(app: &mut bevy_app::App) {
     app.register_type::<bsengine_core::PointLight>();
     app.register_type::<bsengine_core::DirectionalLight>();
     app.register_type::<bsengine_core::SpotLight>();
+    app.register_type::<bsengine_core::RectLight>();
     app.register_type::<bsengine_core::Material>();
     app.register_type::<bsengine_core::TexturePath>();
     app.register_type::<bsengine_core::ParticleEmitter>();

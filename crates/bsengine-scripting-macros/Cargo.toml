@@ -1,0 +1,13 @@
+[package]
+name = "bsengine-scripting-macros"
+description = "`#[script_op]`: one script op definition, bound to V8 natively and to the browser's JS engine on wasm"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn.workspace = true
+quote.workspace = true
+proc-macro2.workspace = true

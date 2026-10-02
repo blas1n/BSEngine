@@ -179,11 +179,12 @@ jobs:
       - name: Component catalogue check
         run: cargo run -p bsengine-catalog --bin catalog -- --check
 
-      # The browser build: everything but scripting (deno_core/V8 has no wasm
-      # target) and the runtime that embeds it must keep compiling for
-      # wasm32. Ubuntu only -- a compile check, the same on every host --
-      # and listed crate by crate, since the workspace includes crates that
-      # are native by design (the editor, MCP, scripting).
+      # The browser build: the engine must keep compiling for wasm32,
+      # scripting included (its ops bind to the browser's JS engine there
+      # instead of V8 -- see bsengine-scripting-macros). Ubuntu only -- a
+      # compile check, the same on every host -- and listed crate by crate,
+      # since the workspace includes crates that are native by design (the
+      # editor, MCP).
       - name: Browser build check (wasm32)
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -193,7 +194,19 @@ jobs:
             -p bsengine-window -p bsengine-physics -p bsengine-asset -p bsengine-audio \
             -p bsengine-scene -p bsengine-gltf -p bsengine-rhi-wgpu -p bsengine-render \
             -p bsengine-shadergraph -p bsengine-visualscript -p bsengine-plugin \
-            -p bsengine-network
+            -p bsengine-network -p bsengine-scripting
+
+      # ...and the browser's script runtime actually runs: compiled to wasm32
+      # and executed in Node by wasm-bindgen-test, so a script cannot tell it
+      # from the V8 build (tests/browser_runtime.rs). The runner must be the
+      # wasm-bindgen version the lockfile resolved.
+      - name: Browser script runtime tests (wasm32, Node)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          WBG=$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version' | head -1)
+          cargo install wasm-bindgen-cli --version "$WBG" --locked
+          CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER=wasm-bindgen-test-runner \
+            cargo test -p bsengine-scripting --target wasm32-unknown-unknown --test browser_runtime
 
       - name: Build
         run: cargo build --all

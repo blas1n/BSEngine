@@ -1,4 +1,4 @@
-use std::time::Instant;
+use crate::clock::Instant;
 
 use bevy_ecs::prelude::Resource;
 

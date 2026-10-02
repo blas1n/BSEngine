@@ -23,6 +23,8 @@ pub mod behavior_tree;
 pub mod bloom;
 /// Perspective camera component and projection math.
 pub mod camera;
+/// Wall-clock time that works in a browser build too (`web-time`).
+pub mod clock;
 /// Colour grading (contrast, saturation, colour filter) after tonemapping.
 pub mod color_grading;
 /// The per-user log file and crash reports, and the panic hook that writes them.

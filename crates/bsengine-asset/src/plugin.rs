@@ -70,12 +70,21 @@ pub struct AssetRoot(pub PathBuf);
 /// This deliberately also stops `BEVY_ASSET_ROOT` from having any effect — see
 /// the crate-level docs, which is where someone wondering why their
 /// `BEVY_ASSET_ROOT` is ignored will actually look.
+#[cfg(not(target_arch = "wasm32"))]
 fn asset_source_root() -> String {
     std::env::current_dir()
         .expect("cannot read the working directory, which every engine asset path is relative to")
         .into_os_string()
         .into_string()
         .expect("the working directory is not valid UTF-8, which bevy_asset's file_path requires")
+}
+
+/// A browser build has no working directory, and needs none: its every asset
+/// comes out of the archive the page fetched, which `PakAssetPlugin` installs
+/// as the default source, so the file root bevy builds here is never read.
+#[cfg(target_arch = "wasm32")]
+fn asset_source_root() -> String {
+    String::new()
 }
 
 /// Installs `bevy_asset`'s `AssetPlugin` and registers every content-asset

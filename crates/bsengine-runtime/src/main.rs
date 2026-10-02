@@ -1,12 +1,22 @@
+// A browser build runs the game and nothing else: the page fetches the archive
+// and starts it (see `web.rs`). Everything here that only a desktop build does
+// -- `--package`, `--fixup`, `--test`, a single-file executable's embedded
+// archive, the editor overlay -- is not compiled into it; the rest is shared.
+#![cfg_attr(target_arch = "wasm32", allow(dead_code, unused_imports))]
+
+#[cfg(not(target_arch = "wasm32"))]
 use std::env;
 
 use bsengine_app::{
     new_app, AnimationPlugin, AnimationStateMachinePlugin, ClothPlugin, LifetimePlugin,
     NavMeshPlugin, ParticlePlugin, TerrainBrushPlugin, TerrainPlugin, TimePlugin,
 };
-use bsengine_asset::{AssetIdentityPlugin, AssetPlugin, AssetStatusPlugin, AssetWatcherPlugin};
+#[cfg(not(target_arch = "wasm32"))]
+use bsengine_asset::AssetWatcherPlugin;
+use bsengine_asset::{AssetIdentityPlugin, AssetPlugin, AssetStatusPlugin};
 use bsengine_audio::AudioPlugin;
 use bsengine_core::{EditorPlayState, InspectorState};
+#[cfg(not(target_arch = "wasm32"))]
 use bsengine_editor::EditorPlugin;
 use bsengine_gltf::{GltfPlugin, SkinnedMeshPlugin};
 use bsengine_input::InputPlugin;
@@ -20,12 +30,23 @@ use bsengine_window::{WindowDescriptor, WindowPlugin};
 
 mod audio_occlusion;
 mod scene_systems;
+#[cfg(not(target_arch = "wasm32"))]
 mod test_mode;
+#[cfg(not(target_arch = "wasm32"))]
 mod test_protocol;
 mod test_query;
 
 use scene_systems::{register_scene_systems, ProjectManifest};
 
+#[cfg(target_arch = "wasm32")]
+mod web;
+
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    web::start();
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn main() {
     let mut args = env::args().skip(1);
     let first_arg = args.next().unwrap_or_else(|| ".".to_string());
@@ -55,12 +76,15 @@ fn main() {
                 "--mode" => {
                     let value = args
                         .next()
-                        .unwrap_or_else(|| panic!("--mode requires loose, pak or single"));
+                        .unwrap_or_else(|| panic!("--mode requires loose, pak, single or web"));
                     mode = Some(match value.as_str() {
                         "loose" => bsengine_asset::cook::PackageMode::Loose,
                         "pak" => bsengine_asset::cook::PackageMode::Pak,
                         "single" => bsengine_asset::cook::PackageMode::Single,
-                        other => panic!("unknown --mode {other}; expected loose, pak or single"),
+                        "web" => bsengine_asset::cook::PackageMode::Web,
+                        other => {
+                            panic!("unknown --mode {other}; expected loose, pak, single or web")
+                        }
                     });
                 }
                 other => panic!("unknown argument after project dir: {other}"),
@@ -435,6 +459,7 @@ fn read_manifest(project_dir: &str, pak: Option<&bsengine_asset::pak::Pak>) -> P
 /// limit. `window_smoke.rs` reaches this through the real executable, so what it
 /// certifies is the arrangement a player gets rather than a second one
 /// assembled for the test.
+#[cfg(not(target_arch = "wasm32"))]
 fn run_windowed(project_dir: &str, frame_limit: Option<u32>) {
     let mut app = build_windowed_app(project_dir);
     if let Some(frames) = frame_limit {
@@ -486,16 +511,35 @@ fn quit_after_frames(app: &mut bevy_app::App, frames: u32) {
 ///
 /// Stops short of `run()` so [`run_windowed`] can add the `--frames` limit
 /// before the event loop takes the app.
+#[cfg(not(target_arch = "wasm32"))]
 fn build_windowed_app(project_dir: &str) -> bevy_app::App {
     // The archive before the manifest: a single-file build keeps its manifest
     // inside the archive, so there is nothing to read until that is open.
     let pak = open_pak(project_dir);
+    build_player_app(project_dir, pak)
+}
+
+/// The app a player runs, on whichever host: every plugin, the project's
+/// manifest, its entry scene, and `Playing` already set. `pak` is the
+/// project's archive if it has one -- opened from disk or the executable on a
+/// desktop, fetched by the page in a browser.
+///
+/// One function for both hosts on purpose: a plugin present in one host's
+/// list and missing from the other's is a feature that works where it was
+/// tested and does nothing where it ships (see `TerrainPlugin` below). The
+/// browser build leaves out exactly what it cannot have -- the editor
+/// overlay, the file watcher, the crash report files -- and nothing else.
+pub(crate) fn build_player_app(
+    project_dir: &str,
+    pak: Option<std::sync::Arc<bsengine_asset::pak::Pak>>,
+) -> bevy_app::App {
     let manifest = read_manifest(project_dir, pak.as_deref());
     // The log file and the crash handler, before `new_app()` below sets up
     // stderr-only logging (the first set-up wins) and before anything else
     // can panic -- a bad `[input]` binding, a scene that will not load --
     // so those land in a report too. Named for the project, which is why it
     // cannot come any earlier than the manifest.
+    #[cfg(not(target_arch = "wasm32"))]
     bsengine_core::crash::init_for_project(&manifest.project.name);
 
     let scene_path = format!("{}/{}", project_dir, manifest.project.entry_scene);
@@ -549,8 +593,9 @@ fn build_windowed_app(project_dir: &str) -> bevy_app::App {
         simulator_seed: manifest.network.simulator_seed,
         rpc_resend_frames: manifest.network.rpc_resend_frames,
     });
-    app.add_plugins(TimePlugin)
-        .add_plugins(AssetPlugin)
+    app.add_plugins(TimePlugin).add_plugins(AssetPlugin);
+    #[cfg(not(target_arch = "wasm32"))]
+    app
         // Windowed only, deliberately. `--test` builds its own app
         // (test_mode::build_test_app) with its own plugin list, so leaving
         // this out of that list is the whole of the decision: a replay has
@@ -560,8 +605,8 @@ fn build_windowed_app(project_dir: &str) -> bevy_app::App {
         // reproducible. Needs AssetPlugin (for AssetServer) and a ProjectDir,
         // which ScriptingPlugin inserts below at build time — i.e. before any
         // Startup system, including this plugin's, ever runs.
-        .add_plugins(AssetWatcherPlugin)
-        // Unlike the watcher above, this one is in `--test`'s plugin list
+        .add_plugins(AssetWatcherPlugin);
+    app // Unlike the watcher above, this one is in `--test`'s plugin list
         // too (test_mode::build_test_app) — see there for why. Without it
         // registered *somewhere* the whole status API is inert: the resource
         // never exists, so `AssetStatuses::get` and `Bsengine.getAssetStatus`
@@ -597,9 +642,14 @@ fn build_windowed_app(project_dir: &str) -> bevy_app::App {
         .add_plugins(InputPlugin)
         .add_plugins(AudioPlugin)
         .add_plugins(PhysicsPlugin)
-        .add_plugins(NetworkPlugin)
-        .add_plugins(EditorPlugin)
-        .add_plugins(RenderPlugin)
+        .add_plugins(NetworkPlugin);
+    // The editor overlay a desktop run carries for development. A browser
+    // build has none, and no `InspectorState` either: with one, the renderer
+    // draws the inspector over the game, and without one scripts simply run
+    // (they are held only by an editor that is stopped).
+    #[cfg(not(target_arch = "wasm32"))]
+    app.add_plugins(EditorPlugin);
+    app.add_plugins(RenderPlugin)
         .add_plugins(GltfPlugin)
         .add_plugins(SkinnedMeshPlugin)
         .add_plugins(AnimationPlugin)
@@ -651,12 +701,14 @@ fn build_windowed_app(project_dir: &str) -> bevy_app::App {
     // so `cargo run -p bsengine-runtime -- <game>` actually plays the game
     // immediately, matching what running a game is supposed to do.
     {
-        let mut inspector = app.world_mut().resource_mut::<InspectorState>();
-        inspector.play_state = EditorPlayState::Playing;
-        // Populated on manual Ctrl+S saves otherwise; without this, a
-        // freshly-launched game (never saved) has no path for the Play
-        // button's "reload the scene" behavior to reload from.
-        inspector.current_scene_path = Some(scene_path.clone());
+        // Absent in a browser build, which has no editor (see above).
+        if let Some(mut inspector) = app.world_mut().get_resource_mut::<InspectorState>() {
+            inspector.play_state = EditorPlayState::Playing;
+            // Populated on manual Ctrl+S saves otherwise; without this, a
+            // freshly-launched game (never saved) has no path for the Play
+            // button's "reload the scene" behavior to reload from.
+            inspector.current_scene_path = Some(scene_path.clone());
+        }
     }
 
     app

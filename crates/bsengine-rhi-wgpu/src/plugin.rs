@@ -73,11 +73,65 @@ impl Plugin for WgpuRHIPlugin {
         app.add_systems(Startup, move |world: &mut World| {
             create_surface_system(world, mode)
         });
+        // In a browser the device arrives as a future. The first frame waits
+        // for it (`FirstFrameGate`), and it is installed before `Startup`, so
+        // every system finds the renderer there from the start, as natively.
+        #[cfg(target_arch = "wasm32")]
+        if let SurfaceMode::Windowed = mode {
+            let mut gate = app
+                .world_mut()
+                .remove_non_send_resource::<bsengine_window::FirstFrameGate>()
+                .unwrap_or_default();
+            gate.on_window.push(Box::new(|window| {
+                wasm_bindgen_futures::spawn_local(async move {
+                    match WgpuSurface::new(window).await {
+                        Ok(surface) => {
+                            ARRIVED_SURFACE.with(|s| *s.borrow_mut() = Some(Ok(surface)))
+                        }
+                        Err(e) => {
+                            tracing::error!("wgpu surface not created: {e}");
+                            ARRIVED_SURFACE.with(|s| *s.borrow_mut() = Some(Err(e)));
+                        }
+                    }
+                });
+            }));
+            gate.ready
+                .push(Box::new(|| ARRIVED_SURFACE.with(|s| s.borrow().is_some())));
+            app.insert_non_send_resource(gate);
+            app.add_systems(bevy_app::PreStartup, install_arrived_surface);
+        }
         app.add_systems(Update, handle_window_resize);
     }
 }
 
+// The surface a browser build is waiting on: requested when the window
+// appears, set when the adapter and device arrive (or with why they did not --
+// either way the first frame may then run, without a renderer if it failed,
+// as a desktop build runs on when its surface fails), and installed at
+// `PreStartup` by `install_arrived_surface`. (A plain comment: rustdoc
+// documents nothing inside `thread_local!`.)
+#[cfg(target_arch = "wasm32")]
+thread_local! {
+    static ARRIVED_SURFACE: std::cell::RefCell<Option<Result<WgpuSurface, String>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(target_arch = "wasm32")]
+fn install_arrived_surface(world: &mut World) {
+    if let Some(Ok(surface)) = ARRIVED_SURFACE.with(|s| s.borrow_mut().take()) {
+        install_surface(world, surface);
+    }
+}
+
 fn create_surface_system(world: &mut World, mode: SurfaceMode) {
+    // A page cannot block on the adapter and device the way a desktop can --
+    // `pollster::block_on` parks the thread on a condvar, which the browser's
+    // one thread has not got. There the surface was requested when the
+    // window appeared and installed before `Startup` (see `build`).
+    #[cfg(target_arch = "wasm32")]
+    if let SurfaceMode::Windowed = mode {
+        return;
+    }
     let surface = match mode {
         SurfaceMode::Windowed => {
             let handle = world.get_resource::<WindowHandle>().cloned();
@@ -112,6 +166,12 @@ fn create_surface_system(world: &mut World, mode: SurfaceMode) {
     let Some(surface) = surface else {
         return;
     };
+    install_surface(world, surface);
+}
+
+/// The renderer's resources, made from a surface just created: the surface
+/// itself, its queue, and the mesh and texture registries on its device.
+fn install_surface(world: &mut World, surface: WgpuSurface) {
     let registry = GpuMeshRegistry::new(surface.device.clone());
     let mut tex_registry = GpuTextureRegistry::new(surface.device.clone(), surface.queue.clone());
     // Streamed textures' mip cache files go under the project, beside the
@@ -129,6 +189,8 @@ fn create_surface_system(world: &mut World, mode: SurfaceMode) {
     // previous chain behind as a file nothing opens again. Swept here, once
     // per process and before the registry reads any of them, so a file the
     // sweep removes is never one a texture already streams from.
+    // A browser build has no cache directory to sweep (nor a file system).
+    #[cfg(not(target_arch = "wasm32"))]
     crate::cache_sweep::sweep_unused_files(
         &mips,
         crate::cache_sweep::UNUSED_FILE_AGE,

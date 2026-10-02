@@ -207,7 +207,12 @@ fn shadow_sample(world_pos: vec3<f32>, vp: mat4x4<f32>, layer: i32) -> f32 {
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || depth < 0.0 || depth > 1.0) {
         return 1.0;
     }
-    return textureSampleCompare(shadow_map, shadow_sampler, uv, layer, depth - 0.003);
+    // `...Level`, not `textureSampleCompare`: this runs after the early
+    // return above, which is non-uniform control flow, where WGSL forbids the
+    // implicit-derivative form. naga lets it through, but a browser's compiler
+    // (Tint) rejects the whole shader -- and the frame with it. The shadow
+    // maps have one mip level, so level 0 is the only one either reads.
+    return textureSampleCompareLevel(shadow_map, shadow_sampler, uv, layer, depth - 0.003);
 }
 // Which cascade covers this fragment, chosen by distance along the view axis --
 // the same axis the cascades were sliced along. Radial distance would disagree
@@ -764,7 +769,7 @@ fn shadow_sample(world_pos: vec3<f32>, vp: mat4x4<f32>, layer: i32) -> f32 {
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || depth < 0.0 || depth > 1.0) {
         return 1.0;
     }
-    return textureSampleCompare(shadow_map, shadow_sampler, uv, layer, depth - 0.003);
+    return textureSampleCompareLevel(shadow_map, shadow_sampler, uv, layer, depth - 0.003);
 }
 // Which cascade covers this fragment, chosen by distance along the view axis --
 // the same axis the cascades were sliced along. Radial distance would disagree
@@ -1277,7 +1282,7 @@ fn shadow_sample(world_pos: vec3<f32>, vp: mat4x4<f32>, layer: i32) -> f32 {
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || depth < 0.0 || depth > 1.0) {
         return 1.0;
     }
-    return textureSampleCompare(shadow_map, shadow_sampler, uv, layer, depth - 0.003);
+    return textureSampleCompareLevel(shadow_map, shadow_sampler, uv, layer, depth - 0.003);
 }
 fn shadow_factor(world_pos: vec3<f32>) -> f32 {
     // One cascade, named by the CPU (the widest one), because a probe capture
@@ -2678,7 +2683,7 @@ pub struct WgpuSurface {
     /// Each custom shader's multisampled pipeline, alongside.
     custom_pipelines_msaa: std::collections::HashMap<String, wgpu::RenderPipeline>,
     post_process: crate::post_process::PostProcessState,
-    start_time: std::time::Instant,
+    start_time: bsengine_core::clock::Instant,
     dock_state: Option<egui_dock::DockState<String>>,
     last_saved_layout_json: Option<String>,
     /// When true, `render_frame` and `PostProcessState::apply` still clear
@@ -2784,6 +2789,7 @@ impl WgpuSurface {
             .copied()
             .find(|f| f.is_srgb())
             .unwrap_or(caps.formats[0]);
+        let view_formats = srgb_view_of(format).into_iter().collect();
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -2792,7 +2798,7 @@ impl WgpuSurface {
             height: size.height.max(1),
             present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: caps.alpha_modes[0],
-            view_formats: vec![],
+            view_formats,
             desired_maximum_frame_latency: 2,
         };
         surface.configure(&device, &config);
@@ -4825,7 +4831,7 @@ impl WgpuSurface {
             msaa_samples: 1,
             msaa_targets: None,
             depth_resolve,
-            start_time: std::time::Instant::now(),
+            start_time: bsengine_core::clock::Instant::now(),
             dock_state: None,
             last_saved_layout_json: None,
             fast_render,
@@ -5988,7 +5994,7 @@ impl WgpuSurface {
         prev_models: &[Mat4],
     ) -> Result<std::collections::HashSet<String>, String> {
         // Wall-clock CPU time for this call, for `FrameStats::cpu_frame_time_ms`.
-        let frame_start = std::time::Instant::now();
+        let frame_start = bsengine_core::clock::Instant::now();
 
         // The sub-pixel TAA jitter belongs to *rasterization only*, so it is
         // applied here rather than by the caller, and only to the matrix the
@@ -8400,9 +8406,37 @@ impl Drop for WgpuSurface {
 #[derive(Resource)]
 pub struct WgpuSurfaceResource(pub WgpuSurface);
 
+/// The sRGB view a window surface of `format` is drawn through, if it needs
+/// one.
+///
+/// A WebGPU canvas offers no sRGB format at all -- only `Bgra8Unorm` /
+/// `Rgba8Unorm` -- but does allow an sRGB *view* of one. Without it the final
+/// composite's linear values are stored as they are, and the whole frame comes
+/// out dark (a mid-grey 0.2 shows as 51/255, not 124/255). So where the
+/// surface has no sRGB format, it is drawn through an sRGB view of the one it
+/// has, as Bevy and three.js do; `Output::format` and `Output::acquire` both
+/// use that view format. On a desktop an sRGB format is found, and so is
+/// `None` here. A format with no sRGB twin (a float one, say) has nothing to
+/// view it as, and is drawn as it is.
+fn srgb_view_of(format: wgpu::TextureFormat) -> Option<wgpu::TextureFormat> {
+    let srgb = format.add_srgb_suffix();
+    (srgb != format).then_some(srgb)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A browser's canvas formats get an sRGB view; a surface that is sRGB
+    /// already, or has no sRGB twin, gets none (the desktop path, unchanged).
+    #[test]
+    fn a_linear_canvas_format_is_drawn_through_its_srgb_view() {
+        use wgpu::TextureFormat as F;
+        assert_eq!(srgb_view_of(F::Bgra8Unorm), Some(F::Bgra8UnormSrgb));
+        assert_eq!(srgb_view_of(F::Rgba8Unorm), Some(F::Rgba8UnormSrgb));
+        assert_eq!(srgb_view_of(F::Bgra8UnormSrgb), None);
+        assert_eq!(srgb_view_of(F::Rgba16Float), None);
+    }
 
     // A `(view_proj, cam_proj)` pair of the exact shape `render_frame`
     // receives. The camera is deliberately off-origin and rotated: with a

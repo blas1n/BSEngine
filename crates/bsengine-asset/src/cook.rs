@@ -414,7 +414,24 @@ pub enum PackageMode {
     /// embed there for the same reason. The build is then two files, and the
     /// manifest still travels inside the archive.
     Single,
+    /// The browser build: one [`PAK_FILE_NAME`] archive with the manifest
+    /// inside it as [`MANIFEST_ENTRY`], as a single-file build's is -- a page
+    /// cannot read a manifest beside the archive the way an executable reads
+    /// one beside itself -- and the page that loads it, [`WEB_PAGE_FILE_NAME`].
+    /// The engine itself, the page's wasm module, goes in `pkg/` beside them;
+    /// `scripts/build_web.sh` makes all three. It is the shape Godot's and
+    /// Unity's web exports have: a page, the engine, the game's data.
+    Web,
 }
+
+/// The page a web build is opened through.
+pub const WEB_PAGE_FILE_NAME: &str = "index.html";
+
+/// The page itself. It is the same for every game -- what differs is the
+/// archive beside it -- so it is compiled in rather than looked for at
+/// packaging time, which would make a packaged runtime depend on finding the
+/// engine's source tree.
+const WEB_PAGE: &str = include_str!("../../../web/index.html");
 
 /// The archive's name inside a build.
 ///
@@ -519,9 +536,9 @@ pub fn package_with_precook(
     let exe_name = runtime_exe.file_name().ok_or_else(|| {
         io::Error::new(io::ErrorKind::InvalidInput, "the runtime has no file name")
     })?;
-    // A single-file build carries its manifest inside the archive; the other
-    // two ship it loose, as the bootstrap the runtime reads first.
-    if mode != PackageMode::Single {
+    // A single-file or web build carries its manifest inside the archive; the
+    // other two ship it loose, as the bootstrap the runtime reads first.
+    if !matches!(mode, PackageMode::Single | PackageMode::Web) {
         copy(&project_dir.join(MANIFEST), &out_dir.join(MANIFEST))?;
     }
 
@@ -577,6 +594,16 @@ pub fn package_with_precook(
             // permissions of the runtime being packaged are exactly the ones
             // the build should have.
             std::fs::set_permissions(&out_exe, std::fs::metadata(runtime_exe)?.permissions())?;
+        }
+        PackageMode::Web => {
+            let mut entries = archive_entries(project_dir, &cooked)?;
+            entries.extend(precooked);
+            entries.push((
+                MANIFEST_ENTRY.to_string(),
+                std::fs::read(project_dir.join(MANIFEST))?,
+            ));
+            crate::pak::write_pak(out_dir.join(PAK_FILE_NAME), &entries)?;
+            std::fs::write(out_dir.join(WEB_PAGE_FILE_NAME), WEB_PAGE)?;
         }
     }
 
@@ -1405,7 +1432,12 @@ mod tests {
     #[test]
     fn a_compressed_texture_ships_its_precooked_mip_cache_in_every_mode() {
         use bsengine_core::{ImportSettings, TextureCompression, TextureImportSettings};
-        for mode in [PackageMode::Loose, PackageMode::Pak, PackageMode::Single] {
+        for mode in [
+            PackageMode::Loose,
+            PackageMode::Pak,
+            PackageMode::Single,
+            PackageMode::Web,
+        ] {
             let probe = Probe::create();
             probe.write(
                 "project.toml",
@@ -1460,10 +1492,12 @@ mod tests {
             assert_eq!(cooked.precooked_mips, vec![shipped.clone()], "{mode:?}");
             let bytes = match mode {
                 PackageMode::Loose => std::fs::read(out.join(&shipped)).ok(),
-                PackageMode::Pak => crate::pak::Pak::open(out.join(PAK_FILE_NAME))
-                    .expect("open the archive")
-                    .get(&shipped)
-                    .map(<[u8]>::to_vec),
+                PackageMode::Pak | PackageMode::Web => {
+                    crate::pak::Pak::open(out.join(PAK_FILE_NAME))
+                        .expect("open the archive")
+                        .get(&shipped)
+                        .map(<[u8]>::to_vec)
+                }
                 PackageMode::Single => single_build_archive(&out, "fake-runtime.exe")
                     .get(&shipped)
                     .map(<[u8]>::to_vec),
@@ -1474,6 +1508,51 @@ mod tests {
                 "{mode:?}: the uncompressed texture ships no cache file"
             );
         }
+    }
+
+    /// A web build is one archive with the manifest inside it, and the page
+    /// that loads it: no executable (the page's wasm module is built
+    /// separately) and no loose manifest (a page reads the archive, not the
+    /// files around it). The manifest in the archive is the project's own,
+    /// byte for byte, and the page is the one that imports the engine's
+    /// module from `pkg/` -- the path `scripts/build_web.sh` writes it to.
+    #[test]
+    fn a_web_build_is_one_archive_carrying_its_manifest_and_a_page() {
+        let probe = Probe::create();
+        let manifest = "[project]\nname = \"P\"\nentry_scene = \"assets/scenes/main.ron\"\n";
+        probe.write("project.toml", manifest);
+        probe.write("assets/scenes/main.ron", "(entities: [])");
+        let exe = probe.fake_runtime();
+        let out = probe.0.join("dist");
+        let cooked = package(
+            &probe.0,
+            "assets/scenes/main.ron",
+            &[],
+            PackageMode::Web,
+            &exe,
+            &out,
+        )
+        .expect("package");
+        assert!(cooked.is_ok(), "{:?}", cooked.missing);
+
+        let mut files: Vec<String> = std::fs::read_dir(&out)
+            .expect("read the output")
+            .map(|e| e.expect("entry").file_name().to_string_lossy().into_owned())
+            .collect();
+        files.sort();
+        assert_eq!(
+            files,
+            vec![PAK_FILE_NAME.to_string(), WEB_PAGE_FILE_NAME.to_string()],
+            "only the archive and the page"
+        );
+        let pak = crate::pak::Pak::open(out.join(PAK_FILE_NAME)).expect("open the archive");
+        assert_eq!(pak.get(MANIFEST_ENTRY), Some(manifest.as_bytes()));
+        assert!(pak.get("assets/scenes/main.ron").is_some(), "and the scene");
+        let page = std::fs::read_to_string(out.join(WEB_PAGE_FILE_NAME)).expect("read the page");
+        assert!(
+            page.contains("from './pkg/bsengine-runtime.js'"),
+            "the page loads the engine from pkg/:\n{page}"
+        );
     }
 
     /// The archive holds exactly the collected set — the same set loose mode

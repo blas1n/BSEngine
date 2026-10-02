@@ -49,7 +49,9 @@
 //! the guarantee it can — a total order in, a total order out — and the walk
 //! supplies the order.
 
-use super::{AssetGuid, Sidecar};
+use super::AssetGuid;
+#[cfg(not(target_arch = "wasm32"))]
+use super::Sidecar;
 use bevy_ecs::prelude::Resource;
 use std::collections::BTreeMap;
 use std::fmt;
@@ -207,6 +209,7 @@ impl AssetIndex {
         Insertion::Recorded
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     /// Re-points the index at an asset that has just moved on disk, so the new
     /// location and the path it left are both answerable without a restart.
     ///

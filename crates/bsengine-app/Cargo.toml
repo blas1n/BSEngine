@@ -18,8 +18,6 @@ bsengine-window.workspace = true
 bsengine-input.workspace = true
 bsengine-rhi-wgpu.workspace = true
 bsengine-render.workspace = true
-bsengine-mcp.workspace = true
-bsengine-editor.workspace = true
 bsengine-scene.workspace = true
 bsengine-physics.workspace = true
 bsengine-asset.workspace = true
@@ -35,6 +33,12 @@ image.workspace = true
 # The particle emitter logs when it hits its per-emitter cap; a silently
 # truncated effect looks exactly like a broken one.
 tracing.workspace = true
+
+# Only the editor binary (src/editor_main.rs) uses these, and it is native
+# only; see src/main.rs.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+bsengine-mcp.workspace = true
+bsengine-editor.workspace = true
 
 [dev-dependencies]
 bsengine-ecs.workspace = true

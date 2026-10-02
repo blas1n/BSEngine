@@ -13,7 +13,6 @@ bevy_reflect.workspace = true
 bevy_tasks.workspace = true
 blake3.workspace = true
 image.workspace = true
-notify-debouncer-full.workspace = true
 # For the watcher: a file's identity survives a rename, which is how a rename
 # whose old half the backend never reported is still recognised as one.
 file-id.workspace = true
@@ -34,6 +33,11 @@ tracing-subscriber = { workspace = true, optional = true }
 # same log capture the identity scan's own tests use. Off by default, so
 # nothing here reaches a shipped build; enabled only through a dev-dependency.
 test-support = ["dep:tracing-subscriber"]
+
+# Watching the project's files needs an operating system's file events; a
+# browser build has neither the files nor the events.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+notify-debouncer-full.workspace = true
 
 [dev-dependencies]
 bsengine-app.workspace = true

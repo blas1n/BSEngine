@@ -18,5 +18,16 @@ egui.workspace = true
 # The operating system's locale, for a game's starting language.
 sys-locale.workspace = true
 
+# The browser build (wasm32-unknown-unknown) has no operating-system source
+# of randomness, and the crates that ask for one refuse to compile until told
+# to use the browser's `crypto.getRandomValues`. Named here, in the crate every
+# build includes, so feature unification switches it on for the whole graph:
+# getrandom 0.2 (bevy_utils) through `js`, 0.3 (ahash) through `wasm_js` plus
+# the `getrandom_backend` cfg in `.cargo/config.toml`, and uuid's own `js`.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }
+getrandom_03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
+uuid = { workspace = true, features = ["js"] }
+
 [dev-dependencies]
 ron.workspace = true

@@ -42,7 +42,11 @@ impl Output {
         match self {
             // The sRGB view, where the surface was given one (a WebGPU canvas:
             // see `WgpuSurface::new`).
-            Output::Window { config, .. } => config.view_formats.first().copied().unwrap_or(config.format),
+            Output::Window { config, .. } => config
+                .view_formats
+                .first()
+                .copied()
+                .unwrap_or(config.format),
             Output::Offscreen { .. } => OFFSCREEN_FORMAT,
         }
     }
@@ -74,7 +78,9 @@ impl Output {
         &self,
     ) -> Result<(wgpu::TextureView, Option<wgpu::SurfaceTexture>), String> {
         match self {
-            Output::Window { surface, config, .. } => {
+            Output::Window {
+                surface, config, ..
+            } => {
                 let frame = surface.get_current_texture().map_err(|e| e.to_string())?;
                 let view = frame.texture.create_view(&wgpu::TextureViewDescriptor {
                     format: config.view_formats.first().copied(),

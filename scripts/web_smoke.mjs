@@ -13,7 +13,8 @@
 // engine `ERROR` line. Frames alone would not do -- a page whose renderer
 // never came up still counts frames -- and neither would the status alone:
 // a shader the browser rejects leaves draw calls counted and the canvas
-// black, with only a validation error to say so.
+// black, with only a console warning ("Error while parsing WGSL: ...") to say
+// so.
 //
 // Node 22+ (global fetch and WebSocket); no dependencies.
 import { spawn } from 'node:child_process';
@@ -136,8 +137,16 @@ ws.addEventListener('message', (e) => {
     if (level === 'ERROR' || level === 'WARN' || (level === 'INFO' && process.env.VERBOSE)) {
       console.log(`  ${level} ${text.replace(/%c/g, '').replace(/ color:.*$/, '')}`);
     }
-  } else if (msg.method === 'Log.entryAdded' && msg.params.entry.level === 'error') {
-    failures.push(`browser: ${msg.params.entry.text}`);
+  } else if (msg.method === 'Log.entryAdded') {
+    // Chrome reports WebGPU's own errors -- a shader it will not compile, a
+    // pipeline that is therefore invalid -- as *warnings*, while the frame
+    // goes on counting its draw calls on the CPU. Those are failures; the
+    // other warnings a page can draw (the AudioContext waiting for a click)
+    // are not.
+    const { level, text } = msg.params.entry;
+    if (level === 'error' || (level === 'warning' && /WGSL|WebGPU|GPU|Invalid|error/i.test(text))) {
+      failures.push(`browser ${level}: ${text}`);
+    }
   } else if (msg.method === 'Runtime.exceptionThrown') {
     const d = msg.params.exceptionDetails;
     failures.push(`exception: ${d.exception?.description ?? d.text}`);

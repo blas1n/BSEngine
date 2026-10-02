@@ -10,6 +10,11 @@ target-dir = "C:\\BSEngine-target"
 # in debug builds. 64MB gives ample headroom for both debug and release.
 rustflags = ["-C", "link-args=/STACK:67108864"]
 
+[target.wasm32-unknown-unknown]
+# getrandom 0.3 picks its wasm backend by cfg, not by feature alone; see the
+# wasm32 dependencies in crates/bsengine-core/Cargo.toml.
+rustflags = ["--cfg", 'getrandom_backend="wasm_js"']
+
 [env]
 # The /STACK: link arg above only sizes the *main* thread. libtest runs every
 # #[test] on a spawned thread instead, and Rust passes its own default stack

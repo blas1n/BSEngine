@@ -179,6 +179,22 @@ jobs:
       - name: Component catalogue check
         run: cargo run -p bsengine-catalog --bin catalog -- --check
 
+      # The browser build: everything but scripting (deno_core/V8 has no wasm
+      # target) and the runtime that embeds it must keep compiling for
+      # wasm32. Ubuntu only -- a compile check, the same on every host --
+      # and listed crate by crate, since the workspace includes crates that
+      # are native by design (the editor, MCP, scripting).
+      - name: Browser build check (wasm32)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          rustup target add wasm32-unknown-unknown
+          cargo check --target wasm32-unknown-unknown \
+            -p bsengine-core -p bsengine-ecs -p bsengine-app -p bsengine-input \
+            -p bsengine-window -p bsengine-physics -p bsengine-asset -p bsengine-audio \
+            -p bsengine-scene -p bsengine-gltf -p bsengine-rhi-wgpu -p bsengine-render \
+            -p bsengine-shadergraph -p bsengine-visualscript -p bsengine-plugin \
+            -p bsengine-network
+
       - name: Build
         run: cargo build --all
 

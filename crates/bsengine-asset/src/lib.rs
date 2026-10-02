@@ -69,6 +69,7 @@ pub mod texture_loader;
 pub mod types;
 /// `AssetWatcherPlugin`: watches `<ProjectDir>/assets` and reloads assets
 /// edited on disk while the game runs.
+#[cfg(not(target_arch = "wasm32"))]
 pub mod watcher;
 
 /// Probe directories and log capture, shared by the watcher's tests, the
@@ -86,4 +87,5 @@ pub use slot::{AssetSlot, Polled};
 pub use status::{AssetStatus, AssetStatusPlugin, AssetStatuses};
 pub use texture_loader::TextureAssetLoader;
 pub use types::{HeightmapAsset, TextureAsset};
+#[cfg(not(target_arch = "wasm32"))]
 pub use watcher::AssetWatcherPlugin;

@@ -5,14 +5,18 @@
 //! B/C for the approved design.
 
 use bsengine_core::{EditorPanel, EditorPanelContext};
+#[cfg(not(target_arch = "wasm32"))]
 use notify_debouncer_full::{
     new_debouncer,
     notify::{RecommendedWatcher, RecursiveMode, Watcher},
     DebounceEventResult, Debouncer, FileIdMap,
 };
 use std::path::{Path, PathBuf};
+#[cfg(not(target_arch = "wasm32"))]
 use std::sync::mpsc::{self, Receiver, TryRecvError};
+#[cfg(not(target_arch = "wasm32"))]
 use std::sync::Mutex;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
 /// Coarse category used for the tile icon and drag/drop behavior. No
@@ -156,12 +160,14 @@ fn assets_root() -> PathBuf {
     PathBuf::from("assets")
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Same debounce window as `bsengine-asset`'s `AssetWatcherPlugin` and
 /// `bsengine-editor`'s `PrefabWatcherPlugin`, for the same reason: a save is
 /// rarely one write, and 200ms is long enough to collapse a burst of them
 /// into one change without making an edit feel slow to take effect.
 const DEBOUNCE: Duration = Duration::from_millis(200);
 
+#[cfg(not(target_arch = "wasm32"))]
 /// Live watch state for [`AssetBrowserPanel`]. Absent until
 /// [`AssetBrowserPanel::ensure_watcher_started`] succeeds -- see that
 /// method's doc comment for why this is lazy rather than eager.
@@ -174,6 +180,11 @@ struct AssetBrowserWatcher {
     /// Receiving end of the watcher thread's channel. Only ever `try_recv`'d.
     events: Mutex<Receiver<DebounceEventResult>>,
 }
+
+/// A browser build has no file system to watch, so the panel never holds a
+/// watcher; this stands in for the type so the field keeps one shape.
+#[cfg(target_arch = "wasm32")]
+struct AssetBrowserWatcher;
 
 /// Unity Project panel / Unreal Content Browser equivalent: scans
 /// `assets_root()`, shows a folder tree + tile grid of the current
@@ -214,6 +225,8 @@ pub struct AssetBrowserPanel {
     /// permanently `None` if starting one ever failed (a missing `root`, or
     /// a real watcher error) -- there is no retry, matching how
     /// `AssetWatcherPlugin`/`PrefabWatcherPlugin` each try exactly once too.
+    // Never set in a browser build, which has nothing to watch.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     watcher: Option<AssetBrowserWatcher>,
     /// Whether `ensure_watcher_started` has already run once (regardless of
     /// whether it actually started a watcher). Distinct from
@@ -362,6 +375,16 @@ impl AssetBrowserPanel {
         );
     }
 
+    /// No file system, no watcher: marked attempted so nothing retries.
+    #[cfg(target_arch = "wasm32")]
+    fn ensure_watcher_started(&mut self) {
+        self.watcher_start_attempted = true;
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn drain_watcher_changes(&mut self) {}
+
+    #[cfg(not(target_arch = "wasm32"))]
     fn ensure_watcher_started(&mut self) {
         if self.watcher_start_attempted {
             return;
@@ -402,6 +425,7 @@ impl AssetBrowserPanel {
         });
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     /// Drains every change the watcher thread has posted since the last
     /// call. On any non-empty batch, re-runs exactly what the "Refresh"
     /// button's click handler already runs -- no attempt to inspect which

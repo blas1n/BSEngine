@@ -16,7 +16,11 @@ pub struct AudioSourceAsset(pub StaticSoundData);
 
 /// Reads and decodes an audio file from disk.
 pub fn load_audio_source(path: &str) -> Result<AudioSourceAsset, String> {
-    StaticSoundData::from_file(path)
+    // Read, then decode from memory: kira's `from_file` exists only where it
+    // has a file system (not in a browser build), and decoding the same bytes
+    // from a cursor is what it does after opening the file anyway.
+    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    StaticSoundData::from_cursor(std::io::Cursor::new(bytes))
         .map(AudioSourceAsset)
         .map_err(|e| e.to_string())
 }

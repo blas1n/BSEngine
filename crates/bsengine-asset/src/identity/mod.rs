@@ -28,6 +28,8 @@ pub mod index;
 /// Recording a rename the watcher saw happen: moving the `.meta` along with the
 /// asset and remembering the path it left, which is the only record a move made
 /// while the engine is running would otherwise leave.
+// Driven by the file watcher only, which a browser build does not have.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod rename;
 /// Walking a project's `assets/` directory and giving every file that deserves
 /// an identity a sidecar holding one.

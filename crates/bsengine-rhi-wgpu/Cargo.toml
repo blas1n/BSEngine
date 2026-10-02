@@ -22,7 +22,6 @@ bevy_reflect.workspace = true
 bytemuck.workspace = true
 glam.workspace = true
 image.workspace = true
-notify-debouncer-full.workspace = true
 blake3.workspace = true
 texpresso.workspace = true
 pollster.workspace = true
@@ -39,6 +38,19 @@ bsengine-visualscript.workspace = true
 # `.shadergraph.ron` files itself, so RON is a runtime dependency now and not
 # only a test one.
 ron = { workspace = true }
+
+# The asset browser refreshes itself from file events; see `bsengine-asset`'s
+# matching section for why the browser build has none.
+# In a browser build wgpu talks to WebGPU directly and carries no naga of its
+# own, but custom shaders are still validated with naga before the device
+# sees them (`WgpuSurface::validate_wgsl`): `naga-ir` makes wgpu re-export
+# the crate, and its WGSL front end is switched on here.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wgpu = { workspace = true, features = ["naga-ir"] }
+naga = { version = "22", features = ["wgsl-in"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+notify-debouncer-full.workspace = true
 
 [dev-dependencies]
 bsengine-app.workspace = true

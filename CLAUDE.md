@@ -69,7 +69,18 @@ cargo run -p bsengine-runtime -- games/mini-arena           # windowed
 cargo run -p bsengine-runtime -- games/mini-arena --frames 5 # quit after N frames
 cargo run -p bsengine-runtime -- --test games/mini-arena    # headless test mode
 cargo run -p bsengine-runtime -- --package games/mini-arena --mode loose|pak|single
+
+# In a browser: a page + game.pak + pkg/ (the wasm runtime) in <project>/dist-web.
+# Needs the wasm32 target and wasm-bindgen-cli at Cargo.lock's version (the
+# script checks). Serve the folder; file:// cannot fetch the module.
+scripts/build_web.sh games/mini-arena [out-dir] [--debug]
+node scripts/web_smoke.mjs games/mini-arena/dist-web  # headless Chrome/Edge; WEBGPU_ADAPTER=swiftshader with no GPU
 ```
+
+The browser build's errors are in the page's console, not a terminal, and
+Chrome reports WebGPU's — a shader it rejects included — as *warnings* while
+the frame keeps counting draw calls. A wasm build that compiles proves
+nothing about any of that; `web_smoke.mjs` is what reads the console.
 
 ---
 

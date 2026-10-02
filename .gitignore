@@ -517,5 +517,7 @@ crates/*/bsengine-watch-probe-*
 crates/*/bsengine-status-probe-*
 
 # `bsengine-runtime --package` output. Defaults to <project_dir>/dist, which
-# for the projects in this repository is inside the tree.
+# for the projects in this repository is inside the tree. `scripts/build_web.sh`
+# writes <project_dir>/dist-web the same way.
 dist/
+dist-web/

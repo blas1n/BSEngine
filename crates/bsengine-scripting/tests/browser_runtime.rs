@@ -85,7 +85,15 @@ fn a_bad_structured_argument_throws() {
     let err = rt
         .exec_source("Deno.core.ops.bsengine_instantiate_prefab(42);", "<test>")
         .expect_err("a number is not prefab parameters");
-    assert!(!err.is_empty(), "the exception is described: {err:?}");
+    // A `TypeError`, as deno_core throws -- not the `RuntimeError:
+    // unreachable` a Rust panic would surface as, which also leaves the
+    // module in whatever state the panic interrupted.
+    assert!(err.starts_with("TypeError"), "{err:?}");
+    assert_eq!(
+        rt.eval("1 + 1").unwrap(),
+        "2",
+        "and scripts run on afterwards"
+    );
 }
 
 /// An exception is reported by its `toString()`, as `deno_core` reports it.

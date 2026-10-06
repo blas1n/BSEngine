@@ -27,18 +27,29 @@ fn crashing_project(root: &Path) -> PathBuf {
     dir
 }
 
-/// Runs the executable on `project` with its per-user directory at `user`,
-/// returning its exit status and stderr.
-fn run(project: &Path, user: &Path) -> (std::process::ExitStatus, String) {
-    let out = Command::new(env!("CARGO_BIN_EXE_bsengine-runtime"))
+/// Runs the executable on `project` with its per-user directory at `user`
+/// and `extra` arguments, returning its exit status and stderr.
+///
+/// Stderr goes to a file, not a pipe. The game starts a crash monitor, and on
+/// Windows a child process inherits its parent's inheritable handles -- the
+/// game's stderr pipe included, whatever the monitor's own stdio is set to.
+/// Read through a pipe, a monitor that wrongly outlived the game would hold
+/// it open and the read would wait for ever: the test would hang rather than
+/// fail. (It did, for days, under a mutation that kept the monitor alive.)
+fn run(project: &Path, user: &Path, extra: &[&str]) -> (std::process::ExitStatus, String) {
+    let stderr_path = user.with_extension(format!("stderr-{}.txt", extra.join("")));
+    std::fs::create_dir_all(stderr_path.parent().unwrap()).unwrap();
+    let stderr_file = std::fs::File::create(&stderr_path).unwrap();
+    let status = Command::new(env!("CARGO_BIN_EXE_bsengine-runtime"))
         .env(bsengine_core::crash::USER_DIR_ENV, user)
         .arg(project)
-        .output()
+        .args(extra)
+        .stdout(std::process::Stdio::null())
+        .stderr(stderr_file)
+        .status()
         .expect("failed to launch the runtime executable");
-    (
-        out.status,
-        String::from_utf8_lossy(&out.stderr).into_owned(),
-    )
+    let stderr = std::fs::read_to_string(&stderr_path).unwrap_or_default();
+    (status, stderr)
 }
 
 /// Whether process `pid` is still running.
@@ -78,7 +89,7 @@ fn a_panic_leaves_a_crash_report_and_the_log() {
     let project = crashing_project(&root);
     let user = root.join("user");
 
-    let (status, stderr) = run(&project, &user);
+    let (status, stderr) = run(&project, &user, &[]);
     assert!(
         !status.success(),
         "premise: the bad binding stops the game. stderr:\n{stderr}"
@@ -146,7 +157,7 @@ fn a_panic_leaves_a_crash_report_and_the_log() {
         "the file gets plain text, not terminal colour codes"
     );
 
-    let (status, _) = run(&project, &user);
+    let (status, _) = run(&project, &user, &[]);
     assert!(!status.success());
     assert_eq!(reports(&user).len(), 2, "the second crash adds a report");
     assert!(
@@ -182,15 +193,9 @@ fn a_native_crash_leaves_a_minidump_and_a_report() {
     let project = sound_project(&root);
     let user = root.join("user");
 
-    let out = Command::new(env!("CARGO_BIN_EXE_bsengine-runtime"))
-        .env(bsengine_core::crash::USER_DIR_ENV, &user)
-        .arg(&project)
-        .arg("--force-crash")
-        .output()
-        .expect("failed to launch the runtime executable");
-    let stderr = String::from_utf8_lossy(&out.stderr);
+    let (status, stderr) = run(&project, &user, &["--force-crash"]);
     assert!(
-        !out.status.success(),
+        !status.success(),
         "premise: the forced crash ended the game. stderr:\n{stderr}"
     );
     assert!(

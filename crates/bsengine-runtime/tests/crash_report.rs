@@ -69,6 +69,16 @@ fn process_exists(pid: u32) -> bool {
     }
 }
 
+fn kill_process(pid: u32) {
+    let _ = if cfg!(windows) {
+        Command::new("taskkill")
+            .args(["/F", "/PID", &pid.to_string()])
+            .status()
+    } else {
+        Command::new("kill").args(["-9", &pid.to_string()]).status()
+    };
+}
+
 fn reports(user: &Path) -> Vec<PathBuf> {
     let mut found: Vec<PathBuf> = std::fs::read_dir(user.join("crashes"))
         .map(|dir| dir.filter_map(|e| e.ok().map(|e| e.path())).collect())
@@ -117,10 +127,13 @@ fn a_panic_leaves_a_crash_report_and_the_log() {
     while process_exists(monitor) && std::time::Instant::now() < deadline {
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
-    assert!(
-        !process_exists(monitor),
-        "the crash monitor ({monitor}) outlived the game"
-    );
+    if process_exists(monitor) {
+        // Killed before failing: a monitor left behind holds every handle it
+        // inherited -- the test runner's output pipe among them on Windows --
+        // and would turn this failure into a hang of the whole run.
+        kill_process(monitor);
+        panic!("the crash monitor ({monitor}) outlived the game");
+    }
 
     let first = reports(&user);
     assert_eq!(

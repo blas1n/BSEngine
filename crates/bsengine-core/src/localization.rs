@@ -189,11 +189,11 @@ fn format_into(
         if tail.starts_with("{{") || tail.starts_with("}}") {
             out.push_str(&tail[..1]);
             rest = &tail[2..];
-        } else if tail.starts_with('#') {
+        } else if let Some(after) = tail.strip_prefix('#') {
             // The number of the plural this text is a case of; a `#`
             // anywhere else is just a `#`.
             out.push_str(number.unwrap_or("#"));
-            rest = &tail[1..];
+            rest = after;
         } else if let Some(end) = tail
             .starts_with('{')
             .then(|| matching_brace(tail))

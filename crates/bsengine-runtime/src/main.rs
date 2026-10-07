@@ -48,6 +48,12 @@ fn main() {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
+    // First, before anything else runs: the game starts a second copy of
+    // this executable as its native crash monitor, and that copy is this
+    // process when the argument says so (`bsengine_core::native_crash`).
+    if bsengine_core::native_crash::run_monitor_if_asked() {
+        return;
+    }
     let mut args = env::args().skip(1);
     let first_arg = args.next().unwrap_or_else(|| ".".to_string());
 
@@ -111,8 +117,12 @@ fn main() {
     }
 
     let mut frame_limit = None;
+    let mut force_crash = false;
     while let Some(flag) = args.next() {
         match flag.as_str() {
+            // Crash natively once the game has started, to check a build
+            // leaves a minidump (see `bsengine_core::native_crash`).
+            "--force-crash" => force_crash = true,
             "--frames" => {
                 let value = args
                     .next()
@@ -127,7 +137,7 @@ fn main() {
         }
     }
 
-    run_windowed(&first_arg, frame_limit);
+    run_windowed(&first_arg, frame_limit, force_crash);
 }
 
 /// `--fixup <dir> [--json]`: settles every reference in a project that only
@@ -460,8 +470,14 @@ fn read_manifest(project_dir: &str, pak: Option<&bsengine_asset::pak::Pak>) -> P
 /// certifies is the arrangement a player gets rather than a second one
 /// assembled for the test.
 #[cfg(not(target_arch = "wasm32"))]
-fn run_windowed(project_dir: &str, frame_limit: Option<u32>) {
+fn run_windowed(project_dir: &str, frame_limit: Option<u32>, force_crash: bool) {
     let mut app = build_windowed_app(project_dir);
+    // `--force-crash`: after the crash handlers are in (`build_windowed_app`
+    // installs them) and before a window opens, so checking that a build
+    // leaves a minidump needs no display.
+    if force_crash {
+        bsengine_core::native_crash::force_crash();
+    }
     if let Some(frames) = frame_limit {
         quit_after_frames(&mut app, frames);
     }

@@ -232,12 +232,12 @@ jobs:
 
       - name: Test
         env:
-          RUST_MIN_STACK: 8388608
+          RUST_MIN_STACK: 16777216
         run: cargo test --workspace --exclude bsengine-editor
 
       - name: Test (editor, isolated)
         env:
-          RUST_MIN_STACK: 8388608
+          RUST_MIN_STACK: 16777216
         run: cargo test -p bsengine-editor
 
       # Replays every checked-in E2E recording. These are the only tests that
@@ -269,7 +269,7 @@ jobs:
       - name: E2E replays
         shell: bash
         env:
-          RUST_MIN_STACK: 8388608
+          RUST_MIN_STACK: 16777216
         run: |
           bin="$CARGO_TARGET_DIR/debug/bsengine-runtime"
           if [ "$RUNNER_OS" = "Windows" ]; then

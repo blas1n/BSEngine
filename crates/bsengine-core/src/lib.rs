@@ -77,6 +77,10 @@ pub mod morph_weights;
 pub mod motion_blur;
 /// The project's MSAA setting.
 pub mod msaa_config;
+/// Native crashes (signals, structured exceptions): a minidump and a report,
+/// written by a monitor process.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod native_crash;
 /// Baked navigation mesh resource used for pathfinding.
 pub mod nav_mesh;
 /// Nav-mesh-driven pathing agent component and its runtime state.

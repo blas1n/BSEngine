@@ -7795,8 +7795,10 @@ mod tests {
     /// `Bsengine.tr` / `setLocale` / `getLocale` / `getLocales` through the
     /// real plugin, against tables the runtime would have inserted: a
     /// translation, a placeholder filled by name, a key with no translation
-    /// coming back as itself, and a locale switch that `tr` sees in the same
-    /// frame and the resource keeps for the next.
+    /// coming back as itself, a plural chosen by the current language's rules
+    /// (Polish `many` for 5, `few` for 22 -- English rules would give both
+    /// the same form), and a locale switch that `tr` sees in the same frame
+    /// and the resource keeps for the next.
     #[test]
     fn scripts_translate_by_key_and_switch_locale() {
         let script_path =
@@ -7810,9 +7812,12 @@ mod tests {
                  const before = Bsengine.tr(\"GREETING\");\n\
                  const score = Bsengine.tr(\"SCORE\", {points: 42, who: \"Ann\"});\n\
                  const missing = Bsengine.tr(\"NO_SUCH_KEY\");\n\
+                 const one = Bsengine.tr(\"APPLES\", {n: 1});\n\
+                 Bsengine.setLocale(\"pl\");\n\
+                 const polish = Bsengine.tr(\"APPLES\", {n: 5}) + \"/\" + Bsengine.tr(\"APPLES\", {n: 22});\n\
                  Bsengine.setLocale(\"ko_KR\");\n\
                  Bsengine.setHudText(\"tr\", [\n\
-                     before, score, missing,\n\
+                     before, score, missing, one, polish,\n\
                      Bsengine.getLocale(), Bsengine.tr(\"GREETING\"),\n\
                      Bsengine.tr(\"SCORE\", {points: 7, who: \"Bo\"}),\n\
                      Bsengine.getLocales().join(\"+\"),\n\
@@ -7826,9 +7831,11 @@ mod tests {
             bsengine_core::Localization::from_csv_tables(
                 [(
                     "strings.csv",
-                    "keys,en,ko\n\
-                     GREETING,Hello,안녕하세요\n\
-                     SCORE,\"{who}: {points} points\",\"{who}: {points}점\"\n",
+                    "keys,en,ko,pl\n\
+                     GREETING,Hello,안녕하세요,\n\
+                     SCORE,\"{who}: {points} points\",\"{who}: {points}점\",\n\
+                     APPLES,\"{n, plural, one {# apple} other {# apples}}\",\"사과 {n}개\",\
+                     \"{n, plural, one {# jabłko} few {# jabłka} many {# jabłek} other {# jabłka}}\"\n",
                 )],
                 "en",
             )
@@ -7852,7 +7859,7 @@ mod tests {
         let _ = std::fs::remove_file(&script_path);
         assert_eq!(
             app.world().resource::<HudTexts>().0["tr"],
-            "Hello|Ann: 42 points|NO_SUCH_KEY|ko-KR|안녕하세요|Bo: 7점|en+ko",
+            "Hello|Ann: 42 points|NO_SUCH_KEY|1 apple|5 jabłek/22 jabłka|ko-KR|안녕하세요|Bo: 7점|en+ko+pl",
             "translated, filled, missing key as itself; then ko-KR at once, falling back to ko"
         );
         assert_eq!(

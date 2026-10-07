@@ -2318,14 +2318,15 @@ pub fn bsengine_set_morph_weight(
 /// `key`'s text in the current locale, down the fallback chain to the key
 /// itself (see `bsengine_core::Localization`). `args` is "" or a JSON object
 /// whose values fill `{name}` placeholders -- strings as they are, numbers and
-/// booleans by their JSON text.
+/// booleans by their JSON text -- and choose `{n, plural, ...}` and
+/// `{g, select, ...}` cases by the rules of the language the text was found in
+/// (`bsengine_core::localization::format_message`).
 #[script_op]
 #[string]
 pub fn bsengine_tr(#[string] key: String, #[string] args: String) -> String {
     LOCALIZATION_SNAPSHOT.with(|l| {
-        let text = l.borrow().tr(&key);
         if args.is_empty() {
-            return text;
+            return l.borrow().tr(&key);
         }
         let values: HashMap<String, String> =
             serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&args)
@@ -2341,7 +2342,7 @@ pub fn bsengine_tr(#[string] key: String, #[string] args: String) -> String {
                         .collect()
                 })
                 .unwrap_or_default();
-        bsengine_core::Localization::format(&text, &values)
+        l.borrow().tr_args(&key, &values)
     })
 }
 

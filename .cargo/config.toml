@@ -27,4 +27,10 @@ rustflags = ["--cfg", 'getrandom_backend="wasm_js"']
 # makes local match CI. Deliberately the same 8 MiB value CI uses, not more —
 # the point is parity, so a passing local run means a passing CI run. Not
 # `force = true`, so CI's explicit env var (and any manual override) still wins.
-RUST_MIN_STACK = "8388608"
+#
+# 16 MiB, not 8, since 2026-10: rustc reads the same variable for its own
+# compiler thread, and rustc 1.99 overflows 8 MiB compiling `minidump-common`
+# (behind the native crash monitor, `bsengine_core::native_crash`) --
+# "thread 'rustc' has overflowed its stack" on Windows, SIGSEGV on Linux --
+# where 1.97 did not. 16 MiB was the smallest power of two that compiles it.
+RUST_MIN_STACK = "16777216"

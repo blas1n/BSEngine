@@ -226,21 +226,9 @@ pub fn write_crash_report(
     report: &CrashReport<'_>,
     now: SystemTime,
 ) -> std::io::Result<PathBuf> {
-    write_crash_report_for(std::process::id(), crash_dir, log_path, report, now)
-}
-
-/// [`write_crash_report`] for process `pid` rather than this one: the native
-/// crash monitor (`native_crash`) writes the report of the game it watched,
-/// named for the game, so the report and its minidump sort together.
-pub fn write_crash_report_for(
-    pid: u32,
-    crash_dir: &Path,
-    log_path: Option<&Path>,
-    report: &CrashReport<'_>,
-    now: SystemTime,
-) -> std::io::Result<PathBuf> {
     std::fs::create_dir_all(crash_dir)?;
     let stamp = utc_stamp(now);
+    let pid = std::process::id();
     let mut path = crash_dir.join(format!("crash-{stamp}-{pid}.txt"));
     // A second panic in the same second, same process: number it.
     let mut n = 1;
@@ -248,7 +236,23 @@ pub fn write_crash_report_for(
         n += 1;
         path = crash_dir.join(format!("crash-{stamp}-{pid}-{n}.txt"));
     }
-    let mut out = std::fs::File::create(&path)?;
+    write_crash_report_at(&path, log_path, report, now)?;
+    Ok(path)
+}
+
+/// Writes one report at `path` -- what [`write_crash_report`] does once it
+/// has chosen the name -- then prunes `path`'s directory. The native crash
+/// monitor (`native_crash`) calls it with its minidump's own name, `.txt` for
+/// `.dmp`, so the two always pair up: named apart, by the clock, they did not
+/// whenever the dump took the time past a second.
+pub fn write_crash_report_at(
+    path: &Path,
+    log_path: Option<&Path>,
+    report: &CrashReport<'_>,
+    now: SystemTime,
+) -> std::io::Result<()> {
+    let stamp = utc_stamp(now);
+    let mut out = std::fs::File::create(path)?;
     writeln!(out, "BSEngine crash report")?;
     writeln!(out, "time:     {stamp} UTC")?;
     writeln!(out, "project:  {}", report.context)?;
@@ -283,8 +287,10 @@ pub fn write_crash_report_for(
     }
     out.flush()?;
     drop(out);
-    prune_reports(crash_dir, REPORTS_KEPT);
-    Ok(path)
+    if let Some(dir) = path.parent() {
+        prune_reports(dir, REPORTS_KEPT);
+    }
+    Ok(())
 }
 
 /// Removes all but the newest `keep` reports in `dir`, and as many minidumps

@@ -78,9 +78,8 @@ struct Watched {
     exception: Option<u64>,
     /// The dump being written.
     dump: Option<PathBuf>,
-    /// When the dump was started. The report is named for the same moment,
-    /// not for when it is written -- a dump can take more than a second, and
-    /// the two must sort together.
+    /// When the dump was started: the report's `time:`, rather than when
+    /// the report itself is written, a dump's length later.
     crashed_at: Option<SystemTime>,
 }
 
@@ -138,13 +137,19 @@ impl minidumper::ServerHandler for Monitor {
             backtrace: "<native: in the minidump. Open it in Visual Studio or WinDbg, or \
                         run minidump-stackwalk on it with the build's symbols>",
         };
-        if let Err(e) = crate::crash::write_crash_report_for(
-            watched.pid,
-            &self.crash_dir,
-            self.log.as_deref(),
-            &report,
-            watched.crashed_at.unwrap_or_else(SystemTime::now),
-        ) {
+        let crashed_at = watched.crashed_at.unwrap_or_else(SystemTime::now);
+        // Beside the dump, under its name: the pair must be found together.
+        let path = watched.dump.as_ref().map_or_else(
+            || {
+                let stamp = crate::crash::utc_stamp(crashed_at);
+                self.crash_dir
+                    .join(format!("crash-{stamp}-{}.txt", watched.pid))
+            },
+            |dump| dump.with_extension("txt"),
+        );
+        if let Err(e) = std::fs::create_dir_all(&self.crash_dir).and_then(|()| {
+            crate::crash::write_crash_report_at(&path, self.log.as_deref(), &report, crashed_at)
+        }) {
             eprintln!("crash monitor: cannot write the report: {e}");
         }
         minidumper::LoopAction::Exit

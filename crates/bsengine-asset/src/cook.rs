@@ -652,9 +652,21 @@ fn archive_entries(
         ));
     }
 
-    let mut entries = Vec::with_capacity(cooked.assets.len());
+    let mut entries = Vec::with_capacity(cooked.assets.len() * 2);
     for asset in &cooked.assets {
         entries.push((asset.clone(), std::fs::read(project_dir.join(asset))?));
+        // Each asset's `.meta` sidecar too, as a loose build copies it:
+        // the runtime's identity index is built from them
+        // (`identity::scan_archive`). Without them a scene's GUID references
+        // resolved only through their stored paths, and every packaged build
+        // warned that each identity was stale. An asset nothing has scanned
+        // yet has no sidecar, which is normal, so only one that exists and
+        // cannot be read fails the build.
+        let sidecar = format!("{asset}.meta");
+        let sidecar_path = project_dir.join(&sidecar);
+        if sidecar_path.is_file() {
+            entries.push((sidecar, std::fs::read(sidecar_path)?));
+        }
     }
     Ok(entries)
 }
@@ -1587,14 +1599,22 @@ mod tests {
         let pak = crate::pak::Pak::open(out.join(PAK_FILE_NAME)).expect("open the archive");
         let mut in_archive: Vec<&str> = pak.paths().collect();
         in_archive.sort_unstable();
-        let mut collected: Vec<&str> = cooked.assets.iter().map(String::as_str).collect();
-        collected.sort_unstable();
+        // Each collected asset and its `.meta` sidecar -- the identity the
+        // runtime indexes from the archive (`identity::scan_archive`). The
+        // cook mints sidecars as it goes, so every collected asset has one.
+        let mut expected: Vec<String> = cooked
+            .assets
+            .iter()
+            .flat_map(|a| [a.clone(), format!("{a}.meta")])
+            .collect();
+        expected.sort_unstable();
         assert_eq!(
-            in_archive, collected,
-            "the archive must hold exactly what the cook collected"
+            in_archive, expected,
+            "the archive must hold exactly what the cook collected, with each asset's sidecar"
         );
         assert!(
-            !in_archive.contains(&"assets/textures/unused.png"),
+            !in_archive.contains(&"assets/textures/unused.png")
+                && !in_archive.contains(&"assets/textures/unused.png.meta"),
             "and nothing it did not"
         );
     }

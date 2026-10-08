@@ -43,7 +43,7 @@ pub use import::{
     ImportError, ImportReport,
 };
 pub use index::AssetIndex;
-pub use scan::scan;
+pub use scan::{scan, scan_archive};
 pub use sidecar::{
     empty_hash, measure_file, sidecar_path, ImportSettings, Sidecar, SidecarError,
     SIDECAR_EXTENSION,
@@ -247,6 +247,19 @@ pub fn build_asset_index(world: &mut World) {
         None => {
             info!("asset identity: no project directory set, nothing indexed");
             AssetIndex::default()
+        }
+        // A packaged build reads its assets out of the archive, and so its
+        // identities: the archive carries each asset's sidecar.
+        Some(project_dir)
+            if crate::pak_source::archive().is_some_and(|(_, dir)| dir == project_dir) =>
+        {
+            let (pak, _) = crate::pak_source::archive().expect("checked above");
+            let index = scan_archive(pak);
+            info!(
+                "asset identity: indexed {} assets from the archive",
+                index.len()
+            );
+            index
         }
         Some(project_dir) => match scan(&project_dir) {
             Ok(index) => {

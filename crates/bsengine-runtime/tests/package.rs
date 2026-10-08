@@ -142,6 +142,28 @@ fn package_and_replay_project(project_rel: &str, recording_rel: &str, mode: &str
         failures.join("\n")
     );
 
+    // A scene names its assets by identity as well as path, and the runtime
+    // resolves the identity through an index of the build's `.meta`
+    // sidecars. An archive build used to carry none, so every reference fell
+    // back to its path and warned that the identity was stale -- the game
+    // played, which is why the replay above could not tell.
+    let scene = std::fs::read_to_string(project.join("assets/scenes/main.ron"))
+        .expect("read the entry scene");
+    assert!(
+        scene.contains("(guid: \""),
+        "premise: the entry scene references assets by identity"
+    );
+    let stale: Vec<&str> = log
+        .lines()
+        .filter(|line| line.contains("which no asset in this project has"))
+        .collect();
+    assert!(
+        stale.is_empty(),
+        "the {mode} build could not resolve {} identity reference(s):\n{}",
+        stale.len(),
+        stale.join("\n")
+    );
+
     output
 }
 

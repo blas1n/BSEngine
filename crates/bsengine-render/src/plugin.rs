@@ -639,7 +639,7 @@ fn render_frame(
         mut occlusion_buf,
         mut taa_frame_index,
         probe_volumes,
-        (shadow_settings, msaa_settings, mut prev_models_by_entity, rect_light_query),
+        (shadow_settings, msaa_settings, mut prev_models_by_entity, rect_light_query, localization),
         decal_query,
         reflection_probe_query,
     ): (
@@ -668,6 +668,10 @@ fn render_frame(
                 &Transform,
                 Option<&GlobalTransform>,
             )>,
+            // Automatic UI translation (`Localization::translate_ui`): the
+            // text drawn is the key's translation. Here for the
+            // parameter-count reason above.
+            Option<Res<bsengine_core::Localization>>,
         ),
         // In this tuple rather than the `ParamSet` above for the reason that
         // tuple's own comment gives: the ParamSet is at its hard maximum of 8
@@ -689,6 +693,22 @@ fn render_frame(
     };
     let empty = std::collections::HashMap::new();
     let hud_map = hud_texts.as_deref().map(|h| &h.0).unwrap_or(&empty);
+    // Text that is a translation key is drawn translated (Godot's
+    // `auto_translate`): HUD lines here, widgets below. Copies, drawn in
+    // place of the originals, so what scripts set stays the key and a locale
+    // switch re-translates it on the next frame.
+    let localization = localization.as_deref().filter(|l| l.auto_translate());
+    let translated_hud: std::collections::HashMap<String, String>;
+    let hud_map = match localization {
+        Some(l) => {
+            translated_hud = hud_map
+                .iter()
+                .map(|(id, text)| (id.clone(), l.translate_ui(text).unwrap_or(text).to_string()))
+                .collect();
+            &translated_hud
+        }
+        None => hud_map,
+    };
     let (cursor_x, cursor_y) = mouse_state
         .as_deref()
         .map(|ms| (ms.position.0 as f32, ms.position.1 as f32))
@@ -713,7 +733,16 @@ fn render_frame(
         }
     }
     let empty_ui = UiState::default();
-    let ui = ui_state.as_deref().unwrap_or(&empty_ui);
+    let translated_ui: UiState;
+    let ui = match (ui_state.as_deref(), localization) {
+        (Some(state), Some(l)) => {
+            translated_ui =
+                state.with_display_text(|text| l.translate_ui(text).map(str::to_string));
+            &translated_ui
+        }
+        (Some(state), None) => state,
+        (None, _) => &empty_ui,
+    };
     let left_just_pressed = mouse_buttons
         .as_deref()
         .map(|b| b.just_pressed(&MouseButton::Left))
@@ -3153,6 +3182,145 @@ mod tests {
             1,
             "a removed probe stops being captured, rather than lingering"
         );
+    }
+
+    /// UI text that is a translation key is drawn as its translation --
+    /// labels, buttons, panel titles, input hints and HUD lines -- in the
+    /// current locale, re-translated when the locale switches with nothing
+    /// set again; text that is not a key is drawn as written, and with
+    /// `auto_translate` off every key is drawn as itself. Checked against
+    /// what egui actually laid out, not against the state scripts set, which
+    /// keeps the keys.
+    #[test]
+    fn ui_text_that_is_a_key_is_drawn_translated() {
+        use bsengine_core::{HudTexts, Localization, UiAnchor, UiState, UiWidget};
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::offscreen(256, 256, false));
+        app.add_plugins(RenderPlugin);
+        app.insert_resource(
+            Localization::from_csv_tables(
+                [(
+                    "ui.csv",
+                    "keys,en,ko\n\
+                     MENU_TITLE,Main menu,메인 메뉴\n\
+                     PLAY,Play,시작\n\
+                     OPTIONS,Options,설정\n\
+                     NAME_HINT,Your name,이름\n\
+                     HUD_READY,Ready!,준비!\n",
+                )],
+                "en",
+            )
+            .unwrap(),
+        );
+        let mut ui = UiState::default();
+        let anchor = UiAnchor::default();
+        ui.set_widget(UiWidget::Label {
+            id: "title".into(),
+            text: "MENU_TITLE".into(),
+            x: 10.0,
+            y: 10.0,
+            font_size: 16.0,
+            anchor,
+        });
+        ui.set_widget(UiWidget::Label {
+            id: "score".into(),
+            text: "Score: 42".into(),
+            x: 10.0,
+            y: 40.0,
+            font_size: 16.0,
+            anchor,
+        });
+        ui.set_widget(UiWidget::Button {
+            id: "play".into(),
+            label: "PLAY".into(),
+            x: 10.0,
+            y: 70.0,
+            width: 100.0,
+            height: 24.0,
+            anchor,
+        });
+        ui.set_widget(UiWidget::Panel {
+            id: "options".into(),
+            title: "OPTIONS".into(),
+            x: 120.0,
+            y: 10.0,
+            width: 120.0,
+            height: 80.0,
+            anchor,
+        });
+        ui.set_widget(UiWidget::TextInput {
+            id: "name".into(),
+            hint: "NAME_HINT".into(),
+            x: 10.0,
+            y: 110.0,
+            width: 120.0,
+            anchor,
+        });
+        app.insert_resource(ui);
+        let mut hud = HudTexts::default();
+        hud.0.insert("status".into(), "HUD_READY".into());
+        app.insert_resource(hud);
+
+        let drawn = |app: &mut bevy_app::App| {
+            // egui draws an area from its second frame on.
+            for _ in 0..3 {
+                app.update();
+            }
+            app.world()
+                .resource::<bsengine_rhi_wgpu::WgpuSurfaceResource>()
+                .0
+                .last_ui_texts()
+                .to_vec()
+        };
+        let has = |texts: &[String], wanted: &str| texts.iter().any(|t| t == wanted);
+
+        let english = drawn(&mut app);
+        for wanted in [
+            "Main menu",
+            "Play",
+            "Options",
+            "Your name",
+            "Ready!",
+            "Score: 42",
+        ] {
+            assert!(has(&english, wanted), "{wanted:?} drawn: {english:?}");
+        }
+        for key in ["MENU_TITLE", "PLAY", "OPTIONS", "NAME_HINT", "HUD_READY"] {
+            assert!(
+                !has(&english, key),
+                "the key {key:?} is not drawn: {english:?}"
+            );
+        }
+
+        app.world_mut()
+            .resource_mut::<Localization>()
+            .set_locale("ko");
+        let korean = drawn(&mut app);
+        for wanted in ["메인 메뉴", "시작", "설정", "이름", "준비!", "Score: 42"] {
+            assert!(
+                has(&korean, wanted),
+                "{wanted:?} drawn after the switch: {korean:?}"
+            );
+        }
+        assert!(
+            matches!(
+                &app.world().resource::<UiState>().widgets[0],
+                UiWidget::Label { text, .. } if text == "MENU_TITLE"
+            ),
+            "the state keeps the key; only what is drawn is translated"
+        );
+
+        app.world_mut()
+            .resource_mut::<Localization>()
+            .set_auto_translate(false);
+        let off = drawn(&mut app);
+        for key in ["MENU_TITLE", "PLAY", "OPTIONS", "NAME_HINT", "HUD_READY"] {
+            assert!(
+                has(&off, key),
+                "with auto_translate off, {key:?} is drawn as written: {off:?}"
+            );
+        }
     }
 
     /// A camera's `ColorGrading` reaches the renderer, and taking it off

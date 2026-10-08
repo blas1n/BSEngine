@@ -34,6 +34,9 @@ pub struct Localization {
     tables: Arc<HashMap<String, HashMap<String, String>>>,
     locale: String,
     default_locale: String,
+    /// Whether UI text that is a key is shown translated; see
+    /// [`Self::translate_ui`].
+    auto_translate: bool,
 }
 
 impl Localization {
@@ -58,6 +61,7 @@ impl Localization {
             tables: Arc::new(merged),
             locale: default_locale.clone(),
             default_locale,
+            auto_translate: true,
         })
     }
 
@@ -75,6 +79,38 @@ impl Localization {
     /// falls back like any missing translation -- and normalized.
     pub fn set_locale(&mut self, locale: &str) {
         self.locale = normalize_locale(locale);
+    }
+
+    /// Whether UI text is translated automatically ([`Self::translate_ui`]).
+    /// On for tables loaded from CSV, as Godot's `auto_translate` is on by
+    /// default; `project.toml`'s `[localization] auto_translate = false`
+    /// turns it off.
+    pub fn auto_translate(&self) -> bool {
+        self.auto_translate
+    }
+
+    /// See [`Self::auto_translate`].
+    pub fn set_auto_translate(&mut self, on: bool) {
+        self.auto_translate = on;
+    }
+
+    /// What UI text shows: when [`Self::auto_translate`] is on and `text` is
+    /// a key some table has, its translation in the current locale --
+    /// otherwise `None`, and the text shows as written.
+    ///
+    /// Godot's model, `Control.auto_translate`: a label, a button, a panel
+    /// title or an input's hint whose text is a key is drawn as that key's
+    /// translation, so `setLabel("title", "MENU_TITLE")` needs no `tr`, and
+    /// switching the locale changes every such widget on the next frame
+    /// without the script setting it again. (Unity and Unreal bind a widget
+    /// to a string-table entry explicitly instead; the key-as-text form is
+    /// the one a script-driven immediate-mode UI can use.) Text that is not
+    /// a key -- a score, a player's name -- is shown as it is.
+    pub fn translate_ui(&self, text: &str) -> Option<&str> {
+        if !self.auto_translate || text.is_empty() {
+            return None;
+        }
+        self.lookup(text)
     }
 
     /// Every locale some table has a column for, sorted.
@@ -809,6 +845,25 @@ mod tests {
                 "{why}: left as written"
             );
         }
+    }
+
+    /// Automatic UI translation: a key is shown as its translation in the
+    /// current locale; text that is no key, and empty text, are shown as
+    /// written (`None`); and with it switched off nothing is translated --
+    /// while `tr`, which a script asks for, still is.
+    #[test]
+    fn ui_text_is_translated_when_it_is_a_key() {
+        let mut l = loc("ko");
+        assert_eq!(l.translate_ui("GREETING"), Some("안녕하세요"));
+        assert_eq!(l.translate_ui("Score: 42"), None);
+        assert_eq!(l.translate_ui(""), None);
+        l.set_auto_translate(false);
+        assert_eq!(l.translate_ui("GREETING"), None);
+        assert_eq!(l.tr("GREETING"), "안녕하세요");
+        assert!(
+            !Localization::default().auto_translate(),
+            "an app with no tables has nothing to translate"
+        );
     }
 
     /// The rules come from the language the text was *found* in. A Russian

@@ -435,6 +435,7 @@ pub(crate) fn insert_localization(
     if let Some(locale) = start {
         localization.set_locale(&locale);
     }
+    localization.set_auto_translate(section.auto_translate);
     tracing::info!(
         "localization: locale {} (default {}), locales {:?}",
         localization.locale(),

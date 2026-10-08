@@ -961,6 +961,23 @@ mod tests {
         );
 
         let read = |rel: &str| std::fs::read(probe.0.join(rel)).expect(rel);
+        // A valid sidecar with an identity of its own -- a copy of a.png's
+        // with the GUID replaced. A plain copy would be rejected as a
+        // duplicate GUID whatever `scan_archive` did with it, and so prove
+        // nothing about the rule each one is here for.
+        let guid_a = on_disk
+            .guid_for_path("assets/a.png")
+            .expect("a.png")
+            .to_string();
+        let fresh = |n: u32| {
+            let text = String::from_utf8(read("assets/a.png.meta")).expect("utf-8");
+            assert!(
+                text.contains(&guid_a),
+                "premise: the sidecar spells its GUID"
+            );
+            text.replace(&guid_a, &format!("00000000-0000-4000-8000-{n:012}"))
+                .into_bytes()
+        };
         let entries: Vec<(String, Vec<u8>)> = vec![
             ("assets/a.png".into(), read("assets/a.png")),
             ("assets/a.png.meta".into(), read("assets/a.png.meta")),
@@ -970,14 +987,11 @@ mod tests {
                 read("assets/sub/b.glb.meta"),
             ),
             // An identity whose asset the archive does not carry.
-            ("assets/gone.png.meta".into(), read("assets/a.png.meta")),
+            ("assets/gone.png.meta".into(), fresh(1)),
             ("assets/bad.png".into(), b"png".to_vec()),
             ("assets/bad.png.meta".into(), b"not a sidecar".to_vec()),
             (format!("assets/{RECORDINGS_DIR}/run.png"), b"png".to_vec()),
-            (
-                format!("assets/{RECORDINGS_DIR}/run.png.meta"),
-                read("assets/sub/b.glb.meta"),
-            ),
+            (format!("assets/{RECORDINGS_DIR}/run.png.meta"), fresh(2)),
         ];
         let pak_path = probe.0.join("game.pak");
         crate::pak::write_pak(&pak_path, &entries).expect("write the archive");

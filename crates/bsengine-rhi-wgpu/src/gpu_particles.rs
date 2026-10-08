@@ -609,6 +609,19 @@ mod tests {
         }
     }
 
+    /// The point of the GPU path: an emitter far past the CPU path's
+    /// 4096-particle cap. 200,000 emitted in one step, every one alive.
+    #[test]
+    fn an_emitter_holds_hundreds_of_thousands() {
+        let (device, queue) = device();
+        let mut gpu = GpuParticles::new(&device);
+        let mut f = frame(1, 200_000);
+        f.capacity = 200_000;
+        f.spread_degrees = 180.0;
+        let p = step_and_read(&mut gpu, &device, &queue, &[f]);
+        assert_eq!(alive(&p), 200_000);
+    }
+
     /// An emitter no frame names any more -- despawned, or back on the CPU --
     /// loses its buffers.
     #[test]

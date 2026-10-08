@@ -1189,6 +1189,42 @@ fn render_frame(
         })
         .collect();
 
+    // GPU emitters: each one's next step, for the compute pass that keeps
+    // their particles in GPU memory (`bsengine_rhi_wgpu::gpu_particles`).
+    // Every one is named every frame -- one left out has its buffers dropped
+    // -- including one whose tick has not run yet (id 0 is skipped: it has
+    // no buffers to keep).
+    let gpu_emitters: Vec<bsengine_rhi_wgpu::gpu_particles::GpuEmitterFrame> = render_queries
+        .p5()
+        .iter()
+        .filter(|(emitter, _)| {
+            emitter.simulation == bsengine_core::ParticleSimulation::Gpu && emitter.gpu_step.id != 0
+        })
+        .map(|(emitter, texture)| {
+            let step = emitter.gpu_step;
+            bsengine_rhi_wgpu::gpu_particles::GpuEmitterFrame {
+                id: step.id,
+                tick: step.tick,
+                spawn: step.spawn,
+                origin: step.origin,
+                dt: step.dt,
+                seed: step.seed,
+                capacity: emitter.max_particles,
+                lifetime: emitter.particle_lifetime,
+                speed: emitter.initial_speed,
+                spread_degrees: emitter.spread_degrees,
+                gravity: emitter.gravity,
+                start_size: emitter.start_size,
+                end_size: emitter.end_size,
+                start_color: emitter.start_color.to_array(),
+                end_color: emitter.end_color.to_array(),
+                texture_id: texture
+                    .and_then(|t| texture_cache.as_deref().and_then(|c| c.id_for(&t.0))),
+            }
+        })
+        .collect();
+    surface.0.step_gpu_particles(&gpu_emitters);
+
     // Fitted to the camera, not to the world origin. `unjittered_view_proj`
     // rather than the jittered matrix: a sub-pixel TAA offset must not shift
     // the shadow map's texel grid, which is snapped precisely to stop it
@@ -3353,6 +3389,61 @@ mod tests {
             .resource_mut::<bsengine_core::ShadowSettings>()
             .soft = true;
         assert!(soft(&mut app), "and on again");
+    }
+
+    /// An entity's GPU emitter reaches the renderer's compute pass: the step
+    /// its tick recorded is simulated into its own GPU buffers, at the
+    /// capacity its `max_particles` names -- and switching it back to the CPU
+    /// drops those buffers.
+    #[test]
+    fn a_gpu_emitter_is_simulated_by_the_renderer() {
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::offscreen(64, 64, false));
+        app.add_plugins(RenderPlugin);
+        app.update();
+        let emitter = app
+            .world_mut()
+            .spawn((
+                Transform::default(),
+                bsengine_core::ParticleEmitter {
+                    simulation: bsengine_core::ParticleSimulation::Gpu,
+                    max_particles: 128,
+                    particle_lifetime: 10.0,
+                    // What the particle tick would have written.
+                    gpu_step: bsengine_core::GpuParticleStep {
+                        id: 99,
+                        tick: 1,
+                        spawn: 50,
+                        origin: Vec3::new(0.0, 1.0, 0.0),
+                        dt: 0.1,
+                        seed: 3,
+                    },
+                    ..Default::default()
+                },
+            ))
+            .id();
+        app.update();
+        let read = |app: &bevy_app::App| {
+            app.world()
+                .resource::<bsengine_rhi_wgpu::WgpuSurfaceResource>()
+                .0
+                .read_gpu_particles(99)
+        };
+        let particles = read(&app).expect("the emitter has GPU buffers");
+        assert_eq!(particles.len(), 128, "sized by max_particles");
+        assert_eq!(
+            particles.iter().filter(|(p, _)| p.size > 0.0).count(),
+            50,
+            "the recorded step's 50 particles were emitted"
+        );
+
+        app.world_mut()
+            .get_mut::<bsengine_core::ParticleEmitter>(emitter)
+            .unwrap()
+            .simulation = bsengine_core::ParticleSimulation::Cpu;
+        app.update();
+        assert!(read(&app).is_none(), "back on the CPU, the GPU buffers go");
     }
 
     /// A camera's `ColorGrading` reaches the renderer, and taking it off

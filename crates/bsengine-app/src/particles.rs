@@ -283,6 +283,75 @@ mod tests {
         );
     }
 
+    fn gpu_step(app: &bevy_app::App, e: bevy_ecs::entity::Entity) -> GpuParticleStep {
+        app.world().get::<ParticleEmitter>(e).unwrap().gpu_step
+    }
+
+    /// A GPU emitter is not simulated here: each tick records the next step
+    /// for the renderer instead -- how many to emit by the same burst, rate
+    /// and carry rules as the CPU path, from the entity's position, over this
+    /// tick's dt -- under an id that stays the emitter's, with a new tick
+    /// number each time. Nothing lands in `live`.
+    #[test]
+    fn a_gpu_emitter_records_its_step_instead_of_simulating() {
+        let (mut app, e) = app_with(ParticleEmitter {
+            rate: 25.0,
+            burst_count: 12,
+            simulation: ParticleSimulation::Gpu,
+            ..Default::default()
+        });
+        app.world_mut().get_mut::<Transform>(e).unwrap().position.0 = Vec3::new(3.0, 4.0, 5.0);
+        app.world_mut()
+            .get_mut::<ParticleEmitter>(e)
+            .unwrap()
+            .burst();
+
+        app.update();
+        let first = gpu_step(&app, e);
+        assert_ne!(first.id, 0, "an id is assigned on the first tick");
+        // 12 from the burst, plus 25/s * 0.1 s = 2.5 -> 2, carrying 0.5.
+        assert_eq!(first.spawn, 14);
+        assert_eq!(first.origin, Vec3::new(3.0, 4.0, 5.0));
+        assert!((first.dt - 0.1).abs() < 1e-6);
+        assert_eq!(live_count(&app, e), 0, "no CPU particles");
+
+        app.update();
+        let second = gpu_step(&app, e);
+        assert_eq!(second.id, first.id, "the same emitter keeps its id");
+        assert_eq!(second.tick, first.tick + 1, "a new step each tick");
+        assert_eq!(second.spawn, 3, "the burst is spent; 2.5 + the 0.5 carried");
+        assert_ne!(second.seed, first.seed, "and new random directions");
+    }
+
+    /// Two GPU emitters never share an id -- the renderer keys their buffers
+    /// by it -- and more than the buffer holds is clamped to it.
+    #[test]
+    fn gpu_emitters_get_distinct_ids_and_clamp_to_capacity() {
+        let (mut app, a) = app_with(ParticleEmitter {
+            burst_count: 500,
+            max_particles: 100,
+            simulation: ParticleSimulation::Gpu,
+            ..Default::default()
+        });
+        let b = app
+            .world_mut()
+            .spawn((
+                Transform::default(),
+                ParticleEmitter {
+                    simulation: ParticleSimulation::Gpu,
+                    ..Default::default()
+                },
+            ))
+            .id();
+        app.world_mut()
+            .get_mut::<ParticleEmitter>(a)
+            .unwrap()
+            .burst();
+        app.update();
+        assert_ne!(gpu_step(&app, a).id, gpu_step(&app, b).id);
+        assert_eq!(gpu_step(&app, a).spawn, 100, "500 asked, 100 held");
+    }
+
     #[test]
     fn a_burst_emits_exactly_its_count_once() {
         let (mut app, e) = app_with(ParticleEmitter {

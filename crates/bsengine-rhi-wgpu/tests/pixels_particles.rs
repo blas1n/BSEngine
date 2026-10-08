@@ -30,6 +30,72 @@ fn footprint(with: &common::Pixels, without: &common::Pixels) -> usize {
         .count()
 }
 
+/// A GPU emitter: `spawn` warm particles at the origin, barely moving.
+fn gpu_emitter(tick: u64, spawn: u32) -> bsengine_rhi_wgpu::gpu_particles::GpuEmitterFrame {
+    bsengine_rhi_wgpu::gpu_particles::GpuEmitterFrame {
+        id: 1,
+        tick,
+        spawn,
+        origin: Vec3::ZERO,
+        dt: 0.01,
+        seed: 9,
+        capacity: 4096,
+        lifetime: 5.0,
+        speed: 0.5,
+        spread_degrees: 180.0,
+        gravity: 0.0,
+        start_size: 0.08,
+        end_size: 0.08,
+        start_color: [1.0, 0.9, 0.2],
+        end_color: [1.0, 0.9, 0.2],
+        texture_id: None,
+    }
+}
+
+/// GPU-simulated particles are drawn by the same pass as CPU ones: a cloud
+/// of them reaches the framebuffer in their colour. The dead slots of the
+/// ring -- drawn as zero-size quads -- draw nothing: an emitter that has
+/// emitted nothing leaves the frame exactly as empty. And an emitter no
+/// longer named is gone from the next frame.
+#[test]
+fn gpu_particles_reach_the_framebuffer_and_dead_slots_draw_nothing() {
+    let mut h = Harness::new();
+    let empty = h.render(&Scene::default());
+
+    let all_dead = h.render(&Scene {
+        gpu_particles: vec![gpu_emitter(1, 0)],
+        ..Scene::default()
+    });
+    assert_eq!(
+        footprint(&all_dead, &empty),
+        0,
+        "4096 dead slots, drawn as zero-size quads, must draw nothing"
+    );
+
+    let cloud = h.render(&Scene {
+        gpu_particles: vec![gpu_emitter(2, 2000)],
+        ..Scene::default()
+    });
+    assert!(
+        footprint(&cloud, &empty) > 50,
+        "2000 live particles around the origin should cover the frame's middle, saw {}",
+        cloud.describe()
+    );
+    let [r, g, b, _] = cloud.centre();
+    assert!(
+        r > b + 40 && g > b + 40,
+        "in their warm colour at the centre, saw {}",
+        cloud.describe()
+    );
+
+    let gone = h.render(&Scene::default());
+    assert_eq!(
+        footprint(&gone, &empty),
+        0,
+        "an emitter not named in a frame is dropped, not drawn from stale buffers"
+    );
+}
+
 #[test]
 fn a_particle_reaches_the_framebuffer() {
     let mut h = Harness::new();

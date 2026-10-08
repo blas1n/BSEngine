@@ -23,6 +23,8 @@ pub mod decals;
 pub mod froxel;
 /// Screen-space translate/rotate gizmo math and drawing.
 pub mod gizmo;
+/// GPU-simulated particle emitters (compute-shader emit, move, age).
+pub mod gpu_particles;
 /// Image-based lighting: cubemap helpers, the BRDF integration LUT, and the
 /// environment preprocessing passes.
 pub mod ibl;

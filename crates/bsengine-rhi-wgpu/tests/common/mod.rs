@@ -279,6 +279,9 @@ pub struct Scene {
     pub with_skybox: bool,
     /// Particle batches for the pass that runs after transparency.
     pub particles: Vec<bsengine_rhi_wgpu::particles::ParticleBatch>,
+    /// GPU emitters' steps, run through the surface's compute pass before
+    /// the frame, as the render system does.
+    pub gpu_particles: Vec<bsengine_rhi_wgpu::gpu_particles::GpuEmitterFrame>,
 }
 
 impl Default for Scene {
@@ -311,6 +314,7 @@ impl Default for Scene {
             hud: HashMap::new(),
             with_skybox: false,
             particles: Vec::new(),
+            gpu_particles: Vec::new(),
         }
     }
 }
@@ -847,6 +851,7 @@ struct VertOut {{
         // Every frame: a surface is shared across a harness's renders, and a
         // scene that does not ask for MSAA must not inherit the last one's.
         self.surface.set_msaa(scene.msaa);
+        self.surface.step_gpu_particles(&scene.gpu_particles);
         self.surface
             .render_frame(
                 view_proj,

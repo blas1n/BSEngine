@@ -2627,6 +2627,8 @@ pub struct WgpuSurface {
     captured_reflection_probes: Vec<ReflectionProbeParams>,
     /// See [`Self::last_color_grading`].
     last_color_grading: Option<bsengine_core::ColorGrading>,
+    /// See [`Self::last_ui_texts`].
+    last_ui_texts: Vec<String>,
     /// Layout of the skybox's texture+sampler group. Held here rather than
     /// built inside `set_skybox_from_rgba` because `probe_capture_sky_pipeline`
     /// is built once at construction and has to bind `SkyboxState::texture_bg`
@@ -2928,6 +2930,15 @@ impl WgpuSurface {
     /// camera's component reached the renderer at all.
     pub fn last_color_grading(&self) -> Option<bsengine_core::ColorGrading> {
         self.last_color_grading.clone()
+    }
+
+    /// Every piece of text the last frame's UI drew -- HUD lines, labels,
+    /// buttons, panel titles, input hints -- as egui laid it out, in draw
+    /// order. The text actually on screen, after anything that rewrote it on
+    /// the way (automatic translation, say), which is what a caller checking
+    /// what the player sees needs rather than what a script set.
+    pub fn last_ui_texts(&self) -> &[String] {
+        &self.last_ui_texts
     }
 
     /// Binds `source` as the colour-grading LUT, or unbinds it with `None`.
@@ -4801,6 +4812,7 @@ impl WgpuSurface {
             reflection_capture_pipeline,
             captured_reflection_probes: Vec::new(),
             last_color_grading: None,
+            last_ui_texts: Vec::new(),
             sky_tex_bgl,
             egui_ctx,
             egui_renderer,
@@ -7980,6 +7992,11 @@ impl WgpuSurface {
                 }
             });
 
+            self.last_ui_texts.clear();
+            collect_texts(
+                full_output.shapes.iter().map(|c| &c.shape),
+                &mut self.last_ui_texts,
+            );
             let clipped_primitives = self
                 .egui_ctx
                 .tessellate(full_output.shapes, full_output.pixels_per_point);
@@ -8399,6 +8416,18 @@ impl Drop for WgpuSurface {
         // -- this Drop impl alone was tried first and confirmed
         // insufficient: CI failed identically with only this in place.
         self.device.poll(wgpu::Maintain::Wait);
+    }
+}
+
+/// The text of every text shape in `shapes`, nested groups included, in
+/// order: what [`WgpuSurface::last_ui_texts`] reports.
+fn collect_texts<'a>(shapes: impl Iterator<Item = &'a egui::Shape>, out: &mut Vec<String>) {
+    for shape in shapes {
+        match shape {
+            egui::Shape::Text(text) => out.push(text.galley.text().to_string()),
+            egui::Shape::Vec(inner) => collect_texts(inner.iter(), out),
+            _ => {}
+        }
     }
 }
 

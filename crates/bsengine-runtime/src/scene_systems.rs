@@ -43,6 +43,7 @@ pub struct ProjectManifest {
 /// tables = ["assets/i18n/strings.csv"]
 /// default_locale = "en"   # what a missing translation falls back to
 /// locale = "auto"         # the system's, matched to the tables; or e.g. "ko"
+/// auto_translate = true    # UI text that is a key is drawn translated
 /// ```
 #[derive(Deserialize)]
 pub struct LocalizationSection {
@@ -56,6 +57,15 @@ pub struct LocalizationSection {
     /// The starting locale, or `"auto"` for the operating system's.
     #[serde(default = "default_start_locale")]
     pub locale: String,
+    /// Whether a label, button, panel title or HUD line whose text is a
+    /// key is drawn as its translation (`Localization::translate_ui`). On by
+    /// default, as Godot's `auto_translate` is.
+    #[serde(default = "default_auto_translate")]
+    pub auto_translate: bool,
+}
+
+fn default_auto_translate() -> bool {
+    true
 }
 
 fn default_default_locale() -> String {
@@ -74,6 +84,7 @@ impl Default for LocalizationSection {
             tables: Vec::new(),
             default_locale: default_default_locale(),
             locale: default_start_locale(),
+            auto_translate: default_auto_translate(),
         }
     }
 }
@@ -1140,5 +1151,55 @@ mod network_section_tests {
         assert_eq!(manifest.network.aoi_radius, None);
         assert_eq!(manifest.network.interpolation_delay_ticks, 0);
         assert_eq!(manifest.network.rpc_resend_frames, 6);
+    }
+}
+
+#[cfg(test)]
+mod localization_section_tests {
+    use super::ProjectManifest;
+
+    /// The localization the game starts with, from `project.toml` text and a
+    /// one-key table, through the runtime's own `insert_localization`.
+    fn start(tag: &str, localization_table: &str) -> bsengine_core::Localization {
+        let dir = std::env::temp_dir().join(format!(
+            "bsengine_l10n_section_{tag}_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("ui.csv"), "keys,en\nPLAY,Play\n").unwrap();
+        let manifest: ProjectManifest = toml::from_str(&format!(
+            "[project]\nname = \"t\"\nentry_scene = \"s.ron\"\n\
+             [localization]\ntables = [\"ui.csv\"]\nlocale = \"en\"\n{localization_table}"
+        ))
+        .expect("parse");
+        let mut app = bevy_app::App::new();
+        crate::insert_localization(&mut app, dir.to_str().unwrap(), None, &manifest);
+        let _ = std::fs::remove_dir_all(&dir);
+        app.world()
+            .resource::<bsengine_core::Localization>()
+            .clone()
+    }
+
+    /// UI text is translated automatically unless the project turns it off
+    /// -- on by default, as Godot's `auto_translate` is -- and the setting
+    /// reaches the resource the renderer reads.
+    #[test]
+    fn auto_translate_is_on_unless_the_project_turns_it_off() {
+        let on = start("default", "");
+        assert!(on.auto_translate());
+        assert_eq!(
+            on.translate_ui("PLAY"),
+            Some("Play"),
+            "premise: the table loaded"
+        );
+
+        let off = start("off", "auto_translate = false\n");
+        assert!(!off.auto_translate());
+        assert_eq!(off.translate_ui("PLAY"), None, "drawn as written");
+        assert_eq!(
+            off.tr("PLAY"),
+            "Play",
+            "while scripts' own tr still translates"
+        );
     }
 }

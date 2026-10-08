@@ -522,6 +522,34 @@ pub struct UiState {
 }
 
 impl UiState {
+    /// A copy whose displayed text -- labels, button labels, panel titles,
+    /// input hints -- is passed through `translate`, which returns the text
+    /// to show instead or `None` to keep it. What the player typed into an
+    /// input is not displayed text and is kept, and so is every id: clicks
+    /// found on the copy are the original widgets' clicks.
+    ///
+    /// For automatic UI translation (`Localization::translate_ui`): the
+    /// renderer draws the copy, and the state scripts set stays the keys they
+    /// wrote, so a locale switch re-translates them next frame.
+    pub fn with_display_text(&self, translate: impl Fn(&str) -> Option<String>) -> UiState {
+        let mut out = self.clone();
+        for widget in &mut out.widgets {
+            let shown = match widget {
+                UiWidget::Label { text, .. } => text,
+                UiWidget::Button { label, .. } => label,
+                UiWidget::Panel { title, .. } => title,
+                UiWidget::TextInput { hint, .. } => hint,
+                UiWidget::Container { .. }
+                | UiWidget::Image { .. }
+                | UiWidget::ProgressBar { .. } => continue,
+            };
+            if let Some(translated) = translate(shown) {
+                *shown = translated;
+            }
+        }
+        out
+    }
+
     /// Inserts a widget, or replaces the existing widget with the same id.
     pub fn set_widget(&mut self, widget: UiWidget) {
         let id = widget.id().to_string();

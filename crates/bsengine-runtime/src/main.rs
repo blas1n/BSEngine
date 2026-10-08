@@ -577,6 +577,7 @@ pub(crate) fn build_player_app(
         distance: manifest.render.shadow_distance,
         cascades: manifest.render.shadow_cascades,
         blend: manifest.render.shadow_cascade_blend,
+        soft: manifest.render.soft_shadows,
     });
     app.insert_resource(bsengine_core::TextureStreamingSettings::from_manifest(
         manifest.render.texture_streaming_budget_mb,

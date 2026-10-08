@@ -1198,13 +1198,14 @@ fn render_frame(
     // `OcclusionCullingEnabled` is read above: the editor and every test that
     // builds an app directly insert neither.
     let shadow = shadow_settings.as_deref().copied().unwrap_or_default();
-    let cascades = bsengine_rhi_wgpu::shadow::DirectionalCascades::new(
+    let mut cascades = bsengine_rhi_wgpu::shadow::DirectionalCascades::new(
         light.direction,
         unjittered_view_proj,
         shadow.distance,
         shadow.cascades,
         shadow.blend,
     );
+    cascades.soft = shadow.soft;
     let tex_reg_ref = tex_registry.as_deref();
 
     // Each UI image's path resolved to a GPU id, for the paths this frame's
@@ -3321,6 +3322,37 @@ mod tests {
                 "with auto_translate off, {key:?} is drawn as written: {off:?}"
             );
         }
+    }
+
+    /// The project's soft-shadow setting reaches the renderer: on by default,
+    /// off when `ShadowSettings` says so, and back on when it changes back.
+    #[test]
+    fn the_soft_shadow_setting_reaches_the_renderer() {
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::offscreen(64, 64, false));
+        app.add_plugins(RenderPlugin);
+        app.world_mut().spawn((
+            Camera::default(),
+            Transform::from_position(Vec3::new(0.0, 0.0, 10.0)),
+        ));
+        let soft = |app: &mut bevy_app::App| {
+            app.update();
+            app.world()
+                .resource::<bsengine_rhi_wgpu::WgpuSurfaceResource>()
+                .0
+                .last_soft_shadows()
+        };
+        assert!(soft(&mut app), "soft by default, with no settings at all");
+        app.insert_resource(bsengine_core::ShadowSettings {
+            soft: false,
+            ..Default::default()
+        });
+        assert!(!soft(&mut app), "off when the project turns it off");
+        app.world_mut()
+            .resource_mut::<bsengine_core::ShadowSettings>()
+            .soft = true;
+        assert!(soft(&mut app), "and on again");
     }
 
     /// A camera's `ColorGrading` reaches the renderer, and taking it off

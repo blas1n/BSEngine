@@ -200,6 +200,11 @@ pub struct RenderSection {
     /// cascade's far distance. 0 switches hard, as Unity and Godot do.
     #[serde(default = "default_cascade_blend")]
     pub shadow_cascade_blend: f32,
+    /// Whether shadow edges are filtered: on by default, as Unity's "Soft
+    /// Shadows" and Godot's soft filter are; `false` gives hard, texel-stepped
+    /// edges.
+    #[serde(default = "default_soft_shadows")]
+    pub soft_shadows: bool,
     /// The most GPU memory streamed textures may hold between them, in
     /// mebibytes; 0 for no limit. Unity's streaming budget, Unreal's pool.
     #[serde(default = "default_texture_streaming_budget_mb")]
@@ -230,6 +235,10 @@ fn default_cascade_blend() -> f32 {
     bsengine_core::shadow_config::DEFAULT_CASCADE_BLEND
 }
 
+fn default_soft_shadows() -> bool {
+    bsengine_core::shadow_config::DEFAULT_SOFT_SHADOWS
+}
+
 fn default_texture_streaming_budget_mb() -> u32 {
     bsengine_core::texture_streaming_config::DEFAULT_TEXTURE_STREAMING_BUDGET_MB
 }
@@ -249,6 +258,7 @@ impl Default for RenderSection {
             shadow_distance: default_shadow_distance(),
             shadow_cascades: default_shadow_cascades(),
             shadow_cascade_blend: default_cascade_blend(),
+            soft_shadows: default_soft_shadows(),
             texture_streaming_budget_mb: default_texture_streaming_budget_mb(),
             texture_mip_bias: default_texture_mip_bias(),
             msaa: default_msaa(),
@@ -1014,6 +1024,7 @@ mod tests {
             );
             assert_eq!(m.render.shadow_cascades, d.cascades, "[render] {label}");
             assert_eq!(m.render.shadow_cascade_blend, d.blend, "[render] {label}");
+            assert_eq!(m.render.soft_shadows, d.soft, "[render] {label}");
         }
         // And the streaming fields, against the constants
         // `TextureStreamingSettings::default()` is built from.
@@ -1069,7 +1080,8 @@ mod tests {
         let d = bsengine_core::ShadowSettings::default();
         let m: super::ProjectManifest = toml::from_str(
             "[project]\nname = \"t\"\nentry_scene = \"s.ron\"\n[render]\n\
-             shadow_distance = 75.5\nshadow_cascades = 2\nshadow_cascade_blend = 0.25\n",
+             shadow_distance = 75.5\nshadow_cascades = 2\nshadow_cascade_blend = 0.25\n\
+             soft_shadows = false\n",
         )
         .unwrap();
         assert_eq!(m.render.shadow_distance, 75.5);
@@ -1078,7 +1090,8 @@ mod tests {
         assert!(
             m.render.shadow_distance != d.distance
                 && m.render.shadow_cascades != d.cascades
-                && m.render.shadow_cascade_blend != d.blend,
+                && m.render.shadow_cascade_blend != d.blend
+                && m.render.soft_shadows != d.soft,
             "the fixture must differ from the defaults in every field or this \
              test cannot tell parsing from falling back"
         );

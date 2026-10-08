@@ -708,6 +708,10 @@ pub struct DirectionalCascades {
     /// Cross-fade width at each boundary, as a fraction of that cascade's far
     /// distance. Zero switches hard.
     pub blend: f32,
+    /// Whether shadow edges are filtered (`ShadowSettings::soft`). On from
+    /// [`Self::new`], as in Unity and Godot; the caller sets it from the
+    /// project's settings.
+    pub soft: bool,
 }
 
 impl DirectionalCascades {
@@ -735,6 +739,7 @@ impl DirectionalCascades {
             } else {
                 0.0
             },
+            soft: bsengine_core::shadow_config::DEFAULT_SOFT_SHADOWS,
         }
     }
 

@@ -236,6 +236,42 @@ pub fn scan(project_dir: impl AsRef<Path>) -> io::Result<AssetIndex> {
     Ok(index)
 }
 
+/// [`scan`] for a packaged build: the index from the `.meta` sidecars an
+/// archive carries (`cook` packs each asset's beside it), keyed by the
+/// project-relative paths the archive stores.
+///
+/// Read-only, unlike [`scan`]: an archive cannot be written to, and it is the
+/// snapshot the build took -- nothing in it was renamed, edited or orphaned
+/// since -- so there is nothing to mint, refresh or recover. A sidecar whose
+/// asset is not in the archive is skipped, as is one that will not parse,
+/// with a warning; sidecars are taken in sorted order, so which of two
+/// claimants of one GUID wins is the same on every machine, as in [`scan`].
+pub fn scan_archive(pak: &crate::pak::Pak) -> AssetIndex {
+    let mut index = AssetIndex::default();
+    let recordings = format!("{ASSETS_DIR}/{RECORDINGS_DIR}/");
+    let mut sidecars: Vec<&str> = pak
+        .paths()
+        .filter(|p| p.starts_with(&format!("{ASSETS_DIR}/")) && !p.starts_with(&recordings))
+        .filter(|p| p.ends_with(&format!(".{SIDECAR_EXTENSION}")))
+        .collect();
+    sidecars.sort_unstable();
+    for meta in sidecars {
+        let asset = &meta[..meta.len() - SIDECAR_EXTENSION.len() - 1];
+        if pak.get(asset).is_none() {
+            debug!("asset identity: {meta} is in the archive without its asset; skipping");
+            continue;
+        }
+        let parsed = std::str::from_utf8(pak.get(meta).unwrap_or_default())
+            .map_err(|e| e.to_string())
+            .and_then(|text| Sidecar::from_ron(text).map_err(|e| e.to_string()));
+        match parsed {
+            Ok(sidecar) => record(&sidecar, asset, &mut index),
+            Err(e) => warn!("asset identity: the archive's {meta} will not parse ({e}); {asset} has no identity"),
+        }
+    }
+    index
+}
+
 /// What one walk found and deliberately did not act on.
 ///
 /// Both halves are deferred for the same reason: whether a file with no sidecar
@@ -907,6 +943,80 @@ mod tests {
     use super::*;
     use crate::test_support::{capture_warnings, unique, ProbeDir};
     use std::path::PathBuf;
+
+    /// An archive's sidecars give the same identities a scan of the project
+    /// on disk does, keyed by the project-relative paths the archive stores
+    /// -- and a sidecar without its asset, one that will not parse, and one
+    /// under the recordings directory give none.
+    #[test]
+    fn an_archive_is_indexed_from_the_sidecars_it_carries() {
+        let probe = ProbeDir(std::env::temp_dir().join(unique("identity-archive")));
+        write_file(&probe.0.join("assets/a.png"), b"png");
+        write_file(&probe.0.join("assets/sub/b.glb"), b"glb");
+        let on_disk = scan(&probe.0).expect("scan the project");
+        assert_eq!(
+            on_disk.len(),
+            2,
+            "premise: the disk scan minted both identities"
+        );
+
+        let read = |rel: &str| std::fs::read(probe.0.join(rel)).expect(rel);
+        // A valid sidecar with an identity of its own -- a copy of a.png's
+        // with the GUID replaced. A plain copy would be rejected as a
+        // duplicate GUID whatever `scan_archive` did with it, and so prove
+        // nothing about the rule each one is here for.
+        let guid_a = on_disk
+            .guid_for_path("assets/a.png")
+            .expect("a.png")
+            .to_string();
+        let fresh = |n: u32| {
+            let text = String::from_utf8(read("assets/a.png.meta")).expect("utf-8");
+            assert!(
+                text.contains(&guid_a),
+                "premise: the sidecar spells its GUID"
+            );
+            text.replace(&guid_a, &format!("00000000-0000-4000-8000-{n:012}"))
+                .into_bytes()
+        };
+        let entries: Vec<(String, Vec<u8>)> = vec![
+            ("assets/a.png".into(), read("assets/a.png")),
+            ("assets/a.png.meta".into(), read("assets/a.png.meta")),
+            ("assets/sub/b.glb".into(), read("assets/sub/b.glb")),
+            (
+                "assets/sub/b.glb.meta".into(),
+                read("assets/sub/b.glb.meta"),
+            ),
+            // An identity whose asset the archive does not carry.
+            ("assets/gone.png.meta".into(), fresh(1)),
+            ("assets/bad.png".into(), b"png".to_vec()),
+            ("assets/bad.png.meta".into(), b"not a sidecar".to_vec()),
+            (format!("assets/{RECORDINGS_DIR}/run.png"), b"png".to_vec()),
+            (format!("assets/{RECORDINGS_DIR}/run.png.meta"), fresh(2)),
+        ];
+        let pak_path = probe.0.join("game.pak");
+        crate::pak::write_pak(&pak_path, &entries).expect("write the archive");
+        let pak = crate::pak::Pak::open(&pak_path).expect("open the archive");
+
+        let index = scan_archive(&pak);
+        for path in ["assets/a.png", "assets/sub/b.glb"] {
+            assert!(
+                on_disk.guid_for_path(path).is_some(),
+                "premise: {path} has an identity"
+            );
+            assert_eq!(
+                index.guid_for_path(path),
+                on_disk.guid_for_path(path),
+                "{path} has the identity its sidecar gave it on disk"
+            );
+        }
+        assert_eq!(
+            index.len(),
+            2,
+            "and nothing else: {:?}",
+            index.paths().collect::<Vec<_>>()
+        );
+        assert_eq!(index.guid_for_path("assets/bad.png"), None);
+    }
 
     /// Writes a probe file, creating whatever directories it needs.
     fn write_file(path: &Path, contents: &[u8]) {

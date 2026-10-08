@@ -271,6 +271,7 @@ struct CameraUniform {
     cascade_blend: f32,
     cascade_splits: vec4<f32>,
     cascade_count: u32,
+    shadow_filter: u32,
     unjittered_view_proj: mat4x4<f32>,
     prev_view_proj: mat4x4<f32>,
 };

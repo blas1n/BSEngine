@@ -36,6 +36,7 @@ struct CameraUniform {
     cascade_blend: f32,
     cascade_splits: vec4<f32>,
     cascade_count: u32,
+    shadow_filter: u32,
     unjittered_view_proj: mat4x4<f32>,
     prev_view_proj: mat4x4<f32>,
 };
@@ -197,6 +198,31 @@ fn vs_main(in: VertIn) -> VertOut {
     out.uv = in.uv;
     return out;
 }
+// The directional shadow lookup, filtered. `soft` is `camera.shadow_filter`
+// (`ShadowSettings::soft`): hard reads the one texel the point falls in;
+// soft averages a 3x3 grid of the comparison sampler's own bilinear
+// lookups, one texel apart -- a ~4-texel tent around the point, which is
+// what Unity URP's medium soft shadows and Godot's default PCF filter do.
+// Without it a shadow's edge is the shadow map's texel grid, stepped and
+// crawling as the camera moves. The comparison sampler is linear for both:
+// sampled at a texel's exact centre, its bilinear weights put everything on
+// that texel, which is what keeps hard exactly what it was.
+fn shadow_filtered(uv: vec2<f32>, layer: i32, depth: f32, soft: u32) -> f32 {
+    let size = vec2<f32>(textureDimensions(shadow_map));
+    if (soft == 0u) {
+        let centre = (floor(uv * size) + vec2<f32>(0.5, 0.5)) / size;
+        return textureSampleCompareLevel(shadow_map, shadow_sampler, centre, layer, depth);
+    }
+    let texel = vec2<f32>(1.0, 1.0) / size;
+    var sum = 0.0;
+    for (var y = -1; y <= 1; y++) {
+        for (var x = -1; x <= 1; x++) {
+            let offset = vec2<f32>(f32(x), f32(y)) * texel;
+            sum += textureSampleCompareLevel(shadow_map, shadow_sampler, uv + offset, layer, depth);
+        }
+    }
+    return sum / 9.0;
+}
 // One cascade's lookup. Returns 1.0 (fully lit) outside the cascade, which is
 // what lets the caller fall through to a wider one.
 fn shadow_sample(world_pos: vec3<f32>, vp: mat4x4<f32>, layer: i32) -> f32 {
@@ -212,7 +238,7 @@ fn shadow_sample(world_pos: vec3<f32>, vp: mat4x4<f32>, layer: i32) -> f32 {
     // implicit-derivative form. naga lets it through, but a browser's compiler
     // (Tint) rejects the whole shader -- and the frame with it. The shadow
     // maps have one mip level, so level 0 is the only one either reads.
-    return textureSampleCompareLevel(shadow_map, shadow_sampler, uv, layer, depth - 0.003);
+    return shadow_filtered(uv, layer, depth - 0.003, camera.shadow_filter);
 }
 // Which cascade covers this fragment, chosen by distance along the view axis --
 // the same axis the cascades were sliced along. Radial distance would disagree
@@ -658,6 +684,7 @@ struct CameraUniform {
     cascade_blend: f32,
     cascade_splits: vec4<f32>,
     cascade_count: u32,
+    shadow_filter: u32,
 };
 struct ModelUniform {
     model: mat4x4<f32>,
@@ -759,6 +786,31 @@ fn vs_main(in: VertIn) -> VertOut {
     out.uv = in.uv;
     return out;
 }
+// The directional shadow lookup, filtered. `soft` is `camera.shadow_filter`
+// (`ShadowSettings::soft`): hard reads the one texel the point falls in;
+// soft averages a 3x3 grid of the comparison sampler's own bilinear
+// lookups, one texel apart -- a ~4-texel tent around the point, which is
+// what Unity URP's medium soft shadows and Godot's default PCF filter do.
+// Without it a shadow's edge is the shadow map's texel grid, stepped and
+// crawling as the camera moves. The comparison sampler is linear for both:
+// sampled at a texel's exact centre, its bilinear weights put everything on
+// that texel, which is what keeps hard exactly what it was.
+fn shadow_filtered(uv: vec2<f32>, layer: i32, depth: f32, soft: u32) -> f32 {
+    let size = vec2<f32>(textureDimensions(shadow_map));
+    if (soft == 0u) {
+        let centre = (floor(uv * size) + vec2<f32>(0.5, 0.5)) / size;
+        return textureSampleCompareLevel(shadow_map, shadow_sampler, centre, layer, depth);
+    }
+    let texel = vec2<f32>(1.0, 1.0) / size;
+    var sum = 0.0;
+    for (var y = -1; y <= 1; y++) {
+        for (var x = -1; x <= 1; x++) {
+            let offset = vec2<f32>(f32(x), f32(y)) * texel;
+            sum += textureSampleCompareLevel(shadow_map, shadow_sampler, uv + offset, layer, depth);
+        }
+    }
+    return sum / 9.0;
+}
 // One cascade's lookup. Returns 1.0 (fully lit) outside the cascade, which is
 // what lets the caller fall through to a wider one.
 fn shadow_sample(world_pos: vec3<f32>, vp: mat4x4<f32>, layer: i32) -> f32 {
@@ -769,7 +821,7 @@ fn shadow_sample(world_pos: vec3<f32>, vp: mat4x4<f32>, layer: i32) -> f32 {
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || depth < 0.0 || depth > 1.0) {
         return 1.0;
     }
-    return textureSampleCompareLevel(shadow_map, shadow_sampler, uv, layer, depth - 0.003);
+    return shadow_filtered(uv, layer, depth - 0.003, camera.shadow_filter);
 }
 // Which cascade covers this fragment, chosen by distance along the view axis --
 // the same axis the cascades were sliced along. Radial distance would disagree
@@ -1272,6 +1324,31 @@ fn vs_capture(in: VertIn) -> VertOut {
     out.uv = in.uv;
     return out;
 }
+// The directional shadow lookup, filtered. `soft` is `camera.shadow_filter`
+// (`ShadowSettings::soft`): hard reads the one texel the point falls in;
+// soft averages a 3x3 grid of the comparison sampler's own bilinear
+// lookups, one texel apart -- a ~4-texel tent around the point, which is
+// what Unity URP's medium soft shadows and Godot's default PCF filter do.
+// Without it a shadow's edge is the shadow map's texel grid, stepped and
+// crawling as the camera moves. The comparison sampler is linear for both:
+// sampled at a texel's exact centre, its bilinear weights put everything on
+// that texel, which is what keeps hard exactly what it was.
+fn shadow_filtered(uv: vec2<f32>, layer: i32, depth: f32, soft: u32) -> f32 {
+    let size = vec2<f32>(textureDimensions(shadow_map));
+    if (soft == 0u) {
+        let centre = (floor(uv * size) + vec2<f32>(0.5, 0.5)) / size;
+        return textureSampleCompareLevel(shadow_map, shadow_sampler, centre, layer, depth);
+    }
+    let texel = vec2<f32>(1.0, 1.0) / size;
+    var sum = 0.0;
+    for (var y = -1; y <= 1; y++) {
+        for (var x = -1; x <= 1; x++) {
+            let offset = vec2<f32>(f32(x), f32(y)) * texel;
+            sum += textureSampleCompareLevel(shadow_map, shadow_sampler, uv + offset, layer, depth);
+        }
+    }
+    return sum / 9.0;
+}
 // One cascade's lookup. Returns 1.0 (fully lit) outside the cascade, which is
 // what lets the caller fall through to a wider one.
 fn shadow_sample(world_pos: vec3<f32>, vp: mat4x4<f32>, layer: i32) -> f32 {
@@ -1282,7 +1359,7 @@ fn shadow_sample(world_pos: vec3<f32>, vp: mat4x4<f32>, layer: i32) -> f32 {
     if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || depth < 0.0 || depth > 1.0) {
         return 1.0;
     }
-    return textureSampleCompareLevel(shadow_map, shadow_sampler, uv, layer, depth - 0.003);
+    return shadow_filtered(uv, layer, depth - 0.003, 0u);
 }
 fn shadow_factor(world_pos: vec3<f32>) -> f32 {
     // One cascade, named by the CPU (the widest one), because a probe capture
@@ -1891,7 +1968,11 @@ struct CameraUniformData {
     /// through to the last live cascade without needing to know the count.
     cascade_splits: [f32; 4],
     cascade_count: u32,
-    _pad: [u32; 3],
+    /// 0 hard, 1 soft: `ShadowSettings::soft`, read by `shadow_filtered`.
+    /// In what was the first padding word, so every other WGSL copy of this
+    /// struct -- which do not name it -- keeps its layout.
+    shadow_filter: u32,
+    _pad: [u32; 2],
     /// This frame's view-projection without the TAA jitter, and last
     /// frame's (also unjittered): the velocity output measures motion
     /// between the two. See `MESH_WGSL`'s `SceneOut::velocity`.
@@ -2627,6 +2708,8 @@ pub struct WgpuSurface {
     captured_reflection_probes: Vec<ReflectionProbeParams>,
     /// See [`Self::last_color_grading`].
     last_color_grading: Option<bsengine_core::ColorGrading>,
+    /// See [`Self::last_soft_shadows`].
+    last_soft_shadows: bool,
     /// See [`Self::last_ui_texts`].
     last_ui_texts: Vec<String>,
     /// Layout of the skybox's texture+sampler group. Held here rather than
@@ -2930,6 +3013,14 @@ impl WgpuSurface {
     /// camera's component reached the renderer at all.
     pub fn last_color_grading(&self) -> Option<bsengine_core::ColorGrading> {
         self.last_color_grading.clone()
+    }
+
+    /// Whether the last frame filtered its shadow edges, as
+    /// [`Self::render_frame`] received it in the cascades. What the filter
+    /// does to pixels is `pixels_soft_shadows`' business; this is how a
+    /// caller checks the project's setting reached the renderer at all.
+    pub fn last_soft_shadows(&self) -> bool {
+        self.last_soft_shadows
     }
 
     /// Every piece of text the last frame's UI drew -- HUD lines, labels,
@@ -3733,8 +3824,12 @@ impl WgpuSurface {
             label: Some("shadow comparison sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
+            // Linear: each comparison lookup is the bilinear blend of four
+            // texels' results (hardware 2x2 PCF), the tap `shadow_filtered`
+            // builds its soft filter from. Hard snaps to a texel centre,
+            // where linear and nearest agree.
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
             compare: Some(wgpu::CompareFunction::LessEqual),
             ..Default::default()
         });
@@ -4812,6 +4907,7 @@ impl WgpuSurface {
             reflection_capture_pipeline,
             captured_reflection_probes: Vec::new(),
             last_color_grading: None,
+            last_soft_shadows: bsengine_core::shadow_config::DEFAULT_SOFT_SHADOWS,
             last_ui_texts: Vec::new(),
             sky_tex_bgl,
             egui_ctx,
@@ -6049,10 +6145,12 @@ impl WgpuSurface {
             cascade_blend: cascades.blend,
             cascade_splits,
             cascade_count: cascade_count as u32,
-            _pad: [0; 3],
+            shadow_filter: u32::from(cascades.soft),
+            _pad: [0; 2],
             unjittered_view_proj: unjittered_view_proj.to_cols_array_2d(),
             prev_view_proj: self.prev_unjittered_view_proj.to_cols_array_2d(),
         };
+        self.last_soft_shadows = cascades.soft;
         // Every cascade's matrix staged before a single pass is encoded.
         // `queue.write_buffer` is ordered against submits, not passes, so
         // rewriting one slot between passes of this encoder would hand every
@@ -8781,7 +8879,8 @@ mod tests {
             cascade_blend: 0.0,
             cascade_splits: [f32::MAX; 4],
             cascade_count: 1,
-            _pad: [0; 3],
+            shadow_filter: 0,
+            _pad: [0; 2],
             unjittered_view_proj: [[0.0; 4]; 4],
             prev_view_proj: [[0.0; 4]; 4],
         };

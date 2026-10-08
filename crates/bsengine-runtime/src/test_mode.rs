@@ -53,6 +53,7 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>, fast_rend
         distance: manifest.render.shadow_distance,
         cascades: manifest.render.shadow_cascades,
         blend: manifest.render.shadow_cascade_blend,
+        soft: manifest.render.soft_shadows,
     });
     // Before the archive moves into `PakAssetPlugin` below: the tables are
     // read out of it.

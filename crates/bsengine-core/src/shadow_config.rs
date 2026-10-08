@@ -51,6 +51,14 @@ pub const DEFAULT_SPLIT_EXPONENT: f32 = 2.0;
 /// reproduces Unity's and Godot's hard switch.
 pub const DEFAULT_CASCADE_BLEND: f32 = 0.1;
 
+/// Whether shadow edges are filtered by default.
+///
+/// On, as all three reference engines ship it: Unity URP's "Soft Shadows",
+/// Godot's default soft-shadow filter and Unreal's PCF. Off is a stepped edge
+/// that follows the shadow map's texels and crawls as the camera moves; it is
+/// there for the look that wants it and for comparison.
+pub const DEFAULT_SOFT_SHADOWS: bool = true;
+
 // The uniform array is `MAX_CASCADES` long and the shader indexes it by the
 // live count, so a default above the bound would read past the end of a uniform
 // -- which WGSL clamps rather than faults on, making it a wrong shadow rather
@@ -76,6 +84,8 @@ pub struct ShadowSettings {
     /// Cross-fade width at each cascade boundary, as a fraction of that
     /// cascade's far distance. Zero switches hard.
     pub blend: f32,
+    /// Whether shadow edges are filtered (see [`DEFAULT_SOFT_SHADOWS`]).
+    pub soft: bool,
 }
 
 impl Default for ShadowSettings {
@@ -84,6 +94,7 @@ impl Default for ShadowSettings {
             distance: DEFAULT_SHADOW_DISTANCE,
             cascades: DEFAULT_CASCADES,
             blend: DEFAULT_CASCADE_BLEND,
+            soft: DEFAULT_SOFT_SHADOWS,
         }
     }
 }

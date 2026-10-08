@@ -220,6 +220,9 @@ pub struct Scene {
     /// and compare. Without an override the blend is whatever the engine
     /// defaults to, and nothing observes whether the shader's mix runs at all.
     pub shadow_blend: f32,
+    /// Whether shadow edges are filtered (`ShadowSettings::soft`); the
+    /// engine's default unless a test is comparing the two.
+    pub soft_shadows: bool,
     /// Decals to project this frame.
     ///
     /// The renderer's own type rather than a harness-side description: the
@@ -290,6 +293,7 @@ impl Default for Scene {
             ui: bsengine_core::UiState::default(),
             ui_textures: HashMap::new(),
             shadow_blend: bsengine_core::shadow_config::DEFAULT_CASCADE_BLEND,
+            soft_shadows: bsengine_core::shadow_config::DEFAULT_SOFT_SHADOWS,
             bloom: None,
             tone_map: None,
             ssao: None,
@@ -847,7 +851,12 @@ struct VertOut {{
             .render_frame(
                 view_proj,
                 scene.camera_pos,
-                &light_view_proj(scene.light.direction, view_proj, scene.shadow_blend),
+                &{
+                    let mut cascades =
+                        light_view_proj(scene.light.direction, view_proj, scene.shadow_blend);
+                    cascades.soft = scene.soft_shadows;
+                    cascades
+                },
                 sky_vp_inv,
                 &draw_calls,
                 &scene.terrain,

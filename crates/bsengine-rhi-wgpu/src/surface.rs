@@ -2600,6 +2600,9 @@ pub struct WgpuSurface {
     pipeline_msaa: Option<wgpu::RenderPipeline>,
     transparent_pipeline_msaa: Option<wgpu::RenderPipeline>,
     particles: crate::particles::ParticleRenderer,
+    /// GPU-simulated emitters' buffers and the compute pass that steps them;
+    /// drawn by `particles` in the same pass as the CPU ones.
+    gpu_particles: crate::gpu_particles::GpuParticles,
     depth_texture: crate::profiler::TrackedTexture,
     depth_view: wgpu::TextureView,
     /// The decal buffer, its pipeline and its box geometry.
@@ -3030,6 +3033,23 @@ impl WgpuSurface {
     /// what the player sees needs rather than what a script set.
     pub fn last_ui_texts(&self) -> &[String] {
         &self.last_ui_texts
+    }
+
+    /// Steps the GPU-simulated particle emitters (see
+    /// [`crate::gpu_particles`]) ahead of the next frame, which draws them.
+    /// Every GPU emitter is named each frame; one not named has its buffers
+    /// dropped.
+    pub fn step_gpu_particles(&mut self, frames: &[crate::gpu_particles::GpuEmitterFrame]) {
+        self.gpu_particles.step(&self.device, &self.queue, frames);
+    }
+
+    /// One GPU emitter's particles, read back from the GPU: each slot's
+    /// instance (size 0 when dead) and velocity. Blocks; for tests and tools.
+    pub fn read_gpu_particles(
+        &self,
+        id: u64,
+    ) -> Option<Vec<(crate::particles::ParticleInstance, glam::Vec3)>> {
+        self.gpu_particles.read_back(&self.device, &self.queue, id)
     }
 
     /// Binds `source` as the colour-grading LUT, or unbinds it with `None`.
@@ -4822,6 +4842,7 @@ impl WgpuSurface {
 
         let particles =
             crate::particles::ParticleRenderer::new(&device, &camera_bgl, msaa_supported);
+        let gpu_particles = crate::gpu_particles::GpuParticles::new(&device);
         let depth_resolve = crate::msaa::DepthResolve::new(&device);
 
         let egui_ctx = egui::Context::default();
@@ -4855,6 +4876,7 @@ impl WgpuSurface {
             pipeline_msaa,
             transparent_pipeline_msaa,
             particles,
+            gpu_particles,
             depth_texture,
             depth_view,
             decals,
@@ -7424,7 +7446,8 @@ impl WgpuSurface {
         }
 
         // --- particle pass (after transparency, so sparks read over glass) ---
-        if !particles.is_empty() {
+        let gpu_particle_draws = self.gpu_particles.draws();
+        if !particles.is_empty() || !gpu_particle_draws.is_empty() {
             let (particle_draw_calls, particle_triangles) = self.particles.draw(
                 &mut encoder,
                 &self.queue,
@@ -7434,6 +7457,7 @@ impl WgpuSurface {
                 msaa_on,
                 &self.camera_bind_group,
                 particles,
+                &gpu_particle_draws,
                 tex_registry,
                 &self.default_texture_bind_group,
             );

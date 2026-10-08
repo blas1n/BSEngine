@@ -28,6 +28,16 @@ impl Rng {
         }
     }
 
+    /// The next raw 32-bit value.
+    pub fn next_u32(&mut self) -> u32 {
+        let mut x = self.state;
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        self.state = x;
+        x
+    }
+
     /// The next value in `[0, 1)`.
     pub fn unit(&mut self) -> f32 {
         let mut x = self.state;
@@ -61,12 +71,54 @@ pub struct Particle {
     pub age: f32,
 }
 
+/// Where an emitter's particles are simulated.
+///
+/// The choice all three reference engines offer, per emitter: Unreal's
+/// Niagara "sim target" (CPU or GPU), Unity's Shuriken (CPU) beside the VFX
+/// Graph (GPU), Godot's `CPUParticles3D` beside `GPUParticles3D`. The same
+/// parameters drive both.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Reflect)]
+#[reflect(Default)]
+pub enum ParticleSimulation {
+    /// On the CPU: every particle is in [`ParticleEmitter::live`], where a
+    /// script or a test can read it, capped at a few thousand per emitter.
+    #[default]
+    Cpu,
+    /// On the GPU, by a compute shader: up to
+    /// [`ParticleEmitter::max_particles`] per emitter -- tens or hundreds of
+    /// thousands -- for what is only ever looked at. `live` stays empty; the
+    /// particles exist only in GPU memory.
+    Gpu,
+}
+
+/// What a GPU emitter's simulation should do on the next frame the renderer
+/// draws: written by the particle tick, read by the renderer. Not part of the
+/// emitter's description -- see the type-level note on [`ParticleEmitter`].
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct GpuParticleStep {
+    /// Which emitter this is, to the renderer, which keeps each one's
+    /// particles in GPU memory between frames. Assigned on the first tick;
+    /// 0 until then.
+    pub id: u64,
+    /// Counts ticks. The renderer steps the simulation once per new value, so
+    /// a frame drawn twice without a tick in between does not simulate twice.
+    pub tick: u64,
+    /// Particles to emit this step.
+    pub spawn: u32,
+    /// Where they are emitted from, in world space.
+    pub origin: Vec3,
+    /// Seconds to advance every live particle by.
+    pub dt: f32,
+    /// Seeds this step's random directions.
+    pub seed: u32,
+}
+
 /// Emits and owns a cloud of short-lived billboarded particles.
 ///
 /// # What is reflected, and what is not
 ///
-/// Every parameter is reflected; `live`, `pending_burst`, `rng` and
-/// `spawn_debt` are `#[reflect(ignore)]`. R1 asks that a public component be
+/// Every parameter is reflected; `live`, `pending_burst`, `rng`,
+/// `spawn_debt` and `gpu_step` are `#[reflect(ignore)]`. R1 asks that a public component be
 /// *visible* -- that the Inspector shows the entity has an emitter and that MCP
 /// can see it is attached -- and the parameters are the whole of what a human
 /// or an agent would set. The ignored four are per-frame simulation state: an
@@ -118,6 +170,15 @@ pub struct ParticleEmitter {
     /// frame still emits at the right average. Not reflected.
     #[reflect(ignore)]
     pub spawn_debt: f32,
+    /// Where the particles are simulated. CPU unless set.
+    pub simulation: ParticleSimulation,
+    /// The most particles a GPU emitter holds at once -- its buffer's size,
+    /// as Godot's `amount` and the VFX Graph's capacity are. Past it the
+    /// oldest are replaced by the newest. The CPU path has its own fixed cap.
+    pub max_particles: u32,
+    /// The GPU simulation's next step. Not reflected: see the type-level note.
+    #[reflect(ignore)]
+    pub gpu_step: GpuParticleStep,
 }
 
 impl Default for ParticleEmitter {
@@ -138,6 +199,9 @@ impl Default for ParticleEmitter {
             pending_burst: 0,
             rng: Rng::default(),
             spawn_debt: 0.0,
+            simulation: ParticleSimulation::Cpu,
+            max_particles: 10_000,
+            gpu_step: GpuParticleStep::default(),
         }
     }
 }

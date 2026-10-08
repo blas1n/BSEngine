@@ -188,6 +188,11 @@ impl ParticleRenderer {
         msaa: bool,
         camera_bind_group: &wgpu::BindGroup,
         batches: &[ParticleBatch],
+        // GPU-simulated emitters (`crate::gpu_particles`): each one's
+        // texture, its own instance buffer, and how many slots it holds.
+        // Drawn in this pass, with this pipeline: their buffers are laid out
+        // as `ParticleInstance`.
+        gpu: &[(Option<u64>, &wgpu::Buffer, u32)],
         tex_registry: Option<&GpuTextureRegistry>,
         default_texture: &wgpu::BindGroup,
     ) -> (u32, u64) {
@@ -210,10 +215,12 @@ impl ParticleRenderer {
                 ranges.push((batch.texture_id, start as u32, take as u32));
             }
         }
-        if packed.is_empty() {
+        if packed.is_empty() && gpu.is_empty() {
             return (0, 0);
         }
-        queue.write_buffer(&self.instances, 0, bytemuck::cast_slice(&packed));
+        if !packed.is_empty() {
+            queue.write_buffer(&self.instances, 0, bytemuck::cast_slice(&packed));
+        }
 
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("particle pass"),
@@ -256,6 +263,18 @@ impl ParticleRenderer {
             pass.draw(0..6, start..(start + count));
             draw_calls += 1;
             triangles += (count as u64) * 2; // 2 triangles per instance (6-vertex billboard quad)
+        }
+        for (texture_id, buffer, count) in gpu {
+            let bind_group = texture_id
+                .and_then(|id| tex_registry.and_then(|r| r.get_bind_group(id)))
+                .unwrap_or(default_texture);
+            pass.set_bind_group(1, bind_group, &[]);
+            pass.set_vertex_buffer(0, buffer.slice(..));
+            // Every slot, dead ones included: a dead particle is a zero-size
+            // quad, and drawing them all needs no count back from the GPU.
+            pass.draw(0..6, 0..*count);
+            draw_calls += 1;
+            triangles += u64::from(*count) * 2;
         }
         (draw_calls, triangles)
     }

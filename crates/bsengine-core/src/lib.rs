@@ -215,7 +215,7 @@ pub use net_input::{LocalHeldKeys, PendingReplays, RemoteHeldKeys, ReplayRequest
 pub use network_id::{NetworkAuthority, NetworkId};
 pub use occlusion_config::OcclusionCullingEnabled;
 pub use parent::Parent;
-pub use particles::{Particle, ParticleEmitter, Rng};
+pub use particles::{GpuParticleStep, Particle, ParticleEmitter, ParticleSimulation, Rng};
 pub use pause_state::PauseState;
 pub use prefab_instance::{PrefabInstance, PrefabInstanceBaseline};
 pub use project_dir::{resolve_project_path, ProjectDir};

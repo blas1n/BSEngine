@@ -1,7 +1,11 @@
 use bevy_app::{App, Plugin, Update};
-use bsengine_core::{EditorPlayState, InspectorState, Particle, ParticleEmitter, Time, Transform};
+use bsengine_core::{
+    EditorPlayState, GpuParticleStep, InspectorState, Particle, ParticleEmitter,
+    ParticleSimulation, Time, Transform,
+};
 use bsengine_ecs::{Query, Res};
 use glam::Vec3;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Emits, integrates and ages every `ParticleEmitter`'s particles.
 ///
@@ -22,6 +26,11 @@ impl Plugin for ParticlePlugin {
 /// is logged rather than silent because a truncated effect looks exactly like a
 /// broken one.
 const MAX_PARTICLES_PER_EMITTER: usize = 4096;
+
+/// Ids for GPU emitters (`GpuParticleStep::id`), from 1; 0 means "not yet
+/// assigned". Process-wide rather than per app: the renderer keys its GPU
+/// buffers by them, and two emitters must never share one.
+static NEXT_GPU_EMITTER: AtomicU64 = AtomicU64::new(1);
 
 /// The time step the editor's preview asks for, or `None` to skip the tick.
 ///
@@ -62,6 +71,32 @@ fn tick_emitters(
             let whole = emitter.spawn_debt.floor();
             emitter.spawn_debt -= whole;
             wanted += whole as usize;
+        }
+
+        // A GPU emitter is simulated by the renderer's compute pass: this
+        // tick only says what the next step is -- how many to emit, from
+        // where, over how long -- by the same rate, burst and carry rules as
+        // the CPU path, so switching an emitter between the two keeps its
+        // timing. Its particles never come back to the CPU.
+        if emitter.simulation == ParticleSimulation::Gpu {
+            emitter.live.clear();
+            let capacity = emitter.max_particles.max(1) as usize;
+            let id = match emitter.gpu_step.id {
+                0 => NEXT_GPU_EMITTER.fetch_add(1, Ordering::Relaxed),
+                id => id,
+            };
+            let seed = emitter.rng.next_u32();
+            let tick = emitter.gpu_step.tick.wrapping_add(1);
+            emitter.gpu_step = GpuParticleStep {
+                id,
+                tick,
+                // More than the buffer holds would only overwrite itself.
+                spawn: wanted.min(capacity) as u32,
+                origin,
+                dt,
+                seed,
+            };
+            continue;
         }
 
         let room = MAX_PARTICLES_PER_EMITTER.saturating_sub(emitter.live.len());

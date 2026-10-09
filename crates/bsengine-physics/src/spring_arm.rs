@@ -245,7 +245,7 @@ mod tests {
         app.update();
         let expected = 2.0 - 0.12 - 0.01;
         assert!(
-            (reach(&app, pivot) - expected).abs() < 0.02,
+            (reach(&app, pivot) - expected).abs() < 0.005,
             "stopped at the wall: {} (expected about {expected})",
             reach(&app, pivot)
         );
@@ -335,6 +335,54 @@ mod tests {
         assert_eq!(reach_with(0.0), 3.0, "the ray passes through the slit");
         let sphere = reach_with(0.12);
         assert!(sphere < 2.5, "the sphere does not: {sphere}");
+    }
+
+    /// The camera's world position this frame is where the arm put it this
+    /// frame: the arm runs before transforms are propagated. Checked with the
+    /// propagation registered both before and after the physics plugin -- a
+    /// pair of systems with no order between them still runs in a fixed one,
+    /// so one registration order alone could pass by luck.
+    #[test]
+    fn the_camera_is_drawn_where_the_arm_put_it_this_frame() {
+        for propagate_first in [true, false] {
+            let mut app = new_app();
+            if propagate_first {
+                app.add_systems(
+                    bevy_app::PostUpdate,
+                    bsengine_core::propagate_global_transforms,
+                );
+                app.add_plugins(PhysicsPlugin);
+            } else {
+                app.add_plugins(PhysicsPlugin);
+                app.add_systems(
+                    bevy_app::PostUpdate,
+                    bsengine_core::propagate_global_transforms,
+                );
+            }
+            wall(&mut app, Vec3::new(0.0, 1.5, 2.1), Vec3::new(5.0, 5.0, 0.1));
+            let (_, pivot, camera) = rig(&mut app, Vec3::ZERO, SpringArm::default());
+            app.world_mut()
+                .entity_mut(camera)
+                .insert(bsengine_core::GlobalTransform::default());
+            app.update();
+            let world_z = app
+                .world()
+                .get::<bsengine_core::GlobalTransform>(camera)
+                .unwrap()
+                .0
+                 .0
+                .w_axis
+                .z;
+            assert!(
+                reach(&app, pivot) < 2.0,
+                "premise: the wall pulled the arm in on this first frame"
+            );
+            assert!(
+                (world_z - reach(&app, pivot)).abs() < 1e-4,
+                "propagate first = {propagate_first}: the camera is at {world_z},                  the arm ends at {}",
+                reach(&app, pivot)
+            );
+        }
     }
 
     /// Where the character is *this* frame decides the arm: moved next to a

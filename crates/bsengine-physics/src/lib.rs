@@ -13,6 +13,8 @@ pub mod components;
 pub mod plugin;
 /// Turning a skeleton's rest pose into the ragdoll's bone bodies and joints.
 pub mod ragdoll;
+/// A camera boom that pulls in when the world is in the way.
+pub mod spring_arm;
 /// The Rapier-backed physics world resource and its query/mutation API.
 pub mod world;
 
@@ -23,6 +25,7 @@ pub use components::{
 };
 pub use plugin::PhysicsPlugin;
 pub use ragdoll::{plan_bones, pose_from_bones, BonePlan};
+pub use spring_arm::SpringArm;
 pub use world::PhysicsWorld;
 
 #[cfg(test)]

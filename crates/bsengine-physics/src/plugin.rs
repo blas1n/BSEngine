@@ -43,6 +43,17 @@ impl Plugin for PhysicsPlugin {
         app.register_type::<PhysicsInput>();
         app.register_type::<CharacterBody>();
         app.register_type::<CharacterController>();
+        app.register_type::<crate::SpringArm>();
+        // After this frame's physics and gameplay have moved everything, and
+        // before transforms are propagated -- so the camera on the arm's end
+        // is drawn where the arm put it this frame, not last frame. Not paused
+        // with the simulation: a camera still has to clear walls in a pause
+        // menu that orbits the scene.
+        app.add_systems(
+            PostUpdate,
+            crate::spring_arm::update_spring_arms
+                .before(bsengine_core::propagate_global_transforms),
+        );
         app.add_systems(
             Update,
             (

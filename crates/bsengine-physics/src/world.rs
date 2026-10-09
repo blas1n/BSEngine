@@ -589,6 +589,59 @@ impl PhysicsWorld {
         self.cast_ray_filtered(origin, dir, max_dist, filter)
     }
 
+    /// Sweeps a sphere of `radius` from `origin` along `dir` (normalised) up
+    /// to `max_dist`, ignoring the bodies of the entities in `exclude`, and
+    /// returns how far it travelled before touching something. A radius of 0
+    /// is a ray.
+    ///
+    /// A sphere rather than a ray for what a camera needs: a ray slips
+    /// through the gap where two walls meet, and the near plane then shows
+    /// the inside of the wall. Unreal's spring arm probes with a sphere
+    /// (`ProbeSize`), as Godot's can (`SpringArm3D.shape`).
+    pub fn cast_sphere_excluding(
+        &self,
+        origin: Vec3,
+        dir: Vec3,
+        max_dist: f32,
+        radius: f32,
+        exclude: &[Entity],
+    ) -> Option<f32> {
+        let handles: Vec<RigidBodyHandle> = exclude
+            .iter()
+            .filter_map(|e| self.entity_body_map.get(e).copied())
+            .collect();
+        let predicate = |_: ColliderHandle, collider: &Collider| {
+            collider
+                .parent()
+                .is_none_or(|parent| !handles.contains(&parent))
+        };
+        let filter = QueryFilter::default().predicate(&predicate);
+        if radius <= 0.0 {
+            return self
+                .cast_ray_filtered(origin, dir, max_dist, filter)
+                .map(|hit| hit.distance);
+        }
+        let qp = self.broad_phase.as_query_pipeline(
+            self.narrow_phase.query_dispatcher(),
+            &self.rigid_body_set,
+            &self.collider_set,
+            filter,
+        );
+        let pose = Pose::from_translation(Vector::new(origin.x, origin.y, origin.z));
+        let options = rapier3d::parry::query::ShapeCastOptions {
+            max_time_of_impact: max_dist,
+            stop_at_penetration: true,
+            ..Default::default()
+        };
+        qp.cast_shape(
+            &pose,
+            Vector::new(dir.x, dir.y, dir.z),
+            &Ball::new(radius),
+            options,
+        )
+        .map(|(_, hit)| hit.time_of_impact)
+    }
+
     /// Cast a ray into the physics world. Returns hit info or None.
     pub fn cast_ray(&self, origin: Vec3, dir: Vec3, max_dist: f32) -> Option<RaycastHit> {
         self.cast_ray_filtered(origin, dir, max_dist, QueryFilter::default())

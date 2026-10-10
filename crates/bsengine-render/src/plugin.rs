@@ -3484,8 +3484,7 @@ mod tests {
             width: 4,
             height: 2,
             rgba: std::sync::Arc::new(
-                std::iter::repeat([rgb[0], rgb[1], rgb[2], 255])
-                    .take(8)
+                std::iter::repeat_n([rgb[0], rgb[1], rgb[2], 255], 8)
                     .flatten()
                     .collect(),
             ),

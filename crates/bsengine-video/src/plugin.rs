@@ -449,6 +449,40 @@ mod tests {
         );
     }
 
+    /// With an audio device, the sound goes to the mixer and its clock paces
+    /// the pictures: they keep to real time, as the sound plays, however fast
+    /// the game's frames tick -- here 0.1 s of game time per update, run as
+    /// fast as the loop goes. Without a device (CI) the game clock paces it
+    /// and this asserts only that it says so.
+    #[test]
+    fn with_a_device_the_sound_paces_the_pictures() {
+        let (mut app, e) = app_with(VideoPlayer {
+            path: asset(),
+            ..Default::default()
+        });
+        app.insert_resource(AudioWorld::default());
+        let available = app.world().resource::<AudioWorld>().is_available();
+        let started = std::time::Instant::now();
+        for _ in 0..40 {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            app.update();
+        }
+        let elapsed = started.elapsed().as_secs_f64();
+        let paced = app.world().resource::<Playbacks>().is_paced_by_sound(e);
+        assert_eq!(
+            paced, available,
+            "paced by sound exactly when there is a device"
+        );
+        if available {
+            let shown = player(&app, e).time;
+            assert!(
+                shown <= elapsed + 0.1,
+                "40 updates of 0.1 s game time in {elapsed:.2} s real time: the \
+                 picture follows the sound's {elapsed:.2} s, not the game's 4 s ({shown})"
+            );
+        }
+    }
+
     /// A file that cannot be played says why, and nothing panics.
     #[test]
     fn a_missing_file_fails_with_a_reason() {

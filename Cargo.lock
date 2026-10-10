@@ -1260,6 +1260,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "bsengine-video"
+version = "0.1.0"
+dependencies = [
+ "tracing",
+ "windows 0.62.2",
+]
+
+[[package]]
 name = "bsengine-visualscript"
 version = "0.1.0"
 dependencies = [

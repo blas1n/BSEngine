@@ -14,6 +14,7 @@ members = [
     "crates/bsengine-scripting-macros",
     "crates/bsengine-physics",
     "crates/bsengine-audio",
+    "crates/bsengine-video",
     "crates/bsengine-plugin",
     "crates/bsengine-mcp",
     "crates/bsengine-gltf",

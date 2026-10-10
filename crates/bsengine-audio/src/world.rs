@@ -809,6 +809,30 @@ impl AudioWorld {
             .ok()
     }
 
+    /// Plays a stream fed as it is produced -- a video's soundtrack -- on a
+    /// named bus (Master for `None` or an unknown name). `false` when there
+    /// is no audio device: the producer then has to keep its own clock.
+    pub fn play_stream(
+        &mut self,
+        bus: Option<&str>,
+        stream: std::sync::Arc<crate::stream::AudioStream>,
+    ) -> bool {
+        let data = crate::stream::StreamSoundData(stream);
+        let on_bus = bus.and_then(|name| {
+            self.buses
+                .iter_mut()
+                .find(|(n, _)| n == name)
+                .and_then(|(_, b)| b.handle.as_mut())
+        });
+        match on_bus {
+            Some(track) => track.play(data).is_ok(),
+            None => self
+                .manager
+                .as_mut()
+                .is_some_and(|manager| manager.play(data).is_ok()),
+        }
+    }
+
     /// Plays a sound on a named mixer bus, falling back to Master.
     pub fn play_on_bus(
         &mut self,

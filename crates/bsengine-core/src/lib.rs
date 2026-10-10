@@ -159,6 +159,8 @@ pub mod transform;
 pub mod tween;
 /// Immediate-mode UI widget tree and state resource.
 pub mod ui_state;
+/// A video playing on an entity, and the frames it shows.
+pub mod video;
 /// Visibility toggle component controlling whether an entity is rendered.
 pub mod visible;
 /// Volumetric (froxel) fog post-process settings.
@@ -247,6 +249,7 @@ pub use tone_map::{ToneMap, ToneMappingMode};
 pub use transform::Transform;
 pub use tween::{EasingFn, RepeatMode, Tween, TweenTarget};
 pub use ui_state::{UiAlign, UiAnchor, UiDirection, UiRect, UiState, UiWidget};
+pub use video::{VideoFrameData, VideoFrames, VideoPlayer, VideoStatus};
 pub use visible::Visible;
 pub use volumetric_fog::VolumetricFog;
 

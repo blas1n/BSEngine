@@ -41,12 +41,45 @@ struct CachedTexture {
 #[derive(Resource, Default)]
 pub struct TextureCache {
     by_path: HashMap<String, CachedTexture>,
+    /// Textures whose pixels are pushed in each frame rather than loaded
+    /// from a file -- a video's frames ([`Self::set_frame`]) -- by name.
+    dynamic: HashMap<String, u64>,
 }
 
 impl TextureCache {
     /// The GPU id for a path, once it has finished uploading.
     pub fn id_for(&self, path: &str) -> Option<u64> {
-        self.by_path.get(path).and_then(|c| c.id)
+        self.dynamic
+            .get(path)
+            .copied()
+            .or_else(|| self.by_path.get(path).and_then(|c| c.id))
+    }
+
+    /// Shows `rgba` as the texture named `name`: uploaded the first time,
+    /// written over in place after (`GpuTextureRegistry::update_pixels`).
+    /// A material or UI image naming it draws whatever was set last -- how a
+    /// video reaches the screen. Colour, no mips: a frame is replaced before
+    /// a mip chain built for it would be used twice.
+    pub fn set_frame(
+        &mut self,
+        name: &str,
+        width: u32,
+        height: u32,
+        rgba: &[u8],
+        registry: &mut GpuTextureRegistry,
+    ) -> u64 {
+        if let Some(&id) = self.dynamic.get(name) {
+            if registry.update_pixels(id, width, height, rgba) {
+                return id;
+            }
+        }
+        let settings = bsengine_core::TextureImportSettings {
+            mipmaps: false,
+            ..Default::default()
+        };
+        let id = registry.load_with(width, height, rgba, settings);
+        self.dynamic.insert(name.to_string(), id);
+        id
     }
 
     /// Whether this path reached a terminal failure.
@@ -92,6 +125,11 @@ impl TextureCache {
         textures: &mut bevy_asset::Assets<TextureAsset>,
         registry: &mut GpuTextureRegistry,
     ) -> Option<u64> {
+        // A name a video is showing under is not a file to load: what it
+        // names is whatever picture was set last.
+        if let Some(&id) = self.dynamic.get(path) {
+            return Some(id);
+        }
         // Requested here, the first time anyone asks for this path, so
         // "request exactly once" is a property of the map rather than of any
         // caller's control flow.

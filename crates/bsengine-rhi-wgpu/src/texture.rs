@@ -931,6 +931,51 @@ impl GpuTextureRegistry {
         self.replace_with(id, width, height, rgba, settings)
     }
 
+    /// New pixels for a texture whose pixels change every frame -- a video --
+    /// written into the texture it already has when the size is unchanged
+    /// and it is one uncompressed level, so a frame costs one upload and
+    /// nothing else: no new texture, no new bind group, no mip chain built on
+    /// the CPU. Anything else falls back to [`replace`](Self::replace).
+    /// `false` when `id` is not loaded.
+    #[must_use]
+    pub fn update_pixels(&mut self, id: u64, width: u32, height: u32, rgba: &[u8]) -> bool {
+        let Some(tex) = self.textures.get_mut(&id) else {
+            return false;
+        };
+        let in_place = tex.width == width
+            && tex.height == height
+            && tex.streamed.is_none()
+            && !tex.settings.mipmaps
+            && matches!(
+                tex.format,
+                wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Rgba8UnormSrgb
+            )
+            && rgba.len() == (width * height * 4) as usize;
+        if !in_place {
+            return self.replace(id, width, height, rgba);
+        }
+        self.queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &tex._texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            rgba,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * width),
+                rows_per_image: Some(height),
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        true
+    }
+
     /// [`replace`](Self::replace) with new import settings as well as new
     /// pixels -- what a reload driven by an edited sidecar needs.
     #[must_use]

@@ -26,6 +26,8 @@ pub mod plugin;
 /// Positional audio: the [`AudioListener`]/[`AudioEmitter`] components and
 /// the `mint` conversions `kira`'s spatial API needs.
 pub mod spatial;
+/// Sound fed in as it is produced (a video's soundtrack), and its clock.
+pub mod stream;
 /// The [`AudioWorld`] resource wrapping the underlying `kira` audio manager.
 pub mod world;
 

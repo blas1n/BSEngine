@@ -1169,6 +1169,7 @@ dependencies = [
  "bsengine-rhi-wgpu",
  "bsengine-scene",
  "bsengine-scripting",
+ "bsengine-video",
  "bsengine-window",
  "console_error_panic_hook",
  "glam 0.29.3",
@@ -1263,6 +1264,12 @@ dependencies = [
 name = "bsengine-video"
 version = "0.1.0"
 dependencies = [
+ "bevy_app",
+ "bevy_ecs",
+ "bsengine-app",
+ "bsengine-asset",
+ "bsengine-audio",
+ "bsengine-core",
  "tracing",
  "windows 0.62.2",
 ]

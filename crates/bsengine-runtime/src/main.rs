@@ -659,6 +659,7 @@ pub(crate) fn build_player_app(
         })
         .add_plugins(InputPlugin)
         .add_plugins(AudioPlugin)
+        .add_plugins(bsengine_video::VideoPlugin)
         .add_plugins(PhysicsPlugin)
         .add_plugins(NetworkPlugin);
     // The editor overlay a desktop run carries for development. A browser

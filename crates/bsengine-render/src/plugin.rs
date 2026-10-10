@@ -523,6 +523,26 @@ fn sync_color_lut(
     shown.shown = Some((wanted, generation));
 }
 
+/// Uploads each video's newest picture (`bsengine_core::VideoFrames`, written
+/// by the video player) to the texture named for it, once per picture.
+fn upload_video_frames(
+    frames: Option<Res<bsengine_core::VideoFrames>>,
+    cache: Option<ResMut<crate::texture_cache::TextureCache>>,
+    registry: Option<ResMut<GpuTextureRegistry>>,
+    mut uploaded: Local<std::collections::HashMap<String, u64>>,
+) {
+    let (Some(frames), Some(mut cache), Some(mut registry)) = (frames, cache, registry) else {
+        return;
+    };
+    for (name, frame) in &frames.0 {
+        if uploaded.get(name) == Some(&frame.serial) {
+            continue;
+        }
+        cache.set_frame(name, frame.width, frame.height, &frame.rgba, &mut registry);
+        uploaded.insert(name.clone(), frame.serial);
+    }
+}
+
 /// Pixels scrolled per unit of wheel delta.
 ///
 /// A wheel notch reports 1.0, and 40 pixels is roughly a line and a half --
@@ -1397,6 +1417,10 @@ impl Plugin for RenderPlugin {
                 Update,
                 (
                     update_camera_aspect,
+                    // Before paths are resolved, so a material naming a
+                    // video's texture finds it rather than asking the asset
+                    // server for a file of that name.
+                    upload_video_frames.before(crate::texture_cache::resolve_texture_paths),
                     crate::texture_cache::resolve_texture_paths,
                     crate::texture_cache::reupload_modified_textures,
                     crate::texture_cache::stream_textures,
@@ -3444,6 +3468,82 @@ mod tests {
             .simulation = bsengine_core::ParticleSimulation::Cpu;
         app.update();
         assert!(read(&app).is_none(), "back on the CPU, the GPU buffers go");
+    }
+
+    /// A video's picture becomes the texture named for it: a material naming
+    /// that texture draws it, and each new picture is written into the same
+    /// texture -- same id, same GPU object -- not uploaded as a new one.
+    #[test]
+    fn a_video_frame_is_the_texture_named_for_it() {
+        let mut app = new_app();
+        app.add_plugins(bsengine_asset::AssetPlugin);
+        app.add_plugins(WgpuRHIPlugin::offscreen(64, 64, false));
+        app.add_plugins(RenderPlugin);
+        app.update();
+        let frame = |serial: u64, rgb: [u8; 3]| bsengine_core::VideoFrameData {
+            width: 4,
+            height: 2,
+            rgba: std::sync::Arc::new(
+                std::iter::repeat([rgb[0], rgb[1], rgb[2], 255])
+                    .take(8)
+                    .flatten()
+                    .collect(),
+            ),
+            serial,
+        };
+        let mut frames = bsengine_core::VideoFrames::default();
+        frames.0.insert("screen".into(), frame(1, [255, 0, 0]));
+        app.insert_resource(frames);
+        let screen = app
+            .world_mut()
+            .spawn((
+                Material::default(),
+                bsengine_core::TexturePath("screen".into()),
+            ))
+            .id();
+        app.update();
+
+        let id = app
+            .world()
+            .resource::<crate::texture_cache::TextureCache>()
+            .id_for("screen")
+            .expect("the picture is a texture");
+        assert_eq!(
+            app.world().get::<Material>(screen).unwrap().texture_id,
+            Some(id),
+            "a material naming it draws it"
+        );
+        let size = |app: &bevy_app::App| {
+            app.world()
+                .resource::<bsengine_rhi_wgpu::texture::GpuTextureRegistry>()
+                .get_size(id)
+        };
+        assert_eq!(size(&app), Some((4, 2)));
+        let gpu_object = |app: &bevy_app::App| {
+            app.world()
+                .resource::<bsengine_rhi_wgpu::texture::GpuTextureRegistry>()
+                .get_texture(id)
+                .map(|t| format!("{t:?}"))
+        };
+        let before = gpu_object(&app);
+
+        app.world_mut()
+            .resource_mut::<bsengine_core::VideoFrames>()
+            .0
+            .insert("screen".into(), frame(2, [0, 0, 255]));
+        app.update();
+        assert_eq!(
+            app.world()
+                .resource::<crate::texture_cache::TextureCache>()
+                .id_for("screen"),
+            Some(id),
+            "the next picture keeps the id every material holds"
+        );
+        assert_eq!(
+            gpu_object(&app),
+            before,
+            "and is written into the same texture, not a new one"
+        );
     }
 
     /// A camera's `ColorGrading` reaches the renderer, and taking it off

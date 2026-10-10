@@ -14,6 +14,7 @@ bevy_app           = { workspace = true }
 bsengine-app       = { workspace = true }
 bsengine-asset     = { workspace = true }
 bsengine-audio     = { workspace = true }
+bsengine-video     = { workspace = true }
 bsengine-core      = { workspace = true }
 bsengine-ecs       = { workspace = true }
 bsengine-gltf      = { workspace = true }

@@ -6,6 +6,11 @@ edition.workspace = true
 
 [dependencies]
 tracing.workspace = true
+bevy_app.workspace = true
+bevy_ecs.workspace = true
+bsengine-core.workspace = true
+bsengine-audio.workspace = true
+bsengine-asset.workspace = true
 
 # Windows decodes through Media Foundation, as Unity's VideoPlayer and
 # Unreal's WmfMedia do there: H.264/AAC (and whatever else the OS has codecs
@@ -18,3 +23,6 @@ windows = { version = "0.62", features = [
     "Win32_System_Com_StructuredStorage",
     "Win32_System_Variant",
 ] }
+
+[dev-dependencies]
+bsengine-app.workspace = true

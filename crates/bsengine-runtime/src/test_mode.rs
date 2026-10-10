@@ -160,6 +160,7 @@ pub fn build_test_app(project_dir: &str, scene_override: Option<&str>, fast_rend
         ))
         .add_plugins(InputPlugin)
         .add_plugins(AudioPlugin)
+        .add_plugins(bsengine_video::VideoPlugin)
         .add_plugins(PhysicsPlugin)
         .add_plugins(RenderPlugin)
         .add_plugins(GltfPlugin)

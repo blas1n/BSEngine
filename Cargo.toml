@@ -99,6 +99,7 @@ bsengine-runtime  = { path = "crates/bsengine-runtime" }
 bsengine-editor   = { path = "crates/bsengine-editor" }
 bsengine-physics  = { path = "crates/bsengine-physics" }
 bsengine-audio    = { path = "crates/bsengine-audio" }
+bsengine-video    = { path = "crates/bsengine-video" }
 bsengine-network  = { path = "crates/bsengine-network" }
 rapier3d          = { version = "0.33", features = ["default"] }
 # kira splits container from codec: `wav`/`ogg` read the container while

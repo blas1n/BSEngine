@@ -125,6 +125,11 @@ impl TextureCache {
         textures: &mut bevy_asset::Assets<TextureAsset>,
         registry: &mut GpuTextureRegistry,
     ) -> Option<u64> {
+        // A name a video is showing under is not a file to load: what it
+        // names is whatever picture was set last.
+        if let Some(&id) = self.dynamic.get(path) {
+            return Some(id);
+        }
         // Requested here, the first time anyone asks for this path, so
         // "request exactly once" is a property of the map rather than of any
         // caller's control flow.

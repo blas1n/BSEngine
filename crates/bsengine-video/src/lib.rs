@@ -19,6 +19,9 @@
 
 #[cfg(windows)]
 mod media_foundation;
+/// The ECS side: `VideoPlugin` plays every entity's `VideoPlayer`.
+pub mod plugin;
+pub use plugin::{Playbacks, VideoPlugin};
 
 /// What a video holds.
 #[derive(Debug, Clone, PartialEq)]

@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, Receiver, TryRecvError};
 use std::sync::{Arc, Mutex};
 
@@ -53,6 +53,9 @@ struct Playback {
     messages: Mutex<Receiver<Message>>,
     stop: Arc<AtomicBool>,
     looping: Arc<AtomicBool>,
+    /// The latest picture time the thread has sent (`f64` bits); infinite
+    /// once it has sent the end. See [`Playbacks::decoded_until`].
+    decoded_until: Arc<AtomicU64>,
     /// The sound, when there is some and a device to play it on.
     sound: Option<Arc<AudioStream>>,
     /// The game-clock stand-in, when there is no sound.
@@ -87,6 +90,16 @@ impl Playbacks {
     pub fn is_paced_by_sound(&self, entity: Entity) -> bool {
         self.0.get(&entity).is_some_and(|p| p.sound.is_some())
     }
+
+    /// How far into `entity`'s video the decoding thread has got: the time of
+    /// the latest picture it has handed over, infinite once it has reached
+    /// the end. What a caller pacing frames by hand (a test, a recorder)
+    /// waits on so it never runs the clock past what has been decoded.
+    pub fn decoded_until(&self, entity: Entity) -> Option<f64> {
+        self.0
+            .get(&entity)
+            .map(|p| f64::from_bits(p.decoded_until.load(Ordering::Acquire)))
+    }
 }
 
 /// The file to hand the platform's decoder: the project's own, or -- in a
@@ -119,19 +132,20 @@ fn start(project_dir: Option<&ProjectDir>, path: &str, looping: bool) -> Playbac
     let (sender, receiver) = sync_channel::<Message>(PICTURES_AHEAD * 4);
     let stop = Arc::new(AtomicBool::new(false));
     let looping = Arc::new(AtomicBool::new(looping));
+    let decoded_until = Arc::new(AtomicU64::new(0f64.to_bits()));
     let file = local_file(project_dir, path);
     // A page has no threads to decode on, and no decoder of this crate's
     // yet: the browser's own video element is the web backend still to come.
     #[cfg(target_arch = "wasm32")]
     {
-        let _ = (file, &stop, &looping);
+        let _ = (file, &stop, &looping, &decoded_until);
         let _ = sender.send(Message::Failed(format!(
             "cannot play {path}: video playback has no decoder in the browser yet"
         )));
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let (stop, looping) = (stop.clone(), looping.clone());
+        let (stop, looping, decoded) = (stop.clone(), looping.clone(), decoded_until.clone());
         std::thread::Builder::new()
             .name(format!("video {path}"))
             .spawn(move || {
@@ -142,6 +156,7 @@ fn start(project_dir: Option<&ProjectDir>, path: &str, looping: bool) -> Playbac
                     Ok(d) => d,
                     Err(e) => {
                         let _ = sender.send(Message::Failed(e));
+                        decoded.store(f64::INFINITY.to_bits(), Ordering::Release);
                         return;
                     }
                 };
@@ -158,6 +173,7 @@ fn start(project_dir: Option<&ProjectDir>, path: &str, looping: bool) -> Playbac
                         Ok(p) => p,
                         Err(e) => {
                             let _ = sender.send(Message::Failed(e));
+                            decoded.store(f64::INFINITY.to_bits(), Ordering::Release);
                             return;
                         }
                     };
@@ -181,11 +197,19 @@ fn start(project_dir: Option<&ProjectDir>, path: &str, looping: bool) -> Playbac
                         }
                         Packet::End => {
                             let _ = sender.send(Message::Packet(Packet::End));
+                            decoded.store(f64::INFINITY.to_bits(), Ordering::Release);
                             return;
                         }
                     };
+                    let picture_at = match &packet {
+                        Packet::Video(f) => Some(f.pts),
+                        _ => None,
+                    };
                     if sender.send(Message::Packet(packet)).is_err() {
                         return;
+                    }
+                    if let Some(at) = picture_at {
+                        decoded.store(at.to_bits(), Ordering::Release);
                     }
                 }
             })
@@ -196,6 +220,7 @@ fn start(project_dir: Option<&ProjectDir>, path: &str, looping: bool) -> Playbac
         messages: Mutex::new(receiver),
         stop,
         looping,
+        decoded_until,
         sound: None,
         clock: 0.0,
         pictures: VecDeque::new(),
@@ -345,13 +370,48 @@ mod tests {
         (app, e)
     }
 
-    /// Updates until the clock reaches `seconds` -- with a pause between
-    /// frames so the decoding thread keeps ahead of it, as a real frame's
-    /// length would.
+    /// Updates for `seconds` of the 0.1 s game clock, never running the
+    /// clock past what has been decoded: before each update it waits (in
+    /// real time, up to 10 s) for the decoding thread to be ahead of where
+    /// the clock is going, and a video still opening is updated until it has
+    /// opened -- which costs no clock time, since an unopened video's clock
+    /// does not move. Speed-independent: a slow machine waits longer, it
+    /// does not show older pictures. (The first version slept a fixed 15 ms
+    /// per update, which a cold Media Foundation start on a CI runner
+    /// outlasted: every test there saw the video still loading.)
     fn play_to(app: &mut bevy_app::App, seconds: f64) {
+        let entities: Vec<Entity> = app
+            .world_mut()
+            .query::<(Entity, &VideoPlayer)>()
+            .iter(app.world())
+            .map(|(e, _)| e)
+            .collect();
+        let opening = |app: &bevy_app::App| {
+            entities.iter().any(|&e| {
+                app.world()
+                    .get::<VideoPlayer>(e)
+                    .is_some_and(|p| p.status == VideoStatus::Loading)
+            })
+        };
         let mut t = 0.0;
-        while t < seconds {
-            std::thread::sleep(std::time::Duration::from_millis(15));
+        while t < seconds - 1e-9 {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while opening(app) && std::time::Instant::now() < deadline {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+                app.update();
+            }
+            for &e in &entities {
+                let target = app.world().get::<VideoPlayer>(e).map_or(0.0, |p| p.time) + 0.2;
+                while std::time::Instant::now() < deadline
+                    && app
+                        .world()
+                        .resource::<Playbacks>()
+                        .decoded_until(e)
+                        .is_some_and(|d| d < target)
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(2));
+                }
+            }
             app.update();
             t += 0.1;
         }

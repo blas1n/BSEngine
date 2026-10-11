@@ -13,10 +13,12 @@
 //! presentation time. Pacing them against a clock is the player's business,
 //! not the decoder's.
 //!
-//! Backends: Windows (Media Foundation). Elsewhere [`open`] reports the
+//! Backends: Windows (Media Foundation), macOS (AVFoundation). Elsewhere [`open`] reports the
 //! platform unsupported, and a player shows nothing rather than failing.
 #![warn(missing_docs)]
 
+#[cfg(target_os = "macos")]
+mod avfoundation;
 #[cfg(windows)]
 mod media_foundation;
 /// The ECS side: `VideoPlugin` plays every entity's `VideoPlayer`.
@@ -110,7 +112,11 @@ pub fn open(path: &std::path::Path) -> Result<Box<dyn VideoDecoder>, String> {
         media_foundation::MediaFoundationDecoder::open(path)
             .map(|d| Box::new(d) as Box<dyn VideoDecoder>)
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        avfoundation::AvFoundationDecoder::open(path).map(|d| Box::new(d) as Box<dyn VideoDecoder>)
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         Err(format!(
             "cannot play {}: video playback has no decoder on this platform yet",

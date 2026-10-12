@@ -68,6 +68,32 @@ pub struct GpuEmitterFrame {
     pub end_color: [f32; 3],
     /// The emitter's texture, or `None` for a flat quad.
     pub texture_id: Option<u64>,
+    /// Whether particles bounce off the scene's depth buffer
+    /// (`ParticleCollision::SceneDepth`).
+    pub collide: bool,
+    /// `ParticleEmitter::collision_bounce`: the share of the speed into a
+    /// surface that comes back out.
+    pub bounce: f32,
+    /// `ParticleEmitter::collision_friction`: the share of the speed along a
+    /// surface a hit takes away.
+    pub friction: f32,
+}
+
+/// The depth buffer a step collides particles with, and the camera that
+/// drew it.
+///
+/// The *last* frame's: the step runs ahead of the frame that draws its
+/// particles, so the depth buffer still holds what the previous frame drew --
+/// the one-frame lag Niagara's and the VFX Graph's depth collision have too,
+/// for the same reason. `view_proj` must be the matrix that frame rasterised
+/// with (jitter included), or every hit lands a sub-pixel off.
+pub struct SceneDepth<'a> {
+    /// A single-sample `Depth32Float` view of the whole frame.
+    pub view: &'a wgpu::TextureView,
+    /// World to clip space, as that frame drew.
+    pub view_proj: glam::Mat4,
+    /// The depth buffer's size in texels.
+    pub size: (u32, u32),
 }
 
 /// The compute shader's per-step parameters. Matches `StepParams` in
@@ -89,9 +115,28 @@ struct StepParams {
     spawn_count: u32,
     capacity: u32,
     seed: u32,
+    collide: u32,
+    bounce: f32,
+    friction: f32,
+    _pad: u32,
 }
 
-/// One emitter's GPU state.
+/// The depth view the step collides against. Matches `SceneView` in
+/// [`GPU_PARTICLES_WGSL`].
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct SceneViewGpu {
+    view_proj: [[f32; 4]; 4],
+    inv_view_proj: [[f32; 4]; 4],
+    size: [f32; 2],
+    /// 0 when there is no depth buffer to read yet: no frame drawn, or the
+    /// caller passed none. Collision is then skipped, never tested against
+    /// the dummy.
+    valid: u32,
+    _pad: u32,
+}
+
+/// One emitter's GPU state.)
 struct EmitterState {
     capacity: u32,
     instances: wgpu::Buffer,
@@ -109,6 +154,12 @@ struct EmitterState {
 pub struct GpuParticles {
     pipeline: wgpu::ComputePipeline,
     layout: wgpu::BindGroupLayout,
+    /// Group 1: the scene view and its depth.
+    depth_layout: wgpu::BindGroupLayout,
+    scene_view: wgpu::Buffer,
+    /// Bound when there is no depth buffer, so the layout is always
+    /// satisfied; `valid` is 0 then and the shader never reads it.
+    dummy_depth_view: wgpu::TextureView,
     emitters: HashMap<u64, EmitterState>,
 }
 
@@ -140,9 +191,47 @@ impl GpuParticles {
             label: Some("gpu particles shader"),
             source: wgpu::ShaderSource::Wgsl(GPU_PARTICLES_WGSL.into()),
         });
+        let depth_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("gpu particles depth bgl"),
+            entries: &[
+                entry(0, wgpu::BufferBindingType::Uniform),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+            ],
+        });
+        let scene_view = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("gpu particles scene view"),
+            size: std::mem::size_of::<SceneViewGpu>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let dummy_depth_view = device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("gpu particles dummy depth"),
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Depth32Float,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+            .create_view(&wgpu::TextureViewDescriptor::default());
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("gpu particles pipeline layout"),
-            bind_group_layouts: &[&layout],
+            bind_group_layouts: &[&layout, &depth_layout],
             push_constant_ranges: &[],
         });
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
@@ -156,6 +245,9 @@ impl GpuParticles {
         Self {
             pipeline,
             layout,
+            depth_layout,
+            scene_view,
+            dummy_depth_view,
             emitters: HashMap::new(),
         }
     }
@@ -165,9 +257,48 @@ impl GpuParticles {
     /// buffers of any not in `frames` -- an emitter that was despawned, or
     /// switched back to the CPU. One submission for all of them, ahead of the
     /// frame that draws them.
-    pub fn step(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, frames: &[GpuEmitterFrame]) {
+    ///
+    /// `depth` is what colliding emitters bounce off; `None` (no frame drawn
+    /// yet) lets every particle fly through, as a camera that has seen
+    /// nothing gives them nothing to hit.
+    pub fn step(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        frames: &[GpuEmitterFrame],
+        depth: Option<SceneDepth>,
+    ) {
         self.emitters
             .retain(|id, _| frames.iter().any(|f| f.id == *id));
+        let scene = match &depth {
+            Some(d) => SceneViewGpu {
+                view_proj: d.view_proj.to_cols_array_2d(),
+                inv_view_proj: d.view_proj.inverse().to_cols_array_2d(),
+                size: [d.size.0 as f32, d.size.1 as f32],
+                valid: 1,
+                _pad: 0,
+            },
+            None => <SceneViewGpu as bytemuck::Zeroable>::zeroed(),
+        };
+        queue.write_buffer(&self.scene_view, 0, bytemuck::bytes_of(&scene));
+        // Made per step rather than kept: the depth view is replaced on every
+        // resize, and a kept group would bind the dropped one.
+        let depth_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("gpu particles depth bind group"),
+            layout: &self.depth_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: self.scene_view.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(
+                        depth.as_ref().map_or(&self.dummy_depth_view, |d| d.view),
+                    ),
+                },
+            ],
+        });
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("gpu particles step"),
         });
@@ -208,6 +339,10 @@ impl GpuParticles {
                 spawn_count: spawn,
                 capacity,
                 seed: frame.seed,
+                collide: u32::from(frame.collide),
+                bounce: frame.bounce.clamp(0.0, 1.0),
+                friction: frame.friction.clamp(0.0, 1.0),
+                _pad: 0,
             };
             state.cursor = (state.cursor + spawn) % capacity;
             queue.write_buffer(&state.params, 0, bytemuck::bytes_of(&params));
@@ -217,6 +352,7 @@ impl GpuParticles {
             });
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &state.bind_group, &[]);
+            pass.set_bind_group(1, &depth_group, &[]);
             pass.dispatch_workgroups(capacity.div_ceil(WORKGROUP), 1, 1);
             stepped = true;
         }
@@ -345,6 +481,18 @@ struct StepParams {
     spawn_count: u32,
     capacity: u32,
     seed: u32,
+    collide: u32,
+    bounce: f32,
+    friction: f32,
+    _pad: u32,
+};
+// The last frame's camera and its depth buffer (see `SceneDepth`).
+struct SceneView {
+    view_proj: mat4x4<f32>,
+    inv_view_proj: mat4x4<f32>,
+    size: vec2<f32>,
+    valid: u32,
+    _pad: u32,
 };
 // Laid out as `ParticleInstance`: position, size, colour.
 struct Instance {
@@ -356,6 +504,83 @@ struct Instance {
 @group(0) @binding(1) var<storage, read_write> instances: array<Instance>;
 // xyz velocity, w seconds of life left (0 = dead).
 @group(0) @binding(2) var<storage, read_write> motion: array<vec4<f32>>;
+@group(1) @binding(0) var<uniform> scene: SceneView;
+@group(1) @binding(1) var scene_depth: texture_depth_2d;
+
+// The world point the depth buffer saw at texel `t`, or at screen `uv` and
+// depth `d`.
+fn unproject(uv: vec2<f32>, d: f32) -> vec3<f32> {
+    let h = scene.inv_view_proj * vec4<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, d, 1.0);
+    return h.xyz / h.w;
+}
+fn texel_depth(t: vec2<i32>) -> f32 {
+    let c = clamp(t, vec2<i32>(0), vec2<i32>(scene.size) - vec2<i32>(1));
+    return textureLoad(scene_depth, c, 0);
+}
+fn texel_world(t: vec2<i32>) -> vec3<f32> {
+    let c = clamp(t, vec2<i32>(0), vec2<i32>(scene.size) - vec2<i32>(1));
+    return unproject((vec2<f32>(c) + 0.5) / scene.size, texel_depth(c));
+}
+// Of a texel's two neighbours along one axis, the step to the one nearer the
+// centre in the world: across a silhouette the far one belongs to another
+// surface, and a normal built from it would point anywhere.
+fn nearer_step(centre: vec3<f32>, t: vec2<i32>, axis: vec2<i32>) -> vec3<f32> {
+    let ahead = texel_world(t + axis) - centre;
+    let behind = centre - texel_world(t - axis);
+    if (dot(ahead, ahead) < dot(behind, behind)) {
+        return ahead;
+    }
+    return behind;
+}
+
+// A particle that has just gone behind what the depth buffer shows is put
+// back on the surface and its velocity reflected about the surface normal:
+// the part into the surface comes back scaled by `bounce`, the part along it
+// loses `friction` of itself. Writes `position` and `velocity`.
+//
+// "Just": no deeper behind the surface's plane than this step's travel plus a small
+// margin for depth precision. A particle further behind is behind something
+// in front of it -- a wall between it and the camera -- not inside what it
+// is touching; snapping it forward would teleport it through the wall. This
+// is the thickness Niagara's depth collision asks for, sized per step here.
+fn collide(position: ptr<function, vec3<f32>>, velocity: ptr<function, vec3<f32>>) {
+    let clip = scene.view_proj * vec4<f32>(*position, 1.0);
+    if (clip.w <= 0.0) {
+        return;
+    }
+    let ndc = clip.xyz / clip.w;
+    if (abs(ndc.x) > 1.0 || abs(ndc.y) > 1.0) {
+        return;
+    }
+    let uv = vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+    let t = vec2<i32>(uv * scene.size);
+    let d = texel_depth(t);
+    // Nothing drawn there (the far plane), or the particle is in front.
+    if (d >= 1.0 || ndc.z <= d) {
+        return;
+    }
+    let surface = texel_world(t);
+    var n = normalize(cross(nearer_step(surface, t, vec2<i32>(0, 1)), nearer_step(surface, t, vec2<i32>(1, 0))));
+    // Facing the camera: the side the depth buffer saw.
+    if (dot(n, unproject(uv, 0.0) - surface) < 0.0) {
+        n = -n;
+    }
+    // How far behind the surface's plane it is. Measured along the normal
+    // rather than as a difference of clip `w`, which an orthographic camera
+    // holds at 1 for every depth.
+    let behind = -dot(*position - surface, n);
+    if (behind > length(*velocity) * params.dt + 0.05) {
+        return;
+    }
+    // Back onto the surface's plane, a hair in front of it so the next
+    // step's test starts outside.
+    *position = *position - (dot(*position - surface, n) - 0.005) * n;
+    let into = dot(*velocity, n);
+    if (into < 0.0) {
+        let along = *velocity - into * n;
+        *velocity = along * (1.0 - params.friction) - into * params.bounce * n;
+    }
+}
 
 // PCG hash: a well-mixed u32 from a u32, so neighbouring slots and
 // neighbouring seeds give unrelated directions.
@@ -398,6 +623,11 @@ fn cs_step(@builtin(global_invocation_id) gid: vec3<u32>) {
         m.y = m.y - params.gravity * params.dt;
         position = position + m.xyz * params.dt;
         m.w = m.w - params.dt;
+        if (params.collide != 0u && scene.valid != 0u) {
+            var velocity = m.xyz;
+            collide(&position, &velocity);
+            m = vec4<f32>(velocity, m.w);
+        }
     }
     motion[i] = m;
 
@@ -445,6 +675,9 @@ mod tests {
             start_color: [1.0, 0.0, 0.0],
             end_color: [0.0, 0.0, 1.0],
             texture_id: None,
+            collide: false,
+            bounce: 0.5,
+            friction: 0.0,
         }
     }
 
@@ -458,7 +691,7 @@ mod tests {
         queue: &wgpu::Queue,
         frames: &[GpuEmitterFrame],
     ) -> Vec<(ParticleInstance, Vec3)> {
-        gpu.step(device, queue, frames);
+        gpu.step(device, queue, frames, None);
         gpu.read_back(device, queue, frames[0].id)
             .expect("the emitter has buffers")
     }
@@ -629,16 +862,315 @@ mod tests {
         let (device, queue) = device();
         let mut gpu = GpuParticles::new(&device);
         step_and_read(&mut gpu, &device, &queue, &[frame(1, 3)]);
-        gpu.step(&device, &queue, &[]);
+        gpu.step(&device, &queue, &[], None);
         assert!(gpu.read_back(&device, &queue, 7).is_none());
         assert!(gpu.draws().is_empty(), "and nothing is drawn for it");
     }
 
+    // --- depth collision ---
+    //
+    // The fixture: an orthographic camera and a depth buffer cleared to one
+    // value. Under an orthographic projection a constant depth is a flat
+    // plane perpendicular to the camera's axis, so the camera's direction
+    // chooses the surface's slope and the cleared value its place -- a
+    // depth buffer with a known surface in it, with no geometry drawn.
+
+    const DEPTH_SIZE: u32 = 64;
+
+    /// A camera at `eye` looking at `at`, seeing `half` units either side.
+    fn ortho(eye: Vec3, at: Vec3, half: f32) -> glam::Mat4 {
+        let up = if (at - eye).normalize().y.abs() > 0.99 {
+            Vec3::NEG_Z
+        } else {
+            Vec3::Y
+        };
+        glam::Mat4::orthographic_rh(-half, half, -half, half, 0.1, 40.0)
+            * glam::Mat4::look_at_rh(eye, at, up)
+    }
+
+    /// A depth buffer every texel of which shows the plane through
+    /// `surface_point` facing the camera; `None` clears it to the far plane.
+    fn flat_depth(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        view_proj: glam::Mat4,
+        surface_point: Option<Vec3>,
+    ) -> wgpu::TextureView {
+        let depth = surface_point.map_or(1.0, |p| view_proj.project_point3(p).z);
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("test depth"),
+            size: wgpu::Extent3d {
+                width: DEPTH_SIZE,
+                height: DEPTH_SIZE,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&Default::default());
+        let mut encoder = device.create_command_encoder(&Default::default());
+        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("clear test depth"),
+            color_attachments: &[],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &view,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(depth),
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+        queue.submit(Some(encoder.finish()));
+        view
+    }
+
+    /// One particle dropped from `origin` (no launch speed, gravity 10),
+    /// stepped `steps` times at 50 Hz with collision `collide` against
+    /// `depth` seen through `view_proj`. Returns slot 0's position and
+    /// velocity after every step.
+    #[allow(clippy::too_many_arguments)]
+    fn drop_one(
+        origin: Vec3,
+        launch: (f32, f32),
+        collide: bool,
+        bounce: f32,
+        friction: f32,
+        depth: Option<(&wgpu::TextureView, glam::Mat4)>,
+        steps: u64,
+    ) -> Vec<(Vec3, Vec3)> {
+        let (device, queue) = device();
+        let mut gpu = GpuParticles::new(&device);
+        let mut path = Vec::new();
+        for tick in 1..=steps {
+            let f = GpuEmitterFrame {
+                origin,
+                spawn: u32::from(tick == 1),
+                dt: 0.02,
+                gravity: 10.0,
+                speed: launch.0,
+                spread_degrees: launch.1,
+                collide,
+                bounce,
+                friction,
+                ..frame(tick, 0)
+            };
+            gpu.step(
+                &device,
+                &queue,
+                &[f],
+                depth.map(|(view, view_proj)| SceneDepth {
+                    view,
+                    view_proj,
+                    size: (DEPTH_SIZE, DEPTH_SIZE),
+                }),
+            );
+            let p = gpu.read_back(&device, &queue, 7).unwrap();
+            path.push((Vec3::from_array(p[0].0.position), p[0].1));
+        }
+        path
+    }
+
+    fn overhead() -> glam::Mat4 {
+        ortho(Vec3::new(0.0, 10.0, 0.0), Vec3::ZERO, 5.0)
+    }
+
+    /// A particle falling onto the surface the depth buffer shows stops on
+    /// it instead of falling through; without collision -- the premise -- the
+    /// same particle ends well below it.
+    #[test]
+    fn a_particle_lands_on_the_surface_in_the_depth_buffer() {
+        let (device, queue) = device();
+        let vp = overhead();
+        let floor = flat_depth(&device, &queue, vp, Some(Vec3::ZERO));
+        let through = drop_one(
+            Vec3::new(0.0, 2.0, 0.0),
+            (0.0, 0.0),
+            false,
+            0.0,
+            0.0,
+            Some((&floor, vp)),
+            100,
+        );
+        assert!(
+            through.last().unwrap().0.y < -5.0,
+            "premise: it falls past y = 0 ({:?})",
+            through.last()
+        );
+        let landed = drop_one(
+            Vec3::new(0.0, 2.0, 0.0),
+            (0.0, 0.0),
+            true,
+            0.0,
+            0.0,
+            Some((&floor, vp)),
+            100,
+        );
+        let lowest = landed.iter().map(|(p, _)| p.y).fold(f32::MAX, f32::min);
+        let (at, v) = *landed.last().unwrap();
+        assert!(lowest > -0.05, "never sank into the floor: lowest {lowest}");
+        assert!(at.y < 0.05, "and rests on it: {at}");
+        assert!(v.length() < 0.5, "with no bounce, at rest: {v}");
+    }
+
+    /// The speed into the surface comes back scaled by `bounce`: the first
+    /// upward velocity after the hit is that share of the impact speed.
+    #[test]
+    fn bounce_returns_its_share_of_the_impact_speed() {
+        let (device, queue) = device();
+        let vp = overhead();
+        let floor = flat_depth(&device, &queue, vp, Some(Vec3::ZERO));
+        for bounce in [1.0, 0.5] {
+            let path = drop_one(
+                Vec3::new(0.0, 2.0, 0.0),
+                (0.0, 0.0),
+                true,
+                bounce,
+                0.0,
+                Some((&floor, vp)),
+                60,
+            );
+            let hit = path
+                .iter()
+                .position(|(_, v)| v.y > 0.0)
+                .expect("it bounced");
+            let impact = -path[hit - 1].1.y;
+            let back = path[hit].1.y;
+            assert!(impact > 5.0, "premise: it fell fast ({impact})");
+            assert!(
+                (back - bounce * impact).abs() < 0.12 * impact,
+                "bounce {bounce}: {back} back from {impact} in"
+            );
+        }
+    }
+
+    /// The surface's normal comes from the depth buffer, not from "up": a
+    /// particle dropped onto a 45-degree slope with full bounce leaves it
+    /// sideways, as a ball off a ramp does. A collision that reflected about
+    /// world up would send it straight back up.
+    #[test]
+    fn the_normal_is_the_surfaces_own() {
+        let (device, queue) = device();
+        // Looking down the slope's normal, (0, 1, 1), at the origin.
+        let vp = ortho(Vec3::new(0.0, 7.0, 7.0), Vec3::ZERO, 5.0);
+        let slope = flat_depth(&device, &queue, vp, Some(Vec3::ZERO));
+        let path = drop_one(
+            Vec3::new(0.0, 2.0, 0.0),
+            (0.0, 0.0),
+            true,
+            1.0,
+            0.0,
+            Some((&slope, vp)),
+            60,
+        );
+        let hit = path
+            .iter()
+            .position(|(_, v)| v.z > 1.0)
+            .expect("it was turned toward +z");
+        let v = path[hit].1;
+        assert!(
+            v.y.abs() < 0.2 * v.z,
+            "off a 45-degree slope, sideways: {v}"
+        );
+    }
+
+    /// Friction takes the speed along the surface: a particle landing while
+    /// moving sideways keeps sliding with none and stops with full friction.
+    #[test]
+    fn friction_takes_the_speed_along_the_surface() {
+        let (device, queue) = device();
+        let vp = ortho(Vec3::new(0.0, 10.0, 0.0), Vec3::ZERO, 30.0);
+        let floor = flat_depth(&device, &queue, vp, Some(Vec3::ZERO));
+        // Thrown at 4 units/s, 60 degrees off vertical (spread 60 with the
+        // seed's direction: whatever azimuth, a sideways component).
+        let sideways = |friction| {
+            let path = drop_one(
+                Vec3::new(0.0, 0.5, 0.0),
+                (4.0, 60.0),
+                true,
+                0.0,
+                friction,
+                Some((&floor, vp)),
+                100,
+            );
+            let v = path.last().unwrap().1;
+            Vec3::new(v.x, 0.0, v.z).length()
+        };
+        let free = sideways(0.0);
+        assert!(
+            free > 0.5,
+            "premise: it was thrown sideways and kept sliding ({free})"
+        );
+        assert!(sideways(1.0) < 0.05, "full friction stops the slide");
+    }
+
+    /// Far behind the surface is behind *something*, not inside it: a
+    /// particle below the floor -- which the camera above sees only as floor
+    /// -- keeps falling rather than being pulled up through it. The
+    /// thickness check's hard side: dropping it snaps this particle to y = 0.
+    #[test]
+    fn a_particle_far_behind_the_surface_is_left_alone() {
+        let (device, queue) = device();
+        let vp = overhead();
+        let floor = flat_depth(&device, &queue, vp, Some(Vec3::ZERO));
+        let path = drop_one(
+            Vec3::new(0.0, -3.0, 0.0),
+            (0.0, 0.0),
+            true,
+            0.0,
+            0.0,
+            Some((&floor, vp)),
+            30,
+        );
+        assert!(
+            path.iter().all(|(p, _)| p.y < -3.0),
+            "never pulled up: {:?}",
+            path.last()
+        );
+    }
+
+    /// Nothing to hit, nothing hit: no depth buffer yet, a depth buffer
+    /// showing only the far plane, and a particle outside the camera's view
+    /// all fall straight through -- what the depth buffer cannot show, a
+    /// particle cannot hit.
+    #[test]
+    fn without_a_visible_surface_particles_fall_through() {
+        let (device, queue) = device();
+        let vp = overhead();
+        let floor = flat_depth(&device, &queue, vp, Some(Vec3::ZERO));
+        let sky = flat_depth(&device, &queue, vp, None);
+        let fell = |origin, depth| {
+            drop_one(origin, (0.0, 0.0), true, 0.0, 0.0, depth, 100)
+                .last()
+                .unwrap()
+                .0
+                .y
+                < -5.0
+        };
+        assert!(fell(Vec3::new(0.0, 2.0, 0.0), None), "no depth buffer");
+        assert!(
+            fell(Vec3::new(0.0, 2.0, 0.0), Some((&sky, vp))),
+            "far plane only"
+        );
+        assert!(
+            fell(Vec3::new(8.0, 2.0, 0.0), Some((&floor, vp))),
+            "off screen"
+        );
+    }
+
     #[test]
     fn step_params_match_the_shader_layout() {
-        // Three 16-byte rows of vec3 + f32, then four f32 and four u32: 80
-        // bytes, as WGSL lays the uniform out. A mismatch would shift every
-        // field after it.
-        assert_eq!(std::mem::size_of::<StepParams>(), 80);
+        // Three 16-byte rows of vec3 + f32, then four f32, four u32, and the
+        // collision row (u32, two f32, padding): 96 bytes, as WGSL lays the
+        // uniform out. A mismatch would shift every field after it.
+        assert_eq!(std::mem::size_of::<StepParams>(), 96);
+        // Two mat4s, a vec2 and two u32s.
+        assert_eq!(std::mem::size_of::<SceneViewGpu>(), 144);
     }
 }

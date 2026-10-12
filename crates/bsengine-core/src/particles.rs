@@ -91,6 +91,32 @@ pub enum ParticleSimulation {
     Gpu,
 }
 
+/// What a particle collides with.
+///
+/// Unreal's Niagara collision module offers "Scene Depth" and Unity's VFX
+/// Graph a "Collide with Depth Buffer" block: a GPU particle tests itself
+/// against the depth buffer the camera already drew, so it lands on whatever
+/// is on screen with no physics shapes at all. Both stop there for GPU
+/// particles, and so does this; Godot's GPU particles collide with
+/// dedicated collision nodes (a heightfield, an SDF) instead, which this
+/// does not have.
+///
+/// Only a GPU emitter (`ParticleSimulation::Gpu`) collides -- the CPU path
+/// has no depth buffer to read and ignores this.
+///
+/// What the depth buffer cannot show, a particle cannot hit: geometry off
+/// screen, behind another surface, or behind the camera. A particle there
+/// flies through, as it does in both reference engines.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Reflect)]
+#[reflect(Default)]
+pub enum ParticleCollision {
+    /// Particles pass through everything.
+    #[default]
+    None,
+    /// Particles bounce off the surfaces in the last frame's depth buffer.
+    SceneDepth,
+}
+
 /// What a GPU emitter's simulation should do on the next frame the renderer
 /// draws: written by the particle tick, read by the renderer. Not part of the
 /// emitter's description -- see the type-level note on [`ParticleEmitter`].
@@ -176,6 +202,16 @@ pub struct ParticleEmitter {
     /// as Godot's `amount` and the VFX Graph's capacity are. Past it the
     /// oldest are replaced by the newest. The CPU path has its own fixed cap.
     pub max_particles: u32,
+    /// What the particles collide with. GPU emitters only; see
+    /// [`ParticleCollision`].
+    pub collision: ParticleCollision,
+    /// How much of the speed into a surface comes back out of it: 0 stops
+    /// dead against it, 1 bounces without loss -- Unity's "Bounce", Niagara's
+    /// "Restitution".
+    pub collision_bounce: f32,
+    /// How much of the speed along a surface a hit takes away: 0 slides
+    /// freely, 1 stops sliding -- "Friction" in both.
+    pub collision_friction: f32,
     /// The GPU simulation's next step. Not reflected: see the type-level note.
     #[reflect(ignore)]
     pub gpu_step: GpuParticleStep,
@@ -201,6 +237,9 @@ impl Default for ParticleEmitter {
             spawn_debt: 0.0,
             simulation: ParticleSimulation::Cpu,
             max_particles: 10_000,
+            collision: ParticleCollision::None,
+            collision_bounce: 0.5,
+            collision_friction: 0.0,
             gpu_step: GpuParticleStep::default(),
         }
     }

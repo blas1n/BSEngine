@@ -348,7 +348,14 @@ fn drive_video_players(
     }
 }
 
-#[cfg(all(test, any(windows, target_os = "macos")))]
+#[cfg(all(
+    test,
+    any(
+        windows,
+        target_os = "macos",
+        all(target_os = "linux", feature = "gstreamer")
+    )
+))]
 mod tests {
     use super::*;
 

@@ -24,6 +24,20 @@ windows = { version = "0.62", features = [
     "Win32_System_Variant",
 ] }
 
+# Linux decodes through GStreamer -- the platform's media framework, there
+# being no decoder the OS itself guarantees. Opt-in (the `gstreamer`
+# feature): building it needs GStreamer's development libraries installed,
+# which an engine that only builds for other platforms -- or a Linux machine
+# without them -- should not be made to have. Without it a Linux build
+# reports "no decoder", as it did before.
+[target.'cfg(target_os = "linux")'.dependencies]
+gstreamer = { version = "0.25", optional = true }
+gstreamer-app = { version = "0.25", optional = true }
+gstreamer-pbutils = { version = "0.25", optional = true }
+
+[features]
+gstreamer = ["dep:gstreamer", "dep:gstreamer-app", "dep:gstreamer-pbutils"]
+
 [dev-dependencies]
 bsengine-app.workspace = true
 

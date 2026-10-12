@@ -126,7 +126,7 @@ jobs:
       # mirror problem.
       - name: Install system dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
-        timeout-minutes: 5
+        timeout-minutes: 10
         run: |
           sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/g' /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null || true
           sudo sed -i 's/azure\.archive\.ubuntu\.com/archive.ubuntu.com/g' /etc/apt/sources.list 2>/dev/null || true
@@ -136,6 +136,10 @@ jobs:
           # the runner image -- `window_smoke.rs` is what found that out, and a
           # player on a bare X11 machine needs it too.
           sudo apt-get install -y mesa-vulkan-drivers libasound2-dev libudev-dev xvfb libxkbcommon-x11-0
+          # GStreamer: what video playback decodes through on Linux
+          # (`bsengine-video`'s `gstreamer` feature, tested below). The
+          # development libraries to build it, gst-libav to decode H.264/AAC.
+          sudo apt-get install -y libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev             gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-libav
 
       # `window_smoke.rs` opens a real window, which every other test avoids --
       # the rest of the suite renders to an offscreen surface with no window at
@@ -210,6 +214,15 @@ jobs:
 
       - name: Build
         run: cargo build --all
+
+      # Linux's video backend is opt-in (it needs GStreamer installed to
+      # build), so the workspace build above leaves it out; this builds it in
+      # and runs the same decode and playback tests Windows and macOS run.
+      - name: Video playback through GStreamer (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          RUST_MIN_STACK: 16777216
+        run: cargo test -p bsengine-video --features gstreamer
 
       # A game actually runs in a browser: cube-evader built as a page
       # (scripts/build_web.sh) and opened in headless Chrome, with WebGPU on

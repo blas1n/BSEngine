@@ -13,12 +13,15 @@
 //! presentation time. Pacing them against a clock is the player's business,
 //! not the decoder's.
 //!
-//! Backends: Windows (Media Foundation), macOS (AVFoundation). Elsewhere [`open`] reports the
+//! Backends: Windows (Media Foundation), macOS (AVFoundation), Linux
+//! (GStreamer, with the `gstreamer` feature). Elsewhere [`open`] reports the
 //! platform unsupported, and a player shows nothing rather than failing.
 #![warn(missing_docs)]
 
 #[cfg(target_os = "macos")]
 mod avfoundation;
+#[cfg(all(target_os = "linux", feature = "gstreamer"))]
+mod gstreamer_backend;
 #[cfg(windows)]
 mod media_foundation;
 /// The ECS side: `VideoPlugin` plays every entity's `VideoPlayer`.
@@ -116,7 +119,19 @@ pub fn open(path: &std::path::Path) -> Result<Box<dyn VideoDecoder>, String> {
     {
         avfoundation::AvFoundationDecoder::open(path).map(|d| Box::new(d) as Box<dyn VideoDecoder>)
     }
-    #[cfg(not(any(windows, target_os = "macos")))]
+    #[cfg(all(target_os = "linux", feature = "gstreamer"))]
+    {
+        gstreamer_backend::GStreamerDecoder::open(path)
+            .map(|d| Box::new(d) as Box<dyn VideoDecoder>)
+    }
+    #[cfg(all(target_os = "linux", not(feature = "gstreamer")))]
+    {
+        Err(format!(
+            "cannot play {}: video playback has no decoder on this platform -- on              Linux, build with the `gstreamer` feature (and GStreamer installed)",
+            path.display()
+        ))
+    }
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
     {
         Err(format!(
             "cannot play {}: video playback has no decoder on this platform yet",
